@@ -60,7 +60,8 @@ export default function NoteEditor(props: Props) {
 
   addExtension(
     EditorView.theme({
-      ".cm-scroller": { width: "100%", padding: "0.5rem 1rem" },
+      ".cm-editor": { minHeight: "100%" },
+      ".cm-scroller": { width: "100%", minHeight: "100%", padding: "0.5rem 1rem" },
     }),
   );
 
@@ -94,22 +95,30 @@ export default function NoteEditor(props: Props) {
 
   let themeObserver: MutationObserver | undefined;
 
+  const focusEditor = (attempts = 0): boolean => {
+    const view = editorView();
+    if (!view) {
+      if (attempts < 8) {
+        requestAnimationFrame(() => {
+          focusEditor(attempts + 1);
+        });
+      }
+      return false;
+    }
+
+    const at = view.state.doc.length;
+    view.dispatch({
+      selection: { anchor: at },
+      scrollIntoView: true,
+    });
+    view.focus();
+    return true;
+  };
+
   onMount(() => {
     writeSettings(props.notebookId, { lastNoteId: props.noteId });
     provider.connect();
-
-    const focusEditor = () => {
-      const view = editorView();
-      if (!view) return false;
-      view.focus();
-      return true;
-    };
-
-    if (!focusEditor()) {
-      requestAnimationFrame(() => {
-        focusEditor();
-      });
-    }
+    focusEditor();
 
     themeObserver = new MutationObserver(() => {
       setIsDark(document.documentElement.classList.contains("dark"));
@@ -132,11 +141,12 @@ export default function NoteEditor(props: Props) {
   return (
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
       <div
-        class="flex-1 min-h-0 paper light:border light:border-slate-3000 overflow-y-auto cursor-text"
+        class="flex-1 min-h-0 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50/35 dark:bg-zinc-900/25 overflow-y-auto cursor-text"
         onMouseDown={(event) => {
           const target = event.target as HTMLElement | null;
           if (target?.closest(".cm-editor")) return;
-          editorView()?.focus();
+          event.preventDefault();
+          focusEditor();
         }}
         role="textbox"
         tabIndex={-1}
