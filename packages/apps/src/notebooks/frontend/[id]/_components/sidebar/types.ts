@@ -1,0 +1,39 @@
+import type { NotebookSettings } from "../settings/NotebookSettingsStore";
+
+/** Notebook metadata (matches backend NotebookSchema) */
+export type Notebook = {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Note tree node (matches backend NoteTreeNodeSchema) */
+export type NoteTreeNode = {
+  id: string;
+  notebookId: string;
+  parentId: string | null;
+  title: string;
+  position: number;
+  hasChildren: boolean;
+  yjsSnapshotAt: string | null;
+  contentMd: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lockedAt: string | null;
+  children: NoteTreeNode[];
+};
+
+/** Shared context for notebook components */
+export type NotebookContext = {
+  notebook: Notebook;
+  tree: NoteTreeNode[];
+  selectedNoteId: string | null;
+  settings: NotebookSettings;
+  permission: string;
+  viewMode: "read" | "edit";
+};

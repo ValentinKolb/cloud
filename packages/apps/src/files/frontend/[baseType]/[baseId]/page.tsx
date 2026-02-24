@@ -1,0 +1,320 @@
+import { ssr } from "@valentinkolb/cloud/core/config";
+import { type AuthContext } from "@valentinkolb/cloud/lib/server";
+import type { Context } from "hono";
+import { filesService } from "@/files/service";
+import { Layout } from "@valentinkolb/cloud/core/ssr";
+import BaseSidebar from "../../_components/BaseSidebar";
+import FileList from "../../_components/FileList.island";
+import FileToolbar from "../../_components/FileToolbar.island";
+import FileSettings, { parseFileSettings } from "../../_components/FileSettings.island";
+import FileDetailPanel from "../../_components/FileDetailPanel.island";
+import { filePageBaseUrl, filePageUrl } from "../../url";
+import type { FileBaseInfo, DirectoryListing, FileInfo } from "@/files/contracts";
+
+/**
+ * Build breadcrumbs for file navigation.
+ * Shows: Files / BaseName / ... / Parent / Current (if path is deep)
+ */
+function buildBreadcrumbs(baseType: string, baseId: string, baseName: string, path: string): { title: string; href?: string }[] {
+  const crumbs: { title: string; href?: string }[] = [
+    { title: "Start", href: "/" },
+    { title: "Files", href: "/app/files" },
+    {
+      title: baseName,
+      href: filePageBaseUrl(baseType, baseId),
+    },
+  ];
+
+  if (path === "/" || path === "") {
+    // Remove href from last crumb (current page)
+    crumbs[crumbs.length - 1] = { title: baseName };
+    return crumbs;
+  }
+
+  // Split path into segments
+  const segments = path.split("/").filter(Boolean);
+
+  if (segments.length <= 2) {
+    // Show all segments
+    let currentPath = "";
+    for (let i = 0; i < segments.length; i++) {
+      currentPath += "/" + segments[i];
+      const isLast = i === segments.length - 1;
+      crumbs.push({
+        title: segments[i]!,
+        href: isLast ? undefined : filePageUrl(baseType, baseId, currentPath),
+      });
+    }
+  } else {
+    // Too deep - show: ... / parent / current
+    crumbs.push({ title: "...", href: undefined });
+
+    // Parent folder
+    const parentSegments = segments.slice(0, -1);
+    const parentPath = "/" + parentSegments.join("/");
+    crumbs.push({
+      title: segments[segments.length - 2]!,
+      href: filePageUrl(baseType, baseId, parentPath),
+    });
+
+    // Current folder
+    crumbs.push({ title: segments[segments.length - 1]! });
+  }
+
+  return crumbs;
+}
+
+/**
+ * Format file size for display
+ */
+function formatSize(bytes: number): string {
+  if (bytes === 0) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+export const renderFilesBasePage = async (
+  c: Context<AuthContext>,
+  config?: {
+    baseType?: "home" | "group";
+    baseId?: string;
+    path?: string;
+  },
+) => {
+  const user = c.get("user");
+  const baseType = config?.baseType ?? (c.req.param("baseType") as "home" | "group");
+  const baseId = config?.baseId ?? c.req.param("baseId")!;
+  const path = config?.path ?? c.req.query("path") ?? "/";
+  const isLegacyBaseRoute = !config;
+  const filterQuery = c.req.query("filter");
+  const showFilter = filterQuery !== undefined;
+  const selectedParam = c.req.query("selected") ?? "";
+  // Selection keys use | as separator (paths can contain commas)
+  const initialSelected = selectedParam ? selectedParam.split("|").filter(Boolean) : [];
+
+  // Detail panel: file query param
+  const detailFilePath = c.req.query("file") ?? null;
+
+  // Parse file settings from cookie
+  const fileSettings = parseFileSettings(c.req.header("cookie"));
+  const showHidden = fileSettings.showHidden;
+
+  // Validate base type
+  if (baseType !== "home" && baseType !== "group") {
+    return c.redirect("/app/files", 302);
+  }
+
+  // Canonicalize old home route with uid segment to /app/files/home[/...]
+  if (isLegacyBaseRoute && baseType === "home" && baseId === user.uid) {
+    return c.redirect(filePageUrl("home", user.uid, path), 302);
+  }
+
+  // Parse base and check access
+  const baseResult = await filesService.base.get({ baseType, baseId });
+  if (!baseResult.ok) {
+    return (
+      <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Not Found" }]} fullWidth>
+        <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
+          <i class="ti ti-folder-off" />
+          <span>{baseResult.error}</span>
+        </div>
+      </Layout>
+    );
+  }
+
+  const base = baseResult.data;
+  const accessResult = await filesService.base.permission.canAccess({
+    user,
+    base,
+  });
+  if (!accessResult.ok) {
+    return (
+      <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files" }, { title: "Access Denied" }]} fullWidth>
+        <div class="flex items-center justify-center gap-2 text-xs text-dimmed h-full">
+          <i class="ti ti-lock" />
+          <span>{accessResult.error}</span>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Get all accessible bases for sidebar
+  const allBases = await filesService.base.listResolved({ user });
+  const basesInfo: FileBaseInfo[] = allBases.map(filesService.base.toInfo);
+
+  // Get current base display name
+  const currentBaseInfo = filesService.base.toInfo(base);
+
+  // Get directory listing (with optional recursive size computation)
+  const infoResult = await filesService.item.get({
+    base,
+    path,
+    showHidden,
+    computeSizes: fileSettings.computeSizes,
+  });
+
+  if (!infoResult.ok) {
+    return (
+      <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
+        <div class="app-cols h-full">
+          <div class="hidden lg:flex flex-col w-48 shrink-0">
+            <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
+          </div>
+          <div class="flex-1 flex flex-col">
+            <div class="lg:hidden px-3 pt-2 pb-1">
+              <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
+            </div>
+            <div class="divider lg:hidden" />
+            <div class="flex-1 flex items-center justify-center gap-2 text-xs text-dimmed">
+              <i class="ti ti-folder-off" />
+              <span>{infoResult.error}</span>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  const info = infoResult.data;
+
+  // Must be a directory
+  if (info.type !== "directory") {
+    // If it's a file, redirect to download
+    return c.redirect(`/api/app/files/${baseType}/${baseId}/content?path=${encodeURIComponent(path)}`, 302);
+  }
+
+  const listing = info as DirectoryListing;
+
+  // Filter by filter query if provided
+  let filteredItems = listing.items;
+  if (filterQuery && filterQuery.trim()) {
+    const query = filterQuery.toLowerCase().trim();
+    filteredItems = listing.items.filter((item) => item.name.toLowerCase().includes(query));
+  }
+
+  // Sort: directories first, then files, both alphabetically
+  const sortedItems = [...filteredItems].sort((a, b) => {
+    if (a.type === "directory" && b.type !== "directory") return -1;
+    if (a.type !== "directory" && b.type === "directory") return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  // Find selected file for detail panel
+  // detailFilePath is the full path from URL (e.g., "/folder/file.txt")
+  // We need to check if the file is in the current directory
+  let detailFile: FileInfo | null = null;
+  if (detailFilePath) {
+    const detailFileName = detailFilePath.split("/").pop() || "";
+    const lastSlashIndex = detailFilePath.lastIndexOf("/");
+    // For "/test.txt", parent is "/"; for "/folder/test.txt", parent is "/folder"
+    const detailParentPath = lastSlashIndex <= 0 ? "/" : detailFilePath.substring(0, lastSlashIndex);
+
+    // Only show detail if file is in current directory
+    const normalizedPath = path === "" ? "/" : path;
+    if (detailParentPath === normalizedPath) {
+      detailFile = sortedItems.find((item) => item.name === detailFileName) ?? null;
+    }
+  }
+
+  // Use directory's size (filegate returns recursive total for directories)
+  const totalSize = listing.size;
+  const fileCount = sortedItems.filter((i) => i.type === "file").length;
+  const folderCount = sortedItems.filter((i) => i.type === "directory").length;
+
+  // Parent path for ".." entry (not shown when filtering)
+  const pathSegments = path.split("/").filter(Boolean);
+  const parentPath = pathSegments.length > 0 && !showFilter ? "/" + pathSegments.slice(0, -1).join("/") : null;
+
+  const breadcrumbs = buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path);
+
+  return (
+    <Layout c={c} title={breadcrumbs} fullWidth>
+      <div class="app-cols h-full">
+        {/* Sidebar (desktop) */}
+        <div class="hidden lg:flex flex-col w-48 shrink-0">
+          <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
+          <div class="divider" />
+          <FileSettings initialSettings={fileSettings} />
+        </div>
+
+        {/* Main content */}
+        <div class="flex-1 min-w-0 flex flex-col">
+          {/* Mobile sidebar */}
+          <div class="lg:hidden px-3 pt-2 pb-1">
+            <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
+          </div>
+
+          {/* Toolbar */}
+          <div class="divider lg:hidden" />
+          <div class="px-3 py-2">
+            <FileToolbar
+              baseType={baseType}
+              baseId={baseId}
+              currentPath={path}
+              showFilter={showFilter}
+              initialFilterQuery={filterQuery ?? ""}
+              initialSelected={initialSelected}
+              allItems={sortedItems.map((i) => i.name)}
+              folderCount={folderCount}
+              fileCount={fileCount}
+              totalSize={formatSize(totalSize)}
+              bases={basesInfo}
+            />
+          </div>
+
+          <div class="divider" />
+
+          {/* Mobile: Detail panel above list when file selected */}
+          <div class="xl:hidden px-3">
+            <FileDetailPanel
+              initialFile={detailFile}
+              initialFilePath={detailFilePath}
+              initialBaseType={baseType}
+              initialBaseId={baseId}
+              items={sortedItems}
+              bases={basesInfo}
+            />
+          </div>
+
+          {/* File list */}
+          <div class="flex-1 min-h-0 overflow-y-auto">
+            <FileList
+              items={sortedItems}
+              baseType={baseType}
+              baseId={baseId}
+              currentPath={path}
+              parentPath={parentPath}
+              settings={fileSettings}
+              initialSelected={initialSelected}
+              bases={basesInfo}
+              isFiltered={showFilter && !!filterQuery?.trim()}
+              selectedFilePath={detailFilePath}
+            />
+          </div>
+        </div>
+
+        {/* Detail Panel (desktop - right side) */}
+        <div class="hidden xl:flex flex-col w-72 shrink-0">
+          <FileDetailPanel
+            initialFile={detailFile}
+            initialFilePath={detailFilePath}
+            initialBaseType={baseType}
+            initialBaseId={baseId}
+            items={sortedItems}
+            bases={basesInfo}
+          />
+        </div>
+      </div>
+    </Layout>
+  );
+};
+
+export default ssr<AuthContext>(async (c) => {
+  return renderFilesBasePage(c);
+});

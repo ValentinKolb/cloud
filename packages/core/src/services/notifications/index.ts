@@ -1,0 +1,406 @@
+import { sql } from "bun";
+import { sendEmail } from "./email";
+import type { PaginationParams } from "@valentinkolb/cloud-contracts/shared";
+import { logger } from "@valentinkolb/cloud-core/services/logging";
+
+const log = logger("notifications");
+
+export type NotificationType = "email";
+export type NotificationStatus = "sent" | "pending" | "error";
+
+/**
+ * Computes notification delivery status from sent/error timestamps.
+ */
+const determineStatus = (sentAt: Date | null, error: string | null): NotificationStatus => {
+  if (sentAt) return "sent";
+  if (error) return "error";
+  return "pending";
+};
+
+export type SendNotificationParams = {
+  type: NotificationType;
+  recipient: string;
+  subject: string;
+  content?: string;
+  rawHtml?: string;
+  autoSend?: boolean; // default true - when false, only store in DB without sending
+  sentBy?: string; // user ID of sender
+};
+
+export type SendToUserParams = {
+  userId: string;
+  subject: string;
+  content?: string;
+  rawHtml?: string;
+  sentBy?: string; // user ID of sender
+};
+
+export type NotificationMessage = {
+  id: string;
+  type: NotificationType;
+  recipient: string;
+  subject: string;
+  content: string;
+  sentAt: Date | null;
+  error: string | null;
+  createdAt: Date;
+  sentBy: string | null;
+  sentByName: string | null;
+  status: NotificationStatus;
+};
+
+type DbNotificationRow = {
+  id: string;
+  type: NotificationType;
+  recipient: string;
+  subject: string;
+  content: string;
+  sent_at: Date | null;
+  error: string | null;
+  created_at: Date;
+  sent_by: string | null;
+  sent_by_name: string | null;
+};
+
+/**
+ * Send a notification. Persists to DB, attempts delivery (if autoSend=true), updates sent_at/error.
+ */
+export const send = async (params: SendNotificationParams): Promise<{ id: string }> => {
+  const { type, recipient, subject, content, rawHtml, autoSend = true, sentBy } = params;
+
+  // Persist to DB
+  const dbContent = rawHtml ?? content ?? "";
+  const rows = await sql`
+    INSERT INTO notifications.messages (type, recipient, subject, content, sent_by)
+    VALUES (${type}, ${recipient}, ${subject}, ${dbContent}, ${sentBy ?? null})
+    RETURNING id
+  `;
+  const id = rows[0]!.id as string;
+
+  // Skip delivery if autoSend is false
+  if (!autoSend) {
+    log.info("Stored notification", { type, recipient });
+    return { id };
+  }
+
+  // Attempt delivery
+  try {
+    if (type === "email") {
+      await sendEmail(recipient, subject, { content, rawHtml });
+    }
+    await sql`UPDATE notifications.messages SET sent_at = now(), error = NULL WHERE id = ${id}`;
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    log.error("Failed to send", { type, recipient, error });
+    await sql`UPDATE notifications.messages SET error = ${error} WHERE id = ${id}`;
+  }
+
+  return { id };
+};
+
+/**
+ * Send a notification to a user by their database ID.
+ * Looks up the user's preferred notification method (currently email only).
+ */
+export const sendToUser = async (params: SendToUserParams): Promise<{ ok: true; id: string } | { ok: false; error: string }> => {
+  const { userId, subject, content, rawHtml, sentBy } = params;
+
+  // Get user's email from database
+  const rows = await sql`SELECT mail FROM auth.users WHERE id = ${userId}`;
+  if (rows.length === 0) {
+    return { ok: false, error: "User not found" };
+  }
+
+  const email = rows[0]!.mail as string | null;
+  if (!email) {
+    return { ok: false, error: "User has no email address" };
+  }
+
+  // For now, always use email. Later this can be extended to support other notification types
+  // based on user preferences stored in the database.
+  const result = await send({
+    type: "email",
+    recipient: email,
+    subject,
+    content,
+    rawHtml,
+    sentBy,
+  });
+
+  return { ok: true, id: result.id };
+};
+
+/**
+ * List notifications with pagination and optional search.
+ * Admins see all, regular users see only their own sent notifications.
+ */
+export const list = async (
+  pagination: PaginationParams,
+  options?: { sentBy?: string; isAdmin?: boolean; search?: string },
+): Promise<{ notifications: NotificationMessage[]; total: number }> => {
+  const { offset, perPage } = pagination;
+  const { sentBy, isAdmin, search } = options ?? {};
+
+  // Build query based on permissions
+  let countRows: Array<{ count: number | string }> = [];
+  let dataRows: DbNotificationRow[] = [];
+
+  const searchPattern = search ? `%${search}%` : null;
+
+  if (isAdmin) {
+    // Admins see all notifications
+    if (searchPattern) {
+      countRows = await sql`
+        SELECT COUNT(*)::int as count FROM notifications.messages
+        WHERE subject ILIKE ${searchPattern} OR content ILIKE ${searchPattern} OR recipient ILIKE ${searchPattern}
+      `;
+      dataRows = await sql`
+        SELECT
+          m.id, m.type, m.recipient, m.subject, m.content,
+          m.sent_at, m.error, m.created_at, m.sent_by,
+          u.display_name as sent_by_name
+        FROM notifications.messages m
+        LEFT JOIN auth.users u ON m.sent_by = u.id
+        WHERE m.subject ILIKE ${searchPattern} OR m.content ILIKE ${searchPattern} OR m.recipient ILIKE ${searchPattern}
+        ORDER BY m.created_at DESC
+        LIMIT ${perPage} OFFSET ${offset}
+      `;
+    } else {
+      countRows = await sql`SELECT COUNT(*)::int as count FROM notifications.messages`;
+      dataRows = await sql`
+        SELECT
+          m.id, m.type, m.recipient, m.subject, m.content,
+          m.sent_at, m.error, m.created_at, m.sent_by,
+          u.display_name as sent_by_name
+        FROM notifications.messages m
+        LEFT JOIN auth.users u ON m.sent_by = u.id
+        ORDER BY m.created_at DESC
+        LIMIT ${perPage} OFFSET ${offset}
+      `;
+    }
+  } else if (sentBy) {
+    // Regular users see only their own sent notifications
+    if (searchPattern) {
+      countRows = await sql`
+        SELECT COUNT(*)::int as count FROM notifications.messages
+        WHERE sent_by = ${sentBy} AND (subject ILIKE ${searchPattern} OR content ILIKE ${searchPattern} OR recipient ILIKE ${searchPattern})
+      `;
+      dataRows = await sql`
+        SELECT
+          m.id, m.type, m.recipient, m.subject, m.content,
+          m.sent_at, m.error, m.created_at, m.sent_by,
+          u.display_name as sent_by_name
+        FROM notifications.messages m
+        LEFT JOIN auth.users u ON m.sent_by = u.id
+        WHERE m.sent_by = ${sentBy} AND (m.subject ILIKE ${searchPattern} OR m.content ILIKE ${searchPattern} OR m.recipient ILIKE ${searchPattern})
+        ORDER BY m.created_at DESC
+        LIMIT ${perPage} OFFSET ${offset}
+      `;
+    } else {
+      countRows = await sql`SELECT COUNT(*)::int as count FROM notifications.messages WHERE sent_by = ${sentBy}`;
+      dataRows = await sql`
+        SELECT
+          m.id, m.type, m.recipient, m.subject, m.content,
+          m.sent_at, m.error, m.created_at, m.sent_by,
+          u.display_name as sent_by_name
+        FROM notifications.messages m
+        LEFT JOIN auth.users u ON m.sent_by = u.id
+        WHERE m.sent_by = ${sentBy}
+        ORDER BY m.created_at DESC
+        LIMIT ${perPage} OFFSET ${offset}
+      `;
+    }
+  } else {
+    return { notifications: [], total: 0 };
+  }
+
+  const rawTotal = countRows[0]?.count ?? 0;
+  const total = typeof rawTotal === "string" ? Number.parseInt(rawTotal, 10) : rawTotal;
+
+  const notifications: NotificationMessage[] = dataRows.map((row: DbNotificationRow) => {
+    const sentAt = row.sent_at as Date | null;
+    const error = row.error as string | null;
+
+    return {
+      id: row.id,
+      type: row.type,
+      recipient: row.recipient,
+      subject: row.subject,
+      content: row.content,
+      sentAt,
+      error,
+      createdAt: row.created_at,
+      sentBy: row.sent_by,
+      sentByName: row.sent_by_name,
+      status: determineStatus(sentAt, error),
+    };
+  });
+
+  return { notifications, total };
+};
+
+/**
+ * Get a single notification by ID.
+ */
+export const getById = async (id: string): Promise<NotificationMessage | null> => {
+  const rows = await sql`
+    SELECT
+      m.id, m.type, m.recipient, m.subject, m.content,
+      m.sent_at, m.error, m.created_at, m.sent_by,
+      u.display_name as sent_by_name
+    FROM notifications.messages m
+    LEFT JOIN auth.users u ON m.sent_by = u.id
+    WHERE m.id = ${id}
+  `;
+
+  if (rows.length === 0) return null;
+
+  const row = rows[0]!;
+  const sentAt = row.sent_at as Date | null;
+  const error = row.error as string | null;
+
+  return {
+    id: row.id as string,
+    type: row.type as NotificationType,
+    recipient: row.recipient as string,
+    subject: row.subject as string,
+    content: row.content as string,
+    sentAt,
+    error,
+    createdAt: row.created_at as Date,
+    sentBy: row.sent_by as string | null,
+    sentByName: row.sent_by_name as string | null,
+    status: determineStatus(sentAt, error),
+  };
+};
+
+/**
+ * Resend a notification (retry delivery).
+ */
+export const resend = async (id: string): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const notification = await getById(id);
+  if (!notification) {
+    return { ok: false, error: "Notification not found" };
+  }
+
+  try {
+    if (notification.type === "email") {
+      await sendEmail(notification.recipient, notification.subject, {
+        rawHtml: notification.content,
+      });
+    }
+    await sql`UPDATE notifications.messages SET sent_at = now(), error = NULL WHERE id = ${id}`;
+    return { ok: true };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    await sql`UPDATE notifications.messages SET error = ${error} WHERE id = ${id}`;
+    return { ok: false, error };
+  }
+};
+
+/**
+ * Update a notification.
+ * Non-admins can only edit pending/error notifications.
+ * Admins can edit any notification (including sent ones).
+ */
+export const update = async (
+  id: string,
+  data: { subject?: string; content?: string; recipient?: string },
+  options?: { isAdmin?: boolean },
+): Promise<{ ok: true } | { ok: false; error: string }> => {
+  const notification = await getById(id);
+  if (!notification) {
+    return { ok: false, error: "Notification not found" };
+  }
+
+  // Non-admins cannot edit sent notifications
+  if (!options?.isAdmin && notification.status === "sent") {
+    return { ok: false, error: "Cannot edit a sent notification" };
+  }
+
+  if (data.subject === undefined && data.content === undefined && data.recipient === undefined) {
+    return { ok: true };
+  }
+
+  // Clear error when editing (only for non-sent notifications)
+  const clearError = notification.status !== "sent";
+
+  await sql`
+    UPDATE notifications.messages
+    SET
+      subject = COALESCE(${data.subject ?? null}, subject),
+      content = COALESCE(${data.content ?? null}, content),
+      recipient = COALESCE(${data.recipient ?? null}, recipient),
+      error = CASE WHEN ${clearError} THEN NULL ELSE error END
+    WHERE id = ${id}
+  `;
+
+  return { ok: true };
+};
+
+/**
+ * Get count of pending system notifications (sent_by IS NULL).
+ */
+export const getPendingSystemCount = async (): Promise<number> => {
+  const rows = await sql`
+    SELECT COUNT(*)::int as count FROM notifications.messages
+    WHERE sent_at IS NULL AND error IS NULL AND sent_by IS NULL
+  `;
+  return rows[0]?.count ?? 0;
+};
+
+/**
+ * Send all pending system notifications (sent_by IS NULL).
+ * Returns the count of successfully sent and failed notifications.
+ */
+export const sendAllPendingSystem = async (): Promise<{
+  sent: number;
+  failed: number;
+  errors: { id: string; recipient: string; error: string }[];
+}> => {
+  // Get all pending system notifications
+  const rows = await sql`
+    SELECT id, type, recipient, subject, content
+    FROM notifications.messages
+    WHERE sent_at IS NULL AND error IS NULL AND sent_by IS NULL
+    ORDER BY created_at ASC
+  `;
+
+  let sent = 0;
+  let failed = 0;
+  const errors: { id: string; recipient: string; error: string }[] = [];
+
+  for (const row of rows) {
+    const id = row.id as string;
+    const type = row.type as NotificationType;
+    const recipient = row.recipient as string;
+    const subject = row.subject as string;
+    const content = row.content as string;
+
+    try {
+      if (type === "email") {
+        await sendEmail(recipient, subject, { rawHtml: content });
+      }
+      await sql`UPDATE notifications.messages SET sent_at = now(), error = NULL WHERE id = ${id}`;
+      sent++;
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      await sql`UPDATE notifications.messages SET error = ${error} WHERE id = ${id}`;
+      failed++;
+      errors.push({ id, recipient, error });
+    }
+  }
+
+  return { sent, failed, errors };
+};
+
+export const notifications = {
+  send,
+  sendToUser,
+  list,
+  getById,
+  resend,
+  update,
+  getPendingSystemCount,
+  sendAllPendingSystem,
+};

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Settings"
+  short_description: "Runtime settings defaults, resolution, and usage patterns"
+  default_prompt: "Add or update cloud runtime settings with safe defaults and consistent key conventions."

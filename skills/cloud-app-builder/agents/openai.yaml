@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud App Builder"
+  short_description: "Create or refactor apps with the shared facade contract"
+  default_prompt: "Build or refactor a cloud app using the standard facade, service, API, and SSR patterns."

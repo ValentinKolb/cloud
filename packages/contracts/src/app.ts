@@ -1,0 +1,91 @@
+import type { Hono } from "hono";
+import type { Context } from "hono";
+import type { JSX } from "solid-js/jsx-runtime";
+
+import type { Role, SessionUser } from "./shared";
+
+export type AppColor = "blue" | "emerald" | "violet" | "orange" | "red" | "amber" | "zinc" | "cyan" | "rose";
+
+export type AppMeta = {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  color?: AppColor;
+  adminHref?: string;
+  nav?: {
+    href: string;
+    match?: string;
+    section: "primary" | "more" | "hidden";
+    requiresAuth?: boolean;
+    requiresRoles?: Role[];
+  };
+};
+
+export type WidgetFactory = (c: Context, user?: SessionUser) => Widget | Promise<Widget>;
+
+export type WidgetData = {
+  id: string;
+  title: string;
+  icon: string;
+  content: JSX.Element;
+};
+
+export type Widget = WidgetData | null;
+
+export type CloudLogger = {
+  debug: (message: string, metadata?: Record<string, unknown>) => void;
+  info: (message: string, metadata?: Record<string, unknown>) => void;
+  warn: (message: string, metadata?: Record<string, unknown>) => void;
+  error: (message: string, metadata?: Record<string, unknown>) => void;
+};
+
+export type CloudRuntime = {
+  apps: readonly AppMeta[];
+};
+
+export type CloudContext = {
+  logger: (source: string) => CloudLogger;
+  settings: {
+    get: <T = unknown>(key: string) => T;
+    set: (key: string, value: unknown) => Promise<void>;
+  };
+  runtime: CloudRuntime;
+};
+
+export type CloudLifecycleContext = CloudContext;
+
+export type AppLifecycle = {
+  setup?: (ctx: CloudContext) => Promise<void>;
+  start?: (ctx: CloudContext) => Promise<void>;
+  stop?: (ctx: CloudContext) => Promise<void>;
+};
+
+export type AppFacade<Service = unknown> = {
+  meta: AppMeta;
+  service: Service;
+  routes: {
+    api?: Hono<any>;
+    pages?: Hono<any>;
+    ws?: Hono<any>;
+  };
+  widgets?: WidgetFactory[];
+  lifecycle?: AppLifecycle;
+  /** @deprecated Use lifecycle.start instead. */
+  start?: () => void;
+};
+
+/**
+ * Removes query parameters from a navigation href so path matching stays stable.
+ */
+export const stripQuery = (href: string): string => href.split("?")[0] ?? href;
+
+/**
+ * Resolves the active-path matcher for a nav entry.
+ */
+export const resolveNavMatch = (meta: AppMeta): string | undefined => meta.nav?.match ?? (meta.nav ? stripQuery(meta.nav.href) : undefined);
+
+/**
+ * Resolves app accent color with a deterministic default.
+ */
+export const resolveAppColor = (color?: AppColor): AppColor => color ?? "zinc";

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Troubleshooting"
+  short_description: "Structured debugging for cloud runtime/build issues"
+  default_prompt: "Diagnose cloud failures with a layered, reproducible troubleshooting workflow."

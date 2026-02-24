@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Services"
+  short_description: "Stateless service shape and result-driven business logic"
+  default_prompt: "Refactor services to the shared stateless, config-object, paginated list/get conventions."

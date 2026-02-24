@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud General"
+  short_description: "Default rules and skill routing for cloud work"
+  default_prompt: "Use cloud-general first, then activate only the minimal specialized cloud skills needed for this task."

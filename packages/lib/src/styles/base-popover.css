@@ -1,0 +1,28 @@
+/* Popover and island base behavior */
+/* Make solid-island transparent in layout */
+solid-island {
+  display: contents;
+}
+
+/* Popover positioning */
+[popover]:not(.paper) {
+  background: transparent;
+  border: none;
+}
+
+[popover] {
+  margin: 0;
+  inset: unset;
+}
+
+[popover]:popover-open {
+  @starting-style {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+[popover] {
+  transition: opacity 0.2s, transform 0.2s, overlay 0.2s allow-discrete,
+    display 0.2s allow-discrete;
+}

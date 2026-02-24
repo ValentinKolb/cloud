@@ -1,0 +1,152 @@
+/* Button and input utility classes */
+@utility btn-base {
+  @apply inline-flex cursor-pointer items-center justify-center gap-1.5 select-none rounded-lg font-medium ring-1 ring-inset;
+  @apply transition-[background-color,color,box-shadow,transform] duration-150 ease-out;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-950;
+  @apply hover:-translate-y-[1px];
+  @apply active:translate-y-[1px];
+  @apply disabled:cursor-not-allowed disabled:opacity-55 disabled:transform-none disabled:ring-1 disabled:transition-none;
+  @apply disabled:hover:transform-none disabled:hover:translate-y-0 disabled:hover:ring-1;
+  @apply disabled:active:transform-none disabled:active:translate-y-0 disabled:active:ring-1;
+}
+
+@utility btn-sm {
+  min-height: calc((var(--theme-input-py) * 2) + 1.25rem);
+  padding: var(--theme-input-py) 0.75rem;
+  @apply text-xs;
+}
+
+@utility btn-md {
+  min-height: calc((var(--theme-input-py) * 2) + 1.25rem + 0.55rem);
+  @apply px-4 py-2 text-sm;
+}
+
+@utility btn-simple {
+  @apply btn-base bg-zinc-100/85 text-zinc-800 ring-zinc-300;
+  @apply hover:text-zinc-900 hover:ring-zinc-400;
+  @apply active:bg-zinc-200/90;
+  @apply dark:bg-zinc-800/90 dark:text-zinc-100 dark:ring-zinc-700 dark:hover:ring-zinc-600;
+  @apply dark:active:bg-zinc-700/95;
+  @apply disabled:bg-zinc-100 disabled:text-zinc-400 disabled:ring-zinc-300;
+  @apply disabled:hover:bg-zinc-100 disabled:hover:text-zinc-400 disabled:hover:ring-zinc-300;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:ring-zinc-700;
+  @apply dark:disabled:hover:bg-zinc-900 dark:disabled:hover:text-zinc-500 dark:disabled:hover:ring-zinc-700;
+}
+
+@utility btn-primary {
+  @apply btn-base bg-blue-50 text-blue-700 ring-blue-300;
+  @apply hover:text-blue-800 hover:ring-blue-400;
+  @apply active:bg-blue-200;
+  @apply dark:bg-blue-950/55 dark:text-blue-300 dark:ring-blue-600 dark:hover:text-blue-200 dark:hover:ring-blue-500;
+  @apply dark:active:bg-blue-900/80;
+  @apply disabled:bg-zinc-100 disabled:text-zinc-400 disabled:ring-zinc-300;
+  @apply disabled:hover:bg-zinc-100 disabled:hover:text-zinc-400 disabled:hover:ring-zinc-300;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:ring-zinc-700;
+  @apply dark:disabled:hover:bg-zinc-900 dark:disabled:hover:text-zinc-500 dark:disabled:hover:ring-zinc-700;
+}
+
+@utility btn-secondary {
+  @apply btn-base bg-violet-50 text-violet-700 ring-violet-300;
+  @apply hover:text-violet-800 hover:ring-violet-400;
+  @apply active:bg-violet-200;
+  @apply dark:bg-violet-950/55 dark:text-violet-300 dark:ring-violet-600 dark:hover:text-violet-200 dark:hover:ring-violet-500;
+  @apply dark:active:bg-violet-900/80;
+  @apply disabled:bg-zinc-100 disabled:text-zinc-400 disabled:ring-zinc-300;
+  @apply disabled:hover:bg-zinc-100 disabled:hover:text-zinc-400 disabled:hover:ring-zinc-300;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:ring-zinc-700;
+  @apply dark:disabled:hover:bg-zinc-900 dark:disabled:hover:text-zinc-500 dark:disabled:hover:ring-zinc-700;
+}
+
+@utility btn-success {
+  @apply btn-base bg-emerald-50 text-emerald-700 ring-emerald-300;
+  @apply hover:text-emerald-800 hover:ring-emerald-400;
+  @apply active:bg-emerald-200;
+  @apply dark:bg-emerald-950/55 dark:text-emerald-300 dark:ring-emerald-600 dark:hover:text-emerald-200 dark:hover:ring-emerald-500;
+  @apply dark:active:bg-emerald-900/80;
+  @apply disabled:bg-zinc-100 disabled:text-zinc-400 disabled:ring-zinc-300;
+  @apply disabled:hover:bg-zinc-100 disabled:hover:text-zinc-400 disabled:hover:ring-zinc-300;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:ring-zinc-700;
+  @apply dark:disabled:hover:bg-zinc-900 dark:disabled:hover:text-zinc-500 dark:disabled:hover:ring-zinc-700;
+}
+
+@utility btn-danger {
+  @apply btn-base bg-rose-50 text-rose-700 ring-rose-300;
+  @apply hover:text-rose-800 hover:ring-rose-400;
+  @apply active:bg-rose-200;
+  @apply dark:bg-rose-950/55 dark:text-rose-300 dark:ring-rose-600 dark:hover:text-rose-200 dark:hover:ring-rose-500;
+  @apply dark:active:bg-rose-900/80;
+  @apply disabled:bg-zinc-100 disabled:text-zinc-400 disabled:ring-zinc-300;
+  @apply disabled:hover:bg-zinc-100 disabled:hover:text-zinc-400 disabled:hover:ring-zinc-300;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:ring-zinc-700;
+  @apply dark:disabled:hover:bg-zinc-900 dark:disabled:hover:text-zinc-500 dark:disabled:hover:ring-zinc-700;
+}
+
+@utility btn-input {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-xl border px-2.5 py-1 text-xs font-medium leading-5 transition-all duration-150 select-none cursor-pointer;
+  @apply border-zinc-300/55 bg-zinc-50/65 text-zinc-700 shadow-none;
+  @apply hover:bg-zinc-50/90 hover:border-blue-500/55 hover:ring-1 hover:ring-blue-500/55;
+  @apply active:bg-zinc-100/90 active:translate-y-0;
+  @apply focus-visible:outline-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-50;
+  @apply dark:border-zinc-700/55 dark:bg-zinc-900/55 dark:text-zinc-200;
+  @apply dark:hover:bg-zinc-900/75 dark:hover:border-blue-400/55 dark:hover:ring-1 dark:hover:ring-blue-400/55;
+  @apply dark:active:bg-zinc-900/95;
+  @apply dark:focus-visible:border-blue-400 dark:focus-visible:ring-blue-400/70 dark:focus-visible:ring-offset-zinc-950;
+  @apply disabled:cursor-not-allowed disabled:opacity-100 disabled:text-zinc-400 disabled:border-zinc-300 disabled:bg-zinc-100 disabled:ring-0 disabled:transition-none;
+  @apply disabled:hover:text-zinc-400 disabled:hover:border-zinc-300 disabled:hover:bg-zinc-100 disabled:hover:ring-0;
+  @apply disabled:active:text-zinc-400 disabled:active:border-zinc-300 disabled:active:bg-zinc-100 disabled:active:ring-0;
+  @apply dark:disabled:text-zinc-500 dark:disabled:border-zinc-700 dark:disabled:bg-zinc-900;
+  @apply dark:disabled:hover:text-zinc-500 dark:disabled:hover:border-zinc-700 dark:disabled:hover:bg-zinc-900 dark:disabled:hover:ring-0;
+  @apply dark:disabled:active:text-zinc-500 dark:disabled:active:border-zinc-700 dark:disabled:active:bg-zinc-900 dark:disabled:active:ring-0;
+}
+
+@utility btn-input-sm {
+  min-height: calc((var(--theme-input-py) * 2) + 1.25rem);
+  padding: var(--theme-input-py) 0.75rem;
+  @apply text-xs;
+}
+
+@utility btn-input-md {
+  @apply min-h-9 px-3 py-1.5 text-sm;
+}
+
+@utility btn-input-active {
+  @apply border-blue-500/70 bg-blue-50/80 text-blue-700 ring-1 ring-blue-500/35;
+  @apply dark:border-blue-400/70 dark:bg-blue-950/35 dark:text-blue-300 dark:ring-blue-400/35;
+}
+
+@utility input-base {
+  padding: var(--theme-input-py) var(--theme-input-px);
+  @apply rounded-xl;
+  @apply text-sm leading-5 text-zinc-700 border backdrop-blur-2xl focus-visible:outline-none dark:text-zinc-300;
+  @apply backdrop-blur-none bg-zinc-50/70 border-zinc-300/55 text-zinc-800;
+  @apply hover:bg-white hover:border-blue-500/55 hover:ring-1 hover:ring-blue-500/55;
+  @apply focus:!border-blue-500 focus:!ring-2 focus:!ring-blue-500 focus-within:!border-blue-500 focus-within:!ring-2 focus-within:!ring-blue-500;
+  @apply dark:bg-zinc-900/55 dark:border-zinc-700/55 dark:text-zinc-200;
+  @apply dark:hover:bg-zinc-900/85 dark:hover:border-blue-400/55 dark:hover:ring-1 dark:hover:ring-blue-400/55;
+  @apply dark:focus:!border-blue-400 dark:focus:!ring-blue-400 dark:focus-within:!border-blue-400 dark:focus-within:!ring-blue-400;
+  @apply disabled:bg-zinc-100 disabled:text-zinc-400 disabled:border-zinc-300 disabled:cursor-not-allowed;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:border-zinc-700;
+}
+
+@utility input-border {
+  @apply input-base border-zinc-300/70 dark:border-zinc-700/65;
+}
+
+@utility input-subtle {
+  @apply input-base bg-zinc-50/55 border-zinc-300/50 hover:bg-zinc-50/80 dark:bg-zinc-900/50 dark:border-zinc-700/50 dark:hover:bg-zinc-900/70;
+}
+
+@utility input-simple {
+  @apply input-base;
+}
+
+@utility icon-btn {
+  @apply inline-flex h-8 w-8 items-center justify-center p-1 text-zinc-500 dark:text-zinc-400 transition-[color,transform,opacity] duration-150 ease-out;
+  @apply rounded-md bg-transparent border-0 shadow-none;
+  @apply hover:text-zinc-800 dark:hover:text-zinc-100;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-zinc-950;
+  @apply active:scale-95;
+  @apply disabled:cursor-not-allowed disabled:opacity-50 disabled:transition-none;
+  @apply disabled:hover:text-zinc-500 dark:disabled:hover:text-zinc-400;
+  @apply disabled:active:scale-100;
+}

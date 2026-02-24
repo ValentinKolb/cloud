@@ -1,0 +1,32 @@
+# VCS / metadata
+.git
+.gitignore
+.DS_Store
+
+# Environment / local config
+.env
+.env.*
+
+# Local dependencies and build artifacts
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/build
+_ssr
+**/_ssr
+
+# Generated frontend build css
+**/public/build.css
+
+# Logs / caches
+*.log
+.cache
+**/.cache
+
+# Files not required in docker build context
+LICENSE
+README.md
+Dockerfile
+compose*.yml

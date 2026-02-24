@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@source "../../**/*.{ts,tsx}";
+@source "../../../core/src/**/*.{ts,tsx}";
+@source "../../../apps/src/**/*.{ts,tsx}";
+@source "../../../standalone/src/**/*.{ts,tsx}";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant light (html:not(.dark) &);
+
+@import "@tabler/icons-webfont/dist/tabler-icons.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./tokens.css";
+@import "./utilities-buttons.css";
+@import "./utilities-layout.css";
+@import "./utilities-navigation.css";
+@import "./utilities-feedback.css";
+@import "./base-popover.css";
+@import "./effects.css";
+@import "./input.css";
+
+@theme {
+  --color-dark: rgb(9 9 11);
+  --color-selection-bg: rgb(147 197 253 / 0.45);
+  --color-selection-fg: rgb(15 23 42);
+}
+
+:root {
+  --theme-shadow-elevated: 0 1px 3px 0 rgba(0, 0, 0, 0.1),
+    0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --theme-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --theme-input-py: 0.3rem;
+  --theme-input-px: 0.4rem;
+  --theme-list-active-border: none;
+  --theme-list-inactive-border: none;
+  --theme-list-active-bg: rgba(0, 0, 0, 0.06);
+  --theme-list-hover-bg: rgba(0, 0, 0, 0.03);
+  --theme-list-padding: 0.5rem 0.75rem;
+  --theme-tab-active-border: none;
+  --theme-tab-inactive-border: none;
+  --theme-tab-active-bg: rgba(0, 0, 0, 0.07);
+  --theme-tab-hover-bg: rgba(0, 0, 0, 0.03);
+  --theme-rail-item-active-border-r: none;
+  --theme-rail-item-inactive-border-r: none;
+  --theme-divider: 1px solid rgb(228 228 231 / 0.6);
+  --theme-scrollbar-track: transparent;
+  --theme-scrollbar-thumb: rgb(96 165 250 / 0.7);
+  --theme-scrollbar-thumb-strong: rgb(59 130 246 / 0.75);
+  --theme-scrollbar-thumb-hover: rgb(37 99 235 / 0.82);
+}
+
+* {
+  font-variant-ligatures: contextual;
+  font-family: "JetBrains Mono Variable", monospace;
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--theme-scrollbar-track);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(
+    180deg,
+    var(--theme-scrollbar-thumb) 0%,
+    var(--theme-scrollbar-thumb-strong) 100%
+  );
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  @apply text-zinc-900 dark:text-zinc-100;
+}
+
+.dark {
+  --theme-shadow-elevated: 0 0 12px rgba(255, 255, 255, 0.04);
+  --theme-shadow-hover: 0 0 16px rgba(255, 255, 255, 0.08);
+  --theme-list-active-bg: rgba(255, 255, 255, 0.08);
+  --theme-list-hover-bg: rgba(255, 255, 255, 0.04);
+  --theme-tab-active-bg: rgba(255, 255, 255, 0.08);
+  --theme-tab-hover-bg: rgba(255, 255, 255, 0.04);
+  --theme-divider: 1px solid rgb(63 63 70 / 0.6);
+  --color-selection-bg: rgb(59 130 246 / 0.5);
+  --color-selection-fg: rgb(239 246 255);
+  --theme-scrollbar-thumb: rgb(59 130 246 / 0.58);
+  --theme-scrollbar-thumb-strong: rgb(37 99 235 / 0.63);
+  --theme-scrollbar-thumb-hover: rgb(96 165 250 / 0.76);
+}
+
+@view-transition {
+  navigation: auto;
+}
+
+::selection {
+  background-color: var(--color-selection-bg);
+  color: var(--color-selection-fg);
+}
+
+::-moz-selection {
+  background-color: var(--color-selection-bg);
+  color: var(--color-selection-fg);
+}
+
+/* SSR island wrappers should not break flex layout */
+solid-client,
+solid-island {
+  display: contents;
+}

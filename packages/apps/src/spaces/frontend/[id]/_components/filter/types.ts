@@ -1,0 +1,189 @@
+import type {
+  ItemType,
+  ItemStatus,
+  DeadlineFilter,
+  ItemSort,
+  ItemGroupBy,
+  Priority,
+  AssignedToFilter,
+} from "@/spaces/contracts";
+import type { ViewType, DetailPanelWidth } from "../settings/SpaceSettingsStore";
+
+// =============================================================================
+// Query Parameter Constants
+// =============================================================================
+
+/** Query parameter names used throughout the spaces app */
+export const QueryParams = {
+  // Filter params
+  TYPE: "type",
+  STATUS: "status",
+  PRIORITY: "priority",
+  TAGS: "tags",
+  COLUMNS: "columns",
+  ASSIGNED_TO: "assignedTo",
+  DEADLINE: "deadline",
+  SEARCH: "q",
+  SORT: "sort",
+  SORT_DESC: "sortDesc",
+  GROUP_BY: "groupBy",
+  PAGE: "page",
+  // View override params (temporary, not persisted)
+  VIEW: "view",
+  PANEL_WIDTH: "panelWidth",
+  // Item selection
+  ITEM: "item",
+  // Mode
+  MODE: "mode",
+} as const;
+
+/**
+ * Filter state parsed from URL query parameters
+ */
+export type FilterState = {
+  type: ItemType;
+  status: ItemStatus;
+  priority: Priority[];
+  tagIds: string[];
+  columnIds: string[];
+  assignedTo: AssignedToFilter;
+  deadlineFilter: DeadlineFilter;
+  search: string;
+  sort: ItemSort;
+  sortDesc: boolean;
+  groupBy: ItemGroupBy;
+  page: number;
+};
+
+/**
+ * Default filter values
+ */
+export const defaultFilter: FilterState = {
+  type: "all",
+  status: "active",
+  priority: [],
+  tagIds: [],
+  columnIds: [],
+  assignedTo: "all",
+  deadlineFilter: "all",
+  search: "",
+  sort: "column",
+  sortDesc: false,
+  groupBy: "column",
+  page: 1,
+};
+
+/**
+ * Parse filter state from URL search params
+ */
+export function parseFilterFromUrl(url: URL): FilterState {
+  const params = url.searchParams;
+
+  return {
+    type: (params.get("type") as ItemType) || defaultFilter.type,
+    status: (params.get("status") as ItemStatus) || defaultFilter.status,
+    priority: (params.get("priority")?.split(",").filter(Boolean) as Priority[]) || [],
+    tagIds: params.get("tags")?.split(",").filter(Boolean) || [],
+    columnIds: params.get("columns")?.split(",").filter(Boolean) || [],
+    assignedTo: (params.get("assignedTo") as AssignedToFilter) || defaultFilter.assignedTo,
+    deadlineFilter: (params.get("deadline") as DeadlineFilter) || defaultFilter.deadlineFilter,
+    search: params.get("q") || "",
+    sort: (params.get("sort") as ItemSort) || defaultFilter.sort,
+    sortDesc: params.get("sortDesc") === "true",
+    groupBy: (params.get("groupBy") as ItemGroupBy) || defaultFilter.groupBy,
+    page: parseInt(params.get("page") || "1", 10) || 1,
+  };
+}
+
+/**
+ * Build URL with updated filter parameters.
+ * Only includes non-default values to keep URLs clean.
+ */
+export function buildFilterUrl(baseUrl: string, filter: Partial<FilterState>, current: FilterState): string {
+  const merged = { ...current, ...filter };
+  const params = new URLSearchParams();
+
+  // Only add non-default values
+  if (merged.type !== defaultFilter.type) params.set("type", merged.type);
+  if (merged.status !== defaultFilter.status) params.set("status", merged.status);
+  if (merged.priority.length > 0) params.set("priority", merged.priority.join(","));
+  if (merged.tagIds.length > 0) params.set("tags", merged.tagIds.join(","));
+  if (merged.columnIds.length > 0) params.set("columns", merged.columnIds.join(","));
+  if (merged.assignedTo !== defaultFilter.assignedTo) params.set("assignedTo", merged.assignedTo);
+  if (merged.deadlineFilter !== defaultFilter.deadlineFilter) params.set("deadline", merged.deadlineFilter);
+  if (merged.search) params.set("q", merged.search);
+  if (merged.sort !== defaultFilter.sort) params.set("sort", merged.sort);
+  if (merged.sortDesc) params.set("sortDesc", "true");
+  if (merged.groupBy !== defaultFilter.groupBy) params.set("groupBy", merged.groupBy);
+  if (merged.page > 1) params.set("page", String(merged.page));
+
+  const queryString = params.toString();
+  return queryString ? `${baseUrl}?${queryString}` : baseUrl;
+}
+
+/**
+ * Check if any filters are active (non-default)
+ */
+export function hasActiveFilters(filter: FilterState): boolean {
+  return (
+    filter.type !== defaultFilter.type ||
+    filter.status !== defaultFilter.status ||
+    filter.priority.length > 0 ||
+    filter.tagIds.length > 0 ||
+    filter.columnIds.length > 0 ||
+    filter.assignedTo !== defaultFilter.assignedTo ||
+    filter.deadlineFilter !== defaultFilter.deadlineFilter ||
+    filter.search !== "" ||
+    filter.sort !== defaultFilter.sort ||
+    filter.sortDesc !== defaultFilter.sortDesc ||
+    filter.groupBy !== defaultFilter.groupBy
+  );
+}
+
+// =============================================================================
+// View URL Helpers (for settings overrides)
+// =============================================================================
+
+/**
+ * Build URL with a view override parameter.
+ * Used to temporarily override the cookie-stored view preference.
+ */
+export function buildViewUrl(view: ViewType): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set(QueryParams.VIEW, view);
+  return url.toString();
+}
+
+/**
+ * Build URL with a panel width override parameter.
+ */
+export function buildPanelWidthUrl(width: DetailPanelWidth): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set(QueryParams.PANEL_WIDTH, width);
+  return url.toString();
+}
+
+/**
+ * Remove all view override params (revert to cookie defaults).
+ */
+export function clearViewOverrides(): string {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(QueryParams.VIEW);
+  url.searchParams.delete(QueryParams.PANEL_WIDTH);
+  return url.toString();
+}
+
+/**
+ * Build URL with search parameter.
+ * Resets page to 1 when search changes.
+ */
+export function buildSearchUrl(baseUrl: string, search: string): string {
+  const url = new URL(baseUrl, window.location.origin);
+  if (search.trim()) {
+    url.searchParams.set(QueryParams.SEARCH, search.trim());
+  } else {
+    url.searchParams.delete(QueryParams.SEARCH);
+  }
+  url.searchParams.delete(QueryParams.PAGE);
+  return url.pathname + url.search;
+}

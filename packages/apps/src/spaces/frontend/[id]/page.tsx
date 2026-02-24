@@ -1,0 +1,395 @@
+import { ssr } from "@valentinkolb/cloud/core/config";
+import { type AuthContext } from "@valentinkolb/cloud/lib/server";
+import { spacesService } from "@/spaces/service";
+import { Layout } from "@valentinkolb/cloud/core/ssr";
+import { Pagination } from "@valentinkolb/cloud/lib/ui";
+import { calendar } from "@valentinkolb/cloud/lib/shared";
+
+// Sidebar components
+import SpaceSidebar from "./_components/sidebar/SpaceSidebar";
+import type { SpaceContext } from "./_components/sidebar/types";
+
+// Settings store
+import { parseSpaceSettings, getDetailPanelWidthClass, isValidView, isValidPanelWidth } from "./_components/settings/SpaceSettingsStore";
+
+// Filter components
+import FilterBar from "./_components/filter/FilterBar.island";
+import { parseFilterFromUrl, buildFilterUrl } from "./_components/filter/types";
+
+// Detail components
+import ItemDetailPanel from "./_components/detail/ItemDetailPanel.island";
+
+// List components
+import ItemsList from "./_components/list";
+
+// Calendar components
+import Calendar from "./_components/calendar";
+import type { CalendarView, DayWeather } from "./_components/calendar/types";
+
+// Weather
+import weatherApp from "@/weather";
+import { getCookie } from "hono/cookie";
+
+// Edit panel
+import SpaceEditPanel from "./_components/edit/SpaceEditPanel.island";
+
+/**
+ * Space detail page - shows items in various views with filtering
+ */
+export default ssr<AuthContext>(async (c) => {
+  const user = c.get("user");
+  const spaceId = c.req.param("id");
+
+  // Parse user's default settings from cookie
+  const cookieHeader = c.req.header("Cookie");
+  const settings = parseSpaceSettings(cookieHeader, spaceId);
+
+  // Read query params for view overrides
+  const viewParam = c.req.query("view");
+  const panelWidthParam = c.req.query("panelWidth");
+  const selectedItemId = c.req.query("item");
+  const isSettingsMode = c.req.query("mode") === "settings";
+
+  // Calendar-specific params
+  const calendarViewParam = c.req.query("cv") as CalendarView | undefined;
+  const calendarDateParam = c.req.query("cd");
+
+  // Determine effective values: query param overrides cookie default
+  const hasViewOverride = isValidView(viewParam);
+  const hasPanelWidthOverride = isValidPanelWidth(panelWidthParam);
+  const hasOverride = hasViewOverride || hasPanelWidthOverride;
+
+  const currentView = hasViewOverride ? viewParam : settings.view;
+  const currentPanelWidth = hasPanelWidthOverride ? panelWidthParam : settings.detailPanelWidth;
+
+  // Parse filter from URL
+  const url = new URL(c.req.url);
+  const filter = parseFilterFromUrl(url);
+
+  // Get space details
+  const space = await spacesService.space.getDetail({ id: spaceId });
+
+  if (!space) {
+    return (
+      <Layout c={c} title="Not Found">
+        <div class="max-w-4xl mx-auto flex flex-col items-center gap-4 py-12">
+          <p class="flex items-center gap-1.5 text-xs text-dimmed">
+            <i class="ti ti-alert-circle text-sm" />
+            Space not found
+          </p>
+          <a href="/app/spaces" class="btn-primary btn-sm">
+            Back to Spaces
+          </a>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Check access
+  const hasAccess = await spacesService.space.permission.canAccess({
+    spaceId,
+    userId: user.id,
+    userGroups: user.memberofGroup,
+  });
+  if (!hasAccess) {
+    return (
+      <Layout c={c} title="Access Denied">
+        <div class="max-w-4xl mx-auto flex flex-col items-center gap-4 py-12">
+          <p class="flex items-center gap-1.5 text-xs text-dimmed">
+            <i class="ti ti-lock text-sm" />
+            You don't have access to this space
+          </p>
+          <a href="/app/spaces" class="btn-primary btn-sm">
+            Back to Spaces
+          </a>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Get user's permission level and access entries (for admin)
+  const userPermission = await spacesService.space.permission.get({
+    spaceId,
+    userId: user.id,
+    userGroups: user.memberofGroup,
+  });
+  const isAdmin = userPermission === "admin";
+
+  // Load access entries only for admins (in settings mode)
+  const accessEntries = isAdmin && isSettingsMode ? (await spacesService.access.list({ spaceId })).items : [];
+
+  // Get filtered items using the new listFiltered function
+  const itemsResult = await spacesService.item.listFiltered({
+    spaceId,
+    filter: {
+      type: filter.type,
+      status: filter.status,
+      priority: filter.priority.length > 0 ? filter.priority : undefined,
+      tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
+      columnIds: filter.columnIds.length > 0 ? filter.columnIds : undefined,
+      assignedTo: filter.assignedTo,
+      deadlineFilter: filter.deadlineFilter,
+      search: filter.search || undefined,
+      sort: filter.sort,
+      sortDesc: filter.sortDesc,
+      groupBy: filter.groupBy,
+      page: filter.page,
+      pageSize: 50,
+    },
+    currentUserId: user.id,
+  });
+
+  // Calendar data (only fetch when calendar view is active)
+  const calendarView: CalendarView =
+    calendarViewParam && ["month", "week"].includes(calendarViewParam) ? (calendarViewParam as CalendarView) : "month";
+  const calendarDate = calendar.parseCalendarDate(calendarDateParam);
+  let calendarItems: Awaited<ReturnType<typeof spacesService.item.calendar.list>> = [];
+
+  // Weather data for calendar (indexed by date string)
+  let calendarWeather: Record<string, DayWeather> = {};
+
+  if (currentView === "calendar") {
+    const { from, to } = calendar.getDateRange(calendarView, calendarDate);
+    const allCalendarItems = await spacesService.item.calendar.list({
+      userId: user.id,
+      groups: user.memberofGroup,
+      from: from.toISOString(),
+      to: to.toISOString(),
+    });
+    // Filter to current space only
+    calendarItems = allCalendarItems.filter((item) => item.spaceId === spaceId);
+
+    // Fetch weather data (use location from cookie if set)
+    const locationCookie = getCookie(c, weatherApp.service.location.cookie.name);
+    const location = weatherApp.service.location.cookie.parse(locationCookie);
+    const lat = location?.lat;
+    const lon = location?.lon;
+
+    const weatherData = await weatherApp.service.forecast.get({ lat, lon });
+    if (weatherData?.daily) {
+      for (const day of weatherData.daily) {
+        calendarWeather[day.date] = {
+          tempMin: day.tempMin,
+          tempMax: day.tempMax,
+          icon: weatherApp.service.ui.getTablerIcon(day.icon),
+        };
+      }
+    }
+  }
+
+  // Find selected item if any (only when not in settings mode)
+  // Need to fetch it separately if not in current result set
+  let selectedItem = null;
+  let selectedItemComments: Awaited<ReturnType<typeof spacesService.comment.list>>["items"] = [];
+  if (!isSettingsMode && selectedItemId) {
+    selectedItem = itemsResult.items.find((i) => i.id === selectedItemId) ?? null;
+    if (!selectedItem) {
+      // Item might be filtered out, fetch it directly
+      selectedItem = await spacesService.item.get({ id: selectedItemId });
+      // Verify it belongs to this space
+      if (selectedItem && selectedItem.spaceId !== spaceId) {
+        selectedItem = null;
+      }
+    }
+    // Fetch comments for selected item
+    if (selectedItem) {
+      selectedItemComments = (await spacesService.comment.list({ itemId: selectedItemId })).items;
+    }
+  }
+
+  // Build shared context
+  const ctx: SpaceContext = {
+    space,
+    columns: space.columns,
+    tags: space.tags,
+    currentView,
+    currentPanelWidth,
+    hasOverride,
+    settings,
+  };
+
+  // Get detail panel width class
+  const detailPanelWidthClass = getDetailPanelWidthClass(currentPanelWidth);
+
+  // Get base URL for iCal links
+  const icalBaseUrl = `${url.protocol}//${url.host}`;
+
+  // Build pagination base URL (preserves current filters + view overrides)
+  let paginationBaseUrl = buildFilterUrl(`/app/spaces/${spaceId}`, { page: 0 }, filter).replace("page=0", "page=");
+  if (hasViewOverride) {
+    paginationBaseUrl += `&view=${currentView}`;
+  }
+  if (hasPanelWidthOverride) {
+    paginationBaseUrl += `&panelWidth=${currentPanelWidth}`;
+  }
+
+  // Build item link base URL (preserves current filters + view overrides, without item param)
+  let itemLinkBaseUrl = buildFilterUrl(`/app/spaces/${spaceId}`, {}, filter);
+  // Preserve view override params so they survive navigation
+  if (hasViewOverride) {
+    const sep = itemLinkBaseUrl.includes("?") ? "&" : "?";
+    itemLinkBaseUrl += `${sep}view=${currentView}`;
+  }
+  if (hasPanelWidthOverride) {
+    const sep = itemLinkBaseUrl.includes("?") ? "&" : "?";
+    itemLinkBaseUrl += `${sep}panelWidth=${currentPanelWidth}`;
+  }
+
+  return (
+    <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Spaces", href: "/app/spaces" }, { title: space.name }]}>
+      <div class="app-cols h-full">
+        {/* Sidebar (Desktop) */}
+        <div class="hidden lg:flex flex-col w-48 shrink-0 overflow-y-auto">
+          <SpaceSidebar ctx={ctx} variant="desktop" />
+        </div>
+
+        {/* Main Content */}
+        <div class="flex-1 min-w-0 flex flex-col">
+          {/* Mobile Sidebar */}
+          <div class="lg:hidden px-3 pt-2 pb-1">
+            <SpaceSidebar ctx={ctx} variant="mobile" />
+          </div>
+          <div class="divider lg:hidden" />
+
+          {/* Mobile/Tablet: Settings or Item Detail above content */}
+          {isSettingsMode && (
+            <>
+              <div class="xl:hidden overflow-y-auto">
+                <SpaceEditPanel
+                  space={space}
+                  baseUrl={icalBaseUrl}
+                  initialSettings={settings}
+                  accessEntries={accessEntries}
+                  isAdmin={isAdmin}
+                />
+              </div>
+              <div class="divider xl:hidden" />
+            </>
+          )}
+          {!isSettingsMode && selectedItem && (
+            <>
+              <div class="xl:hidden overflow-y-auto">
+                <ItemDetailPanel
+                  item={selectedItem}
+                  columns={ctx.columns}
+                  tags={ctx.tags}
+                  spaceId={ctx.space.id}
+                  baseUrl={itemLinkBaseUrl}
+                  currentUserId={user.id}
+                  initialComments={selectedItemComments}
+                />
+              </div>
+              <div class="divider xl:hidden" />
+            </>
+          )}
+
+          {/* Description */}
+          {space.description && (
+            <>
+              <div class="px-3 py-2 info-block-info">
+                <p class="text-sm">{space.description}</p>
+              </div>
+              <div class="divider" />
+            </>
+          )}
+
+          {/* Filter Bar (list view only) */}
+          {currentView === "list" && (
+            <>
+              <div class="p-2">
+                <FilterBar spaceId={spaceId} columns={ctx.columns} tags={ctx.tags} filter={filter} total={itemsResult.total} />
+              </div>
+              <div class="divider" />
+            </>
+          )}
+
+          {/* Scrollable content area */}
+          <div class="flex-1 min-h-0 overflow-y-auto">
+            {currentView === "list" && (
+              <>
+                {itemsResult.items.length === 0 ? (
+                  <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
+                    <i class="ti ti-checkbox text-sm" />
+                    {itemsResult.total === 0 && filter.search === "" && filter.status === "active"
+                      ? "No items yet. Create your first item!"
+                      : "No items match your filters."}
+                  </p>
+                ) : (
+                  <ItemsList
+                    items={itemsResult.items}
+                    columns={ctx.columns}
+                    tags={ctx.tags}
+                    spaceId={ctx.space.id}
+                    selectedItemId={selectedItemId}
+                    groupBy={filter.groupBy}
+                    showCompleted={filter.status !== "active"}
+                    baseUrl={itemLinkBaseUrl}
+                  />
+                )}
+
+                {/* Pagination */}
+                <div class="px-3 py-2">
+                  <Pagination currentPage={itemsResult.page} totalPages={itemsResult.totalPages} baseUrl={paginationBaseUrl} />
+                </div>
+              </>
+            )}
+
+            {currentView === "kanban" && (
+              <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
+                <i class="ti ti-layout-kanban text-sm" />
+                Kanban view coming soon...
+              </p>
+            )}
+
+            {currentView === "calendar" && (
+              <div class="p-3">
+                <Calendar
+                  spaceId={spaceId}
+                  items={calendarItems}
+                  columns={ctx.columns}
+                  tags={ctx.tags}
+                  view={calendarView}
+                  date={calendarDate}
+                  baseUrl={itemLinkBaseUrl}
+                  weather={calendarWeather}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Panel (Desktop xl+) */}
+        {isSettingsMode ? (
+          <div class={`hidden xl:flex flex-col ${detailPanelWidthClass} shrink-0 overflow-y-auto`}>
+            <SpaceEditPanel
+              space={space}
+              baseUrl={icalBaseUrl}
+              initialSettings={settings}
+              accessEntries={accessEntries}
+              isAdmin={isAdmin}
+            />
+          </div>
+        ) : (
+          <div class={`hidden xl:flex flex-col ${detailPanelWidthClass} shrink-0 overflow-y-auto`}>
+            {selectedItem ? (
+              <ItemDetailPanel
+                item={selectedItem}
+                columns={ctx.columns}
+                tags={ctx.tags}
+                spaceId={ctx.space.id}
+                baseUrl={itemLinkBaseUrl}
+                currentUserId={user.id}
+                initialComments={selectedItemComments}
+              />
+            ) : (
+              <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
+                <i class="ti ti-click text-sm" />
+                Select an item to view details
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+});

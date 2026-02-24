@@ -1,0 +1,24 @@
+import { ssr } from "@config";
+import NewPasswordForm from "./NewPasswordForm.island";
+
+/** Set new password page (for expired/temporary passwords). */
+export default ssr((c) => {
+  const params = new URL(c.req.url).searchParams;
+  // Support both ?ipa-uid= (new) and ?user= (legacy) params
+  const user = params.get("ipa-uid") ?? params.get("user") ?? "";
+
+  return (
+    <div class="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">
+      <div class="flex flex-col items-center gap-4 w-full max-w-sm">
+        <div class="paper w-full p-8">
+          <h1 class="text-2xl font-bold text-center mb-2">Set New Password</h1>
+          <p class="text-sm text-dimmed text-center mb-6">Your password has expired or needs to be changed.</p>
+          <NewPasswordForm defaultUsername={user} />
+        </div>
+        <a href="/auth/login" class="text-xs text-dimmed hover:text-primary">
+          Back to Sign In
+        </a>
+      </div>
+    </div>
+  );
+});

@@ -1,0 +1,75 @@
+/* Navigation and list interaction utilities */
+@utility list-item {
+  display: flex !important;
+  padding: var(--theme-list-padding);
+  border-left: var(--theme-list-inactive-border);
+  @apply rounded-lg items-center gap-2 text-sm leading-none cursor-pointer text-dimmed;
+  @apply transition-[background-color,color,box-shadow] duration-150 ease-out hover:text-secondary;
+
+  & + .list-item {
+    margin-top: 0.25rem;
+  }
+
+  &:hover {
+    background: var(--theme-list-hover-bg);
+  }
+}
+
+@utility list-item-active {
+  border-left: var(--theme-list-active-border);
+  @apply rounded-lg bg-blue-50/70 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35;
+  @apply hover:bg-blue-100/75 hover:text-blue-700;
+  @apply dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40;
+  @apply dark:hover:bg-blue-900/55 dark:hover:text-blue-200;
+}
+
+@utility section-label {
+  @apply text-[0.6875rem] font-medium normal-case tracking-normal mb-5 text-dimmed select-none;
+}
+
+@utility tab-item {
+  border-bottom: var(--theme-tab-inactive-border);
+  @apply py-0.5 px-2.5 rounded-full;
+  @apply flex items-center gap-1.5 text-sm transition-colors text-dimmed whitespace-nowrap;
+
+  &:hover {
+    background: var(--theme-tab-hover-bg);
+  }
+}
+
+@utility tab-item-active {
+  border-bottom: var(--theme-tab-active-border);
+  background: var(--theme-tab-active-bg);
+  @apply text-primary font-medium;
+}
+
+@utility rail-item {
+  border-right: var(--theme-rail-item-inactive-border-r);
+  @apply w-8 h-8 rounded-lg;
+  @apply flex items-center justify-center text-dimmed;
+  @apply transition-[background-color,color,box-shadow] duration-150 ease-out;
+
+  &:hover {
+    background: var(--theme-list-hover-bg);
+    @apply text-secondary;
+  }
+}
+
+@utility rail-item-active {
+  border-right: var(--theme-rail-item-active-border-r);
+  @apply rounded-lg text-blue-600 dark:text-blue-300;
+  @apply bg-blue-50/70 dark:bg-blue-950/40;
+  @apply ring-1 ring-inset ring-blue-500/35 dark:ring-blue-400/40;
+}
+
+@utility bottom-bar-item {
+  @apply flex flex-col items-center gap-0.5 text-[10px] py-1.5 px-3 transition-colors text-dimmed;
+
+  &:hover {
+    @apply text-secondary;
+  }
+}
+
+@utility bottom-bar-item-active {
+  @apply text-primary font-medium;
+}

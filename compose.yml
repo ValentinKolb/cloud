@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: ipa_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ipa
+      POSTGRES_USER: ipa
+      POSTGRES_PASSWORD: ipa
+    ports:
+      - "5432:5432"
+    volumes:
+      - ipa_postgres_data:/var/lib/postgresql/data
+
+  valkey:
+    image: docker.io/valkey/valkey:8-alpine
+    container_name: ipa_valkey
+    restart: unless-stopped
+    command: valkey-server --save 30 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - ipa_valkey_data:/data
+
+  geo:
+    image: ghcr.io/valentinkolb/geo:latest
+    container_name: geo
+    restart: unless-stopped
+    ports:
+      - "8081:4000"
+
+  filegate:
+    image: ghcr.io/valentinkolb/filegate:latest
+    container_name: filegate
+    restart: unless-stopped
+    environment:
+      FILE_PROXY_TOKEN: ${FILEGATE_TOKEN:-dev-secret-token}
+      ALLOWED_BASE_PATHS: /data/homes,/data/groups
+      PORT: "4000"
+      REDIS_URL: redis://valkey:6379
+    ports:
+      - "4000:4000"
+    volumes:
+      - filegate_homes:/data/homes
+      - filegate_groups:/data/groups
+    depends_on:
+      - valkey
+
+volumes:
+  ipa_postgres_data:
+  ipa_valkey_data:
+  filegate_homes:
+  filegate_groups:

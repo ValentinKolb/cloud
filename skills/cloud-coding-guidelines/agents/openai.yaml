@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Coding Guidelines"
+  short_description: "Cross-cutting coding rules for consistent, maintainable cloud code"
+  default_prompt: "Apply cloud-wide coding guidelines (YAGNI/KISS/DRY, service/API conventions, and accessibility-first frontend choices) while implementing changes."

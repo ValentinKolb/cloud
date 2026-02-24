@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Frontend"
+  short_description: "SSR-first UI consistency and accessibility-first component usage"
+  default_prompt: "Implement frontend changes with SSR-first routing, shared UI components, and accessibility-first behavior."

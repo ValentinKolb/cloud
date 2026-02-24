@@ -1,0 +1,31 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@config": ["./src/config/index.ts"],
+      "@/*": ["./src/*", "../lib/src/*"],
+      "@valentinkolb/cloud-core": ["./src/index.ts"],
+      "@valentinkolb/cloud-core/ssr": ["./src/ssr/index.ts"],
+      "@valentinkolb/cloud-core/config": ["./src/config/index.ts"],
+      "@valentinkolb/cloud-core/config/*": ["./src/config/*"],
+      "@valentinkolb/cloud-core/services/*": ["./src/services/*"],
+      "@valentinkolb/cloud-lib/server": ["../lib/src/server/index.ts"],
+      "@valentinkolb/cloud-lib/server/middleware": ["../lib/src/server/middleware/index.ts"],
+      "@valentinkolb/cloud-lib/server/middleware/*": ["../lib/src/server/middleware/*"],
+      "@valentinkolb/cloud-lib/server/services": ["../lib/src/server/services/index.ts"],
+      "@valentinkolb/cloud-lib/server/api": ["../lib/src/server/api/index.ts"],
+      "@valentinkolb/cloud-contracts": ["../contracts/src/index.ts"],
+      "@valentinkolb/cloud-contracts/*": ["../contracts/src/*"],
+      "@valentinkolb/cloud-lib/ui": ["../lib/src/ui/index.ts"],
+      "@valentinkolb/cloud-lib/islands": ["../lib/src/islands/index.ts"],
+      "@valentinkolb/cloud-lib/browser": ["../lib/src/browser/index.ts"],
+      "@valentinkolb/cloud-lib/shared": ["../lib/src/shared/index.ts"],
+      "@valentinkolb/cloud-lib/styles/*": ["../lib/src/styles/*"],
+      "@valentinkolb/ssr": ["./src/types/app-check/ssr.d.ts"],
+      "@valentinkolb/ssr/hono": ["./src/types/app-check/ssr-hono.d.ts"],
+      "@valentinkolb/filegate/client": ["./src/types/app-check/filegate-client.d.ts"],
+      "@valentinkolb/filegate/utils": ["./src/types/app-check/filegate-utils.d.ts"],
+      "@valentinkolb/sync": ["../lib/src/server/types/sync.d.ts"]
+    }
+  }
+}

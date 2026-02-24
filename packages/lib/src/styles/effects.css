@@ -1,0 +1,65 @@
+/* Hover, cursor, and shimmer effects */
+@utility hover-shadow {
+  &:hover {
+    box-shadow: var(--theme-shadow-hover);
+  }
+}
+
+@utility bg-dark {
+  @apply bg-[var(--color-dark)];
+}
+
+@utility no-scrollbar {
+  ::-webkit-scrollbar {
+    display: none; /* Chrome, Safari und Opera */
+  }
+
+  -ms-overflow-style: none; /* IE und Edge */
+  scrollbar-width: none; /* Firefox */
+}
+
+@utility ellipsis {
+  @apply overflow-hidden text-ellipsis whitespace-nowrap;
+}
+
+@utility animate-cursor {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+@keyframes cursor-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@utility shimmer {
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -50%;
+    background: linear-gradient(
+      115deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.25) 50%,
+      transparent 100%
+    );
+    animation: shimmer 5s ease-in-out infinite;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}

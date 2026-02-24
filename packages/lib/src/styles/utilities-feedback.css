@@ -1,0 +1,50 @@
+/* Feedback blocks, badges, and chips */
+@utility info-block {
+  @apply rounded-lg ring ring-inset px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap;
+}
+
+@utility info-block-note {
+  @apply info-block bg-zinc-50 ring-zinc-300 text-zinc-800 dark:bg-zinc-950 dark:ring-zinc-700 dark:text-zinc-300;
+}
+
+@utility info-block-info {
+  @apply info-block bg-blue-50 ring-blue-400 text-blue-800 dark:bg-blue-950 dark:ring-blue-600 dark:text-blue-300;
+}
+
+@utility info-block-success {
+  @apply info-block bg-green-50 ring-green-400 text-green-800 dark:bg-green-950 dark:ring-green-600 dark:text-green-300;
+}
+
+@utility info-block-warning {
+  @apply info-block bg-orange-50 ring-orange-400 text-orange-800 dark:bg-orange-950 dark:ring-orange-600 dark:text-orange-300;
+}
+
+@utility info-block-danger {
+  @apply info-block bg-red-50 ring-red-400 text-red-800 dark:bg-red-950 dark:ring-red-600 dark:text-red-300;
+}
+
+@utility status-dot {
+  @apply w-2 h-2 rounded-full shrink-0;
+}
+
+@utility badge {
+  @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-xs;
+}
+
+@utility chip {
+  @apply rounded inline-flex items-center gap-1.5 text-xs transition-colors cursor-pointer px-2 py-1;
+  @apply border border-zinc-200/60 dark:border-zinc-700/30;
+}
+
+@utility thumbnail {
+  @apply rounded-xl overflow-hidden;
+}
+
+@utility popup {
+  box-shadow: var(--theme-shadow-elevated);
+  @apply rounded-2xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700;
+}
+
+@utility tag {
+  @apply rounded inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium;
+}

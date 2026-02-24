@@ -1,0 +1,31 @@
+# OS / metadata
+.DS_Store
+
+# Environment / local config
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules
+**/node_modules
+
+# Build artifacts
+dist
+**/dist
+build
+**/build
+_ssr
+**/_ssr
+
+# Generated CSS
+**/public/build.css
+packages/standalone/public/global.css
+packages/standalone/public/tabler-icons-*.ttf
+packages/standalone/public/tabler-icons-*.woff
+packages/standalone/public/tabler-icons-*.woff2
+
+# Logs / caches
+*.log
+.cache
+**/.cache
