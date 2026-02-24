@@ -86,8 +86,8 @@ const TextInput = (props: TextInputProps) => {
               class={`input-subtle h-20 max-h-50 min-h-15 w-full pl-9 md:max-h-30 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
               placeholder={props.placeholder}
               value={props.value?.() ?? ""}
-              onChange={(e) => props.onChange?.(e.target.value.trim())}
-              onInput={(e) => props.onInput?.(e.target.value.trim())}
+              onChange={(e) => props.onChange?.(e.target.value)}
+              onInput={(e) => props.onInput?.(e.target.value)}
               onKeyDown={(e) => {
                 if (props.onSubmit && e.key === "Enter" && !e.shiftKey && !e.metaKey) {
                   e.preventDefault();
@@ -108,8 +108,8 @@ const TextInput = (props: TextInputProps) => {
               class={`input-subtle w-full pl-9 ${props.password || canClear() ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
               placeholder={props.placeholder}
               value={currentValue()}
-              onChange={(e) => props.onChange?.(e.target.value.trim())}
-              onInput={(e) => props.onInput?.(e.target.value.trim())}
+              onChange={(e) => props.onChange?.(e.target.value)}
+              onInput={(e) => props.onInput?.(e.target.value)}
               disabled={disabled()}
               aria-label={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
               aria-describedby={ariaDescribedBy}

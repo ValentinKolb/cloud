@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, Index, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { TextInput } from "@valentinkolb/cloud/lib/ui";
@@ -331,27 +331,29 @@ export default function ContactUpsertForm(props: Props) {
 
         <div class="paper p-4 space-y-3">
           <Show when={emails().length > 0} fallback={<p class="text-xs text-dimmed">No emails configured.</p>}>
-            {emails().map((email, index) => (
+            <Index each={emails()}>
+              {(email, index) => (
               <div class="grid grid-cols-1 md:grid-cols-[190px_1fr_auto] gap-2 items-center">
                 <TextInput
                   ariaLabel="Email label"
                   placeholder="Label (optional)"
                   icon="ti ti-tag"
-                  value={() => email.label}
+                  value={() => email().label}
                   onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
                 />
                 <TextInput
                   ariaLabel="Email address"
                   placeholder="name@company.com"
                   icon="ti ti-mail"
-                  value={() => email.email}
+                  value={() => email().email}
                   onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, email: value } : row)))}
                 />
                 <div class="flex items-center justify-end">
                   <RemoveBtn ariaLabel="Remove email" onClick={() => setEmails((current) => current.filter((_, i) => i !== index))} />
                 </div>
               </div>
-            ))}
+              )}
+            </Index>
           </Show>
         </div>
       </section>
@@ -367,20 +369,21 @@ export default function ContactUpsertForm(props: Props) {
 
         <div class="paper p-4 space-y-3">
           <Show when={phones().length > 0} fallback={<p class="text-xs text-dimmed">No phone numbers configured.</p>}>
-            {phones().map((phone, index) => (
+            <Index each={phones()}>
+              {(phone, index) => (
               <div class="grid grid-cols-1 md:grid-cols-[190px_1fr_auto] gap-2 items-center">
                 <TextInput
                   ariaLabel="Telephone label"
                   placeholder="Label (optional)"
                   icon="ti ti-tag"
-                  value={() => phone.label}
+                  value={() => phone().label}
                   onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
                 />
                 <TextInput
                   ariaLabel="Telephone number"
                   placeholder="+49 151 12345678"
                   icon="ti ti-phone"
-                  value={() => phone.phone}
+                  value={() => phone().phone}
                   onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
                 />
                 <div class="flex items-center justify-end">
@@ -390,7 +393,8 @@ export default function ContactUpsertForm(props: Props) {
                   />
                 </div>
               </div>
-            ))}
+              )}
+            </Index>
           </Show>
         </div>
       </section>
@@ -406,21 +410,22 @@ export default function ContactUpsertForm(props: Props) {
 
         <Show when={addresses().length > 0} fallback={<p class="text-xs text-dimmed">No addresses configured.</p>}>
           <div class="space-y-3">
-            {addresses().map((address, index) => (
+            <Index each={addresses()}>
+              {(address, index) => (
               <article class="paper p-4 space-y-3">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <TextInput
                     label="Label"
                     placeholder="Address (optional)"
                     icon="ti ti-tag"
-                    value={() => address.label}
+                    value={() => address().label}
                     onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
                   />
                   <TextInput
                     label="Recipient"
                     placeholder="Max Mustermann"
                     icon="ti ti-user"
-                    value={() => address.recipientName}
+                    value={() => address().recipientName}
                     onInput={(value) =>
                       setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))
                     }
@@ -430,7 +435,7 @@ export default function ContactUpsertForm(props: Props) {
                       label="Company"
                       placeholder="Example GmbH"
                       icon="ti ti-building"
-                      value={() => address.companyName}
+                      value={() => address().companyName}
                       onInput={(value) =>
                         setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))
                       }
@@ -441,14 +446,14 @@ export default function ContactUpsertForm(props: Props) {
                     placeholder="Musterstraße 1"
                     icon="ti ti-home"
                     required
-                    value={() => address.line1}
+                    value={() => address().line1}
                     onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line1: value } : row)))}
                   />
                   <TextInput
                     label="Address Line 2"
                     placeholder="c/o, floor, etc. (optional)"
                     icon="ti ti-home"
-                    value={() => address.line2}
+                    value={() => address().line2}
                     onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line2: value } : row)))}
                   />
                   <TextInput
@@ -456,7 +461,7 @@ export default function ContactUpsertForm(props: Props) {
                     placeholder="89073"
                     icon="ti ti-map-pin"
                     required
-                    value={() => address.postalCode}
+                    value={() => address().postalCode}
                     onInput={(value) =>
                       setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))
                     }
@@ -466,14 +471,14 @@ export default function ContactUpsertForm(props: Props) {
                     placeholder="Ulm"
                     icon="ti ti-building-community"
                     required
-                    value={() => address.city}
+                    value={() => address().city}
                     onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, city: value } : row)))}
                   />
                   <TextInput
                     label="State / Region"
                     placeholder="Baden-Württemberg"
                     icon="ti ti-map-2"
-                    value={() => address.stateRegion}
+                    value={() => address().stateRegion}
                     onInput={(value) =>
                       setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))
                     }
@@ -482,7 +487,7 @@ export default function ContactUpsertForm(props: Props) {
                     label="Country Code"
                     placeholder="DE"
                     icon="ti ti-flag"
-                    value={() => address.countryCode}
+                    value={() => address().countryCode}
                     onInput={(value) =>
                       setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))
                     }
@@ -500,7 +505,8 @@ export default function ContactUpsertForm(props: Props) {
                   </button>
                 </div>
               </article>
-            ))}
+              )}
+            </Index>
           </div>
         </Show>
       </section>
