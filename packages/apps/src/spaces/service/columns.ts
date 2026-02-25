@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import type { MutationResult, SpaceColumn, CreateColumn, UpdateColumn } from "@/spaces/contracts";
+import { rank } from "./rank";
 
 // ==========================
 // Columns Service
@@ -10,7 +11,7 @@ type DbColumn = {
   space_id: string;
   name: string;
   color: string | null;
-  position: number;
+  rank: string;
   is_done: boolean;
   created_at: Date;
 };
@@ -23,7 +24,7 @@ const mapToColumn = (row: DbColumn): SpaceColumn => ({
   spaceId: row.space_id,
   name: row.name,
   color: row.color,
-  position: row.position,
+  rank: row.rank,
   isDone: row.is_done,
 });
 
@@ -32,10 +33,10 @@ const mapToColumn = (row: DbColumn): SpaceColumn => ({
  */
 export const list = async (params: { spaceId: string }): Promise<SpaceColumn[]> => {
   const rows = await sql<DbColumn[]>`
-    SELECT id, space_id, name, color, position, is_done, created_at
+    SELECT id, space_id, name, color, rank::text AS rank, is_done, created_at
     FROM spaces.columns
     WHERE space_id = ${params.spaceId}
-    ORDER BY position
+    ORDER BY rank
   `;
   return rows.map(mapToColumn);
 };
@@ -45,9 +46,9 @@ export const list = async (params: { spaceId: string }): Promise<SpaceColumn[]> 
  */
 export const get = async (params: { id: string }): Promise<SpaceColumn | null> => {
   const [row] = await sql<DbColumn[]>`
-    SELECT id, space_id, name, color, position, is_done, created_at
-    FROM spaces.columns
-    WHERE id = ${params.id}
+    SELECT c.id, c.space_id, c.name, c.color, c.rank::text AS rank, c.is_done, c.created_at
+    FROM spaces.columns c
+    WHERE c.id = ${params.id}
   `;
   return row ? mapToColumn(row) : null;
 };
@@ -58,23 +59,30 @@ export const get = async (params: { id: string }): Promise<SpaceColumn | null> =
 export const create = async (params: { spaceId: string; data: CreateColumn }): Promise<MutationResult<SpaceColumn>> => {
   const { spaceId, data } = params;
 
-  // Get the next position
-  const [maxPos] = await sql<{ max: number | null }[]>`
-    SELECT MAX(position) as max FROM spaces.columns WHERE space_id = ${spaceId}
+  // Get next rank at the end of this space
+  const [maxRow] = await sql<{ max: string | null }[]>`
+    SELECT MAX(rank)::text AS max
+    FROM spaces.columns
+    WHERE space_id = ${spaceId}
   `;
-  const position = (maxPos?.max ?? -1) + 1;
+  const nextRank = rank.next(maxRow?.max);
 
-  const [row] = await sql<DbColumn[]>`
-    INSERT INTO spaces.columns (space_id, name, color, position, is_done)
-    VALUES (${spaceId}, ${data.name}, ${data.color ?? null}, ${position}, ${data.isDone})
-    RETURNING id, space_id, name, color, position, is_done, created_at
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
+    VALUES (${spaceId}, ${data.name}, ${data.color ?? null}, ${rank.toDb(nextRank)}::bigint, ${data.isDone})
+    RETURNING id
   `;
 
   if (!row) {
     return { ok: false, error: "Failed to create column", status: 500 };
   }
 
-  return { ok: true, data: mapToColumn(row) };
+  const created = await get({ id: row.id });
+  if (!created) {
+    return { ok: false, error: "Failed to load created column", status: 500 };
+  }
+
+  return { ok: true, data: created };
 };
 
 /**
@@ -92,18 +100,23 @@ export const update = async (params: { id: string; data: UpdateColumn }): Promis
   const color = data.color === undefined ? existing.color : data.color;
   const isDone = data.isDone ?? existing.isDone;
 
-  const [row] = await sql<DbColumn[]>`
+  const [row] = await sql<{ id: string }[]>`
     UPDATE spaces.columns
     SET name = ${name}, color = ${color}, is_done = ${isDone}
     WHERE id = ${id}
-    RETURNING id, space_id, name, color, position, is_done, created_at
+    RETURNING id
   `;
 
   if (!row) {
     return { ok: false, error: "Failed to update column", status: 500 };
   }
 
-  return { ok: true, data: mapToColumn(row) };
+  const updated = await get({ id: row.id });
+  if (!updated) {
+    return { ok: false, error: "Failed to load updated column", status: 500 };
+  }
+
+  return { ok: true, data: updated };
 };
 
 /**
@@ -151,11 +164,12 @@ export const reorder = async (params: { spaceId: string; columnIds: string[] }):
     return { ok: false, error: "Must include all columns in reorder", status: 400 };
   }
 
-  // Update positions
+  // Update ranks by explicit order
   for (let i = 0; i < columnIds.length; i++) {
+    const nextRank = rank.atIndex(i);
     await sql`
       UPDATE spaces.columns
-      SET position = ${i}
+      SET rank = ${rank.toDb(nextRank)}::bigint
       WHERE id = ${columnIds[i]}
     `;
   }

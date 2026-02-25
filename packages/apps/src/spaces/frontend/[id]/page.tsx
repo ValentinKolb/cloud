@@ -1,6 +1,7 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { spacesService } from "@/spaces/service";
+import type { ItemListResult } from "@/spaces/contracts";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
 import { Pagination } from "@valentinkolb/cloud/lib/ui";
 import { calendar } from "@valentinkolb/cloud/lib/shared";
@@ -14,13 +15,15 @@ import { parseSpaceSettings, getDetailPanelWidthClass, isValidView, isValidPanel
 
 // Filter components
 import FilterBar from "./_components/filter/FilterBar.island";
-import { parseFilterFromUrl, buildFilterUrl } from "./_components/filter/types";
+import { parseFilterFromUrl, buildFilterUrl, defaultFilter } from "./_components/filter/types";
 
 // Detail components
 import ItemDetailPanel from "./_components/detail/ItemDetailPanel.island";
 
 // List components
 import ItemsList from "./_components/list";
+import KanbanBoard from "./_components/kanban/KanbanBoard.island";
+import type { KanbanBucketInitial } from "./_components/kanban/types";
 
 // Calendar components
 import Calendar from "./_components/calendar";
@@ -64,7 +67,7 @@ export default ssr<AuthContext>(async (c) => {
 
   // Parse filter from URL
   const url = new URL(c.req.url);
-  const filter = parseFilterFromUrl(url);
+  const filter = currentView === "list" ? parseFilterFromUrl(url) : defaultFilter;
 
   // Get space details
   const space = await spacesService.space.getDetail({ id: spaceId });
@@ -118,26 +121,107 @@ export default ssr<AuthContext>(async (c) => {
   // Load access entries only for admins (in settings mode)
   const accessEntries = isAdmin && isSettingsMode ? (await spacesService.access.list({ spaceId })).items : [];
 
-  // Get filtered items using the new listFiltered function
-  const itemsResult = await spacesService.item.listFiltered({
-    spaceId,
-    filter: {
-      type: filter.type,
-      status: filter.status,
-      priority: filter.priority.length > 0 ? filter.priority : undefined,
-      tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
-      columnIds: filter.columnIds.length > 0 ? filter.columnIds : undefined,
-      assignedTo: filter.assignedTo,
-      deadlineFilter: filter.deadlineFilter,
-      search: filter.search || undefined,
-      sort: filter.sort,
-      sortDesc: filter.sortDesc,
-      groupBy: filter.groupBy,
-      page: filter.page,
-      pageSize: 50,
-    },
-    currentUserId: user.id,
-  });
+  const KANBAN_PAGE_SIZE = 30;
+  const listPageSize = 50;
+
+  // List view uses a single paginated query.
+  let itemsResult: ItemListResult = {
+    items: [],
+    total: 0,
+    page: filter.page,
+    pageSize: listPageSize,
+    totalPages: 0,
+  };
+  if (currentView === "list") {
+    itemsResult = await spacesService.item.listFiltered({
+      spaceId,
+      filter: {
+        type: filter.type,
+        status: filter.status,
+        priority: filter.priority.length > 0 ? filter.priority : undefined,
+        tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
+        columnIds: filter.columnIds.length > 0 ? filter.columnIds : undefined,
+        assignedTo: filter.assignedTo,
+        deadlineFilter: filter.deadlineFilter,
+        search: filter.search || undefined,
+        sort: filter.sort,
+        sortDesc: filter.sortDesc,
+        groupBy: filter.groupBy,
+        page: filter.page,
+        pageSize: listPageSize,
+      },
+      currentUserId: user.id,
+    });
+  }
+
+  let kanbanBuckets: KanbanBucketInitial[] = [];
+  const completedColumnId = space.columns.find((column) => column.isDone)?.id ?? space.columns[0]?.id ?? null;
+
+  if (currentView === "kanban") {
+    const loadBucket = async (config: {
+      key: string;
+      label: string;
+      color: string | null;
+      kind: "column" | "completed";
+      columnId: string | null;
+      columnIds?: string[];
+    }): Promise<KanbanBucketInitial> => {
+      const result = await spacesService.item.listFiltered({
+        spaceId,
+        filter: {
+          type: "all",
+          status: config.kind === "completed" ? "completed" : "active",
+          priority: undefined,
+          tagIds: undefined,
+          columnIds: config.columnIds && config.columnIds.length > 0 ? config.columnIds : undefined,
+          assignedTo: "all",
+          deadlineFilter: "all",
+          search: undefined,
+          sort: "column",
+          sortDesc: false,
+          groupBy: "column",
+          page: 1,
+          pageSize: KANBAN_PAGE_SIZE,
+        },
+        currentUserId: user.id,
+      });
+
+      return {
+        key: config.key,
+        label: config.label,
+        color: config.color,
+        kind: config.kind,
+        columnId: config.columnId,
+        items: result.items,
+        page: result.page,
+        totalPages: result.totalPages,
+        total: result.total,
+      };
+    };
+
+    for (const column of space.columns) {
+      kanbanBuckets.push(
+        await loadBucket({
+          key: `column:${column.id}`,
+          label: column.name,
+          color: column.color,
+          kind: "column",
+          columnId: column.id,
+          columnIds: [column.id],
+        }),
+      );
+    }
+
+    kanbanBuckets.push(
+      await loadBucket({
+        key: "completed",
+        label: "Completed",
+        color: "#10b981",
+        kind: "completed",
+        columnId: null,
+      }),
+    );
+  }
 
   // Calendar data (only fetch when calendar view is active)
   const calendarView: CalendarView =
@@ -214,8 +298,10 @@ export default ssr<AuthContext>(async (c) => {
   // Get base URL for iCal links
   const icalBaseUrl = `${url.protocol}//${url.host}`;
 
-  // Build pagination base URL (preserves current filters + view overrides)
-  let paginationBaseUrl = buildFilterUrl(`/app/spaces/${spaceId}`, { page: 0 }, filter).replace("page=0", "page=");
+  const baseSpaceUrl = `/app/spaces/${spaceId}`;
+
+  // Build pagination base URL (preserves current list filters + view overrides)
+  let paginationBaseUrl = buildFilterUrl(baseSpaceUrl, { page: 0 }, filter).replace("page=0", "page=");
   if (hasViewOverride) {
     paginationBaseUrl += `&view=${currentView}`;
   }
@@ -223,8 +309,8 @@ export default ssr<AuthContext>(async (c) => {
     paginationBaseUrl += `&panelWidth=${currentPanelWidth}`;
   }
 
-  // Build item link base URL (preserves current filters + view overrides, without item param)
-  let itemLinkBaseUrl = buildFilterUrl(`/app/spaces/${spaceId}`, {}, filter);
+  // Build item link base URL (preserves list filters only in list mode)
+  let itemLinkBaseUrl = currentView === "list" ? buildFilterUrl(baseSpaceUrl, {}, filter) : baseSpaceUrl;
   // Preserve view override params so they survive navigation
   if (hasViewOverride) {
     const sep = itemLinkBaseUrl.includes("?") ? "&" : "?";
@@ -335,10 +421,14 @@ export default ssr<AuthContext>(async (c) => {
             )}
 
             {currentView === "kanban" && (
-              <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-                <i class="ti ti-layout-kanban text-sm" />
-                Kanban view coming soon...
-              </p>
+              <KanbanBoard
+                spaceId={spaceId}
+                baseUrl={itemLinkBaseUrl}
+                selectedItemId={selectedItemId}
+                initialBuckets={kanbanBuckets}
+                pageSize={KANBAN_PAGE_SIZE}
+                completedColumnId={completedColumnId}
+              />
             )}
 
             {currentView === "calendar" && (

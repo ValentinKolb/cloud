@@ -2,7 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/spaces/client";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
-import { CheckboxInput, ColorInput, CopyButton, PermissionEditor, SegmentedControl, TextInput } from "@valentinkolb/cloud/lib/ui";
+import { ColorInput, CopyButton, PermissionEditor, SegmentedControl, TextInput } from "@valentinkolb/cloud/lib/ui";
 import type { SpaceDetail, SpaceTag, SpaceColumn, AccessEntry } from "@/spaces/contracts";
 import { refreshCurrentPath } from "../../../lib/navigation";
 import {
@@ -516,7 +516,7 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
   const [editingId, setEditingId] = createSignal<string | null>(null);
 
   const createMut = mutations.create({
-    mutation: async (data: { name: string; color?: string; isDone?: boolean }) => {
+    mutation: async (data: { name: string; color?: string }) => {
       const res = await apiClient[":id"].columns.$post({
         param: { id: props.spaceId },
         json: data,
@@ -534,10 +534,10 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
   });
 
   const updateMut = mutations.create({
-    mutation: async (data: { id: string; name: string; color: string | null; isDone: boolean }) => {
+    mutation: async (data: { id: string; name: string; color: string | null }) => {
       const res = await apiClient[":id"].columns[":columnId"].$patch({
         param: { id: props.spaceId, columnId: data.id },
-        json: { name: data.name, color: data.color, isDone: data.isDone },
+        json: { name: data.name, color: data.color },
       });
       if (!res.ok) {
         const data = await res.json();
@@ -627,7 +627,6 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
                   id: column.id,
                   name: data.name,
                   color: data.color ?? null,
-                  isDone: data.isDone ?? false,
                 })
               }
               onCancel={() => setEditingId(null)}
@@ -637,7 +636,7 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
         )}
       </For>
 
-      <AddStatusButton onSave={(data) => createMut.mutate(data)} loading={createMut.loading()} />
+      <AddStatusButton onSave={createMut.mutate} loading={createMut.loading()} />
     </div>
   );
 }
@@ -655,11 +654,6 @@ function StatusRow(props: {
     <div class="group/status pl-3 py-0.5 flex items-center gap-2">
       <span class="w-4 h-4 rounded-full shrink-0" style={`background-color: ${props.column.color || "#6b7280"}`} />
       <span class="flex-1 text-sm truncate">{props.column.name}</span>
-      {props.column.isDone && (
-        <span class="text-xs text-green-600 dark:text-green-400">
-          <i class="ti ti-check" />
-        </span>
-      )}
       <div class="flex items-center gap-1 opacity-0 group-hover/status:opacity-100 transition-opacity">
         <button
           type="button"
@@ -690,23 +684,21 @@ function StatusRow(props: {
 
 function StatusForm(props: {
   column?: SpaceColumn;
-  onSave: (data: { name: string; color?: string; isDone?: boolean }) => void;
+  onSave: (data: { name: string; color?: string }) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
   const [name, setName] = createSignal(props.column?.name ?? "");
   const [color, setColor] = createSignal(props.column?.color ?? "#6b7280");
-  const [isDone, setIsDone] = createSignal(props.column?.isDone ?? false);
   const isNew = () => !props.column;
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
     if (!name().trim()) return;
-    props.onSave({ name: name(), color: color(), isDone: isDone() });
+    props.onSave({ name: name(), color: color() });
     if (isNew()) {
       setName("");
       setColor("#6b7280");
-      setIsDone(false);
     }
   };
 
@@ -714,7 +706,6 @@ function StatusForm(props: {
     <form onSubmit={handleSubmit} class="ml-2 paper p-3 flex flex-col gap-2">
       <TextInput label="Name" placeholder="Status name" value={name} onInput={setName} required />
       <ColorInput label="Color" value={color} onChange={setColor} />
-      <CheckboxInput label="Mark items as completed" value={isDone} onChange={setIsDone} />
       <div class="flex gap-2 mt-1">
         <button type="submit" disabled={props.loading} class="btn-primary btn-sm">
           {props.loading ? <i class="ti ti-loader-2 animate-spin" /> : isNew() ? "Create" : "Save"}
@@ -727,7 +718,7 @@ function StatusForm(props: {
   );
 }
 
-function AddStatusButton(props: { onSave: (data: { name: string; color?: string; isDone?: boolean }) => void; loading: boolean }) {
+function AddStatusButton(props: { onSave: (data: { name: string; color?: string }) => void; loading: boolean }) {
   const [isOpen, setIsOpen] = createSignal(false);
 
   return (

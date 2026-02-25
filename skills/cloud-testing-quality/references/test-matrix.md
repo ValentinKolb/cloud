@@ -30,6 +30,9 @@
 - Spaces-like flows:
   - item create/update and detail panel mutation
   - settings/permission updates when touched
+  - Kanban DnD: pointer drag/drop between columns and within same column
+  - Kanban DnD: keyboard drag (Space/Enter/Escape + arrows) and focus order
+  - Kanban DnD: no full-page text selection during pointer drag
 
 ## Query-State Heavy Screens
 

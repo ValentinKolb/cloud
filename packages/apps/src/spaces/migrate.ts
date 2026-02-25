@@ -67,6 +67,7 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       color TEXT,
       position INT NOT NULL DEFAULT 0,
+      rank BIGINT NOT NULL DEFAULT 1024,
       is_done BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
@@ -77,6 +78,7 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_columns_space_position
     ON spaces.columns(space_id, position)
   `.simple();
+
 
   // ----------------------------------------------------------
   // Tags (per Space)
@@ -109,6 +111,7 @@ export const migrate = async (): Promise<void> => {
       deadline TIMESTAMPTZ,
       priority TEXT CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
       position INT NOT NULL DEFAULT 0,
+      rank BIGINT NOT NULL DEFAULT 1024,
       completed_at TIMESTAMPTZ,
       email_thread_id TEXT,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
@@ -135,6 +138,84 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_items_space_column_position
     ON spaces.items(space_id, column_id, position)
+  `.simple();
+
+
+  // ----------------------------------------------------------
+  // Rank migration (idempotent)
+  // ----------------------------------------------------------
+
+  await sql`
+    ALTER TABLE spaces.columns
+    ADD COLUMN IF NOT EXISTS rank BIGINT
+  `.simple();
+
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS rank BIGINT
+  `.simple();
+
+  await sql`
+    WITH ordered AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (PARTITION BY space_id ORDER BY position, created_at, id) AS rn
+      FROM spaces.columns
+      WHERE rank IS NULL
+    )
+    UPDATE spaces.columns c
+    SET rank = ordered.rn * 1024
+    FROM ordered
+    WHERE c.id = ordered.id
+  `.simple();
+
+  await sql`
+    WITH ordered AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (PARTITION BY column_id ORDER BY position, created_at, id) AS rn
+      FROM spaces.items
+      WHERE rank IS NULL
+    )
+    UPDATE spaces.items i
+    SET rank = ordered.rn * 1024
+    FROM ordered
+    WHERE i.id = ordered.id
+  `.simple();
+
+  await sql`
+    ALTER TABLE spaces.columns
+    ALTER COLUMN rank SET DEFAULT 1024
+  `.simple();
+
+  await sql`
+    ALTER TABLE spaces.items
+    ALTER COLUMN rank SET DEFAULT 1024
+  `.simple();
+
+  await sql`
+    ALTER TABLE spaces.columns
+    ALTER COLUMN rank SET NOT NULL
+  `.simple();
+
+  await sql`
+    ALTER TABLE spaces.items
+    ALTER COLUMN rank SET NOT NULL
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_columns_space_rank
+    ON spaces.columns(space_id, rank)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_items_space_column_rank
+    ON spaces.items(space_id, column_id, rank)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_items_column_rank
+    ON spaces.items(column_id, rank)
   `.simple();
 
   await sql`

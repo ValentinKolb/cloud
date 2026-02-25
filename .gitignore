@@ -1,5 +1,6 @@
 # OS / metadata
 .DS_Store
+.claude
 
 # Environment / local config
 .env

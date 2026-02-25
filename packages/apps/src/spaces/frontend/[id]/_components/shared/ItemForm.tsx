@@ -64,10 +64,10 @@ export default function ItemForm(props: Props) {
     props.columns.map((c) => ({
       id: c.id,
       label: c.name,
-      icon: c.isDone ? "ti ti-check" : "ti ti-layout-list",
+      icon: "ti ti-layout-list",
     }));
 
-  const defaultColumnId = () => props.columns.find((c) => !c.isDone)?.id ?? props.columns[0]?.id ?? "";
+  const defaultColumnId = () => props.columns[0]?.id ?? "";
 
   const toggleTag = (tagId: string) => {
     setSelectedTags((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
@@ -169,9 +169,9 @@ export default function ItemForm(props: Props) {
       {/* Status + Priority (always visible) */}
       <div class="grid grid-cols-2 gap-3">
         <SelectInput
-          label="Status"
+          label="Kanban"
           description={!isEditMode() ? "Current workflow state" : undefined}
-          placeholder="Select status"
+          placeholder="Select column"
           icon="ti ti-progress"
           value={columnId}
           onChange={setColumnId}

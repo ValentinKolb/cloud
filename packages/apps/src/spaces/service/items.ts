@@ -12,6 +12,7 @@ import type {
   ItemFilter,
   ItemListResult,
 } from "@/spaces/contracts";
+import { rank } from "./rank";
 
 // ==========================
 // Items Service
@@ -27,7 +28,7 @@ type DbItem = {
   ends_at: Date | null;
   deadline: Date | null;
   priority: string | null;
-  position: number;
+  rank: string;
   completed_at: Date | null;
   email_thread_id: string | null;
   created_by: string | null;
@@ -69,7 +70,7 @@ const mapToItem = (row: DbItem): SpaceItem => ({
   endsAt: row.ends_at?.toISOString() ?? null,
   deadline: row.deadline?.toISOString() ?? null,
   priority: (row.priority as Priority) ?? null,
-  position: row.position,
+  rank: row.rank,
   completedAt: row.completed_at?.toISOString() ?? null,
   createdBy: row.created_by,
   createdAt: row.created_at.toISOString(),
@@ -118,19 +119,25 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
   let rows: DbItem[];
   if (includeCompleted) {
     rows = await sql<DbItem[]>`
-      SELECT id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-             priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
-      FROM spaces.items
-      WHERE space_id = ${spaceId}
-      ORDER BY column_id, position
+      SELECT
+        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.deadline,
+        i.priority, i.rank::text AS rank,
+        i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
+      FROM spaces.items i
+      LEFT JOIN spaces.columns c ON c.id = i.column_id
+      WHERE i.space_id = ${spaceId}
+      ORDER BY c.rank, i.rank
     `;
   } else {
     rows = await sql<DbItem[]>`
-      SELECT id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-             priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
-      FROM spaces.items
-      WHERE space_id = ${spaceId} AND completed_at IS NULL
-      ORDER BY column_id, position
+      SELECT
+        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.deadline,
+        i.priority, i.rank::text AS rank,
+        i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
+      FROM spaces.items i
+      LEFT JOIN spaces.columns c ON c.id = i.column_id
+      WHERE i.space_id = ${spaceId} AND i.completed_at IS NULL
+      ORDER BY c.rank, i.rank
     `;
   }
 
@@ -233,16 +240,16 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
   }
 
   // Build ORDER BY clause as SQL fragment
-  let orderClause = sql`c.position ASC, i.position ASC`;
+  let orderClause = sql`c.rank ASC, i.rank ASC`;
   switch (sort) {
     case "priority":
       // Custom order: urgent > high > medium > low > null
       orderClause = sortDesc
-        ? sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END DESC, i.position ASC`
-        : sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC, i.position ASC`;
+        ? sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END DESC, i.rank ASC`
+        : sql`CASE i.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END ASC, i.rank ASC`;
       break;
     case "deadline":
-      orderClause = sortDesc ? sql`i.deadline DESC NULLS FIRST, i.position ASC` : sql`i.deadline ASC NULLS LAST, i.position ASC`;
+      orderClause = sortDesc ? sql`i.deadline DESC NULLS FIRST, i.rank ASC` : sql`i.deadline ASC NULLS LAST, i.rank ASC`;
       break;
     case "created":
       orderClause = sortDesc ? sql`i.created_at DESC` : sql`i.created_at ASC`;
@@ -269,7 +276,8 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
   // Get items with pagination
   const rows = await sql<DbItem[]>`
     SELECT i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at,
-           i.deadline, i.priority, i.position, i.completed_at, i.email_thread_id,
+           i.deadline, i.priority, i.rank::text AS rank,
+           i.completed_at, i.email_thread_id,
            i.created_by, i.created_at, i.updated_at
     FROM spaces.items i
     LEFT JOIN spaces.columns c ON i.column_id = c.id
@@ -299,10 +307,24 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
  */
 export const get = async (params: { id: string }): Promise<SpaceItem | null> => {
   const [row] = await sql<DbItem[]>`
-    SELECT id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-           priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
-    FROM spaces.items
-    WHERE id = ${params.id}
+    SELECT
+      i.id,
+      i.space_id,
+      i.column_id,
+      i.title,
+      i.description,
+      i.starts_at,
+      i.ends_at,
+      i.deadline,
+      i.priority,
+      i.rank::text AS rank,
+      i.completed_at,
+      i.email_thread_id,
+      i.created_by,
+      i.created_at,
+      i.updated_at
+    FROM spaces.items i
+    WHERE i.id = ${params.id}
   `;
 
   if (!row) return null;
@@ -321,8 +343,8 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
   const { spaceId, data, createdBy } = params;
 
   // Verify column belongs to space
-  const [column] = await sql<{ id: string; is_done: boolean }[]>`
-    SELECT id, is_done FROM spaces.columns
+  const [column] = await sql<{ id: string }[]>`
+    SELECT id FROM spaces.columns
     WHERE id = ${data.columnId} AND space_id = ${spaceId}
   `;
 
@@ -330,19 +352,18 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     return { ok: false, error: "Column not found in space", status: 400 };
   }
 
-  // Get next position in column
-  const [maxPos] = await sql<{ max: number | null }[]>`
-    SELECT MAX(position) as max FROM spaces.items WHERE column_id = ${data.columnId}
+  // Get next rank in column
+  const [maxRow] = await sql<{ max: string | null }[]>`
+    SELECT MAX(rank)::text as max
+    FROM spaces.items
+    WHERE column_id = ${data.columnId}
   `;
-  const position = (maxPos?.max ?? -1) + 1;
+  const nextRank = rank.next(maxRow?.max);
 
-  // Set completed_at if column is done
-  const completedAt = column.is_done ? new Date() : null;
-
-  const [row] = await sql<DbItem[]>`
+  const [row] = await sql<{ id: string }[]>`
     INSERT INTO spaces.items (
       space_id, column_id, title, description, starts_at, ends_at, deadline,
-      priority, position, completed_at, created_by
+      priority, rank, completed_at, created_by
     )
     VALUES (
       ${spaceId},
@@ -353,12 +374,11 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
       ${data.endsAt ?? null},
       ${data.deadline ?? null},
       ${data.priority ?? null},
-      ${position},
-      ${completedAt},
+      ${rank.toDb(nextRank)}::bigint,
+      ${null},
       ${createdBy}
     )
-    RETURNING id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-              priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
+    RETURNING id
   `;
 
   if (!row) {
@@ -387,9 +407,10 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     }
   }
 
-  const item = mapToItem(row);
-  item.assignees = await getAssignees(item.id);
-  item.tags = await getTags(item.id);
+  const item = await get({ id: row.id });
+  if (!item) {
+    return { ok: false, error: "Failed to load created item", status: 500 };
+  }
 
   return { ok: true, data: item };
 };
@@ -413,35 +434,56 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   const endsAt = data.endsAt === undefined ? existing.endsAt : data.endsAt;
   const deadline = data.deadline === undefined ? existing.deadline : data.deadline;
   const priority = data.priority === undefined ? existing.priority : data.priority;
+  const changingColumn = !!(data.columnId && data.columnId !== existing.columnId);
 
-  // If moving to a different column, check if it's a done column
-  let completedAt = existing.completedAt;
-  if (data.columnId && data.columnId !== existing.columnId) {
-    const [newColumn] = await sql<{ is_done: boolean }[]>`
-      SELECT is_done FROM spaces.columns WHERE id = ${data.columnId}
+  // If moving to a different column, prepend item to the top of the target column.
+  let targetRank: bigint | null = null;
+  if (changingColumn && data.columnId) {
+    const [newColumn] = await sql<{ space_id: string }[]>`
+      SELECT space_id
+      FROM spaces.columns
+      WHERE id = ${data.columnId}
     `;
-    if (newColumn?.is_done && !existing.completedAt) {
-      completedAt = new Date().toISOString();
-    } else if (!newColumn?.is_done && existing.completedAt) {
-      completedAt = null;
+    if (!newColumn || newColumn.space_id !== existing.spaceId) {
+      return { ok: false, error: "Column not found in space", status: 400 };
     }
+
+    const [minRow] = await sql<{ min: string | null }[]>`
+      SELECT MIN(rank)::text AS min
+      FROM spaces.items
+      WHERE column_id = ${data.columnId} AND id <> ${id}
+    `;
+    const minRank = minRow?.min ? rank.parse(minRow.min) : null;
+    targetRank = minRank !== null ? minRank - rank.step() : rank.step();
   }
 
-  const [row] = await sql<DbItem[]>`
-    UPDATE spaces.items
-    SET column_id = ${columnId},
-        title = ${title},
-        description = ${description},
-        starts_at = ${startsAt},
-        ends_at = ${endsAt},
-        deadline = ${deadline},
-        priority = ${priority},
-        completed_at = ${completedAt},
-        updated_at = now()
-    WHERE id = ${id}
-    RETURNING id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-              priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
-  `;
+  const [row] = changingColumn
+    ? await sql<{ id: string }[]>`
+        UPDATE spaces.items
+        SET column_id = ${columnId},
+            rank = ${rank.toDb(targetRank ?? rank.step())}::bigint,
+            title = ${title},
+            description = ${description},
+            starts_at = ${startsAt},
+            ends_at = ${endsAt},
+            deadline = ${deadline},
+            priority = ${priority},
+            updated_at = now()
+        WHERE id = ${id}
+        RETURNING id
+      `
+    : await sql<{ id: string }[]>`
+        UPDATE spaces.items
+        SET title = ${title},
+            description = ${description},
+            starts_at = ${startsAt},
+            ends_at = ${endsAt},
+            deadline = ${deadline},
+            priority = ${priority},
+            updated_at = now()
+        WHERE id = ${id}
+        RETURNING id
+      `;
 
   if (!row) {
     return { ok: false, error: "Failed to update item", status: 500 };
@@ -471,9 +513,10 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     }
   }
 
-  const item = mapToItem(row);
-  item.assignees = await getAssignees(item.id);
-  item.tags = await getTags(item.id);
+  const item = await get({ id: row.id });
+  if (!item) {
+    return { ok: false, error: "Failed to load updated item", status: 500 };
+  }
 
   return { ok: true, data: item };
 };
@@ -495,56 +538,75 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
 };
 
 /**
- * Move an item to a different column/position
+ * Move an item to a different column/rank
  */
-export const move = async (params: { id: string; columnId: string; position: number }): Promise<MutationResult<SpaceItem>> => {
-  const { id, columnId, position } = params;
+export const move = async (params: { id: string; columnId: string; rank: string; completed?: boolean }): Promise<MutationResult<SpaceItem>> => {
+  const { id, columnId } = params;
+  let targetRank: bigint;
+  try {
+    targetRank = rank.parse(params.rank);
+  } catch {
+    return { ok: false, error: "Invalid rank", status: 400 };
+  }
 
-  const existing = await get({ id });
+  const [existing] = await sql<
+    {
+      id: string;
+      space_id: string;
+      column_id: string;
+      rank: string;
+      completed_at: Date | null;
+    }[]
+  >`
+    SELECT id, space_id, column_id, rank::text AS rank, completed_at
+    FROM spaces.items
+    WHERE id = ${id}
+  `;
+
   if (!existing) {
     return { ok: false, error: "Item not found", status: 404 };
   }
 
   // Verify column belongs to same space
-  const [column] = await sql<{ id: string; is_done: boolean; space_id: string }[]>`
-    SELECT id, is_done, space_id FROM spaces.columns WHERE id = ${columnId}
+  const [column] = await sql<{ id: string; space_id: string }[]>`
+    SELECT id, space_id FROM spaces.columns WHERE id = ${columnId}
   `;
 
-  if (!column || column.space_id !== existing.spaceId) {
+  if (!column || column.space_id !== existing.space_id) {
     return { ok: false, error: "Column not found in space", status: 400 };
   }
 
-  // Update completed_at based on column
-  let completedAt = existing.completedAt;
-  if (column.is_done && !existing.completedAt) {
-    completedAt = new Date().toISOString();
-  } else if (!column.is_done && existing.completedAt) {
-    completedAt = null;
-  }
+  const completedAt = typeof params.completed === "boolean" ? (params.completed ? new Date() : null) : undefined;
 
-  // Shift positions in target column
-  await sql`
-    UPDATE spaces.items
-    SET position = position + 1
-    WHERE column_id = ${columnId} AND position >= ${position}
-  `;
-
-  // Move the item
-  const [row] = await sql<DbItem[]>`
-    UPDATE spaces.items
-    SET column_id = ${columnId}, position = ${position}, completed_at = ${completedAt}, updated_at = now()
-    WHERE id = ${id}
-    RETURNING id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-              priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
-  `;
+  // Move the item (and optionally align completion state atomically in the same update).
+  const [row] =
+    completedAt === undefined
+      ? await sql<{ id: string }[]>`
+          UPDATE spaces.items
+          SET column_id = ${columnId},
+              rank = ${rank.toDb(targetRank)}::bigint,
+              updated_at = now()
+          WHERE id = ${id}
+          RETURNING id
+        `
+      : await sql<{ id: string }[]>`
+          UPDATE spaces.items
+          SET column_id = ${columnId},
+              rank = ${rank.toDb(targetRank)}::bigint,
+              completed_at = ${completedAt},
+              updated_at = now()
+          WHERE id = ${id}
+          RETURNING id
+        `;
 
   if (!row) {
     return { ok: false, error: "Failed to move item", status: 500 };
   }
 
-  const item = mapToItem(row);
-  item.assignees = await getAssignees(item.id);
-  item.tags = await getTags(item.id);
+  const item = await get({ id: row.id });
+  if (!item) {
+    return { ok: false, error: "Failed to load moved item", status: 500 };
+  }
 
   return { ok: true, data: item };
 };
@@ -557,21 +619,21 @@ export const setCompleted = async (params: { id: string; completed: boolean }): 
 
   const completedAt = completed ? new Date() : null;
 
-  const [row] = await sql<DbItem[]>`
+  const [row] = await sql<{ id: string }[]>`
     UPDATE spaces.items
     SET completed_at = ${completedAt}, updated_at = now()
     WHERE id = ${id}
-    RETURNING id, space_id, column_id, title, description, starts_at, ends_at, deadline,
-              priority, position, completed_at, email_thread_id, created_by, created_at, updated_at
+    RETURNING id
   `;
 
   if (!row) {
     return { ok: false, error: "Item not found", status: 404 };
   }
 
-  const item = mapToItem(row);
-  item.assignees = await getAssignees(item.id);
-  item.tags = await getTags(item.id);
+  const item = await get({ id: row.id });
+  if (!item) {
+    return { ok: false, error: "Failed to load item", status: 500 };
+  }
 
   return { ok: true, data: item };
 };

@@ -2,6 +2,7 @@ import { sql } from "bun";
 import type { MutationResult, Space, SpaceDetail, CreateSpace, UpdateSpace } from "@/spaces/contracts";
 import { type PermissionLevel, hasPermission } from "@valentinkolb/cloud/lib/server";
 import { getSpacePermission, grantSpaceAccess, countSpaceAccess } from "./access";
+import { rank } from "./rank";
 
 /**
  * Escapes group CN values into a Postgres `text[]` literal for `ANY(...)` access filters.
@@ -35,7 +36,7 @@ type DbColumn = {
   space_id: string;
   name: string;
   color: string | null;
-  position: number;
+  rank: string;
   is_done: boolean;
 };
 
@@ -65,9 +66,9 @@ const mapToSpaceAdminItem = (row: DbSpaceAdmin): SpaceAdminListItem => ({
 });
 
 const DEFAULT_COLUMNS = [
-  { name: "To Do", color: "#6b7280", position: 0, isDone: false },
-  { name: "In Progress", color: "#3b82f6", position: 1, isDone: false },
-  { name: "Done", color: "#22c55e", position: 2, isDone: true },
+  { name: "To Do", color: "#6b7280", isDone: false },
+  { name: "In Progress", color: "#3b82f6", isDone: false },
+  { name: "Done", color: "#22c55e", isDone: true },
 ];
 
 /**
@@ -200,10 +201,10 @@ export const getDetail = async (params: { id: string }): Promise<SpaceDetail | n
   if (!spaceRow) return null;
 
   const columns = await sql<DbColumn[]>`
-    SELECT id, space_id, name, color, position, is_done
+    SELECT id, space_id, name, color, rank::text AS rank, is_done
     FROM spaces.columns
     WHERE space_id = ${params.id}
-    ORDER BY position
+    ORDER BY rank
   `;
 
   const tags = await sql<DbTag[]>`
@@ -220,7 +221,7 @@ export const getDetail = async (params: { id: string }): Promise<SpaceDetail | n
       spaceId: c.space_id,
       name: c.name,
       color: c.color,
-      position: c.position,
+      rank: c.rank,
       isDone: c.is_done,
     })),
     tags: tags.map((t) => ({
@@ -251,10 +252,10 @@ export const create = async (params: { data: CreateSpace; creatorId: string }): 
   }
 
   // Create default columns
-  for (const col of DEFAULT_COLUMNS) {
+  for (const [index, col] of DEFAULT_COLUMNS.entries()) {
     await sql`
-      INSERT INTO spaces.columns (space_id, name, color, position, is_done)
-      VALUES (${row.id}, ${col.name}, ${col.color}, ${col.position}, ${col.isDone})
+      INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
+      VALUES (${row.id}, ${col.name}, ${col.color}, ${rank.toDb(rank.atIndex(index))}::bigint, ${col.isDone})
     `;
   }
 

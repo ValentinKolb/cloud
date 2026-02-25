@@ -112,3 +112,23 @@ This is guidance, not a lockstep template; new visual compositions are welcome w
 - Focus indicators remain visible.
 - Labels/field descriptions are present and meaningful.
 - Avoid accidental text selection for rapid toggles/checkbox labels.
+
+## 9) Drag & Drop Pattern (Solid + SSR-safe)
+
+- Build DnD with `dnd.create` from `@valentinkolb/cloud/lib/browser`.
+- Keep data flow SSR-first: initial lists/columns from server, DnD updates only mutate client state + call API.
+- Use one atomic mutation per drop whenever possible (avoid chained calls that can partially fail).
+- For card/list rows that already contain links/buttons, set draggable `focusable: false` to avoid duplicate tab stops.
+- Keep keyboard mode enabled by default unless there is a hard UX reason not to.
+
+Minimal usage:
+
+```ts
+const boardDnd = dnd.create<DragMeta, DropMeta, DropIntent>({
+  buildIntent: (ctx) => {/* map over target + pointer to intent */},
+  onDrop: ({ active, intent }) => {
+    if (!intent) return;
+    moveMutation.mutate({ itemId: active.meta.itemId, intent });
+  },
+});
+```

@@ -25,7 +25,6 @@ export const env = {
 
   // FreeIPA (infrastructure)
   FREEIPA_URL: str("FREEIPA_URL", "freeipa.ipa.example.com"),
-  FREEIPA_REALM: str("FREEIPA_REALM", "EXAMPLE.COM"),
   FREEIPA_SVC_USER: str("FREEIPA_SVC_USER", "svc-cloud"),
   FREEIPA_SVC_PASSWORD: str("FREEIPA_SVC_PASSWORD"),
 

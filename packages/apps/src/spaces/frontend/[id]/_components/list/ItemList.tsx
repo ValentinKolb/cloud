@@ -10,8 +10,6 @@ type GroupConfig = {
   label: string;
   icon?: string;
   color?: string;
-  /** Whether this is a "done" group (for column grouping) */
-  isDone?: boolean;
 };
 
 type ItemListProps = {
@@ -114,7 +112,6 @@ function groupItems(
         key: c.id,
         label: c.name,
         color: c.color || "#6b7280",
-        isDone: c.isDone,
       }));
 
       for (const col of columns) {
@@ -201,9 +198,6 @@ function GroupHeader(props: { config: GroupConfig; count: number }) {
 
       <span class="font-medium text-sm">{props.config.label}</span>
       <span class="text-xs text-dimmed">({props.count})</span>
-
-      {/* Done indicator for columns */}
-      {props.config.isDone && <i class="ti ti-circle-check text-xs text-emerald-500" />}
     </div>
   );
 }
@@ -219,8 +213,7 @@ function GroupHeader(props: { config: GroupConfig; count: number }) {
 export default function ItemList(props: ItemListProps) {
   const { groups, itemsByGroup } = groupItems(props.items, props.groupBy, props.columns, props.tags);
 
-  // Filter visible groups based on showCompleted for columns
-  const visibleGroups = props.groupBy === "column" && !props.showCompleted ? groups.filter((g) => !g.isDone) : groups;
+  const visibleGroups = groups;
 
   // Flat list - no grouping container
   if (props.groupBy === "none") {

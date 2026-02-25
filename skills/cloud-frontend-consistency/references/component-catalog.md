@@ -21,6 +21,7 @@ import {
 } from "@valentinkolb/cloud/lib/ui";
 
 import { SearchBar } from "@valentinkolb/cloud/lib/islands";
+import { dnd } from "@valentinkolb/cloud/lib/browser";
 ```
 
 ## Layout Recipe: Sidebar + List + Detail
@@ -88,3 +89,10 @@ Use for content-heavy app screens.
 - Files toolbar/actions/detail
 - Notebooks settings/sidebar/version history
 - Spaces detail/edit panels
+
+## Interaction Recipe: Sortable Lists / Kanban
+
+- Use `dnd.create` to register `draggable` + `droppable` elements.
+- Keep droppable IDs/meta domain-specific (`drop:item:<column>:<itemId>`, `drop:end:<column>`).
+- Build preview/insert intent in `buildIntent` and keep rendering logic declarative.
+- Prefer one backend mutation per drop (`columnId`, `rank`, optional `completed`), then reconcile from server response.

@@ -5,6 +5,7 @@ export { mutation } from "./mutation";
 export type { MutationOptions, CreateMutationResult } from "./mutation";
 
 export { timing } from "./timed";
+export { dnd } from "./dnd";
 export { cookies } from "./cookies";
 export { files } from "./files";
 export { images } from "./images";
@@ -22,3 +23,4 @@ export type * from "./qr";
 export type * from "./crypto";
 export type * from "./theme";
 export type * from "./yjs";
+export type * from "./dnd";

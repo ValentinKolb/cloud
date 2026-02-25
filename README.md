@@ -61,7 +61,7 @@ This uses root `compose.yml`.
 Main infrastructure env vars are parsed in `cloud/packages/core/src/config/env.ts`:
 
 - `APP_URL`, `PORT`
-- `FREEIPA_URL`, `FREEIPA_REALM`, `FREEIPA_SVC_USER`, `FREEIPA_SVC_PASSWORD`
+- `FREEIPA_URL`, `FREEIPA_SVC_USER`, `FREEIPA_SVC_PASSWORD`
 - `GROUPS_ADMIN`, `GROUPS_BASE_SYNC`, `GROUPS_BASE_IPA_REALM`, `GROUPS_EXCLUDED`
 - `FILEGATE_URL`, `FILEGATE_TOKEN`
 

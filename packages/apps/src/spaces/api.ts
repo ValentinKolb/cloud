@@ -507,13 +507,14 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ItemFilterSchema),
     async (c) => {
+      const user = c.get("user");
       const spaceId = c.req.param("id");
       const filter = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
 
-      const result = await spacesService.item.listFiltered({ spaceId, filter });
+      const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user.id });
       return respond(c, ok(result));
     },
   )
@@ -636,7 +637,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "Move item",
-      description: "Move item to a different column/position (Kanban drag & drop).",
+      description: "Move item to a different column/rank (Kanban drag & drop).",
       ...requiresAuth,
       responses: {
         200: jsonResponse(SpaceItemSchema, "Moved item"),
@@ -649,13 +650,13 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const spaceId = c.req.param("id");
       const itemId = c.req.param("itemId");
-      const { columnId, position } = c.req.valid("json");
+      const { columnId, rank, completed } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
       const itemCheck = await requireItemInSpace(spaceId, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      return respond(c, spacesService.item.move({ id: itemId, columnId, position }));
+      return respond(c, spacesService.item.move({ id: itemId, columnId, rank, completed }));
     },
   )
 

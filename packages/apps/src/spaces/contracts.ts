@@ -1,7 +1,10 @@
 import { z } from "zod";
 
+// PostgreSQL uuid text format (accepts legacy non-RFC version/variant values too).
+const SpaceUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
 export const SpaceSchema = z.object({
-  id: z.uuid().describe("Space UUID"),
+  id: SpaceUuidSchema.describe("Space UUID"),
   name: z.string().describe("Space name"),
   description: z.string().nullable().describe("Space description"),
   color: z.string().describe("Space color (hex)"),
@@ -12,18 +15,18 @@ export const SpaceSchema = z.object({
 export type Space = z.infer<typeof SpaceSchema>;
 
 export const SpaceColumnSchema = z.object({
-  id: z.uuid().describe("Column UUID"),
-  spaceId: z.uuid().describe("Parent space UUID"),
+  id: SpaceUuidSchema.describe("Column UUID"),
+  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
   name: z.string().describe("Column name"),
   color: z.string().nullable().describe("Column color (hex)"),
-  position: z.number().int().describe("Column position (0-indexed)"),
+  rank: z.string().describe("Column ordering rank"),
   isDone: z.boolean().describe("Items in this column are considered done"),
 });
 export type SpaceColumn = z.infer<typeof SpaceColumnSchema>;
 
 export const SpaceTagSchema = z.object({
-  id: z.uuid().describe("Tag UUID"),
-  spaceId: z.uuid().describe("Parent space UUID"),
+  id: SpaceUuidSchema.describe("Tag UUID"),
+  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
   name: z.string().describe("Tag name"),
   color: z.string().describe("Tag color (hex)"),
 });
@@ -33,24 +36,24 @@ export const PrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 export type Priority = z.infer<typeof PrioritySchema>;
 
 export const SpaceItemAssigneeSchema = z.object({
-  id: z.uuid().describe("User UUID"),
+  id: SpaceUuidSchema.describe("User UUID"),
   displayName: z.string().describe("User display name"),
 });
 export type SpaceItemAssignee = z.infer<typeof SpaceItemAssigneeSchema>;
 
 export const SpaceItemSchema = z.object({
-  id: z.uuid().describe("Item UUID"),
-  spaceId: z.uuid().describe("Parent space UUID"),
-  columnId: z.uuid().describe("Current column UUID"),
+  id: SpaceUuidSchema.describe("Item UUID"),
+  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
+  columnId: SpaceUuidSchema.describe("Current column UUID"),
   title: z.string().describe("Item title"),
   description: z.string().nullable().describe("Item description (markdown)"),
   startsAt: z.string().nullable().describe("Event start time (ISO)"),
   endsAt: z.string().nullable().describe("Event end time (ISO)"),
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
-  position: z.number().int().describe("Position within column"),
+  rank: z.string().describe("Item ordering rank within a column"),
   completedAt: z.string().nullable().describe("Completion timestamp (ISO)"),
-  createdBy: z.uuid().nullable().describe("Creator user UUID"),
+  createdBy: SpaceUuidSchema.nullable().describe("Creator user UUID"),
   createdAt: z.string().describe("Creation timestamp (ISO)"),
   updatedAt: z.string().describe("Last update timestamp (ISO)"),
   // Optional relations (loaded on demand)
@@ -60,9 +63,9 @@ export const SpaceItemSchema = z.object({
 export type SpaceItem = z.infer<typeof SpaceItemSchema>;
 
 export const SpaceCommentSchema = z.object({
-  id: z.uuid().describe("Comment UUID"),
-  itemId: z.uuid().describe("Parent item UUID"),
-  userId: z.uuid().nullable().describe("Author user UUID"),
+  id: SpaceUuidSchema.describe("Comment UUID"),
+  itemId: SpaceUuidSchema.describe("Parent item UUID"),
+  userId: SpaceUuidSchema.nullable().describe("Author user UUID"),
   userName: z.string().nullable().describe("Author display name"),
   content: z.string().describe("Comment content"),
   createdAt: z.string().describe("Creation timestamp (ISO)"),
@@ -79,8 +82,8 @@ export type SpaceDetail = z.infer<typeof SpaceDetailSchema>;
 
 // Calendar item (for calendar view)
 export const CalendarItemSchema = z.object({
-  id: z.uuid().describe("Item UUID"),
-  spaceId: z.uuid().describe("Parent space UUID"),
+  id: SpaceUuidSchema.describe("Item UUID"),
+  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
   spaceName: z.string().describe("Space name"),
   spaceColor: z.string().describe("Space color"),
   title: z.string().describe("Item title"),
@@ -93,8 +96,8 @@ export type CalendarItem = z.infer<typeof CalendarItemSchema>;
 
 // Overlap result
 export const OverlapItemSchema = z.object({
-  itemId: z.uuid().describe("Overlapping item UUID"),
-  spaceId: z.uuid().describe("Space UUID"),
+  itemId: SpaceUuidSchema.describe("Overlapping item UUID"),
+  spaceId: SpaceUuidSchema.describe("Space UUID"),
   spaceName: z.string().describe("Space name"),
   title: z.string().describe("Item title"),
   startsAt: z.string().describe("Event start time (ISO)"),
@@ -150,7 +153,7 @@ export const UpdateColumnSchema = z.object({
 export type UpdateColumn = z.infer<typeof UpdateColumnSchema>;
 
 export const ReorderColumnsSchema = z.object({
-  columnIds: z.array(z.uuid()).describe("Column IDs in new order"),
+  columnIds: z.array(SpaceUuidSchema).describe("Column IDs in new order"),
 });
 export type ReorderColumns = z.infer<typeof ReorderColumnsSchema>;
 
@@ -175,15 +178,15 @@ export type UpdateTag = z.infer<typeof UpdateTagSchema>;
 
 export const CreateItemSchema = z
   .object({
-    columnId: z.uuid().describe("Target column UUID"),
+    columnId: SpaceUuidSchema.describe("Target column UUID"),
     title: z.string().min(1).max(200).describe("Item title"),
     description: z.string().max(5000).optional().describe("Item description (markdown)"),
     startsAt: z.string().datetime().optional().describe("Event start time (ISO)"),
     endsAt: z.string().datetime().optional().describe("Event end time (ISO)"),
     deadline: z.string().datetime().optional().describe("Todo deadline (ISO)"),
     priority: PrioritySchema.optional().describe("Item priority"),
-    assigneeIds: z.array(z.uuid()).optional().describe("Assigned user UUIDs"),
-    tagIds: z.array(z.uuid()).optional().describe("Tag UUIDs"),
+    assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
+    tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
   })
   .refine((data) => !data.startsAt || !data.endsAt || new Date(data.endsAt) > new Date(data.startsAt), {
     message: "End time must be after start time",
@@ -192,21 +195,25 @@ export const CreateItemSchema = z
 export type CreateItem = z.infer<typeof CreateItemSchema>;
 
 export const UpdateItemSchema = z.object({
-  columnId: z.uuid().optional().describe("Target column UUID"),
+  columnId: SpaceUuidSchema.optional().describe("Target column UUID"),
   title: z.string().min(1).max(200).optional().describe("Item title"),
   description: z.string().max(5000).nullable().optional().describe("Item description (markdown)"),
   startsAt: z.string().datetime().nullable().optional().describe("Event start time (ISO)"),
   endsAt: z.string().datetime().nullable().optional().describe("Event end time (ISO)"),
   deadline: z.string().datetime().nullable().optional().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().optional().describe("Item priority"),
-  assigneeIds: z.array(z.uuid()).optional().describe("Assigned user UUIDs"),
-  tagIds: z.array(z.uuid()).optional().describe("Tag UUIDs"),
+  assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
+  tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
 });
 export type UpdateItem = z.infer<typeof UpdateItemSchema>;
 
 export const MoveItemSchema = z.object({
-  columnId: z.uuid().describe("Target column UUID"),
-  position: z.number().int().min(0).describe("Target position"),
+  columnId: SpaceUuidSchema.describe("Target column UUID"),
+  rank: z
+    .string()
+    .regex(/^-?\d+$/)
+    .describe("Target rank value"),
+  completed: z.boolean().optional().describe("Optional completion state override after move"),
 });
 export type MoveItem = z.infer<typeof MoveItemSchema>;
 
@@ -234,7 +241,7 @@ export type CalendarQuery = z.infer<typeof CalendarQuerySchema>;
 export const OverlapQuerySchema = z.object({
   from: z.string().datetime().describe("Start of time range (ISO)"),
   to: z.string().datetime().describe("End of time range (ISO)"),
-  excludeItemId: z.uuid().optional().describe("Item to exclude from check"),
+  excludeItemId: SpaceUuidSchema.optional().describe("Item to exclude from check"),
 });
 export type OverlapQuery = z.infer<typeof OverlapQuerySchema>;
 
@@ -263,10 +270,10 @@ export const ItemFilterSchema = z.object({
   type: ItemTypeSchema.default("all").describe("Filter by item type"),
   status: ItemStatusSchema.default("active").describe("Filter by completion status"),
   priority: z.array(PrioritySchema).optional().describe("Filter by priorities"),
-  tagIds: z.array(z.uuid()).optional().describe("Filter by tag IDs"),
-  assigneeIds: z.array(z.uuid()).optional().describe("Filter by assignee IDs"),
+  tagIds: z.array(SpaceUuidSchema).optional().describe("Filter by tag IDs"),
+  assigneeIds: z.array(SpaceUuidSchema).optional().describe("Filter by assignee IDs"),
   assignedTo: AssignedToFilterSchema.default("all").describe("Filter by assignment: all, me, or unassigned"),
-  columnIds: z.array(z.uuid()).optional().describe("Filter by column IDs"),
+  columnIds: z.array(SpaceUuidSchema).optional().describe("Filter by column IDs"),
   deadlineFilter: DeadlineFilterSchema.default("all").describe("Filter by deadline range"),
   search: z.string().optional().describe("Search in title and description"),
 
