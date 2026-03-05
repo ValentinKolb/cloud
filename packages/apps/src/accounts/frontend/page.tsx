@@ -31,6 +31,15 @@ export default ssr<AuthContext>(async (c) => {
               color="blue"
             />
           )}
+          {isAdmin && (
+            <LinkCard
+              href="/app/accounts/requests"
+              title="Requests"
+              description="Review account requests and process approvals"
+              icon="ti ti-user-plus"
+              color="amber"
+            />
+          )}
           <LinkCard
             href="/app/accounts/groups"
             title="Groups"

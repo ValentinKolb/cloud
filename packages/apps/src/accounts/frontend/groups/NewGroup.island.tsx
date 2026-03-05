@@ -122,7 +122,7 @@ export default function NewGroup() {
   };
 
   return (
-    <button type="button" class="btn-secondary shrink-0 self-stretch px-3" onClick={handleClick} disabled={mutation.loading()}>
+    <button type="button" class="btn-input btn-input-sm shrink-0 self-stretch px-3" onClick={handleClick} disabled={mutation.loading()}>
       <i class="ti ti-plus" />
       <span class="hidden sm:inline">{mutation.loading() ? "Creating..." : "New Group"}</span>
     </button>

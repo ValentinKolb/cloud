@@ -7,7 +7,15 @@ import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { respond } from "@valentinkolb/cloud/lib/server";
 import { ok } from "@valentinkolb/cloud/lib/server";
 import { accountsService } from "../service";
-import { ErrorResponseSchema, MessageResponseSchema, hasRole } from "@/accounts/contracts";
+import {
+  ErrorResponseSchema,
+  MessageResponseSchema,
+  PaginationQuerySchema,
+  PaginationResponseSchema,
+  createPagination,
+  hasRole,
+  parsePagination,
+} from "@/accounts/contracts";
 
 const CreateAccountRequestSchema = z.object({
   comment: z.string().optional().describe("Why do you need an account?"),
@@ -33,6 +41,7 @@ const AccountRequestSchema = z.object({
 
 const AccountRequestListResponseSchema = z.object({
   requests: z.array(AccountRequestSchema),
+  pagination: PaginationResponseSchema,
 });
 
 const AccountRequestResponseSchema = z.object({
@@ -92,21 +101,31 @@ const app = new Hono<AuthContext>()
     v(
       "query",
       z.object({
+        ...PaginationQuerySchema.shape,
         status: z.enum(["pending", "completed", "denied"]).optional(),
+        scope: z.enum(["open", "processed", "all"]).optional(),
       }),
     ),
     async (c) => {
       const user = c.get("user");
-      const { status } = c.req.valid("query");
+      const query = c.req.valid("query");
+      const pagination = parsePagination(query);
       const requestsPage = await accountsService.accountRequest.list({
         access: {
           userId: user.id,
           isAdmin: hasRole(user, "admin"),
         },
-        filter: { status },
+        pagination: { page: pagination.page, perPage: pagination.perPage },
+        filter: { status: query.status, scope: query.scope },
       });
 
-      return respond(c, ok({ requests: requestsPage.items }));
+      return respond(
+        c,
+        ok({
+          requests: requestsPage.items,
+          pagination: createPagination(pagination, requestsPage.total),
+        }),
+      );
     },
   )
 

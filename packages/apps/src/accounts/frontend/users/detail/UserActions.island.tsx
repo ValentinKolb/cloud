@@ -5,7 +5,7 @@ import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { apiClient } from "@/accounts/client";
 import { apiClient as notificationsApiClient } from "@/notifications/client";
-import { hasRole, type FullUser } from "@/accounts/contracts";
+import type { FullUser } from "@/accounts/contracts";
 import { CopyButton } from "@valentinkolb/cloud/lib/ui";
 import { navigateTo, refreshCurrentPath } from "../../lib/navigation";
 
@@ -15,6 +15,9 @@ type UserActionsProps = {
   manages: string[];
   listHref: string;
 };
+
+const hasRole = (roles: FullUser["roles"], ...required: FullUser["roles"][number][]) =>
+  required.some((role) => roles.includes(role));
 
 export default function UserActions(props: UserActionsProps) {
   const editMutation = mutations.create<
@@ -366,7 +369,7 @@ export default function UserActions(props: UserActionsProps) {
   };
 
   const handleDestroy = async () => {
-    const isIpaUser = hasRole(props.user, "ipa", "ipa-limited");
+    const isIpaUser = hasRole(props.user.roles, "ipa", "ipa-limited");
 
     const confirmed = await prompts.confirm(
       <div class="flex flex-col gap-2">
@@ -394,7 +397,7 @@ export default function UserActions(props: UserActionsProps) {
   };
 
   const showDestroySuccessDialog = () => {
-    const isIpaUser = hasRole(props.user, "ipa", "ipa-limited");
+    const isIpaUser = hasRole(props.user.roles, "ipa", "ipa-limited");
     const nfsCommand = `sudo nfsctl userdel ${props.user.uid}`;
 
     prompts.dialog<void>(
@@ -432,7 +435,7 @@ export default function UserActions(props: UserActionsProps) {
     );
   };
 
-  const isIpaUser = hasRole(props.user, "ipa", "ipa-limited");
+  const isIpaUser = hasRole(props.user.roles, "ipa", "ipa-limited");
 
   return (
     <Dropdown

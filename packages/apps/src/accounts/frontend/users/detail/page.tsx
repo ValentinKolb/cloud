@@ -4,7 +4,7 @@ import { GroupView } from "@valentinkolb/cloud/lib/ui";
 import { dates } from "@valentinkolb/cloud/lib/shared";
 import { hasRole } from "@/accounts/contracts";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
-import UserSidebar from "../UserSidebar.island";
+import AccountsNavSidebar from "../../AccountsNavSidebar";
 import { accountsService } from "../../../service";
 import { buildUserDetailUrl, buildUsersUrl, parseUsersListState } from "../../lib/url-state";
 import AddToGroup from "./AddToGroup.island";
@@ -26,20 +26,9 @@ const formatAddress = (a: {
   return parts.length > 0 ? parts.join(", ") : null;
 };
 
-type AccountRequest = {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  displayName: string | null;
-  comment: string | null;
-  createdAt: string;
-};
-
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id");
   const recursive = c.req.query("recursive") === "true";
-  const perPage = 40;
 
   const listState = parseUsersListState({
     search: c.req.query("search"),
@@ -75,11 +64,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const isIpaUser = hasRole(user, "ipa", "ipa-limited");
 
-  const [sidebarUsersPage, pendingRequestsPage, allGroupsPage, allManagesPage, directGroupsPage] = await Promise.all([
-    accountsService.user.list({
-      pagination: { page: listState.page, perPage },
-      filter: { search: listState.search || undefined },
-    }),
+  const [pendingRequestsPage, allGroupsPage, allManagesPage, directGroupsPage] = await Promise.all([
     accountsService.accountRequest.list({
       access: { userId: c.get("user").id, isAdmin: true },
       filter: { status: "pending" },
@@ -119,12 +104,8 @@ export default ssr<AuthContext>(async (c) => {
           perPage: 0,
           total: 0,
           hasNext: false,
-        }),
+      }),
   ]);
-
-  const pendingRequests: AccountRequest[] = [...pendingRequestsPage.items].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
 
   const allGroups = allGroupsPage.items;
   const allManages = allManagesPage.items;
@@ -170,28 +151,17 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="app-cols h-full">
-        <div class="hidden lg:flex flex-col w-80 shrink-0 overflow-y-auto">
-          <UserSidebar
-            users={sidebarUsersPage.items}
-            total={sidebarUsersPage.total}
-            perPage={perPage}
-            activeId={id}
-            pendingRequests={pendingRequests}
-            listState={listState}
-          />
-        </div>
+        <AccountsNavSidebar active="users" isAdmin={true} pendingRequests={pendingRequestsPage.total} />
 
         <div class="flex-1 min-w-0 flex flex-col">
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            <a href={buildUsersUrl(listState)} class="list-item text-xs">
-              <i class="ti ti-arrow-left text-sm" />
-              <span>All Users</span>
-            </a>
-          </div>
-          <div class="divider lg:hidden" />
-
           <div class="flex-1 min-h-0 overflow-y-auto">
             <div class="flex flex-col gap-4 p-4">
+              <div>
+                <a href={buildUsersUrl(listState)} class="btn-secondary btn-sm">
+                  <i class="ti ti-arrow-left" />
+                  All Users
+                </a>
+              </div>
               <div class="paper p-6 flex flex-col gap-4">
                 <div class="flex items-center gap-4">
                   <div class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 font-semibold text-zinc-600 dark:text-zinc-300 h-16 w-16 text-xl">

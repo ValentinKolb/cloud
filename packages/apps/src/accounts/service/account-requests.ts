@@ -2,13 +2,13 @@ import { sql } from "bun";
 import { notifications } from "@valentinkolb/cloud/core/services";
 import * as settings from "@valentinkolb/cloud/core/services";
 import { renderTemplate } from "@valentinkolb/cloud/core/services";
-import { err, fail, ok, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
+import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
 import { hasRole, type SessionUser } from "@/accounts/contracts";
-import { paginateItems } from "./shared";
 
 type DbRow = Record<string, unknown>;
 
 export type AccountRequestStatus = "pending" | "completed" | "denied";
+export type AccountRequestScope = "open" | "processed" | "all";
 
 export type AccountRequest = {
   id: string;
@@ -47,20 +47,83 @@ export const accountRequestsService = {
   list: async (config: {
     access: { userId: string; isAdmin: boolean };
     pagination?: PageParams;
-    filter?: { status?: AccountRequestStatus };
+    filter?: { status?: AccountRequestStatus; scope?: AccountRequestScope };
   }): Promise<Paginated<AccountRequest>> => {
-    let rows: DbRow[];
+    const { page, perPage, offset } = paginate(config.pagination);
+    let rows: DbRow[] = [];
+    let totalRows: Array<{ total: number }> = [];
 
     if (config.access.isAdmin) {
-      const status = config.filter?.status ?? "pending";
-      rows = await sql`
-        SELECT r.id, r.user_id, u.mail AS email, u.given_name AS first_name, u.sn AS last_name,
-               u.display_name, u.phone, r.comment, r.status, r.created_at
-        FROM auth.account_requests r
-        JOIN auth.users u ON u.id = r.user_id
-        WHERE r.status = ${status}
-        ORDER BY r.created_at DESC
-      `;
+      const status = config.filter?.status;
+      const scope = config.filter?.scope ?? "open";
+
+      if (status) {
+        rows = await sql`
+          SELECT r.id, r.user_id, u.mail AS email, u.given_name AS first_name, u.sn AS last_name,
+                 u.display_name, u.phone, r.comment, r.status, r.created_at
+          FROM auth.account_requests r
+          JOIN auth.users u ON u.id = r.user_id
+          WHERE r.status = ${status}
+          ORDER BY r.created_at DESC
+          LIMIT ${perPage}
+          OFFSET ${offset}
+        `;
+
+        totalRows = await sql`
+          SELECT COUNT(*)::int AS total
+          FROM auth.account_requests r
+          WHERE r.status = ${status}
+        `;
+      } else if (scope === "processed") {
+        rows = await sql`
+          SELECT r.id, r.user_id, u.mail AS email, u.given_name AS first_name, u.sn AS last_name,
+                 u.display_name, u.phone, r.comment, r.status, r.created_at
+          FROM auth.account_requests r
+          JOIN auth.users u ON u.id = r.user_id
+          WHERE r.status IN ('completed', 'denied')
+          ORDER BY r.created_at DESC
+          LIMIT ${perPage}
+          OFFSET ${offset}
+        `;
+
+        totalRows = await sql`
+          SELECT COUNT(*)::int AS total
+          FROM auth.account_requests r
+          WHERE r.status IN ('completed', 'denied')
+        `;
+      } else if (scope === "all") {
+        rows = await sql`
+          SELECT r.id, r.user_id, u.mail AS email, u.given_name AS first_name, u.sn AS last_name,
+                 u.display_name, u.phone, r.comment, r.status, r.created_at
+          FROM auth.account_requests r
+          JOIN auth.users u ON u.id = r.user_id
+          ORDER BY r.created_at DESC
+          LIMIT ${perPage}
+          OFFSET ${offset}
+        `;
+
+        totalRows = await sql`
+          SELECT COUNT(*)::int AS total
+          FROM auth.account_requests r
+        `;
+      } else {
+        rows = await sql`
+          SELECT r.id, r.user_id, u.mail AS email, u.given_name AS first_name, u.sn AS last_name,
+                 u.display_name, u.phone, r.comment, r.status, r.created_at
+          FROM auth.account_requests r
+          JOIN auth.users u ON u.id = r.user_id
+          WHERE r.status = 'pending'
+          ORDER BY r.created_at DESC
+          LIMIT ${perPage}
+          OFFSET ${offset}
+        `;
+
+        totalRows = await sql`
+          SELECT COUNT(*)::int AS total
+          FROM auth.account_requests r
+          WHERE r.status = 'pending'
+        `;
+      }
     } else {
       rows = await sql`
         SELECT r.id, r.user_id, u.mail AS email, u.given_name AS first_name, u.sn AS last_name,
@@ -69,10 +132,25 @@ export const accountRequestsService = {
         JOIN auth.users u ON u.id = r.user_id
         WHERE r.user_id = ${config.access.userId} AND r.status = 'pending'
         ORDER BY r.created_at DESC
+        LIMIT ${perPage}
+        OFFSET ${offset}
+      `;
+
+      totalRows = await sql`
+        SELECT COUNT(*)::int AS total
+        FROM auth.account_requests r
+        WHERE r.user_id = ${config.access.userId} AND r.status = 'pending'
       `;
     }
 
-    return paginateItems(rows.map(mapAccountRequestRow), config.pagination);
+    const total = totalRows[0]?.total ?? 0;
+    return {
+      items: rows.map(mapAccountRequestRow),
+      page,
+      perPage,
+      total,
+      hasNext: page * perPage < total,
+    };
   },
   /**
    * Returns one request when caller is allowed to access it.

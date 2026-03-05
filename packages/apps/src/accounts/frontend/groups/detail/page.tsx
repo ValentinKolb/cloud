@@ -2,7 +2,7 @@ import { ssr } from "@valentinkolb/cloud/core/config";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
 import { createPagination, hasRole, type BaseGroup, type BaseUser } from "@/accounts/contracts";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
-import GroupSidebar from "../GroupSidebar.island";
+import AccountsNavSidebar from "../../AccountsNavSidebar";
 import { accountsService } from "../../../service";
 import { GROUPS_CONTEXT_QUERY_KEYS, buildGroupDetailUrl, buildGroupsUrl, parseGroupsListState } from "../../lib/url-state";
 import GroupActions from "./GroupActions.island";
@@ -87,12 +87,13 @@ export default ssr<AuthContext>(async (c) => {
     return `${url.pathname}${url.search}`;
   };
 
-  const [sidebarGroupsPage, parentGroupsPage, managedGroupsPage] = await Promise.all([
-    accountsService.group.list({
-      pagination: { page: listState.page, perPage },
-      filter: { search: listState.search || undefined },
-      scope: { userId: listState.showAll ? undefined : user.id },
-    }),
+  const [pendingRequestsPage, parentGroupsPage, managedGroupsPage] = await Promise.all([
+    isAdmin
+      ? accountsService.accountRequest.list({
+          access: { userId: user.id, isAdmin: true },
+          filter: { status: "pending" },
+        })
+      : Promise.resolve({ total: 0 }),
     accountsService.group.parent.list({ cn }),
     accountsService.group.managedGroup.list({ cn }),
   ]);
@@ -189,31 +190,17 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="app-cols h-full">
-        <div class="hidden lg:flex flex-col w-48 shrink-0 overflow-y-auto">
-          <GroupSidebar
-            groups={sidebarGroupsPage.items}
-            total={sidebarGroupsPage.total}
-            perPage={perPage}
-            activeCn={cn}
-            isAdmin={isAdmin}
-            managedCns={user.manages}
-            listState={listState}
-            detailQueryKeys={GROUPS_CONTEXT_QUERY_KEYS}
-            defaultShowAll={isAdmin}
-          />
-        </div>
+        <AccountsNavSidebar active="groups" isAdmin={isAdmin} pendingRequests={pendingRequestsPage.total} />
 
         <div class="flex-1 min-w-0 flex flex-col">
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            <a href={groupsListHref} class="list-item text-xs">
-              <i class="ti ti-arrow-left text-sm" />
-              <span>All Groups</span>
-            </a>
-          </div>
-          <div class="divider lg:hidden" />
-
           <div class="flex-1 min-h-0 overflow-y-auto">
             <div class="flex flex-col gap-4 p-4">
+              <div>
+                <a href={groupsListHref} class="btn-secondary btn-sm">
+                  <i class="ti ti-arrow-left" />
+                  All Groups
+                </a>
+              </div>
               <div class="flex items-start gap-3">
                 <div class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 h-10 w-10">
                   <i class="ti ti-users-group text-lg" />
