@@ -28,24 +28,9 @@ export default function AdminLayout({ children, c, title, contentFullWidth }: Pr
   return (
     <Layout c={c} fullWidth title={breadcrumbs}>
       {" "}
-      <div class="app-cols h-full">
-        {" "}
-        {/* Sidebar (Desktop) */}{" "}
-        <div class="hidden lg:flex flex-col w-48 shrink-0 overflow-y-auto">
-          <AdminSidebar pathname={pathname} apps={runtime.apps} />
-        </div>{" "}
-        {/* Main */}{" "}
-        <div class="flex-1 min-w-0 flex flex-col">
-          {" "}
-          {/* Mobile: Back link */}{" "}
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            {" "}
-            <a href="/admin" class="list-item text-xs">
-              {" "}
-              <i class="ti ti-arrow-left text-sm" /> <span>Admin</span>{" "}
-            </a>{" "}
-          </div>{" "}
-          <div class="divider lg:hidden" /> {/* Scrollable Content */}{" "}
+      <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+        <AdminSidebar pathname={pathname} apps={runtime.apps} />
+        <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div class={`flex-1 min-h-0 ${contentFullWidth ? "flex flex-col" : "overflow-y-auto"}`}>
             {" "}
             {contentFullWidth ? children : <div class="p-4">{children}</div>}{" "}

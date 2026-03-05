@@ -201,15 +201,78 @@ export const migrate = async (): Promise<void> => {
   // Account requests
   // ----------------------------------------------------------
 
+  const ensureAccountRequestsCapacity = async (): Promise<void> => {
+    const [tableExists] = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'auth' AND table_name = 'account_requests'
+      ) AS exists
+    `;
+    if (!tableExists?.exists) return;
+
+    const [stats] = await sql<{ total_columns: number; dropped_columns: number }[]>`
+      SELECT
+        COUNT(*) FILTER (WHERE attnum > 0) AS total_columns,
+        COUNT(*) FILTER (WHERE attnum > 0 AND attisdropped) AS dropped_columns
+      FROM pg_attribute
+      WHERE attrelid = 'auth.account_requests'::regclass
+    `;
+    const totalColumns = Number(stats?.total_columns ?? 0);
+    const droppedColumns = Number(stats?.dropped_columns ?? 0);
+
+    // Guard against the historical add/drop loop that exhausts PostgreSQL's 1600-column limit.
+    if (totalColumns < 1200 && droppedColumns < 128) return;
+
+    console.log(`  ! Rebuilding auth.account_requests (total=${totalColumns}, dropped=${droppedColumns})`);
+
+    await sql.begin(async (tx) => {
+      await tx`DROP TABLE IF EXISTS auth.account_requests_rebuild`.simple();
+      await tx`
+        CREATE TABLE auth.account_requests_rebuild (
+          id UUID PRIMARY KEY,
+          user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+          comment TEXT,
+          accepted_agb BOOLEAN NOT NULL DEFAULT false,
+          status TEXT NOT NULL DEFAULT 'pending',
+          denied_reason TEXT,
+          processed_at TIMESTAMPTZ,
+          processed_by UUID REFERENCES auth.users(id),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `.simple();
+
+      await tx`
+        INSERT INTO auth.account_requests_rebuild (id, user_id, comment, accepted_agb, status, denied_reason, processed_at, processed_by, created_at)
+        SELECT
+          COALESCE(NULLIF(data->>'id', '')::uuid, gen_random_uuid()) AS id,
+          NULLIF(data->>'user_id', '')::uuid AS user_id,
+          NULLIF(data->>'comment', '') AS comment,
+          COALESCE(NULLIF(data->>'accepted_agb', '')::boolean, false) AS accepted_agb,
+          COALESCE(NULLIF(data->>'status', ''), 'pending') AS status,
+          NULLIF(data->>'denied_reason', '') AS denied_reason,
+          NULLIF(data->>'processed_at', '')::timestamptz AS processed_at,
+          NULLIF(data->>'processed_by', '')::uuid AS processed_by,
+          COALESCE(NULLIF(data->>'created_at', '')::timestamptz, now()) AS created_at
+        FROM (
+          SELECT to_jsonb(ar) AS data
+          FROM auth.account_requests ar
+        ) src
+      `.simple();
+
+      await tx`DROP TABLE IF EXISTS auth.account_requests_backup`.simple();
+      await tx`CREATE TABLE auth.account_requests_backup AS TABLE auth.account_requests`.simple();
+      await tx`DROP TABLE auth.account_requests`.simple();
+      await tx`ALTER TABLE auth.account_requests_rebuild RENAME TO account_requests`.simple();
+    });
+
+    console.log("  ✓ Rebuilt auth.account_requests (backup: auth.account_requests_backup)");
+  };
+
   await sql`
     CREATE TABLE IF NOT EXISTS auth.account_requests (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-      email TEXT NOT NULL,
-      first_name TEXT NOT NULL,
-      last_name TEXT NOT NULL,
-      display_name TEXT,
-      phone TEXT,
       comment TEXT,
       accepted_agb BOOLEAN NOT NULL DEFAULT false,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -220,14 +283,17 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
 
+  await ensureAccountRequestsCapacity();
+
   // Add new columns if they don't exist (for existing installations)
   await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE`.simple();
-  await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS display_name TEXT`.simple();
-  await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS phone TEXT`.simple();
+  await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS comment TEXT`.simple();
+  await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS accepted_agb BOOLEAN NOT NULL DEFAULT false`.simple();
   await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'`.simple();
   await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS denied_reason TEXT`.simple();
   await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS processed_by UUID REFERENCES auth.users(id)`.simple();
+  await sql`ALTER TABLE auth.account_requests ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()`.simple();
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_account_requests_user

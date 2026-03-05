@@ -1,9 +1,5 @@
-import { hasRole, type SessionUser } from "@valentinkolb/cloud-contracts/shared";
-import { createSignal } from "solid-js";
+import type { Role, SessionUser } from "@valentinkolb/cloud-contracts/shared";
 import { Dropdown } from "@valentinkolb/cloud-lib/ui";
-import { cookies } from "@valentinkolb/cloud-lib/browser";
-import { apiClient } from "@/api/api-client";
-
 
 type MobileAppLink = {
   href: string;
@@ -16,35 +12,10 @@ type NavMenuProps = {
   mobileApps: MobileAppLink[];
 };
 
+const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
+
 /** Navigation dropdown menu - always visible, adapts to auth state. */
 export default function NavMenu(props: NavMenuProps) {
-  const [theme, setTheme] = createSignal(
-    typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light",
-  );
-
-  const [navStyle, setNavStyle] = createSignal(typeof document !== "undefined" ? (cookies.readCookie("navStyle") ?? "rail") : "rail");
-
-  const toggleTheme = (): void => {
-    const newTheme = theme() === "dark" ? "light" : "dark";
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(newTheme);
-    cookies.writeCookie("theme", newTheme);
-    setTheme(newTheme);
-  };
-
-  const toggleNavStyle = (): void => {
-    const next = navStyle() === "tabs" ? "rail" : "tabs";
-    cookies.writeCookie("navStyle", next);
-    setNavStyle(next);
-    // SSR-rendered layout must re-render, so reload
-    location.reload();
-  };
-
-  const logout = async (): Promise<void> => {
-    await apiClient.auth.logout.$post();
-    window.location.href = "/auth/login";
-  };
-
   const getElements = () => [
     // Top: Profile or Login
     ...(props.user
@@ -61,7 +32,7 @@ export default function NavMenu(props: NavMenuProps) {
                   </div>
                   <div class="flex-1">
                     <div class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{props.user.displayName || props.user.uid}</div>
-                    {props.user.displayName && hasRole(props.user, "ipa") && (
+                    {props.user.displayName && hasRole(props.user.roles, "ipa") && (
                       <div class="hidden sm:block text-xs text-dimmed">{props.user.uid}</div>
                     )}
                   </div>
@@ -93,7 +64,7 @@ export default function NavMenu(props: NavMenuProps) {
                     <span>{app.label}</span>
                   </a>
                 ))}
-                {hasRole(props.user, "admin") && (
+                {hasRole(props.user.roles, "admin") && (
                   <a
                     href="/admin"
                     class="flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 text-zinc-700 dark:text-zinc-300"
@@ -107,36 +78,6 @@ export default function NavMenu(props: NavMenuProps) {
           },
         ]
       : []),
-    // Section: Actions
-    {
-      sectionLabel: "Settings",
-      items: [
-        {
-          icon: theme() === "dark" ? "ti ti-sunset-2" : "ti ti-moon-stars",
-          label: theme() === "dark" ? "Light Mode" : "Dark Mode",
-          action: toggleTheme,
-        },
-        ...(props.user
-          ? [
-              {
-                icon: navStyle() === "tabs" ? "ti ti-layout-sidebar-left-collapse" : "ti ti-layout-navbar",
-                label: navStyle() === "tabs" ? "Icon Rail Nav" : "Tab Bar Nav",
-                action: toggleNavStyle,
-              },
-            ]
-          : []),
-        ...(props.user
-          ? [
-              {
-                icon: "ti ti-logout",
-                label: "Sign Out",
-                action: logout,
-                variant: "danger" as const,
-              },
-            ]
-          : []),
-      ],
-    },
   ];
 
   return (

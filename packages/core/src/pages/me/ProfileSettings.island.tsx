@@ -2,7 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { cookies, mutation as mutations } from "@valentinkolb/cloud-lib/browser";
 import { gradients } from "@valentinkolb/cloud-lib/shared";
 import { prompts, SegmentedControl } from "@valentinkolb/cloud-lib/ui";
-import { hasRole, type Role } from "@valentinkolb/cloud-contracts/shared";
+import type { Role } from "@valentinkolb/cloud-contracts/shared";
 import type { WidgetData } from "@valentinkolb/cloud-contracts/app";
 import { apiClient } from "@/api/api-client";
 
@@ -10,6 +10,8 @@ type Props = {
   roles: Role[];
   availableWidgets: WidgetData[];
 };
+
+const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
 
 // ── Toggle Button Group ──
 
@@ -71,19 +73,11 @@ export default function ProfileSettings(props: Props) {
     typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light",
   );
 
-  const [navStyle, setNavStyle] = createSignal(typeof document !== "undefined" ? (cookies.readCookie("navStyle") ?? "rail") : "rail");
-
   const handleTheme = (value: string) => {
     document.documentElement.classList.remove("dark", "light");
     document.documentElement.classList.add(value);
     cookies.writeCookie("theme", value);
     setTheme(value);
-  };
-
-  const handleNavStyle = (value: string) => {
-    cookies.writeCookie("navStyle", value);
-    setNavStyle(value);
-    location.reload();
   };
 
   const [nameGradient, setNameGradient] = createSignal(
@@ -207,8 +201,8 @@ export default function ProfileSettings(props: Props) {
     cookies.writeJsonCookie("hiddenWidgets", next);
   };
 
-  const isIpa = hasRole({ roles: props.roles }, "ipa", "ipa-limited");
-  const isGuest = hasRole({ roles: props.roles }, "guest");
+  const isIpa = hasRole(props.roles, "ipa", "ipa-limited");
+  const isGuest = hasRole(props.roles, "guest");
 
   return (
     <>
@@ -227,21 +221,6 @@ export default function ProfileSettings(props: Props) {
           options={[
             { value: "light", label: "Light", icon: "ti-sun" },
             { value: "dark", label: "Dark", icon: "ti-moon" },
-          ]}
-        />
-
-        <ToggleGroup
-          label="Navigation"
-          description="How apps are displayed in the header"
-          value={navStyle}
-          onChange={handleNavStyle}
-          options={[
-            { value: "tabs", label: "Tabs", icon: "ti-layout-navbar" },
-            {
-              value: "rail",
-              label: "Rail",
-              icon: "ti-layout-sidebar-left-collapse",
-            },
           ]}
         />
 

@@ -2,8 +2,8 @@ import { createSignal, For, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/cloud-lib/browser";
 import { prompts } from "@valentinkolb/cloud-lib/ui";
 import { apiClient } from "@/api/api-client";
-import { hasRole, type Role } from "@valentinkolb/cloud-contracts/shared";
-import {TextInput } from "@valentinkolb/cloud-lib/ui";
+import type { Role } from "@valentinkolb/cloud-contracts/shared";
+import { TextInput } from "@valentinkolb/cloud-lib/ui";
 
 type Props = {
   roles: Role[];
@@ -24,9 +24,10 @@ type Props = {
 };
 
 const SSH_KEY_PATTERN = /^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521))\s+[A-Za-z0-9+/=]+/;
+const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
 
 export default function ProfileActions(props: Props) {
-  const isIpa = hasRole({ roles: props.roles }, "ipa", "ipa-limited");
+  const isIpa = hasRole(props.roles, "ipa", "ipa-limited");
   const holders = props.appName ? `${props.appName} account holders` : "all account holders";
 
   // ── Edit Profile ──

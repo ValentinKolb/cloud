@@ -3,11 +3,14 @@ import type { JSX } from "solid-js/jsx-runtime";
 import NavMenu from "./NavMenu.island";
 import MoreAppsDropdown from "./MoreAppsDropdown.island";
 import ThemeToggleRail from "./ThemeToggleRail.island";
+import HotkeysHelpRail from "./HotkeysHelpRail.island";
+import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
 import Footer from "./Footer.island";
 import { dates } from "@valentinkolb/cloud-lib/shared";
 import { getSync } from "@valentinkolb/cloud-core/services/settings";
 import { getRuntimeContext, type RuntimeContext } from "@/runtime";
 import { resolveNavMatch } from "@valentinkolb/cloud-contracts/app"; // ==========================
+import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
 // Types
 type Breadcrumb = { title: string; href?: string };
 type AppLink = { iconClass: string; label: string; href: string; match: string };
@@ -110,7 +113,7 @@ function ExpiryWarnings({ user }: { user: SessionUser }) {
 // Sub-Components
 function BreadcrumbNav({ breadcrumbs }: { breadcrumbs: Breadcrumb[] }) {
   return (
-    <nav class="flex items-center gap-1 sm:gap-2 min-w-0 text-sm">
+    <nav class="flex items-center gap-1 sm:gap-2 min-w-0 text-sm md:text-xs">
       {" "}
       {breadcrumbs.map((crumb, i) => {
         const isLast = i === breadcrumbs.length - 1;
@@ -138,25 +141,35 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const cookie = c.req.raw.headers.get("Cookie") ?? "";
   const themeMatch = cookie.match(/theme=([^;]+)/);
   c.get("page").theme = themeMatch?.[1] === "dark" ? "dark" : "light";
-  const navMatch = cookie.match(/navStyle=([^;]+)/);
-  const navStyle = navMatch?.[1] === "tabs" ? "tabs" : "rail";
   const user = c.get("user");
   const pathname = new URL(c.req.raw.url).pathname;
   const { primary: primaryApps, more: moreApps } = buildNavLinks(runtime.apps, user);
   const allApps = [...primaryApps, ...moreApps];
   const mobileApps = allApps.filter((app) => app.href !== "/admin");
+  const searchHelpApps: GlobalSearchHelpApp[] = runtime.apps
+    .filter((app) => (app.searchTags?.length ?? 0) > 0)
+    .map((app) => ({
+      appId: app.id,
+      appName: app.name,
+      appIcon: app.icon,
+      help: app.searchHelp,
+      tags: [...new Set((app.searchTags ?? []).map((tag) => tag.toLowerCase()))],
+      tagHelp: [...(app.searchTagHelp ?? [])],
+    }))
+    .sort((a, b) => a.appName.localeCompare(b.appName));
   const appName = getSync<string>("app.name") || "Cloud";
   const page = c.get("page") as Record<string, unknown>;
   if (!page.title) page.title = typeof title === "string" ? title : appName;
   const breadcrumbs: Breadcrumb[] = !title ? [{ title: appName }] : typeof title === "string" ? [{ title }] : title;
   const showRail =
-    navStyle === "rail" &&
     !!user; /* * Grid layout: * Rail mode: [rail | content] * No rail: [content] * * Rows: [header] [main] [footer?] * The rail spans rows 1+2 via grid-row, so logo aligns with the header. */
-  const contentPadding = fullWidth ? (navStyle === "tabs" ? "px-2" : "") : "p-2";
+  const contentPadding = "p-2";
+  const gridClass = showRail
+    ? "grid-cols-1 md:grid-cols-[auto_1fr] grid-rows-[auto_1fr]"
+    : `grid-cols-1 ${!fullPage ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]"}`;
   return (
     <div
-      class="min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950"
-      style={`display: grid; grid-template-columns: ${showRail ? "auto 1fr" : "1fr"}; grid-template-rows: auto 1fr${!fullPage && !showRail ? " auto" : ""}`}
+      class={`grid min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950 ${gridClass}`}
     >
       {" "}
       {/* ── Rail: logo cell (row 1, col 1) — grid gives it the same height as the header ── */}{" "}
@@ -171,7 +184,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       )}{" "}
       {/* ── Header (row 1) ── */}{" "}
       <header
-        class="flex justify-between px-3 items-center m-2 py-2.5 px-5 rounded-2xl bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-white/20 dark:border-zinc-700/25"
+        class="flex justify-between items-center m-2 md:m-1.5 py-2 md:py-1.5 px-4 md:px-4 rounded-2xl md:rounded-xl bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-white/20 dark:border-zinc-700/25"
         style="box-shadow: var(--theme-shadow-elevated)"
       >
         {" "}
@@ -184,36 +197,35 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
               <img src="/branding/logo" alt="Logo" class="h-6 w-6" />{" "}
             </a>
           )}{" "}
-          {/* Tab bar — desktop only, tabs mode */}{" "}
-          {navStyle === "tabs" && user && (
-            <nav class="hidden md:flex items-center gap-0.5 ml-2 text-sm">
-              {" "}
-              {primaryApps.map((app) => (
-                <a
-                  href={app.href}
-                  class={`tab-item ${active(pathname, app.match) ? "tab-item-active text-blue-600 dark:text-blue-400" : ""}`}
-                >
-                  {" "}
-                  <i class={`${app.iconClass} text-sm`} /> <span>{app.label}</span>{" "}
-                </a>
-              ))}{" "}
-              {moreApps.length > 0 && <MoreAppsDropdown apps={moreApps} variant="tab" />}{" "}
-            </nav>
+          {showRail && (
+            <a
+              href="/"
+              aria-label="Home"
+              class="md:hidden inline-flex items-center justify-center w-8 h-8 rounded-lg text-dimmed hover:text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <img src="/branding/logo" alt="Home" class="h-4 w-4" />
+            </a>
           )}{" "}
           {/* Breadcrumbs — desktop, rail mode only */}{" "}
-          {navStyle === "rail" && (
-            <div class="hidden md:flex items-center min-w-0">
-              {" "}
-              <BreadcrumbNav breadcrumbs={breadcrumbs} />{" "}
-            </div>
-          )}{" "}
+          <div class="hidden md:flex items-center min-w-0">
+            {" "}
+            <BreadcrumbNav breadcrumbs={breadcrumbs} />{" "}
+          </div>{" "}
           {/* Mobile breadcrumb */}{" "}
           <div class="md:hidden flex items-center min-w-0">
             {" "}
             <BreadcrumbNav breadcrumbs={breadcrumbs.slice(-1)} />{" "}
           </div>{" "}
         </div>{" "}
-        <div class="flex items-center shrink-0">
+        <div class="flex items-center shrink-0 gap-1">
+          {user && (
+            <GlobalSearchTrigger
+              variant="header"
+              registerHotkey
+              class={showRail ? "md:hidden" : ""}
+              searchHelpApps={searchHelpApps}
+            />
+          )}
           {" "}
           {/* Desktop: direct /me link with avatar (logged in) or NavMenu (not logged in) */}{" "}
           {user ? (
@@ -221,7 +233,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
               {" "}
               <a href="/me" class="hidden md:flex items-center justify-center cursor-pointer" aria-label="Profile">
                 {" "}
-                <span class="inline-flex items-center justify-center w-7 h-7 text-[10px] font-semibold rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">
+                <span class="inline-flex items-center justify-center w-6 h-6 text-[9px] font-semibold rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">
                   {" "}
                   {(user.displayName || user.uid).slice(0, 2).toUpperCase()}{" "}
                 </span>{" "}
@@ -246,9 +258,12 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
               <i class={`${app.iconClass} text-base`} />{" "}
             </a>
           ))}{" "}
-          <MoreAppsDropdown apps={moreApps} variant="rail" includeLegal />
+          <MoreAppsDropdown apps={moreApps} includeLegal />
           <div class="mt-auto pb-1 flex flex-col items-center gap-1">
             {" "}
+            <GlobalSearchTrigger variant="rail" searchHelpApps={searchHelpApps} />{" "}
+            {" "}
+            <HotkeysHelpRail searchHelpApps={searchHelpApps} />{" "}
             <ThemeToggleRail />{" "}
           </div>{" "}
         </div>
