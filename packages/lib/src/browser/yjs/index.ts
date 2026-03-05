@@ -6,5 +6,4 @@ export type { YjsProviderOptions };
 
 export const yjs = {
   createYjsProvider,
-  createProvider: createYjsProvider,
 } as const;
