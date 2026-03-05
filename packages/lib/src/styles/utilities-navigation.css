@@ -15,6 +15,144 @@
   }
 }
 
+/* Sidebar layout primitives */
+@utility sidebar {
+  @apply flex h-full min-h-0 flex-col rounded-2xl border border-zinc-200/70 bg-zinc-50/70 p-2;
+  @apply dark:border-zinc-700/70 dark:bg-zinc-900/40;
+}
+
+@utility sidebar-container {
+  @apply hidden lg:flex w-52 shrink-0 min-h-0 overflow-y-auto flex-col p-2;
+}
+
+@utility sidebar-header-icon {
+  @apply w-6 h-6 rounded flex items-center justify-center text-white shrink-0;
+}
+
+@utility sidebar-header-text {
+  @apply min-w-0 flex-1;
+}
+
+@utility sidebar-header-title {
+  @apply truncate text-sm font-semibold text-primary;
+}
+
+@utility sidebar-header-subtitle {
+  @apply text-xs text-dimmed truncate;
+}
+
+@utility sidebar-header-settings {
+  @apply p-0.5 text-dimmed hover:text-primary transition-colors shrink-0;
+}
+
+@utility sidebar-group {
+  @apply flex flex-col gap-1;
+}
+
+@utility sidebar-container-mobile {
+  @apply lg:hidden flex flex-col gap-3;
+}
+
+@utility sidebar-mobile-toggle {
+  @apply sidebar-header cursor-pointer select-none list-none;
+}
+
+@utility sidebar-mobile-actions {
+  @apply mt-2 flex flex-wrap gap-2;
+}
+
+@utility sidebar-item-mobile {
+  @apply btn-input btn-input-sm;
+}
+
+@utility sidebar-header {
+  @apply flex min-h-10 items-center gap-2 px-2 py-1.5;
+}
+
+@utility sidebar-body {
+  @apply flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-3;
+}
+
+@utility sidebar-footer {
+  @apply mt-auto flex flex-col gap-2 px-1 pt-3;
+}
+
+@utility sidebar-section {
+  @apply flex flex-col gap-1;
+}
+
+@utility sidebar-section-title {
+  @apply px-2 pt-1 text-[0.6875rem] font-medium normal-case tracking-normal text-dimmed select-none;
+}
+
+@utility sidebar-controls {
+  @apply flex flex-col gap-2 px-2 py-1;
+}
+
+@utility sidebar-control-row {
+  @apply flex items-center gap-2;
+}
+
+/* Sidebar item primitives */
+@utility sidebar-item {
+  display: flex !important;
+  @apply min-h-8 items-center gap-2 rounded-lg px-2 py-1.5 text-xs leading-none text-dimmed;
+  @apply transition-[background-color,color,box-shadow] duration-150 ease-out hover:text-secondary;
+
+  &:hover {
+    background: var(--theme-list-hover-bg);
+  }
+}
+
+@utility sidebar-item-tall {
+  @apply min-h-10 py-2;
+}
+
+@utility sidebar-item-active {
+  @apply bg-blue-50/70 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35;
+  @apply hover:bg-blue-100/75 hover:text-blue-700;
+  @apply dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40;
+  @apply dark:hover:bg-blue-900/55 dark:hover:text-blue-200;
+}
+
+@utility sidebar-item-meta {
+  @apply mt-0.5 text-left text-xs leading-tight text-dimmed;
+}
+
+@utility sidebar-item-action {
+  @apply ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-dimmed;
+  @apply transition-colors duration-150 ease-out hover:text-secondary hover:bg-zinc-200/60;
+  @apply dark:hover:bg-zinc-700/60;
+}
+
+/* Sidebar tree primitives */
+@utility sidebar-tree {
+  @apply flex flex-col gap-0.5;
+}
+
+@utility sidebar-tree-item {
+  @apply flex flex-col gap-0.5;
+}
+
+@utility sidebar-tree-row {
+  display: flex !important;
+  padding-left: calc(var(--sidebar-level, 0) * 0.75rem + 0.625rem);
+  @apply min-h-8 items-center gap-2 rounded-lg py-1 pr-2 text-xs text-dimmed;
+  @apply transition-[background-color,color,box-shadow] duration-150 ease-out hover:text-secondary;
+
+  &:hover {
+    background: var(--theme-list-hover-bg);
+  }
+}
+
+@utility sidebar-tree-toggle {
+  @apply inline-flex h-4 w-4 shrink-0 items-center justify-center text-[10px] text-dimmed;
+}
+
+@utility sidebar-tree-children {
+  @apply flex flex-col gap-0.5;
+}
+
 @utility list-item-active {
   border-left: var(--theme-list-active-border);
   @apply rounded-lg bg-blue-50/70 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35;
@@ -25,22 +163,6 @@
 
 @utility section-label {
   @apply text-[0.6875rem] font-medium normal-case tracking-normal mb-5 text-dimmed select-none;
-}
-
-@utility tab-item {
-  border-bottom: var(--theme-tab-inactive-border);
-  @apply py-0.5 px-2.5 rounded-full;
-  @apply flex items-center gap-1.5 text-sm transition-colors text-dimmed whitespace-nowrap;
-
-  &:hover {
-    background: var(--theme-tab-hover-bg);
-  }
-}
-
-@utility tab-item-active {
-  border-bottom: var(--theme-tab-active-border);
-  background: var(--theme-tab-active-bg);
-  @apply text-primary font-medium;
 }
 
 @utility rail-item {

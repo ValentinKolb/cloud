@@ -4,3 +4,8 @@ export * from "./input";
 export * from "./filter";
 export * from "./widgets";
 export { prompts, DialogHeader, createFormState } from "./prompts";
+export type { PromptSearchItem, PromptSearchInput, PromptSearchOptions } from "./prompts";
+export { dialogCore, createDialogCore } from "./dialog-core";
+export type { DialogClose, OpenDialogOptions, DialogRender, DialogCore } from "./dialog-core";
+export { default as SidebarLayout, SidebarFromSpec } from "./sidebar";
+export type { SidebarSpec, SidebarRow, SidebarSection, SidebarTreeNode, SidebarTreeSpec } from "./sidebar";

@@ -111,7 +111,9 @@
 
 @utility btn-input-active {
   @apply border-blue-500/70 bg-blue-50/80 text-blue-700 ring-1 ring-blue-500/35;
-  @apply dark:border-blue-400/70 dark:bg-blue-950/35 dark:text-blue-300 dark:ring-blue-400/35;
+  @apply hover:border-blue-500/80 hover:bg-blue-50/90 hover:ring-blue-500/45;
+  @apply dark:border-blue-400/70 dark:bg-blue-950/35 dark:text-blue-300 dark:ring-0;
+  @apply dark:hover:border-blue-400/80 dark:hover:bg-blue-950/45 dark:hover:ring-0;
 }
 
 @utility input-base {

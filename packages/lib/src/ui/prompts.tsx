@@ -11,9 +11,11 @@ import PinInput from "@/ui/input/PinInput";
 import SelectInput from "@/ui/input/Select";
 import TagsInput from "@/ui/input/TagsInput";
 import TextInput from "@/ui/input/TextInput";
-import { For, Show, type JSX } from "solid-js";
+import { mutation } from "@/browser/mutation";
+import { timing } from "@/browser/timed";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js";
 import { createStore } from "solid-js/store";
-import { render } from "solid-js/web";
+import { dialogCore } from "./dialog-core";
 
 /**
  * Configuration options for dialog appearance and behavior
@@ -29,7 +31,33 @@ export interface DialogOptions {
   cancelText?: string | false;
   /** Visual variant affecting button and outline colors */
   variant?: "danger" | "primary" | "success";
+  /** Dialog size preset (default: "medium") */
+  size?: "small" | "medium" | "large";
 }
+
+export type PromptSearchItem<T = unknown> = {
+  label: string;
+  desc?: string;
+  icon?: string;
+  previewUrl?: string;
+  value?: T;
+  onClick?: (item: PromptSearchItem<T>) => void | Promise<void>;
+};
+
+export type PromptSearchInput = {
+  query: string;
+  abortSignal: AbortSignal;
+};
+
+export type PromptSearchOptions = DialogOptions & {
+  placeholder?: string;
+  icon?: string;
+  initialQuery?: string;
+  minQueryLength?: number;
+  debounceMs?: number;
+  emptyText?: string;
+  noResultsText?: string;
+};
 
 /**
  * Base field configuration shared by all field types
@@ -223,81 +251,256 @@ export const DialogHeader = (props: { close: () => void; title?: string; icon?: 
   );
 };
 
-class DialogManager {
-  public dialogElement?: HTMLDialogElement;
+const getSizeClassName = (size: DialogOptions["size"] = "medium") => {
+  if (size === "small") return "w-[min(90vw,22rem)] max-h-[72vh]";
+  if (size === "large") return "w-[min(96vw,48rem)] max-h-[86vh]";
+  return "w-[min(94vw,28rem)] max-h-[90vh]";
+};
 
-  getDialog(variant?: "danger" | "primary" | "success"): HTMLDialogElement {
-    // Check if dialog exists but is no longer in the DOM (e.g., after view transition)
-    if (this.dialogElement && !document.body.contains(this.dialogElement)) {
-      this.dialogElement = undefined;
-    }
+const getVariantClassName = (variant?: DialogOptions["variant"]) => {
+  if (variant === "danger") return "ring-red-500/45 dark:ring-red-500/35";
+  if (variant === "success") return "ring-green-500/45 dark:ring-green-500/35";
+  return "ring-zinc-300/60 dark:ring-zinc-700/60";
+};
 
-    if (!this.dialogElement) {
-      this.dialogElement = document.createElement("dialog");
-      document.body.appendChild(this.dialogElement);
-    }
+const getPanelClassName = (options?: Pick<DialogOptions, "variant" | "size">) => {
+  const sizeClass = getSizeClassName(options?.size);
+  const variantClass = getVariantClassName(options?.variant);
+  return `fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 ${sizeClass} overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ${variantClass} backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:bg-zinc-950/95 dark:text-zinc-100`;
+};
 
-    let className = "dialog-panel";
+const getSearchPanelClassName = () =>
+  "fixed left-1/2 top-[25vh] -translate-x-1/2 m-0 w-[min(96vw,46rem)] h-[50vh] border-0 bg-transparent p-0 text-zinc-900 shadow-none backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:text-zinc-100 [@media(min-height:1100px)]:top-[33vh] [@media(min-height:1100px)]:h-[33vh]";
 
-    // Add colored outline based on variant
-    if (variant === "danger") {
-      className += " ring-2 ring-red-500/50";
-    } else if (variant === "success") {
-      className += " ring-2 ring-green-500/50";
-    }
+const isPreviewUrl = (value?: string) => typeof value === "string" && value.startsWith("/");
 
-    this.dialogElement.className = className;
+const openSearchPrompt = <T = unknown>(
+  resolver: (input: PromptSearchInput) => Promise<PromptSearchItem<T>[]> | PromptSearchItem<T>[],
+  options?: PromptSearchOptions,
+) =>
+  dialogCore.open<PromptSearchItem<T>>((close) => {
+    const [query, setQuery] = createSignal(options?.initialQuery ?? "");
+    const [items, setItems] = createSignal<PromptSearchItem<T>[]>([]);
+    const [activeIndex, setActiveIndex] = createSignal(0);
+    const [hasLoaded, setHasLoaded] = createSignal(false);
+    const [failedPreviews, setFailedPreviews] = createStore<Record<number, true>>({});
+    const [activeSearchQuery, setActiveSearchQuery] = createSignal("");
 
-    return this.dialogElement;
-  }
+    const rowRefs = new Map<number, HTMLButtonElement>();
+    let inputRef: HTMLInputElement | undefined;
 
-  /**
-   * Shows a dialog with a custom SolidJS component
-   * @param componentFactory - Function that receives close callback and returns JSX
-   * @returns Promise that resolves to the result passed to close, or undefined if cancelled
-   */
-  dialog<T = void>(
-    component: (close: (result?: T) => void) => JSX.Element,
-    variant?: "danger" | "primary" | "success",
-  ): Promise<T | undefined> {
-    const dialog = this.getDialog(variant);
-    dialog.innerHTML = "";
-
-    // Create container for SolidJS component
-    const container = document.createElement("div");
-    container.className = "text-base text-zinc-800 dark:text-zinc-200";
-    dialog.appendChild(container);
-
-    return new Promise((resolve) => {
-      let dispose: (() => void) | undefined;
-
-      const close = (result?: T) => {
-        dispose?.();
-        dialog.close();
-        // Delay resolve to allow pending operations to complete
-        setTimeout(() => resolve(result));
-      };
-
-      // Render the SolidJS component
-      dispose = render(() => component(close), container);
-
-      dialog.oncancel = (e) => {
-        e.preventDefault();
-        close(undefined);
-      };
-
-      dialog.showModal();
-
-      // Focus first input element instead of close button for better form UX
-      requestAnimationFrame(() => {
-        const firstInput = dialog.querySelector<HTMLElement>('input:not([type="hidden"]), textarea, select');
-        firstInput?.focus();
-      });
+    const minQueryLength = options?.minQueryLength ?? 0;
+    const debounceMs = options?.debounceMs ?? 180;
+    const searchMutation = mutation.create<
+      {
+        query: string;
+        items: PromptSearchItem<T>[];
+      },
+      string,
+      { requestQuery: string }
+    >({
+      onBefore: (requestQuery) => ({ requestQuery }),
+      mutation: async (requestQuery, ctx) => {
+        const result = await resolver({
+          query: requestQuery,
+          abortSignal: ctx.abortSignal,
+        });
+        return { query: requestQuery, items: (result ?? []).slice() };
+      },
+      onSuccess: (result, ctx) => {
+        if (!ctx || ctx.requestQuery !== activeSearchQuery()) return;
+        setItems(result.items);
+        setActiveIndex(0);
+        setHasLoaded(true);
+      },
+      onError: (err, ctx) => {
+        if (!ctx || ctx.requestQuery !== activeSearchQuery()) return;
+        if (err.name === "AbortError") return;
+        setItems([]);
+        setActiveIndex(0);
+        setHasLoaded(true);
+      },
     });
-  }
-}
+    const searchError = createMemo(() => {
+      const err = searchMutation.error();
+      if (!err || err.name === "AbortError") return null;
+      return err.message || "Search failed.";
+    });
+    const shouldShowResults = createMemo(() => {
+      if (query().trim().length < minQueryLength) return false;
+      return hasLoaded() || searchError() !== null || items().length > 0;
+    });
+    const emptyStateText = createMemo(() => {
+      if (!hasLoaded()) return options?.emptyText ?? "Type to search.";
+      return options?.noResultsText ?? "No results.";
+    });
+    const getItemClassName = (isActive: boolean) =>
+      `flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition-colors ${
+        isActive
+          ? "bg-blue-50/80 text-blue-900 dark:bg-blue-950/45 dark:text-blue-100"
+          : "hover:bg-zinc-200/65 dark:hover:bg-zinc-800/70"
+      }`;
+    const { debouncedFn: debounceSearch, cancel: cancelDebounce } = timing.debounce((nextQuery: string) => {
+      setActiveSearchQuery(nextQuery);
+      searchMutation.abort();
+      void searchMutation.mutate(nextQuery);
+    }, debounceMs);
 
-const manager = new DialogManager();
+    const execute = async (item?: PromptSearchItem<T>) => {
+      if (!item) return;
+      if (item.onClick) await item.onClick(item);
+      close(item);
+    };
+
+    const moveSelection = (delta: -1 | 1) => {
+      const list = items();
+      if (list.length === 0) return;
+      const next = (activeIndex() + delta + list.length) % list.length;
+      setActiveIndex(next);
+    };
+
+    createEffect(() => {
+      const list = items();
+      const maxIndex = list.length - 1;
+      if (maxIndex < 0) {
+        setActiveIndex(0);
+        return;
+      }
+      if (activeIndex() > maxIndex) setActiveIndex(maxIndex);
+      rowRefs.get(activeIndex())?.scrollIntoView({ block: "nearest" });
+    });
+
+    createEffect(() => {
+      const nextQuery = query().trim();
+      setFailedPreviews({});
+
+      if (nextQuery.length < minQueryLength) {
+        cancelDebounce();
+        searchMutation.abort();
+        setItems([]);
+        setActiveIndex(0);
+        setHasLoaded(false);
+        setActiveSearchQuery("");
+        return;
+      }
+
+      debounceSearch(nextQuery);
+    });
+
+    onCleanup(() => {
+      cancelDebounce();
+      searchMutation.abort();
+    });
+
+    return (
+      <div class="flex h-full min-h-0 flex-col gap-2 pb-1 [--search-body-max:calc(50vh-3.5rem)] [@media(min-height:1100px)]:[--search-body-max:calc(33vh-3.5rem)]">
+        <Show when={options?.title}>
+          {(title) => (
+            <p class="px-1 text-base font-semibold text-white dark:text-zinc-100">
+              {title()}
+            </p>
+          )}
+        </Show>
+
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-white/95 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60">
+          <label class="flex items-center gap-2 px-3 py-2.5">
+            <i class={`${options?.icon ?? "ti ti-search"} text-dimmed`} />
+            <input
+              ref={inputRef}
+              type="search"
+              value={query()}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  moveSelection(1);
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  moveSelection(-1);
+                  return;
+                }
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void execute(items()[activeIndex()]);
+                }
+              }}
+              placeholder={options?.placeholder ?? "Search..."}
+              class="w-full border-0 bg-transparent text-sm outline-none placeholder:text-dimmed"
+              spellcheck={false}
+              autocapitalize="off"
+              autocomplete="off"
+              autocorrect="off"
+            />
+            <Show when={searchMutation.loading()}>
+              <i class="ti ti-loader-2 animate-spin text-dimmed" />
+            </Show>
+          </label>
+
+          <div
+            class="overflow-hidden transition-[height,opacity] duration-200 ease-out"
+            style={{
+              height: shouldShowResults() ? "var(--search-body-max)" : "0px",
+              opacity: shouldShowResults() ? "1" : "0",
+            }}
+          >
+            <div class="h-full min-h-0 overflow-y-auto overscroll-y-contain px-2 pb-2" onWheel={(event) => event.stopPropagation()}>
+              <Show when={searchError()}>{(message) => <div class="info-block-danger mb-2 text-xs">{message()}</div>}</Show>
+
+              <Show when={items().length > 0} fallback={<p class="px-1.5 py-2 text-xs text-dimmed">{emptyStateText()}</p>}>
+                <div class="flex flex-col gap-1">
+                  <For each={items()}>
+                    {(item, index) => (
+                      <button
+                        ref={(element) => {
+                          if (!element) {
+                            rowRefs.delete(index());
+                            return;
+                          }
+                          rowRefs.set(index(), element);
+                        }}
+                        type="button"
+                        onMouseEnter={() => setActiveIndex(index())}
+                        onClick={() => void execute(item)}
+                        class={getItemClassName(activeIndex() === index())}
+                      >
+                        <Show when={isPreviewUrl(item.previewUrl) || item.icon}>
+                          <span class="mt-0.5 grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-md bg-zinc-200/80 dark:bg-zinc-800/80">
+                            <Show
+                              when={isPreviewUrl(item.previewUrl) && !failedPreviews[index()]}
+                              fallback={<i class={`${item.icon ?? "ti ti-file"} text-xs text-dimmed`} />}
+                            >
+                              <img
+                                src={item.previewUrl}
+                                alt={item.label}
+                                class="h-full w-full object-cover"
+                                onError={() => setFailedPreviews(index(), true)}
+                              />
+                            </Show>
+                          </span>
+                        </Show>
+
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-sm leading-5">{item.label}</p>
+                          <Show when={item.desc}>
+                            <p class="mt-0.5 truncate text-xs leading-4 text-dimmed">{item.desc}</p>
+                          </Show>
+                        </div>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }, {
+    panelClassName: getSearchPanelClassName(),
+    contentClassName: "h-full min-h-0 p-0",
+  });
 
 /**
  * Simple dialog utilities for user interactions
@@ -352,7 +555,7 @@ export const prompts = {
    * @returns Promise that resolves when dialog is closed
    */
   alert: (content: string | HTMLElement | JSX.Element, options?: DialogOptions) =>
-    manager.dialog(
+    dialogCore.open(
       (close) => (
         <div>
           <DialogHeader title={options?.title || "Info"} icon={options?.icon} close={close} />
@@ -371,7 +574,9 @@ export const prompts = {
           </div>
         </div>
       ),
-      options?.variant,
+      {
+        panelClassName: getPanelClassName(options),
+      },
     ),
 
   /**
@@ -381,7 +586,7 @@ export const prompts = {
    * @returns Promise resolving to true if confirmed, false if cancelled
    */
   confirm: (content: string | HTMLElement | JSX.Element, options?: DialogOptions) =>
-    manager.dialog<boolean>(
+    dialogCore.open<boolean>(
       (close) => (
         <div>
           <DialogHeader title={options?.title} icon={options?.icon} close={() => close(false)} />
@@ -404,7 +609,9 @@ export const prompts = {
           </div>
         </div>
       ),
-      options?.variant,
+      {
+        panelClassName: getPanelClassName(options),
+      },
     ),
 
   /**
@@ -490,8 +697,9 @@ export const prompts = {
     confirmText?: string;
     cancelText?: string | false;
     variant?: "danger" | "primary" | "success";
+    size?: "small" | "medium" | "large";
   }): Promise<InferFormValues<T> | null> => {
-    return manager.dialog<InferFormValues<T> | null>((close) => {
+    return dialogCore.open<InferFormValues<T> | null>((close) => {
       const state = createFormState(config.fields);
 
       // Field renderer map
@@ -573,7 +781,9 @@ export const prompts = {
           </div>
         </form>
       );
-    }, config.variant) as Promise<InferFormValues<T> | null>;
+    }, {
+      panelClassName: getPanelClassName(config),
+    }) as Promise<InferFormValues<T> | null>;
   },
 
   /**
@@ -590,15 +800,19 @@ export const prompts = {
    * ```
    */
   dialog: <T = any>(component: (close: (result?: T) => void) => JSX.Element, options?: DialogOptions) =>
-    manager.dialog<T>(
+    dialogCore.open<T>(
       (close: (result?: T) => void) => (
         <div class="flex flex-col gap-4">
           <DialogHeader title={options?.title} icon={options?.icon} close={() => close(undefined)} />
           {component(close)}
         </div>
       ),
-      options?.variant,
+      {
+        panelClassName: getPanelClassName(options),
+      },
     ),
+
+  search: openSearchPrompt,
 
   /**
    * Wrapper around the alert dialog with error styling and icon
@@ -607,7 +821,7 @@ export const prompts = {
    * @returns Promise that resolves when dialog is closed
    */
   error: (content: string | HTMLElement, options?: DialogOptions) =>
-    manager.dialog(
+    dialogCore.open(
       (close) => (
         <div>
           <DialogHeader title={options?.title ?? "Uuups"} icon={options?.icon ?? "ti ti-alert-circle"} close={close} />
@@ -621,8 +835,10 @@ export const prompts = {
           </div>
         </div>
       ),
-      "danger",
+      {
+        panelClassName: getPanelClassName({ ...options, variant: "danger" }),
+      },
     ),
 
-  getDialogElement: manager.getDialog,
+  getDialogElement: () => (typeof document === "undefined" ? undefined : document.querySelector<HTMLDialogElement>("dialog")),
 };

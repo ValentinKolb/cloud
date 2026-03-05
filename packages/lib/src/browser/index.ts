@@ -15,6 +15,7 @@ export { crypto } from "./crypto";
 export { theme } from "./theme";
 export { editor } from "./editor";
 export { yjs } from "./yjs";
+export { hotkeys } from "./hotkeys";
 
 export type * from "./files";
 export type * from "./images";
@@ -24,3 +25,4 @@ export type * from "./crypto";
 export type * from "./theme";
 export type * from "./yjs";
 export type * from "./dnd";
+export type { PrettyKeyPart, HotkeyDefinition, HotkeyMap, RegisteredHotkeyMeta } from "./hotkeys";
