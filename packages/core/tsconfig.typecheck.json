@@ -24,8 +24,7 @@
       "@valentinkolb/ssr": ["./src/types/app-check/ssr.d.ts"],
       "@valentinkolb/ssr/hono": ["./src/types/app-check/ssr-hono.d.ts"],
       "@valentinkolb/filegate/client": ["./src/types/app-check/filegate-client.d.ts"],
-      "@valentinkolb/filegate/utils": ["./src/types/app-check/filegate-utils.d.ts"],
-      "@valentinkolb/sync": ["../lib/src/server/types/sync.d.ts"]
+      "@valentinkolb/filegate/utils": ["./src/types/app-check/filegate-utils.d.ts"]
     }
   }
 }

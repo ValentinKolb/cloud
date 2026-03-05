@@ -20,6 +20,7 @@ const expectedSkills = [
   "cloud-settings-config",
   "cloud-coding-guidelines",
   "cloud-frontend-consistency",
+  "cloud-shortcuts",
   "cloud-testing-quality",
   "cloud-troubleshooting",
 ] as const;

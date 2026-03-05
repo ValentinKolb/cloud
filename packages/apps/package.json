@@ -13,6 +13,7 @@
     "@valentinkolb/cloud-lib": "workspace:*",
     "@valentinkolb/cloud-contracts": "workspace:*",
     "@valentinkolb/cloud-core": "workspace:*",
+    "@valentinkolb/sync": "^2.1.1",
     "@valentinkolb/filegate": "^2.4.0",
     "dayjs": "^1.11.19",
     "diff": "^8.0.3",

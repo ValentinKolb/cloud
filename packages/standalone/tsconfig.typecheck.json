@@ -42,7 +42,6 @@
       "@valentinkolb/ssr/hono": ["../core/src/types/app-check/ssr-hono.d.ts"],
       "@valentinkolb/filegate/client": ["../core/src/types/app-check/filegate-client.d.ts"],
       "@valentinkolb/filegate/utils": ["../core/src/types/app-check/filegate-utils.d.ts"],
-      "@valentinkolb/sync": ["../lib/src/server/types/sync.d.ts"],
       "@config": ["../core/src/config/index.ts"]
     }
   }
