@@ -18,8 +18,8 @@ Use this skill for app-level implementation and refactors.
 ## Quick Lookup (Do Not Guess)
 
 - `AppFacade` type:
-  - import: `@valentinkolb/cloud-contracts/app`
-  - source: `cloud/packages/contracts/src/shared/app.ts`
+  - import: `@valentinkolb/cloud/contracts/app`
+  - source: `cloud/packages/contracts/src/app.ts`
 - API wrappers:
   - `respond` from `@valentinkolb/cloud-lib/server/api/respond`
   - `v` from `@valentinkolb/cloud-lib/server/middleware/validator`
@@ -31,6 +31,14 @@ Use this skill for app-level implementation and refactors.
   - import: `@valentinkolb/cloud-apps/apps/<app>/client`
   - default symbol: `apiClient`
   - do not use a global built-in apps client
+- App search capability (optional):
+  - optional `capabilities.search.tags` for app-owned tag filtering
+  - `capabilities.search.run({ query, tags, limit, ctx })`
+  - `ctx.get("user")` and `ctx.get("sessionToken")`
+  - `priority` range is `0..9`
+  - optional `metadata: Array<{ label, value }>`
+  - optional `previewUrl` must be app-local (`/...`)
+  - provider must honor `limit` exactly
 - Shared logger (server-side app code):
   - import: `@valentinkolb/cloud-lib/server/services/logging`
   - usage: `const log = logger("app.module")`

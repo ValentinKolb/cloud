@@ -48,6 +48,7 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
   `cloud/packages/lib/src/styles/global.css`
   `cloud/packages/lib/src/styles/utilities-layout.css`
   `cloud/packages/lib/src/styles/utilities-buttons.css`
+  `cloud/packages/lib/src/styles/utilities-navigation.css`
 
 ## Interaction Patterns to Prefer
 
@@ -68,6 +69,22 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
 - Keep hover/focus states clear but not noisy.
 - Use icon-only actions where semantics are clear; keep text labels where clarity is needed.
 
+## Sidebar Utility Convention (Must Follow)
+
+1. Build app sidebars directly in the app with utility classes; do not introduce local sidebar builder abstractions.
+2. Use these structural classes:
+   - Desktop: `sidebar-container`, `sidebar-header`, `sidebar-group`, `sidebar-body`, `sidebar-footer`
+   - Mobile: `sidebar-container-mobile`, `sidebar-mobile-toggle`, `sidebar-mobile-actions`, `sidebar-item-mobile`
+3. Keep spacing consistent:
+   - Small gap inside a group (`sidebar-group` content)
+   - Larger gap between groups (`flex flex-col gap-3` at group wrapper level)
+4. Keep mobile simple:
+   - Render flat pill actions in `sidebar-mobile-actions`
+   - Avoid heavy settings/control blocks on mobile unless explicitly required
+5. Keep desktop sidebar surface neutral:
+   - No additional local border/background wrappers around `sidebar-container`
+6. Add stable `view-transition-name` values for key sidebar actions and nav rows on high-frequency pages.
+
 ## Flexibility Rule
 
 - This is a design grammar, not a strict template.
@@ -77,6 +94,7 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
 
 - Frontend architecture and mutation/prompt patterns: `references/frontend-patterns.md`
 - Shared components and layout recipes: `references/component-catalog.md`
+- Sidebar utility class recipes: `references/sidebar-utilities.md`
 
 ## Reference Routing
 

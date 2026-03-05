@@ -13,6 +13,7 @@
 - default export: app facade
 - named runtime export: `service`
 - type export: `ApiType` when API exists
+- optional capabilities via `capabilities` (for cross-app features)
 
 ## Service Contract
 
@@ -36,6 +37,17 @@
 - shared client components first
 - for filter-heavy screens, define query key/default contract first
 - for hybrid detail, validate back/forward and scroll preservation
+
+## Search Capability (Optional)
+
+- optionally define `capabilities.search.tags` for tag-aware global search
+- expose `capabilities.search.run({ query, tags, limit, ctx })` in app `index.ts`
+- read authenticated user via `ctx.get("user")`
+- honor provider-local `limit` exactly
+- return app-local hrefs
+- keep optional `priority` in `0..9`
+- optional details via `metadata: Array<{label,value}>`
+- optional preview image via `previewUrl` (`/...` only)
 
 ## Lifecycle (Optional)
 

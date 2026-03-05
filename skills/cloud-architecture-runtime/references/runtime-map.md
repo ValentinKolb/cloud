@@ -11,11 +11,11 @@
 
 ## Runtime Wiring Sources
 
-- Create cloud runtime: `cloud/packages/core/src/core/cloud/index.ts`
-- API composition: `cloud/packages/core/src/core/api/index.ts`
-- Page composition: `cloud/packages/core/src/core/pages/create.tsx`
-- Runtime app meta context: `cloud/packages/core/src/core/runtime/apps.ts`
-- Runtime engine (setup/start/stop/shutdown): `cloud/packages/core/src/core/runtime/engine.ts`
+- Create cloud runtime: `cloud/packages/core/src/cloud.ts`
+- API composition: `cloud/packages/core/src/api/index.ts`
+- Page composition: `cloud/packages/core/src/pages/create.tsx`
+- Runtime app meta context: `cloud/packages/core/src/runtime.ts` (`createRuntimeContext`)
+- Runtime engine (setup/start/stop/shutdown): `cloud/packages/core/src/runtime.ts` (`runSetupPhase`, `bootRuntime`)
 - Standalone startup option parsing: `cloud/packages/standalone/src/runtime-options.ts`
 
 ## Lifecycle Order
@@ -36,3 +36,19 @@
 - App list order is deterministic and reused for nav/admin/widgets/startup.
 - Request context exposes `runtime.apps` (meta only) for page/API handlers.
 - Runtime setup errors are startup blockers.
+
+## Notebooks Yjs Realtime (Current Pattern)
+
+```text
+Client -> WS(notes.yjs.replay.request) -> auth + read check
+      <- notes.yjs.replay.ready + *.push(snapshot/stream)
+Client -> WS(notes.yjs.sync.publish / notes.yjs.awareness.publish) -> topic pub
+Worker <- snapshot queue (noteId + cursor) <- WS dirty(sync only)
+Worker -> replay stream to cursor -> notes.save(stale-write guard)
+Restore -> notes.restoreFromSnapshot -> topic reset event -> clients re-replay
+```
+
+Rules:
+- `reset` is server-originated only (restore flow).
+- Only `sync` advances snapshot dirty tracking.
+- Cursor columns (`yjs_stream_ms`, `yjs_stream_seq`) are the DB source of truth for stale-write protection.

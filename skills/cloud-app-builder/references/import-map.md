@@ -3,7 +3,7 @@
 ## Contracts
 
 ```ts
-import type { AppFacade } from "@valentinkolb/cloud-contracts/app";
+import type { AppFacade, AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts/app";
 ```
 
 ## Server wrappers
@@ -42,7 +42,7 @@ import { markdown, dates, calendar, icons } from "@valentinkolb/cloud-lib/shared
 
 ```ts
 import { Hono } from "hono";
-import type { AppFacade } from "@valentinkolb/cloud-contracts/app";
+import type { AppFacade } from "@valentinkolb/cloud/contracts/app";
 
 import apiRoutes from "./api";
 import pageRoutes from "./pages";
@@ -71,4 +71,32 @@ const app = {
 export default app;
 export { myService as service };
 export type { ApiType } from "./api";
+```
+
+## Optional Search Capability
+
+```ts
+const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
+  const user = input.ctx.get("user");
+  // app-local search logic
+  return [
+    {
+      id: "entity-1",
+      title: "Entity",
+      href: "/app/my-app/entity-1",
+      priority: 6,
+      metadata: [
+        { label: "Type", value: "Entity" },
+      ],
+      previewUrl: "/api/app/my-app/entity-1/thumbnail",
+    },
+  ].slice(0, input.limit);
+};
+
+const app = {
+  // ...
+  capabilities: {
+    search: { run: search },
+  },
+} satisfies AppFacade<typeof myService>;
 ```
