@@ -22,6 +22,12 @@ export type AppMeta = {
   };
 };
 
+export type RuntimeAppMeta = AppMeta & {
+  searchTags?: string[];
+  searchHelp?: string;
+  searchTagHelp?: AppSearchTagHelpEntry[];
+};
+
 export type WidgetFactory = (c: Context, user?: SessionUser) => Widget | Promise<Widget>;
 
 export type WidgetData = {
@@ -41,7 +47,7 @@ export type CloudLogger = {
 };
 
 export type CloudRuntime = {
-  apps: readonly AppMeta[];
+  apps: readonly RuntimeAppMeta[];
 };
 
 export type CloudContext = {
@@ -61,6 +67,49 @@ export type AppLifecycle = {
   stop?: (ctx: CloudContext) => Promise<void>;
 };
 
+export type SearchPriority = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+
+export type AppSearchContext = {
+  get: <K extends "user" | "sessionToken">(key: K) => K extends "user" ? SessionUser : string;
+};
+
+export type AppSearchInput = {
+  query: string;
+  tags: string[];
+  limit: number;
+  ctx: AppSearchContext;
+};
+
+export type AppSearchMetadataEntry = {
+  label: string;
+  value: string;
+};
+
+export type AppSearchTagHelpEntry = {
+  tag: string;
+  help: string;
+};
+
+export type AppSearchResult = {
+  id: string;
+  title: string;
+  href: string;
+  preview?: string;
+  icon?: string;
+  priority?: SearchPriority;
+  metadata?: AppSearchMetadataEntry[];
+  previewUrl?: string;
+};
+
+export type AppCapabilities = {
+  search?: {
+    tags?: readonly string[];
+    help?: string;
+    tagHelp?: readonly AppSearchTagHelpEntry[];
+    run: (input: AppSearchInput) => Promise<AppSearchResult[]>;
+  };
+};
+
 export type AppFacade<Service = unknown> = {
   meta: AppMeta;
   service: Service;
@@ -71,6 +120,7 @@ export type AppFacade<Service = unknown> = {
   };
   widgets?: WidgetFactory[];
   lifecycle?: AppLifecycle;
+  capabilities?: AppCapabilities;
   /** @deprecated Use lifecycle.start instead. */
   start?: () => void;
 };
