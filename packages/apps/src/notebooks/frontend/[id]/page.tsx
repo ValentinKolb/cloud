@@ -8,6 +8,7 @@ import NoteEditor from "./_components/editor/NoteEditor.client";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import VersionHistory from "./_components/versions/VersionHistory.island";
+import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import { parseSettings } from "./_components/settings/NotebookSettingsStore";
 import type { NotebookContext } from "./_components/sidebar/types";
 
@@ -139,6 +140,8 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+        <NotebookHotkeys notebookId={notebook.id} notebookName={notebook.name} canWrite={canWrite} />
+
         {/* Sidebar */}
         <NotebookSidebar ctx={ctx} />
 
@@ -178,7 +181,7 @@ export default ssr<AuthContext>(async (c) => {
             <div class="flex-1 flex items-center justify-center">
               <p class="flex items-center gap-1.5 text-xs text-dimmed">
                 <i class="ti ti-file-text text-sm" />
-                {tree.length === 0 ? "No pages yet" : "Select a page to start editing"}
+                {tree.length === 0 ? "No notes yet" : "Select a note to collaborate"}
               </p>
             </div>
           )}

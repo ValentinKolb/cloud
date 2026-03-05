@@ -6,7 +6,7 @@ import { PermissionEditor, SelectInput, TextInput } from "@valentinkolb/cloud/li
 import { icons } from "@valentinkolb/cloud/lib/shared";
 import type { Notebook } from "../sidebar/types";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts/shared";
-import { refreshCurrentPath } from "../../../lib/navigation";
+import { navigateTo, refreshCurrentPath } from "../../../lib/navigation";
 
 type Props = {
   notebook: Notebook;
@@ -98,13 +98,13 @@ function DangerZone(props: { notebook: Notebook }) {
       if (!res.ok) throw new Error("Failed to delete notebook");
     },
     onSuccess: () => {
-      window.location.href = "/app/notebooks";
+      navigateTo("/app/notebooks");
     },
     onError: (err) => prompts.error(err.message),
   });
 
   const handleDelete = async () => {
-    const confirmed = await prompts.confirm(`Delete "${props.notebook.name}" and all its pages? This cannot be undone.`, {
+    const confirmed = await prompts.confirm(`Delete "${props.notebook.name}" and all its notes? This cannot be undone.`, {
       title: "Delete Notebook",
       icon: "ti ti-trash",
       variant: "danger",
@@ -119,7 +119,7 @@ function DangerZone(props: { notebook: Notebook }) {
         <i class="ti ti-alert-triangle" />
         Danger Zone
       </h3>
-      <p class="text-xs text-dimmed">Deleting this notebook will permanently remove all pages and their version history.</p>
+      <p class="text-xs text-dimmed">Deleting this notebook will permanently remove all notes and their version history.</p>
       <button type="button" onClick={handleDelete} disabled={mutation.loading()} class="btn-danger btn-md self-start">
         {mutation.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />

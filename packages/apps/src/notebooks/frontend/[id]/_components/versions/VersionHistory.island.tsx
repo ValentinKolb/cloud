@@ -4,6 +4,7 @@ import { apiClient } from "@/notebooks/client";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { buildNoteUrl } from "../../../params";
+import { navigateTo } from "../../../lib/navigation";
 import dayjs from "dayjs";
 
 type NoteVersion = {
@@ -195,22 +196,7 @@ export default function VersionHistory(props: Props) {
     return versionCache.get(a)?.yjsSnapshot ?? null;
   };
 
-  const restoreMut = mutations.create({
-    mutation: async (snapshot: string) => {
-      const res = await apiClient[":id"].notes[":noteId"].restore.$post({
-        param: { id: props.notebookId, noteId: props.noteId },
-        json: { yjsSnapshot: snapshot },
-      });
-      if (!res.ok) throw new Error("Failed to restore version");
-      return res.json();
-    },
-    onSuccess: () => {
-      window.location.href = backUrl;
-    },
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const restoreAsNewMut = mutations.create({
+  const restoreAsNewMut = mutations.create<{ id: string }, { title: string; snapshot: string }>({
     mutation: async (data: { title: string; snapshot: string }) => {
       const createRes = await apiClient[":id"].notes.$post({
         param: { id: props.notebookId },
@@ -226,31 +212,17 @@ export default function VersionHistory(props: Props) {
       if (!restoreRes.ok) throw new Error("Failed to restore content");
       return newNote;
     },
-    onSuccess: (data: any) => {
-      window.location.href = buildNoteUrl(props.notebookId, data.id);
+    onSuccess: (data) => {
+      navigateTo(buildNoteUrl(props.notebookId, data.id));
     },
     onError: (err) => prompts.error(err.message),
   });
-
-  const handleRestore = async () => {
-    const snapshot = getRestoreSnapshot();
-    if (!snapshot) return;
-    const confirmed = await prompts.confirm(
-      "Restore this version? Current content will be overwritten. A backup of the current state will be saved.",
-      {
-        title: "Restore Version",
-        icon: "ti ti-history",
-        confirmText: "Restore",
-      },
-    );
-    if (confirmed) restoreMut.mutate(snapshot);
-  };
 
   const handleRestoreAsNew = async () => {
     const snapshot = getRestoreSnapshot();
     if (!snapshot) return;
     const result = await prompts.form({
-      title: "Restore as New Page",
+      title: "Restore as New Note",
       icon: "ti ti-file-plus",
       fields: {
         title: {
@@ -268,7 +240,7 @@ export default function VersionHistory(props: Props) {
 
   const formatDate = (iso: string) => dayjs(iso).format("DD.MM.YYYY HH:mm");
 
-  const isWorking = () => restoreMut.loading() || restoreAsNewMut.loading();
+  const isWorking = () => restoreAsNewMut.loading();
 
   const splitLines = (value: string): string[] => {
     const lines = value.split("\n");
@@ -324,21 +296,6 @@ export default function VersionHistory(props: Props) {
             </Show>
             <button
               type="button"
-              onClick={handleRestore}
-              disabled={props.isLocked || isWorking() || previewLoading() || !getRestoreSnapshot()}
-              class="btn-primary btn-sm"
-            >
-              {restoreMut.loading() ? (
-                <i class="ti ti-loader-2 animate-spin" />
-              ) : (
-                <>
-                  <i class="ti ti-history mr-1" />
-                  Restore
-                </>
-              )}
-            </button>
-            <button
-              type="button"
               onClick={handleRestoreAsNew}
               disabled={isWorking() || previewLoading() || !getRestoreSnapshot()}
               class="btn-secondary btn-sm"
@@ -348,7 +305,7 @@ export default function VersionHistory(props: Props) {
               ) : (
                 <>
                   <i class="ti ti-file-plus mr-1" />
-                  New Page
+                  Restore as New Note
                 </>
               )}
             </button>

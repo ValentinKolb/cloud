@@ -5,7 +5,9 @@ import * as Y from "yjs";
 import { yCollab } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
 import { editor, yjs } from "@valentinkolb/cloud/lib/browser";
+import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { writeSettings } from "../settings/NotebookSettingsStore";
+import { refreshCurrentPath } from "../../../lib/navigation";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 
 type Props = {
@@ -18,9 +20,10 @@ type Props = {
   initialSnapshot: string | null;
 };
 
+const CURSOR_IDLE_TIMEOUT_MS = 8_000;
+
 export default function NoteEditor(props: Props) {
   const [connected, setConnected] = createSignal(false);
-  const [onlineUsers, setOnlineUsers] = createSignal<string[]>([]);
   const [isDark, setIsDark] = createSignal(document.documentElement.classList.contains("dark"));
   const [richMode, setRichMode] = createSignal(true);
 
@@ -47,6 +50,49 @@ export default function NoteEditor(props: Props) {
 
   const undoManager = new Y.UndoManager(ytext);
   addExtension(() => yCollab(ytext, awareness, { undoManager }));
+
+  let cursorIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  let cursorHiddenByIdle = false;
+  let fatalPromptOpen = false;
+
+  const publishCurrentCursor = (view: EditorView) => {
+    const selection = view.state.selection.main;
+    awareness.setLocalStateField("cursor", {
+      anchor: Y.createRelativePositionFromTypeIndex(ytext, selection.anchor),
+      head: Y.createRelativePositionFromTypeIndex(ytext, selection.head),
+    });
+    cursorHiddenByIdle = false;
+  };
+
+  const hideCursorForIdle = () => {
+    awareness.setLocalStateField("cursor", null);
+    cursorHiddenByIdle = true;
+  };
+
+  const scheduleCursorIdleHide = () => {
+    if (cursorIdleTimer) {
+      clearTimeout(cursorIdleTimer);
+    }
+    cursorIdleTimer = setTimeout(() => {
+      hideCursorForIdle();
+    }, CURSOR_IDLE_TIMEOUT_MS);
+  };
+
+  const markCursorActivity = (view?: EditorView) => {
+    scheduleCursorIdleHide();
+    if (cursorHiddenByIdle && view) {
+      publishCurrentCursor(view);
+    }
+  };
+
+  addExtension(
+    EditorView.updateListener.of((update) => {
+      if (!update.view.hasFocus) return;
+      if (update.docChanged || update.selectionSet) {
+        markCursorActivity(update.view);
+      }
+    }),
+  );
 
   addExtension(editor.basicExtensions());
   addExtension(formattingKeymap());
@@ -90,7 +136,47 @@ export default function NoteEditor(props: Props) {
     appUrl: props.appUrl,
     sessionToken: props.sessionToken,
     onConnectionChange: setConnected,
-    onMembersChange: setOnlineUsers,
+    onFatal: (error) => {
+      if (fatalPromptOpen) return;
+      fatalPromptOpen = true;
+      const isLocked = error.code === "NOTE_LOCKED";
+      const isMissing = error.code === "NOTE_NOT_FOUND";
+      const isRevoked = error.code === "ACCESS_REVOKED" || error.code === "ACCESS_DENIED";
+      const isSession = error.code === "SESSION_EXPIRED" || error.code === "LOGIN_REQUIRED";
+
+      const title = isLocked
+        ? "Note Locked"
+        : isMissing
+          ? "Note Not Found"
+          : isRevoked
+            ? "Access Changed"
+            : isSession
+              ? "Session Expired"
+              : "Connection Closed";
+
+      const icon = isLocked
+        ? "ti ti-lock"
+        : isMissing
+          ? "ti ti-file-x"
+          : isRevoked
+            ? "ti ti-shield-off"
+            : isSession
+              ? "ti ti-login-2"
+              : "ti ti-alert-triangle";
+
+      const message = isMissing
+        ? "Note not found. It may have been deleted."
+        : error.message || "The collaboration connection was closed.";
+
+      void prompts
+        .alert(`${message} The note view will now reload.`, {
+          title,
+          icon,
+        })
+        .finally(() => {
+          refreshCurrentPath();
+        });
+    },
   });
 
   let themeObserver: MutationObserver | undefined;
@@ -119,6 +205,7 @@ export default function NoteEditor(props: Props) {
     writeSettings(props.notebookId, { lastNoteId: props.noteId });
     provider.connect();
     focusEditor();
+    scheduleCursorIdleHide();
 
     themeObserver = new MutationObserver(() => {
       setIsDark(document.documentElement.classList.contains("dark"));
@@ -131,6 +218,9 @@ export default function NoteEditor(props: Props) {
   });
 
   onCleanup(() => {
+    if (cursorIdleTimer) {
+      clearTimeout(cursorIdleTimer);
+    }
     themeObserver?.disconnect();
     provider.dispose();
     undoManager.destroy();
@@ -146,7 +236,24 @@ export default function NoteEditor(props: Props) {
           const target = event.target as HTMLElement | null;
           if (target?.closest(".cm-editor")) return;
           event.preventDefault();
-          focusEditor();
+          if (focusEditor()) {
+            const view = editorView();
+            if (view) {
+              markCursorActivity(view);
+            }
+          }
+        }}
+        onMouseMove={() => {
+          const view = editorView();
+          if (view?.hasFocus) {
+            scheduleCursorIdleHide();
+          }
+        }}
+        onKeyDown={() => {
+          const view = editorView();
+          if (view?.hasFocus) {
+            scheduleCursorIdleHide();
+          }
         }}
         role="textbox"
         tabIndex={-1}
@@ -156,7 +263,7 @@ export default function NoteEditor(props: Props) {
       </div>
       <EditorToolbar
         connected={connected()}
-        onlineCount={onlineUsers().length}
+        onlineCount={0}
         editorView={editorView()}
         richMode={richMode()}
         onToggleRichMode={() => setRichMode((value) => !value)}

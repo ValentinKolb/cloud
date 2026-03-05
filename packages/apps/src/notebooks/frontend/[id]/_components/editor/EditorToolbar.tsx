@@ -5,6 +5,8 @@ import { Prec } from "@codemirror/state";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { buildReadUrl, buildVersionsUrl } from "../../../params";
 import { Dropdown } from "@valentinkolb/cloud/lib/ui";
+import { navigateTo } from "../../../lib/navigation";
+import { requestNotebookSearch } from "../../../lib/hotkeys";
 
 type Props = {
   connected: boolean;
@@ -118,6 +120,13 @@ function insertLink(view: EditorView) {
 export function formattingKeymap() {
   return Prec.high(
     keymap.of([
+      {
+        key: "Mod-Shift-k",
+        run: () => {
+          requestNotebookSearch();
+          return true;
+        },
+      },
       {
         key: "Mod-b",
         run: (view) => {
@@ -368,7 +377,7 @@ export default function EditorToolbar(props: Props) {
             icon: "ti ti-history",
             label: "Version History",
             action: () => {
-              window.location.href = buildVersionsUrl(props.notebookId, props.noteId);
+              navigateTo(buildVersionsUrl(props.notebookId, props.noteId));
             },
           },
         ]}

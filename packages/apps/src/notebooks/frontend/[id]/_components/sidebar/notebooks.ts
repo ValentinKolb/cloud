@@ -16,7 +16,7 @@ const PER_PAGE = 100;
 const MAX_PAGES = 20;
 
 /**
- * Fetches all notebook pages the current user can access for the sidebar switcher.
+ * Fetches all notebooks the current user can access for the sidebar switcher.
  */
 export const listAccessibleNotebooks = async (): Promise<Notebook[]> => {
   const notebooks: Notebook[] = [];

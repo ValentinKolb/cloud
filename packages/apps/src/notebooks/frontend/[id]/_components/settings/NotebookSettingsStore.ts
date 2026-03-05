@@ -37,14 +37,6 @@ const readCookie = (): AllNotebookSettings => cookies.readJsonCookie(COOKIE_NAME
 // --- Client-side ---
 
 /**
- * Reads notebook-specific UI settings from the persisted cookie blob.
- */
-export const readSettings = (notebookId: string): NotebookSettings => {
-  const all = readCookie();
-  return { ...DEFAULT_SETTINGS, ...(all.notebooks[notebookId] ?? {}) };
-};
-
-/**
  * Merges and writes notebook-specific UI settings for the current notebook id.
  */
 export const writeSettings = (notebookId: string, patch: Partial<NotebookSettings>) => {
@@ -56,11 +48,6 @@ export const writeSettings = (notebookId: string, patch: Partial<NotebookSetting
   };
   writeCookie(all);
 };
-
-/**
- * Returns the last notebook id used by the user, if available.
- */
-export const getLastNotebookId = (): string | null => readCookie().lastNotebookId;
 
 /**
  * Persists the last opened notebook id for redirect/bootstrap flows.

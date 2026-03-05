@@ -7,15 +7,17 @@ import { Dropdown } from "@valentinkolb/cloud/lib/ui";
 import SearchButton from "../search/SearchButton.island";
 import { listAccessibleNotebooks } from "./notebooks";
 import type { NoteTreeNode, Notebook } from "./types";
-import { refreshCurrentPath } from "../../../lib/navigation";
+import { navigateTo, refreshCurrentPath } from "../../../lib/navigation";
 
 type Props = {
   tree: NoteTreeNode[];
   notebookId: string;
+  notebookName: string;
   selectedNoteId: string | null;
   canWrite?: boolean;
   viewMode?: "read" | "edit";
   showSearch?: boolean;
+  showHeaderActions?: boolean;
 };
 
 // =============================================================================
@@ -60,11 +62,11 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
         param: { id: notebookId },
         json: data,
       });
-      if (!res.ok) throw new Error("Failed to create page");
+      if (!res.ok) throw new Error("Failed to create note");
       return (await res.json()) as { id: string };
     },
     onSuccess: (data) => {
-      window.location.href = buildNoteUrl(notebookId, data.id);
+      navigateTo(buildNoteUrl(notebookId, data.id));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -75,7 +77,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
         param: { id: notebookId, noteId: data.noteId },
         json: data.patch,
       });
-      if (!res.ok) throw new Error("Failed to update page");
+      if (!res.ok) throw new Error("Failed to update note");
       return res.json();
     },
     onSuccess: () => refreshCurrentPath(),
@@ -88,7 +90,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
         param: { id: notebookId, noteId: data.noteId },
         json: { parentId: data.parentId, position: data.position },
       });
-      if (!res.ok) throw new Error("Failed to move page");
+      if (!res.ok) throw new Error("Failed to move note");
       return res.json();
     },
     onSuccess: () => refreshCurrentPath(),
@@ -107,11 +109,11 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
           targetParentId: data.targetParentId,
         },
       });
-      if (!res.ok) throw new Error("Failed to copy page");
+      if (!res.ok) throw new Error("Failed to copy note");
       return (await res.json()) as { id: string; notebookId: string };
     },
     onSuccess: (data) => {
-      window.location.href = buildNoteUrl(data.notebookId, data.id);
+      navigateTo(buildNoteUrl(data.notebookId, data.id));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -121,10 +123,10 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
       const res = await apiClient[":id"].notes[":noteId"].$delete({
         param: { id: notebookId, noteId },
       });
-      if (!res.ok) throw new Error("Failed to delete page");
+      if (!res.ok) throw new Error("Failed to delete note");
     },
     onSuccess: () => {
-      window.location.href = `/app/notebooks/${notebookId}`;
+      navigateTo(`/app/notebooks/${notebookId}`);
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -136,7 +138,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
       });
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.message ?? "Failed to lock page");
+        throw new Error(error.message ?? "Failed to lock note");
       }
       return res.json();
     },
@@ -146,14 +148,14 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
 
   const handleCreateNote = async (parentId?: string) => {
     const result = await prompts.form({
-      title: parentId ? "New Subnote" : "New Page",
+      title: parentId ? "New Subnote" : "New Note",
       icon: "ti ti-file-plus",
       fields: {
         title: {
           type: "text" as const,
           label: "Title",
           required: true,
-          placeholder: "Page title",
+          placeholder: "Note title",
         },
       },
     });
@@ -164,7 +166,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
 
   const handleEdit = async (node: NoteTreeNode) => {
     const result = await prompts.form({
-      title: "Edit Page",
+      title: "Edit Note",
       icon: "ti ti-pencil",
       fields: {
         title: {
@@ -247,7 +249,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
           </div>
         );
       },
-      { title: "Move Page", icon: "ti ti-arrow-move-right" },
+      { title: "Move Note", icon: "ti ti-arrow-move-right" },
     );
 
     if (result) {
@@ -274,7 +276,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
     }
 
     const result = await prompts.form({
-      title: "Copy Page",
+      title: "Copy Note",
       icon: "ti ti-copy",
       fields: {
         targetNotebookId: {
@@ -302,9 +304,9 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   const handleDelete = async (node: NoteTreeNode) => {
     const hasKids = node.children.length > 0;
     const confirmed = await prompts.confirm(
-      hasKids ? `Delete "${node.title}" and all its sub-pages? This cannot be undone.` : `Delete "${node.title}"? This cannot be undone.`,
+      hasKids ? `Delete "${node.title}" and all its sub-notes? This cannot be undone.` : `Delete "${node.title}"? This cannot be undone.`,
       {
-        title: "Delete Page",
+        title: "Delete Note",
         icon: "ti ti-trash",
         variant: "danger",
         confirmText: "Delete",
@@ -368,44 +370,42 @@ function TreeNode(props: {
   };
 
   return (
-    <div>
+    <div class="sidebar-tree-item">
       <div
-        class={`flex items-center gap-1 rounded-md text-sm transition-colors group/node ${
-          isSelected()
-            ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium"
-            : "text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        }`}
-        style={`padding-left: ${props.depth * 12 + 8}px`}
+        class={`sidebar-tree-row group/node ${isSelected() ? "sidebar-item-active" : ""}`}
+        style={`--sidebar-level:${props.depth}`}
       >
         {/* Expand/collapse toggle or leaf dot */}
         {hasChildren() ? (
           <button
             type="button"
-            class="w-5 h-5 flex items-center justify-center shrink-0 text-dimmed hover:text-primary"
+            class="sidebar-tree-toggle"
             onClick={() => setExpanded((v) => !v)}
           >
             <i class={`ti ti-chevron-right text-xs transition-transform ${expanded() ? "rotate-90" : ""}`} />
           </button>
         ) : (
-          <span class="w-5 h-5 flex items-center justify-center shrink-0 text-dimmed">
+          <span class="sidebar-tree-toggle">
             <span class="w-1 h-1 rounded-full bg-zinc-300 dark:bg-zinc-600" />
           </span>
         )}
 
         {/* Note link */}
-        <a href={href()} class="flex-1 min-w-0 py-1.5 truncate no-underline">
-          <span class="truncate flex items-center gap-1.5">
-            {props.node.title || "Untitled"}
-            {props.node.lockedAt && <i class="ti ti-lock text-xs text-amber-500" title="Locked" />}
+        <a href={href()} class="flex-1 min-w-0 no-underline py-1">
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span class="truncate">{props.node.title || "Untitled"}</span>
+            <Show when={props.node.lockedAt}>
+              <i class="ti ti-lock shrink-0 text-xs text-amber-500" title="Locked" />
+            </Show>
           </span>
         </a>
 
         {/* Context menu */}
         <Show when={props.canWrite}>
-          <div class="opacity-0 group-hover/node:opacity-100 transition-opacity shrink-0 pr-1">
+          <div class="opacity-0 group-hover/node:opacity-100 transition-opacity shrink-0">
             <Dropdown
               trigger={
-                <span class="w-5 h-5 flex items-center justify-center text-dimmed hover:text-primary">
+                <span class="sidebar-item-action">
                   <i class="ti ti-dots text-xs" />
                 </span>
               }
@@ -499,48 +499,53 @@ function TreeNode(props: {
 
 export default function NoteTree(props: Props) {
   const actions = useNoteActions(props.notebookId, () => props.tree);
+  const showHeaderActions = () => props.showHeaderActions ?? true;
 
   return (
-    <div class="flex flex-col gap-0.5">
+    <div class="sidebar-tree">
       {/* Header with search + add buttons */}
-      <div class="flex items-center justify-between px-2 py-1">
-        <span class="section-label mb-0">Pages</span>
-        <div class="flex items-center gap-1">
-          <Show when={props.showSearch}>
-            <SearchButton notebookId={props.notebookId} variant="compact" />
-          </Show>
-          <Show when={props.canWrite}>
-            <button
-              type="button"
-              onClick={() => actions.handleCreateNote()}
-              disabled={actions.loading()}
-              class="text-dimmed hover:text-primary transition-colors p-0.5"
-              title="New Page"
-            >
-              <i class={`ti ${actions.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-xs`} />
-            </button>
-          </Show>
+      <Show when={showHeaderActions()}>
+        <div class="flex items-center justify-between px-2 py-1">
+          <span class="section-label mb-0">Notes</span>
+          <div class="flex items-center gap-1">
+            <Show when={props.showSearch}>
+              <SearchButton notebookId={props.notebookId} notebookName={props.notebookName} variant="compact" />
+            </Show>
+            <Show when={props.canWrite}>
+              <button
+                type="button"
+                onClick={() => actions.handleCreateNote()}
+                disabled={actions.loading()}
+                class="text-dimmed hover:text-primary transition-colors p-0.5"
+                title="New Note (Mod+Alt+N)"
+              >
+                <i class={`ti ${actions.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-xs`} />
+              </button>
+            </Show>
+          </div>
         </div>
-      </div>
+      </Show>
 
-      <For each={props.tree}>
-        {(node) => (
-          <TreeNode
-            node={node}
-            depth={0}
-            selectedNoteId={props.selectedNoteId}
-            notebookId={props.notebookId}
-            canWrite={props.canWrite ?? false}
-            viewMode={props.viewMode ?? "edit"}
-            actions={actions}
-          />
-        )}
-      </For>
+      <div class="max-h-[42vh] overflow-y-auto">
+        <For each={props.tree}>
+          {(node) => (
+            <TreeNode
+              node={node}
+              depth={0}
+              selectedNoteId={props.selectedNoteId}
+              notebookId={props.notebookId}
+              canWrite={props.canWrite ?? false}
+              viewMode={props.viewMode ?? "edit"}
+              actions={actions}
+            />
+          )}
+        </For>
+      </div>
 
       {props.tree.length === 0 && (
         <p class="flex items-center justify-center gap-1.5 px-2 py-4 text-xs text-dimmed">
           <i class="ti ti-file-text text-sm" />
-          No pages yet
+          No notes yet
         </p>
       )}
     </div>

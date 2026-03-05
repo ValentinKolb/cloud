@@ -1,28 +1,58 @@
-import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { buildNoteUrl } from "../../../params";
-import NoteSearch from "./NoteSearch.island";
+import { navigateTo } from "../../../lib/navigation";
+import { openNoteSearchPrompt } from "./openNoteSearchPrompt";
 
 type Props = {
   notebookId: string;
-  variant?: "compact";
+  notebookName: string;
+  variant?: "compact" | "chip" | "sidebar";
 };
 
 export default function SearchButton(props: Props) {
   const handleSearch = async () => {
-    const noteId = await prompts.dialog<string>((close) => <NoteSearch notebookId={props.notebookId} close={close} />, {
-      title: "Search Pages",
-      icon: "ti ti-search",
-    });
-
+    const noteId = await openNoteSearchPrompt(props.notebookId, props.notebookName);
     if (noteId) {
-      window.location.href = buildNoteUrl(props.notebookId, noteId);
+      navigateTo(buildNoteUrl(props.notebookId, noteId));
     }
   };
 
   if (props.variant === "compact") {
     return (
-      <button type="button" onClick={handleSearch} class="p-0.5 text-dimmed hover:text-primary transition-colors" title="Search pages">
+      <button
+        type="button"
+        onClick={handleSearch}
+        class="p-0.5 text-dimmed hover:text-primary transition-colors"
+        title="Search notes (Mod+Shift+K)"
+      >
         <i class="ti ti-search text-xs" />
+      </button>
+    );
+  }
+
+  if (props.variant === "chip") {
+    return (
+      <button
+        type="button"
+        onClick={handleSearch}
+        class="btn-input btn-input-sm bg-zinc-200/60 dark:bg-zinc-800/60"
+        title="Search notes (Mod+Shift+K)"
+      >
+        <i class="ti ti-search" />
+        <span>Search</span>
+      </button>
+    );
+  }
+
+  if (props.variant === "sidebar") {
+    return (
+      <button
+        type="button"
+        onClick={handleSearch}
+        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs bg-zinc-200/60 dark:bg-zinc-800/60"
+        title="Search notes (Mod+Shift+K)"
+      >
+        <i class="ti ti-search" />
+        <span>Search</span>
       </button>
     );
   }
@@ -32,7 +62,7 @@ export default function SearchButton(props: Props) {
       type="button"
       onClick={handleSearch}
       class="flex items-center gap-2 text-xs text-dimmed hover:text-primary transition-colors px-2 py-1.5"
-      title="Search pages"
+      title="Search notes (Mod+Shift+K)"
     >
       <i class="ti ti-search text-sm" />
       <span>Search</span>

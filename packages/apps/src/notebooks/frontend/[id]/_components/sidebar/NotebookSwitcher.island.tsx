@@ -1,10 +1,11 @@
-import {  For, Show } from "solid-js";
+import { For, Show } from "solid-js";
 import { apiClient } from "@/notebooks/client";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { setLastNotebookId } from "../settings/NotebookSettingsStore";
 import { listAccessibleNotebooks } from "./notebooks";
 import type { Notebook } from "./types";
+import { navigateTo } from "../../../lib/navigation";
 
 type Props = {
   currentNotebook: Notebook;
@@ -24,7 +25,7 @@ const NotebookSwitcher = (props: Props) => {
     },
     onSuccess: (data) => {
       setLastNotebookId(data.id);
-      window.location.href = `/app/notebooks/${data.id}`;
+      navigateTo(`/app/notebooks/${data.id}`);
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -86,7 +87,7 @@ const NotebookSwitcher = (props: Props) => {
 
     if (result.action === "switch") {
       setLastNotebookId(result.id);
-      window.location.href = `/app/notebooks/${result.id}`;
+      navigateTo(`/app/notebooks/${result.id}`);
     } else if (result.action === "create") {
       const formResult = await prompts.form({
         title: "New Notebook",

@@ -2,6 +2,7 @@ import { apiClient } from "@/notebooks/client";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { setLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
+import { navigateTo } from "./lib/navigation";
 
 type CreatedNotebook = {
   id: string;
@@ -19,7 +20,7 @@ const CreateNotebookButton = () => {
     },
     onSuccess: (data) => {
       setLastNotebookId(data.id);
-      window.location.href = `/app/notebooks/${data.id}`;
+      navigateTo(`/app/notebooks/${data.id}`);
     },
     onError: (err) => prompts.error(err.message),
   });

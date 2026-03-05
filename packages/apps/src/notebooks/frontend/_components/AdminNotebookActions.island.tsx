@@ -2,14 +2,11 @@ import { Dropdown, PermissionEditor } from "@valentinkolb/cloud/lib/ui";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { apiClient } from "@/notebooks/client";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts/shared";
+import { refreshCurrentPath } from "../lib/navigation";
 
 type AdminNotebookActionsProps = {
   notebookId: string;
   notebookName: string;
-};
-
-const refreshCurrentPath = () => {
-  window.location.href = `${window.location.pathname}${window.location.search}`;
 };
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -81,7 +78,7 @@ const openPermissionDialog = async (props: AdminNotebookActionsProps) => {
 };
 
 const deleteNotebook = async (props: AdminNotebookActionsProps) => {
-  const confirmed = await prompts.confirm(`Delete "${props.notebookName}" and all its pages? This cannot be undone.`, {
+  const confirmed = await prompts.confirm(`Delete "${props.notebookName}" and all its notes? This cannot be undone.`, {
     title: "Delete Notebook",
     icon: "ti ti-trash",
     confirmText: "Delete",

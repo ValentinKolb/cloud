@@ -4,8 +4,9 @@ import apiRoutes from "./api";
 import wsRoutes from "./ws";
 import pageRoutes from "./pages";
 import adminPageRoutes from "./adminPages";
-import { notebooksService, yjsManager } from "./service";
+import { notebooksService, yjsSnapshotWorker } from "./service";
 import { migrate } from "./migrate";
+import { notebooksCapabilities } from "./capabilities";
 
 const app = {
   meta: {
@@ -22,6 +23,7 @@ const app = {
     },
   },
   service: notebooksService,
+  capabilities: notebooksCapabilities,
   routes: {
     api: new Hono().route("/app/notebooks", apiRoutes),
     pages: new Hono().route("/app/notebooks", pageRoutes).route("/admin/notebooks", adminPageRoutes),
@@ -32,10 +34,10 @@ const app = {
       await migrate();
     },
     start: async () => {
-      yjsManager.start();
+      yjsSnapshotWorker.start();
     },
     stop: async () => {
-      yjsManager.stop();
+      await yjsSnapshotWorker.stop();
     },
   },
 } satisfies AppFacade<typeof notebooksService>;

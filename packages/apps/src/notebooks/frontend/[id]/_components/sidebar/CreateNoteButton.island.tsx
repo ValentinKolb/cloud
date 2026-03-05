@@ -2,10 +2,11 @@ import { apiClient } from "@/notebooks/client";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { buildNoteUrl } from "../../../params";
+import { navigateTo } from "../../../lib/navigation";
 
 type Props = {
   notebookId: string;
-  variant?: "compact";
+  variant?: "compact" | "chip" | "sidebar";
 };
 
 type CreateNoteResult = {
@@ -19,25 +20,25 @@ const CreateNoteButton = (props: Props) => {
         param: { id: props.notebookId },
         json: data,
       });
-      if (!res.ok) throw new Error("Failed to create page");
+      if (!res.ok) throw new Error("Failed to create note");
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      window.location.href = buildNoteUrl(props.notebookId, data.id);
+      navigateTo(buildNoteUrl(props.notebookId, data.id));
     },
     onError: (err) => prompts.error(err.message),
   });
 
   const handleCreate = async () => {
     const result = await prompts.form({
-      title: "New Page",
+      title: "New Note",
       icon: "ti ti-file-plus",
       fields: {
         title: {
           type: "text" as const,
           label: "Title",
           required: true,
-          placeholder: "Page title",
+          placeholder: "Note title",
         },
       },
     });
@@ -48,6 +49,41 @@ const CreateNoteButton = (props: Props) => {
     return (
       <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="p-1.5 text-dimmed hover:text-primary">
         <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-file-plus"}`} />
+      </button>
+    );
+  }
+
+  if (props.variant === "chip") {
+    return (
+      <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="btn-primary btn-sm">
+        {mutation.loading() ? (
+          <i class="ti ti-loader-2 animate-spin" />
+        ) : (
+          <>
+            <i class="ti ti-plus" />
+            <span>New Note</span>
+          </>
+        )}
+      </button>
+    );
+  }
+
+  if (props.variant === "sidebar") {
+    return (
+      <button
+        type="button"
+        onClick={handleCreate}
+        disabled={mutation.loading()}
+        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20"
+      >
+        {mutation.loading() ? (
+          <i class="ti ti-loader-2 animate-spin" />
+        ) : (
+          <>
+            <i class="ti ti-plus" />
+            <span>New Note</span>
+          </>
+        )}
       </button>
     );
   }
@@ -64,7 +100,7 @@ const CreateNoteButton = (props: Props) => {
       ) : (
         <>
           <i class="ti ti-file-plus mr-1 text-emerald-600 dark:text-emerald-400" />
-          <span class="text-emerald-700 dark:text-emerald-300">New Page</span>
+          <span class="text-emerald-700 dark:text-emerald-300">New Note</span>
         </>
       )}
     </button>

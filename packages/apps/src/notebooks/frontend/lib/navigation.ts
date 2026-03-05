@@ -11,5 +11,12 @@ export const currentPathWithQuery = () => {
  * Navigates to the canonical current URL.
  */
 export const refreshCurrentPath = () => {
-  window.location.href = currentPathWithQuery();
+  window.location.assign(currentPathWithQuery());
+};
+
+/**
+ * Navigates to a target href via browser navigation.
+ */
+export const navigateTo = (href: string) => {
+  window.location.assign(href);
 };
