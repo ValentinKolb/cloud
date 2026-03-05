@@ -2,7 +2,7 @@ import { migrate as migrateAuth } from "@/migrate/core/auth";
 import { migrate as migrateLogging } from "@/migrate/core/logging";
 import { migrate as migrateNotifications } from "@/migrate/core/notifications";
 import { migrate as migrateSettings } from "@/migrate/core/settings";
-import type { AppFacade, CloudContext, CloudRuntime } from "@valentinkolb/cloud-contracts/app";
+import type { AppFacade, AppSearchTagHelpEntry, CloudContext, CloudRuntime } from "@valentinkolb/cloud-contracts/app";
 import { logger } from "@valentinkolb/cloud-core/services/logging";
 import { startAutoCleanup, stopAutoCleanup } from "@valentinkolb/cloud-core/services/logging";
 import { ipa } from "@valentinkolb/cloud-core/services/ipa";
@@ -175,11 +175,43 @@ export const validateApps = (apps: readonly AppFacade[]): void => {
   );
 };
 
+const normalizeSearchTags = (tags?: readonly string[]): string[] | undefined => {
+  if (!tags || tags.length === 0) return undefined;
+
+  const normalized = [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter((tag) => tag.length > 0))];
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+const normalizeSearchHelp = (help?: string): string | undefined => {
+  const normalized = help?.trim();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+};
+
+const normalizeSearchTagHelp = (tagHelp?: readonly AppSearchTagHelpEntry[]): AppSearchTagHelpEntry[] | undefined => {
+  if (!tagHelp || tagHelp.length === 0) return undefined;
+
+  const map = new Map<string, string>();
+  for (const entry of tagHelp) {
+    const tag = entry.tag.trim().toLowerCase();
+    const help = entry.help.trim();
+    if (!tag || !help) continue;
+    map.set(tag, help);
+  }
+
+  if (map.size === 0) return undefined;
+  return [...map.entries()].map(([tag, help]) => ({ tag, help }));
+};
+
 /**
  * Builds request runtime data from app facades (meta only, no routes/services).
  */
 export const createRuntimeContext = (apps: readonly AppFacade[]): RuntimeContext => ({
-  apps: apps.map((app) => ({ ...app.meta })),
+  apps: apps.map((app) => ({
+    ...app.meta,
+    searchTags: normalizeSearchTags(app.capabilities?.search?.tags),
+    searchHelp: normalizeSearchHelp(app.capabilities?.search?.help),
+    searchTagHelp: normalizeSearchTagHelp(app.capabilities?.search?.tagHelp),
+  })),
 });
 
 /**

@@ -5,6 +5,7 @@ import { prettyJSON } from "hono/pretty-json";
 import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
 import authRoutes from "@/api/auth";
 import meRoutes from "@/api/me";
+import { createSearchRoutes } from "@/api/search";
 import { openApiMeta } from "@valentinkolb/cloud-lib/server/middleware/openapi";
 import type { AppFacade } from "@valentinkolb/cloud-contracts/app";
 
@@ -23,6 +24,7 @@ export const createApiRouter = async (apps: readonly AppFacade[]) => {
   // Individual routes
   api.route("/auth", authRoutes);
   api.route("/me", meRoutes);
+  api.route("/", createSearchRoutes(apps));
 
   const spec = await generateSpecs(api, openApiMeta);
   const llmsTxt = await createMarkdownFromOpenApi(JSON.stringify(spec));
