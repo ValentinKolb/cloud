@@ -81,10 +81,10 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
   };
 
   return (
-    <div class="hidden lg:flex p-3 flex-col gap-3">
+    <div id="files-sidebar-settings" class="flex flex-col gap-3 px-1 pt-1">
       {/* Header with minimize toggle */}
       <div class="flex items-center justify-between">
-        <div class="section-label mb-0">Settings</div>
+        <p class="sidebar-section-title pt-0">Panel</p>
         <button
           type="button"
           onClick={toggleMinimize}

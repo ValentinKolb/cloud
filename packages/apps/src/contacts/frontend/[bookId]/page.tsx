@@ -101,31 +101,15 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
       {" "}
-      <div class="app-cols h-full">
-        {" "}
-        <div class="hidden lg:flex flex-col w-56 shrink-0 overflow-y-auto">
-          {" "}
-          <ContactsSidebar
-            books={books}
-            active={book.id}
-            adminBookIds={adminBookIds}
-            writableBooks={writableBooks}
-            defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
-          />{" "}
-        </div>{" "}
-        <div class="flex-1 min-w-0 flex flex-col">
-          {" "}
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            {" "}
-            <ContactsSidebar
-              books={books}
-              active={book.id}
-              adminBookIds={adminBookIds}
-              writableBooks={writableBooks}
-              defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
-            />{" "}
-          </div>{" "}
-          <div class="divider lg:hidden" />{" "}
+      <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+        <ContactsSidebar
+          books={books}
+          active={book.id}
+          adminBookIds={adminBookIds}
+          writableBooks={writableBooks}
+          defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
+        />
+        <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           <div class="px-3 py-1" style="view-transition-name: contacts-page-header">
             {" "}
             <SearchBar value={search} />{" "}

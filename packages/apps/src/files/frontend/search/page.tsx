@@ -164,19 +164,10 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Files", href: "/app/files" }, { title: "Search" }]} fullWidth>
       <div class="app-cols h-full">
-        {/* Desktop sidebar */}
-        <div class="hidden lg:flex flex-col w-48 shrink-0">
-          <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
-        </div>
+        <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
         {/* Main content */}
         <div class="flex-1 min-w-0 flex flex-col">
-          {/* Mobile sidebar */}
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
-          </div>
-          <div class="divider lg:hidden" />
-
           <div class="flex-1 min-h-0 overflow-y-auto">
             <div class="flex flex-col gap-3 p-3">
               {/* Search form */}

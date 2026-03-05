@@ -5,6 +5,7 @@ import pageRoutes from "./pages";
 import adminPageRoutes from "./adminPages";
 import { createFilesWidget } from "./widget";
 import { filesService } from "./service";
+import { filesCapabilities } from "./capabilities";
 
 const app = {
   meta: {
@@ -23,6 +24,7 @@ const app = {
     },
   },
   service: filesService,
+  capabilities: filesCapabilities,
   routes: {
     api: new Hono().route("/app/files", apiRoutes),
     pages: new Hono().route("/app/files", pageRoutes).route("/admin/files", adminPageRoutes),

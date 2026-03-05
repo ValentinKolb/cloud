@@ -289,9 +289,7 @@ export default ssr<AuthContext>(async (c) => {
     return (
       <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: "Not Found" }]}>
         <div class="app-cols h-full">
-          <div class="hidden lg:flex flex-col w-48 shrink-0 overflow-y-auto">
-            <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
-          </div>
+          <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
           <div class="flex-1 min-w-0 flex flex-col">
             <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
               <i class="ti ti-map-pin-off text-sm" />
@@ -327,19 +325,10 @@ export default ssr<AuthContext>(async (c) => {
       title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: activeLocation.name }]}
     >
       <div class="app-cols h-full">
-        {/* Sidebar (Desktop) */}
-        <div class="hidden lg:flex flex-col w-48 shrink-0 overflow-y-auto">
-          <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
-        </div>
+        <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
         {/* Main */}
         <div class="flex-1 min-w-0 flex flex-col">
-          {/* Mobile Sidebar */}
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
-          </div>
-          <div class="divider lg:hidden" />
-
           {/* Scrollable content */}
           <div class="flex-1 min-h-0 overflow-y-auto p-4">
             {activeWeather ? (

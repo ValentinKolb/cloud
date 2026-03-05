@@ -6,6 +6,7 @@ import adminPageRoutes from "./adminPages";
 import { createWeatherWidget } from "./widget";
 import { weatherService } from "./service";
 import { migrate } from "./migrate";
+import { weatherCapabilities } from "./capabilities";
 export type {
   WeatherData,
   DailyForecast,
@@ -29,6 +30,7 @@ const app = {
     },
   },
   service: weatherService,
+  capabilities: weatherCapabilities,
   routes: {
     api: new Hono().route("/app/weather", apiRoutes),
     pages: new Hono().route("/app/weather", pageRoutes).route("/admin/weather", adminPageRoutes),

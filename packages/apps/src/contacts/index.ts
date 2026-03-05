@@ -4,6 +4,7 @@ import apiRoutes from "./api";
 import pageRoutes from "./pages";
 import { contactsService } from "./service";
 import { migrate } from "./migrate";
+import { contactsCapabilities } from "./capabilities";
 
 const app = {
   meta: {
@@ -20,6 +21,7 @@ const app = {
     },
   },
   service: contactsService,
+  capabilities: contactsCapabilities,
   routes: {
     api: new Hono().route("/app/contacts", apiRoutes),
     pages: new Hono().route("/app/contacts", pageRoutes),

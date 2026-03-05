@@ -163,14 +163,13 @@ export const renderFilesBasePage = async (
     return (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
         <div class="app-cols h-full">
-          <div class="hidden lg:flex flex-col w-48 shrink-0">
-            <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
-          </div>
+          <BaseSidebar
+            bases={basesInfo}
+            currentBaseType={baseType}
+            currentBaseId={baseId}
+            settingsPanel={() => <FileSettings initialSettings={fileSettings} />}
+          />
           <div class="flex-1 flex flex-col">
-            <div class="lg:hidden px-3 pt-2 pb-1">
-              <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
-            </div>
-            <div class="divider lg:hidden" />
             <div class="flex-1 flex items-center justify-center gap-2 text-xs text-dimmed">
               <i class="ti ti-folder-off" />
               <span>{infoResult.error}</span>
@@ -236,22 +235,16 @@ export const renderFilesBasePage = async (
   return (
     <Layout c={c} title={breadcrumbs} fullWidth>
       <div class="app-cols h-full">
-        {/* Sidebar (desktop) */}
-        <div class="hidden lg:flex flex-col w-48 shrink-0">
-          <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
-          <div class="divider" />
-          <FileSettings initialSettings={fileSettings} />
-        </div>
+        <BaseSidebar
+          bases={basesInfo}
+          currentBaseType={baseType}
+          currentBaseId={baseId}
+          settingsPanel={() => <FileSettings initialSettings={fileSettings} />}
+        />
 
         {/* Main content */}
         <div class="flex-1 min-w-0 flex flex-col">
-          {/* Mobile sidebar */}
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            <BaseSidebar bases={basesInfo} currentBaseType={baseType} currentBaseId={baseId} />
-          </div>
-
           {/* Toolbar */}
-          <div class="divider lg:hidden" />
           <div class="px-3 py-2">
             <FileToolbar
               baseType={baseType}
