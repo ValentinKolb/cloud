@@ -1,10 +1,17 @@
-import { For, Show, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/spaces/client";
 import type { ItemFilter, ItemListResult, SpaceItem } from "@/spaces/contracts";
-import { dnd, mutation as mutations, type DndBuildIntentContext, type DndDraggableSnapshot, type DndDroppableSnapshot } from "@valentinkolb/cloud/lib/browser";
+import {
+  dnd,
+  mutation as mutations,
+  type DndBuildIntentContext,
+  type DndDraggableSnapshot,
+  type DndDroppableSnapshot,
+} from "@valentinkolb/cloud/lib/browser";
 import { dates } from "@valentinkolb/cloud/lib/shared";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import type { KanbanBucketInitial } from "./types";
+import { getDetailItemFromUrl, setDetailItemInUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
 
 type Props = {
   spaceId: string;
@@ -121,6 +128,10 @@ export default function KanbanBoard(props: Props) {
   const [buckets, setBuckets] = createSignal<KanbanBucketInitial[]>(props.initialBuckets);
   const [loadingBucketKey, setLoadingBucketKey] = createSignal<string | null>(null);
   const [movingItemId, setMovingItemId] = createSignal<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = createSignal<string | null>(props.selectedItemId ?? null);
+  createEffect(() => {
+    setSelectedItemId(props.selectedItemId ?? null);
+  });
 
   const getBucketByKey = (bucketKey: string) => buckets().find((bucket) => bucket.key === bucketKey) ?? null;
   const withViewTransition = (update: () => void) => {
@@ -257,6 +268,14 @@ export default function KanbanBoard(props: Props) {
 
   onCleanup(() => {
     boardDnd.destroy();
+  });
+
+  onMount(() => {
+    setSelectedItemId(getDetailItemFromUrl());
+    const unsubscribe = subscribeToDetailSelection(({ itemId }) => {
+      setSelectedItemId(itemId);
+    });
+    onCleanup(unsubscribe);
   });
 
   const loadMoreMutation = mutations.create<ItemListResult, { bucketKey: string }, LoadMoreContext>({
@@ -445,7 +464,7 @@ export default function KanbanBoard(props: Props) {
                     <For each={bucket.items}>
                       {(item, itemIndex) => {
                         const priority = item.priority ? priorityMeta[item.priority] : null;
-                        const isSelected = item.id === props.selectedItemId;
+                        const isSelected = () => item.id === selectedItemId();
                         const dragId = `drag:item:${item.id}`;
                         const dropId = `drop:item:${bucket.key}:${item.id}`;
                         const isDraggingThis = () => boardDnd.activeId() === dragId;
@@ -479,13 +498,22 @@ export default function KanbanBoard(props: Props) {
                                 }));
                               }}
                               data-dnd-card-handle
-                              class={`group/card relative rounded-md border p-2.5 transition-colors ${
-                                isSelected
-                                  ? "border-blue-500 bg-blue-50/80 dark:bg-blue-900/30"
-                                  : "border-zinc-200 bg-white/90 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/65 dark:hover:bg-zinc-800/60"
+                              class={`group/card relative rounded-md p-2.5 transition-colors ${
+                                isSelected()
+                                  ? "bg-blue-50/80 ring-2 ring-inset ring-blue-500/65 dark:bg-blue-900/30 dark:ring-blue-400/60"
+                                  : "bg-white/90 ring-1 ring-inset ring-zinc-300/65 hover:bg-blue-50/25 hover:ring-blue-500/40 dark:bg-zinc-900/65 dark:ring-zinc-700/65 dark:hover:bg-blue-950/12 dark:hover:ring-blue-400/40"
                               } ${isDraggingThis() ? "opacity-40" : ""}`}
                             >
-                              <a href={buildItemUrl(props.baseUrl, item.id)} class="block">
+                              <a
+                                href={buildItemUrl(props.baseUrl, item.id)}
+                                onClick={(event) => {
+                                  if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+                                  event.preventDefault();
+                                  setSelectedItemId(item.id);
+                                  setDetailItemInUrl(item.id, item);
+                                }}
+                                class="block"
+                              >
                                 <div class="flex items-start gap-2">
                                   <Show when={priority}>
                                     <i class={`ti ${priority!.icon} ${priority!.color} mt-0.5 shrink-0 text-xs`} />

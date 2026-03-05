@@ -57,6 +57,20 @@ type DbOverlapItem = {
   ends_at: Date;
 };
 
+type DbItemAssignee = {
+  item_id: string;
+  id: string;
+  display_name: string;
+};
+
+type DbItemTag = {
+  item_id: string;
+  id: string;
+  space_id: string;
+  name: string;
+  color: string;
+};
+
 /**
  * Converts one item row from `spaces.items` into the API-facing `SpaceItem` object.
  */
@@ -110,6 +124,57 @@ const getTags = async (itemId: string): Promise<SpaceTag[]> => {
   }));
 };
 
+const getAssigneesByItemIds = async (itemIds: string[]): Promise<Map<string, SpaceItemAssignee[]>> => {
+  if (itemIds.length === 0) return new Map();
+  const rows = await sql<DbItemAssignee[]>`
+    SELECT ia.item_id, u.id, u.display_name
+    FROM spaces.item_assignees ia
+    JOIN auth.users u ON ia.user_id = u.id
+    WHERE ia.item_id IN ${sql(itemIds)}
+    ORDER BY ia.item_id, u.display_name
+  `;
+  const grouped = new Map<string, SpaceItemAssignee[]>();
+  for (const row of rows) {
+    grouped.set(row.item_id, [...(grouped.get(row.item_id) ?? []), { id: row.id, displayName: row.display_name }]);
+  }
+  return grouped;
+};
+
+const getTagsByItemIds = async (itemIds: string[]): Promise<Map<string, SpaceTag[]>> => {
+  if (itemIds.length === 0) return new Map();
+  const rows = await sql<DbItemTag[]>`
+    SELECT it.item_id, t.id, t.space_id, t.name, t.color
+    FROM spaces.item_tags it
+    JOIN spaces.tags t ON it.tag_id = t.id
+    WHERE it.item_id IN ${sql(itemIds)}
+    ORDER BY it.item_id, t.name
+  `;
+  const grouped = new Map<string, SpaceTag[]>();
+  for (const row of rows) {
+    grouped.set(row.item_id, [
+      ...(grouped.get(row.item_id) ?? []),
+      {
+        id: row.id,
+        spaceId: row.space_id,
+        name: row.name,
+        color: row.color,
+      },
+    ]);
+  }
+  return grouped;
+};
+
+const hydrateRelations = async (items: SpaceItem[]): Promise<SpaceItem[]> => {
+  if (items.length === 0) return items;
+  const itemIds = items.map((item) => item.id);
+  const [assigneesByItemId, tagsByItemId] = await Promise.all([getAssigneesByItemIds(itemIds), getTagsByItemIds(itemIds)]);
+  for (const item of items) {
+    item.assignees = assigneesByItemId.get(item.id) ?? [];
+    item.tags = tagsByItemId.get(item.id) ?? [];
+  }
+  return items;
+};
+
 /**
  * List items for a space (board view) - simple version for backwards compatibility
  */
@@ -141,14 +206,7 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
     `;
   }
 
-  // Load relations for all items
-  const items = rows.map(mapToItem);
-  for (const item of items) {
-    item.assignees = await getAssignees(item.id);
-    item.tags = await getTags(item.id);
-  }
-
-  return items;
+  return hydrateRelations(rows.map(mapToItem));
 };
 
 /**
@@ -286,12 +344,7 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
     LIMIT ${pageSize} OFFSET ${offset}
   `;
 
-  // Load relations for all items
-  const items = rows.map(mapToItem);
-  for (const item of items) {
-    item.assignees = await getAssignees(item.id);
-    item.tags = await getTags(item.id);
-  }
+  const items = await hydrateRelations(rows.map(mapToItem));
 
   return {
     items,

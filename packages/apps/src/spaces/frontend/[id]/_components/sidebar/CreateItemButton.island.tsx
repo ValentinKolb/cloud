@@ -9,7 +9,7 @@ type Props = {
   spaceId: string;
   columns: SpaceColumn[];
   tags: SpaceTag[];
-  variant?: "primary" | "secondary";
+  variant?: "primary" | "secondary" | "sidebar" | "chip";
 };
 
 export default function CreateItemButton(props: Props) {
@@ -39,6 +39,41 @@ export default function CreateItemButton(props: Props) {
       mutation.mutate(result);
     }
   };
+
+  if (props.variant === "chip") {
+    return (
+      <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="btn-primary btn-sm">
+        {mutation.loading() ? (
+          <i class="ti ti-loader-2 animate-spin" />
+        ) : (
+          <>
+            <i class="ti ti-plus" />
+            <span>New Item</span>
+          </>
+        )}
+      </button>
+    );
+  }
+
+  if (props.variant === "sidebar") {
+    return (
+      <button
+        type="button"
+        onClick={handleCreate}
+        disabled={mutation.loading()}
+        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20"
+      >
+        {mutation.loading() ? (
+          <i class="ti ti-loader-2 animate-spin" />
+        ) : (
+          <>
+            <i class="ti ti-plus" />
+            <span>New Item</span>
+          </>
+        )}
+      </button>
+    );
+  }
 
   return (
     <button

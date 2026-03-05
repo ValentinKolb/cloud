@@ -21,6 +21,7 @@ type FilterBarProps = {
   tags: SpaceTag[];
   filter: FilterState;
   total: number;
+  baseUrl: string;
 };
 
 // Static filter options (defined outside component to avoid recreation)
@@ -130,11 +131,10 @@ const SORT_DEFAULT = [`sort:${defaultFilter.sort}`, `dir:asc`];
 export default function FilterBar(props: FilterBarProps) {
   onMount(() => setLastSpaceId(props.spaceId));
 
-  const baseUrl = `/app/spaces/${props.spaceId}`;
   const { filter } = props;
 
   const navigate = (params: Partial<FilterState>) => {
-    window.location.href = buildFilterUrl(baseUrl, { ...params, page: 1 }, filter);
+    window.location.href = buildFilterUrl(props.baseUrl, { ...params, page: 1 }, filter);
   };
 
   // Dynamic options based on props
@@ -164,7 +164,7 @@ export default function FilterBar(props: FilterBarProps) {
 
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: filter-bar">
-      <SearchInput value={filter.search} baseUrl={buildFilterUrl(baseUrl, {}, filter)} />
+      <SearchInput value={filter.search} baseUrl={buildFilterUrl(props.baseUrl, {}, filter)} />
 
       <div class="flex flex-wrap items-center gap-2">
         {/* View: Type + Status + Assigned To */}
@@ -264,7 +264,7 @@ export default function FilterBar(props: FilterBarProps) {
         {/* Clear Filters */}
         {hasFilters && (
           <a
-            href={baseUrl}
+            href={buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter)}
             class="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
             aria-label="Clear all filters"
           >

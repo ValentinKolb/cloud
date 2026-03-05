@@ -7,6 +7,7 @@ import { createUpcomingEventsWidget } from "./widgets/upcoming-events";
 import { createMyTasksWidget } from "./widgets/my-tasks";
 import { spacesService } from "./service";
 import { migrate } from "./migrate";
+import { spacesCapabilities } from "./capabilities";
 
 const app = {
   meta: {
@@ -24,6 +25,7 @@ const app = {
     },
   },
   service: spacesService,
+  capabilities: spacesCapabilities,
   routes: {
     api: new Hono().route("/app/spaces", apiRoutes),
     pages: new Hono().route("/app/spaces", pageRoutes).route("/admin/spaces", adminPageRoutes),

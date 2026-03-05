@@ -3,6 +3,7 @@ import { clipboard } from "@valentinkolb/cloud/lib/browser";
 
 type Props = {
   icalToken: string | null;
+  variant?: "sidebar" | "chip";
 };
 
 export default function CopyICalButton(props: Props) {
@@ -24,8 +25,17 @@ export default function CopyICalButton(props: Props) {
 
   if (!icalUrl()) return null;
 
+  if (props.variant === "chip") {
+    return (
+      <button type="button" onClick={handleCopy} class="btn-input btn-input-sm">
+        <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"}`} />
+        <span>{copied() ? "Copied!" : "iCal URL"}</span>
+      </button>
+    );
+  }
+
   return (
-    <button type="button" onClick={handleCopy} class="list-item text-xs">
+    <button type="button" onClick={handleCopy} class="sidebar-item w-full">
       <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-sm`} />
       <span>{copied() ? "Copied!" : "Copy iCal URL"}</span>
     </button>

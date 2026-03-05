@@ -20,4 +20,6 @@ export type SpaceContext = {
   hasOverride: boolean;
   /** User settings for this space (cookie defaults) */
   settings: SpaceUserSettings;
+  /** Current query string without leading question mark */
+  query: string;
 };

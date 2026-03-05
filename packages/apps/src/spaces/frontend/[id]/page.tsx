@@ -18,7 +18,7 @@ import FilterBar from "./_components/filter/FilterBar.island";
 import { parseFilterFromUrl, buildFilterUrl, defaultFilter } from "./_components/filter/types";
 
 // Detail components
-import ItemDetailPanel from "./_components/detail/ItemDetailPanel.island";
+import ItemDetailHost from "./_components/detail/ItemDetailHost.island";
 
 // List components
 import ItemsList from "./_components/list";
@@ -35,6 +35,24 @@ import { getCookie } from "hono/cookie";
 
 // Edit panel
 import SpaceEditPanel from "./_components/edit/SpaceEditPanel.island";
+
+const withViewOverrides = (params: {
+  baseUrl: string;
+  hasViewOverride: boolean;
+  currentView: string;
+  hasPanelWidthOverride: boolean;
+  currentPanelWidth: string;
+}) => {
+  const url = new URL(params.baseUrl, "http://localhost");
+  if (params.hasViewOverride) {
+    url.searchParams.set("view", params.currentView);
+  }
+  if (params.hasPanelWidthOverride) {
+    url.searchParams.set("panelWidth", params.currentPanelWidth);
+  }
+  const query = url.searchParams.toString();
+  return query ? `${url.pathname}?${query}` : url.pathname;
+};
 
 /**
  * Space detail page - shows items in various views with filtering
@@ -290,6 +308,7 @@ export default ssr<AuthContext>(async (c) => {
     currentPanelWidth,
     hasOverride,
     settings,
+    query: url.searchParams.toString(),
   };
 
   // Get detail panel width class
@@ -301,42 +320,32 @@ export default ssr<AuthContext>(async (c) => {
   const baseSpaceUrl = `/app/spaces/${spaceId}`;
 
   // Build pagination base URL (preserves current list filters + view overrides)
-  let paginationBaseUrl = buildFilterUrl(baseSpaceUrl, { page: 0 }, filter).replace("page=0", "page=");
-  if (hasViewOverride) {
-    paginationBaseUrl += `&view=${currentView}`;
-  }
-  if (hasPanelWidthOverride) {
-    paginationBaseUrl += `&panelWidth=${currentPanelWidth}`;
-  }
+  let paginationBaseUrl = withViewOverrides({
+    baseUrl: buildFilterUrl(baseSpaceUrl, { page: 0 }, filter),
+    hasViewOverride,
+    currentView,
+    hasPanelWidthOverride,
+    currentPanelWidth,
+  });
+  paginationBaseUrl = paginationBaseUrl.replace("page=0", "page=");
 
   // Build item link base URL (preserves list filters only in list mode)
-  let itemLinkBaseUrl = currentView === "list" ? buildFilterUrl(baseSpaceUrl, {}, filter) : baseSpaceUrl;
-  // Preserve view override params so they survive navigation
-  if (hasViewOverride) {
-    const sep = itemLinkBaseUrl.includes("?") ? "&" : "?";
-    itemLinkBaseUrl += `${sep}view=${currentView}`;
-  }
-  if (hasPanelWidthOverride) {
-    const sep = itemLinkBaseUrl.includes("?") ? "&" : "?";
-    itemLinkBaseUrl += `${sep}panelWidth=${currentPanelWidth}`;
-  }
+  const itemLinkBaseUrl = withViewOverrides({
+    baseUrl: currentView === "list" ? buildFilterUrl(baseSpaceUrl, {}, filter) : baseSpaceUrl,
+    hasViewOverride,
+    currentView,
+    hasPanelWidthOverride,
+    currentPanelWidth,
+  });
 
   return (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Spaces", href: "/app/spaces" }, { title: space.name }]}>
-      <div class="app-cols h-full">
-        {/* Sidebar (Desktop) */}
-        <div class="hidden lg:flex flex-col w-48 shrink-0 overflow-y-auto">
-          <SpaceSidebar ctx={ctx} variant="desktop" />
-        </div>
+      <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+        {/* Sidebar */}
+        <SpaceSidebar ctx={ctx} />
 
         {/* Main Content */}
-        <div class="flex-1 min-w-0 flex flex-col">
-          {/* Mobile Sidebar */}
-          <div class="lg:hidden px-3 pt-2 pb-1">
-            <SpaceSidebar ctx={ctx} variant="mobile" />
-          </div>
-          <div class="divider lg:hidden" />
-
+        <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Mobile/Tablet: Settings or Item Detail above content */}
           {isSettingsMode && (
             <>
@@ -352,21 +361,17 @@ export default ssr<AuthContext>(async (c) => {
               <div class="divider xl:hidden" />
             </>
           )}
-          {!isSettingsMode && selectedItem && (
-            <>
-              <div class="xl:hidden overflow-y-auto">
-                <ItemDetailPanel
-                  item={selectedItem}
-                  columns={ctx.columns}
-                  tags={ctx.tags}
-                  spaceId={ctx.space.id}
-                  baseUrl={itemLinkBaseUrl}
-                  currentUserId={user.id}
-                  initialComments={selectedItemComments}
-                />
-              </div>
-              <div class="divider xl:hidden" />
-            </>
+          {!isSettingsMode && (
+            <div class="xl:hidden overflow-y-auto">
+              <ItemDetailHost
+                spaceId={ctx.space.id}
+                baseUrl={itemLinkBaseUrl}
+                currentUserId={user.id}
+                tags={ctx.tags}
+                initialItem={selectedItem}
+                initialComments={selectedItemComments}
+              />
+            </div>
           )}
 
           {/* Description */}
@@ -383,7 +388,14 @@ export default ssr<AuthContext>(async (c) => {
           {currentView === "list" && (
             <>
               <div class="p-2">
-                <FilterBar spaceId={spaceId} columns={ctx.columns} tags={ctx.tags} filter={filter} total={itemsResult.total} />
+                <FilterBar
+                  spaceId={spaceId}
+                  columns={ctx.columns}
+                  tags={ctx.tags}
+                  filter={filter}
+                  total={itemsResult.total}
+                  baseUrl={itemLinkBaseUrl}
+                />
               </div>
               <div class="divider" />
             </>
@@ -461,22 +473,16 @@ export default ssr<AuthContext>(async (c) => {
           </div>
         ) : (
           <div class={`hidden xl:flex flex-col ${detailPanelWidthClass} shrink-0 overflow-y-auto`}>
-            {selectedItem ? (
-              <ItemDetailPanel
-                item={selectedItem}
-                columns={ctx.columns}
-                tags={ctx.tags}
-                spaceId={ctx.space.id}
-                baseUrl={itemLinkBaseUrl}
-                currentUserId={user.id}
-                initialComments={selectedItemComments}
-              />
-            ) : (
-              <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
-                <i class="ti ti-click text-sm" />
-                Select an item to view details
-              </p>
-            )}
+            <ItemDetailHost
+              spaceId={ctx.space.id}
+              baseUrl={itemLinkBaseUrl}
+              currentUserId={user.id}
+              tags={ctx.tags}
+              initialItem={selectedItem}
+              initialComments={selectedItemComments}
+              showEmpty
+              emptyText="Select an item to view details"
+            />
           </div>
         )}
       </div>

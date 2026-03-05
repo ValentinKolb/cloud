@@ -1,19 +1,15 @@
 import { Show, For, createSignal } from "solid-js";
 import { apiClient } from "@/spaces/client";
-import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { dates, markdown } from "@valentinkolb/cloud/lib/shared";
-import { Dropdown } from "@valentinkolb/cloud/lib/ui";
-import type { DropdownItem } from "@valentinkolb/cloud/lib/ui";
-import { MarkdownView } from "@valentinkolb/cloud/lib/ui";
-import { EntitySearch, type EntitySearchResult } from "@valentinkolb/cloud/lib/ui";
+import { Dropdown, EntitySearch, MarkdownView, prompts, type DropdownItem, type EntitySearchResult } from "@valentinkolb/cloud/lib/ui";
 import { refreshCurrentPath } from "../../../lib/navigation";
+import { setDetailItemInUrl, shouldHandleDetailClick } from "../../../lib/detail";
 import CommentsSection from "./CommentsSection";
-import type { SpaceItem, SpaceColumn, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/spaces/contracts";
+import type { SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/spaces/contracts";
 
 type Props = {
   item: SpaceItem;
-  columns: SpaceColumn[];
   tags: SpaceTag[];
   spaceId: string;
   /** Base URL for close link */
@@ -40,6 +36,22 @@ const PRIORITY_OPTIONS = [
   { value: "low", label: "Low", icon: "ti ti-arrow-down", color: "#3b82f6" },
 ] as const;
 
+const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
+  value: priority.value,
+  label: priority.label,
+  icon: priority.icon,
+  color: priority.color,
+}));
+
+const DROPDOWN_TRIGGER_CLASS =
+  "inline-flex items-center gap-2 btn-sm rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors";
+
+const ICON_ACTION_BUTTON_CLASS =
+  "p-1.5 text-dimmed hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors disabled:opacity-50";
+
+const DANGER_ICON_ACTION_BUTTON_CLASS =
+  "p-1.5 text-dimmed hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50";
+
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
 const isNullableString = (value: unknown): value is string | null => typeof value === "string" || value === null;
@@ -59,9 +71,40 @@ const isSpaceComment = (value: unknown): value is SpaceComment => {
 
 const isSpaceCommentArray = (value: unknown): value is SpaceComment[] => Array.isArray(value) && value.every(isSpaceComment);
 
+const getResponseErrorMessage = async (res: Response, fallback: string) => {
+  try {
+    const data = (await res.json()) as unknown;
+    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
+      return data["message"];
+    }
+  } catch {}
+  return fallback;
+};
+
 // =============================================================================
 // Helper Components
 // =============================================================================
+
+function IconActionButton(props: {
+  icon: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled}
+      class={props.danger ? DANGER_ICON_ACTION_BUTTON_CLASS : ICON_ACTION_BUTTON_CLASS}
+      title={props.title}
+      aria-label={props.title}
+    >
+      <i class={props.icon} />
+    </button>
+  );
+}
 
 /** Inline editable field with dropdown */
 function EditableDropdown(props: {
@@ -123,7 +166,7 @@ function EditableDropdown(props: {
   };
 
   const trigger = (
-    <div class="inline-flex items-center gap-2 btn-sm rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors">
+    <div class={DROPDOWN_TRIGGER_CLASS}>
       <Show when={props.loading}>
         <i class="ti ti-loader-2 animate-spin text-zinc-400" />
       </Show>
@@ -224,7 +267,7 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
   };
 
   const trigger = (
-    <div class="inline-flex items-center gap-2 btn-sm rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors">
+    <div class={DROPDOWN_TRIGGER_CLASS}>
       <Show when={props.loading}>
         <i class="ti ti-loader-2 animate-spin text-zinc-400" />
       </Show>
@@ -240,7 +283,7 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
 
   return (
     <div>
-      <h3 class="text-xs font-medium text-dimmed uppercase tracking-wide mb-1.5">Tags</h3>
+      <h3 class="section-label mb-1">Tags</h3>
       <div class="flex flex-col gap-2">
         <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-52" onClose={handleClose} />
         <Show when={selectedTags().length > 0}>
@@ -290,7 +333,7 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
 
   return (
     <div>
-      <h3 class="text-xs font-medium text-dimmed uppercase tracking-wide mb-1.5">Assignees</h3>
+      <h3 class="section-label mb-1">Assignees</h3>
       <div class="flex flex-col gap-2">
         {/* Current assignees list */}
         <Show when={props.assignees.length > 0}>
@@ -368,8 +411,7 @@ export default function ItemDetailPanel(props: Props) {
         json: data,
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to update");
+        throw new Error(await getResponseErrorMessage(res, "Failed to update"));
       }
       return res.json();
     },
@@ -384,8 +426,7 @@ export default function ItemDetailPanel(props: Props) {
         json: { completed },
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to update");
+        throw new Error(await getResponseErrorMessage(res, "Failed to update"));
       }
       return res.json();
     },
@@ -409,8 +450,7 @@ export default function ItemDetailPanel(props: Props) {
       },
     });
     if (!res.ok) {
-      const data = await res.json();
-      prompts.error("message" in data ? data.message : "Failed to duplicate item");
+      prompts.error(await getResponseErrorMessage(res, "Failed to duplicate item"));
       return;
     }
     refreshCurrentPath();
@@ -429,8 +469,7 @@ export default function ItemDetailPanel(props: Props) {
       param: { id: props.spaceId, itemId: props.item.id },
     });
     if (!res.ok) {
-      const data = await res.json();
-      prompts.error("message" in data ? data.message : "Failed to delete item");
+      prompts.error(await getResponseErrorMessage(res, "Failed to delete item"));
       return;
     }
     window.location.href = props.baseUrl;
@@ -440,24 +479,6 @@ export default function ItemDetailPanel(props: Props) {
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
-  const column = () => props.columns.find((c) => c.id === props.item.columnId);
-
-  // Column options for status dropdown
-  const columnOptions = () =>
-    props.columns.map((c) => ({
-      value: c.id,
-      label: c.name,
-      color: c.color || "#6b7280",
-    }));
-
-  // Priority options
-  const priorityOptions = () =>
-    PRIORITY_OPTIONS.map((p) => ({
-      value: p.value,
-      label: p.label,
-      icon: `ti ${p.icon}`,
-      color: p.color,
-    }));
 
   // Edit title via prompt
   const editTitle = async () => {
@@ -538,7 +559,7 @@ export default function ItemDetailPanel(props: Props) {
 
   return (
     <>
-      <div class="p-4 flex flex-col gap-4" style="view-transition-name: detail-panel">
+      <div class="p-2 flex flex-col gap-4" style="view-transition-name: detail-panel">
         {/* Header */}
         <div class="flex items-start justify-between gap-2">
           <button
@@ -550,7 +571,16 @@ export default function ItemDetailPanel(props: Props) {
             {props.item.title}
             <i class="ti ti-pencil text-xs ml-2 opacity-50" />
           </button>
-          <a href={props.baseUrl} class="p-1 text-dimmed hover:text-primary shrink-0">
+          <a
+            href={props.baseUrl}
+            onClick={(event) => {
+              if (!shouldHandleDetailClick(event, event.currentTarget)) return;
+              event.preventDefault();
+              setDetailItemInUrl(null);
+            }}
+            class="p-1 text-dimmed hover:text-primary shrink-0"
+            aria-label="Close detail"
+          >
             <i class="ti ti-x" />
           </a>
         </div>
@@ -592,27 +622,8 @@ export default function ItemDetailPanel(props: Props) {
           </span>
 
           <div class="flex items-center gap-1">
-            {/* Duplicate */}
-            <button
-              type="button"
-              onClick={handleDuplicate}
-              disabled={isLoading()}
-              class="p-1.5 text-dimmed hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors disabled:opacity-50"
-              title="Duplicate"
-            >
-              <i class="ti ti-copy" />
-            </button>
-
-            {/* Delete */}
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={isLoading()}
-              class="p-1.5 text-dimmed hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50"
-              title="Delete"
-            >
-              <i class="ti ti-trash" />
-            </button>
+            <IconActionButton icon="ti ti-copy" title="Duplicate" onClick={handleDuplicate} disabled={isLoading()} />
+            <IconActionButton icon="ti ti-trash" title="Delete" onClick={handleDelete} disabled={isLoading()} danger />
           </div>
         </div>
 
@@ -689,22 +700,12 @@ export default function ItemDetailPanel(props: Props) {
           </button>
         </div>
 
-        {/* Status (Column) */}
-        <EditableDropdown
-          label="Kanban"
-          icon="ti ti-layout-kanban"
-          value={props.item.columnId}
-          options={columnOptions()}
-          onChange={(v) => v && updateMutation.mutate({ columnId: v })}
-          loading={isLoading()}
-        />
-
         {/* Priority */}
         <EditableDropdown
           label="Priority"
           icon="ti ti-flag"
           value={props.item.priority}
-          options={priorityOptions()}
+          options={PRIORITY_DROPDOWN_OPTIONS}
           onChange={(v) => updateMutation.mutate({ priority: v })}
           loading={isLoading()}
           allowClear
@@ -727,7 +728,7 @@ export default function ItemDetailPanel(props: Props) {
       </div>
 
       {/* Comments */}
-      <div class="px-4 pb-4">
+      <div class="px-2 pb-2">
         <CommentsSection
           spaceId={props.spaceId}
           itemId={props.item.id}

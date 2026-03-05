@@ -16,7 +16,7 @@ const views: ViewOption[] = [
 type Props = {
   spaceId: string;
   currentView: ViewType;
-  variant: "chip" | "sidebar";
+  variant: "chip" | "sidebar" | "mobile";
 };
 
 /**
@@ -46,6 +46,27 @@ export default function ViewSwitcher(props: Props) {
           >
             <i class={`ti ${view.icon}`} />
             {view.label}
+          </button>
+        )}
+      </For>
+    );
+  }
+
+  if (props.variant === "mobile") {
+    return (
+      <For each={views}>
+        {(view) => (
+          <button
+            type="button"
+            onClick={() => handleClick(view.id)}
+            class={`btn-input btn-input-sm ${
+              props.currentView === view.id
+                ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40"
+                : ""
+            }`}
+          >
+            <i class={`ti ${view.icon}`} />
+            <span>{view.label}</span>
           </button>
         )}
       </For>

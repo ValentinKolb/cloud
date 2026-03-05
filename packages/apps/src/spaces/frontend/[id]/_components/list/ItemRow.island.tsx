@@ -1,10 +1,11 @@
-import { Show, For } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/spaces/client";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import type { SpaceItem } from "@/spaces/contracts";
 import { dates } from "@valentinkolb/cloud/lib/shared";
 import { refreshCurrentPath } from "../../../lib/navigation";
+import { getDetailItemFromUrl, setDetailItemInUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
 
 type ItemRowProps = {
   item: SpaceItem;
@@ -26,6 +27,15 @@ const PRIORITY_STYLES: Record<string, { icon: string; color: string }> = {
  * Only the completion toggle is interactive here.
  */
 export default function ItemRow(props: ItemRowProps) {
+  const [isSelectedLocal, setIsSelectedLocal] = createSignal(props.isSelected);
+
+  onMount(() => {
+    const unsubscribe = subscribeToDetailSelection(({ itemId }) => {
+      setIsSelectedLocal(itemId === props.item.id);
+    });
+    onCleanup(unsubscribe);
+  });
+
   const completeMutation = mutations.create({
     mutation: async (completed: boolean) => {
       const res = await apiClient[":id"].items[":itemId"].completed.$post({
@@ -54,8 +64,22 @@ export default function ItemRow(props: ItemRowProps) {
 
   return (
     <div
-      class={`flex items-center gap-3 px-4 py-2.5 group transition-colors ${
-        props.isSelected ? "bg-blue-50 dark:bg-blue-900/30" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      role="link"
+      tabIndex={0}
+      onClick={(event) => {
+        if (!shouldHandleDetailClick(event)) return;
+        event.preventDefault();
+        setDetailItemInUrl(props.item.id, props.item);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        setDetailItemInUrl(props.item.id, props.item);
+      }}
+      class={`group flex cursor-pointer items-center gap-3 rounded-md px-4 py-2.5 transition-colors ${
+        isSelectedLocal()
+          ? "bg-blue-50 ring-2 ring-inset ring-blue-500/65 dark:bg-blue-900/30 dark:ring-blue-400/60"
+          : "bg-white ring-1 ring-inset ring-zinc-300/65 hover:bg-blue-50/25 hover:ring-blue-500/40 dark:bg-zinc-900/65 dark:ring-zinc-700/65 dark:hover:bg-blue-950/12 dark:hover:ring-blue-400/40"
       }`}
     >
       {/* Completion Toggle */}
@@ -78,7 +102,10 @@ export default function ItemRow(props: ItemRowProps) {
       </button>
 
       {/* Item Link - Main content area */}
-      <a href={itemUrl()} class="flex-1 min-w-0 flex items-center gap-3">
+      <a
+        href={itemUrl()}
+        class="flex-1 min-w-0 flex items-center gap-3"
+      >
         {/* Priority Icon */}
         <Show when={priority()}>
           <i class={`ti ${priority()!.icon} ${priority()!.color} text-sm shrink-0`} />

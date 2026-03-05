@@ -1,10 +1,8 @@
 import { Show, For, createSignal } from "solid-js";
 import { apiClient } from "@/spaces/client";
-import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { markdown } from "@valentinkolb/cloud/lib/shared";
-import { TextInput } from "@valentinkolb/cloud/lib/ui";
-import { MarkdownView } from "@valentinkolb/cloud/lib/ui";
+import { MarkdownView, TextInput, prompts } from "@valentinkolb/cloud/lib/ui";
 import type { SpaceComment } from "@/spaces/contracts";
 
 type Props = {
@@ -13,6 +11,18 @@ type Props = {
   comments: SpaceComment[];
   currentUserId: string;
   onUpdate: () => void;
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+const getResponseErrorMessage = async (res: Response, fallback: string) => {
+  try {
+    const data = (await res.json()) as unknown;
+    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
+      return data["message"];
+    }
+  } catch {}
+  return fallback;
 };
 
 export default function CommentsSection(props: Props) {
@@ -25,8 +35,7 @@ export default function CommentsSection(props: Props) {
         json: { content },
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to add comment");
+        throw new Error(await getResponseErrorMessage(res, "Failed to add comment"));
       }
       return res.json();
     },
@@ -43,8 +52,7 @@ export default function CommentsSection(props: Props) {
         param: { id: props.spaceId, itemId: props.itemId, commentId: id },
       });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error("message" in data ? data.message : "Failed to delete comment");
+        throw new Error(await getResponseErrorMessage(res, "Failed to delete comment"));
       }
       return res.json();
     },
@@ -52,12 +60,15 @@ export default function CommentsSection(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleSubmit = (e: Event) => {
-    e.preventDefault();
+  const submitNewComment = () => {
     const content = newComment().trim();
-    if (content) {
-      createCommentMutation.mutate(content);
-    }
+    if (!content) return;
+    createCommentMutation.mutate(content);
+  };
+
+  const handleSubmit = (event: Event) => {
+    event.preventDefault();
+    submitNewComment();
   };
 
   const handleDelete = async (id: string) => {
@@ -67,9 +78,8 @@ export default function CommentsSection(props: Props) {
       variant: "danger",
       confirmText: "Delete",
     });
-    if (confirmed) {
-      deleteCommentMutation.mutate(id);
-    }
+    if (!confirmed) return;
+    deleteCommentMutation.mutate(id);
   };
 
   const formatDate = (dateStr: string) => {
@@ -105,10 +115,7 @@ export default function CommentsSection(props: Props) {
           placeholder="Comment in markdown ..."
           markdown
           disabled={createCommentMutation.loading()}
-          onSubmit={() => {
-            const content = newComment().trim();
-            if (content) createCommentMutation.mutate(content);
-          }}
+          onSubmit={submitNewComment}
         />
         <button
           type="submit"

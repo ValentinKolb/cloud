@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { TextInput } from "@valentinkolb/cloud/lib/ui";
+import { timing } from "@valentinkolb/cloud/lib/browser";
 import { buildSearchUrl } from "./types";
 
 type SearchInputProps = {
@@ -13,15 +14,13 @@ type SearchInputProps = {
  */
 export default function SearchInput(props: SearchInputProps) {
   const [value, setValue] = createSignal(props.value);
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const debounce = timing.debounce((nextValue: string) => {
+    window.location.href = buildSearchUrl(props.baseUrl, nextValue);
+  }, 400);
 
   const handleInput = (newValue: string) => {
     setValue(newValue);
-
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => {
-      window.location.href = buildSearchUrl(props.baseUrl, newValue);
-    }, 400);
+    debounce.debouncedFn(newValue);
   };
 
   return (

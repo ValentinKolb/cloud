@@ -1,14 +1,18 @@
 import CreateItemButton from "./CreateItemButton.island";
 import CopyICalButton from "./CopyICalButton.island";
 import SidebarSettings from "../settings/SidebarSettings.island";
-import ViewSwitcher from "./ViewSwitcher.island";
 import type { SpaceContext } from "./types";
 import type { ViewType } from "../settings/SpaceSettingsStore";
 
 type Props = {
   ctx: SpaceContext;
-  variant?: "mobile" | "desktop";
 };
+
+const views: Array<{ id: ViewType; label: string; icon: string }> = [
+  { id: "list", label: "List", icon: "ti-list-check" },
+  { id: "kanban", label: "Kanban", icon: "ti-layout-kanban" },
+  { id: "calendar", label: "Calendar", icon: "ti-calendar" },
+];
 
 /** Get icon for current view */
 const getViewIcon = (view: ViewType): string => {
@@ -22,104 +26,114 @@ const getViewIcon = (view: ViewType): string => {
   }
 };
 
-/**
- * Mobile navigation - horizontal chips
- */
-function MobileNav({ ctx }: Props) {
-  const { space, columns, tags, currentView } = ctx;
-  const settingsUrl = `/app/spaces/${space.id}/settings`;
-
-  return (
-    <nav class="flex flex-col gap-3">
-      {/* Header row: Icon + Name + Settings */}
-      <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0" style={`background-color: ${space.color}`}>
-          <i class={`ti ${getViewIcon(currentView)} text-sm`} />
-        </div>
-        <h1 class="font-semibold truncate flex-1">{space.name}</h1>
-        <a href={settingsUrl} class="p-1.5 text-dimmed hover:text-primary">
-          <i class="ti ti-settings" />
-        </a>
-      </div>
-
-      {/* View chips + New Item */}
-      <div class="flex flex-wrap items-center gap-2">
-        <ViewSwitcher spaceId={space.id} currentView={currentView} variant="chip" />
-        <div class="ml-auto">
-          <CreateItemButton spaceId={space.id} columns={columns} tags={tags} variant="primary" />
-        </div>
-      </div>
-    </nav>
-  );
-}
-
-/**
- * Desktop navigation - vertical sidebar
- */
-function DesktopNav({ ctx }: Props) {
-  const { space, columns, tags, currentView, currentPanelWidth, hasOverride, settings } = ctx;
-  const settingsUrl = `/app/spaces/${space.id}/settings`;
-
-  return (
-    <>
-      {/* Space Title */}
-      <div class="flex items-center gap-2 py-2" style="view-transition-name: space-sidebar">
-        <div
-          class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0"
-          style={`background-color: ${space.color}; view-transition-name: space-color-${space.id}`}
-        >
-          <i class={`ti ${getViewIcon(currentView)} text-sm`} />
-        </div>
-        <h1 class="font-semibold truncate" style={`view-transition-name: space-name-${space.id}`}>
-          {space.name}
-        </h1>
-      </div>
-
-      {/* New Item Button — acts as its own divider in terminal, padded in refined */}
-      <div class="py-2">
-        <CreateItemButton spaceId={space.id} columns={columns} tags={tags} />
-      </div>
-
-      {/* Navigation */}
-      <div class="py-3 flex flex-col gap-1">
-        <ViewSwitcher spaceId={space.id} currentView={currentView} variant="sidebar" />
-      </div>
-
-      <div class="divider" />
-
-      {/* Right Panel */}
-      <div class="py-3">
-        <SidebarSettings
-          spaceId={space.id}
-          currentView={currentView}
-          currentPanelWidth={currentPanelWidth}
-          hasOverride={hasOverride}
-          hideSettings={settings.hideSettings}
-        />
-      </div>
-
-      <div class="divider" />
-
-      {/* General + iCal */}
-      <div class="py-3 flex flex-col gap-1">
-        <a href={settingsUrl} class="list-item text-xs">
-          <i class="ti ti-settings text-sm" />
-          <span>General</span>
-        </a>
-        <CopyICalButton icalToken={space.icalToken} />
-      </div>
-    </>
-  );
-}
+const buildViewHref = (ctx: SpaceContext, view: ViewType): string => {
+  const query = new URLSearchParams(ctx.query);
+  query.set("view", view);
+  query.delete("mode");
+  return `/app/spaces/${ctx.space.id}?${query.toString()}`;
+};
 
 export default function SpaceSidebar(props: Props) {
-  if (props.variant === "mobile") return <MobileNav {...props} />;
-  if (props.variant === "desktop") return <DesktopNav {...props} />;
-  // Fallback: render both (shouldn't happen with new layout)
+  const vt = (key: string) => `space-sidebar-${props.ctx.space.id}-${key}`;
+  const settingsHref = `/app/spaces/${props.ctx.space.id}/settings`;
+
   return (
     <>
-      <MobileNav {...props} />
-      <DesktopNav {...props} />
+      <nav class="sidebar-container-mobile">
+        <details class="group">
+          <summary class="sidebar-mobile-toggle">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0" style={`background-color: ${props.ctx.space.color}`}>
+              <i class={`ti ${getViewIcon(props.ctx.currentView)} text-sm`} />
+            </div>
+            <span class="font-semibold truncate flex-1">{props.ctx.space.name}</span>
+            <span class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed transition-transform group-open:rotate-180">
+              <i class="ti ti-chevron-down text-sm" />
+            </span>
+          </summary>
+          <div class="sidebar-mobile-actions">
+            <a href={settingsHref} class="sidebar-item-mobile" style={`view-transition-name:${vt("settings-mobile")}`}>
+              <i class="ti ti-settings" />
+              Settings
+            </a>
+            <div style={`view-transition-name:${vt("create-mobile")}`}>
+              <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="chip" />
+            </div>
+            {views.map((view) => (
+              <a
+                href={buildViewHref(props.ctx, view.id)}
+                class={`sidebar-item-mobile ${props.ctx.currentView === view.id ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""}`}
+                style={`view-transition-name:${vt(`view-${view.id}-mobile`)}`}
+              >
+                <i class={`ti ${view.icon}`} />
+                {view.label}
+              </a>
+            ))}
+            <div style={`view-transition-name:${vt("copy-ical-mobile")}`}>
+              <CopyICalButton icalToken={props.ctx.space.icalToken} variant="chip" />
+            </div>
+          </div>
+        </details>
+      </nav>
+
+      <aside class="sidebar-container">
+        <div class="sidebar-header">
+          <div
+            class="sidebar-header-icon"
+            style={`background-color: ${props.ctx.space.color}; view-transition-name: space-color-${props.ctx.space.id}`}
+          >
+            <i class={`ti ${getViewIcon(props.ctx.currentView)} text-xs`} />
+          </div>
+          <div class="sidebar-header-text">
+            <p class="sidebar-header-title" style={`view-transition-name: space-name-${props.ctx.space.id}`}>
+              {props.ctx.space.name}
+            </p>
+          </div>
+          <a href={settingsHref} class="sidebar-header-settings" title="Settings" style={`view-transition-name:${vt("settings-desktop")}`}>
+            <i class="ti ti-settings text-xs" />
+          </a>
+        </div>
+
+        <div class="flex flex-col gap-3">
+          <section class="sidebar-group">
+            <p class="sidebar-section-title">Actions</p>
+            <div style={`view-transition-name:${vt("create-desktop")}`}>
+              <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="sidebar" />
+            </div>
+          </section>
+
+          <section class="sidebar-group">
+            <p class="sidebar-section-title">Navigation</p>
+            {views.map((view) => (
+              <a
+                href={buildViewHref(props.ctx, view.id)}
+                class={`sidebar-item text-xs ${props.ctx.currentView === view.id ? "sidebar-item-active" : ""}`}
+                style={`view-transition-name:${vt(`view-${view.id}-desktop`)}`}
+              >
+                <i class={`ti ${view.icon} text-sm`} />
+                <span>{view.label}</span>
+              </a>
+            ))}
+          </section>
+        </div>
+
+        <div class="sidebar-body mt-2">
+          <section class="sidebar-group">
+            <SidebarSettings
+              spaceId={props.ctx.space.id}
+              currentView={props.ctx.currentView}
+              currentPanelWidth={props.ctx.currentPanelWidth}
+              hasOverride={props.ctx.hasOverride}
+              hideSettings={props.ctx.settings.hideSettings}
+            />
+          </section>
+        </div>
+
+        <div class="sidebar-footer">
+          <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
+            <CopyICalButton icalToken={props.ctx.space.icalToken} />
+          </div>
+        </div>
+      </aside>
     </>
   );
 }
