@@ -1,4 +1,4 @@
-import { Show, createSignal, type JSX } from "solid-js";
+import { For, Show, createSignal, type JSX } from "solid-js";
 import type { BaseGroup, BaseUser } from "@valentinkolb/cloud/contracts/shared";
 import { TextInput } from "@valentinkolb/cloud/lib/ui";
 import { NumberInput } from "@valentinkolb/cloud/lib/ui";
@@ -24,6 +24,7 @@ import { Avatar } from "@valentinkolb/cloud/lib/ui";
 import { UserView } from "@valentinkolb/cloud/lib/ui";
 import { GroupView } from "@valentinkolb/cloud/lib/ui";
 import { LoginBtn } from "@valentinkolb/cloud/lib/ui";
+import { prompts } from "@valentinkolb/cloud/lib/ui";
 
 type UiLabShowcaseProps = {
   markdownHtml: string;
@@ -72,6 +73,89 @@ const Section = (props: { title: string; description?: string; children: JSX.Ele
   </section>
 );
 
+type SidebarTreeNode = {
+  id: string;
+  label: string;
+  icon?: string;
+  labelIcons?: string[];
+  meta?: string;
+  actionIcon?: string;
+  children?: SidebarTreeNode[];
+};
+
+const SidebarTree = (props: {
+  nodes: SidebarTreeNode[];
+  expanded: () => Set<string>;
+  selectedId: () => string;
+  onToggle: (id: string) => void;
+  onSelect: (id: string) => void;
+  level?: number;
+}) => {
+  const level = props.level ?? 0;
+  return (
+    <div class="sidebar-tree">
+      <For each={props.nodes}>
+        {(node) => {
+          const hasChildren = () => (node.children?.length ?? 0) > 0;
+          const isExpanded = () => props.expanded().has(node.id);
+          const isSelected = () => props.selectedId() === node.id;
+          return (
+            <div class="sidebar-tree-item" role="treeitem" aria-level={level + 1} aria-expanded={hasChildren() ? isExpanded() : undefined}>
+              <button
+                type="button"
+                class={`sidebar-tree-row ${isSelected() ? "sidebar-item-active" : ""}`}
+                style={`--sidebar-level: ${level}`}
+                onClick={(event) => {
+                  const target = event.target as HTMLElement;
+                  if (target.closest(".sidebar-tree-toggle") && hasChildren()) {
+                    props.onToggle(node.id);
+                    return;
+                  }
+                  if (target.closest(".sidebar-item-action")) {
+                    return;
+                  }
+                  props.onSelect(node.id);
+                }}
+              >
+                <span class="sidebar-tree-toggle">
+                  {hasChildren() ? (
+                    <i class={`ti ${isExpanded() ? "ti-chevron-down" : "ti-chevron-right"}`} />
+                  ) : (
+                    <i class={`ti ${node.icon ?? "ti-file-text"}`} />
+                  )}
+                </span>
+                <span class="truncate">{node.label}</span>
+                <Show when={(node.labelIcons?.length ?? 0) > 0}>
+                  <span class="inline-flex items-center gap-1 shrink-0">
+                    <For each={node.labelIcons ?? []}>{(icon) => <i class={`ti ${icon} text-xs text-dimmed`} />}</For>
+                  </span>
+                </Show>
+                {node.actionIcon ? (
+                  <span class="sidebar-item-action" aria-hidden="true">
+                    <i class={`ti ${node.actionIcon} text-xs`} />
+                  </span>
+                ) : null}
+              </button>
+              <Show when={hasChildren() && isExpanded()}>
+                <div class="sidebar-tree-children">
+                  <SidebarTree
+                    nodes={node.children ?? []}
+                    expanded={props.expanded}
+                    selectedId={props.selectedId}
+                    onToggle={props.onToggle}
+                    onSelect={props.onSelect}
+                    level={level + 1}
+                  />
+                </div>
+              </Show>
+            </div>
+          );
+        }}
+      </For>
+    </div>
+  );
+};
+
 export default function UiLabShowcase(props: UiLabShowcaseProps) {
   const [copyState, setCopyState] = createSignal<"idle" | "copied">("idle");
   const [searchValue, setSearchValue] = createSignal("");
@@ -92,11 +176,64 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
   const [segmentValue, setSegmentValue] = createSignal<"list" | "board" | "calendar">("board");
   const [chipValue, setChipValue] = createSignal<"day" | "week" | "month">("week");
   const [scopeValue, setScopeValue] = createSignal<"all" | "mine" | "assigned">("all");
+  const [sidebarPanelSize, setSidebarPanelSize] = createSignal<"s" | "m" | "l">("m");
+  const [sidebarView, setSidebarView] = createSignal<"list" | "kanban" | "calendar">("list");
   const [filterValues, setFilterValues] = createSignal<string[]>(["open", "ui"]);
   const [sliderValue, setSliderValue] = createSignal(64);
   const [colorValue, setColorValue] = createSignal("#06b6d4");
   const [colorTransparent, setColorTransparent] = createSignal(false);
   const [imageValue, setImageValue] = createSignal<string | null>(null);
+  const [sidebarTreeSelectedId, setSidebarTreeSelectedId] = createSignal("launch");
+  const [sidebarTreeExpanded, setSidebarTreeExpanded] = createSignal<Set<string>>(new Set(["product", "roadmap", "q2"]));
+
+  const sidebarTreeNodes: SidebarTreeNode[] = [
+    {
+      id: "product",
+      label: "Product",
+      icon: "ti-folder",
+      actionIcon: "ti-dots",
+      children: [
+        {
+          id: "roadmap",
+          label: "Roadmap",
+          icon: "ti-folder",
+          actionIcon: "ti-plus",
+          children: [
+            {
+              id: "q2",
+              label: "Q2",
+              icon: "ti-folder",
+              children: [
+                { id: "launch", label: "Launch Notes", labelIcons: ["ti-lock"], meta: "Updated 2h ago", actionIcon: "ti-dots" },
+                { id: "feedback", label: "Stakeholder Feedback", meta: "14 comments", actionIcon: "ti-message" },
+              ],
+            },
+            { id: "q3", label: "Q3 Draft", meta: "Empty", actionIcon: "ti-dots" },
+          ],
+        },
+      ],
+    },
+    { id: "weekly", label: "Weekly Update", meta: "Last edited yesterday", actionIcon: "ti-dots" },
+  ];
+
+  const toggleSidebarTreeNode = (id: string) => {
+    setSidebarTreeExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectSidebarTreeNode = (id: string) => {
+    setSidebarTreeSelectedId(id);
+  };
+
+  const handleSidebarRowAction = (event: MouseEvent, row: "list" | "kanban" | "calendar") => {
+    const target = event.target as HTMLElement;
+    if (target.closest(".sidebar-item-action")) return;
+    setSidebarView(row);
+  };
 
   const copyId = async () => {
     await navigator.clipboard.writeText("ui-lab");
@@ -126,6 +263,32 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
       ],
     },
   ];
+
+  const openDialogSizeDemo = async (size: "small" | "medium" | "large") => {
+    const result = await prompts.dialog<"confirmed" | "cancelled">(
+      (close) => (
+        <div class="space-y-3">
+          <p class="text-sm">This is a <strong>{size}</strong> prompt dialog.</p>
+          <p class="text-xs text-dimmed">Use this for quick, consistent modal content in app islands.</p>
+          <div class="flex justify-end gap-2">
+            <button type="button" class="btn-secondary btn-sm" onClick={() => close("cancelled")}>
+              Cancel
+            </button>
+            <button type="button" class="btn-primary btn-sm" onClick={() => close("confirmed")}>
+              Confirm
+            </button>
+          </div>
+        </div>
+      ),
+      {
+        title: `Dialog ${size}`,
+        icon: "ti ti-app-window",
+        size,
+      },
+    );
+
+    setLastAction(`Dialog ${size}: ${result ?? "closed"}`);
+  };
 
   return (
     <div class="max-w-6xl mx-auto p-3 md:p-4 space-y-4">
@@ -339,6 +502,21 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
                 <LoginBtn redirectTo="/app/ui-lab" class="btn-primary btn-sm" />
               </div>
             </div>
+
+            <div class="paper p-3">
+              <h3 class="text-xs font-semibold text-secondary mb-2">Prompt Dialog Sizes</h3>
+              <div class="flex flex-wrap items-center gap-2">
+                <button type="button" class="btn-secondary btn-sm" onClick={() => void openDialogSizeDemo("small")}>
+                  Open Small
+                </button>
+                <button type="button" class="btn-secondary btn-sm" onClick={() => void openDialogSizeDemo("medium")}>
+                  Open Medium
+                </button>
+                <button type="button" class="btn-secondary btn-sm" onClick={() => void openDialogSizeDemo("large")}>
+                  Open Large
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="space-y-4">
@@ -387,6 +565,278 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
               <GroupView group={sampleGroup} canManage />
             </div>
           </div>
+        </div>
+      </Section>
+
+      <Section title="Sidebar System (Draft)" description="Reference sidebar built with new utility classes: sections, items, tree, and controls.">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <aside class="sidebar min-h-[28rem]">
+            <div class="md:hidden">
+              <details class="group">
+                <summary class="sidebar-header cursor-pointer list-none">
+                  <div class="h-8 w-8 shrink-0 rounded-lg bg-blue-500 text-white grid place-items-center">
+                    <i class="ti ti-folders text-sm" />
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-semibold text-primary">Workspace Alpha</p>
+                    <p class="text-xs text-dimmed truncate">Flat list navigation</p>
+                  </div>
+                  <span class="inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed group-open:rotate-180 transition-transform">
+                    <i class="ti ti-chevron-down text-sm" />
+                  </span>
+                </summary>
+                <div class="px-1 pb-1 space-y-2">
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="btn-input btn-input-sm">
+                      <i class="ti ti-settings" />
+                      Settings
+                    </button>
+                    <button type="button" class="btn-input btn-input-sm bg-zinc-200/60 dark:bg-zinc-800/60">
+                      <i class="ti ti-search" />
+                      Search
+                    </button>
+                    <button type="button" class="btn-primary btn-sm">
+                      <i class="ti ti-plus" />
+                      New Item
+                    </button>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <a href="#" class="btn-input btn-input-sm">List</a>
+                    <a href="#" class="btn-input btn-input-sm">Kanban</a>
+                    <a href="#" class="btn-input btn-input-sm">Calendar</a>
+                  </div>
+                  <div class="flex flex-wrap gap-2 pt-1">
+                    <a href="#" class="btn-input btn-input-sm">General</a>
+                    <a href="#" class="btn-input btn-input-sm">Copy iCal URL</a>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div class="hidden md:flex md:flex-col md:min-h-0 md:h-full">
+              <div class="sidebar-header">
+                <div class="h-8 w-8 shrink-0 rounded-lg bg-blue-500 text-white grid place-items-center">
+                  <i class="ti ti-folders text-sm" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-semibold text-primary">Workspace Alpha</p>
+                  <p class="text-xs text-dimmed truncate">Flat list navigation</p>
+                </div>
+                <button type="button" class="icon-btn" aria-label="General settings">
+                  <i class="ti ti-settings text-sm" />
+                </button>
+              </div>
+
+              <div class="sidebar-body">
+                <section class="sidebar-section">
+                  <p class="sidebar-section-title">Actions</p>
+                  <button type="button" class="sidebar-item bg-zinc-200/60 dark:bg-zinc-800/60">
+                    <i class="ti ti-search" />
+                    <span>Search</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-slash" />
+                    </span>
+                  </button>
+                  <button type="button" class="sidebar-item text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20">
+                    <i class="ti ti-plus" />
+                    <span>New Item</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-chevron-right text-[10px]" />
+                    </span>
+                  </button>
+                </section>
+
+                <section class="sidebar-section">
+                  <p class="sidebar-section-title">Navigation</p>
+                  <button
+                    type="button"
+                    class={`sidebar-item ${sidebarView() === "list" ? "sidebar-item-active" : ""}`}
+                    onClick={(event) => handleSidebarRowAction(event, "list")}
+                  >
+                    <i class="ti ti-list-check" />
+                    <span>List</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-dots" />
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class={`sidebar-item ${sidebarView() === "kanban" ? "sidebar-item-active" : ""}`}
+                    onClick={(event) => handleSidebarRowAction(event, "kanban")}
+                  >
+                    <i class="ti ti-layout-kanban" />
+                    <span>Kanban</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-dots" />
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class={`sidebar-item ${sidebarView() === "calendar" ? "sidebar-item-active" : ""}`}
+                    onClick={(event) => handleSidebarRowAction(event, "calendar")}
+                  >
+                    <i class="ti ti-calendar-event" />
+                    <span>Calendar</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-dots" />
+                    </span>
+                  </button>
+                </section>
+
+                <section class="sidebar-section">
+                  <p class="sidebar-section-title">Panel</p>
+                  <div class="sidebar-controls">
+                    <SegmentedControl<"s" | "m" | "l">
+                      options={[
+                        { value: "s", label: "S" },
+                        { value: "m", label: "M" },
+                        { value: "l", label: "L" },
+                      ]}
+                      value={sidebarPanelSize}
+                      onChange={setSidebarPanelSize}
+                    />
+                    <div class="sidebar-control-row">
+                      <Switch label="Show hidden files" value={switchValue} onChange={setSwitchValue} />
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="sidebar-footer">
+                <a href="#" class="sidebar-item">
+                  <i class="ti ti-settings" />
+                  <span>General</span>
+                </a>
+                <a href="#" class="sidebar-item">
+                  <i class="ti ti-calendar-share" />
+                  <span>Copy iCal URL</span>
+                </a>
+              </div>
+            </div>
+          </aside>
+
+          <aside class="sidebar min-h-[28rem]">
+            <div class="md:hidden">
+              <details class="group" open>
+                <summary class="sidebar-header cursor-pointer list-none">
+                  <div class="h-8 w-8 shrink-0 rounded-lg bg-emerald-500 text-white grid place-items-center">
+                    <i class="ti ti-notebook text-sm" />
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-semibold text-primary">Product Notes</p>
+                    <p class="text-xs text-dimmed truncate">Tree navigation</p>
+                  </div>
+                  <span class="inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed group-open:rotate-180 transition-transform">
+                    <i class="ti ti-chevron-down text-sm" />
+                  </span>
+                </summary>
+                <div class="px-1 pb-1 space-y-2">
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="btn-input btn-input-sm">
+                      <i class="ti ti-settings" />
+                      Settings
+                    </button>
+                    <button type="button" class="btn-input btn-input-sm bg-zinc-200/60 dark:bg-zinc-800/60">
+                      <i class="ti ti-search" />
+                      Search
+                    </button>
+                    <button type="button" class="btn-primary btn-sm">
+                      <i class="ti ti-plus" />
+                      New Note
+                    </button>
+                  </div>
+                  <div class="max-h-56 overflow-y-auto">
+                    <SidebarTree
+                      nodes={sidebarTreeNodes}
+                      expanded={sidebarTreeExpanded}
+                      selectedId={sidebarTreeSelectedId}
+                      onToggle={toggleSidebarTreeNode}
+                      onSelect={selectSidebarTreeNode}
+                    />
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div class="hidden md:flex md:flex-col md:min-h-0 md:h-full">
+              <div class="sidebar-header">
+                <div class="h-8 w-8 shrink-0 rounded-lg bg-emerald-500 text-white grid place-items-center">
+                  <i class="ti ti-notebook text-sm" />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-semibold text-primary">Product Notes</p>
+                  <p class="text-xs text-dimmed truncate">Tree-enabled navigation</p>
+                </div>
+                <button type="button" class="icon-btn" aria-label="General settings">
+                  <i class="ti ti-settings text-sm" />
+                </button>
+              </div>
+
+              <div class="sidebar-body">
+                <section class="sidebar-section">
+                  <p class="sidebar-section-title">Actions</p>
+                  <button type="button" class="sidebar-item bg-zinc-200/60 dark:bg-zinc-800/60">
+                    <i class="ti ti-search" />
+                    <span>Search</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-slash" />
+                    </span>
+                  </button>
+                  <button type="button" class="sidebar-item text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20">
+                    <i class="ti ti-plus" />
+                    <span>New Note</span>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-chevron-right text-[10px]" />
+                    </span>
+                  </button>
+                </section>
+
+                <section class="sidebar-section">
+                  <p class="sidebar-section-title">Notes</p>
+                  <div class="max-h-64 overflow-y-auto" role="tree" aria-label="Notebook tree">
+                    <SidebarTree
+                      nodes={sidebarTreeNodes}
+                      expanded={sidebarTreeExpanded}
+                      selectedId={sidebarTreeSelectedId}
+                      onToggle={toggleSidebarTreeNode}
+                      onSelect={selectSidebarTreeNode}
+                    />
+                  </div>
+                </section>
+
+                <section class="sidebar-section">
+                  <p class="sidebar-section-title">Saved Searches</p>
+                  <button type="button" class="sidebar-item">
+                    <i class="ti ti-filter" />
+                    <div class="min-w-0 flex-1 text-left">
+                      <span class="block truncate">Mentions me</span>
+                      <span class="sidebar-item-meta block truncate">12 notes</span>
+                    </div>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-dots" />
+                    </span>
+                  </button>
+                  <button type="button" class="sidebar-item">
+                    <i class="ti ti-lock" />
+                    <div class="min-w-0 flex-1 text-left">
+                      <span class="block truncate">Locked notes</span>
+                      <span class="sidebar-item-meta block truncate">3 notes</span>
+                    </div>
+                    <span class="sidebar-item-action" aria-hidden="true">
+                      <i class="ti ti-dots" />
+                    </span>
+                  </button>
+                </section>
+              </div>
+
+              <div class="sidebar-footer">
+                <button type="button" class="sidebar-item">
+                  <i class="ti ti-plus" />
+                  <span>New Note</span>
+                </button>
+              </div>
+            </div>
+          </aside>
         </div>
       </Section>
     </div>
