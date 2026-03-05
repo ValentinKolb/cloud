@@ -14,3 +14,4 @@ Detailed agent-operational instructions live in `cloud/skills`.
 6. `cloud/docs/07_APPS.md`
 7. `cloud/docs/08_ACCOUNTS_VALIDATION.md`
 8. `cloud/docs/09_APP_VALIDATION_TEMPLATE.md`
+9. `cloud/docs/10_NOTEBOOKS_YJS_REALTIME.md`

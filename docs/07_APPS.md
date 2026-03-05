@@ -12,6 +12,25 @@ Current built-ins include files, spaces, notebooks, contacts, tools, weather, ac
 - custom runtimes can provide their own app list to `createCloud({ apps })`
 - all apps use the same `AppFacade` contract
 
+## App Capabilities
+
+Apps can expose optional cross-app capabilities via `AppFacade.capabilities`.
+
+Global search uses:
+
+- `capabilities.search.tags?: string[]`
+- `capabilities.search.run({ query, tags, limit, ctx })`
+
+Rules:
+
+1. `limit` is provider-local only (from `provider_limit`)
+2. provider tags are optional and app-owned
+3. providers return app-local hrefs
+4. optional `priority` must be `0..9`
+5. optional `metadata` can add compact details (`[{label,value}]`)
+6. optional `previewUrl` must be an app-local path (`/...`)
+7. frontend applies final ranking/presentation
+
 ## Minimal App Checklist
 
 1. define `meta`, `service`, `routes` in app `index.ts`
