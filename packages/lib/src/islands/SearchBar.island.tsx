@@ -48,8 +48,9 @@ export default function SearchBar(props: SearchBarProps = {}) {
   };
 
   return (
-    <form onSubmit={handleSubmit} role="search">
+    <form onSubmit={handleSubmit} role="search" class="w-full">
       <TextInput
+        name={param}
         type="search"
         placeholder={props.placeholder ?? "Search..."}
         ariaLabel={props.ariaLabel ?? "Search"}

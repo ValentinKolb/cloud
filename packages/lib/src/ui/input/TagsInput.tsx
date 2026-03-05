@@ -1,5 +1,4 @@
 import { createSignal } from "solid-js";
-import sanitizeHtml from "sanitize-html";
 import { InputWrapper } from "./util";
 
 type TagsInputProps = {
@@ -25,12 +24,22 @@ const TagsInput = (props: TagsInputProps) => {
   const [focused, setFocused] = createSignal(false);
   const announcementId = crypto.randomUUID();
 
+  const normalizeTag = (value: string) => value.replace(/\s+/g, " ").trim();
+
+  const escapeHtml = (value: string) =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+
   const renderTags = (tags: string[]) => {
     if (tags.length === 0) return `<span class="text-zinc-400 dark:text-zinc-500">${placeholder()}</span>`;
     return `<span class="flex flex-wrap items-center gap-1">${tags
       .map(
         (tag) =>
-          `<span class="min-w-0 max-w-37.5 truncate rounded inline-flex items-center px-1.5 text-xs leading-5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">${tag}</span>`,
+          `<span class="min-w-0 max-w-37.5 truncate rounded inline-flex items-center px-1.5 text-xs leading-5 bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300">${escapeHtml(tag)}</span>`,
       )
       .join("")}</span>`;
   };
@@ -70,7 +79,7 @@ const TagsInput = (props: TagsInputProps) => {
               const oldTags = value();
               const newTags = (e.currentTarget.textContent || "")
                 .split(",")
-                .map((t) => sanitizeHtml(t.trim()))
+                .map(normalizeTag)
                 .filter(Boolean)
                 .filter((tag, index, self) => self.indexOf(tag) === index);
 

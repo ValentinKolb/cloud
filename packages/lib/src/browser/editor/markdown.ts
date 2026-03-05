@@ -6,7 +6,6 @@ import { LanguageDescription } from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
 import { python } from "@codemirror/lang-python";
 import { sql } from "@codemirror/lang-sql";
-import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { json } from "@codemirror/lang-json";
 import { go } from "@codemirror/lang-go";
@@ -35,7 +34,10 @@ const codeLanguages = [
   LanguageDescription.of({
     name: "HTML",
     alias: ["htm"],
-    load: async () => html(),
+    load: async () => {
+      const { html } = await import("@codemirror/lang-html");
+      return html();
+    },
   }),
   LanguageDescription.of({
     name: "CSS",

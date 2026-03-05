@@ -97,6 +97,18 @@ export function selectDetailItem<T>(paramName: string, eventName: string, item: 
   dispatchDetailSelect(eventName, item, itemKey);
 }
 
+/**
+ * Returns true when a click should be handled as in-place detail selection
+ * (plain primary click without modifier keys).
+ */
+export function shouldHandleDetailClick(event: MouseEvent, anchor?: HTMLAnchorElement | null): boolean {
+  if (event.defaultPrevented) return false;
+  if (event.button !== 0) return false;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return false;
+  if (anchor?.target && anchor.target !== "_self") return false;
+  return true;
+}
+
 // =============================================================================
 // SolidJS Hooks
 // =============================================================================
@@ -231,6 +243,7 @@ export const detailPanel = {
   getUrlParam,
   dispatchDetailSelect,
   selectDetailItem,
+  shouldHandleDetailClick,
   createDetailPanelController,
   createDetailListController,
 } as const;

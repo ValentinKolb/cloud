@@ -34,7 +34,7 @@ type SyncRateLimitResult = {
 
 const DEFAULT_WINDOW_SECS = 1;
 const LIMITER_PREFIX = "cloud:rate-limit";
-const limiterCache = new Map<string, ReturnType<typeof ratelimit.create>>();
+const limiterCache = new Map<string, ReturnType<typeof ratelimit>>();
 
 const getClientIp = (c: Context): string =>
   c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? c.req.header("x-real-ip") ?? "unknown";
@@ -79,7 +79,8 @@ const getLimiter = (limitPerSecond: number, windowSecs: number) => {
   const cached = limiterCache.get(cacheKey);
   if (cached) return cached;
 
-  const limiter = ratelimit.create({
+  const limiter = ratelimit({
+    id: cacheKey,
     limit: limitPerSecond,
     windowSecs,
     prefix: LIMITER_PREFIX,

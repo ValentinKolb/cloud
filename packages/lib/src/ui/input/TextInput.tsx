@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { InputWrapper } from "./util";
 
 type TextInputProps = {
+  name?: string;
   label?: string;
   description?: string;
   placeholder?: string;
@@ -83,6 +84,7 @@ const TextInput = (props: TextInputProps) => {
           {multiline() ? (
             <textarea
               id={inputId}
+              name={props.name}
               class={`input-subtle h-20 max-h-50 min-h-15 w-full pl-9 md:max-h-30 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
               placeholder={props.placeholder}
               value={props.value?.() ?? ""}
@@ -104,6 +106,7 @@ const TextInput = (props: TextInputProps) => {
           ) : (
             <input
               id={inputId}
+              name={props.name}
               type={props.password && !showPassword() ? "password" : (props.type ?? "text")}
               class={`input-subtle w-full pl-9 ${props.password || canClear() ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
               placeholder={props.placeholder}

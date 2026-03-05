@@ -1,4 +1,4 @@
-import { hasRole, type BaseUser } from "@valentinkolb/cloud-contracts/shared";
+import type { BaseUser, Role } from "@valentinkolb/cloud-contracts/shared";
 
 type UserViewProps = {
   user: BaseUser;
@@ -25,10 +25,12 @@ const realmStyles: Record<string, { bg: string; text: string; label: string }> =
 
 /** Get the primary realm role from the user's roles */
 const getUserRealm = (user: BaseUser): string => {
-  if (hasRole(user, "ipa")) return "ipa";
-  if (hasRole(user, "ipa-limited")) return "ipa-limited";
+  if (hasRole(user.roles, "ipa")) return "ipa";
+  if (hasRole(user.roles, "ipa-limited")) return "ipa-limited";
   return "guest";
 };
+
+const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
 
 export default function UserView(props: UserViewProps) {
   const realmStyle = () => realmStyles[getUserRealm(props.user)] ?? realmStyles.guest;
@@ -46,7 +48,7 @@ export default function UserView(props: UserViewProps) {
           )}
         </div>
         <div class="flex items-center gap-2 text-xs text-dimmed">
-          <span class="font-mono">{hasRole(props.user, "guest") ? `${props.user.uid.slice(0, 12)}...` : props.user.uid}</span>
+          <span class="font-mono">{hasRole(props.user.roles, "guest") ? `${props.user.uid.slice(0, 12)}...` : props.user.uid}</span>
           {props.user.mail && (
             <>
               <span class="text-zinc-300 dark:text-zinc-600">|</span>
