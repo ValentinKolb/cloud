@@ -10,7 +10,7 @@ import { sql } from "bun";
  *
  * Structure:
  * - notebooks: Container with access control (like wiki/vault)
- * - notes: Hierarchical pages within a notebook (with Yjs CRDT content)
+ * - notes: Hierarchical notes within a notebook (with Yjs CRDT content)
  * - note_versions: Snapshots of notes for version history
  */
 export const migrate = async (): Promise<void> => {
@@ -54,7 +54,7 @@ export const migrate = async (): Promise<void> => {
   `.simple();
 
   // ----------------------------------------------------------
-  // Notes (Hierarchical pages with Yjs CRDT content)
+  // Notes (Hierarchical notes with Yjs CRDT content)
   // ----------------------------------------------------------
 
   await sql`
@@ -68,6 +68,9 @@ export const migrate = async (): Promise<void> => {
 
       -- Current Yjs document snapshot (binary)
       yjs_snapshot BYTEA,
+      -- Last applied stream cursor (for multi-node stale-write protection)
+      yjs_stream_ms BIGINT,
+      yjs_stream_seq BIGINT,
       -- Last time the Yjs snapshot was saved
       yjs_snapshot_at TIMESTAMPTZ,
       -- Markdown export for full-text search
@@ -143,4 +146,34 @@ export const migrate = async (): Promise<void> => {
     ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ DEFAULT NULL
   `.simple();
   console.log("  ✓ added locked_at column to notebooks.notes");
+
+  await sql`
+    ALTER TABLE notebooks.notes
+    ADD COLUMN IF NOT EXISTS yjs_stream_ms BIGINT,
+    ADD COLUMN IF NOT EXISTS yjs_stream_seq BIGINT
+  `.simple();
+  console.log("  ✓ ensured yjs stream cursor columns on notebooks.notes");
+
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'notebooks'
+          AND table_name = 'notes'
+          AND column_name = 'yjs_stream_cursor'
+      ) THEN
+        UPDATE notebooks.notes
+        SET yjs_stream_ms = split_part(yjs_stream_cursor, '-', 1)::bigint,
+            yjs_stream_seq = split_part(yjs_stream_cursor, '-', 2)::bigint
+        WHERE yjs_stream_cursor ~ '^[0-9]+-[0-9]+$'
+          AND (yjs_stream_ms IS NULL OR yjs_stream_seq IS NULL);
+      END IF;
+    END $$;
+  `.simple();
+  console.log("  ✓ backfilled yjs stream cursor values");
+
+  await sql`ALTER TABLE notebooks.notes DROP COLUMN IF EXISTS yjs_stream_cursor`.simple();
+  console.log("  ✓ dropped legacy yjs_stream_cursor column from notebooks.notes");
 };

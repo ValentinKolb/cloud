@@ -4,10 +4,8 @@ import {
   type AccessEntry,
   type PermissionLevel,
   type Principal,
-  type ResourceAccessAdapter,
   createAccess,
   deleteAccess,
-  resolveDisplayNames,
   getEffectivePermission,
 } from "@valentinkolb/cloud/lib/server";
 
@@ -22,47 +20,143 @@ type DbNotebookAccess = {
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
+  user_display_name: string | null;
+  user_uid: string | null;
+};
+
+const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
+  const principal: AccessEntry["principal"] = row.user_id
+    ? { type: "user", userId: row.user_id }
+    : row.group_cn
+      ? { type: "group", groupCn: row.group_cn }
+      : row.authenticated_only
+        ? { type: "authenticated" }
+        : { type: "public" };
+
+  const displayName =
+    principal.type === "user"
+      ? row.user_display_name || row.user_uid || "Unknown User"
+      : principal.type === "group"
+        ? principal.groupCn
+        : principal.type === "authenticated"
+          ? "All users (incl. guests)"
+          : "Public";
+
+  return {
+    id: row.access_id,
+    principal,
+    permission: row.permission,
+    createdAt: row.created_at.toISOString(),
+    displayName,
+  };
 };
 
 /**
  * List all access entries for a notebook with resolved display names.
  */
 export const listNotebookAccess = async (notebookId: string): Promise<AccessEntry[]> => {
-  const rows = await sql<DbNotebookAccess[]>`
-    SELECT
-      a.id as access_id,
-      a.user_id,
-      a.group_cn,
-      a.authenticated_only,
-      a.permission,
-      a.created_at
+  const result = await listNotebookAccessPage({ notebookId });
+  return result.items;
+};
+
+/**
+ * List access entries with SQL-side filtering and pagination.
+ */
+export const listNotebookAccessPage = async (config: {
+  notebookId: string;
+  query?: string;
+  principalType?: AccessEntry["principal"]["type"];
+  pagination?: { limit: number; offset: number };
+}): Promise<{ items: AccessEntry[]; total: number }> => {
+  const query = config.query?.trim().toLowerCase();
+  const pattern = query && query.length > 0 ? `%${query}%` : null;
+  const principalType = config.principalType;
+  const principalCondition =
+    principalType === undefined
+      ? sql`true`
+      : principalType === "user"
+        ? sql`a.user_id IS NOT NULL`
+        : principalType === "group"
+          ? sql`a.group_cn IS NOT NULL`
+          : principalType === "authenticated"
+            ? sql`a.authenticated_only = true`
+            : sql`a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false`;
+
+  const baseQuery = sql`
     FROM notebooks.notebook_access na
     JOIN auth.access a ON na.access_id = a.id
-    WHERE na.notebook_id = ${notebookId}::uuid
-    ORDER BY
-      CASE
-        WHEN a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false THEN 4
-        WHEN a.authenticated_only THEN 3
-        WHEN a.group_cn IS NOT NULL THEN 2
-        ELSE 1
-      END,
-      a.created_at
+    LEFT JOIN auth.users u ON u.id = a.user_id
+    WHERE na.notebook_id = ${config.notebookId}::uuid
+      AND ${principalCondition}
+      AND (
+        ${pattern}::text IS NULL
+        OR LOWER(COALESCE(u.display_name, u.uid, '')) LIKE ${pattern}
+        OR LOWER(COALESCE(a.group_cn, '')) LIKE ${pattern}
+        OR LOWER(COALESCE(a.user_id::text, '')) LIKE ${pattern}
+        OR (a.authenticated_only = true AND 'all users incl guests authenticated' LIKE ${pattern})
+        OR (
+          a.user_id IS NULL
+          AND a.group_cn IS NULL
+          AND a.authenticated_only = false
+          AND 'public' LIKE ${pattern}
+        )
+      )
   `;
 
-  const entries: AccessEntry[] = rows.map((row) => ({
-    id: row.access_id,
-    principal: row.user_id
-      ? { type: "user" as const, userId: row.user_id }
-      : row.group_cn
-        ? { type: "group" as const, groupCn: row.group_cn }
-        : row.authenticated_only
-          ? { type: "authenticated" as const }
-          : { type: "public" as const },
-    permission: row.permission,
-    createdAt: row.created_at.toISOString(),
-  }));
+  const rows =
+    config.pagination === undefined
+      ? await sql<DbNotebookAccess[]>`
+          SELECT
+            a.id as access_id,
+            a.user_id,
+            a.group_cn,
+            a.authenticated_only,
+            a.permission,
+            a.created_at,
+            u.display_name AS user_display_name,
+            u.uid AS user_uid
+          ${baseQuery}
+          ORDER BY
+            CASE
+              WHEN a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false THEN 4
+              WHEN a.authenticated_only THEN 3
+              WHEN a.group_cn IS NOT NULL THEN 2
+              ELSE 1
+            END,
+            a.created_at
+        `
+      : await sql<DbNotebookAccess[]>`
+          SELECT
+            a.id as access_id,
+            a.user_id,
+            a.group_cn,
+            a.authenticated_only,
+            a.permission,
+            a.created_at,
+            u.display_name AS user_display_name,
+            u.uid AS user_uid
+          ${baseQuery}
+          ORDER BY
+            CASE
+              WHEN a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false THEN 4
+              WHEN a.authenticated_only THEN 3
+              WHEN a.group_cn IS NOT NULL THEN 2
+              ELSE 1
+            END,
+            a.created_at
+          LIMIT ${config.pagination.limit}
+          OFFSET ${config.pagination.offset}
+        `;
 
-  return resolveDisplayNames(entries);
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    ${baseQuery}
+  `;
+
+  return {
+    items: rows.map(mapAccessRow),
+    total: countRow?.count ?? 0,
+  };
 };
 
 /**
@@ -218,14 +312,4 @@ export const grantNotebookAccess = async (params: {
   }
 
   return ok(created);
-};
-
-/**
- * ResourceAccessAdapter implementation for notebooks.
- */
-export const notebookAccessAdapter: ResourceAccessAdapter = {
-  list: listNotebookAccess,
-  add: addNotebookAccess,
-  remove: removeNotebookAccess,
-  count: countNotebookAccess,
 };

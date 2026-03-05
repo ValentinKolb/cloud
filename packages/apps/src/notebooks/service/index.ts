@@ -1,29 +1,17 @@
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
 import * as access from "./access";
-import * as yjsManager from "./yjs-manager";
+import { yjsSnapshotWorker } from "./yjs-snapshot-worker";
 import { paginate, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 
-const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
-  if (!pagination) {
-    return {
-      items,
-      page: 1,
-      perPage: items.length,
-      total: items.length,
-      hasNext: false,
-    };
-  }
-
+const pageFromPagination = (pagination?: PageParams) => {
+  if (!pagination) return null;
   const { page, perPage, offset } = paginate(pagination);
-  const sliced = items.slice(offset, offset + perPage);
   return {
-    items: sliced,
     page,
     perPage,
-    total: items.length,
-    hasNext: page * perPage < items.length,
+    offset,
   };
 };
 
@@ -35,22 +23,22 @@ export const notebooksService = {
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<notebooks.Notebook>> => {
-      const items = await notebooks.list({
+      const pageInfo = pageFromPagination(config.pagination);
+      const result = await notebooks.list({
         userId: config.userId,
         groups: config.groups,
+        query: config.filter?.query,
+        pagination: pageInfo ? { limit: pageInfo.perPage, offset: pageInfo.offset } : undefined,
       });
-
-      const query = config.filter?.query?.trim().toLowerCase();
-      const filtered =
-        query && query.length > 0
-          ? items.filter((notebook) => {
-              const name = notebook.name.toLowerCase();
-              const description = (notebook.description ?? "").toLowerCase();
-              return name.includes(query) || description.includes(query);
-            })
-          : items;
-
-      return paginateItems(filtered, config.pagination);
+      const page = pageInfo?.page ?? 1;
+      const perPage = pageInfo?.perPage ?? result.items.length;
+      return {
+        items: result.items,
+        page,
+        perPage,
+        total: result.total,
+        hasNext: page * perPage < result.total,
+      };
     },
     get: notebooks.get,
     create: notebooks.create,
@@ -88,32 +76,22 @@ export const notebooksService = {
           principalType?: AccessEntry["principal"]["type"];
         };
       }): Promise<Paginated<AccessEntry>> => {
-        const items = await access.listNotebookAccess(config.notebookId);
-        const query = config.filter?.query?.trim().toLowerCase();
-        const principalType = config.filter?.principalType;
-
-        const filtered = items.filter((entry) => {
-          if (principalType && entry.principal.type !== principalType) {
-            return false;
-          }
-          if (!query) return true;
-
-          const displayName = (entry.displayName ?? "").toLowerCase();
-          if (displayName.includes(query)) return true;
-
-          if (entry.principal.type === "user") {
-            return entry.principal.userId.toLowerCase().includes(query);
-          }
-          if (entry.principal.type === "group") {
-            return entry.principal.groupCn.toLowerCase().includes(query);
-          }
-          if (entry.principal.type === "authenticated") {
-            return "all signed-in users authenticated".includes(query);
-          }
-          return "public".includes(query);
+        const pageInfo = pageFromPagination(config.pagination);
+        const result = await access.listNotebookAccessPage({
+          notebookId: config.notebookId,
+          query: config.filter?.query,
+          principalType: config.filter?.principalType,
+          pagination: pageInfo ? { limit: pageInfo.perPage, offset: pageInfo.offset } : undefined,
         });
-
-        return paginateItems(filtered, config.pagination);
+        const page = pageInfo?.page ?? 1;
+        const perPage = pageInfo?.perPage ?? result.items.length;
+        return {
+          items: result.items,
+          page,
+          perPage,
+          total: result.total,
+          hasNext: page * perPage < result.total,
+        };
       },
       grant: access.grantNotebookAccess,
       remove: (config: { notebookId: string; accessId: string }) => access.removeNotebookAccess(config.notebookId, config.accessId),
@@ -129,23 +107,22 @@ export const notebooksService = {
       pagination?: PageParams;
       filter?: { query?: string; parentId?: string | null };
     }): Promise<Paginated<notes.Note>> => {
-      const parentId = config.filter?.parentId;
-      const items =
-        parentId !== undefined
-          ? await notes.listChildren({ notebookId: config.notebookId, parentId })
-          : await notes.list({ notebookId: config.notebookId });
-
-      const query = config.filter?.query?.trim().toLowerCase();
-      const filtered =
-        query && query.length > 0
-          ? items.filter((note) => {
-              const title = note.title.toLowerCase();
-              const content = (note.contentMd ?? "").toLowerCase();
-              return title.includes(query) || content.includes(query);
-            })
-          : items;
-
-      return paginateItems(filtered, config.pagination);
+      const pageInfo = pageFromPagination(config.pagination);
+      const result = await notes.listPaged({
+        notebookId: config.notebookId,
+        query: config.filter?.query,
+        parentId: config.filter?.parentId,
+        pagination: pageInfo ? { limit: pageInfo.perPage, offset: pageInfo.offset } : undefined,
+      });
+      const page = pageInfo?.page ?? 1;
+      const perPage = pageInfo?.perPage ?? result.items.length;
+      return {
+        items: result.items,
+        page,
+        perPage,
+        total: result.total,
+        hasNext: page * perPage < result.total,
+      };
     },
     get: notes.get,
     getWithContent: notes.getWithContent,
@@ -157,7 +134,7 @@ export const notebooksService = {
     save: notes.save,
     isLocked: notes.isLocked,
     lock: notes.lock,
-    getYjsState: notes.getYjsState,
+    getYjsStateWithCursor: notes.getYjsStateWithCursor,
     versions: {
       list: notes.listVersions,
       getSnapshot: notes.getVersionSnapshot,
@@ -169,7 +146,7 @@ export const notebooksService = {
   },
 };
 
-export { notebooks, notes, access, yjsManager };
+export { notebooks, notes, access, yjsSnapshotWorker };
 
 // Re-export commonly used types
 export type { Notebook, CreateNotebook, UpdateNotebook } from "./notebooks";

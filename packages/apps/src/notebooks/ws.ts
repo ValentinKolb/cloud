@@ -1,358 +1,682 @@
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import type { ServerWebSocket } from "bun";
-import * as Y from "yjs";
-import * as syncProtocol from "y-protocols/sync";
-import * as awarenessProtocol from "y-protocols/awareness";
-import * as encoding from "lib0/encoding";
-import * as decoding from "lib0/decoding";
-import { ipa } from "@valentinkolb/cloud/core/services";
+import { z } from "zod";
 import { auth } from "@valentinkolb/cloud/lib/server";
-import { logger } from "@valentinkolb/cloud/core/services";
-
-const log = logger("yjs");
-import { notebooksService } from "./service";
-import * as yjsManager from "./service/yjs-manager";
+import { notebooksYjs } from "@valentinkolb/cloud/lib/shared";
 import type { SessionUser } from "@valentinkolb/cloud/contracts/shared";
+import type { TopicLiveEvent } from "@valentinkolb/sync";
+import { ipa, logger } from "@valentinkolb/cloud/core/services";
+import { notebooksService } from "./service";
+import { yjsSnapshotWorker } from "./service/yjs-snapshot-worker";
+import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
+import type { YjsTopicEvent } from "./service/yjs-sync";
 
-// ==========================
-// Constants
-// ==========================
-
-const MSG_SYNC = 0;
-const MSG_AWARENESS = 1;
-
-// ==========================
-// Types
-// ==========================
-
-type ConnState = {
-  user: SessionUser | null;
-  noteId: string | null;
-  notebookId: string | null;
-  peerId: string;
+/**
+ * Notebooks realtime websocket (chat-style declarative flow):
+ *
+ * 1) Client opens socket and sends `notes.yjs.replay.request`.
+ * 2) Server validates session + access, sends optional DB snapshot, starts topic stream.
+ * 3) During `joined` phase, client may send sync/awareness publishes.
+ * 4) Server periodically re-checks auth/access (10s). On terminal mismatch it sends
+ *    `notes.yjs.error` with a code and closes the socket.
+ *
+ * The node is stateless across sockets and relies on the shared topic stream.
+ */
+const log = logger("yjs");
+const WS_TYPE = notebooksYjs.wsType;
+const ERROR_CODE = notebooksYjs.errorCode;
+type NotebooksYjsErrorCode = (typeof ERROR_CODE)[keyof typeof ERROR_CODE];
+type NotebooksYjsErrorPayload = {
+  code: NotebooksYjsErrorCode;
+  message: string;
+  noteId?: string;
 };
 
-// ==========================
-// Awareness (per-document, server-side)
-// ==========================
+const SNAPSHOT_INTERVAL_MS = 8_000;
+const ACCESS_REFRESH_INTERVAL_MS = 10_000;
+const NOTIFY_BATCH_SIZE = 100;
+const NOTIFY_BATCH_MAX_BYTES = 256_000;
+const NOTIFY_FLUSH_DELAY_MS = 25;
+const MAX_PENDING_MESSAGES = 200;
+const BASE64_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
-const awarenessInstances = new Map<string, awarenessProtocol.Awareness>();
+const ReplayRequestMessageSchema = z.object({
+  type: z.literal(WS_TYPE.replayRequest),
+  payload: z.object({
+    noteId: z.uuid(),
+    sessionToken: z.string().min(1).optional(),
+    fromCursor: z
+      .string()
+      .regex(notebooksYjs.streamCursorPattern)
+      .nullable()
+      .optional(),
+  }),
+});
 
-/**
- * Returns the shared awareness instance for a note and creates it on first access.
- */
-function getAwareness(noteId: string, doc: Y.Doc): awarenessProtocol.Awareness {
-  let awareness = awarenessInstances.get(noteId);
-  if (!awareness) {
-    awareness = new awarenessProtocol.Awareness(doc);
-    awarenessInstances.set(noteId, awareness);
+const SyncPublishMessageSchema = z.object({
+  type: z.literal(WS_TYPE.syncPublish),
+  payload: z.object({
+    noteId: z.uuid(),
+    payload: z.string().min(1),
+  }),
+});
+
+const AwarenessPublishMessageSchema = z.object({
+  type: z.literal(WS_TYPE.awarenessPublish),
+  payload: z.object({
+    noteId: z.uuid(),
+    payload: z.string().min(1),
+  }),
+});
+
+const ClientMessageSchema = z.discriminatedUnion("type", [
+  ReplayRequestMessageSchema,
+  SyncPublishMessageSchema,
+  AwarenessPublishMessageSchema,
+]);
+
+type ClientMessage = z.infer<typeof ClientMessageSchema>;
+type WsPhase = "open" | "joined" | "closing";
+
+type WsContext = {
+  socket: ServerWebSocket<unknown>;
+  phase: WsPhase;
+  sessionToken: string | null;
+  user: SessionUser | null;
+  noteId: string | null;
+  canWrite: boolean;
+  peerId: string;
+  streamAbort: AbortController | null;
+  snapshotInterval: ReturnType<typeof setInterval> | null;
+  accessRefreshTimeout: ReturnType<typeof setTimeout> | null;
+  dirty: boolean;
+  lastPublishedCursor: string | null;
+};
+
+type AccessEvaluation = {
+  ok: boolean;
+  code?: NotebooksYjsErrorCode;
+  message?: string;
+  noteId?: string;
+  canWrite?: boolean;
+};
+
+type PushUpdate = {
+  cursor: string | null;
+  payload: string;
+  originPeerId: string | null;
+};
+
+type PushMessage = {
+  type: typeof WS_TYPE.syncPush | typeof WS_TYPE.awarenessPush;
+  noteId: string;
+  updates: PushUpdate[];
+};
+
+const isWritablePermission = (permission: "none" | "read" | "write" | "admin"): boolean =>
+  permission === "write" || permission === "admin";
+
+const createContext = (socket: ServerWebSocket<unknown>): WsContext => ({
+  socket,
+  phase: "open",
+  sessionToken: null,
+  user: null,
+  noteId: null,
+  canWrite: false,
+  peerId: crypto.randomUUID(),
+  streamAbort: null,
+  snapshotInterval: null,
+  accessRefreshTimeout: null,
+  dirty: false,
+  lastPublishedCursor: null,
+});
+
+const send = (socket: ServerWebSocket<unknown>, type: string, payload?: unknown) => {
+  try {
+    socket.send(JSON.stringify({ type, payload }));
+  } catch {
+    // Ignore send failures on closed sockets.
   }
-  return awareness;
-}
+};
 
-/**
- * Destroys and removes the awareness state when a note has no active subscribers.
- */
-function removeAwareness(noteId: string): void {
-  const awareness = awarenessInstances.get(noteId);
-  if (awareness) {
-    awareness.destroy();
-    awarenessInstances.delete(noteId);
+const warn = (
+  socket: ServerWebSocket<unknown>,
+  code: NotebooksYjsErrorCode,
+  message: string,
+  noteId?: string,
+) => {
+  const payload: NotebooksYjsErrorPayload = noteId ? { code, message, noteId } : { code, message };
+  send(socket, WS_TYPE.error, payload);
+};
+
+const closeCodeForError = (code: NotebooksYjsErrorCode): number => {
+  if (code === ERROR_CODE.internalError) return 1011;
+  if (code === ERROR_CODE.backpressure) return 1013;
+  return 1008;
+};
+
+const stopLiveStream = (ctx: WsContext) => {
+  if (ctx.streamAbort) ctx.streamAbort.abort();
+  ctx.streamAbort = null;
+};
+
+const stopSnapshotScheduler = (ctx: WsContext) => {
+  if (ctx.snapshotInterval) clearInterval(ctx.snapshotInterval);
+  ctx.snapshotInterval = null;
+};
+
+const stopAccessRefresh = (ctx: WsContext) => {
+  if (ctx.accessRefreshTimeout) clearTimeout(ctx.accessRefreshTimeout);
+  ctx.accessRefreshTimeout = null;
+};
+
+const queueSnapshotIfNeeded = async (ctx: WsContext, reason: "periodic" | "unload") => {
+  if (!ctx.noteId || !ctx.dirty || !ctx.lastPublishedCursor) return;
+
+  try {
+    await yjsSnapshotWorker.queueSnapshotSave({
+      noteId: ctx.noteId,
+      targetCursor: ctx.lastPublishedCursor,
+      reason,
+    });
+    ctx.dirty = false;
+    stopSnapshotScheduler(ctx);
+    log.debug("Queued snapshot save", {
+      noteId: ctx.noteId,
+      cursor: ctx.lastPublishedCursor,
+      reason,
+    });
+  } catch (error) {
+    log.error("Failed to queue snapshot save", {
+      noteId: ctx.noteId,
+      cursor: ctx.lastPublishedCursor,
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
-}
+};
 
-// ==========================
-// Helpers
-// ==========================
+const startSnapshotScheduler = (ctx: WsContext) => {
+  if (ctx.snapshotInterval) return;
+  ctx.snapshotInterval = setInterval(() => {
+    void queueSnapshotIfNeeded(ctx, "periodic");
+  }, SNAPSHOT_INTERVAL_MS);
+};
 
-/**
- * Sends a JSON websocket message with a typed envelope.
- */
-function sendJson(socket: ServerWebSocket<unknown>, type: string, payload?: unknown) {
-  socket.send(JSON.stringify({ type, payload }));
-}
+const leaveCurrentNote = async (ctx: WsContext) => {
+  await queueSnapshotIfNeeded(ctx, "unload");
+  stopAccessRefresh(ctx);
+  stopSnapshotScheduler(ctx);
+  stopLiveStream(ctx);
+  ctx.noteId = null;
+  ctx.canWrite = false;
+  ctx.dirty = false;
+  ctx.lastPublishedCursor = null;
+  if (ctx.phase !== "closing") {
+    ctx.phase = "open";
+  }
+};
 
-/**
- * Sends a standardized error envelope to the websocket client.
- */
-function sendError(socket: ServerWebSocket<unknown>, message: string) {
-  socket.send(JSON.stringify({ type: "error", payload: { message } }));
-}
+const fatal = async (
+  ctx: WsContext,
+  code: NotebooksYjsErrorCode,
+  message: string,
+  noteId?: string,
+) => {
+  if (ctx.phase === "closing") return;
+  ctx.phase = "closing";
+  warn(ctx.socket, code, message, noteId);
+  await leaveCurrentNote(ctx);
+  ctx.socket.close(closeCodeForError(code), code);
+};
 
-/**
- * Sends a binary websocket payload (Yjs sync/awareness frames).
- */
-function sendBinary(socket: ServerWebSocket<unknown>, data: Uint8Array) {
-  socket.send(data);
-}
+const ensureValidBase64 = (payload: string): boolean =>
+  payload.length > 0 && payload.length % 4 === 0 && BASE64_REGEX.test(payload);
 
-async function resolveUser(sessionToken: string | null): Promise<SessionUser | null> {
+const resolveSessionUser = async (sessionToken: string | null): Promise<SessionUser | null> => {
   if (!sessionToken) return null;
-  const data = await auth.session.getData(sessionToken);
-  if (!data) return null;
-  return ipa.users.get({ id: data.userId });
-}
+  const session = await auth.session.getData(sessionToken);
+  if (!session) return null;
+  return ipa.users.get({ id: session.userId });
+};
 
-// ==========================
-// Note Join / Leave
-// ==========================
-
-async function handleJoin(socket: ServerWebSocket<unknown>, state: ConnState, noteId: string) {
-  if (!state.user) {
-    return sendError(socket, "Login required");
-  }
-
+const evaluateAccess = async (
+  noteId: string,
+  user: SessionUser,
+  mode: "read" | "write",
+  deniedCode: NotebooksYjsErrorCode,
+): Promise<AccessEvaluation> => {
   const note = await notebooksService.note.get({ id: noteId });
   if (!note) {
-    return sendError(socket, "Note not found");
+    return {
+      ok: false,
+      code: ERROR_CODE.noteNotFound,
+      message: "Note not found",
+      noteId,
+    };
   }
 
-  const hasAccess = await notebooksService.notebook.permission.canAccess({
+  const permission = await notebooksService.notebook.permission.get({
     notebookId: note.notebookId,
-    userId: state.user.id,
-    userGroups: state.user.memberofGroup,
-    requiredLevel: "read",
+    userId: user.id,
+    userGroups: user.memberofGroup,
   });
 
-  if (!hasAccess) {
-    return sendError(socket, "Access denied");
+  if (permission === "none") {
+    return {
+      ok: false,
+      code: deniedCode,
+      message: deniedCode === ERROR_CODE.accessRevoked ? "Access was revoked" : "Access denied",
+      noteId,
+    };
   }
 
-  // Leave previous note if any
-  if (state.noteId && state.noteId !== noteId) {
-    await handleLeaveInternal(socket, state);
+  const canWrite = isWritablePermission(permission);
+  if (mode === "write" && !canWrite) {
+    return {
+      ok: false,
+      code: ERROR_CODE.accessDenied,
+      message: "Write access required",
+      noteId,
+    };
   }
 
-  state.noteId = noteId;
-  state.notebookId = note.notebookId;
-
-  socket.subscribe(`note:${noteId}`);
-  socket.subscribe(`note:${noteId}:awareness`);
-
-  await yjsManager.addSubscriber(noteId, note.notebookId, state.peerId, state.user.id);
-
-  // Confirm join — client waits for this before sending binary
-  sendJson(socket, "note.joined", { noteId });
-
-  const onlineUsers = yjsManager.getOnlineUsers(noteId);
-  sendJson(socket, "note.members", { noteId, userIds: onlineUsers });
-
-  socket.publish(
-    `note:${noteId}`,
-    JSON.stringify({
-      type: "note.user-joined",
-      payload: {
-        noteId,
-        userId: state.user.id,
-        displayName: state.user.displayName,
-      },
-    }),
-  );
-
-  log.info("User joined note", { uid: state.user.uid, noteId });
-}
-
-async function handleLeave(socket: ServerWebSocket<unknown>, state: ConnState, noteId: string) {
-  if (state.noteId !== noteId) {
-    return sendError(socket, "Not subscribed to this note");
-  }
-  await handleLeaveInternal(socket, state);
-}
-
-async function handleLeaveInternal(socket: ServerWebSocket<unknown>, state: ConnState) {
-  if (!state.noteId) return;
-  const noteId = state.noteId;
-
-  socket.unsubscribe(`note:${noteId}`);
-  socket.unsubscribe(`note:${noteId}:awareness`);
-
-  yjsManager.removeSubscriber(noteId, state.peerId);
-
-  if (yjsManager.getSubscriberCount(noteId) === 0) {
-    removeAwareness(noteId);
+  if (note.lockedAt) {
+    return {
+      ok: false,
+      code: ERROR_CODE.noteLocked,
+      message: "Note is locked",
+      noteId,
+    };
   }
 
-  if (state.user) {
-    socket.publish(
-      `note:${noteId}`,
-      JSON.stringify({
-        type: "note.user-left",
-        payload: { noteId, userId: state.user.id },
-      }),
-    );
+  return {
+    ok: true,
+    canWrite,
+  };
+};
+
+const refreshJoinedAccess = async (ctx: WsContext): Promise<AccessEvaluation> => {
+  if (!ctx.noteId) {
+    return {
+      ok: false,
+      code: ERROR_CODE.noteNotFound,
+      message: "Note not found",
+    };
   }
 
-  state.noteId = null;
-  state.notebookId = null;
-
-  log.info("User left note", { uid: state.user?.uid ?? "anonymous", noteId });
-}
-
-// ==========================
-// Binary Message Handling
-// ==========================
-
-async function handleBinary(socket: ServerWebSocket<unknown>, state: ConnState, data: Uint8Array) {
-  if (!state.noteId) {
-    return sendError(socket, "Not subscribed to any note");
+  const user = await resolveSessionUser(ctx.sessionToken);
+  if (!user) {
+    return {
+      ok: false,
+      code: ERROR_CODE.sessionExpired,
+      message: "Session expired",
+      noteId: ctx.noteId,
+    };
   }
 
-  const noteId = state.noteId;
-  const decoder = decoding.createDecoder(data);
-  const messageType = decoding.readVarUint(decoder);
+  const access = await evaluateAccess(ctx.noteId, user, "read", ERROR_CODE.accessRevoked);
+  if (!access.ok) return access;
+  ctx.user = user;
+  ctx.canWrite = access.canWrite ?? false;
+  return access;
+};
 
-  if (messageType === MSG_SYNC) {
-    await handleSyncMessage(socket, state, noteId, decoder, data);
-  } else if (messageType === MSG_AWARENESS) {
-    handleAwarenessMessage(socket, noteId, decoder);
-  } else {
-    sendError(socket, `Unknown binary message type: ${messageType}`);
-  }
-}
+const startAccessRefresh = (ctx: WsContext) => {
+  stopAccessRefresh(ctx);
+  if (ctx.phase !== "joined" || !ctx.noteId) return;
 
-async function handleSyncMessage(
-  socket: ServerWebSocket<unknown>,
-  state: ConnState,
+  ctx.accessRefreshTimeout = setTimeout(async () => {
+    if (ctx.phase !== "joined") return;
+    try {
+      const access = await refreshJoinedAccess(ctx);
+      if (!access.ok) {
+        await fatal(
+          ctx,
+          access.code ?? ERROR_CODE.internalError,
+          access.message ?? "Access refresh failed",
+          access.noteId ?? ctx.noteId ?? undefined,
+        );
+        return;
+      }
+      startAccessRefresh(ctx);
+    } catch (error) {
+      log.error("Access refresh failed", {
+        noteId: ctx.noteId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await fatal(ctx, ERROR_CODE.internalError, "Access refresh failed", ctx.noteId ?? undefined);
+    }
+  }, ACCESS_REFRESH_INTERVAL_MS);
+};
+
+const markDirty = (ctx: WsContext, cursor: string) => {
+  ctx.lastPublishedCursor = maxStreamCursor(ctx.lastPublishedCursor, cursor);
+  ctx.dirty = true;
+  startSnapshotScheduler(ctx);
+};
+
+const toPushUpdate = (event: TopicLiveEvent<YjsTopicEvent>): PushUpdate => ({
+  cursor: event.cursor,
+  payload: event.data.payload,
+  originPeerId: event.data.originPeerId,
+});
+
+const pushTypeForKind = (
+  kind: YjsTopicEvent["kind"],
+): typeof WS_TYPE.syncPush | typeof WS_TYPE.awarenessPush =>
+  kind === "sync" ? WS_TYPE.syncPush : WS_TYPE.awarenessPush;
+
+const startLiveStream = (
+  ctx: WsContext,
   noteId: string,
-  decoder: decoding.Decoder,
-  rawMessage: Uint8Array,
-) {
-  const doc = yjsManager.getDoc(noteId);
-  if (!doc) {
-    return sendError(socket, "Document not loaded");
-  }
+  afterCursor: string | null,
+) => {
+  stopLiveStream(ctx);
+  const abort = new AbortController();
+  ctx.streamAbort = abort;
 
-  // SyncStep1 is read-only, SyncStep2 and Update require write
-  const syncType = decoding.peekVarUint(decoder);
+  void (async () => {
+    const noteTopic = createYjsTopic(noteId);
+    const pending: PushMessage[] = [];
+    let pendingEvents = 0;
+    let pendingBytes = 0;
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  if (syncType !== syncProtocol.messageYjsSyncStep1) {
-    // Check if note is locked
-    const note = await notebooksService.note.get({ id: noteId });
-    if (note?.lockedAt) {
-      return sendError(socket, "Note is locked and cannot be modified");
+    const flush = () => {
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      if (pending.length === 0) return;
+      const batch = pending.splice(0, pending.length);
+      for (const entry of batch) {
+        send(ctx.socket, entry.type, { noteId: entry.noteId, updates: entry.updates });
+      }
+      pendingEvents = 0;
+      pendingBytes = 0;
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimer) return;
+      flushTimer = setTimeout(flush, NOTIFY_FLUSH_DELAY_MS);
+    };
+
+    try {
+      for await (const event of noteTopic.live({
+        after: afterCursor ?? undefined,
+        signal: abort.signal,
+      })) {
+        if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
+        const update = toPushUpdate(event);
+        const type = pushTypeForKind(event.data.kind);
+
+        if (event.data.kind === "sync") {
+          ctx.lastPublishedCursor = maxStreamCursor(ctx.lastPublishedCursor, event.cursor);
+        }
+
+        const lastPending = pending.at(-1);
+        if (lastPending && lastPending.type === type && lastPending.noteId === noteId) {
+          lastPending.updates.push(update);
+        } else {
+          pending.push({ type, noteId, updates: [update] });
+        }
+
+        pendingEvents++;
+        pendingBytes += update.payload.length;
+        if (pendingEvents >= NOTIFY_BATCH_SIZE || pendingBytes >= NOTIFY_BATCH_MAX_BYTES) {
+          flush();
+        } else {
+          scheduleFlush();
+        }
+      }
+      flush();
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        log.error("Yjs live stream failed", {
+          noteId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        await fatal(ctx, ERROR_CODE.internalError, "Live sync stream failed", noteId);
+      }
+    } finally {
+      if (flushTimer) clearTimeout(flushTimer);
+      flush();
+      if (ctx.streamAbort === abort) {
+        ctx.streamAbort = null;
+      }
     }
+  })();
+};
 
-    const hasWrite = await notebooksService.notebook.permission.canAccess({
-      notebookId: state.notebookId!,
-      userId: state.user!.id,
-      userGroups: state.user!.memberofGroup,
-      requiredLevel: "write",
-    });
-    if (!hasWrite) {
-      return sendError(socket, "Write access required");
+const ensurePhase = (
+  ctx: WsContext,
+  allowedTypes: readonly string[],
+  attemptedType: string,
+): boolean => {
+  if (allowedTypes.includes(attemptedType)) return true;
+  warn(ctx.socket, ERROR_CODE.invalidMessage, `Message "${attemptedType}" is not allowed in phase "${ctx.phase}"`);
+  return false;
+};
+
+const ensureJoinedNote = (ctx: WsContext, noteId: string): boolean => {
+  if (ctx.phase !== "joined" || !ctx.noteId || ctx.noteId !== noteId) {
+    warn(ctx.socket, ERROR_CODE.invalidPayload, "Replay request required before publishing", noteId);
+    return false;
+  }
+  return true;
+};
+
+const ensureWritableNote = (ctx: WsContext, noteId: string): boolean => {
+  if (!ctx.canWrite) {
+    warn(ctx.socket, ERROR_CODE.accessDenied, "Write access required", noteId);
+    return false;
+  }
+  return true;
+};
+
+const handleReplayRequest = async (
+  ctx: WsContext,
+  payload: z.infer<typeof ReplayRequestMessageSchema.shape.payload>,
+) => {
+  if (payload.sessionToken) ctx.sessionToken = payload.sessionToken;
+
+  const user = await resolveSessionUser(ctx.sessionToken);
+  if (!user) {
+    await fatal(ctx, ERROR_CODE.loginRequired, "Login required", payload.noteId);
+    return;
+  }
+
+  const access = await evaluateAccess(payload.noteId, user, "read", ERROR_CODE.accessDenied);
+  if (!access.ok) {
+    await fatal(
+      ctx,
+      access.code ?? ERROR_CODE.accessDenied,
+      access.message ?? "Access denied",
+      access.noteId ?? payload.noteId,
+    );
+    return;
+  }
+
+  if (ctx.noteId && ctx.noteId !== payload.noteId) {
+    await leaveCurrentNote(ctx);
+  }
+
+  ctx.phase = "joined";
+  ctx.user = user;
+  ctx.noteId = payload.noteId;
+  ctx.canWrite = access.canWrite ?? false;
+
+  let replayCursor = payload.fromCursor ?? null;
+  if (!replayCursor) {
+    const snapshot = await notebooksService.note.getYjsStateWithCursor({ noteId: payload.noteId });
+    if (snapshot?.yjsState) {
+      send(ctx.socket, WS_TYPE.syncPush, {
+        noteId: payload.noteId,
+        updates: [
+          {
+            cursor: snapshot.streamCursor,
+            payload: toBase64(snapshot.yjsState),
+            originPeerId: null,
+          },
+        ],
+      });
     }
+    replayCursor = snapshot?.streamCursor ?? null;
   }
 
-  const encoder = encoding.createEncoder();
-  encoding.writeVarUint(encoder, MSG_SYNC);
+  startLiveStream(ctx, payload.noteId, replayCursor);
+  startAccessRefresh(ctx);
+  send(ctx.socket, WS_TYPE.replayReady, { noteId: payload.noteId });
+  log.debug("Replay stream started", {
+    noteId: payload.noteId,
+    peerId: ctx.peerId,
+    fromCursor: replayCursor,
+  });
+};
 
-  const syncMessageType = syncProtocol.readSyncMessage(decoder, encoder, doc, null);
-
-  sendBinary(socket, encoding.toUint8Array(encoder));
-
-  if (syncMessageType === syncProtocol.messageYjsSyncStep2 || syncMessageType === syncProtocol.messageYjsUpdate) {
-    yjsManager.markDirty(noteId);
-    socket.publish(`note:${noteId}`, rawMessage);
-  }
-}
-
-/**
- * Applies and rebroadcasts awareness updates for presence synchronization.
- */
-function handleAwarenessMessage(socket: ServerWebSocket<unknown>, noteId: string, decoder: decoding.Decoder) {
-  const awarenessUpdate = decoding.readVarUint8Array(decoder);
-
-  const doc = yjsManager.getDoc(noteId);
-  if (doc) {
-    const awareness = getAwareness(noteId, doc);
-    awarenessProtocol.applyAwarenessUpdate(awareness, awarenessUpdate, null);
+const handleSyncPublish = async (
+  ctx: WsContext,
+  payload: z.infer<typeof SyncPublishMessageSchema.shape.payload>,
+) => {
+  if (!ensureJoinedNote(ctx, payload.noteId)) return;
+  if (!ensureWritableNote(ctx, payload.noteId)) return;
+  if (!ensureValidBase64(payload.payload)) {
+    warn(ctx.socket, ERROR_CODE.invalidPayload, "Invalid base64 payload", payload.noteId);
+    return;
   }
 
-  const encoder = encoding.createEncoder();
-  encoding.writeVarUint(encoder, MSG_AWARENESS);
-  encoding.writeVarUint8Array(encoder, awarenessUpdate);
-  const encoded = encoding.toUint8Array(encoder);
+  const noteTopic = createYjsTopic(payload.noteId);
+  const published = await noteTopic.pub({
+    data: {
+      kind: "sync",
+      payload: payload.payload,
+      originNodeId: NODE_ID,
+      originPeerId: ctx.peerId,
+    },
+  });
 
-  socket.publish(`note:${noteId}:awareness`, encoded);
-  sendBinary(socket, encoded);
-}
+  markDirty(ctx, published.cursor);
+};
 
-// ==========================
-// WebSocket Endpoint
-// ==========================
+const handleAwarenessPublish = async (
+  ctx: WsContext,
+  payload: z.infer<typeof AwarenessPublishMessageSchema.shape.payload>,
+) => {
+  if (!ensureJoinedNote(ctx, payload.noteId)) return;
+  if (!ensureValidBase64(payload.payload)) {
+    warn(ctx.socket, ERROR_CODE.invalidPayload, "Invalid base64 payload", payload.noteId);
+    return;
+  }
+
+  const noteTopic = createYjsTopic(payload.noteId);
+  await noteTopic.pub({
+    data: {
+      kind: "awareness",
+      payload: payload.payload,
+      originNodeId: NODE_ID,
+      originPeerId: ctx.peerId,
+    },
+  });
+};
+
+const handlers = {
+  [WS_TYPE.replayRequest]: handleReplayRequest,
+  [WS_TYPE.syncPublish]: handleSyncPublish,
+  [WS_TYPE.awarenessPublish]: handleAwarenessPublish,
+} satisfies {
+  [K in ClientMessage["type"]]: (
+    ctx: WsContext,
+    payload: Extract<ClientMessage, { type: K }>["payload"],
+  ) => Promise<void>;
+};
+
+const allowedTypesByPhase: Record<WsPhase, readonly ClientMessage["type"][]> = {
+  open: [WS_TYPE.replayRequest],
+  joined: [WS_TYPE.replayRequest, WS_TYPE.syncPublish, WS_TYPE.awarenessPublish],
+  closing: [],
+};
+
+const dispatchClientMessage = async (ctx: WsContext, message: ClientMessage) => {
+  if (message.type === WS_TYPE.replayRequest) {
+    await handlers[WS_TYPE.replayRequest](ctx, message.payload);
+    return;
+  }
+  if (message.type === WS_TYPE.syncPublish) {
+    await handlers[WS_TYPE.syncPublish](ctx, message.payload);
+    return;
+  }
+  await handlers[WS_TYPE.awarenessPublish](ctx, message.payload);
+};
+
+const handleClientMessage = async (ctx: WsContext, raw: string): Promise<void> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    warn(ctx.socket, ERROR_CODE.invalidJson, "Invalid JSON payload");
+    return;
+  }
+
+  const message = ClientMessageSchema.safeParse(parsed);
+  if (!message.success) {
+    warn(ctx.socket, ERROR_CODE.invalidMessage, "Invalid message payload");
+    return;
+  }
+
+  if (!ensurePhase(ctx, allowedTypesByPhase[ctx.phase], message.data.type)) return;
+  await dispatchClientMessage(ctx, message.data);
+};
 
 const app = new Hono().get(
   "/",
-  upgradeWebSocket((c) => {
-    const sessionToken = c.req.query("session_token") ?? null;
-    let socket: ServerWebSocket<unknown>;
-    let ready: Promise<void>;
-
-    const state: ConnState = {
-      user: null,
-      noteId: null,
-      notebookId: null,
-      peerId: crypto.randomUUID(),
-    };
+  upgradeWebSocket(() => {
+    let ctx: WsContext | null = null;
+    let processing: Promise<void> = Promise.resolve();
+    let pendingMessages = 0;
 
     return {
       onOpen(_, ws) {
-        socket = ws.raw as ServerWebSocket<unknown>;
-        ready = resolveUser(sessionToken).then((user) => {
-          state.user = user;
-        });
+        ctx = createContext(ws.raw as ServerWebSocket<unknown>);
       },
 
       async onMessage(event) {
-        await ready;
-        const data = event.data;
-
-        if (data instanceof ArrayBuffer) {
-          await handleBinary(socket, state, new Uint8Array(data));
+        if (!ctx) return;
+        if (ctx.phase === "closing") return;
+        if (typeof event.data !== "string") {
+          warn(ctx.socket, ERROR_CODE.invalidMessage, "Only JSON text messages are supported");
           return;
         }
 
-        let msg: { type: string; payload?: unknown };
-        try {
-          msg = JSON.parse(data as string);
-        } catch {
-          return sendError(socket, "Invalid JSON");
+        if (pendingMessages >= MAX_PENDING_MESSAGES) {
+          await fatal(ctx, ERROR_CODE.backpressure, "Too many pending websocket messages", ctx.noteId ?? undefined);
+          return;
         }
 
-        if (!msg.type || typeof msg.type !== "string") {
-          return sendError(socket, "Missing message type");
-        }
-
-        switch (msg.type) {
-          case "note.join": {
-            const payload = msg.payload as { noteId?: unknown } | undefined;
-            const noteId = payload?.noteId;
-            if (!noteId || typeof noteId !== "string") {
-              return sendError(socket, "noteId required");
-            }
-            await handleJoin(socket, state, noteId);
-            break;
-          }
-          case "note.leave": {
-            const payload = msg.payload as { noteId?: unknown } | undefined;
-            const noteId = payload?.noteId;
-            if (!noteId || typeof noteId !== "string") {
-              return sendError(socket, "noteId required");
-            }
-            await handleLeave(socket, state, noteId);
-            break;
-          }
-          default:
-            sendError(socket, `Unknown type: ${msg.type}`);
-        }
+        pendingMessages++;
+        const raw = event.data;
+        const currentCtx = ctx;
+        processing = processing
+          .then(() => handleClientMessage(currentCtx, raw))
+          .catch(async (error) => {
+            log.error("Websocket message handling failed", {
+              noteId: currentCtx.noteId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            await fatal(currentCtx, ERROR_CODE.internalError, "Message handling failed", currentCtx.noteId ?? undefined);
+          })
+          .finally(() => {
+            pendingMessages = Math.max(0, pendingMessages - 1);
+          });
       },
 
       async onClose() {
-        await ready;
-        if (state.noteId) {
-          await handleLeaveInternal(socket, state);
-        }
+        if (!ctx) return;
+        await processing.catch(() => undefined);
+        if (ctx.phase === "closing") return;
+        ctx.phase = "closing";
+        await leaveCurrentNote(ctx);
       },
     };
   }),

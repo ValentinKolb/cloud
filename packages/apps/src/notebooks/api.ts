@@ -742,10 +742,11 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Notebooks"],
       summary: "Restore note from snapshot",
-      description: "Restore a note from a Yjs snapshot. Creates a backup version of current state.",
+      description: "Restore snapshot data into an empty target note (used by Restore as New Note).",
       ...requiresAuth,
       responses: {
         200: jsonResponse(NoteSchema, "Restored note"),
+        400: jsonResponse(ErrorResponseSchema, "Target note must be empty"),
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
         404: jsonResponse(ErrorResponseSchema, "Note not found"),
       },

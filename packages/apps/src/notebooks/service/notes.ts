@@ -2,6 +2,7 @@ import { sql } from "bun";
 import * as Y from "yjs";
 import type { MutationResult } from "@valentinkolb/cloud/contracts/shared";
 import type { PaginationParams } from "@valentinkolb/cloud/contracts/shared";
+import { parseStreamCursor } from "./yjs-sync";
 
 // ==========================
 // Types
@@ -59,6 +60,8 @@ type DbNote = {
   title: string;
   position: number;
   yjs_snapshot: Buffer | null;
+  yjs_stream_ms?: number | null;
+  yjs_stream_seq?: number | null;
   yjs_snapshot_at: Date | null;
   content_md: string | null;
   created_by: string | null;
@@ -68,6 +71,12 @@ type DbNote = {
   locked_at: Date | null;
 };
 
+type DbYjsState = {
+  yjs_snapshot: Buffer | null;
+  yjs_stream_ms: number | null;
+  yjs_stream_seq: number | null;
+};
+
 type DbNoteVersion = {
   id: string;
   note_id: string;
@@ -75,6 +84,8 @@ type DbNoteVersion = {
   created_by: string | null;
   created_at: Date;
 };
+
+const VERSION_MIN_INTERVAL = "5 minutes";
 
 // ==========================
 // Helpers
@@ -128,7 +139,7 @@ export const isLocked = async (params: { id: string }): Promise<boolean> => {
   const [row] = await sql<{ locked_at: Date | null }[]>`
     SELECT locked_at FROM notebooks.notes WHERE id = ${params.id}::uuid
   `;
-  return row?.locked_at !== null;
+  return row != null && row.locked_at !== null;
 };
 
 /**
@@ -186,23 +197,81 @@ export const list = async (params: { notebookId: string }): Promise<Note[]> => {
 };
 
 /**
- * List notes at a specific level (children of a parent, or root notes).
+ * List notes with SQL-side filtering and pagination.
  */
-export const listChildren = async (params: { notebookId: string; parentId: string | null }): Promise<Note[]> => {
-  const { notebookId, parentId } = params;
+export const listPaged = async (params: {
+  notebookId: string;
+  query?: string;
+  parentId?: string | null;
+  pagination?: { limit: number; offset: number };
+}): Promise<{ items: Note[]; total: number }> => {
+  const query = params.query?.trim();
+  const pattern = query && query.length > 0 ? `%${query}%` : null;
+  const parentId = params.parentId;
+  const parentCondition =
+    parentId === undefined
+      ? sql`true`
+      : parentId === null
+        ? sql`n.parent_id IS NULL`
+        : sql`n.parent_id = ${parentId}::uuid`;
 
-  const rows = await sql<DbNote[]>`
-    SELECT
-      n.id, n.notebook_id, n.parent_id, n.title, n.position,
-      n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
-      EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+  const rows =
+    params.pagination === undefined
+      ? await sql<DbNote[]>`
+          SELECT
+            n.id, n.notebook_id, n.parent_id, n.title, n.position,
+            n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+            EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+          FROM notebooks.notes n
+          WHERE n.notebook_id = ${params.notebookId}::uuid
+            AND ${parentCondition}
+            AND (
+              ${pattern}::text IS NULL
+              OR n.title ILIKE ${pattern}
+              OR COALESCE(n.content_md, '') ILIKE ${pattern}
+            )
+          ORDER BY
+            CASE WHEN ${pattern}::text IS NULL THEN 0 WHEN n.title ILIKE ${pattern} THEN 0 ELSE 1 END,
+            n.position ASC,
+            n.updated_at DESC
+        `
+      : await sql<DbNote[]>`
+          SELECT
+            n.id, n.notebook_id, n.parent_id, n.title, n.position,
+            n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+            EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+          FROM notebooks.notes n
+          WHERE n.notebook_id = ${params.notebookId}::uuid
+            AND ${parentCondition}
+            AND (
+              ${pattern}::text IS NULL
+              OR n.title ILIKE ${pattern}
+              OR COALESCE(n.content_md, '') ILIKE ${pattern}
+            )
+          ORDER BY
+            CASE WHEN ${pattern}::text IS NULL THEN 0 WHEN n.title ILIKE ${pattern} THEN 0 ELSE 1 END,
+            n.position ASC,
+            n.updated_at DESC
+          LIMIT ${params.pagination.limit}
+          OFFSET ${params.pagination.offset}
+        `;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
     FROM notebooks.notes n
-    WHERE n.notebook_id = ${notebookId}::uuid
-      AND ${parentId === null ? sql`n.parent_id IS NULL` : sql`n.parent_id = ${parentId}::uuid`}
-    ORDER BY n.position, n.title
+    WHERE n.notebook_id = ${params.notebookId}::uuid
+      AND ${parentCondition}
+      AND (
+        ${pattern}::text IS NULL
+        OR n.title ILIKE ${pattern}
+        OR COALESCE(n.content_md, '') ILIKE ${pattern}
+      )
   `;
 
-  return rows.map(mapToNote);
+  return {
+    items: rows.map(mapToNote),
+    total: countRow?.count ?? 0,
+  };
 };
 
 /**
@@ -416,8 +485,10 @@ export const save = async (params: {
   contentMd?: string;
   createdBy: string | null;
   createVersion?: boolean;
+  streamCursor?: string | null;
+  requestedAt?: number;
 }): Promise<MutationResult<void>> => {
-  const { noteId, yjsState, contentMd, createdBy, createVersion = false } = params;
+  const { noteId, yjsState, contentMd, createdBy, createVersion = false, streamCursor = null, requestedAt } = params;
 
   // Check if note is locked
   const locked = await isLocked({ id: noteId });
@@ -427,93 +498,130 @@ export const save = async (params: {
 
   const yjsBuffer = Buffer.from(yjsState);
 
-  // Update note content
-  const result = await sql`
-    UPDATE notebooks.notes
-    SET yjs_snapshot = ${yjsBuffer}, yjs_snapshot_at = now(),
-        content_md = ${contentMd ?? null}, updated_at = now()
-    WHERE id = ${noteId}::uuid
-  `;
+  const parsedCursor = parseStreamCursor(streamCursor);
+  const requestedAtSeconds = (requestedAt ?? Date.now()) / 1000;
+
+  const result = parsedCursor
+    ? await sql`
+        UPDATE notebooks.notes
+        SET yjs_snapshot = ${yjsBuffer},
+            yjs_stream_ms = ${parsedCursor.ms},
+            yjs_stream_seq = ${parsedCursor.seq},
+            yjs_snapshot_at = now(),
+            content_md = ${contentMd ?? null},
+            updated_at = now()
+        WHERE id = ${noteId}::uuid
+          AND locked_at IS NULL
+          AND (
+            (yjs_stream_ms IS NULL AND updated_at <= to_timestamp(${requestedAtSeconds}))
+            OR yjs_stream_ms < ${parsedCursor.ms}
+            OR (yjs_stream_ms = ${parsedCursor.ms} AND COALESCE(yjs_stream_seq, -1) < ${parsedCursor.seq})
+          )
+      `
+    : await sql`
+        UPDATE notebooks.notes
+        SET yjs_snapshot = ${yjsBuffer},
+            yjs_snapshot_at = now(),
+            content_md = ${contentMd ?? null},
+            updated_at = now()
+        WHERE id = ${noteId}::uuid
+          AND locked_at IS NULL
+      `;
 
   if (result.count === 0) {
-    return { ok: false, error: "Note not found", status: 404 };
+    const [status] = await sql<{ exists: boolean; locked: boolean }[]>`
+      SELECT
+        EXISTS(SELECT 1 FROM notebooks.notes WHERE id = ${noteId}::uuid) AS exists,
+        EXISTS(SELECT 1 FROM notebooks.notes WHERE id = ${noteId}::uuid AND locked_at IS NOT NULL) AS locked
+    `;
+    if (!status?.exists) {
+      return { ok: false, error: "Note not found", status: 404 };
+    }
+    if (status.locked) {
+      return { ok: false, error: "Cannot modify locked note", status: 403 };
+    }
+    // A newer cursor was already persisted by another node.
+    return { ok: true, data: undefined };
   }
 
-  // Optionally create a version entry (only if content actually changed)
+  // Optionally create a version entry.
+  // This decision is global and DB-backed, so it works consistently across nodes.
   if (createVersion) {
-    const [note] = await sql<{ title: string }[]>`
-      SELECT title FROM notebooks.notes WHERE id = ${noteId}::uuid
-    `;
-
-    // Skip version creation if content_md is identical to the most recent version
-    await sql`
-      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
-      SELECT ${noteId}::uuid, ${yjsBuffer}, ${contentMd ?? null}, ${note?.title ?? null}, ${createdBy}::uuid
-      WHERE (
-        SELECT content_md FROM notebooks.note_versions
+    const insertedVersion = await sql`
+      WITH latest AS (
+        SELECT content_md, created_at
+        FROM notebooks.note_versions
         WHERE note_id = ${noteId}::uuid
         ORDER BY created_at DESC
         LIMIT 1
-      ) IS DISTINCT FROM ${contentMd ?? null}
-      OR NOT EXISTS (
-        SELECT 1 FROM notebooks.note_versions
-        WHERE note_id = ${noteId}::uuid
       )
-    `;
-
-    // Compact old versions using retention policy:
-    // - Keep all versions from last 24 hours
-    // - Keep max 1 per hour for days 1-7
-    // - Keep max 1 per day for days 7-30
-    // - Keep max 1 per week for older
-    // - Never exceed 100 total versions
-    await sql`
-      DELETE FROM notebooks.note_versions
-      WHERE note_id = ${noteId}::uuid
-        AND id NOT IN (
-          SELECT id FROM (
-            -- All versions from last 24 hours
-            SELECT id, created_at, 1 as priority
-            FROM notebooks.note_versions
-            WHERE note_id = ${noteId}::uuid
-              AND created_at > now() - interval '24 hours'
-
-            UNION ALL
-
-            -- 1 per hour for days 1-7 (newest per hour)
-            (SELECT DISTINCT ON (date_trunc('hour', created_at))
-              id, created_at, 2 as priority
-            FROM notebooks.note_versions
-            WHERE note_id = ${noteId}::uuid
-              AND created_at <= now() - interval '24 hours'
-              AND created_at > now() - interval '7 days'
-            ORDER BY date_trunc('hour', created_at), created_at DESC)
-
-            UNION ALL
-
-            -- 1 per day for days 7-30 (newest per day)
-            (SELECT DISTINCT ON (date_trunc('day', created_at))
-              id, created_at, 3 as priority
-            FROM notebooks.note_versions
-            WHERE note_id = ${noteId}::uuid
-              AND created_at <= now() - interval '7 days'
-              AND created_at > now() - interval '30 days'
-            ORDER BY date_trunc('day', created_at), created_at DESC)
-
-            UNION ALL
-
-            -- 1 per week for older than 30 days (newest per week)
-            (SELECT DISTINCT ON (date_trunc('week', created_at))
-              id, created_at, 4 as priority
-            FROM notebooks.note_versions
-            WHERE note_id = ${noteId}::uuid
-              AND created_at <= now() - interval '30 days'
-            ORDER BY date_trunc('week', created_at), created_at DESC)
-          ) AS kept
-          ORDER BY priority, created_at DESC
-          LIMIT 100
+      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
+      SELECT ${noteId}::uuid, ${yjsBuffer}, ${contentMd ?? null}, n.title, ${createdBy}::uuid
+      FROM notebooks.notes n
+      WHERE n.id = ${noteId}::uuid
+        AND (
+          NOT EXISTS (SELECT 1 FROM latest)
+          OR (
+            (SELECT content_md FROM latest) IS DISTINCT FROM ${contentMd ?? null}
+            AND (SELECT created_at FROM latest) <= now() - ${VERSION_MIN_INTERVAL}::interval
+          )
         )
     `;
+    if (insertedVersion.count > 0) {
+      // Compact old versions using retention policy:
+      // - Keep all versions from last 24 hours
+      // - Keep max 1 per hour for days 1-7
+      // - Keep max 1 per day for days 7-30
+      // - Keep max 1 per week for older
+      // - Never exceed 100 total versions
+      await sql`
+        DELETE FROM notebooks.note_versions
+        WHERE note_id = ${noteId}::uuid
+          AND id NOT IN (
+            SELECT id FROM (
+              -- All versions from last 24 hours
+              SELECT id, created_at, 1 as priority
+              FROM notebooks.note_versions
+              WHERE note_id = ${noteId}::uuid
+                AND created_at > now() - interval '24 hours'
+
+              UNION ALL
+
+              -- 1 per hour for days 1-7 (newest per hour)
+              (SELECT DISTINCT ON (date_trunc('hour', created_at))
+                id, created_at, 2 as priority
+              FROM notebooks.note_versions
+              WHERE note_id = ${noteId}::uuid
+                AND created_at <= now() - interval '24 hours'
+                AND created_at > now() - interval '7 days'
+              ORDER BY date_trunc('hour', created_at), created_at DESC)
+
+              UNION ALL
+
+              -- 1 per day for days 7-30 (newest per day)
+              (SELECT DISTINCT ON (date_trunc('day', created_at))
+                id, created_at, 3 as priority
+              FROM notebooks.note_versions
+              WHERE note_id = ${noteId}::uuid
+                AND created_at <= now() - interval '7 days'
+                AND created_at > now() - interval '30 days'
+              ORDER BY date_trunc('day', created_at), created_at DESC)
+
+              UNION ALL
+
+              -- 1 per week for older than 30 days (newest per week)
+              (SELECT DISTINCT ON (date_trunc('week', created_at))
+                id, created_at, 4 as priority
+              FROM notebooks.note_versions
+              WHERE note_id = ${noteId}::uuid
+                AND created_at <= now() - interval '30 days'
+              ORDER BY date_trunc('week', created_at), created_at DESC)
+            ) AS kept
+            ORDER BY priority, created_at DESC
+            LIMIT 100
+          )
+      `;
+    }
   }
 
   return { ok: true, data: undefined };
@@ -522,12 +630,22 @@ export const save = async (params: {
 /**
  * Get the stored Yjs state for a note.
  */
-export const getYjsState = async (params: { noteId: string }): Promise<Uint8Array | null> => {
-  const [row] = await sql<{ yjs_snapshot: Buffer | null }[]>`
-    SELECT yjs_snapshot FROM notebooks.notes WHERE id = ${params.noteId}::uuid
+export const getYjsStateWithCursor = async (params: {
+  noteId: string;
+}): Promise<{ yjsState: Uint8Array | null; streamCursor: string | null } | null> => {
+  const [row] = await sql<DbYjsState[]>`
+    SELECT yjs_snapshot, yjs_stream_ms, yjs_stream_seq
+    FROM notebooks.notes
+    WHERE id = ${params.noteId}::uuid
   `;
-
-  return row?.yjs_snapshot ? new Uint8Array(row.yjs_snapshot) : null;
+  if (!row) return null;
+  return {
+    yjsState: row.yjs_snapshot ? new Uint8Array(row.yjs_snapshot) : null,
+    streamCursor:
+      row.yjs_stream_ms !== null && row.yjs_stream_seq !== null
+        ? `${row.yjs_stream_ms}-${row.yjs_stream_seq}`
+        : null,
+  };
 };
 
 /**
@@ -573,7 +691,7 @@ export const getVersionSnapshot = async (params: { versionId: string }): Promise
 
 /**
  * Restore a note from a Yjs snapshot (base64).
- * Creates a version backup of the current state before restoring.
+ * Intended for restoring into a newly created empty note.
  */
 export const restoreFromSnapshot = async (params: {
   noteId: string;
@@ -592,17 +710,32 @@ export const restoreFromSnapshot = async (params: {
     return { ok: false, error: "Cannot restore locked note", status: 403 };
   }
 
-  // Backup current state as a version (if content exists)
-  if (existing.yjsSnapshot) {
-    const currentBuffer = Buffer.from(existing.yjsSnapshot, "base64");
-    await sql`
-      INSERT INTO notebooks.note_versions (note_id, yjs_snapshot, content_md, title, created_by)
-      VALUES (${noteId}::uuid, ${currentBuffer}, ${existing.contentMd ?? null}, ${existing.title}, ${createdBy}::uuid)
-    `;
+  const currentContent = existing.contentMd ?? "";
+  let hasContent = currentContent.trim().length > 0;
+  if (!hasContent && existing.yjsSnapshot) {
+    const currentDoc = new Y.Doc();
+    try {
+      Y.applyUpdate(currentDoc, Buffer.from(existing.yjsSnapshot, "base64"));
+      hasContent = currentDoc.getText("codemirror").toString().trim().length > 0;
+    } catch {
+      hasContent = true;
+    } finally {
+      currentDoc.destroy();
+    }
+  }
+  if (hasContent) {
+    return {
+      ok: false,
+      error: "Restore only supports new empty notes. Create a new note and restore there.",
+      status: 400,
+    };
   }
 
   // Decode new snapshot and extract markdown for note row + version history.
   const snapshotBuffer = Buffer.from(yjsSnapshot, "base64");
+  const restoreStreamMs = Date.now();
+  // Keep restore cursor dominant even on same-ms collisions with stream entries.
+  const restoreStreamSeq = Number.MAX_SAFE_INTEGER;
   let restoredContentMd: string | null = null;
   try {
     const doc = new Y.Doc();
@@ -616,6 +749,8 @@ export const restoreFromSnapshot = async (params: {
   const result = await sql`
     UPDATE notebooks.notes
     SET yjs_snapshot = ${snapshotBuffer},
+        yjs_stream_ms = ${restoreStreamMs},
+        yjs_stream_seq = ${restoreStreamSeq},
         yjs_snapshot_at = now(),
         content_md = ${restoredContentMd},
         updated_at = now()

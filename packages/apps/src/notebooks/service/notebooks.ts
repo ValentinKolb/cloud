@@ -109,23 +109,105 @@ export const getPermission = async (params: {
 /**
  * List all notebooks accessible to a user.
  */
-export const list = async (params: { userId: string | null; groups: string[] }): Promise<Notebook[]> => {
+export const list = async (params: {
+  userId: string | null;
+  groups: string[];
+  query?: string;
+  pagination?: { limit: number; offset: number };
+}): Promise<{ items: Notebook[]; total: number }> => {
   const { userId, groups } = params;
+  const query = params.query?.trim().toLowerCase();
+  const pattern = query && query.length > 0 ? `%${query}%` : null;
 
-  const rows = await sql<DbNotebook[]>`
-    SELECT DISTINCT n.id, n.name, n.description, n.icon, n.created_by, n.created_at, n.updated_at
+  const rows =
+    params.pagination === undefined
+      ? await sql<DbNotebook[]>`
+          SELECT
+            n.id,
+            n.name,
+            n.description,
+            n.icon,
+            n.created_by,
+            n.created_at,
+            n.updated_at
+          FROM notebooks.notebooks n
+          WHERE EXISTS (
+            SELECT 1
+            FROM notebooks.notebook_access na
+            JOIN auth.access a ON a.id = na.access_id
+            WHERE na.notebook_id = n.id
+              AND (
+                a.user_id = ${userId}::uuid
+                OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+                OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+                OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+              )
+          )
+            AND (
+              ${pattern}::text IS NULL
+              OR LOWER(n.name) LIKE ${pattern}
+              OR LOWER(COALESCE(n.description, '')) LIKE ${pattern}
+            )
+          ORDER BY LOWER(n.name) ASC, n.created_at ASC
+        `
+      : await sql<DbNotebook[]>`
+          SELECT
+            n.id,
+            n.name,
+            n.description,
+            n.icon,
+            n.created_by,
+            n.created_at,
+            n.updated_at
+          FROM notebooks.notebooks n
+          WHERE EXISTS (
+            SELECT 1
+            FROM notebooks.notebook_access na
+            JOIN auth.access a ON a.id = na.access_id
+            WHERE na.notebook_id = n.id
+              AND (
+                a.user_id = ${userId}::uuid
+                OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+                OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+                OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+              )
+          )
+            AND (
+              ${pattern}::text IS NULL
+              OR LOWER(n.name) LIKE ${pattern}
+              OR LOWER(COALESCE(n.description, '')) LIKE ${pattern}
+            )
+          ORDER BY LOWER(n.name) ASC, n.created_at ASC
+          LIMIT ${params.pagination.limit}
+          OFFSET ${params.pagination.offset}
+        `;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
     FROM notebooks.notebooks n
-    LEFT JOIN notebooks.notebook_access na ON n.id = na.notebook_id
-    LEFT JOIN auth.access a ON na.access_id = a.id
-    WHERE
-      a.user_id = ${userId}::uuid
-      OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
-      OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-      OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
-    ORDER BY n.name
+    WHERE EXISTS (
+      SELECT 1
+      FROM notebooks.notebook_access na
+      JOIN auth.access a ON a.id = na.access_id
+      WHERE na.notebook_id = n.id
+        AND (
+          a.user_id = ${userId}::uuid
+          OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+          OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+        )
+    )
+      AND (
+        ${pattern}::text IS NULL
+        OR LOWER(n.name) LIKE ${pattern}
+        OR LOWER(COALESCE(n.description, '')) LIKE ${pattern}
+      )
   `;
 
-  return rows.map(mapToNotebook);
+  return {
+    items: rows.map(mapToNotebook),
+    total: countRow?.count ?? 0,
+  };
 };
 
 /**
