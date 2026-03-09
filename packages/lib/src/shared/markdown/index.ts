@@ -9,7 +9,6 @@ import { Marked } from "marked";
 import { infoBlocksExtension } from "./extensions/info-blocks";
 import { taskListExtension } from "./extensions/task-list";
 import { tablesExtension } from "./extensions/tables";
-import { emojiExtension } from "./extensions/emoji";
 import { linksExtension } from "./extensions/links";
 import { imagesExtension } from "./extensions/images";
 import { codeExtension } from "./extensions/code";
@@ -30,7 +29,6 @@ const createMarked = () => {
   marked.use(infoBlocksExtension());
   marked.use(taskListExtension());
   marked.use(tablesExtension());
-  marked.use(emojiExtension());
   marked.use(linksExtension());
   marked.use(imagesExtension());
   marked.use(katexExtension());
@@ -50,7 +48,6 @@ const marked = createMarked();
  * - Info blocks (:::note, :::info, :::success, :::warning, :::danger)
  * - Task lists with checkboxes
  * - Tables with cell formatting
- * - Emoji shortcodes (:smile:)
  * - Styled links and images
  * - Code blocks with language badges
  * - Mermaid diagram containers (requires client-side init)

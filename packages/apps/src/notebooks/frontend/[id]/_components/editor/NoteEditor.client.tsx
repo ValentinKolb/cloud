@@ -1,13 +1,15 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
-import { createCodeMirror } from "solid-codemirror";
 import { EditorView, lineNumbers } from "@codemirror/view";
-import * as Y from "yjs";
+import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts/shared";
+import { editor, yjs } from "@valentinkolb/cloud/lib/browser";
+import { getNotebookPresenceColor } from "@valentinkolb/cloud/lib/shared";
+import { prompts } from "@valentinkolb/cloud/lib/ui";
+import { createCodeMirror } from "solid-codemirror";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import { yCollab } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
-import { editor, yjs } from "@valentinkolb/cloud/lib/browser";
-import { prompts } from "@valentinkolb/cloud/lib/ui";
-import { writeSettings } from "../settings/NotebookSettingsStore";
+import * as Y from "yjs";
 import { refreshCurrentPath } from "../../../lib/navigation";
+import { writeSettings } from "../settings/NotebookSettingsStore";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 
 type Props = {
@@ -16,6 +18,7 @@ type Props = {
   notebookId: string;
   appUrl: string;
   sessionToken: string;
+  userId: string;
   displayName: string;
   initialSnapshot: string | null;
 };
@@ -26,6 +29,7 @@ export default function NoteEditor(props: Props) {
   const [connected, setConnected] = createSignal(false);
   const [isDark, setIsDark] = createSignal(document.documentElement.classList.contains("dark"));
   const [richMode, setRichMode] = createSignal(true);
+  const [participants, setParticipants] = createSignal<NotebookPresenceParticipant[]>([]);
 
   const doc = new Y.Doc({ gc: true });
   if (props.initialSnapshot) {
@@ -36,8 +40,7 @@ export default function NoteEditor(props: Props) {
   const ytext = doc.getText("codemirror");
   const awareness = new Awareness(doc);
 
-  const colors = ["#e06c75", "#61afef", "#98c379", "#d19a66", "#c678dd", "#56b6c2", "#e5c07b"];
-  const color = colors[doc.clientID % colors.length];
+  const color = getNotebookPresenceColor(props.userId);
   awareness.setLocalStateField("user", { name: props.displayName, color });
 
   const {
@@ -117,7 +120,6 @@ export default function NoteEditor(props: Props) {
     richMode()
       ? [
           editor.tablesExtension(),
-          editor.emojiExtension(),
           editor.imageExtension(),
           editor.listsExtension(),
           editor.infoBlocksExtension(),
@@ -136,6 +138,7 @@ export default function NoteEditor(props: Props) {
     appUrl: props.appUrl,
     sessionToken: props.sessionToken,
     onConnectionChange: setConnected,
+    onPresenceChange: setParticipants,
     onFatal: (error) => {
       if (fatalPromptOpen) return;
       fatalPromptOpen = true;
@@ -164,9 +167,7 @@ export default function NoteEditor(props: Props) {
               ? "ti ti-login-2"
               : "ti ti-alert-triangle";
 
-      const message = isMissing
-        ? "Note not found. It may have been deleted."
-        : error.message || "The collaboration connection was closed.";
+      const message = isMissing ? "Note not found. It may have been deleted." : error.message || "The collaboration connection was closed.";
 
       void prompts
         .alert(`${message} The note view will now reload.`, {
@@ -263,7 +264,7 @@ export default function NoteEditor(props: Props) {
       </div>
       <EditorToolbar
         connected={connected()}
-        onlineCount={0}
+        participants={participants()}
         editorView={editorView()}
         richMode={richMode()}
         onToggleRichMode={() => setRichMode((value) => !value)}

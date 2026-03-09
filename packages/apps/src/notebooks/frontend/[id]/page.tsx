@@ -1,16 +1,16 @@
-import { ssr, env } from "@valentinkolb/cloud/core/config";
-import { type AuthContext, auth } from "@valentinkolb/cloud/lib/server";
-import { notebooksService } from "@/notebooks/service";
-import { markdown } from "@valentinkolb/cloud/lib/shared";
+import { env, ssr } from "@valentinkolb/cloud/core/config";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
-import NotebookSidebar from "./_components/sidebar/NotebookSidebar";
+import { type AuthContext, auth } from "@valentinkolb/cloud/lib/server";
+import { markdown } from "@valentinkolb/cloud/lib/shared";
+import { notebooksService } from "@/notebooks/service";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
-import VersionHistory from "./_components/versions/VersionHistory.island";
-import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import { parseSettings } from "./_components/settings/NotebookSettingsStore";
+import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
+import NotebookSidebar from "./_components/sidebar/NotebookSidebar";
 import type { NotebookContext } from "./_components/sidebar/types";
+import VersionHistory from "./_components/versions/VersionHistory.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -173,6 +173,7 @@ export default ssr<AuthContext>(async (c) => {
                 notebookId={notebookId}
                 appUrl={env.APP_URL}
                 sessionToken={sessionToken!}
+                userId={user.id}
                 displayName={user.displayName}
                 initialSnapshot={selectedNote.yjsSnapshot}
               />

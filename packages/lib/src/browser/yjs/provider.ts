@@ -1,5 +1,6 @@
-import * as Y from "yjs";
+import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud-contracts/shared";
 import * as awarenessProtocol from "y-protocols/awareness";
+import * as Y from "yjs";
 import { notebooksYjs } from "../../shared";
 
 type YjsErrorCode = (typeof notebooksYjs.errorCode)[keyof typeof notebooksYjs.errorCode];
@@ -18,6 +19,7 @@ export type YjsProviderOptions = {
   sessionToken: string;
   initialCursor?: string | null;
   onConnectionChange?: (connected: boolean) => void;
+  onPresenceChange?: (participants: NotebookPresenceParticipant[]) => void;
   onError?: (error: YjsProviderError) => void;
   onFatal?: (error: YjsProviderError) => void;
 };
@@ -30,10 +32,7 @@ const RECONNECT_JITTER_MS = 1_500;
 
 const resolveHttpBaseUrl = (raw: string): URL => {
   const value = raw.trim();
-  const browserOrigin =
-    typeof window !== "undefined" && window.location?.origin
-      ? window.location.origin
-      : "http://localhost:3000";
+  const browserOrigin = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://localhost:3000";
 
   if (!value) return new URL(browserOrigin);
   if (/^https?:\/\//i.test(value)) return new URL(value);
@@ -100,11 +99,9 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     return false;
   };
 
-  const sendSyncPublish = (data: Uint8Array): boolean =>
-    sendJson(WS_TYPE.syncPublish, { noteId, payload: toBase64(data) });
+  const sendSyncPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.syncPublish, { noteId, payload: toBase64(data) });
 
-  const sendAwarenessPublish = (data: Uint8Array): boolean =>
-    sendJson(WS_TYPE.awarenessPublish, { noteId, payload: toBase64(data) });
+  const sendAwarenessPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.awarenessPublish, { noteId, payload: toBase64(data) });
 
   const sendReplayRequest = (fromCursor: string | null): boolean =>
     sendJson(WS_TYPE.replayRequest, {
@@ -156,10 +153,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     if (!sendSyncPublish(update)) needsFullResync = true;
   };
 
-  const onAwarenessUpdate = (
-    { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
-    origin: unknown,
-  ) => {
+  const onAwarenessUpdate = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
     if (isDisposed || isTerminated) return;
     if (origin === "remote") return;
     if (!replayReady) return;
@@ -177,51 +171,48 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     }
     const value = payload as { code?: unknown; message?: unknown; noteId?: unknown };
     return {
-      code:
-        typeof value.code === "string"
-          ? (value.code as YjsErrorCode)
-          : notebooksYjs.errorCode.internalError,
+      code: typeof value.code === "string" ? (value.code as YjsErrorCode) : notebooksYjs.errorCode.internalError,
       message: typeof value.message === "string" ? value.message : "Unknown websocket error",
       noteId: typeof value.noteId === "string" ? value.noteId : undefined,
     };
   };
 
-const normalizeTerminalCloseReason = (reason: string): YjsProviderError | null => {
-  const value = reason.trim();
-  if (!KNOWN_ERROR_CODES.has(value) || !TERMINAL_ERROR_CODES.has(value)) {
-    return null;
-  }
+  const normalizeTerminalCloseReason = (reason: string): YjsProviderError | null => {
+    const value = reason.trim();
+    if (!KNOWN_ERROR_CODES.has(value) || !TERMINAL_ERROR_CODES.has(value)) {
+      return null;
+    }
     const code = value as YjsErrorCode;
     return {
       code,
       message: errorMessageByCode[code] ?? "Connection closed",
     };
-};
+  };
 
-const normalizeTerminalCloseCode = (code: number): YjsProviderError | null => {
-  if (code === 1008) {
-    return {
-      code: notebooksYjs.errorCode.accessRevoked,
-      message: "Access changed or note became unavailable",
-    };
-  }
+  const normalizeTerminalCloseCode = (code: number): YjsProviderError | null => {
+    if (code === 1008) {
+      return {
+        code: notebooksYjs.errorCode.accessRevoked,
+        message: "Access changed or note became unavailable",
+      };
+    }
 
-  if (code === 1013) {
-    return {
-      code: notebooksYjs.errorCode.backpressure,
-      message: "Websocket backpressure",
-    };
-  }
+    if (code === 1013) {
+      return {
+        code: notebooksYjs.errorCode.backpressure,
+        message: "Websocket backpressure",
+      };
+    }
 
-  if (code === 1011) {
-    return {
-      code: notebooksYjs.errorCode.internalError,
-      message: "Internal websocket error",
-    };
-  }
+    if (code === 1011) {
+      return {
+        code: notebooksYjs.errorCode.internalError,
+        message: "Internal websocket error",
+      };
+    }
 
-  return null;
-};
+    return null;
+  };
 
   const handleJsonMessage = (raw: string) => {
     let message: unknown;
@@ -247,6 +238,19 @@ const normalizeTerminalCloseCode = (code: number): YjsProviderError | null => {
       if (payload.noteId !== noteId) return;
       replayReady = true;
       sendLocalStateIfNeeded();
+      return;
+    }
+
+    if (msg.type === WS_TYPE.presenceSnapshot || msg.type === WS_TYPE.presenceChanged) {
+      const payload = (msg.payload ?? {}) as {
+        noteId?: unknown;
+        participants?: unknown;
+      };
+
+      if (payload.noteId !== noteId) return;
+      const participants = NotebookPresenceParticipantSchema.array().safeParse(payload.participants);
+      if (!participants.success) return;
+      opts.onPresenceChange?.(participants.data);
       return;
     }
 
@@ -303,8 +307,7 @@ const normalizeTerminalCloseCode = (code: number): YjsProviderError | null => {
       replayReady = false;
       localStateSent = false;
 
-      const closeError =
-        normalizeTerminalCloseReason(event.reason ?? "") ?? normalizeTerminalCloseCode(event.code);
+      const closeError = normalizeTerminalCloseReason(event.reason ?? "") ?? normalizeTerminalCloseCode(event.code);
       if (closeError) {
         opts.onError?.(closeError);
         terminate(closeError);

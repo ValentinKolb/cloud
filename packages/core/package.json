@@ -32,6 +32,7 @@
   "dependencies": {
     "@valentinkolb/cloud-contracts": "workspace:*",
     "@valentinkolb/cloud-lib": "workspace:*",
+    "@valentinkolb/sync": "^2.1.1",
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.1",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -62,7 +63,6 @@
     "@uiw/codemirror-themes": "^4.25.4",
     "@valentinkolb/ssr": "0.7.3",
     "dayjs": "^1.11.19",
-    "emoji-js": "^3.9.0",
     "fflate": "^0.8.2",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

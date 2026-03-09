@@ -1,16 +1,17 @@
-import { Hono } from "hono";
-import { upgradeWebSocket } from "hono/bun";
-import type { ServerWebSocket } from "bun";
-import { z } from "zod";
+import type { NotebookPresenceParticipant, SessionUser } from "@valentinkolb/cloud/contracts/shared";
+import { ipa, logger } from "@valentinkolb/cloud/core/services";
 import { auth } from "@valentinkolb/cloud/lib/server";
 import { notebooksYjs } from "@valentinkolb/cloud/lib/shared";
-import type { SessionUser } from "@valentinkolb/cloud/contracts/shared";
 import type { TopicLiveEvent } from "@valentinkolb/sync";
-import { ipa, logger } from "@valentinkolb/cloud/core/services";
+import type { ServerWebSocket } from "bun";
+import { Hono } from "hono";
+import { upgradeWebSocket } from "hono/bun";
+import { z } from "zod";
 import { notebooksService } from "./service";
+import { PRESENCE_HEARTBEAT_INTERVAL_MS } from "./service/presence";
 import { yjsSnapshotWorker } from "./service/yjs-snapshot-worker";
-import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
 import type { YjsTopicEvent } from "./service/yjs-sync";
+import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
 
 /**
  * Notebooks realtime websocket (chat-style declarative flow):
@@ -46,11 +47,7 @@ const ReplayRequestMessageSchema = z.object({
   payload: z.object({
     noteId: z.uuid(),
     sessionToken: z.string().min(1).optional(),
-    fromCursor: z
-      .string()
-      .regex(notebooksYjs.streamCursorPattern)
-      .nullable()
-      .optional(),
+    fromCursor: z.string().regex(notebooksYjs.streamCursorPattern).nullable().optional(),
   }),
 });
 
@@ -89,9 +86,17 @@ type WsContext = {
   peerId: string;
   streamAbort: AbortController | null;
   snapshotInterval: ReturnType<typeof setInterval> | null;
+  presenceHeartbeatInterval: ReturnType<typeof setInterval> | null;
   accessRefreshTimeout: ReturnType<typeof setTimeout> | null;
   dirty: boolean;
   lastPublishedCursor: string | null;
+};
+
+type PresenceChannel = {
+  noteId: string;
+  members: Set<WsContext>;
+  abort: AbortController;
+  task: Promise<void>;
 };
 
 type AccessEvaluation = {
@@ -114,8 +119,7 @@ type PushMessage = {
   updates: PushUpdate[];
 };
 
-const isWritablePermission = (permission: "none" | "read" | "write" | "admin"): boolean =>
-  permission === "write" || permission === "admin";
+const isWritablePermission = (permission: "none" | "read" | "write" | "admin"): boolean => permission === "write" || permission === "admin";
 
 const createContext = (socket: ServerWebSocket<unknown>): WsContext => ({
   socket,
@@ -127,10 +131,13 @@ const createContext = (socket: ServerWebSocket<unknown>): WsContext => ({
   peerId: crypto.randomUUID(),
   streamAbort: null,
   snapshotInterval: null,
+  presenceHeartbeatInterval: null,
   accessRefreshTimeout: null,
   dirty: false,
   lastPublishedCursor: null,
 });
+
+const presenceChannels = new Map<string, PresenceChannel>();
 
 const send = (socket: ServerWebSocket<unknown>, type: string, payload?: unknown) => {
   try {
@@ -140,12 +147,7 @@ const send = (socket: ServerWebSocket<unknown>, type: string, payload?: unknown)
   }
 };
 
-const warn = (
-  socket: ServerWebSocket<unknown>,
-  code: NotebooksYjsErrorCode,
-  message: string,
-  noteId?: string,
-) => {
+const warn = (socket: ServerWebSocket<unknown>, code: NotebooksYjsErrorCode, message: string, noteId?: string) => {
   const payload: NotebooksYjsErrorPayload = noteId ? { code, message, noteId } : { code, message };
   send(socket, WS_TYPE.error, payload);
 };
@@ -166,9 +168,142 @@ const stopSnapshotScheduler = (ctx: WsContext) => {
   ctx.snapshotInterval = null;
 };
 
+const stopPresenceHeartbeat = (ctx: WsContext) => {
+  if (ctx.presenceHeartbeatInterval) clearInterval(ctx.presenceHeartbeatInterval);
+  ctx.presenceHeartbeatInterval = null;
+};
+
 const stopAccessRefresh = (ctx: WsContext) => {
   if (ctx.accessRefreshTimeout) clearTimeout(ctx.accessRefreshTimeout);
   ctx.accessRefreshTimeout = null;
+};
+
+const sendPresenceMessage = (
+  socket: ServerWebSocket<unknown>,
+  type: typeof WS_TYPE.presenceSnapshot | typeof WS_TYPE.presenceChanged,
+  noteId: string,
+  participants: NotebookPresenceParticipant[],
+) => {
+  send(socket, type, {
+    noteId,
+    participants,
+  });
+};
+
+const broadcastPresence = (
+  channel: PresenceChannel,
+  type: typeof WS_TYPE.presenceSnapshot | typeof WS_TYPE.presenceChanged,
+  participants: NotebookPresenceParticipant[],
+) => {
+  for (const member of channel.members) {
+    if (member.phase !== "joined" || member.noteId !== channel.noteId) continue;
+    sendPresenceMessage(member.socket, type, channel.noteId, participants);
+  }
+};
+
+const broadcastPresenceChanged = async (noteId: string) => {
+  const channel = presenceChannels.get(noteId);
+  if (!channel || channel.members.size === 0) return;
+
+  const state = await notebooksService.presence.snapshot({ noteId });
+  broadcastPresence(channel, WS_TYPE.presenceChanged, state.participants);
+};
+
+const runPresenceChannel = async (channel: PresenceChannel): Promise<void> => {
+  while (!channel.abort.signal.aborted) {
+    try {
+      const state = await notebooksService.presence.snapshot({ noteId: channel.noteId });
+      const reader = notebooksService.presence.reader({
+        noteId: channel.noteId,
+        after: state.cursor,
+      });
+
+      for await (const event of reader.stream({ signal: channel.abort.signal })) {
+        if (channel.abort.signal.aborted) break;
+        await broadcastPresenceChanged(channel.noteId);
+        if (event.type === "overflow") break;
+      }
+    } catch (error) {
+      if (channel.abort.signal.aborted) break;
+      log.error("Presence stream failed", {
+        noteId: channel.noteId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await Bun.sleep(500);
+    }
+  }
+};
+
+const ensurePresenceChannel = (noteId: string): PresenceChannel => {
+  const existing = presenceChannels.get(noteId);
+  if (existing) return existing;
+
+  const channel: PresenceChannel = {
+    noteId,
+    members: new Set<WsContext>(),
+    abort: new AbortController(),
+    task: Promise.resolve(),
+  };
+  channel.task = runPresenceChannel(channel).finally(() => {
+    const current = presenceChannels.get(noteId);
+    if (current === channel && current.members.size === 0) {
+      presenceChannels.delete(noteId);
+    }
+  });
+  presenceChannels.set(noteId, channel);
+  return channel;
+};
+
+const registerPresenceMember = (ctx: WsContext, noteId: string) => {
+  ensurePresenceChannel(noteId).members.add(ctx);
+};
+
+const unregisterPresenceMember = (ctx: WsContext, noteId: string) => {
+  const channel = presenceChannels.get(noteId);
+  if (!channel) return;
+  channel.members.delete(ctx);
+  if (channel.members.size === 0) {
+    channel.abort.abort();
+    presenceChannels.delete(noteId);
+  }
+};
+
+const sendPresenceSnapshot = async (ctx: WsContext, noteId: string) => {
+  const state = await notebooksService.presence.snapshot({ noteId });
+  sendPresenceMessage(ctx.socket, WS_TYPE.presenceSnapshot, noteId, state.participants);
+};
+
+const startPresenceHeartbeat = (ctx: WsContext) => {
+  stopPresenceHeartbeat(ctx);
+  if (ctx.phase !== "joined" || !ctx.noteId || !ctx.user) return;
+
+  ctx.presenceHeartbeatInterval = setInterval(() => {
+    const noteId = ctx.noteId;
+    const user = ctx.user;
+    if (!noteId || !user || ctx.phase !== "joined") return;
+
+    void notebooksService.presence
+      .heartbeat({
+        noteId,
+        peerId: ctx.peerId,
+      })
+      .then(async (result) => {
+        if (result.ok) return;
+        await notebooksService.presence.join({
+          noteId,
+          peerId: ctx.peerId,
+          userId: user.id,
+          displayName: user.displayName,
+        });
+      })
+      .catch((error) => {
+        log.warn("Presence heartbeat failed", {
+          noteId,
+          peerId: ctx.peerId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+  }, PRESENCE_HEARTBEAT_INTERVAL_MS);
 };
 
 const queueSnapshotIfNeeded = async (ctx: WsContext, reason: "periodic" | "unload") => {
@@ -205,10 +340,29 @@ const startSnapshotScheduler = (ctx: WsContext) => {
 };
 
 const leaveCurrentNote = async (ctx: WsContext) => {
+  const noteId = ctx.noteId;
   await queueSnapshotIfNeeded(ctx, "unload");
   stopAccessRefresh(ctx);
   stopSnapshotScheduler(ctx);
+  stopPresenceHeartbeat(ctx);
   stopLiveStream(ctx);
+  if (noteId) {
+    unregisterPresenceMember(ctx, noteId);
+    try {
+      await notebooksService.presence.leave({
+        noteId,
+        peerId: ctx.peerId,
+        reason: ctx.phase === "closing" ? "socket-close" : "note-leave",
+      });
+      await broadcastPresenceChanged(noteId);
+    } catch (error) {
+      log.warn("Failed to leave presence", {
+        noteId,
+        peerId: ctx.peerId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   ctx.noteId = null;
   ctx.canWrite = false;
   ctx.dirty = false;
@@ -218,12 +372,7 @@ const leaveCurrentNote = async (ctx: WsContext) => {
   }
 };
 
-const fatal = async (
-  ctx: WsContext,
-  code: NotebooksYjsErrorCode,
-  message: string,
-  noteId?: string,
-) => {
+const fatal = async (ctx: WsContext, code: NotebooksYjsErrorCode, message: string, noteId?: string) => {
   if (ctx.phase === "closing") return;
   ctx.phase = "closing";
   warn(ctx.socket, code, message, noteId);
@@ -231,8 +380,7 @@ const fatal = async (
   ctx.socket.close(closeCodeForError(code), code);
 };
 
-const ensureValidBase64 = (payload: string): boolean =>
-  payload.length > 0 && payload.length % 4 === 0 && BASE64_REGEX.test(payload);
+const ensureValidBase64 = (payload: string): boolean => payload.length > 0 && payload.length % 4 === 0 && BASE64_REGEX.test(payload);
 
 const resolveSessionUser = async (sessionToken: string | null): Promise<SessionUser | null> => {
   if (!sessionToken) return null;
@@ -363,16 +511,10 @@ const toPushUpdate = (event: TopicLiveEvent<YjsTopicEvent>): PushUpdate => ({
   originPeerId: event.data.originPeerId,
 });
 
-const pushTypeForKind = (
-  kind: YjsTopicEvent["kind"],
-): typeof WS_TYPE.syncPush | typeof WS_TYPE.awarenessPush =>
+const pushTypeForKind = (kind: YjsTopicEvent["kind"]): typeof WS_TYPE.syncPush | typeof WS_TYPE.awarenessPush =>
   kind === "sync" ? WS_TYPE.syncPush : WS_TYPE.awarenessPush;
 
-const startLiveStream = (
-  ctx: WsContext,
-  noteId: string,
-  afterCursor: string | null,
-) => {
+const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | null) => {
   stopLiveStream(ctx);
   const abort = new AbortController();
   ctx.streamAbort = abort;
@@ -450,11 +592,7 @@ const startLiveStream = (
   })();
 };
 
-const ensurePhase = (
-  ctx: WsContext,
-  allowedTypes: readonly string[],
-  attemptedType: string,
-): boolean => {
+const ensurePhase = (ctx: WsContext, allowedTypes: readonly string[], attemptedType: string): boolean => {
   if (allowedTypes.includes(attemptedType)) return true;
   warn(ctx.socket, ERROR_CODE.invalidMessage, `Message "${attemptedType}" is not allowed in phase "${ctx.phase}"`);
   return false;
@@ -476,10 +614,7 @@ const ensureWritableNote = (ctx: WsContext, noteId: string): boolean => {
   return true;
 };
 
-const handleReplayRequest = async (
-  ctx: WsContext,
-  payload: z.infer<typeof ReplayRequestMessageSchema.shape.payload>,
-) => {
+const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof ReplayRequestMessageSchema.shape.payload>) => {
   if (payload.sessionToken) ctx.sessionToken = payload.sessionToken;
 
   const user = await resolveSessionUser(ctx.sessionToken);
@@ -490,12 +625,7 @@ const handleReplayRequest = async (
 
   const access = await evaluateAccess(payload.noteId, user, "read", ERROR_CODE.accessDenied);
   if (!access.ok) {
-    await fatal(
-      ctx,
-      access.code ?? ERROR_CODE.accessDenied,
-      access.message ?? "Access denied",
-      access.noteId ?? payload.noteId,
-    );
+    await fatal(ctx, access.code ?? ERROR_CODE.accessDenied, access.message ?? "Access denied", access.noteId ?? payload.noteId);
     return;
   }
 
@@ -507,6 +637,17 @@ const handleReplayRequest = async (
   ctx.user = user;
   ctx.noteId = payload.noteId;
   ctx.canWrite = access.canWrite ?? false;
+
+  registerPresenceMember(ctx, payload.noteId);
+  await notebooksService.presence.join({
+    noteId: payload.noteId,
+    peerId: ctx.peerId,
+    userId: user.id,
+    displayName: user.displayName,
+  });
+  await sendPresenceSnapshot(ctx, payload.noteId);
+  await broadcastPresenceChanged(payload.noteId);
+  startPresenceHeartbeat(ctx);
 
   let replayCursor = payload.fromCursor ?? null;
   if (!replayCursor) {
@@ -536,10 +677,7 @@ const handleReplayRequest = async (
   });
 };
 
-const handleSyncPublish = async (
-  ctx: WsContext,
-  payload: z.infer<typeof SyncPublishMessageSchema.shape.payload>,
-) => {
+const handleSyncPublish = async (ctx: WsContext, payload: z.infer<typeof SyncPublishMessageSchema.shape.payload>) => {
   if (!ensureJoinedNote(ctx, payload.noteId)) return;
   if (!ensureWritableNote(ctx, payload.noteId)) return;
   if (!ensureValidBase64(payload.payload)) {
@@ -560,10 +698,7 @@ const handleSyncPublish = async (
   markDirty(ctx, published.cursor);
 };
 
-const handleAwarenessPublish = async (
-  ctx: WsContext,
-  payload: z.infer<typeof AwarenessPublishMessageSchema.shape.payload>,
-) => {
+const handleAwarenessPublish = async (ctx: WsContext, payload: z.infer<typeof AwarenessPublishMessageSchema.shape.payload>) => {
   if (!ensureJoinedNote(ctx, payload.noteId)) return;
   if (!ensureValidBase64(payload.payload)) {
     warn(ctx.socket, ERROR_CODE.invalidPayload, "Invalid base64 payload", payload.noteId);
@@ -586,10 +721,7 @@ const handlers = {
   [WS_TYPE.syncPublish]: handleSyncPublish,
   [WS_TYPE.awarenessPublish]: handleAwarenessPublish,
 } satisfies {
-  [K in ClientMessage["type"]]: (
-    ctx: WsContext,
-    payload: Extract<ClientMessage, { type: K }>["payload"],
-  ) => Promise<void>;
+  [K in ClientMessage["type"]]: (ctx: WsContext, payload: Extract<ClientMessage, { type: K }>["payload"]) => Promise<void>;
 };
 
 const allowedTypesByPhase: Record<WsPhase, readonly ClientMessage["type"][]> = {

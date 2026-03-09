@@ -50,7 +50,6 @@
     "@tabler/icons-webfont": "^3.36.1",
     "@uiw/codemirror-themes": "^4.25.4",
     "dayjs": "^1.11.19",
-    "emoji-js": "^3.9.0",
     "fflate": "^0.8.2",
     "github-slugger": "^2.0.0",
     "hono": "^4.11.1",

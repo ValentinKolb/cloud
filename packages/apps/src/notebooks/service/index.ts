@@ -1,9 +1,10 @@
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import { type PageParams, type Paginated, paginate } from "@valentinkolb/cloud/lib/server";
+import * as access from "./access";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
-import * as access from "./access";
+import * as presence from "./presence";
 import { yjsSnapshotWorker } from "./yjs-snapshot-worker";
-import { paginate, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 
 const pageFromPagination = (pagination?: PageParams) => {
   if (!pagination) return null;
@@ -144,18 +145,24 @@ export const notebooksService = {
     copyToNotebook: notes.copyToNotebook,
     search: notes.search,
   },
+  presence: {
+    join: presence.join,
+    heartbeat: presence.heartbeat,
+    leave: presence.leave,
+    snapshot: presence.snapshot,
+    reader: presence.reader,
+  },
 };
 
-export { notebooks, notes, access, yjsSnapshotWorker };
+export { notebooks, notes, access, presence, yjsSnapshotWorker };
 
 // Re-export commonly used types
-export type { Notebook, CreateNotebook, UpdateNotebook } from "./notebooks";
-export type { NotebookAdminListItem } from "./notebooks";
+export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";
 export type {
-  Note,
-  NoteWithContent,
-  NoteTreeNode,
   CreateNote,
-  UpdateNote,
+  Note,
+  NoteTreeNode,
   NoteVersion,
+  NoteWithContent,
+  UpdateNote,
 } from "./notes";

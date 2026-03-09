@@ -1,19 +1,9 @@
 import { z } from "zod";
 
-export const RoleSchema = z.enum([
-  "admin",
-  "ipa",
-  "ipa-limited",
-  "guest",
-  "group-manager",
-]);
+export const RoleSchema = z.enum(["admin", "ipa", "ipa-limited", "guest", "group-manager"]);
 export type Role = z.infer<typeof RoleSchema>;
 
-export const SpecialRoleSchema = z.enum([
-  "*",
-  "authenticated",
-  "anonymous",
-]);
+export const SpecialRoleSchema = z.enum(["*", "authenticated", "anonymous"]);
 export type SpecialRole = z.infer<typeof SpecialRoleSchema>;
 export type RoleOrSpecial = Role | SpecialRole;
 
@@ -34,6 +24,7 @@ export const FullUserSchema = BaseUserSchema.extend({
   phone: z.string().nullable(),
   uidNumber: z.number().nullable(),
   ipaAccountExpires: z.string().nullable(),
+  guestAccountExpires: z.string().nullable(),
   ipaPasswordExpires: z.string().nullable(),
   lastLoginIpa: z.string().nullable(),
   lastLoginLocal: z.string().nullable(),
@@ -69,27 +60,6 @@ export const GroupMemberSchema = z.object({
   displayName: z.string().nullable(),
 });
 export type GroupMember = z.infer<typeof GroupMemberSchema>;
-
-export const IpaHostSchema = z.object({
-  fqdn: z.string(),
-  description: z.string().nullable(),
-  location: z.string().nullable(),
-  locality: z.string().nullable(),
-  memberofHostgroup: z.array(z.string()),
-  macAddress: z.array(z.string()),
-  platform: z.string().nullable(),
-  osVersion: z.string().nullable(),
-  sshFingerprints: z.array(z.string()),
-});
-export type IpaHost = z.infer<typeof IpaHostSchema>;
-
-export const IpaHostgroupSchema = z.object({
-  cn: z.string(),
-  description: z.string().nullable(),
-  hosts: z.array(z.string()),
-  hostgroups: z.array(z.string()),
-});
-export type IpaHostgroup = z.infer<typeof IpaHostgroupSchema>;
 
 export const SearchQuerySchema = z.object({
   search: z.string().optional(),
@@ -166,6 +136,15 @@ export const AccessEntrySchema = z.object({
   displayName: z.string().optional(),
 });
 export type AccessEntry = z.infer<typeof AccessEntrySchema>;
+
+export const NotebookPresenceParticipantSchema = z.object({
+  userId: z.uuid(),
+  displayName: z.string(),
+  color: z.string(),
+  peerCount: z.number().int().positive(),
+  joinedAt: z.string(),
+});
+export type NotebookPresenceParticipant = z.infer<typeof NotebookPresenceParticipantSchema>;
 
 export const GrantAccessSchema = z.object({
   principal: PrincipalSchema,

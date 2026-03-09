@@ -4,7 +4,6 @@ import { searchTheme } from "./search-theme";
 import { tablesExtension } from "./tables";
 import { katexExtension } from "./katex";
 import { mermaidExtension } from "./mermaid";
-import { emojiExtension } from "./emoji";
 import { imageExtension } from "./images";
 import { listsExtension } from "./lists";
 import { infoBlocksExtension } from "./info-blocks";
@@ -19,7 +18,6 @@ export {
   tablesExtension,
   katexExtension,
   mermaidExtension,
-  emojiExtension,
   imageExtension,
   listsExtension,
   infoBlocksExtension,
@@ -38,7 +36,6 @@ export const editor = {
   tablesExtension,
   katexExtension,
   mermaidExtension,
-  emojiExtension,
   imageExtension,
   listsExtension,
   infoBlocksExtension,

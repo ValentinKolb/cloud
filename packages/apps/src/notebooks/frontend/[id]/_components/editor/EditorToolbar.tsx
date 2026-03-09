@@ -1,16 +1,16 @@
-import { createSignal } from "solid-js";
+import { Prec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { keymap } from "@codemirror/view";
-import { Prec } from "@codemirror/state";
-import { prompts } from "@valentinkolb/cloud/lib/ui";
-import { buildReadUrl, buildVersionsUrl } from "../../../params";
-import { Dropdown } from "@valentinkolb/cloud/lib/ui";
-import { navigateTo } from "../../../lib/navigation";
+import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts/shared";
+import { Dropdown, prompts } from "@valentinkolb/cloud/lib/ui";
+import { createSignal, For } from "solid-js";
 import { requestNotebookSearch } from "../../../lib/hotkeys";
+import { navigateTo } from "../../../lib/navigation";
+import { buildReadUrl, buildVersionsUrl } from "../../../params";
 
 type Props = {
   connected: boolean;
-  onlineCount: number;
+  participants: NotebookPresenceParticipant[];
   editorView: EditorView | undefined;
   richMode: boolean;
   onToggleRichMode: () => void;
@@ -249,6 +249,31 @@ export default function EditorToolbar(props: Props) {
     </button>
   );
 
+  const showOnlineParticipants = async () => {
+    if (props.participants.length === 0) return;
+
+    await prompts.dialog(
+      () => (
+        <div class="flex flex-col gap-3">
+          <div class="flex flex-col divide-y divide-zinc-200 dark:divide-zinc-800">
+            <For each={props.participants}>
+              {(participant) => (
+                <div class="flex items-center justify-between gap-3 py-2">
+                  <span class="text-sm text-primary">{participant.displayName}</span>
+                  <span class="text-xs text-dimmed">{participant.peerCount > 1 ? `${participant.peerCount} tabs` : "1 tab"}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </div>
+      ),
+      {
+        title: `${props.participants.length} Participants`,
+        icon: props.participants.length > 1 ? "ti ti-users" : "ti ti-user",
+      },
+    );
+  };
+
   return (
     <div class="mt-1 flex items-center gap-3 px-2 py-2 text-base text-dimmed">
       {/* Text formatting */}
@@ -346,11 +371,18 @@ export default function EditorToolbar(props: Props) {
         {props.connected ? "Connected" : "Reconnecting..."}
       </span>
 
-      {props.onlineCount > 0 && (
-        <span class="flex items-center gap-1 text-xs">
-          <i class={`ti ${props.onlineCount > 1 ? "ti-users" : "ti-user"}`} />
-          {props.onlineCount}
-        </span>
+      {props.participants.length > 0 && (
+        <button
+          type="button"
+          onClick={showOnlineParticipants}
+          class="flex items-center gap-1 text-xs hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+          title="Show online participants"
+        >
+          <span class="flex items-center gap-1">
+            <i class={`ti ${props.participants.length > 1 ? "ti-users" : "ti-user"}`} />
+            {props.participants.length}
+          </span>
+        </button>
       )}
 
       {/* Actions dropdown — far right */}
