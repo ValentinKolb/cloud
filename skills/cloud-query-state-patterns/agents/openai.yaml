@@ -1,4 +1,0 @@
-interface:
-  display_name: "Cloud Query State"
-  short_description: "URL-state contracts, hybrid detail panels, and SQL list/count parity"
-  default_prompt: "Implement filter/query state with a strict URL contract and list/count query parity."

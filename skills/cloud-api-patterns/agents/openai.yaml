@@ -1,4 +1,0 @@
-interface:
-  display_name: "Cloud API Patterns"
-  short_description: "Thin Hono handlers with shared middleware and respond mapping"
-  default_prompt: "Apply cloud API conventions: middleware first, validated input, service call, and respond mapping."

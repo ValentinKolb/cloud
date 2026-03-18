@@ -20,17 +20,18 @@ Use this skill for app-level implementation and refactors.
 - `AppFacade` type:
   - import: `@valentinkolb/cloud/contracts/app`
   - source: `cloud/packages/contracts/src/app.ts`
-- API wrappers:
-  - `respond` from `@valentinkolb/cloud-lib/server/api/respond`
-  - `v` from `@valentinkolb/cloud-lib/server/middleware/validator`
+- Server-side (API wrappers, result helpers, logger):
+  - import: `from "@valentinkolb/cloud/lib/server"`
+  - exports: `respond`, `v`, `auth`, `rateLimit`, `jsonResponse`, `requiresAuth`, `ok`, `fail`, `err`, `paginate`, `logger`
 - Shared UI:
-  - `@valentinkolb/cloud-lib/ui`
-  - `@valentinkolb/cloud-lib/islands` (currently `SearchBar`)
-  - `@valentinkolb/cloud-lib/shared` for markdown/date/calendar/encoding/file-icon helpers
+  - `from "@valentinkolb/cloud/lib/ui"`
+  - `from "@valentinkolb/cloud/lib/islands"` (currently `SearchBar`)
+  - `from "@valentinkolb/cloud/lib/shared"` for markdown/date/calendar/encoding/file-icon helpers
 - App-scoped frontend API client:
-  - import: `@valentinkolb/cloud-apps/apps/<app>/client`
+  - import: `from "@/<app>/client"` (uses tsconfig `@/*` path alias → `./src/*`)
   - default symbol: `apiClient`
   - do not use a global built-in apps client
+  - cross-app client calls use the same alias: `from "@/<other-app>/client"`
 - App search capability (optional):
   - optional `capabilities.search.tags` for app-owned tag filtering
   - `capabilities.search.run({ query, tags, limit, ctx })`
@@ -40,7 +41,7 @@ Use this skill for app-level implementation and refactors.
   - optional `previewUrl` must be app-local (`/...`)
   - provider must honor `limit` exactly
 - Shared logger (server-side app code):
-  - import: `@valentinkolb/cloud-lib/server/services/logging`
+  - import: `from "@valentinkolb/cloud/lib/server"` (exports `logger`)
   - usage: `const log = logger("app.module")`
 
 ## Build Sequence

@@ -55,9 +55,9 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
 - `mutation.create(...)` for async UI state and errors.
 - `prompts.error(...)`, `prompts.confirm(...)`, `prompts.dialog(...)` for user feedback/dialogs.
 - Use app-scoped typed API clients:
-  - `import { apiClient } from "@valentinkolb/cloud/apps/<app>/client"`
+  - `import { apiClient } from "@/<app>/client"` (uses tsconfig `@/*` path alias)
   - no global built-in apps client
-  - cross-app calls must be explicit by importing the target app client
+  - cross-app calls use the same alias: `from "@/<other-app>/client"`
 - URL-driven detail panel via `detailPanel` helpers when preserving scroll is important.
 - Shared `SearchBar` and form inputs instead of ad-hoc controls.
 - For filter-heavy pages, pair this skill with `../cloud-query-state-patterns/SKILL.md`.

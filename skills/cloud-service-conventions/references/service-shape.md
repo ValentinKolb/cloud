@@ -31,7 +31,7 @@ return ok(data);
 ## Logging Pattern
 
 ```ts
-import { logger } from "@valentinkolb/cloud-lib/server/services/logging";
+import { logger } from "@valentinkolb/cloud/lib/server";
 
 const log = logger("app.example.service.resource");
 log.info("Resource updated", { resourceId: config.id });

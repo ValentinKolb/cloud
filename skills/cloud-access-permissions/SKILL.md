@@ -30,12 +30,16 @@ Use this skill for role gates, ACL joins, and permission guard logic.
 ## Quick Lookup
 
 - Access primitives:
-  `cloud/packages/server/src/core/services/access/index.ts`
-- Notebook ACL pattern source:
+  - import: `from "@valentinkolb/cloud/lib/server"` (exports `createAccess`, `getAccess`, `updateAccess`, `deleteAccess`, `getEffectivePermission`, `hasPermission`, `PERMISSION_LEVELS`)
+  - source: `cloud/packages/lib/src/server/services/access.ts`
+- Auth middleware:
+  - import: `from "@valentinkolb/cloud/lib/server"` (exports `auth`, `type AuthContext`)
+  - source: `cloud/packages/lib/src/server/middleware/auth.ts`
+- Notebook ACL pattern:
   `cloud/packages/apps/src/notebooks/service/access.ts`
-- Spaces ACL pattern source:
+- Spaces ACL pattern:
   `cloud/packages/apps/src/spaces/service/access.ts`
-- Contacts ACL pattern source:
+- Contacts ACL pattern:
   `cloud/packages/apps/src/contacts/service/access.ts`
 
 ## References

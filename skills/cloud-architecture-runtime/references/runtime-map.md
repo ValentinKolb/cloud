@@ -2,12 +2,12 @@
 
 ## Package Roles
 
-- `@valentinkolb/cloud-core`: runtime orchestration, app composition, lifecycle wiring.
-- `@valentinkolb/cloud-lib/server`: middleware, server services, response helpers.
-- `@valentinkolb/cloud-contracts`: shared types/schemas/contracts.
-- `@valentinkolb/cloud-lib`: shared UI, islands, browser utils, styles.
-- `@valentinkolb/cloud-apps`: built-in apps (same facade contract as custom apps).
-- `@valentinkolb/cloud-standalone`: standalone entry that ships built-ins.
+- `@valentinkolb/cloud/core`: runtime orchestration, app composition, lifecycle wiring.
+- `@valentinkolb/cloud/lib/server`: middleware, server services, response helpers.
+- `@valentinkolb/cloud/contracts`: shared types/schemas/contracts.
+- `@valentinkolb/cloud/lib/ui`, `cloud/lib/browser`, `cloud/lib/shared`, `cloud/lib/islands`: shared UI, browser utils, styles.
+- `@valentinkolb/cloud/apps`: built-in apps (same facade contract as custom apps).
+- `@valentinkolb/cloud/standalone`: standalone entry that ships built-ins.
 
 ## Runtime Wiring Sources
 

@@ -1,5 +1,0 @@
-interface:
-  display_name: "Cloud Shortcuts"
-  short_description: "Consistent app-level keyboard shortcuts with shared hotkeys patterns"
-  default_prompt: "Add or refactor app shortcuts using the shared hotkeys registry and cloud shortcut conventions."
-

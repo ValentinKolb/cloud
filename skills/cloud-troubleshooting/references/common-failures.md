@@ -9,7 +9,7 @@ Symptoms:
 Checks:
 
 1. Inspect island imports for server-only modules.
-2. Verify imports are from `@valentinkolb/cloud-lib/*` in browser code.
+2. Verify imports are from `@valentinkolb/cloud/lib/*` in browser code.
 3. Ensure no app island imports core/server internals.
 
 ## API 500 After SQL Refactor

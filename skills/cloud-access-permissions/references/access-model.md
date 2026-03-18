@@ -54,6 +54,6 @@ When implementing last-admin/last-entry rules, fetch guard data from service fir
 ## Pattern Sources
 
 - Access core service:
-  `cloud/packages/server/src/core/services/access/index.ts`
+  `cloud/packages/lib/src/server/services/access.ts`
 - App implementations:
   notebooks/spaces/contacts `service/access.ts`

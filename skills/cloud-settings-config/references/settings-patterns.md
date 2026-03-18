@@ -10,9 +10,9 @@
 ## Where To Change
 
 - Registry/defaults:
-  `cloud/packages/server/src/core/services/settings/defaults.ts`
+  `cloud/packages/core/src/services/settings/defaults.ts`
 - Runtime read/write/cache:
-  `cloud/packages/server/src/core/services/settings/index.ts`
+  `cloud/packages/core/src/services/settings/index.ts`
 
 ## App-level Registration
 

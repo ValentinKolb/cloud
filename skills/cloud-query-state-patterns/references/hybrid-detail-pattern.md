@@ -26,6 +26,6 @@ Use `document.startViewTransition(...)` when available, with fallback.
 ## Pattern Sources
 
 - Detail panel helper:
-  `cloud/packages/client/src/lib/browser/detail-panel.ts`
+  `cloud/packages/lib/src/browser/detail-panel.ts`
 - Large-screen SSR + selected item behavior:
   `cloud/packages/apps/src/spaces/frontend/[id]/page.tsx`

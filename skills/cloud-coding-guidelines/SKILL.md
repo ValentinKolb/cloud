@@ -29,11 +29,11 @@ Apply these in order:
 ## Package Boundary Rules
 
 1. Respect package responsibilities:
-   - `@valentinkolb/cloud-core`: runtime orchestration
-   - `@valentinkolb/cloud-lib/server`: server services + middleware
-   - `@valentinkolb/cloud-lib`: UI + browser utilities
-   - `@valentinkolb/cloud-contracts`: shared schemas/types/contracts
-   - `@valentinkolb/cloud-apps`: app implementations
+   - `@valentinkolb/cloud/core`: runtime orchestration
+   - `@valentinkolb/cloud/lib/server`: server services + middleware
+   - `@valentinkolb/cloud/lib/ui`, `cloud/lib/browser`, `cloud/lib/shared`, `cloud/lib/islands`: UI + browser utilities
+   - `@valentinkolb/cloud/contracts`: shared schemas/types/contracts
+   - `@valentinkolb/cloud/apps`: app implementations
 2. Do not introduce deep cross-package internals imports.
 3. Keep public APIs explicit through package exports.
 

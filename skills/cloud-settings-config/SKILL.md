@@ -22,9 +22,9 @@ Use this skill for runtime-configurable behavior.
 ## Quick Lookup (Do Not Guess)
 
 - Settings storage/resolution:
-  `cloud/packages/server/src/core/services/settings/index.ts`
+  `cloud/packages/core/src/services/settings/index.ts`
 - Settings registry/defaults:
-  `cloud/packages/server/src/core/services/settings/defaults.ts`
+  `cloud/packages/core/src/services/settings/defaults.ts`
 - Settings service wrapper app:
   `cloud/packages/apps/src/settings/service/index.ts`
 

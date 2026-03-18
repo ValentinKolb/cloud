@@ -1,4 +1,0 @@
-interface:
-  display_name: "Cloud Architecture"
-  short_description: "Runtime composition, boundaries, and lifecycle rules"
-  default_prompt: "Apply strict runtime boundaries and lifecycle conventions for the cloud workspace."

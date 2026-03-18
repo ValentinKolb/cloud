@@ -8,7 +8,7 @@ Use this skill for runtime wiring, package boundaries, and lifecycle orchestrati
 
 ## When To Use
 
-- Moving code between `core/server/contracts/client` packages.
+- Moving code between `core/lib/contracts/apps` packages.
 - Changing cloud startup/setup/shutdown behavior.
 - Adjusting app registry composition or route mounting.
 - Enforcing import boundaries and cycle prevention.
@@ -42,7 +42,7 @@ Key files:
 
 ## Hard Rules
 
-1. Keep `@valentinkolb/cloud-core` runtime-only.
+1. Keep `@valentinkolb/cloud/core` runtime-only.
 2. Keep app code on public package surfaces only.
 3. No package cycles.
 4. Preserve route parity unless explicitly requested.

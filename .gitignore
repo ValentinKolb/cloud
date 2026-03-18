@@ -1,7 +1,8 @@
 # OS / metadata
 .DS_Store
 .claude
-.reviews
+./reviews
+**/moodboard
 
 # Environment / local config
 .env

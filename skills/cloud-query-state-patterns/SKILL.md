@@ -19,7 +19,7 @@ Use this skill when page state depends on URL params and backend list/search que
 - URL/filter helper pattern source:
   `cloud/packages/apps/src/spaces/frontend/[id]/_components/filter/types.ts`
 - Hybrid detail panel helper source:
-  `cloud/packages/client/src/lib/browser/detail-panel.ts`
+  `cloud/packages/lib/src/browser/detail-panel.ts`
 - Complex filter SQL pattern source:
   `cloud/packages/apps/src/spaces/service/items.ts`
 

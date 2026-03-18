@@ -26,7 +26,7 @@ Use this skill for service-layer quality and consistency.
 - Keep helper functions private unless cross-module reuse is real.
 - Add concise semantic docstrings for non-obvious methods.
 - Prefer one logger per module via:
-  `import { logger } from "@valentinkolb/cloud-lib/server/services/logging"`.
+  `import { logger } from "@valentinkolb/cloud/lib/server"`.
 
 ## Examples to Reuse as Pattern Sources
 

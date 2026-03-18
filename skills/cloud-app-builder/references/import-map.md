@@ -6,25 +6,17 @@
 import type { AppFacade, AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts/app";
 ```
 
-## Server wrappers
+## Server wrappers (API, middleware, result helpers, logging)
 
 ```ts
-import { respond } from "@valentinkolb/cloud-lib/server/api/respond";
-import { v } from "@valentinkolb/cloud-lib/server/middleware/validator";
-import { auth } from "@valentinkolb/cloud-lib/server/middleware/auth";
-import { jsonResponse, requiresAuth } from "@valentinkolb/cloud-lib/server/middleware/openapi";
-```
-
-## Service result helpers
-
-```ts
-import { ok, fail, err, paginate, type Result } from "@valentinkolb/cloud-lib/server/services/result";
-```
-
-## Logging (Server-Side App Code)
-
-```ts
-import { logger } from "@valentinkolb/cloud-lib/server/services/logging";
+import {
+  respond, v,
+  auth, type AuthContext,
+  rateLimit,
+  jsonResponse, requiresAuth,
+  ok, fail, err, paginate, type Result,
+  logger,
+} from "@valentinkolb/cloud/lib/server";
 
 const log = logger("app.my-app.service");
 log.info("Created entity", { entityId });
@@ -33,9 +25,9 @@ log.info("Created entity", { entityId });
 ## Frontend shared UI
 
 ```ts
-import { TextInput, Select, RemoveBtn, PermissionEditor } from "@valentinkolb/cloud-lib/ui";
-import { SearchBar } from "@valentinkolb/cloud-lib/islands";
-import { markdown, dates, calendar, icons } from "@valentinkolb/cloud-lib/shared";
+import { TextInput, Select, RemoveBtn, PermissionEditor } from "@valentinkolb/cloud/lib/ui";
+import { SearchBar } from "@valentinkolb/cloud/lib/islands";
+import { markdown, dates, calendar, icons } from "@valentinkolb/cloud/lib/shared";
 ```
 
 ## Facade skeleton

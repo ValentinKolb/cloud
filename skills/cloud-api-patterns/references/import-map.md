@@ -7,13 +7,14 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 
-import { respond } from "@valentinkolb/cloud-lib/server/api/respond";
-import { v } from "@valentinkolb/cloud-lib/server/middleware/validator";
-import { auth, type AuthContext } from "@valentinkolb/cloud-lib/server/middleware/auth";
-import { rateLimit } from "@valentinkolb/cloud-lib/server/middleware/rate-limit";
-import { jsonResponse, requiresAuth } from "@valentinkolb/cloud-lib/server/middleware/openapi";
-import { ok, fail, err } from "@valentinkolb/cloud-lib/server/services/result";
-import { logger } from "@valentinkolb/cloud-lib/server/services/logging";
+import {
+  respond,
+  v,
+  auth, type AuthContext,
+  rateLimit,
+  jsonResponse, requiresAuth,
+  ok, fail, err,
+} from "@valentinkolb/cloud/lib/server";
 ```
 
 ## Wrapper shape

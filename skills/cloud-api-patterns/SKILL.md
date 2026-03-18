@@ -14,23 +14,24 @@ Use this skill for all `api.ts` handler work.
 4. Map service outcome via `respond(c, result)`.
 5. Use raw responses only for transport-specific endpoints.
 
-## Quick Lookup (Do Not Guess)
+## Quick Lookup
 
-- Validator `v`:
-  - import: `@valentinkolb/cloud-lib/server/middleware/validator`
-  - source: `cloud/packages/server/src/core/middleware/validator.ts`
-- Response mapper `respond`:
-  - import: `@valentinkolb/cloud-lib/server/api/respond`
-  - source: `cloud/packages/server/src/core/api/respond.ts`
-- Auth middleware:
-  - import: `@valentinkolb/cloud-lib/server/middleware/auth`
-- OpenAPI helpers:
-  - import: `@valentinkolb/cloud-lib/server/middleware/openapi`
-- Rate limit middleware:
-  - import: `@valentinkolb/cloud-lib/server/middleware/rate-limit`
-- Shared logger:
-  - import: `@valentinkolb/cloud-lib/server/services/logging`
-  - usage: `const log = logger("app.module");`
+All server-side imports come from `"@valentinkolb/cloud/lib/server"`:
+
+- `v` — route validator
+- `respond` — maps `Result` to HTTP response
+- `auth`, `type AuthContext` — auth middleware + context type
+- `rateLimit` — rate limit middleware
+- `jsonResponse`, `requiresAuth`, `requiresAdmin`, `requiresIpa` — OpenAPI helpers
+- `ok`, `fail`, `err` — Result helpers
+- `logger` — structured logging (`const log = logger("app.module")`)
+
+Source files:
+- Validator: `cloud/packages/lib/src/server/middleware/validator.ts`
+- Response mapper: `cloud/packages/lib/src/server/api/respond.ts`
+- Auth middleware: `cloud/packages/lib/src/server/middleware/auth.ts`
+- OpenAPI helpers: `cloud/packages/lib/src/server/middleware/openapi.ts`
+- Rate limit: `cloud/packages/lib/src/server/middleware/rate-limit.ts`
 
 ## Practical Patterns
 

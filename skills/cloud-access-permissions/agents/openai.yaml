@@ -1,4 +1,0 @@
-interface:
-  display_name: "Cloud Access"
-  short_description: "Role gates, ACL joins, and permission guard consistency"
-  default_prompt: "Implement access and permission changes using the shared auth and ACL guard patterns."
