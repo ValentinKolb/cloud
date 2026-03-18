@@ -1,20 +1,69 @@
-import { createSignal, Show, For } from "solid-js";
+import { For, Index, Show, createSignal } from "solid-js";
 import { Dropdown, TextInput } from "@valentinkolb/cloud/lib/ui";
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { timing } from "@valentinkolb/cloud/lib/browser";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
-import { apiClient } from "@/hosts/client";
+import { apiClient } from "@/ipa-hosts/client";
+import { normalizeMacAddress } from "@/ipa-hosts/contracts";
 import { refreshCurrentPath } from "./lib/navigation";
+
+const MAC_ADDRESS_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
+
 type HostActionsProps = {
   fqdn: string;
   description: string | null;
   locality: string | null;
   location: string | null;
+  macAddress: string[];
   memberofHostgroup: string[];
   currentGroup?: string;
 };
+
+type EditHostPayload = {
+  description?: string;
+  locality?: string;
+  location?: string;
+  macAddress?: string[];
+};
+
+type EditableMacAddress = {
+  value: string;
+};
+
+const MacAddressRow = (props: {
+  index: number;
+  value: () => string;
+  error: () => string | undefined;
+  onInput: (value: string) => void;
+  onRemove: () => void;
+}) => {
+  return (
+    <div class="flex items-start gap-2">
+      <div class="flex-1">
+        <TextInput
+          label={`MAC address ${props.index + 1}`}
+          placeholder="AA:BB:CC:DD:EE:FF"
+          icon="ti ti-address-book"
+          activeIcon="ti ti-address-book"
+          value={props.value}
+          onInput={props.onInput}
+          error={props.error}
+        />
+      </div>
+      <button
+        type="button"
+        class="icon-btn h-10 w-10 shrink-0"
+        onClick={props.onRemove}
+        aria-label={`Remove MAC address ${props.index + 1}`}
+      >
+        <i class="ti ti-trash text-sm text-red-500" />
+      </button>
+    </div>
+  );
+};
+
 const HostActions = (props: HostActionsProps) => {
-  const editMutation = mutations.create<void, { description?: string; locality?: string; location?: string }>({
+  const editMutation = mutations.create<void, EditHostPayload>({
     mutation: async (vars) => {
       const res = await apiClient[":fqdn"].$patch({ param: { fqdn: props.fqdn }, json: vars });
       if (!res.ok) {
@@ -59,7 +108,7 @@ const HostActions = (props: HostActionsProps) => {
     onError: (err) => prompts.error(err.message),
   });
   const handleRemoveFromGroup = async (groupName: string) => {
-    const confirmed = await prompts.confirm(`Remove"${props.fqdn}" from group"${groupName}"?`, {
+    const confirmed = await prompts.confirm(`Remove "${props.fqdn}" from hostgroup "${groupName}"?`, {
       title: "Remove from Group",
       icon: "ti ti-folder-minus",
       confirmText: "Remove",
@@ -71,31 +120,27 @@ const HostActions = (props: HostActionsProps) => {
     }
   };
   const handleEdit = async () => {
-    const result = await prompts.form({
-      title: `Edit ${props.fqdn}`,
-      icon: "ti ti-pencil",
-      confirmText: "Save",
-      fields: {
-        description: {
-          type: "text" as const,
-          label: "Description",
-          placeholder: "Optional description...",
-          default: props.description ?? "",
-        },
-        locality: { type: "text" as const, label: "Locality", placeholder: "e.g. Stuttgart", default: props.locality ?? "" },
-        location: { type: "text" as const, label: "Location", placeholder: "e.g. Room 101", default: props.location ?? "" },
-      },
-    });
-    if (result) {
-      await editMutation.mutate({
-        description: result.description ?? "",
-        locality: result.locality ?? "",
-        location: result.location ?? "",
-      });
-    }
+    prompts.dialog(
+      (close) => (
+        <EditHostDialog
+          fqdn={props.fqdn}
+          description={props.description}
+          locality={props.locality}
+          location={props.location}
+          macAddress={props.macAddress}
+          saving={editMutation.loading()}
+          onCancel={close}
+          onSave={async (data) => {
+            await editMutation.mutate(data);
+            close();
+          }}
+        />
+      ),
+      { title: `Edit ${props.fqdn}`, icon: "ti ti-pencil", size: "large" },
+    );
   };
   const handleDelete = async () => {
-    const confirmed = await prompts.confirm(`Are you sure you want to delete"${props.fqdn}"? This cannot be undone.`, {
+    const confirmed = await prompts.confirm(`Are you sure you want to delete "${props.fqdn}"? This cannot be undone.`, {
       title: "Delete Host",
       icon: "ti ti-trash",
       confirmText: "Delete",
@@ -151,7 +196,113 @@ const HostActions = (props: HostActionsProps) => {
       ]}
     />
   );
-}; // Inline hostgroup search component
+};
+
+const EditHostDialog = (props: {
+  fqdn: string;
+  description: string | null;
+  locality: string | null;
+  location: string | null;
+  macAddress: string[];
+  saving?: boolean;
+  onCancel: () => void;
+  onSave: (data: EditHostPayload) => Promise<void>;
+}) => {
+  const [description, setDescription] = createSignal(props.description ?? "");
+  const [locality, setLocality] = createSignal(props.locality ?? "");
+  const [location, setLocation] = createSignal(props.location ?? "");
+  const [macAddresses, setMacAddresses] = createSignal<EditableMacAddress[]>(props.macAddress.map((value) => ({ value })));
+  const [macErrors, setMacErrors] = createSignal<string[]>([]);
+
+  const updateMac = (index: number, value: string) => {
+    setMacAddresses((current) => current.map((entry, currentIndex) => (currentIndex === index ? { ...entry, value } : entry)));
+    setMacErrors((current) => current.map((entry, currentIndex) => (currentIndex === index ? "" : entry)));
+  };
+
+  const addMac = () => {
+    setMacAddresses((current) => [...current, { value: "" }]);
+    setMacErrors((current) => [...current, ""]);
+  };
+
+  const removeMac = (index: number) => {
+    setMacAddresses((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    setMacErrors((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  };
+
+  const handleSave = async () => {
+    const normalizedMacs = macAddresses().map((entry) => normalizeMacAddress(entry.value));
+    const nextErrors = normalizedMacs.map((value, index, values) => {
+      if (!value) return "MAC address is required.";
+      if (!MAC_ADDRESS_REGEX.test(value)) return "Use format AA:BB:CC:DD:EE:FF.";
+      if (values.findIndex((candidate) => candidate === value) !== index) return "Duplicate MAC address.";
+      return "";
+    });
+
+    setMacErrors(nextErrors);
+    if (nextErrors.some(Boolean)) return;
+
+    await props.onSave({
+      description: description(),
+      locality: locality(),
+      location: location(),
+      macAddress: normalizedMacs,
+    });
+  };
+
+  return (
+    <div class="flex flex-col gap-4">
+      <div class="grid gap-3 md:grid-cols-2">
+        <TextInput label="Description" placeholder="Optional description..." value={description} onInput={setDescription} />
+        <TextInput label="Locality" placeholder="e.g. Stuttgart" value={locality} onInput={setLocality} />
+      </div>
+      <TextInput label="Location" placeholder="e.g. Room 101" value={location} onInput={setLocation} />
+
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-medium text-primary">MAC addresses</h3>
+            <p class="text-xs text-dimmed">Add or remove MAC addresses in format AA:BB:CC:DD:EE:FF.</p>
+          </div>
+          <button type="button" class="btn-simple btn-sm" onClick={addMac}>
+            <i class="ti ti-plus" />
+            Add MAC
+          </button>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <Show
+            when={macAddresses().length > 0}
+            fallback={<div class="rounded-xl border border-dashed border-subtle p-3 text-xs text-dimmed">No MAC addresses configured.</div>}
+          >
+            <Index each={macAddresses()}>
+              {(macAddress, index) => (
+                <MacAddressRow
+                  index={index}
+                  value={() => macAddress().value}
+                  error={() => macErrors()[index]}
+                  onInput={(value) => updateMac(index, value)}
+                  onRemove={() => removeMac(index)}
+                />
+              )}
+            </Index>
+          </Show>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2">
+        <button type="button" class="btn-simple btn-sm" onClick={props.onCancel} disabled={props.saving}>
+          Cancel
+        </button>
+        <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={props.saving}>
+          <i class={props.saving ? "ti ti-loader-2 animate-spin" : "ti ti-check"} />
+          Save
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Inline hostgroup search component
 const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect: (cn: string) => void }) => {
   const [search, setSearch] = createSignal("");
   const [results, setResults] = createSignal<{ cn: string; description: string | null }[]>([]);

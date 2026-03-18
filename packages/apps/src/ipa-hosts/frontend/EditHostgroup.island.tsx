@@ -1,6 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
-import { apiClient } from "@/hosts/client";
+import { apiClient } from "@/ipa-hosts/client";
 import { refreshCurrentPath } from "./lib/navigation";
 
 type Props = {

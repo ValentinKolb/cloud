@@ -1,6 +1,6 @@
 /**
  * Returns the canonical current URL path + query (without hash).
- * Used as a deterministic alternative to location.reload().
+ * Used as deterministic refresh target after mutations.
  */
 export const currentPathWithQuery = () => {
   const url = new URL(window.location.href);
@@ -11,5 +11,12 @@ export const currentPathWithQuery = () => {
  * Navigates to the canonical current URL.
  */
 export const refreshCurrentPath = () => {
-  window.location.href = currentPathWithQuery();
+  window.location.assign(currentPathWithQuery());
+};
+
+/**
+ * Navigates to the provided path.
+ */
+export const navigateTo = (path: string) => {
+  window.location.assign(path);
 };

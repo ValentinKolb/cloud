@@ -1,29 +1,27 @@
 import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { v } from "@valentinkolb/cloud/lib/server";
-import { jsonResponse } from "@valentinkolb/cloud/lib/server";
-import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
-import { rateLimit } from "@valentinkolb/cloud/lib/server";
-import { respond } from "@valentinkolb/cloud/lib/server";
-import { err, fail, ok, type Result } from "@valentinkolb/cloud/lib/server";
-import { hostsService } from "./service";
-import { parsePagination, createPagination } from "@/hosts/contracts";
+import { auth, err, fail, jsonResponse, ok, rateLimit, respond, type AuthContext, type Result, v } from "@valentinkolb/cloud/lib/server";
+import { ipaHostsService } from "./service";
 import {
+  createPagination,
+  ErrorResponseSchema,
   IpaHostSchema,
   IpaHostgroupSchema,
+  MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
+  parsePagination,
   SearchQuerySchema,
-  ErrorResponseSchema,
-  MessageResponseSchema,
-  UpdateHostSchema,
+  SyncCronResponseSchema,
   UpdateHostgroupSchema,
-} from "@/hosts/contracts";
+  UpdateHostSchema,
+} from "@/ipa-hosts/contracts";
 
-/**
- * Resolves the active IPA session from auth context and returns an API-ready error when missing.
- */
+const isServiceResult = (value: unknown): value is Result<unknown> => {
+  return Boolean(value && typeof value === "object" && "ok" in value);
+};
+
 const requireIpaSession = async (c: Context<AuthContext>) => {
   const token = c.get("sessionToken");
   const ipaSession = await auth.session.getIpaSession(token);
@@ -38,15 +36,17 @@ const requireIpaSession = async (c: Context<AuthContext>) => {
   return { ipaSession };
 };
 
-/**
- * Wraps mutation results and returns a standardized message payload for API handlers.
- */
-const respondMessage = async (c: Context, resultPromise: Promise<Result<void>>, message: string, successStatus = 200) => {
+const respondMessage = async (
+  c: Context,
+  resultPromise: Promise<Result<unknown> | void>,
+  message: string,
+  successStatus = 200,
+) => {
   return respond(
     c,
     async () => {
       const result = await resultPromise;
-      if (!result.ok) return result;
+      if (isServiceResult(result) && !result.ok) return result;
       return ok({ message });
     },
     successStatus,
@@ -55,39 +55,42 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void>>, 
 
 const HostsListResponseSchema = z.object({
   hosts: z.array(IpaHostSchema),
+  pagination: PaginationResponseSchema,
 });
-
 const HostgroupsListResponseSchema = z.object({
   hostgroups: z.array(IpaHostgroupSchema),
   pagination: PaginationResponseSchema,
 });
 
-/** Host management routes. Admin only. */
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("admin"))
   .get(
     "/",
     describeRoute({
-      tags: ["Hosts"],
+      tags: ["IPA Hosts"],
       summary: "List all hosts",
       responses: {
-        200: jsonResponse(HostsListResponseSchema, "List of all hosts"),
+        200: jsonResponse(HostsListResponseSchema, "Paginated list of hosts"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
+    v("query", z.object({ ...PaginationQuerySchema.shape, ...SearchQuerySchema.shape })),
     async (c) => {
-      const hostsPage = await hostsService.host.list({
-        pagination: { perPage: 9999 },
+      const query = c.req.valid("query");
+      const pagination = parsePagination(query);
+      const hostsPage = await ipaHostsService.host.list({
+        pagination,
+        filter: { query: query.search },
       });
-      return respond(c, ok({ hosts: hostsPage.items }));
+      return respond(c, ok({ hosts: hostsPage.items, pagination: createPagination(pagination, hostsPage.total) }));
     },
   )
   .patch(
     "/:fqdn",
     describeRoute({
-      tags: ["Hosts"],
-      summary: "Update host location/locality",
+      tags: ["IPA Hosts"],
+      summary: "Update host metadata",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Host updated"),
         400: jsonResponse(ErrorResponseSchema, "Update failed"),
@@ -100,14 +103,13 @@ const app = new Hono<AuthContext>()
       const data = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.host.update({ ipaSession, fqdn, data }), "Host updated");
+      return respondMessage(c, ipaHostsService.host.update({ ipaSession, fqdn, data }), "Host updated");
     },
   )
   .delete(
     "/:fqdn",
     describeRoute({
-      tags: ["Hosts"],
+      tags: ["IPA Hosts"],
       summary: "Delete a host",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Host deleted"),
@@ -119,15 +121,14 @@ const app = new Hono<AuthContext>()
       const fqdn = c.req.param("fqdn");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.host.remove({ ipaSession, fqdn }), "Host deleted");
+      return respondMessage(c, ipaHostsService.host.remove({ ipaSession, fqdn }), "Host deleted");
     },
   )
   .post(
     "/:fqdn/hostgroups",
     describeRoute({
-      tags: ["Hosts"],
-      summary: "Add host to a hostgroup",
+      tags: ["IPA Hosts"],
+      summary: "Add host to hostgroup",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Host added to group"),
         400: jsonResponse(ErrorResponseSchema, "Failed"),
@@ -140,15 +141,14 @@ const app = new Hono<AuthContext>()
       const { hostgroup } = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.host.addToGroup({ ipaSession, fqdn, hostgroup }), "Host added to group");
+      return respondMessage(c, ipaHostsService.host.addToGroup({ ipaSession, fqdn, hostgroup }), "Host added to group");
     },
   )
   .delete(
     "/:fqdn/hostgroups",
     describeRoute({
-      tags: ["Hosts"],
-      summary: "Remove host from a hostgroup",
+      tags: ["IPA Hosts"],
+      summary: "Remove host from hostgroup",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Host removed from group"),
         400: jsonResponse(ErrorResponseSchema, "Failed"),
@@ -161,48 +161,34 @@ const app = new Hono<AuthContext>()
       const { hostgroup } = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.host.removeFromGroup({ ipaSession, fqdn, hostgroup }), "Host removed from group");
+      return respondMessage(c, ipaHostsService.host.removeFromGroup({ ipaSession, fqdn, hostgroup }), "Host removed from group");
     },
   )
   .get(
     "/hostgroups",
     describeRoute({
-      tags: ["Hosts"],
+      tags: ["IPA Hosts"],
       summary: "List hostgroups",
-      description: "List hostgroups with pagination and optional search.",
       responses: {
         200: jsonResponse(HostgroupsListResponseSchema, "Paginated list of hostgroups"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
-    v(
-      "query",
-      z.object({
-        ...PaginationQuerySchema.shape,
-        ...SearchQuerySchema.shape,
-      }),
-    ),
+    v("query", z.object({ ...PaginationQuerySchema.shape, ...SearchQuerySchema.shape })),
     async (c) => {
       const query = c.req.valid("query");
       const params = parsePagination(query);
-      const hostgroupsPage = await hostsService.hostgroup.list({
+      const hostgroupsPage = await ipaHostsService.hostgroup.list({
         pagination: params,
         filter: { query: query.search },
       });
-      return respond(
-        c,
-        ok({
-          hostgroups: hostgroupsPage.items,
-          pagination: createPagination(params, hostgroupsPage.total),
-        }),
-      );
+      return respond(c, ok({ hostgroups: hostgroupsPage.items, pagination: createPagination(params, hostgroupsPage.total) }));
     },
   )
   .get(
     "/hostgroups/search",
     describeRoute({
-      tags: ["Hosts"],
+      tags: ["IPA Hosts"],
       summary: "Search hostgroups",
       responses: {
         200: jsonResponse(z.object({ hostgroups: z.array(IpaHostgroupSchema) }), "Search results"),
@@ -212,7 +198,7 @@ const app = new Hono<AuthContext>()
     v("query", z.object({ q: z.string().min(1), exclude: z.string().optional() })),
     async (c) => {
       const { q, exclude } = c.req.valid("query");
-      const hostgroups = await hostsService.hostgroup.search({
+      const hostgroups = await ipaHostsService.hostgroup.search({
         query: q,
         exclude: exclude ? exclude.split(",") : [],
         limit: 10,
@@ -223,12 +209,11 @@ const app = new Hono<AuthContext>()
   .post(
     "/hostgroups",
     describeRoute({
-      tags: ["Hosts"],
-      summary: "Create a hostgroup",
+      tags: ["IPA Hosts"],
+      summary: "Create hostgroup",
       responses: {
         201: jsonResponse(MessageResponseSchema, "Hostgroup created"),
-        400: jsonResponse(ErrorResponseSchema, "Failed"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        400: jsonResponse(ErrorResponseSchema, "Create failed"),
       },
     }),
     v("json", z.object({ name: z.string().min(1), description: z.string().optional() })),
@@ -236,19 +221,17 @@ const app = new Hono<AuthContext>()
       const { name, description } = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.hostgroup.create({ ipaSession, name, description }), "Hostgroup created", 201);
+      return respondMessage(c, ipaHostsService.hostgroup.create({ ipaSession, name, description }), "Hostgroup created", 201);
     },
   )
   .patch(
     "/hostgroups/:cn",
     describeRoute({
-      tags: ["Hosts"],
-      summary: "Update a hostgroup",
+      tags: ["IPA Hosts"],
+      summary: "Update hostgroup",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Hostgroup updated"),
         400: jsonResponse(ErrorResponseSchema, "Update failed"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
       },
     }),
     v("json", UpdateHostgroupSchema),
@@ -257,27 +240,72 @@ const app = new Hono<AuthContext>()
       const data = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.hostgroup.update({ ipaSession, cn, data }), "Hostgroup updated");
+      return respondMessage(c, ipaHostsService.hostgroup.update({ ipaSession, cn, data }), "Hostgroup updated");
     },
   )
   .delete(
     "/hostgroups/:cn",
     describeRoute({
-      tags: ["Hosts"],
-      summary: "Delete a hostgroup",
+      tags: ["IPA Hosts"],
+      summary: "Delete hostgroup",
       responses: {
         200: jsonResponse(MessageResponseSchema, "Hostgroup deleted"),
-        400: jsonResponse(ErrorResponseSchema, "Failed"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        400: jsonResponse(ErrorResponseSchema, "Delete failed"),
       },
     }),
     async (c) => {
       const cn = c.req.param("cn");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
-
-      return respondMessage(c, hostsService.hostgroup.remove({ ipaSession, cn }), "Hostgroup deleted");
+      return respondMessage(c, ipaHostsService.hostgroup.remove({ ipaSession, cn }), "Hostgroup deleted");
+    },
+  )
+  .get(
+    "/settings/sync-cron",
+    describeRoute({
+      tags: ["IPA Hosts"],
+      summary: "Get sync cron",
+      responses: {
+        200: jsonResponse(SyncCronResponseSchema, "Current sync cron"),
+      },
+    }),
+    async (c) => {
+      const [cron, timezone] = await Promise.all([ipaHostsService.sync.getCron(), ipaHostsService.sync.getTimezone()]);
+      return respond(c, ok({ cron, timezone }));
+    },
+  )
+  .put(
+    "/settings/sync-cron",
+    describeRoute({
+      tags: ["IPA Hosts"],
+      summary: "Update sync cron",
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Sync cron updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid cron"),
+        500: jsonResponse(ErrorResponseSchema, "Failed to update sync cron"),
+      },
+    }),
+    v("json", z.object({ cron: z.string().min(1) })),
+    async (c) => {
+      const { cron } = c.req.valid("json");
+      return respondMessage(c, ipaHostsService.sync.updateCron({ cron }), "Sync schedule updated");
+    },
+  )
+  .post(
+    "/sync",
+    describeRoute({
+      tags: ["IPA Hosts"],
+      summary: "Trigger host sync",
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Sync started"),
+        500: jsonResponse(ErrorResponseSchema, "Failed to start sync"),
+      },
+    }),
+    async (c) => {
+      return respond(c, async () => {
+        await ipaHostsService.sync.run();
+        return ok({ message: "Sync started" });
+      });
     },
   );
 
