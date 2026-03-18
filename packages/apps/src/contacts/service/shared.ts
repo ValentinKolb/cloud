@@ -6,12 +6,18 @@ export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5
 /**
  * Escapes string values into a PostgreSQL `text[]` literal for `ANY(...)` filters.
  */
-export const toPgTextArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
+export const toPgTextArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
+};
 
 /**
  * Escapes UUID values into a PostgreSQL `uuid[]` literal for `ANY(...)` filters.
  */
-export const toPgUuidArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
+export const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
 
 /**
  * Normalizes empty strings to `null` for user-facing optional profile fields.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const FaqAudienceSchema = z.enum(["ipa", "ipa-limited", "guest", "anonymous"]);
+export const FaqAudienceSchema = z.enum(["user", "guest", "anonymous"]);
 export type FaqAudience = z.infer<typeof FaqAudienceSchema>;
 
 export const FaqEntrySchema = z.object({

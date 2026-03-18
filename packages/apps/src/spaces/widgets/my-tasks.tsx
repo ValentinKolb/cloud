@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { SessionUser, Priority } from "@/spaces/contracts";
+import type { User, Priority } from "@/spaces/contracts";
 import { spacesService, type TaskItem } from "../service";
 import { dates } from "@valentinkolb/cloud/lib/shared";
 import { parseWidgetSettings, DEFAULT_WIDGET_SETTINGS } from "@/spaces/frontend/[id]/_components/settings/SpaceSettingsStore";
@@ -89,14 +89,14 @@ function TasksContent({ tasks }: { tasks: TaskItem[] }) {
 } // =============================================================================
 // Widget Factory
 // ============================================================================= /** * Create my tasks widget. * Shows tasks assigned to the current user. * Settings are configured in Space Settings sidebar. */
-export async function createMyTasksWidget(c: Context, user?: SessionUser): Promise<Widget> {
+export async function createMyTasksWidget(c: Context, user?: User): Promise<Widget> {
   if (!user) return null;
   const cookieHeader = c.req.header("Cookie");
   const widgetSettings = parseWidgetSettings(cookieHeader);
   const minPriority = widgetSettings.tasksMinPriority;
   const tasks = await spacesService.item.tasks.listMine({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
     minPriority: minPriority ?? undefined,
     limit: 15,
   });

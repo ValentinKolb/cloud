@@ -41,7 +41,7 @@ export default ssr<AuthContext>(async (c) => {
                     <th class="text-left px-4 py-3 font-medium text-dimmed">Description</th>
                     <th class="text-left px-4 py-3 font-medium text-dimmed">Type</th>
                     <th class="text-left px-4 py-3 font-medium text-dimmed">Scopes</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Realms</th>
+                    <th class="text-left px-4 py-3 font-medium text-dimmed">Profiles</th>
                     <th class="text-left px-4 py-3 font-medium text-dimmed">Created</th>
                     <th class="text-right px-4 py-3 font-medium text-dimmed">Actions</th>
                   </tr>
@@ -73,9 +73,9 @@ export default ssr<AuthContext>(async (c) => {
                       </td>
                       <td class="px-4 py-3">
                         <div class="flex flex-wrap gap-1">
-                          {client.allowedRoles.map((realm) => (
+                          {client.allowedProfiles.map((profile) => (
                             <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-400">
-                              {realm}
+                              {profile}
                             </span>
                           ))}
                         </div>

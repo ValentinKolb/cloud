@@ -5,9 +5,12 @@ import { getSpacePermission, grantSpaceAccess, countSpaceAccess } from "./access
 import { rank } from "./rank";
 
 /**
- * Escapes group CN values into a Postgres `text[]` literal for `ANY(...)` access filters.
+ * Escapes group IDs into a Postgres `uuid[]` literal for `ANY(...)` access filters.
  */
-const toPgTextArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
+const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
 
 // ==========================
 // Spaces Service
@@ -112,7 +115,8 @@ export const getPermission = async (params: { spaceId: string; userId: string | 
  * List all spaces accessible to a user via the permission system.
  */
 export const list = async (params: { userId: string | null; groups: string[] }): Promise<Space[]> => {
-  const { userId, groups } = params;
+  const { userId } = params;
+  const groups = params.groups ?? [];
 
   const rows = await sql<DbSpace[]>`
     SELECT DISTINCT s.id, s.name, s.description, s.color, s.ical_token, s.created_at, s.updated_at
@@ -121,9 +125,9 @@ export const list = async (params: { userId: string | null; groups: string[] }):
     LEFT JOIN auth.access a ON sa.access_id = a.id
     WHERE
       a.user_id = ${userId}::uuid
-      OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+      OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
       OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-      OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+      OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
     ORDER BY s.name
   `;
   return rows.map(mapToSpace);

@@ -315,5 +315,5 @@ export type {
   MutationResult,
   PermissionLevel,
   Principal,
-  SessionUser,
+  User,
 } from "@valentinkolb/cloud/contracts/shared";

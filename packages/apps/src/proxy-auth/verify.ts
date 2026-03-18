@@ -43,8 +43,8 @@ const app = new Hono<AuthContext>().get("/verify/:clientId", auth.requireRole("*
   }
 
   // Check if user is member of any allowed group
-  const userGroups = new Set(user.memberofGroup);
-  const hasAccess = client.allowedGroups.some((g) => userGroups.has(g));
+  const userGroups = new Set(user.memberofGroupIds);
+  const hasAccess = client.allowedGroups.some((g) => userGroups.has(g.id));
 
   if (!hasAccess) {
     return c.text("Access denied: you are not a member of an authorized group.", 403);

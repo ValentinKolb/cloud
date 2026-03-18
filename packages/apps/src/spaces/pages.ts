@@ -5,6 +5,6 @@ import spaceDetailPage from "./frontend/[id]/page";
 import spaceSettingsPage from "./frontend/[id]/settings/page";
 
 export default new Hono<AuthContext>()
-  .get("/", auth.requireRole("ipa", auth.redirectToLogin), ...spacesPage)
-  .get("/:id/settings", auth.requireRole("ipa", auth.redirectToLogin), ...spaceSettingsPage)
-  .get("/:id", auth.requireRole("ipa", auth.redirectToLogin), ...spaceDetailPage);
+  .get("/", auth.requireRole("user", auth.redirectToLogin), ...spacesPage)
+  .get("/:id/settings", auth.requireRole("user", auth.redirectToLogin), ...spaceSettingsPage)
+  .get("/:id", auth.requireRole("user", auth.redirectToLogin), ...spaceDetailPage);

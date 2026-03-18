@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { v } from "@valentinkolb/cloud/lib/server";
-import { jsonResponse, requiresIpa, requiresAdmin } from "@valentinkolb/cloud/lib/server";
+import { jsonResponse, requiresAuth, requiresAdmin } from "@valentinkolb/cloud/lib/server";
 import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { rateLimit } from "@valentinkolb/cloud/lib/server";
 import { respond } from "@valentinkolb/cloud/lib/server";
@@ -13,7 +13,6 @@ import {
   MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  hasRole,
 } from "@valentinkolb/cloud/contracts/shared";
 import { parsePagination, createPagination } from "@valentinkolb/cloud/contracts/shared";
 
@@ -59,26 +58,6 @@ const toNotificationDto = (notification: Awaited<ReturnType<typeof notifications
 });
 
 /**
- * Restricts the handler to IPA-backed users and returns a consistent forbidden response otherwise.
- */
-const requireIpaUser = async (c: Context<AuthContext>, action: "access" | "send" | "resend" | "update") => {
-  const user = c.get("user");
-  if (hasRole(user, "ipa", "ipa-limited")) return { user };
-
-  const actionMessage: Record<typeof action, string> = {
-    access: "access notifications",
-    send: "send notifications",
-    resend: "resend notifications",
-    update: "update notifications",
-  };
-
-  return {
-    user: null,
-    error: await respond(c, fail(err.forbidden(`Only IPA users can ${actionMessage[action]}`))),
-  };
-};
-
-/**
  * Loads a notification and enforces owner/admin visibility checks for subsequent mutation routes.
  */
 const requireNotificationAccess = async (
@@ -99,7 +78,7 @@ const requireNotificationAccess = async (
     };
   }
 
-  if (!hasRole(config.user, "admin") && notification.sentBy !== config.user.id) {
+  if (!config.user.roles.includes("admin") && notification.sentBy !== config.user.id) {
     return {
       notification: null,
       error: await respond(c, fail(err.forbidden("Access denied"))),
@@ -134,7 +113,7 @@ const respondMessage = async (
   });
 };
 
-/** Notification routes - available to all IPA realm users. */
+/** Notification routes - available to all authenticated users. */
 const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
@@ -145,18 +124,15 @@ const app = new Hono<AuthContext>()
       tags: ["Notifications"],
       summary: "List notifications",
       description: "List notifications. Admins see all notifications, regular users see only their own sent notifications.",
-      ...requiresIpa,
+      ...requiresAuth,
       responses: {
         200: jsonResponse(NotificationListResponseSchema, "List of notifications"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "IPA realm required"),
       },
     }),
     v("query", PaginationQuerySchema.extend({ search: z.string().optional() })),
     async (c) => {
-      const accessCheck = await requireIpaUser(c, "access");
-      if (accessCheck.error || !accessCheck.user) return accessCheck.error!;
-      const user = accessCheck.user;
+      const user = c.get("user");
 
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
@@ -164,7 +140,7 @@ const app = new Hono<AuthContext>()
       const { items, total } = await notificationsService.notification.list({
         pagination,
         access: {
-          isAdmin: hasRole(user, "admin"),
+          isAdmin: user.roles.includes("admin"),
           sentBy: user.id,
           search: query.search,
         },
@@ -186,7 +162,7 @@ const app = new Hono<AuthContext>()
       tags: ["Notifications"],
       summary: "Get notification by ID",
       description: "Get a single notification. Admins can access any notification, users can only access their own.",
-      ...requiresIpa,
+      ...requiresAuth,
       responses: {
         200: jsonResponse(NotificationSchema, "Notification details"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
@@ -195,9 +171,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const accessCheck = await requireIpaUser(c, "access");
-      if (accessCheck.error || !accessCheck.user) return accessCheck.error!;
-      const user = accessCheck.user;
+      const user = c.get("user");
       const id = c.req.param("id");
       const notificationCheck = await requireNotificationAccess(c, { id, user });
       if (notificationCheck.error || !notificationCheck.notification) {
@@ -214,19 +188,16 @@ const app = new Hono<AuthContext>()
       tags: ["Notifications"],
       summary: "Send notification to user",
       description: "Send a notification to a user by their database ID. The sender is automatically recorded.",
-      ...requiresIpa,
+      ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Notification sent"),
         400: jsonResponse(ErrorResponseSchema, "Failed to send notification"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "IPA realm required"),
       },
     }),
     v("json", SendNotificationSchema),
     async (c) => {
-      const accessCheck = await requireIpaUser(c, "send");
-      if (accessCheck.error || !accessCheck.user) return accessCheck.error!;
-      const user = accessCheck.user;
+      const user = c.get("user");
 
       const { userId, subject, content, rawHtml } = c.req.valid("json");
 
@@ -250,7 +221,7 @@ const app = new Hono<AuthContext>()
       tags: ["Notifications"],
       summary: "Resend notification",
       description: "Retry sending a failed or pending notification. Admins can resend any, users only their own.",
-      ...requiresIpa,
+      ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Notification resent"),
         400: jsonResponse(ErrorResponseSchema, "Failed to resend notification"),
@@ -260,9 +231,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const accessCheck = await requireIpaUser(c, "resend");
-      if (accessCheck.error || !accessCheck.user) return accessCheck.error!;
-      const user = accessCheck.user;
+      const user = c.get("user");
       const id = c.req.param("id");
       const notificationCheck = await requireNotificationAccess(c, { id, user });
       if (notificationCheck.error || !notificationCheck.notification) {
@@ -331,7 +300,7 @@ const app = new Hono<AuthContext>()
       tags: ["Notifications"],
       summary: "Update notification",
       description: "Update a pending or failed notification. Cannot edit sent notifications. Admins can update any, users only their own.",
-      ...requiresIpa,
+      ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Notification updated"),
         400: jsonResponse(ErrorResponseSchema, "Failed to update notification"),
@@ -342,9 +311,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateNotificationSchema),
     async (c) => {
-      const accessCheck = await requireIpaUser(c, "update");
-      if (accessCheck.error || !accessCheck.user) return accessCheck.error!;
-      const user = accessCheck.user;
+      const user = c.get("user");
       const id = c.req.param("id");
       const notificationCheck = await requireNotificationAccess(c, { id, user });
       if (notificationCheck.error || !notificationCheck.notification) {
@@ -357,7 +324,7 @@ const app = new Hono<AuthContext>()
         notificationsService.notification.update({
           id,
           data,
-          access: { isAdmin: hasRole(user, "admin") },
+          access: { isAdmin: user.roles.includes("admin") },
         }),
         "Notification updated",
       );

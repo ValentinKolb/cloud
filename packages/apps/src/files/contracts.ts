@@ -189,4 +189,4 @@ export const DuplicateRequestSchema = z.object({
 export type DuplicateRequest = z.infer<typeof DuplicateRequestSchema>;
 
 export { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts/shared";
-export type { MutationResult, SessionUser } from "@valentinkolb/cloud/contracts/shared";
+export type { MutationResult, User } from "@valentinkolb/cloud/contracts/shared";

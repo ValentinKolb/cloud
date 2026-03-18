@@ -8,17 +8,13 @@ import FaqReorder from "./_components/FaqReorder.island";
 import type { FaqAudience } from "@/faq/contracts";
 
 const AUDIENCE_LABELS: Record<FaqAudience, { label: string; color: string }> = {
-  ipa: {
-    label: "IPA",
+  user: {
+    label: "User",
     color: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  },
-  "ipa-limited": {
-    label: "IPA Limited",
-    color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   },
   guest: {
     label: "Guest",
-    color: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+    color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
   },
   anonymous: {
     label: "Not signed in",
@@ -41,8 +37,8 @@ export default ssr<AuthContext>(async (c) => {
         <div class="info-block-info p-4 text-xs flex items-start gap-2">
           <i class="ti ti-info-circle shrink-0 mt-0.5" />
           <p>
-            Manage the FAQ entries shown to users on the help page. Each entry can be targeted to specific audiences (IPA, IPA Limited,
-            Guest, or anonymous visitors). Use the arrow buttons to reorder entries — the order here matches the display order on the public
+            Manage the FAQ entries shown to users on the help page. Each entry can be targeted to specific audiences (users, guests,
+            or anonymous visitors). Use the arrow buttons to reorder entries — the order here matches the display order on the public
             page. Questions and answers support plain text.
           </p>
         </div>

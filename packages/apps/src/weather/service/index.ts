@@ -10,7 +10,7 @@ registerGroupLabel("weather", "Weather");
 registerSettings([
   {
     key: "weather.default_lat",
-    type: "string",
+    kind: "string",
     default: "",
     description: "Default latitude",
     placeholder: "e.g. 48.401082 (Ulm)",
@@ -18,7 +18,7 @@ registerSettings([
   },
   {
     key: "weather.default_lon",
-    type: "string",
+    kind: "string",
     default: "",
     description: "Default longitude",
     placeholder: "e.g. 9.987608 (Ulm)",
@@ -26,14 +26,14 @@ registerSettings([
   },
   {
     key: "weather.cache_minutes",
-    type: "number",
+    kind: "number",
     default: 30,
     description: "How long weather data is cached before fetching fresh data (in minutes)",
     group: "weather",
   },
   {
     key: "weather.geo_url",
-    type: "string",
+    kind: "url",
     default: "",
     description: "Geocoding API URL for the location search feature",
     placeholder: "e.g. https://geocoding.example.com/search",

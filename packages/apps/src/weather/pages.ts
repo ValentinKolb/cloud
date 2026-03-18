@@ -8,5 +8,5 @@ export default new Hono<AuthContext>()
   // Public display endpoint (no auth) - must be before /:id
   .get("/display", ...weatherDisplayPage)
   // Protected routes (require auth)
-  .get("/", auth.requireRole("ipa", auth.redirectToLogin), ...weatherPage)
-  .get("/:id", auth.requireRole("ipa", auth.redirectToLogin), ...weatherDetailPage);
+  .get("/", auth.requireRole("user", auth.redirectToLogin), ...weatherPage)
+  .get("/:id", auth.requireRole("user", auth.redirectToLogin), ...weatherDetailPage);

@@ -110,7 +110,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasAccess = await spacesService.space.permission.canAccess({
     spaceId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
   if (!hasAccess) {
     return (
@@ -132,7 +132,7 @@ export default ssr<AuthContext>(async (c) => {
   const userPermission = await spacesService.space.permission.get({
     spaceId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
   const isAdmin = userPermission === "admin";
 
@@ -254,7 +254,7 @@ export default ssr<AuthContext>(async (c) => {
     const { from, to } = calendar.getDateRange(calendarView, calendarDate);
     const allCalendarItems = await spacesService.item.calendar.list({
       userId: user.id,
-      groups: user.memberofGroup,
+      groups: user.memberofGroupIds,
       from: from.toISOString(),
       to: to.toISOString(),
     });

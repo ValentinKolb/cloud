@@ -1,6 +1,6 @@
 import { sql } from "bun";
 import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
-import type { ProxyAuthClient, CreateProxyAuthClient, UpdateProxyAuthClient } from "@/proxy-auth/contracts";
+import type { ProxyAuthAllowedGroup, ProxyAuthClient, CreateProxyAuthClient, UpdateProxyAuthClient } from "@/proxy-auth/contracts";
 
 type ClientRow = {
   id: string;
@@ -8,7 +8,7 @@ type ClientRow = {
   client_id: string;
   description: string | null;
   created_at: string;
-  allowed_groups: string[];
+  allowed_groups: ProxyAuthAllowedGroup[];
 };
 
 /**
@@ -27,7 +27,7 @@ const mapRow = (row: ClientRow): ProxyAuthClient => ({
   name: row.name,
   clientId: row.client_id,
   description: row.description,
-  allowedGroups: row.allowed_groups,
+  allowedGroups: row.allowed_groups ?? [],
   createdAt: row.created_at,
 });
 
@@ -59,9 +59,20 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 const list = async (config?: { pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<ProxyAuthClient>> => {
   const rows = await sql<ClientRow[]>`
     SELECT c.*,
-      COALESCE(array_agg(cg.group_cn) FILTER (WHERE cg.group_cn IS NOT NULL), '{}') as allowed_groups
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', g.id,
+            'name', g.name,
+            'provider', g.provider
+          )
+          ORDER BY g.name
+        ) FILTER (WHERE cg.group_id IS NOT NULL),
+        '[]'::json
+      ) as allowed_groups
     FROM proxy_auth.clients c
     LEFT JOIN proxy_auth.client_groups cg ON c.id = cg.client_id
+    LEFT JOIN auth.groups g ON cg.group_id = g.id
     GROUP BY c.id
     ORDER BY c.name
   `;
@@ -88,9 +99,20 @@ const list = async (config?: { pagination?: PageParams; filter?: { query?: strin
 const get = async (config: { id: string }): Promise<ProxyAuthClient | null> => {
   const rows = await sql`
     SELECT c.*,
-      COALESCE(array_agg(cg.group_cn) FILTER (WHERE cg.group_cn IS NOT NULL), '{}') as allowed_groups
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', g.id,
+            'name', g.name,
+            'provider', g.provider
+          )
+          ORDER BY g.name
+        ) FILTER (WHERE cg.group_id IS NOT NULL),
+        '[]'::json
+      ) as allowed_groups
     FROM proxy_auth.clients c
     LEFT JOIN proxy_auth.client_groups cg ON c.id = cg.client_id
+    LEFT JOIN auth.groups g ON cg.group_id = g.id
     WHERE c.id = ${config.id}
     GROUP BY c.id
   `;
@@ -103,9 +125,20 @@ const get = async (config: { id: string }): Promise<ProxyAuthClient | null> => {
 const getByClientId = async (config: { clientId: string }): Promise<ProxyAuthClient | null> => {
   const rows = await sql`
     SELECT c.*,
-      COALESCE(array_agg(cg.group_cn) FILTER (WHERE cg.group_cn IS NOT NULL), '{}') as allowed_groups
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', g.id,
+            'name', g.name,
+            'provider', g.provider
+          )
+          ORDER BY g.name
+        ) FILTER (WHERE cg.group_id IS NOT NULL),
+        '[]'::json
+      ) as allowed_groups
     FROM proxy_auth.clients c
     LEFT JOIN proxy_auth.client_groups cg ON c.id = cg.client_id
+    LEFT JOIN auth.groups g ON cg.group_id = g.id
     WHERE c.client_id = ${config.clientId}
     GROUP BY c.id
   `;
@@ -126,10 +159,10 @@ const create = async (config: { data: CreateProxyAuthClient; createdBy: string }
     `;
     const client = rows[0]!;
 
-    for (const groupCn of data.allowedGroups) {
+    for (const groupId of data.allowedGroupIds) {
       await sql`
-        INSERT INTO proxy_auth.client_groups (client_id, group_cn)
-        VALUES (${client.id}, ${groupCn})
+        INSERT INTO proxy_auth.client_groups (client_id, group_id)
+        VALUES (${client.id}, ${groupId})
       `;
     }
 
@@ -162,12 +195,12 @@ const update = async (config: { id: string; data: UpdateProxyAuthClient }) => {
     if (data.description !== undefined) {
       await sql`UPDATE proxy_auth.clients SET description = ${data.description} WHERE id = ${id}`;
     }
-    if (data.allowedGroups) {
+    if (data.allowedGroupIds) {
       await sql`DELETE FROM proxy_auth.client_groups WHERE client_id = ${id}`;
-      for (const groupCn of data.allowedGroups) {
+      for (const groupId of data.allowedGroupIds) {
         await sql`
-          INSERT INTO proxy_auth.client_groups (client_id, group_cn)
-          VALUES (${id}, ${groupCn})
+          INSERT INTO proxy_auth.client_groups (client_id, group_id)
+          VALUES (${id}, ${groupId})
         `;
       }
     }

@@ -7,8 +7,8 @@ import contactCreatePage from "./frontend/[bookId]/e/page";
 import contactUpsertPage from "./frontend/[bookId]/e/[contactId]/page";
 
 export default new Hono<AuthContext>()
-  .get("/", auth.requireRole("ipa", auth.redirectToLogin), ...page)
-  .get("/:bookId/settings", auth.requireRole("ipa", auth.redirectToLogin), ...bookSettingsPage)
-  .get("/:bookId/e/:contactId", auth.requireRole("ipa", auth.redirectToLogin), ...contactUpsertPage)
-  .get("/:bookId/e", auth.requireRole("ipa", auth.redirectToLogin), ...contactCreatePage)
-  .get("/:bookId", auth.requireRole("ipa", auth.redirectToLogin), ...bookPage);
+  .get("/", auth.requireRole("user", auth.redirectToLogin), ...page)
+  .get("/:bookId/settings", auth.requireRole("user", auth.redirectToLogin), ...bookSettingsPage)
+  .get("/:bookId/e/:contactId", auth.requireRole("user", auth.redirectToLogin), ...contactUpsertPage)
+  .get("/:bookId/e", auth.requireRole("user", auth.redirectToLogin), ...contactCreatePage)
+  .get("/:bookId", auth.requireRole("user", auth.redirectToLogin), ...bookPage);

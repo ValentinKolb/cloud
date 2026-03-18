@@ -52,8 +52,9 @@ export const parseBase = async (baseType: string, baseId: string): Promise<Mutat
   if (baseType === "home") {
     // Fetch user's uidNumber
     const rows: DbRow[] = await sql`
-      SELECT uid_number
+      SELECT d.uid_number
       FROM auth.users u
+      LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
       WHERE u.uid = ${baseId}
     `;
 

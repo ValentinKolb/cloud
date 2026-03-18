@@ -138,7 +138,8 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
     FROM auth.users u
-    WHERE u.realm IN ('ipa', 'ipa-limited')
+    LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
+    WHERE u.provider = 'ipa'
       AND (
         ${searchPattern}::text IS NULL
         OR LOWER(u.uid) LIKE ${searchPattern}
@@ -146,12 +147,12 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
         OR LOWER(u.given_name) LIKE ${searchPattern}
         OR LOWER(u.sn) LIKE ${searchPattern}
         OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.phone, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.mobile, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.employee_type, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.addr_street, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.addr_postal_code, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.addr_city, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
       )
   `;
 
@@ -163,17 +164,18 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
       u.given_name,
       u.sn,
       u.mail,
-      u.phone,
-      u.mobile,
-      u.employee_type,
-      u.addr_street,
-      u.addr_postal_code,
-      u.addr_city,
-      u.addr_state,
+      d.phone,
+      d.mobile,
+      d.employee_type,
+      d.addr_street,
+      d.addr_postal_code,
+      d.addr_city,
+      d.addr_state,
       u.created_at,
-      u.synced_at
+      d.synced_at
     FROM auth.users u
-    WHERE u.realm IN ('ipa', 'ipa-limited')
+    LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
+    WHERE u.provider = 'ipa'
       AND (
         ${searchPattern}::text IS NULL
         OR LOWER(u.uid) LIKE ${searchPattern}
@@ -181,12 +183,12 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
         OR LOWER(u.given_name) LIKE ${searchPattern}
         OR LOWER(u.sn) LIKE ${searchPattern}
         OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.phone, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.mobile, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.employee_type, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.addr_street, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.addr_postal_code, '')) LIKE ${searchPattern}
-        OR LOWER(COALESCE(u.addr_city, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
+        OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
       )
     ORDER BY LOWER(COALESCE(NULLIF(u.display_name, ''), u.uid)) ASC
     LIMIT ${perPage}
@@ -217,18 +219,19 @@ export const getSystemContact = async (config: { id: string }): Promise<Contact 
       u.given_name,
       u.sn,
       u.mail,
-      u.phone,
-      u.mobile,
-      u.employee_type,
-      u.addr_street,
-      u.addr_postal_code,
-      u.addr_city,
-      u.addr_state,
+      d.phone,
+      d.mobile,
+      d.employee_type,
+      d.addr_street,
+      d.addr_postal_code,
+      d.addr_city,
+      d.addr_state,
       u.created_at,
-      u.synced_at
+      d.synced_at
     FROM auth.users u
+    LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
     WHERE u.id = ${config.id}::uuid
-      AND u.realm IN ('ipa', 'ipa-limited')
+      AND u.provider = 'ipa'
   `;
 
   return row ? mapSystemContact(row) : null;
@@ -249,18 +252,19 @@ export const getSystemContactsByIds = async (ids: string[]): Promise<Map<string,
       u.given_name,
       u.sn,
       u.mail,
-      u.phone,
-      u.mobile,
-      u.employee_type,
-      u.addr_street,
-      u.addr_postal_code,
-      u.addr_city,
-      u.addr_state,
+      d.phone,
+      d.mobile,
+      d.employee_type,
+      d.addr_street,
+      d.addr_postal_code,
+      d.addr_city,
+      d.addr_state,
       u.created_at,
-      u.synced_at
+      d.synced_at
     FROM auth.users u
+    LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
     WHERE u.id = ANY(${toPgUuidArray(validIds)}::uuid[])
-      AND u.realm IN ('ipa', 'ipa-limited')
+      AND u.provider = 'ipa'
   `;
 
   const mapped = new Map<string, Contact>();

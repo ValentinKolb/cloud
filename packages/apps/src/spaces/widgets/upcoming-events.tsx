@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { SessionUser, CalendarItem } from "@/spaces/contracts";
+import type { User, CalendarItem } from "@/spaces/contracts";
 import { spacesService } from "../service";
 import { parseWidgetSettings } from "@/spaces/frontend/[id]/_components/settings/SpaceSettingsStore";
 import type { Widget } from "@valentinkolb/cloud/contracts/app";
@@ -127,7 +127,7 @@ function EventsContent({ events }: { events: CalendarItem[] }) {
  * Shows events for the configured time range.
  * Settings are configured in Space Settings sidebar.
  */
-export async function createUpcomingEventsWidget(c: Context, user?: SessionUser): Promise<Widget> {
+export async function createUpcomingEventsWidget(c: Context, user?: User): Promise<Widget> {
   if (!user) return null;
 
   // Parse widget settings from cookie
@@ -143,7 +143,7 @@ export async function createUpcomingEventsWidget(c: Context, user?: SessionUser)
   // Fetch events from all spaces the user has access to
   const events = await spacesService.item.calendar.list({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
     from,
     to,
   });

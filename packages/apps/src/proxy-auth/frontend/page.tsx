@@ -51,7 +51,7 @@ export default ssr<AuthContext>(async (c) => {
                         <div class="flex flex-wrap gap-1">
                           {client.allowedGroups.map((group) => (
                             <span class="text-xs px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-400">
-                              {group}
+                              {group.name}
                             </span>
                           ))}
                         </div>

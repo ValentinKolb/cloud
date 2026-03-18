@@ -17,7 +17,7 @@ export const migrate = async (): Promise<void> => {
       client_secret_hash TEXT,
       redirect_uris TEXT[] NOT NULL,
       scopes TEXT[] NOT NULL DEFAULT ARRAY['openid', 'profile', 'email'],
-      allowed_roles TEXT[] NOT NULL DEFAULT ARRAY['ipa', 'ipa-limited', 'guest'],
+      allowed_profiles TEXT[] NOT NULL DEFAULT ARRAY['user', 'guest'],
       is_public BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       created_by UUID REFERENCES auth.users(id)
@@ -50,9 +50,45 @@ export const migrate = async (): Promise<void> => {
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'oauth' AND table_name = 'clients' AND column_name = 'allowed_realms'
       ) THEN
-        ALTER TABLE oauth.clients RENAME COLUMN allowed_realms TO allowed_roles;
+        ALTER TABLE oauth.clients RENAME COLUMN allowed_realms TO allowed_profiles;
       END IF;
     END $$
+  `.simple();
+
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'oauth' AND table_name = 'clients' AND column_name = 'allowed_roles'
+      ) THEN
+        ALTER TABLE oauth.clients RENAME COLUMN allowed_roles TO allowed_profiles;
+      END IF;
+    END $$
+  `.simple();
+
+  await sql`
+    ALTER TABLE oauth.clients ADD COLUMN IF NOT EXISTS allowed_profiles TEXT[] NOT NULL DEFAULT ARRAY['user', 'guest']
+  `.simple();
+
+  await sql`
+    UPDATE oauth.clients
+    SET allowed_profiles = COALESCE(
+      ARRAY(
+        SELECT DISTINCT mapped
+        FROM (
+          SELECT CASE
+            WHEN value = 'ipa' THEN 'user'
+            WHEN value IN ('ipa-limited', 'guest') THEN 'guest'
+            WHEN value IN ('user', 'guest') THEN value
+            ELSE NULL
+          END AS mapped
+          FROM unnest(allowed_profiles) AS value
+        ) mapped_values
+        WHERE mapped IS NOT NULL
+      ),
+      ARRAY['user', 'guest']::text[]
+    )
   `.simple();
 
   console.log("  ✓ oauth.clients table");

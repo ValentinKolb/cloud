@@ -1,10 +1,9 @@
 import type { Context } from "hono";
-import type { SessionUser } from "@/files/contracts";
-import { hasRole } from "@/files/contracts";
+import type { User } from "@/files/contracts";
 import { filesService } from "./service";
 import type { Widget } from "@valentinkolb/cloud/contracts/app"; /** * Create files widget. * Only shown for IPA users (who have file access). */
-export async function createFilesWidget(c: Context, user?: SessionUser): Promise<Widget> {
-  if (!user || !hasRole(user, "ipa")) return null;
+export async function createFilesWidget(c: Context, user?: User): Promise<Widget> {
+  if (!user || user.provider !== "ipa" || user.profile !== "user") return null;
   const bases = await filesService.base.listResolved({ user });
   const groupBases = bases.filter((b) => b.type === "group");
   return {

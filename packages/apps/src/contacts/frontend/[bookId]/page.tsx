@@ -28,7 +28,7 @@ export default ssr<AuthContext>(async (c) => {
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const [book, booksResult] = await Promise.all([
     contactsService.book.get({ id: bookId }),
-    contactsService.book.list({ userId: user.id, groups: user.memberofGroup }),
+    contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
   ]);
   if (!book) {
     return (
@@ -47,7 +47,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasReadAccess = await contactsService.book.permission.canAccess({
     bookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
     requiredLevel: "read",
   });
   if (!hasReadAccess) {
@@ -69,7 +69,7 @@ export default ssr<AuthContext>(async (c) => {
   const permissionEntries = await Promise.all(
     manualBooks.map(async (entry) => ({
       book: entry,
-      permission: await contactsService.book.permission.get({ bookId: entry.id, userId: user.id, userGroups: user.memberofGroup }),
+      permission: await contactsService.book.permission.get({ bookId: entry.id, userId: user.id, userGroups: user.memberofGroupIds }),
     })),
   );
   const writableBooks = permissionEntries

@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import * as jose from "jose";
 import type { OAuthClient, OAuthScope } from "@/oauth/contracts";
-import { ipa } from "@valentinkolb/cloud/core/services";
+import { accounts } from "@valentinkolb/cloud/core/services";
 
 // ==========================
 // OAuth Tokens Service (JWT with jose)
@@ -132,7 +132,7 @@ export const createTokens = async (params: {
   const { privateKey, kid } = await getOrCreateKeyPair();
 
   // Load user to get uid for sub claim
-  const user = await ipa.users.get({ id: userId });
+  const user = await accounts.users.get({ id: userId });
   if (!user) {
     throw new Error("User not found");
   }
@@ -176,7 +176,7 @@ export const createTokens = async (params: {
     }
 
     if (client.scopes.includes("groups")) {
-      const groups = await ipa.users.getGroups({ id: userId, recursive: true });
+      const groups = await accounts.users.getGroups({ id: userId, recursive: true });
       idTokenClaims.groups = groups;
     }
 
@@ -216,7 +216,7 @@ export const createUserInfo = async (params: { sub: string; scopes: OAuthScope[]
   const { sub, scopes } = params;
 
   // sub is the uid, load user by uid
-  const user = await ipa.users.get({ uid: sub });
+  const user = await accounts.users.get({ uid: sub });
   if (!user) return null;
 
   const userInfo: Record<string, unknown> = {
@@ -237,7 +237,7 @@ export const createUserInfo = async (params: { sub: string; scopes: OAuthScope[]
   }
 
   if (scopes.includes("groups")) {
-    const groups = await ipa.users.getGroups({ id: user.id, recursive: true });
+    const groups = await accounts.users.getGroups({ id: user.id, recursive: true });
     userInfo.groups = groups;
   }
 

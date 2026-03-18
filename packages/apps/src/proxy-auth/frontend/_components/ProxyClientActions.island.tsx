@@ -6,7 +6,7 @@ import { apiClient } from "@/proxy-auth/client";
 import { clipboard } from "@valentinkolb/cloud/lib/browser";
 import { TextInput } from "@valentinkolb/cloud/lib/ui";
 import { EntitySearch, type EntitySearchResult } from "@valentinkolb/cloud/lib/ui";
-import type { ProxyAuthClient, UpdateProxyAuthClient } from "@/proxy-auth/contracts";
+import type { ProxyAuthAllowedGroup, ProxyAuthClient, UpdateProxyAuthClient } from "@/proxy-auth/contracts";
 import { refreshCurrentPath } from "../lib/navigation";
 
 type Props = {
@@ -57,11 +57,11 @@ const ProxyClientActions = (props: Props) => {
     const result = await prompts.dialog<UpdateProxyAuthClient | null>(
       (close) => {
         const [description, setDescription] = createSignal(client.description ?? "");
-        const [groups, setGroups] = createSignal<string[]>([...client.allowedGroups]);
+        const [groups, setGroups] = createSignal<ProxyAuthAllowedGroup[]>([...client.allowedGroups]);
 
         const handleGroupSelect = (r: EntitySearchResult) => {
-          if (r.type === "group" && !groups().includes(r.id)) {
-            setGroups([...groups(), r.id]);
+          if (r.type === "group" && !groups().some((group) => group.id === r.id)) {
+            setGroups([...groups(), { id: r.id, name: r.name, provider: r.provider }]);
           }
         };
 
@@ -72,7 +72,7 @@ const ProxyClientActions = (props: Props) => {
           }
           close({
             description: description().trim() || null,
-            allowedGroups: groups(),
+            allowedGroupIds: groups().map((group) => group.id),
           });
         };
 
@@ -95,11 +95,15 @@ const ProxyClientActions = (props: Props) => {
               <Show when={groups().length > 0}>
                 <div class="flex flex-wrap gap-1 mb-1">
                   <For each={groups()}>
-                    {(cn) => (
+                    {(group) => (
                       <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded bg-cyan-100 dark:bg-cyan-900/30 text-cyan-800 dark:text-cyan-400">
                         <i class="ti ti-users-group text-[10px]" />
-                        {cn}
-                        <button type="button" onClick={() => setGroups(groups().filter((g) => g !== cn))} class="hover:text-red-500 ml-0.5">
+                        {group.name}
+                        <button
+                          type="button"
+                          onClick={() => setGroups(groups().filter((candidate) => candidate.id !== group.id))}
+                          class="hover:text-red-500 ml-0.5"
+                        >
                           <i class="ti ti-x text-[10px]" />
                         </button>
                       </span>
@@ -107,13 +111,14 @@ const ProxyClientActions = (props: Props) => {
                   </For>
                 </div>
               </Show>
-              <EntitySearch
-                searchGroups
-                searchUsers={false}
-                excludeGroups={groups()}
-                onSelect={handleGroupSelect}
-                placeholder="Search groups..."
-              />
+                <EntitySearch
+                  apiBaseUrl="/api/accounts"
+                  searchGroups
+                  searchUsers={false}
+                  excludeGroups={groups().map((group) => group.id)}
+                  onSelect={handleGroupSelect}
+                  placeholder="Search groups..."
+                />
             </div>
 
             <div class="flex items-center gap-2 justify-end border-t border-zinc-200 dark:border-zinc-700 pt-4">

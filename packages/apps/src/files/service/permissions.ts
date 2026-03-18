@@ -1,28 +1,34 @@
 import { sql } from "bun";
-import type { SessionUser, FileBase, FileBaseInfo, MutationResult } from "@/files/contracts";
+import { toPgTextArray } from "@valentinkolb/cloud/core/services";
+import type { User, FileBase, FileBaseInfo, MutationResult } from "@/files/contracts";
 
 type DbRow = Record<string, unknown>;
 
 /**
- * Get all group CNs a user belongs to (direct + indirect via group hierarchy).
+ * Get all group names a user belongs to (direct + indirect via group hierarchy).
  */
 const getAllGroups = async (userId: string): Promise<string[]> => {
   const rows: DbRow[] = await sql`
     WITH RECURSIVE all_groups AS (
-      SELECT group_cn FROM auth.user_groups WHERE user_id = ${userId}
+      SELECT g.id, g.name
+      FROM auth.user_groups_v2 ug
+      JOIN auth.groups g ON g.id = ug.group_id
+      WHERE ug.user_id = ${userId}
       UNION
-      SELECT gg.parent_cn FROM auth.group_groups gg
-      JOIN all_groups ag ON gg.child_cn = ag.group_cn
+      SELECT gp.id, gp.name
+      FROM auth.group_groups_v2 gg
+      JOIN auth.groups gp ON gp.id = gg.parent_group_id
+      JOIN all_groups ag ON gg.child_group_id = ag.id
     )
-    SELECT group_cn FROM all_groups`;
-  return rows.map((r) => r.group_cn as string);
+    SELECT name FROM all_groups`;
+  return rows.map((r) => r.name as string);
 };
 
 /**
  * Check if a user can access a file base (home directory or group directory).
  * Checks recursive group membership.
  */
-export const canAccess = async (user: SessionUser, base: FileBase): Promise<MutationResult<void>> => {
+export const canAccess = async (user: User, base: FileBase): Promise<MutationResult<void>> => {
   if (base.type === "home") {
     if (base.uid !== user.uid) {
       return {
@@ -49,14 +55,9 @@ export const canAccess = async (user: SessionUser, base: FileBase): Promise<Muta
  * List all file bases accessible to a user (with numeric IDs for ownership).
  * Includes bases from indirect group memberships (group hierarchy).
  */
-export const listBases = async (user: SessionUser): Promise<FileBase[]> => {
+export const listBases = async (user: User): Promise<FileBase[]> => {
   const bases: FileBase[] = [];
-
-  // Get user's uidNumber for home directory
-  const userRows: DbRow[] = await sql`
-    SELECT uid_number FROM auth.users WHERE uid = ${user.uid}
-  `;
-  const uidNumber = userRows[0]?.uid_number as number | null;
+  const uidNumber = user.ipa?.uidNumber ?? null;
 
   bases.push({
     type: "home",
@@ -69,15 +70,15 @@ export const listBases = async (user: SessionUser): Promise<FileBase[]> => {
   const allGroups = await getAllGroups(user.id);
   if (allGroups.length > 0) {
     const groupRows: DbRow[] = await sql`
-      SELECT cn, gid_number FROM auth.groups
-      WHERE cn IN ${sql(allGroups)}
+      SELECT name, gid_number FROM auth.groups
+      WHERE name = ANY(${toPgTextArray(allGroups)}::text[])
       AND gid_number IS NOT NULL
     `;
 
     for (const row of groupRows) {
       bases.push({
         type: "group",
-        name: row.cn as string,
+        name: row.name as string,
         gidNumber: row.gid_number as number,
       });
     }

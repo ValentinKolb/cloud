@@ -315,6 +315,7 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
       (close) => (
         <div class="min-h-70">
           <EntitySearch
+            apiBaseUrl="/api/accounts"
             searchUsers
             searchGroups={false}
             excludeUserIds={currentIds()}

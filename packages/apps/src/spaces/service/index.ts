@@ -185,7 +185,7 @@ export const spacesService = {
           return entry.principal.userId.toLowerCase().includes(query);
         }
         if (entry.principal.type === "group") {
-          return entry.principal.groupCn.toLowerCase().includes(query);
+          return entry.principal.groupId.toLowerCase().includes(query);
         }
         if (entry.principal.type === "authenticated") {
           return "all signed-in users authenticated".includes(query);

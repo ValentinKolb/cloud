@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { SessionUser } from "@valentinkolb/cloud/contracts/shared";
+import type { User } from "@valentinkolb/cloud/contracts/shared";
 import { hasRole } from "@valentinkolb/cloud/contracts/shared";
 import { quotesService } from "./service";
 import type { Widget } from "@valentinkolb/cloud/contracts/app";
@@ -8,7 +8,7 @@ import type { Widget } from "@valentinkolb/cloud/contracts/app";
  * Create quote widget.
  * Only shown for logged-in users (not guests).
  */
-export async function createQuoteWidget(c: Context, user?: SessionUser): Promise<Widget> {
+export async function createQuoteWidget(c: Context, user?: User): Promise<Widget> {
   // Not for guests or unauthenticated users
   if (!user || hasRole(user, "guest")) return null;
 

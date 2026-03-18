@@ -9,7 +9,7 @@ const SEARCH_TAG_HELP = [
   { tag: "location", help: "Find saved locations." },
   { tag: "temperature", help: "Focus on temperature context." },
 ] as const;
-const supportsWeatherApp = (roles: string[]) => roles.includes("ipa");
+const supportsWeatherApp = (roles: string[]) => roles.includes("user");
 const hasAllTags = (requested: string[]) => requested.every((tag) => SEARCH_TAGS.includes(tag as (typeof SEARCH_TAGS)[number]));
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {

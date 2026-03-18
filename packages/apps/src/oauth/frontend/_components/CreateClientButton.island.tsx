@@ -94,26 +94,26 @@ const CreateClientButton = () => {
           placeholder: "https://myapp.example.com/logout-callback",
           icon: "ti ti-logout",
         },
-        realmInfo: {
+        profileInfo: {
           type: "info" as const,
-          content: <div class="text-xs text-dimmed border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">Allowed Users</div>,
+          content: <div class="text-xs text-dimmed border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">Allowed Profiles</div>,
         },
-        realm: {
+        profileAccess: {
           type: "select" as const,
           label: "Who can use this client?",
           options: [
             {
-              id: "ipa",
-              label: "IPA Users Only",
-              description: "Only full IPA accounts (no guests or limited accounts)",
+              id: "user",
+              label: "Full Users Only",
+              description: "Only full user accounts can use this client.",
             },
             {
               id: "everybody",
               label: "Everybody",
-              description: "All users (IPA, IPA-limited, and guests)",
+              description: "Full users and guests can use this client.",
             },
           ],
-          default: "ipa",
+          default: "user",
           required: true,
         },
         scopesInfo: {
@@ -157,7 +157,7 @@ const CreateClientButton = () => {
       if (result.scopeEmail) scopes.push("email");
       if (result.scopeGroups) scopes.push("groups");
 
-      const allowedRoles: ("ipa" | "ipa-limited" | "guest")[] = result.realm === "everybody" ? ["ipa", "ipa-limited", "guest"] : ["ipa"];
+      const allowedProfiles: ("user" | "guest")[] = result.profileAccess === "everybody" ? ["user", "guest"] : ["user"];
 
       // Clean up redirect URI (remove quotes and whitespace)
       const cleanRedirectUri = result.redirectUri.trim().replace(/^["']|["']$/g, "");
@@ -171,7 +171,7 @@ const CreateClientButton = () => {
         redirectUris: [cleanRedirectUri],
         logoutUri: cleanLogoutUri,
         scopes,
-        allowedRoles,
+        allowedProfiles,
         isPublic: !!result.isPublic,
       });
     }

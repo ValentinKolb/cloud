@@ -6,7 +6,7 @@ import { jsonResponse } from "@valentinkolb/cloud/lib/server";
 import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { env } from "@valentinkolb/cloud/core/config";
 import { oauth } from "./service/oauth";
-import { ipa } from "@valentinkolb/cloud/core/services";
+import { accounts } from "@valentinkolb/cloud/core/services";
 import { ErrorResponseSchema, type OAuthScope } from "@/oauth/contracts";
 import { logger } from "@valentinkolb/cloud/core/services";
 
@@ -105,7 +105,7 @@ const app = new Hono<AuthContext>()
         const loginParams = new URLSearchParams();
         loginParams.set("redirectTo", returnUrl);
 
-        if (!client.allowedRoles.includes("guest")) {
+        if (!client.allowedProfiles.includes("guest")) {
           loginParams.set("hide", "guest");
           loginParams.set("method", "ipa");
         }
@@ -122,12 +122,12 @@ const app = new Hono<AuthContext>()
         return c.redirect(buildLoginRedirect());
       }
 
-      const user = await ipa.users.get({ id: sessionData.userId });
+      const user = await accounts.users.get({ id: sessionData.userId });
       if (!user) {
         return c.redirect(`/auth/login?next=${encodeURIComponent(c.req.url)}`);
       }
 
-      if (!client.allowedRoles.some((role) => user.roles.includes(role))) {
+      if (!client.allowedProfiles.includes(user.profile)) {
         return c.redirect(
           `/oauth/error?error=access_denied&error_description=${encodeURIComponent(
             "You do not have access to this application",

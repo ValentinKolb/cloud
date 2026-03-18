@@ -6,8 +6,8 @@ import filesHomePage from "./frontend/home/page";
 import filesDetailPage from "./frontend/[baseType]/[baseId]/page";
 
 export default new Hono<AuthContext>()
-  .get("/", auth.requireRole("ipa", auth.redirectToLogin), ...filesPage)
-  .get("/search", auth.requireRole("ipa", auth.redirectToLogin), ...filesSearchPage)
-  .get("/home", auth.requireRole("ipa", auth.redirectToLogin), ...filesHomePage)
-  .get("/home/*", auth.requireRole("ipa", auth.redirectToLogin), ...filesHomePage)
-  .get("/:baseType/:baseId", auth.requireRole("ipa", auth.redirectToLogin), ...filesDetailPage);
+  .get("/", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesPage)
+  .get("/search", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesSearchPage)
+  .get("/home", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesHomePage)
+  .get("/home/*", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesHomePage)
+  .get("/:baseType/:baseId", auth.requireAccount({ provider: "ipa", profile: "user", onReject: auth.redirectToLogin.onReject }), ...filesDetailPage);

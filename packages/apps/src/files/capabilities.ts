@@ -11,7 +11,7 @@ const SEARCH_TAG_HELP = [
   { tag: "excel", help: "Focus on spreadsheet files." },
   { tag: "pdf", help: "Focus on PDF documents." },
 ] as const;
-const supportsFilesApp = (roles: string[]) => roles.includes("ipa");
+const supportsFilesApp = (user: { provider: string; profile: string }) => user.provider === "ipa" && user.profile === "user";
 const hasAllTags = (requested: string[]) => requested.every((tag) => SEARCH_TAGS.includes(tag as (typeof SEARCH_TAGS)[number]));
 
 const normalizePath = (path: string): string => {
@@ -44,7 +44,7 @@ const buildPreviewUrl = (baseType: "home" | "group", baseId: string, path: strin
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = input.ctx.get("user");
-  if (!supportsFilesApp(user.roles)) return [];
+  if (!supportsFilesApp(user)) return [];
   if (input.tags.length > 0 && !hasAllTags(input.tags)) return [];
 
   const bases = await filesService.base.listResolved({ user });

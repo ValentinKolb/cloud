@@ -100,8 +100,7 @@ const ClientActions = (props: ClientActionsProps) => {
     onError: (err) => prompts.error(err.message),
   });
 
-  // Determine current realm setting
-  const currentRealm = client.allowedRoles.includes("guest") || client.allowedRoles.includes("ipa-limited") ? "everybody" : "ipa";
+  const currentProfileAccess = client.allowedProfiles.includes("guest") ? "everybody" : "user";
 
   const handleEdit = async () => {
     const result = await prompts.form({
@@ -142,26 +141,26 @@ const ClientActions = (props: ClientActionsProps) => {
           icon: "ti ti-logout",
           default: client.logoutUri ?? "",
         },
-        realmInfo: {
+        profileInfo: {
           type: "info" as const,
-          content: <div class="text-xs text-dimmed border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">Allowed Users</div>,
+          content: <div class="text-xs text-dimmed border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">Allowed Profiles</div>,
         },
-        realm: {
+        profileAccess: {
           type: "select" as const,
           label: "Who can use this client?",
           options: [
             {
               id: "everybody",
               label: "Everybody",
-              description: "All users (IPA, IPA-limited, and guests)",
+              description: "Full users and guests can use this client.",
             },
             {
-              id: "ipa",
-              label: "IPA Users Only",
-              description: "Only full IPA accounts (no guests or limited accounts)",
+              id: "user",
+              label: "Full Users Only",
+              description: "Only full user accounts can use this client.",
             },
           ],
-          default: currentRealm,
+          default: currentProfileAccess,
           required: true,
         },
         scopesInfo: {
@@ -196,7 +195,7 @@ const ClientActions = (props: ClientActionsProps) => {
       if (result.scopeEmail) scopes.push("email");
       if (result.scopeGroups) scopes.push("groups");
 
-      const allowedRoles: ("ipa" | "ipa-limited" | "guest")[] = result.realm === "everybody" ? ["ipa", "ipa-limited", "guest"] : ["ipa"];
+      const allowedProfiles: ("user" | "guest")[] = result.profileAccess === "everybody" ? ["user", "guest"] : ["user"];
 
       // Clean up redirect URI (remove quotes and whitespace)
       const cleanRedirectUri = result.redirectUri.trim().replace(/^["']|["']$/g, "");
@@ -209,7 +208,7 @@ const ClientActions = (props: ClientActionsProps) => {
         redirectUris: [cleanRedirectUri],
         logoutUri: cleanLogoutUri,
         scopes,
-        allowedRoles,
+        allowedProfiles,
       });
     }
   };

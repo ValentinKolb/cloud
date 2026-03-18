@@ -130,7 +130,7 @@ const getAssigneesByItemIds = async (itemIds: string[]): Promise<Map<string, Spa
     SELECT ia.item_id, u.id, u.display_name
     FROM spaces.item_assignees ia
     JOIN auth.users u ON ia.user_id = u.id
-    WHERE ia.item_id IN ${sql(itemIds)}
+    WHERE ia.item_id = ANY(${toPgUuidArray(itemIds)}::uuid[])
     ORDER BY ia.item_id, u.display_name
   `;
   const grouped = new Map<string, SpaceItemAssignee[]>();
@@ -146,7 +146,7 @@ const getTagsByItemIds = async (itemIds: string[]): Promise<Map<string, SpaceTag
     SELECT it.item_id, t.id, t.space_id, t.name, t.color
     FROM spaces.item_tags it
     JOIN spaces.tags t ON it.tag_id = t.id
-    WHERE it.item_id IN ${sql(itemIds)}
+    WHERE it.item_id = ANY(${toPgUuidArray(itemIds)}::uuid[])
     ORDER BY it.item_id, t.name
   `;
   const grouped = new Map<string, SpaceTag[]>();
@@ -173,6 +173,11 @@ const hydrateRelations = async (items: SpaceItem[]): Promise<SpaceItem[]> => {
     item.tags = tagsByItemId.get(item.id) ?? [];
   }
   return items;
+};
+
+const toPgTextArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
 };
 
 /**
@@ -238,12 +243,12 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
 
   // Priority filter - use IN with parameterized values
   if (priority && priority.length > 0) {
-    conditions = sql`${conditions} AND i.priority IN ${sql(priority)}`;
+    conditions = sql`${conditions} AND i.priority = ANY(${toPgTextArray(priority)}::text[])`;
   }
 
   // Column filter
   if (columnIds && columnIds.length > 0) {
-    conditions = sql`${conditions} AND i.column_id IN ${sql(columnIds)}`;
+    conditions = sql`${conditions} AND i.column_id = ANY(${toPgUuidArray(columnIds)}::uuid[])`;
   }
 
   // Deadline filter
@@ -261,7 +266,7 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
   if (tagIds && tagIds.length > 0) {
     conditions = sql`${conditions} AND EXISTS (
       SELECT 1 FROM spaces.item_tags it
-      WHERE it.item_id = i.id AND it.tag_id IN ${sql(tagIds)}
+      WHERE it.item_id = i.id AND it.tag_id = ANY(${toPgUuidArray(tagIds)}::uuid[])
     )`;
   }
 
@@ -269,7 +274,7 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
   if (assigneeIds && assigneeIds.length > 0) {
     conditions = sql`${conditions} AND EXISTS (
       SELECT 1 FROM spaces.item_assignees ia
-      WHERE ia.item_id = i.id AND ia.user_id IN ${sql(assigneeIds)}
+      WHERE ia.item_id = i.id AND ia.user_id = ANY(${toPgUuidArray(assigneeIds)}::uuid[])
     )`;
   }
 
@@ -742,15 +747,19 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
 };
 
 /**
- * Escapes group CN values into a Postgres `text[]` literal for access-aware calendar queries.
+ * Escapes group IDs into a Postgres `uuid[]` literal for access-aware calendar queries.
  */
-const toPgTextArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
+const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
 
 /**
  * List calendar items (across multiple spaces the user has access to)
  */
 export const listCalendar = async (params: { userId: string; groups: string[]; from: string; to: string }): Promise<CalendarItem[]> => {
-  const { userId, groups, from, to } = params;
+  const { userId, from, to } = params;
+  const groups = params.groups ?? [];
 
   // Use subquery to get accessible space IDs first, then query items
   const rows = await sql<DbCalendarItem[]>`
@@ -760,9 +769,9 @@ export const listCalendar = async (params: { userId: string; groups: string[]; f
       JOIN spaces.space_access sa ON s.id = sa.space_id
       JOIN auth.access a ON sa.access_id = a.id
       WHERE a.user_id = ${userId}::uuid
-         OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+         OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-         OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
            i.title, i.starts_at, i.ends_at, i.deadline, i.priority
@@ -811,7 +820,8 @@ export const listMyTasks = async (params: {
   minPriority?: Priority;
   limit?: number;
 }): Promise<TaskItem[]> => {
-  const { userId, groups, minPriority, limit = 20 } = params;
+  const { userId, minPriority, limit = 20 } = params;
+  const groups = params.groups ?? [];
 
   // Build priority filter
   let priorityCondition = sql``;
@@ -821,7 +831,7 @@ export const listMyTasks = async (params: {
     const allowedPriorities = Object.entries(priorityOrder)
       .filter(([_, order]) => order <= minOrder)
       .map(([p]) => p);
-    priorityCondition = sql`AND i.priority IN ${sql(allowedPriorities)}`;
+    priorityCondition = sql`AND i.priority = ANY(${toPgTextArray(allowedPriorities)}::text[])`;
   }
 
   // Use subquery to get accessible space IDs first, then query items
@@ -842,9 +852,9 @@ export const listMyTasks = async (params: {
       JOIN spaces.space_access sa ON s.id = sa.space_id
       JOIN auth.access a ON sa.access_id = a.id
       WHERE a.user_id = ${userId}::uuid
-         OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+         OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-         OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
            i.title, i.deadline, i.priority
@@ -891,7 +901,8 @@ export const checkOverlap = async (params: {
   to: string;
   excludeItemId?: string;
 }): Promise<OverlapItem[]> => {
-  const { groups, from, to, excludeItemId } = params;
+  const { from, to, excludeItemId } = params;
+  const groups = params.groups ?? [];
 
   if (groups.length === 0) return [];
 

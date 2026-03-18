@@ -1,6 +1,5 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
-import { hasRole } from "@/faq/contracts";
 import { faqService } from "../service";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
 import { MarkdownView } from "@valentinkolb/cloud/lib/ui";
@@ -9,7 +8,7 @@ import { markdown } from "@valentinkolb/cloud/lib/shared";
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
 
-  const audience = !user ? "anonymous" : hasRole(user, "guest") ? "guest" : hasRole(user, "ipa-limited") ? "ipa-limited" : "ipa";
+  const audience = !user ? "anonymous" : user.profile === "guest" ? "guest" : "user";
 
   const entries = (await faqService.entry.list({ filter: { audience } })).items;
 

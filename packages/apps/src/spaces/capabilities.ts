@@ -32,12 +32,12 @@ const itemKind = (item: { startsAt: string | null; endsAt: string | null }) => (
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = input.ctx.get("user");
-  if (!user.roles.includes("ipa")) return [];
+  if (!user.roles.includes("user")) return [];
   if (input.tags.length > 0 && !hasAllTags(input.tags)) return [];
 
   const spacesPage = await spacesService.space.list({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
     pagination: { page: 1, perPage: input.limit },
     filter: { query: input.query },
   });

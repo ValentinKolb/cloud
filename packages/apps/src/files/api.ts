@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { v } from "@valentinkolb/cloud/lib/server";
-import { jsonResponse, requiresAuth } from "@valentinkolb/cloud/lib/server";
+import { jsonResponse, requiresIpaUser } from "@valentinkolb/cloud/lib/server";
 import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { respond } from "@valentinkolb/cloud/lib/server";
 import { err, fail, ok } from "@valentinkolb/cloud/lib/server";
@@ -60,7 +60,7 @@ const requireBaseAccess = async (c: Context<AuthContext>) => {
 
 /** File management routes. Only for full IPA users. */
 const app = new Hono<AuthContext>()
-  .use(auth.requireRole("ipa"))
+  .use(auth.requireAccount({ provider: "ipa", profile: "user" }))
 
   // Get current user's home directory info
   .get(
@@ -69,7 +69,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Get home directory info",
       description: "Returns info about the current user's home directory. Requires a POSIX UID.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(FileBaseInfoSchema, "Home directory info"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
@@ -80,7 +80,7 @@ const app = new Hono<AuthContext>()
       const user = c.get("user");
 
       // User needs uidNumber for home directory
-      if (!user.uidNumber) {
+      if (!user.ipa?.uidNumber) {
         return respond(c, fail(err.notFound("No home directory (missing uidNumber)")));
       }
 
@@ -102,7 +102,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "List accessible file bases",
       description: "Returns list of file bases the user can access (home directory + group directories).",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(z.array(FileBaseInfoSchema), "List of accessible bases"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
@@ -124,7 +124,7 @@ const app = new Hono<AuthContext>()
       description:
         "Search for files across all accessible bases (or specific bases if provided). " +
         "Uses glob patterns for matching (e.g. '**/*.pdf', '*.{jpg,png}').",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(GlobalSearchResponseSchema, "Search results grouped by base"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -188,7 +188,7 @@ const app = new Hono<AuthContext>()
       description:
         "Returns info about a file or directory. For directories, includes a listing of contents. " +
         "For files, returns only metadata (use /content endpoint to download).",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(FileInfoResponseSchema, "File info or directory listing"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -220,7 +220,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Download file",
       description: "Download the content of a file. Use inline=true for browser preview (Content-Disposition: inline).",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: { description: "File content stream" },
         400: jsonResponse(ErrorResponseSchema, "Invalid request or path is a directory"),
@@ -256,7 +256,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Get image thumbnail",
       description: "Generate a thumbnail for an image file. Returns 200x200 WebP with preserved aspect ratio.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: { description: "Thumbnail image (WebP)" },
         400: jsonResponse(ErrorResponseSchema, "Not an image or unsupported format"),
@@ -285,7 +285,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Upload file",
       description: "Upload a file to the specified path. The filename is taken from the X-File-Name header.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         201: jsonResponse(FileInfoSchema, "File uploaded successfully"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -320,7 +320,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Perform file action",
       description: "Create directory, move, or copy files. Use query params: action (mkdir|move|copy), path, to (for move/copy).",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(FileInfoSchema, "Action completed successfully"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -355,7 +355,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Delete file or directory",
       description: "Delete a file or directory (recursive for directories).",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         204: { description: "Successfully deleted" },
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -388,7 +388,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Search directories for move target",
       description: "Search for directories within a base to use as move/copy destination.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(MoveTargetSearchResponseSchema, "Directory search results"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -432,7 +432,7 @@ const app = new Hono<AuthContext>()
       description:
         "Transfer files to another location. Same-base transfers use move (preserves permissions), " +
         "cross-base transfers use copy (adjusts permissions for destination).",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(TransferResultSchema, "Transfer completed"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -490,7 +490,7 @@ const app = new Hono<AuthContext>()
       tags: ["Files"],
       summary: "Duplicate file or folder",
       description: "Create a copy of a file or folder in the same directory with a new name.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(FileInfoSchema, "Duplicate created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -528,7 +528,7 @@ const app = new Hono<AuthContext>()
       description:
         "Initialize a chunked upload session. Returns an uploadId for subsequent chunk uploads. " +
         "The checksum must be the SHA-256 hash of the entire file in format 'sha256:<64 hex chars>'.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(ChunkedUploadStartResponseSchema, "Upload session started"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
@@ -566,7 +566,7 @@ const app = new Hono<AuthContext>()
       description:
         "Upload a single chunk of a chunked upload. The chunk index is specified in the query parameter. " +
         "Returns progress info or completion info when the last chunk is uploaded.",
-      ...requiresAuth,
+      ...requiresIpaUser,
       responses: {
         200: jsonResponse(ChunkedUploadResponseSchema, "Chunk uploaded (progress or complete)"),
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),

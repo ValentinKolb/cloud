@@ -2,7 +2,7 @@ import * as paths from "./paths";
 import * as permissions from "./permissions";
 import * as operations from "./operations";
 import { paginate, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
-import type { FileBase, FileBaseInfo, SessionUser } from "@/files/contracts";
+import type { FileBase, FileBaseInfo, User } from "@/files/contracts";
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
   if (!pagination) {
@@ -29,7 +29,7 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 export const filesService = {
   base: {
     list: async (config: {
-      user: SessionUser;
+      user: User;
       pagination?: PageParams;
       filter?: { query?: string; type?: FileBaseInfo["type"] };
     }): Promise<Paginated<FileBaseInfo>> => {
@@ -44,7 +44,7 @@ export const filesService = {
       return paginateItems(filtered, config.pagination);
     },
     listResolved: async (config: {
-      user: SessionUser;
+      user: User;
       filter?: {
         type?: FileBase["type"];
         ids?: string[];
@@ -63,7 +63,7 @@ export const filesService = {
     get: async (config: { baseType: string; baseId: string }) => paths.parseBase(config.baseType, config.baseId),
     toInfo: permissions.toBaseInfo,
     permission: {
-      canAccess: async (config: { user: SessionUser; base: FileBase }) => permissions.canAccess(config.user, config.base),
+      canAccess: async (config: { user: User; base: FileBase }) => permissions.canAccess(config.user, config.base),
     },
   },
   path: {

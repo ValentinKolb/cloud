@@ -205,7 +205,7 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
   const hasAccess = await contactsService.book.permission.canAccess({
     bookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
     requiredLevel,
   });
 
@@ -222,7 +222,7 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
 /** Contacts API routes (IPA users only). */
 const app = new Hono<AuthContext>()
   .use(rateLimit())
-  .use(auth.requireRole("ipa"))
+  .use(auth.requireRole("user"))
 
   // ----------------------------------------------------------------
   // BOOKS
@@ -246,7 +246,7 @@ const app = new Hono<AuthContext>()
 
       const result = await contactsService.book.list({
         userId: user.id,
-        groups: user.memberofGroup,
+        groups: user.memberofGroupIds,
         pagination,
         filter: { query: query.q },
       });
@@ -670,7 +670,7 @@ const app = new Hono<AuthContext>()
 
       const result = await contactsService.contact.search({
         userId: user.id,
-        groups: user.memberofGroup,
+        groups: user.memberofGroupIds,
         pagination,
         filter: {
           query: query.q,

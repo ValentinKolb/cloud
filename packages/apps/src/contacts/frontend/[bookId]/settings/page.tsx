@@ -29,7 +29,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasReadAccess = await contactsService.book.permission.canAccess({
     bookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
     requiredLevel: "read",
   });
 
@@ -49,7 +49,7 @@ export default ssr<AuthContext>(async (c) => {
   const permission = await contactsService.book.permission.get({
     bookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
 
   if (permission !== "admin") {

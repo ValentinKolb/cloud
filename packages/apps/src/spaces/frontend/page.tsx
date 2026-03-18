@@ -14,7 +14,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const spacesPage = await spacesService.space.list({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
   });
   const userSpaces = spacesPage.items;
 

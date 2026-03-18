@@ -9,7 +9,7 @@ const SEARCH_TAG_HELP = [
   { tag: "phone", help: "Search by telephone data." },
   { tag: "email", help: "Search by email addresses." },
 ] as const;
-const supportsContactsApp = (roles: string[]) => roles.includes("ipa");
+const supportsContactsApp = (roles: string[]) => roles.includes("user");
 const hasAllTags = (requested: string[]) => requested.every((tag) => SEARCH_TAGS.includes(tag as (typeof SEARCH_TAGS)[number]));
 
 const contactPreview = (emails: { email: string }[], phones: { phone: string }[]) => {
@@ -27,7 +27,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
 
   const page = await contactsService.contact.search({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
     pagination: { page: 1, perPage: input.limit },
     filter: { query: input.query, includeSystem: true },
   });

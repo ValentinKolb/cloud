@@ -686,9 +686,9 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       WHERE (
         a.user_id = ${config.userId}::uuid
-        OR a.group_cn = ANY(${toPgTextArray(config.groups)}::text[])
+        OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
         OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
       )
       AND ${mapManualSearchCondition(searchPattern)}
     ),
@@ -698,8 +698,9 @@ export const search = async (config: {
         ${SYSTEM_BOOK_ID}::text AS book_id,
         'system'::text AS source_kind
       FROM auth.users u
+      LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
       WHERE ${includeSystem}::boolean
-        AND u.realm IN ('ipa', 'ipa-limited')
+        AND u.provider = 'ipa'
         AND (
           ${searchPattern}::text IS NULL
           OR LOWER(u.uid) LIKE ${searchPattern}
@@ -707,12 +708,12 @@ export const search = async (config: {
           OR LOWER(u.given_name) LIKE ${searchPattern}
           OR LOWER(u.sn) LIKE ${searchPattern}
           OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.phone, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.mobile, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.employee_type, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.addr_street, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.addr_postal_code, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.addr_city, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
         )
     ),
     combined AS (
@@ -739,9 +740,9 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       WHERE (
         a.user_id = ${config.userId}::uuid
-        OR a.group_cn = ANY(${toPgTextArray(config.groups)}::text[])
+        OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
         OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
       )
       AND ${mapManualSearchCondition(searchPattern)}
     ),
@@ -752,8 +753,9 @@ export const search = async (config: {
         COALESCE(NULLIF(u.display_name, ''), u.uid) AS sort_name,
         'system'::text AS source_kind
       FROM auth.users u
+      LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
       WHERE ${includeSystem}::boolean
-        AND u.realm IN ('ipa', 'ipa-limited')
+        AND u.provider = 'ipa'
         AND (
           ${searchPattern}::text IS NULL
           OR LOWER(u.uid) LIKE ${searchPattern}
@@ -761,12 +763,12 @@ export const search = async (config: {
           OR LOWER(u.given_name) LIKE ${searchPattern}
           OR LOWER(u.sn) LIKE ${searchPattern}
           OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.phone, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.mobile, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.employee_type, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.addr_street, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.addr_postal_code, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.addr_city, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
+          OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
         )
     ),
     combined AS (

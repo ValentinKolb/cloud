@@ -26,7 +26,7 @@ export default ssr<AuthContext>(async (c) => {
   const permission = await spacesService.space.permission.get({
     spaceId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
 
   if (permission === "none") {

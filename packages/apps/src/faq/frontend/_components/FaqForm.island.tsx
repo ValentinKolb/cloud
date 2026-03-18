@@ -19,7 +19,7 @@ const getErrorMessage = async (response: Response, fallback: string) => {
 
 const FaqForm = (props: Props) => {
   const isEdit = !!props.id;
-  const defaultAudience = props.audience ?? ["ipa", "ipa-limited", "guest", "anonymous"];
+  const defaultAudience = props.audience ?? ["user", "guest", "anonymous"];
 
   const mutation = mutations.create<void, void>({
     mutation: async () => {
@@ -42,15 +42,10 @@ const FaqForm = (props: Props) => {
             multiline: true,
             required: true,
           },
-          ipa: {
+          user: {
             type: "boolean",
-            label: "IPA Users",
-            default: defaultAudience.includes("ipa"),
-          },
-          ipaLimited: {
-            type: "boolean",
-            label: "IPA Limited",
-            default: defaultAudience.includes("ipa-limited"),
+            label: "Users",
+            default: defaultAudience.includes("user"),
           },
           guest: {
             type: "boolean",
@@ -69,8 +64,7 @@ const FaqForm = (props: Props) => {
       if (!result) return;
 
       const audience: FaqAudience[] = [];
-      if (result.ipa) audience.push("ipa");
-      if (result.ipaLimited) audience.push("ipa-limited");
+      if (result.user) audience.push("user");
       if (result.guest) audience.push("guest");
       if (result.anonymous) audience.push("anonymous");
 

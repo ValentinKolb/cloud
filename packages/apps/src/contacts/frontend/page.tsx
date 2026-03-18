@@ -27,10 +27,10 @@ export default ssr<AuthContext>(async (c) => {
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const selectedBookIdFromUrl = c.req.query("contactBook") ?? null;
   const [booksResult, contactsResult] = await Promise.all([
-    contactsService.book.list({ userId: user.id, groups: user.memberofGroup }),
+    contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
     contactsService.contact.search({
       userId: user.id,
-      groups: user.memberofGroup,
+      groups: user.memberofGroupIds,
       pagination: { page, perPage },
       filter: { query: search.trim() || undefined, includeSystem: false },
     }),
@@ -46,7 +46,7 @@ export default ssr<AuthContext>(async (c) => {
     const hasReadAccess = await contactsService.book.permission.canAccess({
       bookId: selectedBookIdFromUrl,
       userId: user.id,
-      userGroups: user.memberofGroup,
+      userGroups: user.memberofGroupIds,
       requiredLevel: "read",
     });
     if (hasReadAccess) {
@@ -57,7 +57,7 @@ export default ssr<AuthContext>(async (c) => {
   const permissionEntries = await Promise.all(
     manualBooks.map(async (book) => ({
       book,
-      permission: await contactsService.book.permission.get({ bookId: book.id, userId: user.id, userGroups: user.memberofGroup }),
+      permission: await contactsService.book.permission.get({ bookId: book.id, userId: user.id, userGroups: user.memberofGroupIds }),
     })),
   );
   const editableBookIds = permissionEntries

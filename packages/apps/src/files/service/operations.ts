@@ -9,7 +9,7 @@ registerGroupLabel("files", "Files");
 registerSettings([
   {
     key: "files.base_homes",
-    type: "string",
+    kind: "string",
     default: "/data/homes",
     description: "Home directories base path",
     placeholder: "e.g. /data/homes",
@@ -17,7 +17,7 @@ registerSettings([
   },
   {
     key: "files.base_groups",
-    type: "string",
+    kind: "string",
     default: "/data/groups",
     description: "Group directories base path",
     placeholder: "e.g. /data/groups",
@@ -25,7 +25,7 @@ registerSettings([
   },
   {
     key: "files.home_dir_mode",
-    type: "string",
+    kind: "string",
     default: "700",
     description: "Unix permissions for user home directories (octal, e.g. 700)",
     placeholder: "e.g. 700",
@@ -33,7 +33,7 @@ registerSettings([
   },
   {
     key: "files.home_file_mode",
-    type: "string",
+    kind: "string",
     default: "600",
     description: "Unix permissions for files in home directories (octal, e.g. 600)",
     placeholder: "e.g. 600",
@@ -41,7 +41,7 @@ registerSettings([
   },
   {
     key: "files.group_dir_mode",
-    type: "string",
+    kind: "string",
     default: "2770",
     description: "Unix permissions for group directories (octal, e.g. 2770 for sticky bit)",
     placeholder: "e.g. 2770",
@@ -49,7 +49,7 @@ registerSettings([
   },
   {
     key: "files.group_file_mode",
-    type: "string",
+    kind: "string",
     default: "660",
     description: "Unix permissions for files in group directories (octal, e.g. 660)",
     placeholder: "e.g. 660",

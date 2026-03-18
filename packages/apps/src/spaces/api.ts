@@ -75,7 +75,7 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
   const hasAccess = await spacesService.space.permission.canAccess({
     spaceId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
     requiredLevel,
   });
 
@@ -90,7 +90,7 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
   const permission = await spacesService.space.permission.get({
     spaceId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
 
   return { space, permission };
@@ -139,7 +139,7 @@ const app = new Hono<AuthContext>()
       const user = c.get("user");
       const result = await spacesService.space.list({
         userId: user.id,
-        groups: user.memberofGroup,
+        groups: user.memberofGroupIds,
       });
       return respond(c, ok(result.items));
     },
@@ -990,7 +990,7 @@ const calendarApp = new Hono<AuthContext>()
 
       const result = await spacesService.item.calendar.list({
         userId: user.id,
-        groups: user.memberofGroup,
+        groups: user.memberofGroupIds,
         from,
         to,
       });
@@ -1016,7 +1016,7 @@ const calendarApp = new Hono<AuthContext>()
       const { from, to, excludeItemId } = c.req.valid("query");
 
       const result = await spacesService.item.calendar.checkOverlap({
-        groups: user.memberofGroup,
+        groups: user.memberofGroupIds,
         from,
         to,
         excludeItemId,
