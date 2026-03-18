@@ -11,3 +11,5 @@ export { default as CopyButton } from "./CopyButton";
 export { default as Lightbox } from "./Lightbox";
 export type { LightboxImage } from "./Lightbox";
 export { default as RemoveBtn } from "./RemoveBtn";
+export { default as LogEntriesTable } from "./LogEntriesTable";
+export type { LogTableEntry } from "./LogEntriesTable";

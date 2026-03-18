@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import type { PaginationParams } from "@valentinkolb/cloud-contracts/shared";
-import { getSync } from "@valentinkolb/cloud-core/services/settings";
 import { registerSettings, registerGroupLabel } from "@valentinkolb/cloud-core/services/settings/defaults";
+import { escapeLikePattern, toPgTextArray } from "@valentinkolb/cloud-core/services/postgres";
 
 // ── Settings Registration ──────────────────────────────────────────────
 
@@ -9,7 +9,7 @@ registerGroupLabel("logs", "Logging");
 registerSettings([
   {
     key: "logs.retention_days",
-    type: "number",
+    kind: "number",
     default: 30,
     description: "Automatically delete log entries older than this many days",
     group: "logs",
@@ -121,37 +121,78 @@ const list = async (
   pagination: PaginationParams,
   options?: {
     source?: string;
+    sources?: string[];
     level?: string;
     search?: string;
   },
 ): Promise<{ entries: LogEntry[]; total: number }> => {
   const { offset, perPage } = pagination;
-  const { source, level, search } = options ?? {};
+  const { source, sources, level, search } = options ?? {};
 
-  const searchPattern = search ? `%${search}%` : null;
+  const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
   const filterSource = source && source !== "all" ? source : null;
+  const filterSources =
+    !filterSource && Array.isArray(sources) && sources.length > 0 ? [...new Set(sources.map((value) => value.trim()).filter(Boolean))] : null;
+  const filterSourcesLiteral = filterSources ? toPgTextArray(filterSources) : null;
   const filterLevel = level && level !== "all" ? level : null;
+  const hasSourceList = !!filterSources && filterSources.length > 0;
 
-  // Build WHERE conditions dynamically via a single query with optional filters
-  const countRows = await sql`
-    SELECT COUNT(*)::int as count
-    FROM logging.entries
-    WHERE
-      (${filterSource}::text IS NULL OR source = ${filterSource})
-      AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
-      AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} OR metadata::text ILIKE ${searchPattern})
-  `;
+  let countRows: Array<{ count: number }> = [];
+  let dataRows: DbLogRow[] = [];
 
-  const dataRows = await sql`
-    SELECT id, level, source, message, metadata, created_at
-    FROM logging.entries
-    WHERE
-      (${filterSource}::text IS NULL OR source = ${filterSource})
-      AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
-      AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} OR metadata::text ILIKE ${searchPattern})
-    ORDER BY created_at DESC
-    LIMIT ${perPage} OFFSET ${offset}
-  `;
+  if (filterSource) {
+    countRows = await sql`
+      SELECT COUNT(*)::int as count
+      FROM logging.entries
+      WHERE source = ${filterSource}
+        AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
+    `;
+
+    dataRows = await sql`
+      SELECT id, level, source, message, metadata, created_at
+      FROM logging.entries
+      WHERE source = ${filterSource}
+        AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
+      ORDER BY created_at DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `;
+  } else if (hasSourceList) {
+    countRows = await sql`
+      SELECT COUNT(*)::int as count
+      FROM logging.entries
+      WHERE source = ANY(${filterSourcesLiteral}::text[])
+        AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
+    `;
+
+    dataRows = await sql`
+      SELECT id, level, source, message, metadata, created_at
+      FROM logging.entries
+      WHERE source = ANY(${filterSourcesLiteral}::text[])
+        AND (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
+      ORDER BY created_at DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `;
+  } else {
+    countRows = await sql`
+      SELECT COUNT(*)::int as count
+      FROM logging.entries
+      WHERE (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
+    `;
+
+    dataRows = await sql`
+      SELECT id, level, source, message, metadata, created_at
+      FROM logging.entries
+      WHERE (${filterLevel}::text IS NULL OR level = ${filterLevel})
+        AND (${searchPattern}::text IS NULL OR message ILIKE ${searchPattern} ESCAPE '\' OR metadata::text ILIKE ${searchPattern} ESCAPE '\')
+      ORDER BY created_at DESC
+      LIMIT ${perPage} OFFSET ${offset}
+    `;
+  }
 
   return {
     entries: dataRows.map((row: DbLogRow) => mapRow(row)),
@@ -174,53 +215,6 @@ const cleanup = async (olderThanDays: number): Promise<{ deleted: number }> => {
     WHERE created_at < now() - ${olderThanDays + " days"}::interval
   `;
   return { deleted: rows.count };
-};
-
-/** Run cleanup once per day, deleting logs older than LOG_RETENTION_DAYS. */
-const AUTO_CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24h
-let autoCleanupInitialTimeout: ReturnType<typeof setTimeout> | undefined;
-let autoCleanupInterval: ReturnType<typeof setInterval> | undefined;
-
-/**
- * Starts periodic log cleanup using the configured retention window.
- */
-export const startAutoCleanup = (): void => {
-  stopAutoCleanup();
-
-  const runCleanup = async () => {
-    const days = getSync<number>("logs.retention_days") ?? 30;
-    try {
-      const { deleted } = await cleanup(days);
-      if (deleted > 0) {
-        logger("logging").info("Auto-cleanup complete", {
-          deleted,
-          retentionDays: days,
-        });
-      }
-    } catch (err) {
-      console.error("[logging] Auto-cleanup failed:", err instanceof Error ? err.message : String(err));
-    }
-  };
-
-  // Run once on startup (delayed 30s to not block boot)
-  autoCleanupInitialTimeout = setTimeout(runCleanup, 30_000);
-  // Then every 24h
-  autoCleanupInterval = setInterval(runCleanup, AUTO_CLEANUP_INTERVAL);
-};
-
-/**
- * Stops scheduled log cleanup tasks.
- */
-export const stopAutoCleanup = (): void => {
-  if (autoCleanupInitialTimeout) {
-    clearTimeout(autoCleanupInitialTimeout);
-    autoCleanupInitialTimeout = undefined;
-  }
-
-  if (autoCleanupInterval) {
-    clearInterval(autoCleanupInterval);
-    autoCleanupInterval = undefined;
-  }
 };
 
 /** Admin service object for querying/managing logs. */

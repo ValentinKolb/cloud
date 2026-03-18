@@ -1,5 +1,5 @@
 import { For, onMount } from "solid-js";
-import { InputWrapper } from "./util";
+import { InputWrapper, createInputA11y } from "./util";
 
 type PinInputProps = {
   label?: string;
@@ -37,6 +37,7 @@ const PinInput = ({
   required = false,
 }: PinInputProps) => {
   let inputRefs: HTMLInputElement[] = [];
+  const a11y = createInputA11y({ description, error });
 
   const handleChange = (index: number, newValue: string) => {
     if (disabled) return;
@@ -127,9 +128,16 @@ const PinInput = ({
   });
 
   return (
-    <InputWrapper label={label} description={description} error={error} required={required}>
-      {({ inputId, ariaDescribedBy }) => (
-        <div class="flex gap-1 md:gap-2" role="group" aria-labelledby={inputId} aria-describedby={ariaDescribedBy}>
+    <InputWrapper
+      label={label}
+      description={description}
+      error={error?.()}
+      required={required}
+      inputId={a11y.inputId}
+      descriptionId={a11y.descriptionId}
+      errorId={a11y.errorId}
+    >
+      <div class="flex gap-1 md:gap-2" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
           <For each={new Array(length).fill(0)}>
             {(_, index) => (
               <input
@@ -153,8 +161,7 @@ const PinInput = ({
               />
             )}
           </For>
-        </div>
-      )}
+      </div>
     </InputWrapper>
   );
 };

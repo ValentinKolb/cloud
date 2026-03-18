@@ -1,7 +1,7 @@
 import { showFileDialog } from "@/browser/files";
 import { img } from "@/browser/images";
 import { Show } from "solid-js";
-import { InputWrapper } from "./util";
+import { InputWrapper, createInputA11y } from "./util";
 
 type ImageInputProps = {
   label?: string;
@@ -32,6 +32,7 @@ type ImageInputProps = {
 const ImageInput = (props: ImageInputProps) => {
   const disabled = () => (props.disabled ?? false) || !props.onChange;
   const variant = () => props.variant ?? "default";
+  const a11y = createInputA11y({ description: props.description, error: props.error });
 
   // Effective value: treat fallback URLs as null (no custom image set)
   const value = () => {
@@ -49,9 +50,16 @@ const ImageInput = (props: ImageInputProps) => {
   // Small variant - inline compact view (same height as text input)
   if (variant() === "small") {
     return (
-      <InputWrapper label={props.label} description={props.description} error={props.error} required={props.required}>
-        {({ inputId, ariaDescribedBy }) => (
-          <div class="flex h-9 items-center gap-1" role="group" aria-labelledby={inputId} aria-describedby={ariaDescribedBy}>
+      <InputWrapper
+        label={props.label}
+        description={props.description}
+        error={props.error?.()}
+        required={props.required}
+        inputId={a11y.inputId}
+        descriptionId={a11y.descriptionId}
+        errorId={a11y.errorId}
+      >
+        <div class="flex h-9 items-center gap-1" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
             <button
               type="button"
               class={`btn-secondary btn-sm h-9 w-9 shrink-0 overflow-hidden !p-0 ${props.round ? "rounded-full" : "rounded-lg"}`}
@@ -90,17 +98,23 @@ const ImageInput = (props: ImageInputProps) => {
                 <i class="ti ti-trash" aria-hidden="true" />
               </button>
             </Show>
-          </div>
-        )}
+        </div>
       </InputWrapper>
     );
   }
 
   // Default variant - large preview
   return (
-    <InputWrapper label={props.label} description={props.description} error={props.error} required={props.required}>
-      {({ inputId, ariaDescribedBy }) => (
-        <div class="flex flex-col items-center gap-1" role="group" aria-labelledby={inputId} aria-describedby={ariaDescribedBy}>
+    <InputWrapper
+      label={props.label}
+      description={props.description}
+      error={props.error?.()}
+      required={props.required}
+      inputId={a11y.inputId}
+      descriptionId={a11y.descriptionId}
+      errorId={a11y.errorId}
+    >
+      <div class="flex flex-col items-center gap-1" role="group" aria-labelledby={a11y.inputId} aria-describedby={a11y.ariaDescribedBy()}>
           <div
             class={`h-30 w-30 self-center overflow-hidden border-2 border-zinc-200 md:h-50 md:w-50 dark:border-zinc-700 ${
               props.round ? "rounded-full" : "rounded-2xl"
@@ -148,8 +162,7 @@ const ImageInput = (props: ImageInputProps) => {
               {value() ? "Change" : "Add"}
             </button>
           </div>
-        </div>
-      )}
+      </div>
     </InputWrapper>
   );
 };

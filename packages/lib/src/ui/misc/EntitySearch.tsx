@@ -1,6 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
 import { createDebounce } from "@/browser/timed";
-import { apiClient } from "@/browser/client-utils";
 import TextInput from "@/ui/input/TextInput";
 
 type UserResult = {
@@ -11,16 +10,20 @@ type UserResult = {
 };
 
 type GroupResult = {
-  cn: string;
+  id: string;
+  provider: "ipa" | "local";
+  name: string;
   description: string | null;
 };
 
 export type EntitySearchResult =
   | { type: "user"; id: string; displayName: string; mail: string | null }
-  | { type: "group"; id: string; description: string | null };
+  | { type: "group"; id: string; provider: "ipa" | "local"; name: string; description: string | null };
 
 type EntitySearchProps = {
-  groupCn?: string;
+  apiBaseUrl?: string;
+  groupId?: string;
+  groupProvider?: "ipa" | "local";
   searchUsers?: boolean;
   searchGroups?: boolean;
   excludeUserIds?: string[];
@@ -50,18 +53,37 @@ const EntitySearch = (props: EntitySearchProps) => {
 
     setLoading(true);
     try {
-      const res = await apiClient.ipa.groups[":cn"].search.$get({
-        param: { cn: props.groupCn ?? "_" },
-        query: {
-          q,
-          users: props.searchUsers !== false ? "true" : "false",
-          groups: props.searchGroups ? "true" : "false",
-          exclude_user_ids: props.excludeUserIds?.join(","),
-          exclude_groups: props.excludeGroups?.join(","),
-          only_user_groups: props.onlyUserGroups ? "true" : "false",
-          only_posix_groups: props.onlyPosixGroups ? "true" : "false",
-          users_in_groups: props.usersInGroups?.join(","),
-        },
+      const url = new URL(`${props.apiBaseUrl ?? "/api"}/groups/${props.groupId ?? "_"}/search`, window.location.origin);
+      url.searchParams.set("q", q);
+      url.searchParams.set("users", props.searchUsers !== false ? "true" : "false");
+      url.searchParams.set("groups", props.searchGroups ? "true" : "false");
+
+      if (props.excludeUserIds && props.excludeUserIds.length > 0) {
+        url.searchParams.set("exclude_user_ids", props.excludeUserIds.join(","));
+      }
+
+      if (props.excludeGroups && props.excludeGroups.length > 0) {
+        url.searchParams.set("exclude_groups", props.excludeGroups.join(","));
+      }
+
+      if (props.onlyUserGroups) {
+        url.searchParams.set("only_user_groups", "true");
+      }
+
+      if (props.onlyPosixGroups) {
+        url.searchParams.set("only_posix_groups", "true");
+      }
+
+      if (props.usersInGroups && props.usersInGroups.length > 0) {
+        url.searchParams.set("users_in_groups", props.usersInGroups.join(","));
+      }
+
+      if (props.groupProvider) {
+        url.searchParams.set("provider", props.groupProvider);
+      }
+
+      const res = await fetch(url.toString(), {
+        credentials: "same-origin",
       });
 
       if (res.ok) {
@@ -156,7 +178,7 @@ const EntitySearch = (props: EntitySearchProps) => {
                     <i class="ti ti-users-group text-sm" />
                   </div>
                   <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-medium">{group.cn}</div>
+                    <div class="truncate text-sm font-medium">{group.name}</div>
                     <Show when={group.description}>
                       <div class="truncate text-xs text-dimmed">{group.description}</div>
                     </Show>
@@ -166,15 +188,17 @@ const EntitySearch = (props: EntitySearchProps) => {
                     onClick={() =>
                       handleSelect({
                         type: "group",
-                        id: group.cn,
+                        id: group.id,
+                        provider: group.provider,
+                        name: group.name,
                         description: group.description,
                       })
                     }
                     disabled={addingId() !== null || props.adding}
                     class="rounded p-2 text-emerald-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50 dark:hover:bg-emerald-900/20"
-                    aria-label={`Add ${group.cn}`}
+                    aria-label={`Add ${group.name}`}
                   >
-                    <i class={addingId() === group.cn ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
+                    <i class={addingId() === group.id ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
                   </button>
                 </div>
               )}

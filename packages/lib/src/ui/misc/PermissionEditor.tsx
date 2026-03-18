@@ -43,16 +43,16 @@ export default function PermissionEditor(props: PermissionEditorProps) {
   const canEdit = () => props.canEdit !== false;
   const allowPublic = () => props.allowPublic === true;
 
-  // Get existing user IDs and group CNs to exclude from search
+  // Get existing user IDs and group IDs to exclude from search
   const existingUserIds = () =>
     entries()
       .filter((e) => e.principal.type === "user")
       .map((e) => (e.principal as { type: "user"; userId: string }).userId);
 
-  const existingGroupCns = () =>
+  const existingGroupIds = () =>
     entries()
       .filter((e) => e.principal.type === "group")
-      .map((e) => (e.principal as { type: "group"; groupCn: string }).groupCn);
+      .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
 
   const hasAuthenticatedEntry = () => entries().some((entry) => entry.principal.type === "authenticated");
   const hasPublicEntry = () => entries().some((entry) => entry.principal.type === "public");
@@ -107,7 +107,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
   };
 
   const handleEntitySelect = (result: EntitySearchResult, permission: PermissionLevel) => {
-    const principal: Principal = result.type === "user" ? { type: "user", userId: result.id } : { type: "group", groupCn: result.id };
+    const principal: Principal = result.type === "user" ? { type: "user", userId: result.id } : { type: "group", groupId: result.id };
 
     grantMut.mutate({ principal, permission });
   };
@@ -147,7 +147,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
         >
           <AddAccessForm
             existingUserIds={existingUserIds()}
-            existingGroupCns={existingGroupCns()}
+            existingGroupIds={existingGroupIds()}
             onSelectEntity={handleEntitySelect}
             onSelectPrincipal={(principal, permission) => grantMut.mutate({ principal, permission })}
             onCancel={() => setShowAddForm(false)}
@@ -170,7 +170,7 @@ function getEntryDisplayName(entry: AccessEntry): string {
   if (entry.principal.type === "authenticated") return "All users (incl. guests)";
   if (entry.principal.type === "public") return "Public";
   if (entry.principal.type === "user") return entry.principal.userId;
-  return entry.principal.groupCn;
+  return entry.principal.groupId;
 }
 
 function getPrincipalIcon(principal: Principal): string {
@@ -300,7 +300,7 @@ function AccessEntryRow(props: {
 
 function AddAccessForm(props: {
   existingUserIds: string[];
-  existingGroupCns: string[];
+  existingGroupIds: string[];
   onSelectEntity: (result: EntitySearchResult, permission: PermissionLevel) => void;
   onSelectPrincipal: (principal: Principal, permission: PermissionLevel) => void;
   onCancel: () => void;
@@ -326,10 +326,11 @@ function AddAccessForm(props: {
 
       {/* User/Group search */}
       <EntitySearch
+        apiBaseUrl="/api/accounts"
         searchUsers
         searchGroups
         excludeUserIds={props.existingUserIds}
-        excludeGroups={props.existingGroupCns}
+          excludeGroups={props.existingGroupIds}
         onSelect={(result) => props.onSelectEntity(result, permission())}
         placeholder="Search users or groups..."
         adding={props.loading}

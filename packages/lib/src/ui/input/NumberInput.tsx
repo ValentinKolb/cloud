@@ -1,4 +1,4 @@
-import { InputWrapper } from "./util";
+import { InputWrapper, createInputA11y } from "./util";
 
 type NumberInputProps = {
   label?: string;
@@ -36,6 +36,7 @@ const NumberInput = (props: NumberInputProps) => {
   const min = () => props.min ?? -Infinity;
   const step = () => props.step ?? 1;
   const disabled = () => props.disabled ?? false;
+  const a11y = createInputA11y({ description: props.description, error: props.error });
 
   const parse = (val: string, applyConstraints: boolean = true) => {
     const parsed = parseInt(val);
@@ -44,61 +45,67 @@ const NumberInput = (props: NumberInputProps) => {
   };
 
   return (
-    <InputWrapper label={props.label} description={props.description} error={props.error} required={props.required}>
-      {({ inputId, ariaDescribedBy }) => (
-        <div class={`flex flex-row flex-nowrap gap-3 text-nowrap ${disabled() ? "opacity-50" : ""}`}>
-          <button
-            type="button"
-            class={`input-subtle ti ti-minus px-3 cursor-pointer hover:text-primary ${value() <= min() && "opacity-40"}`}
-            aria-label="Decrease value"
-            onClick={() => {
-              const v = Math.max(min(), value() - step());
+    <InputWrapper
+      label={props.label}
+      description={props.description}
+      error={props.error?.()}
+      required={props.required}
+      inputId={a11y.inputId}
+      descriptionId={a11y.descriptionId}
+      errorId={a11y.errorId}
+    >
+      <div class={`flex flex-row flex-nowrap gap-3 text-nowrap ${disabled() ? "opacity-50" : ""}`}>
+        <button
+          type="button"
+          class={`input-subtle ti ti-minus px-3 cursor-pointer hover:text-primary ${value() <= min() && "opacity-40"}`}
+          aria-label="Decrease value"
+          onClick={() => {
+            const v = Math.max(min(), value() - step());
+            props.onChange?.(v);
+            props.onInput?.(v);
+          }}
+          disabled={disabled() || value() <= min()}
+        />
+        <div class="group relative flex-1">
+          <input
+            id={a11y.inputId}
+            type="number"
+            class={`input-subtle w-full text-center font-mono font-semibold ${disabled() ? "cursor-not-allowed" : ""}`}
+            placeholder={props.placeholder}
+            value={value()}
+            onChange={(e) => {
+              const v = parse(e.currentTarget.value, true);
               props.onChange?.(v);
+              e.currentTarget.value = `${v}`;
+            }}
+            onInput={(e) => {
+              const v = parse(e.currentTarget.value, false);
               props.onInput?.(v);
             }}
-            disabled={disabled() || value() <= min()}
-          />
-          <div class="group relative flex-1">
-            <input
-              id={inputId}
-              type="number"
-              class={`input-subtle w-full text-center font-mono font-semibold ${disabled() ? "cursor-not-allowed" : ""}`}
-              placeholder={props.placeholder}
-              value={value()}
-              onChange={(e) => {
-                const v = parse(e.currentTarget.value, true);
-                props.onChange?.(v);
-                e.currentTarget.value = `${v}`;
-              }}
-              onInput={(e) => {
-                const v = parse(e.currentTarget.value, false);
-                props.onInput?.(v);
-              }}
-              disabled={disabled()}
-              aria-label={!props.label ? props.placeholder || "Enter number" : undefined}
-              aria-describedby={ariaDescribedBy}
-              aria-invalid={!!props.error?.()}
-              aria-required={props.required}
-              aria-disabled={disabled()}
-              aria-valuemin={min()}
-              aria-valuemax={max()}
-              aria-valuenow={value()}
-            />
-          </div>
-
-          <button
-            type="button"
-            class={`input-subtle ti ti-plus px-3 cursor-pointer hover:text-primary ${value() >= max() && "opacity-40"}`}
-            aria-label="Increase value"
-            onClick={() => {
-              const v = Math.min(max(), value() + step());
-              props.onChange?.(v);
-              props.onInput?.(v);
-            }}
-            disabled={disabled() || value() >= max()}
+            disabled={disabled()}
+            aria-label={!props.label ? props.placeholder || "Enter number" : undefined}
+            aria-describedby={a11y.ariaDescribedBy()}
+            aria-invalid={!!props.error?.()}
+            aria-required={props.required}
+            aria-disabled={disabled()}
+            aria-valuemin={min()}
+            aria-valuemax={max()}
+            aria-valuenow={value()}
           />
         </div>
-      )}
+
+        <button
+          type="button"
+          class={`input-subtle ti ti-plus px-3 cursor-pointer hover:text-primary ${value() >= max() && "opacity-40"}`}
+          aria-label="Increase value"
+          onClick={() => {
+            const v = Math.min(max(), value() + step());
+            props.onChange?.(v);
+            props.onInput?.(v);
+          }}
+          disabled={disabled() || value() >= max()}
+        />
+      </div>
     </InputWrapper>
   );
 };

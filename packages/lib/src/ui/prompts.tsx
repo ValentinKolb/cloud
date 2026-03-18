@@ -580,6 +580,17 @@ export const prompts = {
     ),
 
   /**
+   * Display a success dialog with a single OK button.
+   */
+  success: (content: string | HTMLElement | JSX.Element, options?: Omit<DialogOptions, "variant">) =>
+    prompts.alert(content, {
+      ...options,
+      variant: "success",
+      title: options?.title ?? "Success",
+      icon: options?.icon ?? "ti ti-check",
+    }),
+
+  /**
    * Display a confirmation dialog with OK and Cancel buttons
    * @param content - Question/message to display
    * @param options - Optional styling and text configuration

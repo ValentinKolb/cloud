@@ -30,22 +30,21 @@ const LogFilterBar = (props: LogFilterBarProps) => {
 
   const sourceOptions = (): FilterChipSection[] => [
     {
-      options: [
-        { value: "all", label: "All", icon: "ti ti-list" },
-        ...props.sources.map((s) => ({
-          value: s,
-          label: s,
-          icon: "ti ti-code",
-        })),
-      ],
+      multiple: true,
+      options: props.sources.map((s) => ({
+        value: s,
+        label: s,
+        icon: "ti ti-code",
+      })),
     },
   ];
 
   const hasFilters = hasActiveLogFilters(filter);
+  const searchAction = buildLogFilterUrl(baseUrl, { level: filter.level, sources: filter.sources }, filter);
 
   return (
     <div class="flex flex-col gap-2">
-      <SearchBar placeholder="Search logs..." ariaLabel="Search logs" />
+      <SearchBar action={searchAction} value={filter.search} placeholder="Search logs..." ariaLabel="Search logs" />
 
       <div class="flex flex-wrap items-center gap-2">
         <FilterChip
@@ -60,13 +59,13 @@ const LogFilterBar = (props: LogFilterBarProps) => {
 
         {props.sources.length > 0 && (
           <FilterChip
-            label="Source"
+            label="Services"
             icon="ti ti-code"
             options={sourceOptions()}
-            value={[filter.source]}
-            onChange={(v) => navigate({ source: v[0] ?? "all" })}
-            isActive={filter.source !== defaultLogFilter.source}
-            defaultValue={[defaultLogFilter.source]}
+            value={filter.sources}
+            onChange={(value) => navigate({ sources: value })}
+            isActive={filter.sources.length > 0}
+            defaultValue={[]}
           />
         )}
 
@@ -85,8 +84,19 @@ const LogFilterBar = (props: LogFilterBarProps) => {
       <div class="text-xs text-dimmed">
         {filter.search && `Results for "${filter.search}": `}
         {props.total === 0 ? "No log entries" : props.total === 1 ? "1 entry" : `${props.total} entries`}
-        {hasFilters && !filter.search && " (filtered)"}
       </div>
+
+      {filter.sources.length > 0 && (
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs text-dimmed">Services:</span>
+          {filter.sources.map((source) => (
+            <span class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-mono text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+              <i class="ti ti-code text-[10px]" />
+              {source}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

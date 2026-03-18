@@ -34,6 +34,8 @@ const sampleUser: BaseUser = {
   id: "8d3f5d9d-9342-4a33-9e43-a3f0f84af3dd",
   uid: "vkolb",
   roles: ["ipa", "admin"],
+  provider: "ipa",
+  profile: "user",
   givenname: "Valentin",
   sn: "Kolb",
   displayName: "Valentin Kolb",
@@ -41,7 +43,9 @@ const sampleUser: BaseUser = {
 };
 
 const sampleGroup: BaseGroup = {
-  cn: "dev-cloud",
+  id: "a59d7601-5e27-4f88-bc6f-2c56e7542a6e",
+  provider: "ipa",
+  name: "dev-cloud",
   description: "Core maintainers",
   gidnumber: 1042,
 };

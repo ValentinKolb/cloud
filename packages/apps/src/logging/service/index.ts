@@ -16,12 +16,13 @@ const toPaginated = <T>(items: T[], total: number, pagination: { page: number; p
 
 export const loggingService = {
   entry: {
-    list: async (config: { pagination?: PageParams; filter?: { source?: string; level?: string; search?: string } }) => {
+    list: async (config: { pagination?: PageParams; filter?: { source?: string; sources?: string[]; level?: string; search?: string } }) => {
       const { page, perPage, offset } = paginate(config.pagination);
       const result = await logging.list(
         { page, perPage, offset },
         {
           source: config.filter?.source,
+          sources: config.filter?.sources,
           level: config.filter?.level,
           search: config.filter?.search,
         },

@@ -13,7 +13,7 @@ export default function GroupView(props: GroupViewProps) {
       </div>
       <div class="flex flex-col gap-0.5 min-w-0">
         <div class="flex items-center gap-2">
-          <span class="text-sm font-medium text-primary truncate">{props.group.cn}</span>
+          <span class="text-sm font-medium text-primary truncate">{props.group.name}</span>
           {props.group.gidnumber && (
             <span class="tag bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 shrink-0">
               POSIX {props.group.gidnumber}

@@ -1,4 +1,4 @@
-import { createSignal, onMount } from "solid-js";
+import { createEffect, createSignal, onMount } from "solid-js";
 import TextInput from "../ui/input/TextInput";
 
 type SearchBarProps = {
@@ -14,11 +14,18 @@ type SearchBarProps = {
 export default function SearchBar(props: SearchBarProps = {}) {
   const param = props.param ?? "search";
   const pageParam = props.pageParam ?? "page";
-  const [query, setQuery] = createSignal("");
+  const [query, setQuery] = createSignal(props.value ?? "");
+
+  createEffect(() => {
+    if (props.value !== undefined) {
+      setQuery(props.value);
+    }
+  });
 
   onMount(() => {
+    if (props.value !== undefined) return;
     const fallback = new URLSearchParams(window.location.search).get(param) ?? "";
-    setQuery(props.value ?? fallback);
+    setQuery(fallback);
   });
 
   const handleSubmit = (e: Event): void => {

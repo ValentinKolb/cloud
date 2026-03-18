@@ -4,14 +4,14 @@
  */
 export type LogFilterState = {
   level: string;
-  source: string;
+  sources: string[];
   search: string;
   page: number;
 };
 
 export const defaultLogFilter: LogFilterState = {
   level: "all",
-  source: "all",
+  sources: [],
   search: "",
   page: 1,
 };
@@ -19,9 +19,10 @@ export const defaultLogFilter: LogFilterState = {
 /** Parse filter state from URL search params. */
 export function parseLogFilterFromUrl(url: URL): LogFilterState {
   const params = url.searchParams;
+  const rawSources = params.getAll("source");
   return {
     level: params.get("level") || defaultLogFilter.level,
-    source: params.get("source") || defaultLogFilter.source,
+    sources: rawSources.length > 0 ? [...new Set(rawSources.map((value) => value.trim()).filter(Boolean))] : defaultLogFilter.sources,
     search: params.get("search") || defaultLogFilter.search,
     page: parseInt(params.get("page") || "1", 10) || 1,
   };
@@ -33,7 +34,7 @@ export function buildLogFilterUrl(baseUrl: string, updates: Partial<LogFilterSta
   const params = new URLSearchParams();
 
   if (merged.level !== defaultLogFilter.level) params.set("level", merged.level);
-  if (merged.source !== defaultLogFilter.source) params.set("source", merged.source);
+  for (const source of merged.sources) params.append("source", source);
   if (merged.search) params.set("search", merged.search);
   if (merged.page > 1) params.set("page", String(merged.page));
 
@@ -43,5 +44,5 @@ export function buildLogFilterUrl(baseUrl: string, updates: Partial<LogFilterSta
 
 /** Check if any filters are active (non-default). */
 export function hasActiveLogFilters(filter: LogFilterState): boolean {
-  return filter.level !== defaultLogFilter.level || filter.source !== defaultLogFilter.source || filter.search !== "";
+  return filter.level !== defaultLogFilter.level || filter.sources.length > 0 || filter.search !== "";
 }

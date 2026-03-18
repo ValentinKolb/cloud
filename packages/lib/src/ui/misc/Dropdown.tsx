@@ -49,10 +49,22 @@ type DropdownProps = {
 // ==========================
 
 const POSITION_STYLES: Record<string, string> = {
-  "bottom-right": "top: anchor(bottom); left: anchor(left); margin-top: 4px;",
-  "bottom-left": "top: anchor(bottom); right: anchor(right); margin-top: 4px;",
-  "top-right": "bottom: anchor(top); left: anchor(left); margin-bottom: 4px;",
-  "top-left": "bottom: anchor(top); right: anchor(right); margin-bottom: 4px;",
+  "bottom-right":
+    "top: anchor(bottom); left: anchor(left); margin-top: 4px;" +
+    "position-try-fallbacks: --flip-block;" +
+    "position-try: --flip-block { bottom: anchor(top); top: auto; margin-top: 0; margin-bottom: 4px; };",
+  "bottom-left":
+    "top: anchor(bottom); right: anchor(right); margin-top: 4px;" +
+    "position-try-fallbacks: --flip-block-left;" +
+    "position-try: --flip-block-left { bottom: anchor(top); top: auto; margin-top: 0; margin-bottom: 4px; };",
+  "top-right":
+    "bottom: anchor(top); left: anchor(left); margin-bottom: 4px;" +
+    "position-try-fallbacks: --flip-block-down;" +
+    "position-try: --flip-block-down { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
+  "top-left":
+    "bottom: anchor(top); right: anchor(right); margin-bottom: 4px;" +
+    "position-try-fallbacks: --flip-block-down-left;" +
+    "position-try: --flip-block-down-left { top: anchor(bottom); bottom: auto; margin-bottom: 0; margin-top: 4px; };",
 };
 
 const ITEM_BASE_CLASSES = "flex w-full items-center gap-3 px-4 py-2 text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10";
@@ -161,7 +173,7 @@ export default function Dropdown(props: DropdownProps) {
         popover="auto"
         role="menu"
         aria-label="Dropdown menu"
-        class={`${width} overflow-hidden paper p-0 border! border-zinc-300/60! dark:border-zinc-600/50! ${props.className ?? ""}`}
+        class={`${width} overflow-y-auto max-h-[min(24rem,80dvh)] paper p-0 border! border-zinc-300/60! dark:border-zinc-600/50! ${props.className ?? ""}`}
       >
         {props.elements.map((item, i) =>
           "items" in item ? (

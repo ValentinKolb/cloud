@@ -18,26 +18,27 @@ export const Pagination = (props: PaginationProps): null | JSX.Element => {
   );
 
   return (
-    <nav class="mt-8 flex items-center justify-center gap-1" aria-label="Pagination">
+    <nav class="flex items-center justify-center gap-0.5 pt-3" aria-label="Pagination">
       {visiblePages.map((page, idx) => {
         const prevPage = visiblePages[idx - 1];
         const shouldShowEllipsis = prevPage && page - prevPage > 1;
+        const isActive = page === props.currentPage;
 
         return (
           <>
             {shouldShowEllipsis && (
-              <span class="flex h-8 w-8 items-center justify-center text-dimmed text-sm" aria-hidden="true">
-                ···
+              <span class="flex h-7 w-7 items-center justify-center text-dimmed text-xs select-none" aria-hidden="true">
+                ...
               </span>
             )}
             <a
               href={`${props.baseUrl}${page}`}
-              class={
-                page === props.currentPage
-                  ? "btn-primary flex h-5 w-5 items-center justify-center text-xs"
-                  : "btn-simple flex h-5 w-5 items-center justify-center text-xs hover:bg-zinc-100 dark:hover:bg-zinc-900"
-              }
-              aria-current={page === props.currentPage ? "page" : undefined}
+              class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
+                isActive
+                  ? "bg-blue-50 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40"
+                  : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              }`}
+              aria-current={isActive ? "page" : undefined}
               aria-label={`Page ${page}`}
             >
               {page}

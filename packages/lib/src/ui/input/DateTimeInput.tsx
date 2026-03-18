@@ -1,4 +1,4 @@
-import { InputWrapper } from "./util";
+import { InputWrapper, createInputA11y } from "./util";
 
 type DateTimeInputProps = {
   label?: string;
@@ -29,6 +29,7 @@ const DateTimeInput = (props: DateTimeInputProps) => {
   const disabled = () => props.disabled ?? false;
   const dateOnly = () => props.dateOnly ?? false;
   const icon = () => (dateOnly() ? "ti ti-calendar" : "ti ti-calendar-time");
+  const a11y = createInputA11y({ description: props.description, error: props.error });
 
   // Convert ISO string to input format if needed
   const inputValue = () => {
@@ -51,27 +52,33 @@ const DateTimeInput = (props: DateTimeInputProps) => {
   };
 
   return (
-    <InputWrapper label={props.label} description={props.description} error={props.error} required={props.required}>
-      {({ inputId, ariaDescribedBy }) => (
-        <div class="group relative">
-          <div class="absolute inset-y-0 left-3 z-10 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
-            <i class={`${icon()} group-focus-within:text-blue-500`} />
-          </div>
-          <input
-            id={inputId}
-            type={dateOnly() ? "date" : "datetime-local"}
-            class={`input-subtle w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
-            value={inputValue()}
-            onChange={(e) => props.onChange?.(e.currentTarget.value)}
-            disabled={disabled()}
-            aria-label={!props.label ? props.placeholder : undefined}
-            aria-describedby={ariaDescribedBy}
-            aria-invalid={!!props.error?.()}
-            aria-required={props.required}
-            aria-disabled={disabled()}
-          />
+    <InputWrapper
+      label={props.label}
+      description={props.description}
+      error={props.error?.()}
+      required={props.required}
+      inputId={a11y.inputId}
+      descriptionId={a11y.descriptionId}
+      errorId={a11y.errorId}
+    >
+      <div class="group relative">
+        <div class="absolute inset-y-0 left-3 z-10 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
+          <i class={`${icon()} group-focus-within:text-blue-500`} />
         </div>
-      )}
+        <input
+          id={a11y.inputId}
+          type={dateOnly() ? "date" : "datetime-local"}
+          class={`input-subtle w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+          value={inputValue()}
+          onChange={(e) => props.onChange?.(e.currentTarget.value)}
+          disabled={disabled()}
+          aria-label={!props.label ? props.placeholder : undefined}
+          aria-describedby={a11y.ariaDescribedBy()}
+          aria-invalid={!!props.error?.()}
+          aria-required={props.required}
+          aria-disabled={disabled()}
+        />
+      </div>
     </InputWrapper>
   );
 };

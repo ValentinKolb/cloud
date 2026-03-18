@@ -1,39 +1,35 @@
-import type { BaseUser, Role } from "@valentinkolb/cloud-contracts/shared";
+import type { BaseUser } from "@valentinkolb/cloud-contracts/shared";
 
 type UserViewProps = {
   user: BaseUser;
   showRealm?: boolean;
 };
 
-const realmStyles: Record<string, { bg: string; text: string; label: string }> = {
-  ipa: {
+const badgeStyles: Record<`${"ipa" | "local"}:${"user" | "guest"}`, { bg: string; text: string; label: string }> = {
+  "ipa:user": {
     bg: "bg-green-100 dark:bg-green-900/30",
     text: "text-green-700 dark:text-green-400",
     label: "IPA",
   },
-  "ipa-limited": {
+  "ipa:guest": {
     bg: "bg-yellow-100 dark:bg-yellow-900/30",
     text: "text-yellow-700 dark:text-yellow-400",
-    label: "IPA-Limited",
+    label: "IPA Guest",
   },
-  guest: {
+  "local:user": {
+    bg: "bg-sky-100 dark:bg-sky-900/30",
+    text: "text-sky-700 dark:text-sky-400",
+    label: "Local",
+  },
+  "local:guest": {
     bg: "bg-zinc-100 dark:bg-zinc-800",
     text: "text-zinc-600 dark:text-zinc-400",
     label: "Guest",
   },
 };
 
-/** Get the primary realm role from the user's roles */
-const getUserRealm = (user: BaseUser): string => {
-  if (hasRole(user.roles, "ipa")) return "ipa";
-  if (hasRole(user.roles, "ipa-limited")) return "ipa-limited";
-  return "guest";
-};
-
-const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
-
 export default function UserView(props: UserViewProps) {
-  const realmStyle = () => realmStyles[getUserRealm(props.user)] ?? realmStyles.guest;
+  const badge = () => badgeStyles[`${props.user.provider}:${props.user.profile}`] ?? badgeStyles["local:guest"];
 
   return (
     <div class="flex items-start gap-3 min-w-0">
@@ -43,12 +39,12 @@ export default function UserView(props: UserViewProps) {
       <div class="flex flex-col gap-0.5 min-w-0">
         <div class="flex items-center gap-2">
           <span class="text-sm font-medium text-primary truncate">{props.user.displayName}</span>
-          {props.showRealm && realmStyle() !== undefined && (
-            <span class={`tag ${realmStyle()?.bg} ${realmStyle()?.text}`}>{realmStyle()?.label}</span>
+          {props.showRealm && badge() !== undefined && (
+            <span class={`tag ${badge()?.bg} ${badge()?.text}`}>{badge()?.label}</span>
           )}
         </div>
         <div class="flex items-center gap-2 text-xs text-dimmed">
-          <span class="font-mono">{hasRole(props.user.roles, "guest") ? `${props.user.uid.slice(0, 12)}...` : props.user.uid}</span>
+          <span class="font-mono">{props.user.profile === "guest" ? `${props.user.uid.slice(0, 12)}...` : props.user.uid}</span>
           {props.user.mail && (
             <>
               <span class="text-zinc-300 dark:text-zinc-600">|</span>

@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { InputWrapper } from "./util";
+import { InputWrapper, createInputA11y } from "./util";
 
 type SelectOption =
   | string
@@ -39,6 +39,7 @@ const SelectInput = (props: SelectInputProps) => {
 
   const [isOpen, setIsOpen] = createSignal(false);
   const [focusedIndex, setFocusedIndex] = createSignal(-1);
+  const a11y = createInputA11y({ description: props.description, error: props.error });
 
   let triggerRef: HTMLDivElement | undefined;
   let dialogRef: HTMLDialogElement | undefined;
@@ -80,9 +81,23 @@ const SelectInput = (props: SelectInputProps) => {
 
     if (dialogRef && triggerRef) {
       const rect = triggerRef.getBoundingClientRect();
-      dialogRef.style.top = `${rect.bottom + 8}px`;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const dropdownMaxHeight = 260; // max-h-60 = 15rem ~ 240px + padding
+
       dialogRef.style.left = `${rect.left}px`;
       dialogRef.style.width = `${rect.width}px`;
+
+      if (spaceBelow < dropdownMaxHeight && spaceAbove > spaceBelow) {
+        // Open above
+        dialogRef.style.top = "auto";
+        dialogRef.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+      } else {
+        // Open below (default)
+        dialogRef.style.top = `${rect.bottom + 8}px`;
+        dialogRef.style.bottom = "auto";
+      }
+
       dialogRef.showModal();
     }
   };
@@ -150,9 +165,16 @@ const SelectInput = (props: SelectInputProps) => {
   onCleanup(() => dialogRef?.close());
 
   return (
-    <InputWrapper label={props.label} description={props.description} error={props.error} required={props.required}>
-      {({ inputId, ariaDescribedBy }) => (
-        <div class="relative">
+    <InputWrapper
+      label={props.label}
+      description={props.description}
+      error={props.error?.()}
+      required={props.required}
+      inputId={a11y.inputId}
+      descriptionId={a11y.descriptionId}
+      errorId={a11y.errorId}
+    >
+      <div class="relative">
           <div class="group relative flex-1">
             <div class="pointer-events-none absolute inset-y-0 left-2 z-10 flex items-center text-zinc-500">
               <i class={`${selectedOption()?.icon || (isOpen() ? activeIcon() : icon())} ${isOpen() ? "text-blue-500" : ""}`} />
@@ -160,7 +182,7 @@ const SelectInput = (props: SelectInputProps) => {
 
             <div
               ref={triggerRef}
-              id={inputId}
+              id={a11y.inputId}
               class={`input-subtle w-full pl-9 pr-8 ${
                 isOpen() ? "!border-blue-500 !ring-2 !ring-blue-500 dark:!border-blue-400 dark:!ring-blue-400" : ""
               } ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
@@ -171,7 +193,7 @@ const SelectInput = (props: SelectInputProps) => {
               aria-expanded={isOpen()}
               aria-haspopup="listbox"
               aria-label={!props.label ? "Select an option" : undefined}
-              aria-describedby={ariaDescribedBy}
+              aria-describedby={a11y.ariaDescribedBy()}
               aria-invalid={!!props.error?.()}
               aria-required={props.required}
               aria-disabled={disabled()}
@@ -248,8 +270,7 @@ const SelectInput = (props: SelectInputProps) => {
               </For>
             </div>
           </dialog>
-        </div>
-      )}
+      </div>
     </InputWrapper>
   );
 };
