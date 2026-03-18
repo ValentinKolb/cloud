@@ -1,31 +1,44 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/core/services";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
 import { Pagination } from "@valentinkolb/cloud/lib/ui";
 import { SearchBar } from "@valentinkolb/cloud/lib/islands";
-import { accountsService } from "../../service";
-import { buildUserDetailUrl, buildUsersPageBaseUrl, parseUsersListState } from "../lib/url-state";
+import { buildUserDetailUrl, buildUsersPageBaseUrl, buildUsersUrl, parseUsersListState } from "../lib/url-state";
 import AccountsNavSidebar from "../AccountsNavSidebar";
-
-const ROLE_COLORS: Record<string, string> = {
-  admin: "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300",
-  ipa: "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300",
-  "ipa-limited": "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300",
-  "group-manager": "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300",
-  guest: "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300",
-};
+import { getManagementBadge, getPrimaryAccountBadge, getSupplementalRoleColor, getSupplementalRoles } from "../lib/account-badges";
+import UsersFilters from "./UsersFilters.island";
+import CreateUserForm from "./new/CreateUserForm.island";
+import { getSync } from "@valentinkolb/cloud-core/services/settings";
 
 /** Admin users list page - nav sidebar + full-page list. */
 export default ssr<AuthContext>(async (c) => {
   const perPage = 40;
   const user = c.get("user");
-  const listState = parseUsersListState({ search: c.req.query("search"), page: c.req.query("page") });
+  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
+  const listState = parseUsersListState({
+    search: c.req.query("search"),
+    page: c.req.query("page"),
+    provider: c.req.query("provider"),
+    profile: c.req.query("profile"),
+  });
   const [pendingRequestsPage, usersPage] = await Promise.all([
     accountsService.accountRequest.list({ access: { userId: user.id, isAdmin: true }, filter: { status: "pending" } }),
-    accountsService.user.list({ pagination: { page: listState.page, perPage }, filter: { search: listState.search || undefined } }),
+    accountsService.user.list({
+      pagination: { page: listState.page, perPage },
+      filter: { search: listState.search || undefined },
+      scope: {
+        provider: listState.provider || undefined,
+        profile: listState.profile || undefined,
+      },
+    }),
   ]);
   const totalPages = Math.max(1, Math.ceil(usersPage.total / perPage));
-  const paginationBaseUrl = buildUsersPageBaseUrl({ search: listState.search });
+  const paginationBaseUrl = buildUsersPageBaseUrl({
+    search: listState.search,
+    provider: listState.provider,
+    profile: listState.profile,
+  });
 
   return (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Users" }]}>
@@ -36,13 +49,19 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-col gap-3">
             <div class="flex items-center justify-between gap-2">
               <div class="flex-1 min-w-0">
-                <SearchBar action="/app/accounts/users" value={listState.search} />
+                <SearchBar
+                  action={buildUsersUrl({
+                    ...listState,
+                    search: "",
+                    page: 1,
+                  })}
+                  value={listState.search}
+                />
               </div>
-              <a href="/app/accounts/users/new" class="btn-secondary btn-sm shrink-0">
-                <i class="ti ti-plus" />
-                New User
-              </a>
+              <CreateUserForm buttonClass="btn-input btn-input-sm shrink-0" freeIpaEnabled={freeIpaEnabled} />
             </div>
+
+            <UsersFilters state={listState} />
 
             <p class="text-xs text-dimmed">
               {listState.search ? `${usersPage.total} result${usersPage.total !== 1 ? "s" : ""}` : `${usersPage.total} users`}
@@ -61,8 +80,16 @@ export default ssr<AuthContext>(async (c) => {
                       {entry.mail && <p class="sidebar-item-meta truncate">{entry.mail}</p>}
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
-                      {entry.roles.map((role) => (
-                        <span class={`text-[9px] px-1 py-px rounded ${ROLE_COLORS[role] ?? ROLE_COLORS.guest}`}>{role}</span>
+                      {(() => {
+                        const badge = getPrimaryAccountBadge(entry);
+                        return <span class={`text-[9px] px-1 py-px rounded ${badge.className}`}>{badge.label}</span>;
+                      })()}
+                      {(() => {
+                        const badge = getManagementBadge(entry);
+                        return <span class={`text-[9px] px-1 py-px rounded ${badge.className}`}>{badge.label}</span>;
+                      })()}
+                      {getSupplementalRoles(entry).map((role) => (
+                        <span class={`text-[9px] px-1 py-px rounded ${getSupplementalRoleColor(role)}`}>{role}</span>
                       ))}
                     </div>
                   </a>

@@ -6,7 +6,9 @@ import { apiClient } from "@/accounts/client";
 import { navigateTo, refreshCurrentPath } from "../../lib/navigation";
 
 type GroupActionsProps = {
-  cn: string;
+  id: string;
+  name: string;
+  provider: "ipa" | "local";
   isPosix: boolean;
   description: string | null;
   listHref: string;
@@ -15,18 +17,19 @@ type GroupActionsProps = {
 /** Per-group action dropdown menu. */
 export default function GroupActions(props: GroupActionsProps) {
   const deleteMutation = mutations.create<void, string>({
-    mutation: async (cn) => {
-      const res = await apiClient.groups[":cn"].$delete({ param: { cn } });
+    mutation: async (id) => {
+      const res = await apiClient.groups[":id"].$delete({ param: { id } });
       if (!res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as { message?: string };
         throw new Error(data.message ?? "Failed to delete group.");
       }
     },
     onSuccess: async () => {
-      const g = props.cn;
+      const g = props.name;
+      const providerLabel = props.provider === "ipa" ? "FreeIPA" : "Local";
 
       if (!props.isPosix) {
-        await prompts.alert(`Group "${g}" deleted from FreeIPA.`, {
+        await prompts.alert(`Group "${g}" deleted from ${providerLabel}.`, {
           title: "Group Deleted",
           icon: "ti ti-check",
         });
@@ -40,7 +43,7 @@ export default function GroupActions(props: GroupActionsProps) {
         (close) => (
           <div class="flex flex-col gap-4">
             <div class="info-block-success">
-              Group <code class="font-mono font-semibold">{g}</code> deleted from FreeIPA.
+              Group <code class="font-mono font-semibold">{g}</code> deleted from {providerLabel}.
             </div>
 
             <div class="flex flex-col gap-1">
@@ -77,12 +80,12 @@ export default function GroupActions(props: GroupActionsProps) {
 
   const editMutation = mutations.create<void, { description: string }>({
     mutation: async (vars) => {
-      const res = await apiClient.groups[":cn"].$patch({
-        param: { cn: props.cn },
+      const res = await apiClient.groups[":id"].$patch({
+        param: { id: props.id },
         json: vars,
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as { message?: string };
         throw new Error(data.message ?? "Failed to update group.");
       }
     },
@@ -111,15 +114,18 @@ export default function GroupActions(props: GroupActionsProps) {
   };
 
   const handleMakePosix = async () => {
-    const confirmed = await prompts.confirm(`Convert "${props.cn}" to a POSIX group? This will assign a GID number and cannot be undone.`, {
-      title: "Make POSIX",
-      icon: "ti ti-transform",
-      confirmText: "Convert",
-      cancelText: "Cancel",
-    });
+      const confirmed = await prompts.confirm(
+        `Convert "${props.name}" to a POSIX group? This assigns a stable GID for filesystem integrations and cannot be undone.`,
+        {
+          title: "Make POSIX",
+          icon: "ti ti-transform",
+          confirmText: "Convert",
+          cancelText: "Cancel",
+        },
+      );
     if (confirmed) {
-      const res = await apiClient.groups[":cn"]["make-posix"].$post({
-        param: { cn: props.cn },
+      const res = await apiClient.groups[":id"]["make-posix"].$post({
+        param: { id: props.id },
       });
       if (res.ok) refreshCurrentPath();
       else prompts.error("Failed to convert group to POSIX.");
@@ -127,7 +133,7 @@ export default function GroupActions(props: GroupActionsProps) {
   };
 
   const handleDelete = async () => {
-    const confirmed = await prompts.confirm(`Are you sure you want to delete the group "${props.cn}"? This action cannot be undone.`, {
+    const confirmed = await prompts.confirm(`Are you sure you want to delete the group "${props.name}"? This action cannot be undone.`, {
       title: "Delete Group",
       icon: "ti ti-trash",
       confirmText: "Delete",
@@ -136,7 +142,7 @@ export default function GroupActions(props: GroupActionsProps) {
     });
 
     if (confirmed) {
-      await deleteMutation.mutate(props.cn);
+      await deleteMutation.mutate(props.id);
     }
   };
 

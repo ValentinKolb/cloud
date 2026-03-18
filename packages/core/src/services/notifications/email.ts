@@ -5,10 +5,10 @@ import * as settings from "@valentinkolb/cloud-core/services/settings";
 
 /** Lazily-created transporter — uses current settings on each send. */
 const getTransporter = async (): Promise<Transporter> => {
-  const host = await settings.get<string>("email.noreply.smtp_host");
-  const port = await settings.get<number>("email.noreply.smtp_port");
-  const user = await settings.get<string>("email.noreply.user");
-  const pass = await settings.get<string>("email.noreply.password");
+  const host = await settings.get<string>("mail.noreply.smtp_host");
+  const port = await settings.get<number>("mail.noreply.smtp_port");
+  const user = await settings.get<string>("mail.noreply.user");
+  const pass = await settings.get<string>("mail.noreply.password");
 
   return createTransport({
     host,
@@ -38,7 +38,7 @@ const sanitizeRawHtml = (html: string): string =>
 export const sendEmail = async (to: string, subject: string, opts: { content?: string; rawHtml?: string }): Promise<void> => {
   const appUrl = env.APP_URL.startsWith("http") ? env.APP_URL : `https://${env.APP_URL}`;
   const appName = await settings.get<string>("app.name");
-  const emailFrom = await settings.get<string>("email.noreply.from");
+  const emailFrom = await settings.get<string>("mail.noreply.from");
 
   let body = "";
   if (opts.rawHtml) {

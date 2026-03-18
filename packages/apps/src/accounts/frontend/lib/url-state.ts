@@ -1,21 +1,28 @@
 export type QueryKeys = {
   search: string;
   page: string;
+  provider?: string;
+  profile?: string;
 };
 
 export type GroupQueryKeys = QueryKeys & {
-  showAll: string;
+  scope: string;
+  legacyShowAll?: string;
 };
 
 export const USERS_QUERY_KEYS: QueryKeys = {
   search: "search",
   page: "page",
+  provider: "provider",
+  profile: "profile",
 };
 
 export const GROUPS_QUERY_KEYS: GroupQueryKeys = {
   search: "search",
   page: "page",
-  showAll: "show_all",
+  provider: "provider",
+  scope: "scope",
+  legacyShowAll: "show_all",
 };
 
 /**
@@ -25,22 +32,27 @@ export const GROUPS_QUERY_KEYS: GroupQueryKeys = {
 export const GROUPS_CONTEXT_QUERY_KEYS: GroupQueryKeys = {
   search: "list_search",
   page: "list_page",
-  showAll: "list_show_all",
+  provider: "list_provider",
+  scope: "list_scope",
+  legacyShowAll: "list_show_all",
 };
 
 export type UsersListState = {
   search: string;
   page: number;
+  provider: "" | "local" | "ipa";
+  profile: "" | "user" | "guest";
 };
 
 export type GroupsListState = {
   search: string;
   page: number;
-  showAll: boolean;
+  provider: "" | "local" | "ipa";
+  scope: "managed" | "member" | "all";
 };
 
 type GroupsStateOptions = {
-  defaultShowAll?: boolean;
+  defaultScope?: GroupsListState["scope"];
   keys?: GroupQueryKeys;
 };
 
@@ -49,15 +61,6 @@ const parsePage = (value: number | string | null | undefined): number => {
   if (!value) return 1;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-};
-
-const parseBoolean = (value: string | boolean | null | undefined, fallback: boolean): boolean => {
-  if (typeof value === "boolean") return value;
-  if (!value) return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "true" || normalized === "1" || normalized === "yes") return true;
-  if (normalized === "false" || normalized === "0" || normalized === "no") return false;
-  return fallback;
 };
 
 const normalizeSearch = (value: string | null | undefined): string => (value ?? "").trim();
@@ -75,20 +78,31 @@ const writeIfNonDefault = (params: URLSearchParams, key: string, value: string, 
   params.set(key, value);
 };
 
-export const parseUsersListState = (input: { search?: string | null; page?: number | string | null }): UsersListState => ({
+export const parseUsersListState = (input: {
+  search?: string | null;
+  page?: number | string | null;
+  provider?: string | null;
+  profile?: string | null;
+}): UsersListState => ({
   search: normalizeSearch(input.search),
   page: parsePage(input.page),
+  provider: input.provider === "local" || input.provider === "ipa" ? input.provider : "",
+  profile: input.profile === "user" || input.profile === "guest" ? input.profile : "",
 });
 
 export const parseUsersListStateFromParams = (params: URLSearchParams, keys: QueryKeys = USERS_QUERY_KEYS): UsersListState =>
   parseUsersListState({
     search: params.get(keys.search),
     page: params.get(keys.page),
+    provider: keys.provider ? params.get(keys.provider) : null,
+    profile: keys.profile ? params.get(keys.profile) : null,
   });
 
 export const writeUsersListState = (params: URLSearchParams, state: UsersListState, keys: QueryKeys = USERS_QUERY_KEYS): void => {
   writeIfNonDefault(params, keys.search, state.search, "");
   writeIfNonDefault(params, keys.page, String(state.page), "1");
+  if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
+  if (keys.profile) writeIfNonDefault(params, keys.profile, state.profile, "");
 };
 
 export const buildUsersUrl = (
@@ -104,19 +118,20 @@ export const buildUsersUrl = (
 };
 
 export const buildUsersPageBaseUrl = (
-  state: Pick<UsersListState, "search">,
+  state: Pick<UsersListState, "search" | "provider" | "profile">,
   options: {
     basePath?: string;
     keys?: QueryKeys;
   } = {},
 ): string => {
   const params = new URLSearchParams();
-  writeIfNonDefault(params, (options.keys ?? USERS_QUERY_KEYS).search, state.search, "");
+  const keys = options.keys ?? USERS_QUERY_KEYS;
+  writeIfNonDefault(params, keys.search, state.search, "");
+  if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
+  if (keys.profile) writeIfNonDefault(params, keys.profile, state.profile, "");
   const query = params.toString();
   const basePath = options.basePath ?? "/app/accounts/users";
-  return query.length > 0
-    ? `${basePath}?${query}&${(options.keys ?? USERS_QUERY_KEYS).page}=`
-    : `${basePath}?${(options.keys ?? USERS_QUERY_KEYS).page}=`;
+  return query.length > 0 ? `${basePath}?${query}&${keys.page}=` : `${basePath}?${keys.page}=`;
 };
 
 export const buildUserDetailUrl = (
@@ -137,16 +152,27 @@ export const parseGroupsListState = (
   input: {
     search?: string | null;
     page?: number | string | null;
+    provider?: string | null;
+    scope?: string | null;
     showAll?: string | boolean | null;
   },
   options: GroupsStateOptions = {},
 ): GroupsListState => {
-  const defaultShowAll = options.defaultShowAll ?? false;
+  const defaultScope = options.defaultScope ?? "member";
+  let scope = input.scope;
+
+  if (!scope && input.showAll !== null && input.showAll !== undefined) {
+    const legacy = String(input.showAll).trim().toLowerCase();
+    scope = legacy === "true" || legacy === "1" || legacy === "yes" ? "all" : "member";
+  }
+
+  const normalizedScope = scope === "managed" || scope === "member" || scope === "all" ? scope : defaultScope;
 
   return {
     search: normalizeSearch(input.search),
     page: parsePage(input.page),
-    showAll: parseBoolean(input.showAll, defaultShowAll),
+    provider: input.provider === "local" || input.provider === "ipa" ? input.provider : "",
+    scope: normalizedScope,
   };
 };
 
@@ -157,7 +183,9 @@ export const parseGroupsListStateFromParams = (params: URLSearchParams, options:
     {
       search: params.get(keys.search),
       page: params.get(keys.page),
-      showAll: params.get(keys.showAll),
+      provider: keys.provider ? params.get(keys.provider) : null,
+      scope: params.get(keys.scope),
+      showAll: keys.legacyShowAll ? params.get(keys.legacyShowAll) : null,
     },
     options,
   );
@@ -165,11 +193,13 @@ export const parseGroupsListStateFromParams = (params: URLSearchParams, options:
 
 export const writeGroupsListState = (params: URLSearchParams, state: GroupsListState, options: GroupsStateOptions = {}): void => {
   const keys = options.keys ?? GROUPS_QUERY_KEYS;
-  const defaultShowAll = options.defaultShowAll ?? false;
+  const defaultScope = options.defaultScope ?? "member";
 
   writeIfNonDefault(params, keys.search, state.search, "");
   writeIfNonDefault(params, keys.page, String(state.page), "1");
-  writeIfNonDefault(params, keys.showAll, String(state.showAll), String(defaultShowAll));
+  if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
+  writeIfNonDefault(params, keys.scope, state.scope, defaultScope);
+  if (keys.legacyShowAll) params.delete(keys.legacyShowAll);
 };
 
 export const buildGroupsUrl = (
@@ -184,17 +214,19 @@ export const buildGroupsUrl = (
 };
 
 export const buildGroupsPageBaseUrl = (
-  state: Pick<GroupsListState, "search" | "showAll">,
+  state: Pick<GroupsListState, "search" | "provider" | "scope">,
   options: {
     basePath?: string;
   } & GroupsStateOptions = {},
 ): string => {
   const keys = options.keys ?? GROUPS_QUERY_KEYS;
-  const defaultShowAll = options.defaultShowAll ?? false;
+  const defaultScope = options.defaultScope ?? "member";
   const params = new URLSearchParams();
 
   writeIfNonDefault(params, keys.search, state.search, "");
-  writeIfNonDefault(params, keys.showAll, String(state.showAll), String(defaultShowAll));
+  if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
+  writeIfNonDefault(params, keys.scope, state.scope, defaultScope);
+  if (keys.legacyShowAll) params.delete(keys.legacyShowAll);
 
   const query = params.toString();
   const basePath = options.basePath ?? "/app/accounts/groups";
@@ -202,13 +234,13 @@ export const buildGroupsPageBaseUrl = (
 };
 
 export const buildGroupDetailUrl = (
-  groupCn: string,
+  groupId: string,
   state: GroupsListState,
   options: {
     basePath?: string;
   } & GroupsStateOptions = {},
 ): string => {
-  const basePath = options.basePath ?? `/app/accounts/groups/${groupCn}`;
+  const basePath = options.basePath ?? `/app/accounts/groups/${groupId}`;
   const params = new URLSearchParams();
   writeGroupsListState(params, state, options);
   return toHref(basePath, params);

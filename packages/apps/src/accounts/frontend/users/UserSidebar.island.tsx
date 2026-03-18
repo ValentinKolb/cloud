@@ -2,7 +2,9 @@ import { For, Show } from "solid-js";
 import type { BaseUser } from "@/accounts/contracts";
 import { Pagination } from "@valentinkolb/cloud/lib/ui";
 import { SearchBar } from "@valentinkolb/cloud/lib/islands";
-import { buildUserDetailUrl, buildUsersPageBaseUrl, type UsersListState } from "../lib/url-state";
+import { buildUserDetailUrl, buildUsersPageBaseUrl, buildUsersUrl, type UsersListState } from "../lib/url-state";
+import { getPrimaryAccountBadge, getSupplementalRoleColor, getSupplementalRoles } from "../lib/account-badges";
+import CreateUserForm from "./new/CreateUserForm.island";
 type AccountRequest = {
   id: string;
   email: string;
@@ -20,22 +22,22 @@ type Props = {
   pendingRequests: AccountRequest[];
   listState: UsersListState;
   basePath?: string;
-};
-const ROLE_COLORS: Record<string, string> = {
-  admin: "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300",
-  ipa: "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300",
-  "ipa-limited": "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300",
-  "group-manager": "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300",
-  guest: "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300",
+  freeIpaEnabled?: boolean;
 };
 export default function UserSidebar(props: Props) {
   const basePath = props.basePath ?? "/app/accounts/users";
   const totalPages = Math.max(1, Math.ceil(props.total / props.perPage));
-  const paginationBaseUrl = buildUsersPageBaseUrl({ search: props.listState.search }, { basePath });
+  const paginationBaseUrl = buildUsersPageBaseUrl(
+    { search: props.listState.search, provider: props.listState.provider, profile: props.listState.profile },
+    { basePath },
+  );
   return (
     <nav class="flex flex-col h-full">
       <div class="p-2">
-        <SearchBar action={basePath} value={props.listState.search} />
+        <SearchBar
+          action={buildUsersUrl({ ...props.listState, search: "", page: 1 }, { basePath })}
+          value={props.listState.search}
+        />
       </div>
       <div class="px-3 pb-1 text-[10px] text-dimmed">
         {props.listState.search
@@ -43,8 +45,8 @@ export default function UserSidebar(props: Props) {
           : `${props.total} user${props.total !== 1 ? "s" : ""}`}
       </div>
       <Show when={props.pendingRequests.length > 0}>
-        <div class="mx-2 mb-1 p-2 rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-          <h3 class="text-[10px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1 mb-1">
+        <div class="info-block-warning mx-2 mb-1">
+          <h3 class="mb-1 flex items-center gap-1 text-[10px] font-semibold">
             <i class="ti ti-user-plus text-xs" /> {props.pendingRequests.length} pending request
             {props.pendingRequests.length !== 1 ? "s" : ""}
           </h3>
@@ -53,10 +55,10 @@ export default function UserSidebar(props: Props) {
               {(req) => (
                 <a
                   href={`/app/accounts/users/new?request=${req.id}`}
-                  class="flex items-center justify-between py-1 text-[10px] hover:text-amber-800 dark:hover:text-amber-300 transition-colors"
+                  class="flex items-center justify-between py-1 text-[10px] transition-colors hover:text-primary"
                 >
-                  <span class="truncate text-amber-700 dark:text-amber-400">{req.displayName || `${req.firstName} ${req.lastName}`}</span>
-                  <i class="ti ti-chevron-right text-amber-400 text-[10px] shrink-0" />
+                  <span class="truncate">{req.displayName || `${req.firstName} ${req.lastName}`}</span>
+                  <i class="ti ti-chevron-right text-[10px] shrink-0 opacity-70" />
                 </a>
               )}
             </For>
@@ -75,9 +77,13 @@ export default function UserSidebar(props: Props) {
                 <span class="font-medium text-primary truncate w-full">{user.displayName}</span>
                 <span class="flex items-center gap-1 w-full">
                   <span class="text-dimmed truncate">{user.uid}</span>
-                  <For each={user.roles}>
+                  {(() => {
+                    const badge = getPrimaryAccountBadge(user);
+                    return <span class={`text-[9px] px-1 py-px rounded shrink-0 ${badge.className}`}>{badge.label}</span>;
+                  })()}
+                  <For each={getSupplementalRoles(user)}>
                     {(role) => (
-                      <span class={`text-[9px] px-1 py-px rounded shrink-0 ${ROLE_COLORS[role] ?? ROLE_COLORS.guest}`}>{role}</span>
+                      <span class={`text-[9px] px-1 py-px rounded shrink-0 ${getSupplementalRoleColor(role)}`}>{role}</span>
                     )}
                   </For>
                 </span>
@@ -96,9 +102,7 @@ export default function UserSidebar(props: Props) {
         <Pagination currentPage={props.listState.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
       </div>
       <div class="p-2 [&>a]:w-full">
-        <a href="/app/accounts/users/new" class="btn-secondary btn-sm flex items-center justify-center gap-1">
-          <i class="ti ti-plus" /> New User
-        </a>
+        <CreateUserForm buttonClass="btn-input btn-input-sm flex w-full items-center justify-center gap-1" freeIpaEnabled={props.freeIpaEnabled} />
       </div>
     </nav>
   );

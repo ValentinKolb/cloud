@@ -1,26 +1,15 @@
 import { ssr } from "@config";
 import { type AuthContext } from "@valentinkolb/cloud-lib/server/middleware/auth";
 import Layout from "@/ssr/Layout";
-import { dates } from "@valentinkolb/cloud-lib/shared";
-import { hasRole } from "@valentinkolb/cloud-contracts/shared";
+import { canManageAnyGroups, dates } from "@valentinkolb/cloud-lib/shared";
+import { getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud-lib/shared";
+import { accountsAppService } from "@/services";
 import { getSync } from "@valentinkolb/cloud-core/services/settings";
 import ProfileActions from "./ProfileActions.island";
 import ProfileSettings from "./ProfileSettings.island";
-import RequestAccount from "./RequestAccount.island";
-import WithdrawRequest from "./WithdrawRequest.island";
+import RequestFreeIpaAccount from "./RequestFreeIpaAccount.island";
+import WithdrawAccountRequest from "./WithdrawAccountRequest.island";
 
-export type AccountsService = {
-  user: {
-    group: {
-      list: (config: { userId: string; recursive: boolean }) => Promise<{ items: string[] }>;
-    };
-  };
-  accountRequest: {
-    getPendingForUser: (config: { userId: string }) => Promise<{ id: string; createdAt: Date } | null>;
-  };
-};
-
-/** Build display address from address components. */
 const formatAddress = (a: {
   street: string | null;
   postalCode: string | null;
@@ -36,295 +25,269 @@ const formatAddress = (a: {
   return parts.length > 0 ? parts.join(", ") : null;
 };
 
-/** Profile page showing current user info from session. */
-export const createProfilePage = (accountsService: AccountsService | null) => ssr<AuthContext>(async (c) => {
+export const createProfilePage = () => ssr<AuthContext>(async (c) => {
   const appName = getSync<string>("app.name") || "My App";
+  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
   const sessionUser = c.get("user");
   const manages = sessionUser.manages;
+  const canManageGroups = canManageAnyGroups(sessionUser);
   const showAllGroups = c.req.query("groups") === "all";
-  const isExpiredAccount =
-    hasRole(sessionUser, "guest") && sessionUser.ipaAccountExpires ? new Date(sessionUser.ipaAccountExpires) < new Date() : false;
+  const action = c.req.query("action");
+  const isIpaUser = sessionUser.provider === "ipa";
+  const ipaData = sessionUser.ipa;
+  const isGuestProfile = sessionUser.profile === "guest";
+  const directGroups = sessionUser.memberofGroup;
+  const supplementalRoles = sessionUser.roles.filter((role) => role === "admin" || role === "group-manager");
+  const isExpiredAccount = sessionUser.accountExpires ? new Date(sessionUser.accountExpires) < new Date() : false;
+  const pendingRequest = sessionUser.provider === "local" ? await accountsAppService.accountRequest.getPendingForUser({ userId: sessionUser.id }) : null;
+  const address = formatAddress(ipaData?.address ?? { street: null, postalCode: null, city: null, state: null });
 
-  // Load groups for IPA users (recursive only if requested)
   let displayGroups: string[] = [];
-  if (hasRole(sessionUser, "ipa", "ipa-limited")) {
-    if (showAllGroups && accountsService) {
-      displayGroups = (
-        await accountsService.user.group.list({
-          userId: sessionUser.id,
-          recursive: true,
-        })
-      ).items;
-    } else {
-      displayGroups = sessionUser.memberofGroup;
-    }
+  if (showAllGroups) {
+    displayGroups = (await accountsAppService.user.group.list({ userId: sessionUser.id, recursive: true })).items;
+  } else {
+    displayGroups = directGroups;
   }
 
-  // Load pending account request for guest users
-  const pendingAccountRequest =
-    hasRole(sessionUser, "guest") && accountsService
-      ? await accountsService.accountRequest.getPendingForUser({
-          userId: sessionUser.id,
-        })
-      : null;
+  const profileBadgeClass = sessionUser.profile === "guest"
+    ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
+    : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300";
+  const providerBadgeClass = sessionUser.provider === "ipa"
+    ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
+    : "bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300";
 
   return (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile" }]}>
-      <div class="max-w-3xl mx-auto flex flex-col gap-4">
-        {/* User Info Card */}
-        <div class="paper p-6 flex flex-col gap-5" style="view-transition-name: profile-card">
-          {/* Header: Avatar + Name */}
-          <div class="flex items-center gap-4">
+      <div class="max-w-4xl mx-auto flex flex-col gap-4">
+        {action === "extend" && (
+          <div class="info-block-info text-sm">
+            Need more time? Use <strong>Extend Account</strong> below to renew your account expiry.
+          </div>
+        )}
+
+        {/* Profile card */}
+        <div class="paper" style="view-transition-name: profile-card">
+          {/* Header */}
+          <div class="flex items-center gap-4 p-5">
             <div
               class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 font-semibold text-zinc-600 dark:text-zinc-300 h-14 w-14 text-lg"
               style="view-transition-name: user-avatar"
             >
               {(sessionUser.displayName || sessionUser.uid).slice(0, 2).toUpperCase()}
             </div>
-            <div class="flex flex-col min-w-0 flex-1">
-              <h1 class="text-lg font-bold text-primary leading-tight">{sessionUser.displayName || sessionUser.uid}</h1>
-              {sessionUser.displayName && !hasRole(sessionUser, "guest") && <span class="text-sm text-dimmed">{sessionUser.uid}</span>}
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h1 class="text-lg font-bold text-primary leading-tight">{sessionUser.displayName || sessionUser.uid}</h1>
+                <span class={`tag ${profileBadgeClass}`}>{getAccountTypeLabel(sessionUser)}</span>
+                <span class={`tag ${providerBadgeClass}`}>{getManagementLabel(sessionUser)}</span>
+                {supplementalRoles.map((role) => (
+                  <span class={`tag ${role === "admin" ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300" : "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300"}`}>
+                    {getSupplementalRoleLabel(role)}
+                  </span>
+                ))}
+                {isExpiredAccount && <span class="tag bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300">Expired</span>}
+              </div>
+              {sessionUser.displayName && !isGuestProfile && <span class="text-xs text-dimmed">{sessionUser.uid}</span>}
             </div>
           </div>
 
-          {/* Roles */}
-          <div class="flex items-center gap-2 flex-wrap">
-            {sessionUser.roles.map((role) => (
-              <span
-                class={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  role === "admin"
-                    ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
-                    : role === "ipa"
-                      ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                      : role === "ipa-limited"
-                        ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
-                        : role === "group-manager"
-                          ? "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300"
-                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
-                }`}
-              >
-                {role}
-              </span>
-            ))}
-            {hasRole(sessionUser, "guest") && isExpiredAccount && (
-              <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300">
-                expired
-              </span>
+          {/* Details row */}
+          <div class="border-t border-zinc-200/60 dark:border-zinc-700/40 px-5 py-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+            {sessionUser.mail && (
+              <>
+                <i class="ti ti-mail text-dimmed mt-px" />
+                <span class="text-secondary">{sessionUser.mail}</span>
+              </>
+            )}
+            {ipaData?.phone && (
+              <>
+                <i class="ti ti-phone text-dimmed mt-px" />
+                <span class="text-secondary">{ipaData.phone}</span>
+              </>
+            )}
+            {isIpaUser && ipaData?.employeeType && (
+              <>
+                <i class="ti ti-briefcase text-dimmed mt-px" />
+                <span class="text-secondary">{ipaData.employeeType}</span>
+              </>
+            )}
+            {isIpaUser && ipaData?.mobile && ipaData.mobile !== ipaData.phone && (
+              <>
+                <i class="ti ti-device-mobile text-dimmed mt-px" />
+                <span class="text-secondary">{ipaData.mobile}</span>
+              </>
+            )}
+            {isIpaUser && address && (
+              <>
+                <i class="ti ti-map-pin text-dimmed mt-px" />
+                <span class="text-secondary">{address}</span>
+              </>
+            )}
+            {sessionUser.accountExpires && (
+              <>
+                <i class="ti ti-calendar-event text-dimmed mt-px" />
+                <span class={`text-dimmed ${isExpiredAccount ? "text-red-600 dark:text-red-400" : ""}`}>
+                  {isGuestProfile ? "Guest access expires" : "Account expires"} {dates.formatDate(sessionUser.accountExpires)}
+                </span>
+              </>
+            )}
+            {isIpaUser && ipaData?.passwordExpires && (
+              <>
+                <i class="ti ti-key text-dimmed mt-px" />
+                <span class="text-dimmed">Password expires {dates.formatDate(ipaData.passwordExpires)}</span>
+              </>
+            )}
+            {isIpaUser && (ipaData?.sshFingerprints.length ?? 0) > 0 && (
+              <>
+                <i class="ti ti-terminal text-dimmed mt-px" />
+                <span class="text-dimmed">{ipaData?.sshPublicKeys.length ?? 0} SSH {(ipaData?.sshPublicKeys.length ?? 0) === 1 ? "key" : "keys"} configured</span>
+              </>
             )}
           </div>
 
           {/* Limited account info */}
-          {hasRole(sessionUser, "ipa-limited") && (
-            <div class="info-block-info text-xs">
-              Your account has limited access. Ask a group manager to add you to a group to unlock full features.
+          {isIpaUser && isGuestProfile && (
+            <div class="px-5 pb-4">
+              <div class="info-block-info text-xs">
+                Your account has limited access. Ask a group manager to add you to a group to unlock full features.
+              </div>
             </div>
           )}
 
-          {/* Details Grid */}
-          <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm">
-            {sessionUser.mail && (
-              <>
-                <i class="ti ti-mail text-dimmed mt-0.5" />
-                <span class="text-secondary">{sessionUser.mail}</span>
-              </>
-            )}
-            {sessionUser.phone && (
-              <>
-                <i class="ti ti-phone text-dimmed mt-0.5" />
-                <span class="text-secondary">{sessionUser.phone}</span>
-              </>
-            )}
-            {hasRole(sessionUser, "ipa", "ipa-limited") && sessionUser.employeeType && (
-              <>
-                <i class="ti ti-briefcase text-dimmed mt-0.5" />
-                <span class="text-secondary">{sessionUser.employeeType}</span>
-              </>
-            )}
-            {hasRole(sessionUser, "ipa", "ipa-limited") && sessionUser.mobile && sessionUser.mobile !== sessionUser.phone && (
-              <>
-                <i class="ti ti-device-mobile text-dimmed mt-0.5" />
-                <span class="text-secondary">{sessionUser.mobile}</span>
-              </>
-            )}
-            {hasRole(sessionUser, "ipa", "ipa-limited") && formatAddress(sessionUser.address) && (
-              <>
-                <i class="ti ti-map-pin text-dimmed mt-0.5" />
-                <span class="text-secondary">{formatAddress(sessionUser.address)}</span>
-              </>
-            )}
-            {hasRole(sessionUser, "ipa", "ipa-limited") && sessionUser.ipaAccountExpires && (
-              <>
-                <i class="ti ti-calendar-event text-dimmed mt-0.5" />
-                <span class="text-dimmed text-xs leading-relaxed">Account expires {dates.formatDate(sessionUser.ipaAccountExpires)}</span>
-              </>
-            )}
-            {hasRole(sessionUser, "ipa", "ipa-limited") && sessionUser.ipaPasswordExpires && (
-              <>
-                <i class="ti ti-key text-dimmed mt-0.5" />
-                <span class="text-dimmed text-xs leading-relaxed">Password expires {dates.formatDate(sessionUser.ipaPasswordExpires)}</span>
-              </>
-            )}
-          </div>
-
-          {/* SSH Keys */}
-          {hasRole(sessionUser, "ipa", "ipa-limited") && sessionUser.sshFingerprints.length > 0 && (
-            <div class="border-t border-zinc-200 dark:border-zinc-700 pt-3">
-              <details class="group">
-                <summary class="text-sm text-dimmed cursor-pointer select-none flex items-center gap-1 hover:text-secondary transition-colors">
-                  <i class="ti ti-key text-sm" />
-                  {sessionUser.sshPublicKeys.length} SSH {sessionUser.sshPublicKeys.length === 1 ? "Key" : "Keys"}
-                  <i class="ti ti-chevron-right text-xs transition-transform group-open:rotate-90" />
-                </summary>
-                <div class="mt-2 flex flex-col gap-1">
-                  {sessionUser.sshFingerprints.map((fp) => (
-                    <code class="text-xs font-mono text-secondary bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded break-all">{fp}</code>
-                  ))}
-                </div>
-              </details>
-            </div>
-          )}
-
-          {/* Profile Action Buttons */}
-          <div class="border-t border-zinc-200 dark:border-zinc-700 pt-3">
+          {/* Actions */}
+          <div class="border-t border-zinc-200/60 dark:border-zinc-700/40 px-5 py-3">
             <ProfileActions
-              roles={sessionUser.roles}
+              provider={sessionUser.provider}
+              profile={sessionUser.profile}
               uid={sessionUser.uid}
               givenname={sessionUser.givenname}
               sn={sessionUser.sn}
               displayName={sessionUser.displayName}
-              phone={sessionUser.phone}
-              address={sessionUser.address}
-              sshPublicKeys={sessionUser.sshPublicKeys}
-              sshFingerprints={sessionUser.sshFingerprints}
+              ipa={sessionUser.ipa}
               appName={appName}
+              freeIpaEnabled={freeIpaEnabled}
             />
           </div>
         </div>
 
-        {/* Request Account Section (only for guest users) */}
-        {hasRole(sessionUser, "guest") && (
-          <div class="flex flex-col gap-3">
-            <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-              <i class="ti ti-sparkles text-sm" />
-              Join {appName}
-            </h2>
-
-            {/* Pending account request */}
-            {pendingAccountRequest && (
-              <div class="paper p-4 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                  <i class="ti ti-clock text-amber-600 dark:text-amber-400" />
-                  <div>
-                    <span class="text-sm font-medium text-primary">Account Request Pending</span>
-                    <span class="text-xs text-dimmed ml-2">since {dates.formatDate(pendingAccountRequest.createdAt.toISOString())}</span>
-                  </div>
-                </div>
-                <WithdrawRequest requestId={pendingAccountRequest.id} />
+        {/* Two-column: Groups + Manages / FreeIPA request */}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Groups */}
+          {displayGroups.length > 0 ? (
+            <div class="paper p-5 flex flex-col gap-3">
+              <div class="flex items-center justify-between">
+                <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
+                  <i class="ti ti-users-group text-sm" />
+                  Groups
+                </h2>
+                <a
+                  href={showAllGroups ? "/me" : "/me?groups=all"}
+                  class={`tag transition-colors ${
+                    showAllGroups
+                      ? "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300"
+                      : "bg-zinc-100 dark:bg-zinc-800 text-dimmed hover:text-secondary"
+                  }`}
+                  title={showAllGroups ? "Show direct memberships only" : "Show all memberships (including inherited)"}
+                >
+                  <i class="ti ti-git-branch" />
+                  {showAllGroups ? "All" : "Direct"}
+                </a>
               </div>
-            )}
-
-            {/* Request account card - only if no pending request */}
-            {!pendingAccountRequest && (
-              <div class="paper p-4 flex items-center justify-between">
-                <div>
-                  <h3 class="text-sm font-medium text-primary">Part of {appName}?</h3>
-                  <p class="text-xs text-dimmed mt-1">Request an account to get full access.</p>
-                </div>
-                <RequestAccount
-                  givenname={sessionUser.givenname}
-                  sn={sessionUser.sn}
-                  displayName={sessionUser.displayName}
-                  phone={sessionUser.phone}
-                  appName={appName}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Groups Card (for IPA users) */}
-        {hasRole(sessionUser, "ipa", "ipa-limited") && (
-          <div class="paper p-6 flex flex-col gap-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-                <i class="ti ti-users-group text-sm" />
-                Groups
-              </h2>
-              <a
-                href={showAllGroups ? "/me" : "/me?groups=all"}
-                class={`text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors ${
-                  showAllGroups
-                    ? "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300"
-                    : "bg-zinc-100 dark:bg-zinc-800 text-dimmed hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                }`}
-                title={showAllGroups ? "Show direct memberships only" : "Show all memberships (including inherited)"}
-              >
-                <i class="ti ti-git-branch text-xs" />
-                {showAllGroups ? "All" : "Direct"}
-              </a>
-            </div>
-
-            {displayGroups.length > 0 ? (
               <div class="flex flex-wrap gap-1.5">
                 {displayGroups.map((group) => {
-                  const isDirect = sessionUser.memberofGroup.includes(group);
+                  const isDirect = directGroups.includes(group);
                   return (
                     <a
-                      href={`/app/accounts/groups/${group}`}
-                      class={`text-xs px-2 py-1 rounded transition-colors ${
+                      href={`/app/accounts/groups?scope=member&search=${encodeURIComponent(group)}`}
+                      class={`tag transition-colors ${
                         isDirect
-                          ? "bg-zinc-100 dark:bg-zinc-800 text-secondary hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                          ? "bg-zinc-100 dark:bg-zinc-800 text-secondary hover:text-primary"
                           : "bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/50"
                       }`}
                       title={isDirect ? "Direct membership" : "Inherited via group hierarchy"}
                     >
                       {group}
-                      {!isDirect && <i class="ti ti-git-branch text-[10px] ml-1 opacity-70" />}
+                      {!isDirect && <i class="ti ti-git-branch text-[10px] ml-0.5 opacity-70" />}
                     </a>
                   );
                 })}
               </div>
-            ) : (
-              <p class="text-xs text-dimmed">No groups.</p>
-            )}
-
-            {showAllGroups && displayGroups.length > sessionUser.memberofGroup.length && (
-              <p class="text-xs text-dimmed flex items-center gap-1">
-                <i class="ti ti-git-branch text-[10px]" />
-                Groups with this icon are inherited via group hierarchy.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Manages Card */}
-        {manages.length > 0 && (
-          <div class="paper p-6 flex flex-col gap-3">
-            <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-              <i class="ti ti-shield text-sm" />
-              Manages
-            </h2>
-
-            <p class="info-block-success text-xs">You can manage the following groups. This allows you to add and remove members.</p>
-
-            <div class="flex flex-wrap gap-1.5">
-              {manages.map((group) => (
-                <a
-                  href={`/app/accounts/groups/${group}`}
-                  class="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80 transition-colors"
-                >
-                  {group}
-                </a>
-              ))}
+              {showAllGroups && displayGroups.length > directGroups.length && (
+                <p class="text-[10px] text-dimmed flex items-center gap-1">
+                  <i class="ti ti-git-branch text-[10px]" />
+                  Inherited via group hierarchy.
+                </p>
+              )}
             </div>
-          </div>
-        )}
+          ) : (
+            <div class="paper p-5 flex flex-col items-center justify-center gap-2 text-center">
+              <i class="ti ti-users-group text-2xl text-dimmed" />
+              <p class="text-xs text-dimmed">Not a member of any groups yet.</p>
+              <a href="/app/accounts/groups" class="text-xs text-primary hover:underline">Browse groups</a>
+            </div>
+          )}
+
+          {/* Right column: Manages or FreeIPA request */}
+          {canManageGroups && manages.length > 0 ? (
+            <div class="paper p-5 flex flex-col gap-3">
+              <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
+                <i class="ti ti-shield text-sm" />
+                Manages
+              </h2>
+              <div class="flex flex-wrap gap-1.5">
+                {manages.map((group) => (
+                  <a
+                    href={`/app/accounts/groups?scope=managed&search=${encodeURIComponent(group)}`}
+                    class="tag bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80 transition-colors"
+                  >
+                    {group}
+                  </a>
+                ))}
+              </div>
+            </div>
+          ) : sessionUser.provider === "local" && (freeIpaEnabled || pendingRequest) ? (
+            <div class="paper p-5 flex flex-col gap-3">
+              <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
+                <i class="ti ti-building-fortress text-sm" />
+                Request FreeIPA Account
+              </h2>
+              <p class="text-xs text-dimmed">Request a centrally managed account if you need broader group-based access.</p>
+              {pendingRequest ? (
+                <div class="flex flex-col gap-3">
+                  <div class="info-block-info text-xs">Request pending since {dates.formatDate(pendingRequest.createdAt.toISOString())}.</div>
+                  <div class="flex justify-end">
+                    <WithdrawAccountRequest requestId={pendingRequest.id} />
+                  </div>
+                </div>
+              ) : (
+                <RequestFreeIpaAccount
+                  givenname={sessionUser.givenname}
+                  sn={sessionUser.sn}
+                  displayName={sessionUser.displayName}
+                  phone={null}
+                  agbUrl="/legal/agb"
+                  privacyUrl="/legal/datenschutz"
+                  appName={appName}
+                />
+              )}
+            </div>
+          ) : (
+            <div class="paper p-5 flex flex-col items-center justify-center gap-2 text-center">
+              <i class="ti ti-shield text-2xl text-dimmed" />
+              <p class="text-xs text-dimmed">You don't manage any groups.</p>
+              <a href="/app/accounts/groups" class="text-xs text-primary hover:underline">Browse groups</a>
+            </div>
+          )}
+        </div>
 
         {/* Settings */}
-        <h2 class="section-label mb-0 mt-2">Settings</h2>
+        <div class="flex items-center gap-3 pt-1">
+          <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
+          <span class="text-[10px] uppercase tracking-[0.2em] text-dimmed select-none">Settings</span>
+          <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
+        </div>
 
-        { /* todo widget settings */}
-        <ProfileSettings roles={sessionUser.roles} availableWidgets={[]} />
+        <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} availableWidgets={[]} freeIpaEnabled={freeIpaEnabled} />
       </div>
     </Layout>
   );

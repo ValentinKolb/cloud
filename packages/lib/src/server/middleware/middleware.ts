@@ -1,5 +1,5 @@
 import { auth } from "./auth";
-import { imageResponse, jsonResponse, openApiMeta, requiresAdmin, requiresAuth, requiresIpa } from "./openapi";
+import { imageResponse, jsonResponse, openApiMeta, requiresAdmin, requiresAuth, requiresIpa, requiresIpaUser, requiresUser } from "./openapi";
 import { rateLimit } from "./rate-limit";
 import { requestLogger } from "./request-logger";
 import { validator, v } from "./validator";
@@ -12,6 +12,8 @@ export const middleware = {
   requiresAuth,
   requiresAdmin,
   requiresIpa,
+  requiresIpaUser,
+  requiresUser,
   rateLimit,
   requestLogger,
   validator,

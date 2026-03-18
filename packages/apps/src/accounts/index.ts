@@ -2,37 +2,30 @@ import { Hono } from "hono";
 import type { AppFacade } from "@valentinkolb/cloud/contracts/app";
 import apiRoutes from "./api";
 import pageRoutes from "./pages";
-import { accountsService } from "./service";
+
+const service = {};
 
 const app = {
   meta: {
     id: "accounts",
     name: "Accounts",
     icon: "ti ti-users-group",
-    description: "Manage users, groups, and account requests.",
+    description: "Manage account access, groups, and account requests.",
     nav: {
       href: "/app/accounts",
       match: "/app/accounts",
       section: "more",
       requiresAuth: true,
-      requiresRoles: ["ipa"],
+      requiresRoles: ["user"],
     },
   },
-  service: accountsService,
+  service,
   routes: {
-    api: new Hono().route("/ipa", apiRoutes),
+    api: new Hono().route("/accounts", apiRoutes),
     pages: new Hono().route("/app/accounts", pageRoutes),
   },
-} satisfies AppFacade<typeof accountsService>;
+} satisfies AppFacade<typeof service>;
 
 export default app;
-export { accountsService as service };
+export { service };
 export type { ApiType } from "./api";
-
-export type { UsersService } from "./service";
-export type { GroupsService } from "./service";
-export type {
-  AccountRequestsService,
-  AccountRequest,
-  AccountRequestStatus,
-} from "./service";

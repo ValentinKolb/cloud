@@ -100,9 +100,25 @@ export const requiresAdmin = {
 };
 
 /**
- * Security requirement for routes that need IPA realm (ipa or ipa-limited).
+ * Security requirement for routes that need any authenticated user.
  * Accepts either cookie or bearer token.
  */
 export const requiresIpa = {
+  security: [{ cookieAuth: [] as string[], bearerAuth: [] as string[] }],
+};
+
+/**
+ * Security requirement for routes that need a full user profile.
+ * Accepts either cookie or bearer token.
+ */
+export const requiresUser = {
+  security: [{ cookieAuth: [] as string[], bearerAuth: [] as string[] }],
+};
+
+/**
+ * Security requirement for routes that need an IPA-backed full user.
+ * Accepts either cookie or bearer token.
+ */
+export const requiresIpaUser = {
   security: [{ cookieAuth: [] as string[], bearerAuth: [] as string[] }],
 };

@@ -1,4 +1,5 @@
 export { services } from "./services";
+export { freeipa } from "./freeipa";
 
 export {
   PERMISSION_LEVELS,
@@ -16,6 +17,8 @@ export { geo, geoService } from "./geo";
 export type { GeoService, GeoPlace } from "./geo";
 
 export { images, parseWebpDataUrl, generateFallback, webpResponse } from "./images";
+
+export { crypto } from "./crypto";
 
 export { generatePassword, password } from "./password";
 

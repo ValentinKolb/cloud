@@ -1,11 +1,13 @@
 import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { isAdminUser } from "@valentinkolb/cloud/lib/shared";
 import { v } from "@valentinkolb/cloud/lib/server";
-import { jsonResponse, requiresAdmin, requiresIpa } from "@valentinkolb/cloud/lib/server";
+import { jsonResponse, requiresAdmin, requiresAuth } from "@valentinkolb/cloud/lib/server";
 import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { respond } from "@valentinkolb/cloud/lib/server";
 import { err, fail, ok } from "@valentinkolb/cloud/lib/server";
+import { accountsAppService as accountsService, getFreeIpaConfigSync, providers } from "@valentinkolb/cloud-core/services";
 import { parsePagination, createPagination } from "@/accounts/contracts";
 import {
   PaginationQuerySchema,
@@ -18,39 +20,103 @@ import {
   CreateGroupSchema,
   UpdateGroupSchema,
   GroupMemberInputSchema,
+  GroupSearchProviderSchema,
 } from "@/accounts/contracts";
-import { accountsService } from "../service";
-
 const GroupsListResponseSchema = z.object({
   groups: z.array(BaseGroupSchema),
   pagination: PaginationResponseSchema,
 });
 
-const requireIpaSession = async (c: Context<AuthContext>) => {
+const requireLocalGroupManageAccess = async (
+  c: Context<AuthContext>,
+  group: NonNullable<Awaited<ReturnType<typeof accountsService.group.get>>>,
+) => {
+  const user = c.get("user");
+  if (isAdminUser(user)) return null;
+  if (group.provider !== "local") return null;
+
+  const managedGroups = await accountsService.user.managedGroup.list({
+    userId: user.id,
+    recursive: true,
+  });
+  const canManage = managedGroups.items.includes(group.name);
+  if (canManage) return null;
+
+  return await respond(c, fail(err.forbidden("Access denied")));
+};
+
+const requireActorIpaSession = async (c: Context<AuthContext>) => {
+  if (!getFreeIpaConfigSync().enabled) {
+    return {
+      error: await respond(c, fail(err.badInput("FreeIPA is disabled."))),
+    };
+  }
   const token = c.get("sessionToken");
   const ipaSession = await auth.session.getIpaSession(token);
+  if (ipaSession) return { ipaSession };
+  return {
+    error: await respond(c, fail(err.unauthenticated("Your FreeIPA session is required for this action."))),
+  };
+};
 
-  if (!ipaSession) {
+const requireAdminIpaSession = async (c: Context<AuthContext>) => {
+  if (!getFreeIpaConfigSync().enabled) {
     return {
-      ipaSession: null,
-      error: await respond(c, fail(err.unauthenticated("IPA session expired"))),
+      error: await respond(c, fail(err.badInput("FreeIPA is disabled."))),
+    };
+  }
+  try {
+    return { ipaSession: await providers.ipa.auth.getServiceSession() };
+  } catch {
+    return {
+      error: await respond(c, fail(err.internal("Internal FreeIPA session unavailable."))),
+    };
+  }
+};
+
+const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: string) => {
+  const group = await accountsService.group.get({ id: groupId });
+  if (!group) {
+    return {
+      error: await respond(c, fail(err.notFound("Group not found"))),
     };
   }
 
-  return { ipaSession };
+  const accessError = await requireLocalGroupManageAccess(c, group);
+  if (accessError) {
+    return {
+      error: accessError,
+    };
+  }
+
+  if (group.provider === "ipa" && !getFreeIpaConfigSync().enabled) {
+    return {
+      error: await respond(c, fail(err.badInput("FreeIPA is disabled."))),
+    };
+  }
+
+  if (group.provider === "local") {
+    return { group, ipaSession: null };
+  }
+
+  const user = c.get("user");
+  const sessionResult = isAdminUser(user) ? await requireAdminIpaSession(c) : await requireActorIpaSession(c);
+  if ("error" in sessionResult) return { error: sessionResult.error };
+
+  return { group, ipaSession: sessionResult.ipaSession };
 };
 
 /** Group management routes. */
 const app = new Hono<AuthContext>()
-  // Search endpoint — accessible by all IPA users (not just admins)
+  // Search endpoint — accessible by all full-account users
   .get(
-    "/:cn/search",
-    auth.requireRole("ipa"),
+    "/:id/search",
+    auth.requireRole("user"),
     describeRoute({
       tags: ["Groups"],
       summary: "Search users/groups for member/manager autocomplete",
-      description: "Search users and/or groups with various filters. Available to all IPA users.",
-      ...requiresIpa,
+      description: "Search users and/or groups with various filters. Available to all full-account users.",
+      ...requiresAuth,
       responses: {
         200: jsonResponse(
           z.object({
@@ -73,20 +139,24 @@ const app = new Hono<AuthContext>()
         only_user_groups: z.enum(["true", "false"]).optional().default("false"),
         only_posix_groups: z.enum(["true", "false"]).optional().default("false"),
         users_in_groups: z.string().optional(),
+        provider: GroupSearchProviderSchema,
       }),
     ),
     async (c) => {
-      const { q, users, groups, exclude_user_ids, exclude_groups, only_user_groups, only_posix_groups, users_in_groups } =
+      const { q, users, groups, exclude_user_ids, exclude_groups, only_user_groups, only_posix_groups, users_in_groups, provider } =
         c.req.valid("query");
       const user = c.get("user");
+      const groupId = c.req.param("id");
 
       const result = await accountsService.group.search({
+        groupId: groupId === "_" ? undefined : groupId,
+        provider,
         query: q,
         includeUsers: users === "true",
         includeGroups: groups === "true",
         excludeUserIds: exclude_user_ids ? exclude_user_ids.split(",") : [],
         excludeGroups: exclude_groups ? exclude_groups.split(",") : [],
-        onlyUserGroups: only_user_groups === "true" ? user.memberofGroup : undefined,
+        onlyUserGroups: only_user_groups === "true" ? user.memberofGroupIds : undefined,
         onlyPosixGroups: only_posix_groups === "true",
         usersInGroups: users_in_groups ? users_in_groups.split(",") : undefined,
       });
@@ -94,23 +164,21 @@ const app = new Hono<AuthContext>()
       return respond(c, ok(result));
     },
   )
-  // List groups — accessible by all IPA users
+  // List groups — accessible by all full-account users
   .get(
     "/",
-    auth.requireRole("ipa"),
+    auth.requireRole("user"),
     describeRoute({
       tags: ["Groups"],
       summary: "List groups",
       description:
-        "List FreeIPA groups with pagination and optional search. " +
-        "By default, results are scoped to the current user's groups " +
-        "(direct memberships and any manage permission, direct or via manager group). " +
-        "Set show_all=true to return all groups.",
-      ...requiresIpa,
+        "List groups with pagination and optional search. " +
+        "Use scope=managed, scope=member, or scope=all to choose the current view.",
+      ...requiresAuth,
       responses: {
         200: jsonResponse(GroupsListResponseSchema, "Paginated list of groups"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "IPA access required"),
+        403: jsonResponse(ErrorResponseSchema, "Full account required"),
       },
     }),
     v(
@@ -118,7 +186,9 @@ const app = new Hono<AuthContext>()
       z.object({
         ...PaginationQuerySchema.shape,
         ...SearchQuerySchema.shape,
-        show_all: z.enum(["true", "false"]).optional().default("false"),
+        scope: z.enum(["managed", "member", "all"]).optional(),
+        show_all: z.enum(["true", "false"]).optional(),
+        provider: z.enum(["local", "ipa"]).optional(),
       }),
     ),
     async (c) => {
@@ -130,7 +200,9 @@ const app = new Hono<AuthContext>()
         pagination: { page: params.page, perPage: params.perPage },
         filter: { search: query.search },
         scope: {
-          userId: query.show_all === "true" ? undefined : user.id,
+          userId: query.scope === "all" || query.show_all === "true" ? undefined : user.id,
+          mode: query.scope ?? (query.show_all === "true" ? "all" : "member"),
+          provider: query.provider,
         },
       });
 
@@ -143,15 +215,15 @@ const app = new Hono<AuthContext>()
       );
     },
   )
-  // Add/remove members — accessible by IPA users (FreeIPA enforces manager permissions)
+  // Add/remove members — accessible by full-account users (backend/provider enforces permissions)
   .post(
-    "/:cn/members",
-    auth.requireRole("ipa"),
+    "/:id/members",
+    auth.requireRole("user"),
     describeRoute({
       tags: ["Groups"],
       summary: "Add member to group",
-      description: "Add a user or group as a member. Admins and group managers can perform this action (enforced by FreeIPA).",
-      ...requiresIpa,
+      description: "Add a user or group as a member. Admins and group managers can perform this action where allowed.",
+      ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Member added"),
         400: jsonResponse(ErrorResponseSchema, "Failed to add member"),
@@ -161,33 +233,34 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GroupMemberInputSchema),
     async (c) => {
-      const cn = c.req.param("cn");
-      const { type, id } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const groupId = c.req.param("id");
+      const { type, id: memberId } = c.req.valid("json");
+      const { group, ipaSession, error } = await requireGroupMutationContext(c, groupId);
+      if (error || !group) return error!;
 
       return respond(c, async () => {
         const result = await accountsService.group.member.add({
           ipaSession,
-          cn,
-          userId: type === "user" ? id : undefined,
-          groupCn: type === "group" ? id : undefined,
+          id: groupId,
+          provider: group.provider,
+          userId: type === "user" ? memberId : undefined,
+          groupId: type === "group" ? memberId : undefined,
         });
         if (!result.ok) return result;
         return ok({
-          message: `${type === "user" ? "User" : "Group"} "${id}" added as member.`,
+          message: `${type === "user" ? "User" : "Group"} "${memberId}" added as member.`,
         });
       });
     },
   )
   .delete(
-    "/:cn/members",
-    auth.requireRole("ipa"),
+    "/:id/members",
+    auth.requireRole("user"),
     describeRoute({
       tags: ["Groups"],
       summary: "Remove member from group",
-      description: "Remove a user or group member. Admins and group managers can perform this action (enforced by FreeIPA).",
-      ...requiresIpa,
+      description: "Remove a user or group member. Admins and group managers can perform this action where allowed.",
+      ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Member removed"),
         400: jsonResponse(ErrorResponseSchema, "Failed to remove member"),
@@ -197,21 +270,96 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GroupMemberInputSchema),
     async (c) => {
-      const cn = c.req.param("cn");
-      const { type, id } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const groupId = c.req.param("id");
+      const { type, id: memberId } = c.req.valid("json");
+      const { group, ipaSession, error } = await requireGroupMutationContext(c, groupId);
+      if (error || !group) return error!;
 
       return respond(c, async () => {
         const result = await accountsService.group.member.remove({
           ipaSession,
-          cn,
-          userId: type === "user" ? id : undefined,
-          groupCn: type === "group" ? id : undefined,
+          id: groupId,
+          provider: group.provider,
+          userId: type === "user" ? memberId : undefined,
+          groupId: type === "group" ? memberId : undefined,
         });
         if (!result.ok) return result;
         return ok({
-          message: `${type === "user" ? "User" : "Group"} "${id}" removed.`,
+          message: `${type === "user" ? "User" : "Group"} "${memberId}" removed.`,
+        });
+      });
+    },
+  )
+  .post(
+    "/:id/managers",
+    auth.requireRole("user"),
+    describeRoute({
+      tags: ["Groups"],
+      summary: "Add manager to group",
+      description: "Add a user or group as a manager where the current user has permission.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Manager added"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to add manager"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Full account required"),
+      },
+    }),
+    v("json", GroupMemberInputSchema),
+    async (c) => {
+      const groupId = c.req.param("id");
+      const { type, id: managerId } = c.req.valid("json");
+      const { group, ipaSession, error } = await requireGroupMutationContext(c, groupId);
+      if (error || !group) return error!;
+
+      return respond(c, async () => {
+        const result = await accountsService.group.manager.add({
+          ipaSession,
+          id: groupId,
+          provider: group.provider,
+          userId: type === "user" ? managerId : undefined,
+          groupId: type === "group" ? managerId : undefined,
+        });
+        if (!result.ok) return result;
+        return ok({
+          message: `${type === "user" ? "User" : "Group"} "${managerId}" added as manager.`,
+        });
+      });
+    },
+  )
+  .delete(
+    "/:id/managers",
+    auth.requireRole("user"),
+    describeRoute({
+      tags: ["Groups"],
+      summary: "Remove manager from group",
+      description: "Remove a user or group manager where the current user has permission.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Manager removed"),
+        400: jsonResponse(ErrorResponseSchema, "Failed to remove manager"),
+        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
+        403: jsonResponse(ErrorResponseSchema, "Full account required"),
+      },
+    }),
+    v("json", GroupMemberInputSchema),
+    async (c) => {
+      const groupId = c.req.param("id");
+      const { type, id: managerId } = c.req.valid("json");
+      const { group, ipaSession, error } = await requireGroupMutationContext(c, groupId);
+      if (error || !group) return error!;
+
+      return respond(c, async () => {
+        const result = await accountsService.group.manager.remove({
+          ipaSession,
+          id: groupId,
+          provider: group.provider,
+          userId: type === "user" ? managerId : undefined,
+          groupId: type === "group" ? managerId : undefined,
+        });
+        if (!result.ok) return result;
+        return ok({
+          message: `${type === "user" ? "User" : "Group"} "${managerId}" removed as manager.`,
         });
       });
     },
@@ -234,14 +382,15 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateGroupSchema),
     async (c) => {
-      const { name, description, posix } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const { provider, name, description, posix } = c.req.valid("json");
+      const ipaSessionResult = provider === "ipa" ? await requireAdminIpaSession(c) : null;
+      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(
         c,
         accountsService.group.create({
-          ipaSession,
+          ipaSession: ipaSessionResult?.ipaSession ?? null,
+          provider,
           name,
           description,
           posix,
@@ -251,7 +400,7 @@ const app = new Hono<AuthContext>()
     },
   )
   .delete(
-    "/:cn",
+    "/:id",
     describeRoute({
       tags: ["Groups"],
       summary: "Delete group",
@@ -265,19 +414,25 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const cn = c.req.param("cn");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const id = c.req.param("id");
+      const group = await accountsService.group.get({ id });
+      if (!group) return respond(c, fail(err.notFound("Group not found")));
+      const ipaSessionResult = group.provider === "ipa" ? await requireAdminIpaSession(c) : null;
+      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(c, async () => {
-        const result = await accountsService.group.remove({ ipaSession, cn });
+        const result = await accountsService.group.remove({
+          ipaSession: ipaSessionResult?.ipaSession ?? null,
+          id,
+          provider: group.provider,
+        });
         if (!result.ok) return result;
-        return ok({ message: `Group '${cn}' deleted.` });
+        return ok({ message: "Group deleted." });
       });
     },
   )
   .patch(
-    "/:cn",
+    "/:id",
     describeRoute({
       tags: ["Groups"],
       summary: "Update group",
@@ -292,24 +447,27 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateGroupSchema),
     async (c) => {
-      const cn = c.req.param("cn");
+      const id = c.req.param("id");
       const { description } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const group = await accountsService.group.get({ id });
+      if (!group) return respond(c, fail(err.notFound("Group not found")));
+      const ipaSessionResult = group.provider === "ipa" ? await requireAdminIpaSession(c) : null;
+      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(c, async () => {
         const result = await accountsService.group.update({
-          ipaSession,
-          cn,
+          ipaSession: ipaSessionResult?.ipaSession ?? null,
+          id,
+          provider: group.provider,
           description,
         });
         if (!result.ok) return result;
-        return ok({ message: `Group '${cn}' updated.` });
+        return ok({ message: "Group updated." });
       });
     },
   )
   .post(
-    "/:cn/make-posix",
+    "/:id/make-posix",
     describeRoute({
       tags: ["Groups"],
       summary: "Convert group to POSIX",
@@ -323,87 +481,23 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const cn = c.req.param("cn");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
+      const id = c.req.param("id");
+      const group = await accountsService.group.get({ id });
+      if (!group) return respond(c, fail(err.notFound("Group not found")));
+      const ipaSessionResult = group.provider === "ipa" ? await requireAdminIpaSession(c) : null;
+      if (ipaSessionResult && "error" in ipaSessionResult) return ipaSessionResult.error;
 
       return respond(c, async () => {
         const result = await accountsService.group.makePosix({
-          ipaSession,
-          cn,
+          ipaSession: ipaSessionResult?.ipaSession ?? null,
+          id,
+          provider: group.provider,
         });
         if (!result.ok) return result;
-        return ok({ message: `Group '${cn}' converted to POSIX.` });
+        return ok({ message: "Group converted to POSIX." });
       });
     },
   )
-  .post(
-    "/:cn/managers",
-    describeRoute({
-      tags: ["Groups"],
-      summary: "Add manager to group",
-      description: "Add a user or group as a member manager.",
-      ...requiresAdmin,
-      responses: {
-        200: jsonResponse(MessageResponseSchema, "Manager added"),
-        400: jsonResponse(ErrorResponseSchema, "Failed to add manager"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-      },
-    }),
-    v("json", GroupMemberInputSchema),
-    async (c) => {
-      const cn = c.req.param("cn");
-      const { type, id } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-
-      return respond(c, async () => {
-        const result = await accountsService.group.manager.add({
-          ipaSession,
-          cn,
-          userId: type === "user" ? id : undefined,
-          groupCn: type === "group" ? id : undefined,
-        });
-        if (!result.ok) return result;
-        return ok({
-          message: `${type === "user" ? "User" : "Group"} "${id}" added as manager.`,
-        });
-      });
-    },
-  )
-  .delete(
-    "/:cn/managers",
-    describeRoute({
-      tags: ["Groups"],
-      summary: "Remove manager from group",
-      description: "Remove a user or group member manager.",
-      ...requiresAdmin,
-      responses: {
-        200: jsonResponse(MessageResponseSchema, "Manager removed"),
-        400: jsonResponse(ErrorResponseSchema, "Failed to remove manager"),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-      },
-    }),
-    v("json", GroupMemberInputSchema),
-    async (c) => {
-      const cn = c.req.param("cn");
-      const { type, id } = c.req.valid("json");
-      const { ipaSession, error } = await requireIpaSession(c);
-      if (error || !ipaSession) return error!;
-
-      return respond(c, async () => {
-        const result = await accountsService.group.manager.remove({
-          ipaSession,
-          cn,
-          userId: type === "user" ? id : undefined,
-          groupCn: type === "group" ? id : undefined,
-        });
-        if (!result.ok) return result;
-        return ok({
-          message: `${type === "user" ? "User" : "Group"} "${id}" removed as manager.`,
-        });
-      });
-    },
-  );
+  ;
 
 export default app;

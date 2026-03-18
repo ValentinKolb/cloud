@@ -22,7 +22,7 @@ export type PrincipalType = "user" | "group" | "authenticated" | "public";
 
 export type Principal =
   | { type: "user"; userId: string }
-  | { type: "group"; groupCn: string }
+  | { type: "group"; groupId: string }
   | { type: "authenticated" }
   | { type: "public" };
 
@@ -42,7 +42,7 @@ export type AccessEntry = {
 type DbAccess = {
   id: string;
   user_id: string | null;
-  group_cn: string | null;
+  group_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
@@ -53,21 +53,19 @@ type DbAccess = {
 // ==========================
 
 /**
- * Converts a list of strings into a PostgreSQL text[] literal used in SQL filters.
- */
-const toPgTextArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
-
-/**
  * Converts UUID strings into a PostgreSQL uuid[] literal for relation queries.
  */
-const toPgUuidArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
+const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
 
 /**
  * Builds a typed access principal from one database access row.
  */
 const principalFromDb = (row: DbAccess): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
-  if (row.group_cn) return { type: "group", groupCn: row.group_cn };
+  if (row.group_id) return { type: "group", groupId: row.group_id };
   if (row.authenticated_only) return { type: "authenticated" };
   return { type: "public" };
 };
@@ -94,7 +92,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
   const { principal, permission } = params;
 
   let userId: string | null = null;
-  let groupCn: string | null = null;
+  let groupId: string | null = null;
   let authenticatedOnly = false;
 
   if (principal.type === "user") {
@@ -107,10 +105,10 @@ export const createAccess = async (params: { principal: Principal; permission: P
       return fail(err.notFound("User"));
     }
   } else if (principal.type === "group") {
-    groupCn = principal.groupCn;
+    groupId = principal.groupId;
     // Verify group exists
-    const [group] = await sql<{ cn: string }[]>`
-      SELECT cn FROM auth.groups WHERE cn = ${groupCn}
+    const [group] = await sql<{ id: string }[]>`
+      SELECT id FROM auth.groups WHERE id = ${groupId}::uuid
     `;
     if (!group) {
       return fail(err.notFound("Group"));
@@ -121,8 +119,8 @@ export const createAccess = async (params: { principal: Principal; permission: P
   // public: user/group null, authenticated_only false
 
   const [row] = await sql<{ id: string }[]>`
-    INSERT INTO auth.access (user_id, group_cn, authenticated_only, permission)
-    VALUES (${userId}::uuid, ${groupCn}, ${authenticatedOnly}, ${permission}::auth.permission_level)
+    INSERT INTO auth.access (user_id, group_id, authenticated_only, permission)
+    VALUES (${userId}::uuid, ${groupId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
     RETURNING id
   `;
 
@@ -138,7 +136,7 @@ export const createAccess = async (params: { principal: Principal; permission: P
  */
 export const getAccess = async (params: { id: string }): Promise<AccessEntry | null> => {
   const [row] = await sql<DbAccess[]>`
-    SELECT id, user_id, group_cn, authenticated_only, permission, created_at
+    SELECT id, user_id, group_id, authenticated_only, permission, created_at
     FROM auth.access
     WHERE id = ${params.id}::uuid
   `;
@@ -209,7 +207,9 @@ export const getEffectivePermission = async (params: {
   userId: string | null;
   userGroups: string[];
 }): Promise<PermissionLevel> => {
-  const { accessIds, userId, userGroups } = params;
+  const accessIds = params.accessIds ?? [];
+  const userId = params.userId;
+  const userGroups = params.userGroups ?? [];
 
   if (accessIds.length === 0) return "none";
 
@@ -220,9 +220,9 @@ export const getEffectivePermission = async (params: {
     WHERE id = ANY(${toPgUuidArray(accessIds)}::uuid[])
       AND (
         user_id = ${userId}::uuid
-        OR group_cn = ANY(${toPgTextArray(userGroups)}::text[])
+        OR group_id = ANY(${toPgUuidArray(userGroups)}::uuid[])
         OR (${userId}::uuid IS NOT NULL AND authenticated_only = true)
-        OR (user_id IS NULL AND group_cn IS NULL AND authenticated_only = false)
+        OR (user_id IS NULL AND group_id IS NULL AND authenticated_only = false)
       )
     ORDER BY
       CASE permission
@@ -244,9 +244,9 @@ export const getEffectivePermission = async (params: {
 export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<AccessEntry[]> => {
   const userIds = entries.filter((e) => e.principal.type === "user").map((e) => (e.principal as { type: "user"; userId: string }).userId);
 
-  const groupCns = entries
+  const groupIds = entries
     .filter((e) => e.principal.type === "group")
-    .map((e) => (e.principal as { type: "group"; groupCn: string }).groupCn);
+    .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
 
   // Fetch user display names
   const userNames = new Map<string, string>();
@@ -261,10 +261,16 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
     }
   }
 
-  // Groups use their cn as display name
   const groupNames = new Map<string, string>();
-  for (const cn of groupCns) {
-    groupNames.set(cn, cn);
+  if (groupIds.length > 0) {
+    const groups = await sql<{ id: string; name: string }[]>`
+      SELECT id, name
+      FROM auth.groups
+      WHERE id = ANY(${toPgUuidArray(groupIds)}::uuid[])
+    `;
+    for (const group of groups) {
+      groupNames.set(group.id, group.name);
+    }
   }
 
   return entries.map((entry) => {
@@ -274,7 +280,7 @@ export const resolveDisplayNames = async (entries: AccessEntry[]): Promise<Acces
         displayName = userNames.get(entry.principal.userId) ?? "Unknown User";
         break;
       case "group":
-        displayName = groupNames.get(entry.principal.groupCn) ?? "Unknown Group";
+        displayName = groupNames.get(entry.principal.groupId) ?? "Unknown Group";
         break;
       case "authenticated":
         displayName = "All users (incl. guests)";

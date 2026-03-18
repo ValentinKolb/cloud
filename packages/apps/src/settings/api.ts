@@ -9,15 +9,37 @@ import { respond } from "@valentinkolb/cloud/lib/server";
 import { ok } from "@valentinkolb/cloud/lib/server";
 import { settingsService } from "./service";
 
+const SettingKindSchema = z.enum([
+  "string",
+  "text",
+  "email",
+  "url",
+  "secret",
+  "image",
+  "boolean",
+  "number",
+  "enum",
+  "string_list",
+  "number_list",
+  "cron",
+  "timezone",
+  "template",
+]);
+
 const SettingEntrySchema = z.object({
   key: z.string(),
-  type: z.enum(["string", "number", "boolean", "template"]),
+  label: z.string(),
+  kind: SettingKindSchema,
   description: z.string(),
+  placeholder: z.string().optional(),
   group: z.string(),
   value: z.unknown(),
   default: z.unknown(),
   isCustom: z.boolean(),
   templateVars: z.array(z.string()).optional(),
+  options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
 });
 
 const app = new Hono<AuthContext>()

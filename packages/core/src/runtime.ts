@@ -4,8 +4,7 @@ import { migrate as migrateNotifications } from "@/migrate/core/notifications";
 import { migrate as migrateSettings } from "@/migrate/core/settings";
 import type { AppFacade, AppSearchTagHelpEntry, CloudContext, CloudRuntime } from "@valentinkolb/cloud-contracts/app";
 import { logger } from "@valentinkolb/cloud-core/services/logging";
-import { startAutoCleanup, stopAutoCleanup } from "@valentinkolb/cloud-core/services/logging";
-import { ipa } from "@valentinkolb/cloud-core/services/ipa";
+import { lifecycleJobs } from "@valentinkolb/cloud-core/services";
 import { loadCache as loadSettingsCache } from "@valentinkolb/cloud-core/services/settings";
 import { getSync, set } from "@valentinkolb/cloud-core/services/settings";
 
@@ -110,13 +109,11 @@ const runAppStop = async (apps: readonly AppFacade[], ctx: CloudContext): Promis
 };
 
 const startCoreServices = async (): Promise<void> => {
-  await ipa.sync.start();
-  startAutoCleanup();
+  await lifecycleJobs.start();
 };
 
 const stopCoreServices = async (): Promise<void> => {
-  await ipa.sync.stop();
-  stopAutoCleanup();
+  await lifecycleJobs.stop();
 };
 
 const installShutdown = (options: { apps: readonly AppFacade[]; ctx: CloudContext; timeoutMs?: number }): void => {

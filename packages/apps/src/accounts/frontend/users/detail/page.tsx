@@ -1,15 +1,25 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/core/services";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
+import { getSync } from "@valentinkolb/cloud-core/services/settings";
 import { GroupView } from "@valentinkolb/cloud/lib/ui";
 import { dates } from "@valentinkolb/cloud/lib/shared";
-import { hasRole } from "@/accounts/contracts";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
+import type { BaseGroup } from "@/accounts/contracts";
 import AccountsNavSidebar from "../../AccountsNavSidebar";
-import { accountsService } from "../../../service";
 import { buildUserDetailUrl, buildUsersUrl, parseUsersListState } from "../../lib/url-state";
 import AddToGroup from "./AddToGroup.island";
 import UserActions from "./UserActions.island";
 import RemoveMember from "../../groups/detail/RemoveMember.island";
+import {
+  getAccountTypeLabel,
+  getManagementBadge,
+  getManagementLabel,
+  getPrimaryAccountBadge,
+  getSupplementalRoleColor,
+  getSupplementalRoleLabel,
+  getSupplementalRoles,
+} from "../../lib/account-badges";
 
 const formatAddress = (a: {
   street: string | null;
@@ -29,10 +39,13 @@ const formatAddress = (a: {
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id");
   const recursive = c.req.query("recursive") === "true";
+  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
 
   const listState = parseUsersListState({
     search: c.req.query("search"),
     page: c.req.query("page"),
+    provider: c.req.query("provider"),
+    profile: c.req.query("profile"),
   });
 
   const user = await accountsService.user.get({ id });
@@ -62,77 +75,51 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const isIpaUser = hasRole(user, "ipa", "ipa-limited");
+  const isIpaUser = user.provider === "ipa";
+  const isGuestProfile = user.profile === "guest";
 
-  const [pendingRequestsPage, allGroupsPage, allManagesPage, directGroupsPage] = await Promise.all([
+  const [pendingRequestsPage, recursiveGroupsPage, managedGroupsPage, directGroupIds] = await Promise.all([
     accountsService.accountRequest.list({
       access: { userId: c.get("user").id, isAdmin: true },
       filter: { status: "pending" },
     }),
-    isIpaUser
-      ? accountsService.user.group.list({
-          userId: id,
-          recursive,
-        })
-      : Promise.resolve({
-          items: [] as string[],
-          page: 1,
-          perPage: 0,
-          total: 0,
-          hasNext: false,
-        }),
-    isIpaUser
-      ? accountsService.user.managedGroup.list({
-          userId: id,
-          recursive,
-        })
-      : Promise.resolve({
-          items: [] as string[],
-          page: 1,
-          perPage: 0,
-          total: 0,
-          hasNext: false,
-        }),
-    isIpaUser && recursive
-      ? accountsService.user.group.list({
-          userId: id,
-          recursive: false,
-        })
-      : Promise.resolve({
-          items: [] as string[],
-          page: 1,
-          perPage: 0,
-          total: 0,
-          hasNext: false,
-      }),
+    accountsService.group.list({
+      pagination: { page: 1, perPage: 1000 },
+      scope: { userId: id, mode: "member" },
+    }),
+    accountsService.group.list({
+      pagination: { page: 1, perPage: 1000 },
+      scope: { userId: id, mode: "managed" },
+    }),
+    accountsService.user.groupId.list({
+      userId: id,
+      recursive: false,
+    }),
   ]);
 
-  const allGroups = allGroupsPage.items;
-  const allManages = allManagesPage.items;
-  const directGroups = directGroupsPage.items;
-  const directGroupSet = new Set(recursive ? directGroups : allGroups);
-
-  const memberGroups =
-    allGroups.length > 0
-      ? (
-          await accountsService.group.list({
-            scope: { cns: allGroups },
-          })
-        ).items
-      : [];
-
-  const directManages = recursive
-    ? (
-        await accountsService.user.managedGroup.list({
-          userId: id,
-          recursive: false,
+  const directGroupsPage = await (
+    directGroupIds.length > 0
+      ? accountsService.group.list({
+          pagination: { page: 1, perPage: 1000 },
+          scope: { ids: directGroupIds },
         })
-      ).items
-    : allManages;
+      : {
+          items: [] as BaseGroup[],
+          page: 1,
+          perPage: 0,
+          total: 0,
+          hasNext: false,
+        }
+  );
 
-  const directManagesSet = new Set(directManages);
+  const allGroups = recursiveGroupsPage.items;
+  const directGroups = directGroupsPage.items;
+  const directGroupSet = new Set(directGroups.map((group) => group.id));
+  const memberGroups = recursive ? allGroups : directGroups;
+  const managedGroups = managedGroupsPage.items;
 
-  const isExpired = user.ipaAccountExpires ? new Date(user.ipaAccountExpires) < new Date() : false;
+  const isExpired = user.accountExpires ? new Date(user.accountExpires) < new Date() : false;
+  const managementBadge = getManagementBadge(user);
 
   const displayTitle = user.displayName || user.mail || user.uid;
 
@@ -159,7 +146,7 @@ export default ssr<AuthContext>(async (c) => {
               <div>
                 <a href={buildUsersUrl(listState)} class="btn-secondary btn-sm">
                   <i class="ti ti-arrow-left" />
-                  All Users
+                  Back to Users
                 </a>
               </div>
               <div class="paper p-6 flex flex-col gap-4">
@@ -175,28 +162,20 @@ export default ssr<AuthContext>(async (c) => {
                   </div>
                   <UserActions
                     user={user}
-                    memberofGroup={Array.from(directGroupSet)}
-                    manages={directManages}
                     listHref={buildUsersUrl(listState)}
+                    freeIpaEnabled={freeIpaEnabled}
                   />
                 </div>
 
                 <div class="flex items-center gap-2 flex-wrap">
-                  {user.roles.map((role) => (
-                    <span
-                      class={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                        role === "admin"
-                          ? "bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300"
-                          : role === "ipa"
-                            ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                            : role === "ipa-limited"
-                              ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
-                              : role === "group-manager"
-                                ? "bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300"
-                                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
-                      }`}
-                    >
-                      {role}
+                  {(() => {
+                    const badge = getPrimaryAccountBadge(user);
+                    return <span class={`text-xs font-medium px-2 py-0.5 rounded-full ${badge.className}`}>{badge.label}</span>;
+                  })()}
+                  <span class={`text-xs font-medium px-2 py-0.5 rounded-full ${managementBadge.className}`}>{managementBadge.label}</span>
+                  {getSupplementalRoles(user).map((role) => (
+                    <span class={`text-xs font-medium px-2 py-0.5 rounded-full ${getSupplementalRoleColor(role)}`}>
+                      {getSupplementalRoleLabel(role)}
                     </span>
                   ))}
                   {isExpired && (
@@ -208,18 +187,28 @@ export default ssr<AuthContext>(async (c) => {
 
                 <div class="border-t border-zinc-200 dark:border-zinc-700 pt-3">
                   <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                    {(() => {
+                      const ipa = user.ipa;
+                      return (
+                        <>
                     <dt class="text-dimmed">Database ID</dt>
                     <dd class="font-mono text-secondary">{user.id}</dd>
 
                     <dt class="text-dimmed">UID</dt>
                     <dd class="font-mono text-secondary">{user.uid}</dd>
 
+                    <dt class="text-dimmed">Managed by</dt>
+                    <dd class="text-secondary">{getManagementLabel(user)}</dd>
+
+                    <dt class="text-dimmed">Access level</dt>
+                    <dd class="text-secondary">{getAccountTypeLabel(user)}</dd>
+
                     {isIpaUser && (
                       <>
                         <dt class="text-dimmed">Password Expires</dt>
                         <dd class="text-secondary">
-                          {user.ipaPasswordExpires ? (
-                            dates.formatDate(user.ipaPasswordExpires)
+                          {ipa?.passwordExpires ? (
+                            dates.formatDate(ipa.passwordExpires)
                           ) : (
                             <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
                           )}
@@ -227,9 +216,41 @@ export default ssr<AuthContext>(async (c) => {
 
                         <dt class="text-dimmed">Account Expires</dt>
                         <dd class="text-secondary">
-                          {user.ipaAccountExpires ? (
+                          {user.accountExpires ? (
                             <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
-                              {dates.formatDate(user.ipaAccountExpires)}
+                              {dates.formatDate(user.accountExpires)}
+                              {isExpired && " (expired)"}
+                            </span>
+                          ) : (
+                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
+                          )}
+                        </dd>
+                      </>
+                    )}
+
+                    {!isIpaUser && isGuestProfile && (
+                      <>
+                        <dt class="text-dimmed">Guest Expires</dt>
+                        <dd class="text-secondary">
+                          {user.accountExpires ? (
+                            <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
+                              {dates.formatDate(user.accountExpires)}
+                              {isExpired && " (expired)"}
+                            </span>
+                          ) : (
+                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
+                          )}
+                        </dd>
+                      </>
+                    )}
+
+                    {!isIpaUser && !isGuestProfile && (
+                      <>
+                        <dt class="text-dimmed">Account Expires</dt>
+                        <dd class="text-secondary">
+                          {user.accountExpires ? (
+                            <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
+                              {dates.formatDate(user.accountExpires)}
                               {isExpired && " (expired)"}
                             </span>
                           ) : (
@@ -246,27 +267,27 @@ export default ssr<AuthContext>(async (c) => {
 
                     <dt class="text-dimmed">Phone</dt>
                     <dd class="text-secondary">
-                      {user.phone ? user.phone : <span class="text-zinc-400 dark:text-zinc-500 italic">Not set</span>}
+                      {ipa?.phone ? ipa.phone : <span class="text-zinc-400 dark:text-zinc-500 italic">Not set</span>}
                     </dd>
 
-                    {isIpaUser && user.employeeType && (
+                    {isIpaUser && ipa?.employeeType && (
                       <>
                         <dt class="text-dimmed">Role</dt>
-                        <dd class="text-secondary">{user.employeeType}</dd>
+                        <dd class="text-secondary">{ipa.employeeType}</dd>
                       </>
                     )}
 
-                    {isIpaUser && user.mobile && user.mobile !== user.phone && (
+                    {isIpaUser && ipa?.mobile && ipa.mobile !== ipa.phone && (
                       <>
                         <dt class="text-dimmed">Mobile</dt>
-                        <dd class="text-secondary">{user.mobile}</dd>
+                        <dd class="text-secondary">{ipa.mobile}</dd>
                       </>
                     )}
 
-                    {isIpaUser && formatAddress(user.address) && (
+                    {isIpaUser && ipa?.address && formatAddress(ipa.address) && (
                       <>
                         <dt class="text-dimmed">Address</dt>
-                        <dd class="text-secondary">{formatAddress(user.address)}</dd>
+                        <dd class="text-secondary">{formatAddress(ipa.address)}</dd>
                       </>
                     )}
 
@@ -274,8 +295,8 @@ export default ssr<AuthContext>(async (c) => {
                       <>
                         <dt class="text-dimmed">Last Login (Kerberos)</dt>
                         <dd class="text-secondary">
-                          {user.lastLoginIpa ? (
-                            dates.formatDate(user.lastLoginIpa)
+                          {ipa?.lastLoginIpa ? (
+                            dates.formatDate(ipa.lastLoginIpa)
                           ) : (
                             <span class="text-zinc-400 dark:text-zinc-500 italic">Never / Not tracked</span>
                           )}
@@ -291,19 +312,22 @@ export default ssr<AuthContext>(async (c) => {
                         <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
                       )}
                     </dd>
+                        </>
+                      );
+                    })()}
                   </dl>
                 </div>
 
-                {isIpaUser && user.sshFingerprints.length > 0 && (
+                {isIpaUser && (user.ipa?.sshFingerprints.length ?? 0) > 0 && (
                   <div class="border-t border-zinc-200 dark:border-zinc-700 pt-3">
                     <details class="group">
                       <summary class="text-sm text-dimmed cursor-pointer select-none flex items-center gap-1 hover:text-secondary transition-colors">
                         <i class="ti ti-key text-sm" />
-                        {user.sshPublicKeys.length} SSH {user.sshPublicKeys.length === 1 ? "Key" : "Keys"}
+                        {user.ipa?.sshPublicKeys.length ?? 0} SSH {(user.ipa?.sshPublicKeys.length ?? 0) === 1 ? "Key" : "Keys"}
                         <i class="ti ti-chevron-right text-xs transition-transform group-open:rotate-90" />
                       </summary>
                       <div class="mt-2 flex flex-col gap-1">
-                        {user.sshFingerprints.map((fp) => (
+                        {user.ipa?.sshFingerprints.map((fp) => (
                           <code class="text-xs font-mono text-secondary bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded break-all">
                             {fp}
                           </code>
@@ -330,19 +354,19 @@ export default ssr<AuthContext>(async (c) => {
                       <i class="ti ti-git-branch" />
                       {recursive ? "All" : "Direct"}
                     </a>
-                    <AddToGroup id={user.id} excludeGroups={Array.from(directGroupSet)} />
+                    <AddToGroup id={user.id} userProvider={user.provider} excludeGroups={allGroups.map((group) => group.id)} />
                   </div>
                 </div>
 
                 {memberGroups.length > 0 ? (
                   <>
                     {memberGroups.map((group) => {
-                      const isDirect = directGroupSet.has(group.cn);
+                      const isDirect = directGroupSet.has(group.id);
                       return (
                         <div
                           class={`paper p-3 flex items-center gap-3 ${!isDirect ? "border border-violet-200 dark:border-violet-800" : ""}`}
                         >
-                          <a href={`/app/accounts/groups/${group.cn}`} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
+                          <a href={`/app/accounts/groups/${group.id}`} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
                             <GroupView group={group} />
                           </a>
                           {!isDirect && (
@@ -353,7 +377,7 @@ export default ssr<AuthContext>(async (c) => {
                               <i class="ti ti-git-branch text-[10px]" />
                             </span>
                           )}
-                          {isDirect && <RemoveMember cn={group.cn} membershipRole="members" type="user" id={user.id} label={user.uid} />}
+                          {isDirect && <RemoveMember groupId={group.id} membershipRole="members" type="user" id={user.id} label={user.uid} />}
                         </div>
                       );
                     })}
@@ -369,40 +393,26 @@ export default ssr<AuthContext>(async (c) => {
                 )}
               </div>
 
-              {allManages.length > 0 && (
+              {managedGroups.length > 0 && (
                 <div class="paper p-6 flex flex-col gap-3">
                   <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
                     <i class="ti ti-shield text-sm" />
                     Manages
-                    {recursive && <span class="text-xs font-normal text-dimmed ml-1">(including inherited)</span>}
                   </h2>
 
                   <div class="flex flex-wrap gap-1.5">
-                    {allManages.map((cn: string) => {
-                      const isDirect = directManagesSet.has(cn);
+                    {managedGroups.map((group) => {
                       return (
                         <a
-                          href={`/app/accounts/groups/${cn}`}
-                          class={`text-xs px-2 py-1 rounded transition-colors ${
-                            isDirect
-                              ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80"
-                              : "bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/50"
-                          }`}
-                          title={isDirect ? "Direct manager" : "Inherited via group hierarchy"}
+                          href={`/app/accounts/groups/${group.id}`}
+                          class="text-xs px-2 py-1 rounded transition-colors bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80"
+                          title="Manageable group"
                         >
-                          {cn}
-                          {!isDirect && <i class="ti ti-git-branch text-[10px] ml-1 opacity-70" />}
+                          {group.name}
                         </a>
                       );
                     })}
                   </div>
-
-                  {recursive && allManages.length > directManagesSet.size && (
-                    <p class="text-xs text-dimmed flex items-center gap-1">
-                      <i class="ti ti-git-branch text-[10px]" />
-                      {allManages.length - directManagesSet.size} group(s) managed via group hierarchy.
-                    </p>
-                  )}
                 </div>
               )}
             </div>

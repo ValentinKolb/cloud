@@ -1,4 +1,4 @@
-import { hasRole, type SessionUser } from "@valentinkolb/cloud-contracts/shared";
+import { hasRole, type User } from "@valentinkolb/cloud-contracts/shared";
 import type { JSX } from "solid-js/jsx-runtime";
 import NavMenu from "./NavMenu.island";
 import MoreAppsDropdown from "./MoreAppsDropdown.island";
@@ -15,7 +15,7 @@ import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
 type Breadcrumb = { title: string; href?: string };
 type AppLink = { iconClass: string; label: string; href: string; match: string };
 type LayoutContext = {
-  get(key: "user"): SessionUser | undefined;
+  get(key: "user"): User | undefined;
   get(key: "page"): { theme?: "light" | "dark" };
   get(key: "runtime"): RuntimeContext;
   req: { raw: { headers: Headers; url: string } };
@@ -31,12 +31,19 @@ type LayoutProps = {
 function active(pathname: string, match: string): string {
   return pathname.startsWith(match) ? "active" : "";
 }
-function buildNavLinks(apps: RuntimeContext["apps"], user: SessionUser | undefined): { primary: AppLink[]; more: AppLink[] } {
+function buildNavLinks(apps: RuntimeContext["apps"], user: User | undefined): { primary: AppLink[]; more: AppLink[] } {
   const links = apps
     .filter((app) => !!app.nav && app.nav.section !== "hidden")
     .filter((app) => {
       if (app.nav?.requiresAuth && !user) return false;
-      if (app.nav?.requiresRoles && (!user || !app.nav.requiresRoles.some((role) => hasRole(user, role)))) {
+      if (
+        app.nav?.requiresRoles &&
+        (!user ||
+          !app.nav.requiresRoles.some((role) => {
+            if (role === "guest") return user.profile === "guest";
+            return hasRole(user, role);
+          }))
+      ) {
         return false;
       }
       return true;
@@ -59,8 +66,8 @@ function buildNavLinks(apps: RuntimeContext["apps"], user: SessionUser | undefin
 } // ==========================
 // Warning Components
 const WARN_DAYS = 14;
-function ProfileWarnings({ user }: { user: SessionUser }) {
-  if (hasRole(user, "guest")) return null;
+function ProfileWarnings({ user }: { user: User }) {
+  if (user.profile === "guest") return null;
   const missing: string[] = [];
   if (!user.displayName) missing.push("display name");
   if (!user.givenname) missing.push("first name");
@@ -76,26 +83,27 @@ function ProfileWarnings({ user }: { user: SessionUser }) {
     </div>
   );
 }
-function ExpiryWarnings({ user }: { user: SessionUser }) {
+function ExpiryWarnings({ user }: { user: User }) {
   const now = Date.now();
   const warnThreshold = now + WARN_DAYS * 24 * 60 * 60 * 1000;
   const warnings: { icon: string; message: string; expired: boolean }[] = [];
-  if (user.ipaAccountExpires) {
-    const expires = new Date(user.ipaAccountExpires).getTime();
+  if (user.accountExpires) {
+    const expires = new Date(user.accountExpires).getTime();
+    const accountLabel = user.provider === "ipa" ? "account" : user.profile === "guest" ? "guest account" : "account";
     if (expires < now) warnings.push({ icon: "ti-calendar-event", message: "Your account has expired.", expired: true });
     else if (expires < warnThreshold)
       warnings.push({
         icon: "ti-calendar-event",
-        message: `Your account expires on ${dates.formatDate(user.ipaAccountExpires)}.`,
+        message: `Your ${accountLabel} expires on ${dates.formatDate(user.accountExpires)}.`,
         expired: false,
       });
   }
-  if (user.ipaPasswordExpires) {
-    const expires = new Date(user.ipaPasswordExpires).getTime();
+  if (user.ipa?.passwordExpires) {
+    const expires = new Date(user.ipa.passwordExpires).getTime();
     if (expires < now)
       warnings.push({ icon: "ti-key", message: "Your password has expired. Please log out and in again to change it.", expired: true });
     else if (expires < warnThreshold)
-      warnings.push({ icon: "ti-key", message: `Your password expires on ${dates.formatDate(user.ipaPasswordExpires)}.`, expired: false });
+      warnings.push({ icon: "ti-key", message: `Your password expires on ${dates.formatDate(user.ipa.passwordExpires)}.`, expired: false });
   }
   if (warnings.length === 0) return null;
   return (

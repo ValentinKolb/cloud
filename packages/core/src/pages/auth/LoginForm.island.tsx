@@ -35,9 +35,9 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
       }}
       class="flex flex-col gap-4"
     >
-      {props.showBanner && <div class="info-block-info">Please login with your {props.appName || ""} username and password.</div>}
+      {props.showBanner && <div class="info-block-info">Use your FreeIPA username and password to sign in to {props.appName || "the app"}.</div>}
 
-      <TextInput placeholder="Short ID (three letters, aka Kürzel)" icon="ti ti-user" value={username} onChange={setUsername} />
+      <TextInput placeholder="Username" icon="ti ti-user" value={username} onChange={setUsername} />
       <TextInput placeholder="Password" icon="ti ti-lock" password value={password} onChange={setPassword} />
 
       {mutation.error() && (

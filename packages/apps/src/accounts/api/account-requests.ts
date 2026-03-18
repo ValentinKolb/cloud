@@ -6,7 +6,8 @@ import { jsonResponse, requiresAuth, requiresAdmin } from "@valentinkolb/cloud/l
 import { auth, type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { respond } from "@valentinkolb/cloud/lib/server";
 import { ok } from "@valentinkolb/cloud/lib/server";
-import { accountsService } from "../service";
+import { err, fail } from "@valentinkolb/cloud/lib/server";
+import { accountsAppService as accountsService, getFreeIpaConfigSync } from "@valentinkolb/cloud-core/services";
 import {
   ErrorResponseSchema,
   MessageResponseSchema,
@@ -18,7 +19,8 @@ import {
 } from "@/accounts/contracts";
 
 const CreateAccountRequestSchema = z.object({
-  comment: z.string().optional().describe("Why do you need an account?"),
+  phone: z.string().optional().describe("Optional phone number for the request"),
+  comment: z.string().optional().describe("Why do you need a FreeIPA account?"),
   acceptedAgb: z.literal(true).describe("Must accept terms of service"),
 });
 
@@ -53,19 +55,19 @@ const AccountRequestResponseSchema = z.object({
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
-  // Create account request (Guest only)
+  // Create account request (local accounts only)
   .post(
     "/",
     describeRoute({
       tags: ["Account Requests"],
       summary: "Create account request",
-      description: "Guest users can request an IPA account. Must accept terms of service.",
+      description: "Local accounts can request a centrally managed FreeIPA account. Must accept terms of service.",
       ...requiresAuth,
       responses: {
         201: jsonResponse(AccountRequestResponseSchema, "Request created"),
         400: jsonResponse(ErrorResponseSchema, "Validation error"),
         401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-        403: jsonResponse(ErrorResponseSchema, "Only guest users can request accounts"),
+        403: jsonResponse(ErrorResponseSchema, "Only local accounts can request FreeIPA access"),
         409: jsonResponse(ErrorResponseSchema, "Pending request already exists"),
       },
     }),
@@ -73,6 +75,9 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const data = c.req.valid("json");
+      if (!getFreeIpaConfigSync().enabled) {
+        return respond(c, fail(err.badInput("FreeIPA is disabled.")));
+      }
 
       return respond(
         c,

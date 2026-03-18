@@ -18,7 +18,7 @@ export const UpdateSshKeysSchema = z.object({
 export const ChangePasswordSchema = z
   .object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(1),
+    newPassword: z.string().min(8),
     confirmPassword: z.string().min(1),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
@@ -30,7 +30,7 @@ export const ChangeExpiredPasswordSchema = z
   .object({
     username: z.string().min(1),
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(1),
+    newPassword: z.string().min(8),
     confirmPassword: z.string().min(1),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

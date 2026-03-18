@@ -20,6 +20,7 @@
       "@valentinkolb/cloud/apps/*": ["./src/*/index.ts"],
       "@valentinkolb/cloud/apps/*/client": ["./src/*/client.ts"],
       "@valentinkolb/cloud-core": ["../core/src/index.ts"],
+      "@valentinkolb/cloud-core/api/*": ["../core/src/api/*"],
       "@valentinkolb/cloud-core/ssr": ["../core/src/ssr/index.ts"],
       "@valentinkolb/cloud-core/config": ["../core/src/config/index.ts"],
       "@valentinkolb/cloud-core/config/*": ["../core/src/config/*"],

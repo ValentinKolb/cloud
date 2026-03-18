@@ -6,15 +6,16 @@ import { refreshCurrentPath } from "../../lib/navigation";
 
 type AddToGroupProps = {
   id: string;
-  /** Group CNs the user is already a member of */
+  userProvider: "ipa" | "local";
+  /** Group IDs the user is already a member of */
   excludeGroups: string[];
 };
 
 export default function AddToGroup(props: AddToGroupProps) {
   const mutation = mutations.create<void, string>({
-    mutation: async (cn) => {
-      const res = await apiClient.groups[":cn"].members.$post({
-        param: { cn },
+    mutation: async (groupId) => {
+      const res = await apiClient.groups[":id"].members.$post({
+        param: { id: groupId },
         json: { type: "user", id: props.id },
       });
 
@@ -31,6 +32,8 @@ export default function AddToGroup(props: AddToGroupProps) {
     prompts.dialog(
       (close) => (
         <EntitySearch
+          apiBaseUrl="/api/accounts"
+          groupProvider={props.userProvider === "local" ? "local" : undefined}
           searchUsers={false}
           searchGroups={true}
           excludeGroups={props.excludeGroups}

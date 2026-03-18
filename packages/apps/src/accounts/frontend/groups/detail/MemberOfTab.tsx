@@ -4,11 +4,11 @@ import AddGroupToGroup from "./AddGroupToGroup.island";
 import RemoveFromGroup from "./RemoveFromGroup.island";
 
 type MemberOfTabProps = {
-  cn: string;
+  groupId: string;
   parentGroups: BaseGroup[];
-  allParentGroupCns: string[];
+  allParentGroupIds: string[];
   isAdmin: boolean;
-  groupHref: (groupCn: string) => string;
+  groupHref: (groupId: string) => string;
 };
 
 export default function MemberOfTab(props: MemberOfTabProps) {
@@ -18,7 +18,7 @@ export default function MemberOfTab(props: MemberOfTabProps) {
     <div class="flex flex-col gap-3">
       {props.isAdmin && (
         <div class="flex justify-end">
-          <AddGroupToGroup cn={props.cn} excludeGroups={props.allParentGroupCns} />
+          <AddGroupToGroup groupId={props.groupId} excludeGroups={props.allParentGroupIds} />
         </div>
       )}
 
@@ -30,10 +30,10 @@ export default function MemberOfTab(props: MemberOfTabProps) {
           <div class="paper overflow-hidden">
             {props.parentGroups.map((group, i) => (
               <div class={`flex items-center gap-3 p-3 ${i > 0 ? "border-t border-zinc-100 dark:border-zinc-800" : ""}`}>
-                <a href={props.groupHref(group.cn)} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
+                <a href={props.groupHref(group.id)} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
                   <GroupView group={group} />
                 </a>
-                {props.isAdmin && <RemoveFromGroup cn={props.cn} parentCn={group.cn} />}
+                {props.isAdmin && <RemoveFromGroup groupId={props.groupId} parentGroupId={group.id} parentGroupName={group.name} />}
               </div>
             ))}
           </div>

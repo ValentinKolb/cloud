@@ -20,6 +20,7 @@ const list = (key: string, fallback: string = ""): string[] =>
 export const env = {
   // Application (infrastructure — not changeable at runtime)
   APP_URL: str("APP_URL", "localhost:3000"),
+  APP_SECRET: str("APP_SECRET"),
   PORT: int("PORT", 3000),
   IS_DEVELOPMENT: process.env.NODE_ENV === "development",
 

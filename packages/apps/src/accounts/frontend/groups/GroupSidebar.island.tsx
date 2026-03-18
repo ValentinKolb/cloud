@@ -3,12 +3,12 @@ import type { BaseGroup } from "@/accounts/contracts";
 import { Pagination } from "@valentinkolb/cloud/lib/ui";
 import { SearchBar } from "@valentinkolb/cloud/lib/islands";
 import NewGroup from "./NewGroup.island";
+import { getProviderBadge } from "../lib/account-badges";
 import {
   GROUPS_CONTEXT_QUERY_KEYS,
   GROUPS_QUERY_KEYS,
   buildGroupDetailUrl,
   buildGroupsPageBaseUrl,
-  buildGroupsUrl,
   type GroupQueryKeys,
   type GroupsListState,
 } from "../lib/url-state";
@@ -16,23 +16,26 @@ type Props = {
   groups: BaseGroup[];
   total: number;
   perPage: number;
-  activeCn: string | null;
+  activeId: string | null;
   isAdmin: boolean;
-  managedCns: string[];
+  managedIds: string[];
   listState: GroupsListState;
   basePath?: string;
   detailQueryKeys?: GroupQueryKeys;
-  defaultShowAll?: boolean;
+  defaultScope?: GroupsListState["scope"];
+  freeIpaEnabled?: boolean;
 };
 export default function GroupSidebar(props: Props) {
-  const managedSet = new Set(props.managedCns);
+  const managedSet = new Set(props.managedIds);
   const basePath = props.basePath ?? "/app/accounts/groups";
-  const defaultShowAll = props.defaultShowAll ?? false;
+  const defaultScope = props.defaultScope ?? "member";
   const detailQueryKeys = props.detailQueryKeys ?? GROUPS_CONTEXT_QUERY_KEYS;
   const totalPages = Math.max(1, Math.ceil(props.total / props.perPage));
+  const scopeLabel =
+    props.listState.scope === "managed" ? "Managed by me" : props.listState.scope === "member" ? "My groups" : "All groups";
   const paginationBaseUrl = buildGroupsPageBaseUrl(
-    { search: props.listState.search, showAll: props.listState.showAll },
-    { basePath, keys: GROUPS_QUERY_KEYS, defaultShowAll },
+    { search: props.listState.search, provider: props.listState.provider, scope: props.listState.scope },
+    { basePath, keys: GROUPS_QUERY_KEYS, defaultScope },
   );
   return (
     <nav class="flex flex-col h-full">
@@ -46,29 +49,22 @@ export default function GroupSidebar(props: Props) {
             : `${props.total} group${props.total !== 1 ? "s" : ""}`}
         </span>
         <span>·</span>
-        <a
-          href={buildGroupsUrl(
-            { ...props.listState, page: 1, showAll: !props.listState.showAll },
-            { basePath, keys: GROUPS_QUERY_KEYS, defaultShowAll },
-          )}
-          class="underline decoration-dotted hover:text-primary transition-colors"
-          title={props.listState.showAll ? "Show my groups" : "Show all groups"}
-        >
-          {props.listState.showAll ? "all" : "mine"}
-        </a>
+        <span>{scopeLabel}</span>
       </div>
       <div class="flex-1 min-h-0 overflow-y-auto flex flex-col">
         <For each={props.groups}>
           {(group) => {
-            const isActive = group.cn === props.activeCn;
-            const isManaged = managedSet.has(group.cn);
+            const isActive = group.id === props.activeId;
+            const isManaged = managedSet.has(group.id);
+            const providerBadge = getProviderBadge(group.provider);
             return (
               <a
-                href={buildGroupDetailUrl(group.cn, props.listState, { keys: detailQueryKeys, defaultShowAll })}
+                href={buildGroupDetailUrl(group.id, props.listState, { keys: detailQueryKeys, defaultScope })}
                 class={`list-item text-xs ${isActive ? "list-item-active" : ""}`}
               >
                 <i class={`ti text-sm ${isManaged ? "ti-user-edit text-blue-500" : "ti-users-group"}`} />
-                <span class="flex-1 min-w-0 truncate">{group.cn}</span>
+                <span class="flex-1 min-w-0 truncate">{group.name}</span>
+                <span class={`text-[9px] px-1 py-px rounded shrink-0 ${providerBadge.className}`}>{providerBadge.label}</span>
                 <Show when={group.gidnumber}>
                   <span class="text-[9px] px-1 py-px rounded bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 shrink-0">
                     <i class="ti ti-folder" />
@@ -87,7 +83,7 @@ export default function GroupSidebar(props: Props) {
       </div>
       <Show when={props.isAdmin}>
         <div class="p-2 [&>button]:w-full [&>button]:btn-sm">
-          <NewGroup />
+          <NewGroup freeIpaEnabled={props.freeIpaEnabled} />
         </div>
       </Show>
     </nav>

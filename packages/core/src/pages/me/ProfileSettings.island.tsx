@@ -2,16 +2,16 @@ import { createSignal, For, Show } from "solid-js";
 import { cookies, mutation as mutations } from "@valentinkolb/cloud-lib/browser";
 import { gradients } from "@valentinkolb/cloud-lib/shared";
 import { prompts, SegmentedControl } from "@valentinkolb/cloud-lib/ui";
-import type { Role } from "@valentinkolb/cloud-contracts/shared";
+import type { UserProfile, UserProvider } from "@valentinkolb/cloud-contracts/shared";
 import type { WidgetData } from "@valentinkolb/cloud-contracts/app";
 import { apiClient } from "@/api/api-client";
 
 type Props = {
-  roles: Role[];
+  provider: UserProvider;
+  profile: UserProfile;
   availableWidgets: WidgetData[];
+  freeIpaEnabled: boolean;
 };
-
-const hasRole = (roles: Role[], ...required: Role[]) => required.some((role) => roles.includes(role));
 
 // ── Toggle Button Group ──
 
@@ -92,7 +92,7 @@ export default function ProfileSettings(props: Props) {
   // ── Account mutations ──
   const passwordMutation = mutations.create<void, { currentPassword: string; newPassword: string; confirmPassword: string }>({
     mutation: async (vars) => {
-      const res = await apiClient.me.password.$post({ json: vars });
+      const res = await apiClient.accounts.users.me["change-password"].$post({ json: vars });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message ?? "Failed to change password.");
@@ -104,7 +104,7 @@ export default function ProfileSettings(props: Props) {
 
   const deleteMutation = mutations.create<void, void>({
     mutation: async () => {
-      const res = await apiClient.me.$delete({});
+      const res = await apiClient.accounts.users.me.$delete({});
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message ?? "Failed to delete account.");
@@ -201,8 +201,8 @@ export default function ProfileSettings(props: Props) {
     cookies.writeJsonCookie("hiddenWidgets", next);
   };
 
-  const isIpa = hasRole(props.roles, "ipa", "ipa-limited");
-  const isGuest = hasRole(props.roles, "guest");
+  const isIpa = props.provider === "ipa" && props.freeIpaEnabled;
+  const isGuest = props.profile === "guest";
 
   return (
     <>

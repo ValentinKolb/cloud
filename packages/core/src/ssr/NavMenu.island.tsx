@@ -1,4 +1,4 @@
-import type { Role, SessionUser } from "@valentinkolb/cloud-contracts/shared";
+import type { Role, User } from "@valentinkolb/cloud-contracts/shared";
 import { Dropdown } from "@valentinkolb/cloud-lib/ui";
 
 type MobileAppLink = {
@@ -8,7 +8,7 @@ type MobileAppLink = {
 };
 
 type NavMenuProps = {
-  user?: SessionUser;
+  user?: User;
   mobileApps: MobileAppLink[];
 };
 
@@ -32,7 +32,7 @@ export default function NavMenu(props: NavMenuProps) {
                   </div>
                   <div class="flex-1">
                     <div class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{props.user.displayName || props.user.uid}</div>
-                    {props.user.displayName && hasRole(props.user.roles, "ipa") && (
+                    {props.user.displayName && props.user.profile !== "guest" && (
                       <div class="hidden sm:block text-xs text-dimmed">{props.user.uid}</div>
                     )}
                   </div>

@@ -3,7 +3,7 @@ import {CheckboxInput,TextInput } from "@valentinkolb/cloud-lib/ui";
 import { cookies, mutation as mutations } from "@valentinkolb/cloud-lib/browser";
 import { apiClient } from "@/api/api-client";
 
-export default function GuestLoginForm(props: { redirectTo?: string; token?: string }) {
+export default function GuestLoginForm(props: { redirectTo?: string; token?: string; allowSelfRegistration: boolean }) {
   const [email, setEmail] = createSignal("");
   const [acceptedAgb, setAcceptedAgb] = createSignal(!!props.token);
   const [tokenInput, setTokenInput] = createSignal(props.token ?? "");
@@ -16,15 +16,6 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
         json: { email: email(), acceptedAgb: true },
       });
       const data = (await res.json()) as Record<string, unknown>;
-      if ("requiresPassword" in data && data.requiresPassword) {
-        const params = new URLSearchParams({
-          method: "ipa",
-          banner: "true",
-        });
-        if (props.redirectTo) params.set("redirectTo", props.redirectTo);
-        window.location.href = `/auth/login?${params.toString()}`;
-        throw new Error("Redirecting...");
-      }
       if (!res.ok) throw new Error((data.message as string) ?? "Request failed");
     },
     onSuccess: () => setShowTokenInput(true),
@@ -65,7 +56,9 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           }}
           class="flex flex-col gap-4"
         >
-          <div class="info-block-success">Check your email for a login code.</div>
+          <div class="info-block-success">
+            Check your email for the login code. If you normally sign in with a FreeIPA password, switch to FreeIPA sign-in instead.
+          </div>
 
           <TextInput placeholder="Login code" icon="ti ti-key" value={tokenInput} onChange={setTokenInput} />
 
@@ -123,10 +116,14 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
         />
 
         <button type="submit" class="btn-primary w-full justify-center py-2" disabled={loading()}>
-          {emailMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Let's go!"}
+          {emailMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Send login code"}
         </button>
 
-        <div class="text-xs text-dimmed text-center">No account yet? One will be created on first login.</div>
+        <div class="text-xs text-dimmed text-center">
+          {props.allowSelfRegistration
+            ? "No local account yet? One will be created when you complete your first email sign-in."
+            : "Only existing local accounts can sign in with email. Contact an administrator if you need access."}
+        </div>
       </form>
     </Show>
   );

@@ -7,12 +7,16 @@ import usersNewPage from "./frontend/users/new/page";
 import groupsPage from "./frontend/groups/page";
 import groupDetailPage from "./frontend/groups/detail/page";
 import requestsPage from "./frontend/requests/page";
+import deletedAccountsPage from "./frontend/deleted-accounts/page";
+import remindersPage from "./frontend/reminders/page";
 
 export default new Hono<AuthContext>()
-  .get("/", auth.requireRole("ipa", auth.redirectToLogin), ...landingPage)
+  .get("/", auth.requireRole("user", auth.redirectToLogin), ...landingPage)
   .get("/users", auth.requireRole("admin", auth.redirectToLogin), ...usersPage)
   .get("/users/new", auth.requireRole("admin", auth.redirectToLogin), ...usersNewPage)
   .get("/users/:id", auth.requireRole("admin", auth.redirectToLogin), ...userDetailPage)
   .get("/requests", auth.requireRole("admin", auth.redirectToLogin), ...requestsPage)
-  .get("/groups", auth.requireRole("ipa", auth.redirectToLogin), ...groupsPage)
-  .get("/groups/:cn", auth.requireRole("ipa", auth.redirectToLogin), ...groupDetailPage);
+  .get("/deleted-accounts", auth.requireRole("admin", auth.redirectToLogin), ...deletedAccountsPage)
+  .get("/reminders", auth.requireRole("admin", auth.redirectToLogin), ...remindersPage)
+  .get("/groups", auth.requireRole("user", auth.redirectToLogin), ...groupsPage)
+  .get("/groups/:id", auth.requireRole("user", auth.redirectToLogin), ...groupDetailPage);

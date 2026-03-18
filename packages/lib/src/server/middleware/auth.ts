@@ -1,8 +1,7 @@
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
-import { env } from "@valentinkolb/cloud-core/config/env";
-import type { SessionUser, MessageResponse, Role, RoleOrSpecial } from "@valentinkolb/cloud-contracts/shared";
-import { ipa } from "@valentinkolb/cloud-core/services/ipa";
+import type { MessageResponse, Role, RoleOrSpecial, User, UserProfile, UserProvider } from "@valentinkolb/cloud-contracts/shared";
+import { accounts } from "@valentinkolb/cloud-core/services/accounts";
 import { session } from "@valentinkolb/cloud-core/services/session";
 
 // ==========================
@@ -12,7 +11,7 @@ import { session } from "@valentinkolb/cloud-core/services/session";
 /** Hono context with authenticated user variables. */
 export type AuthContext = {
   Variables: {
-    user: SessionUser;
+    user: User;
     sessionToken: string;
   };
 };
@@ -27,6 +26,11 @@ type RoleOptions = {
   onReject?: (c: Context, reason: "unauthenticated" | "forbidden") => RejectResult;
 };
 
+type AccountOptions = RoleOptions & {
+  provider?: UserProvider;
+  profile?: UserProfile;
+};
+
 const handleReject = (c: Context, options: RoleOptions, reason: "unauthenticated" | "forbidden"): Response | Promise<Response> => {
   if (options.onReject) {
     const result = options.onReject(c, reason);
@@ -39,6 +43,19 @@ const handleReject = (c: Context, options: RoleOptions, reason: "unauthenticated
     return c.json({ message: "Authentication required" } as MessageResponse, 401);
   }
   return c.json({ message: "Insufficient permissions" } as MessageResponse, 403);
+};
+
+const loadSessionUser = async (c: Context<AuthContext>): Promise<{ token: string | null; user: User | null }> => {
+  const token = session.getToken(c);
+  const data = token ? await session.getData(token) : null;
+  const user = data ? await accounts.users.get({ id: data.userId }) : null;
+
+  if (user && token) {
+    c.set("user", user);
+    c.set("sessionToken", token);
+  }
+
+  return { token, user };
 };
 
 /**
@@ -75,29 +92,11 @@ const requireRole = (...args: (RoleOrSpecial | RoleOptions)[]) => {
   return createMiddleware<AuthContext>(async (c, next) => {
     // "*" = no check at all, pass through (but try to load user)
     if (roles.includes("*")) {
-      const token = session.getToken(c);
-      if (token) {
-        const data = await session.getData(token);
-        if (data) {
-          const user = await ipa.users.get({ id: data.userId });
-          if (user) {
-            c.set("user", user);
-            c.set("sessionToken", token);
-          }
-        }
-      }
+      await loadSessionUser(c);
       return next();
     }
 
-    // Load user
-    const token = session.getToken(c);
-    const data = token ? await session.getData(token) : null;
-    const user = data ? await ipa.users.get({ id: data.userId }) : null;
-
-    if (user) {
-      c.set("user", user);
-      c.set("sessionToken", token!);
-    }
+    const { user } = await loadSessionUser(c);
 
     // "anonymous" = must NOT be logged in
     if (roles.includes("anonymous")) {
@@ -137,6 +136,25 @@ const redirectToLogin: RoleOptions = {
   onReject: (c) => `/auth/login?redirectTo=${encodeURIComponent(new URL(c.req.url).pathname)}`,
 };
 
+const requireAccount = (options: AccountOptions) =>
+  createMiddleware<AuthContext>(async (c, next) => {
+    const { user } = await loadSessionUser(c);
+
+    if (!user) {
+      return handleReject(c, options, "unauthenticated");
+    }
+
+    if (options.provider && user.provider !== options.provider) {
+      return handleReject(c, options, "forbidden");
+    }
+
+    if (options.profile && user.profile !== options.profile) {
+      return handleReject(c, options, "forbidden");
+    }
+
+    return next();
+  });
+
 // ==========================
 // Export
 // ==========================
@@ -144,6 +162,7 @@ const redirectToLogin: RoleOptions = {
 export const auth = {
   session,
   requireRole,
+  requireAccount,
   redirect,
   redirectToLogin,
 };

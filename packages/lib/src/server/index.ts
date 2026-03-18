@@ -9,6 +9,8 @@ export {
   requiresAuth,
   requiresAdmin,
   requiresIpa,
+  requiresIpaUser,
+  requiresUser,
   rateLimit,
   requestLogger,
   validator,
@@ -18,6 +20,7 @@ export type { AuthContext, RateLimitConfig, RateLimitRouteOverride } from "./mid
 
 export {
   services,
+  freeipa,
   images,
   password,
   generatePassword,

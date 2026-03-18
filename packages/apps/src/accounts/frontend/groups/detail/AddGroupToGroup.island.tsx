@@ -5,9 +5,9 @@ import { EntitySearch, type EntitySearchResult } from "@valentinkolb/cloud/lib/u
 import { refreshCurrentPath } from "../../lib/navigation";
 
 type AddToGroupProps = {
-  /** Group CN to add to another group */
-  cn: string;
-  /** CNs to exclude (already member of) */
+  /** Group id to add to another group */
+  groupId: string;
+  /** IDs to exclude (already member of) */
   excludeGroups?: string[];
 };
 
@@ -15,9 +15,9 @@ export default function AddToGroup(props: AddToGroupProps) {
   const mutation = mutations.create<void, { targetGroup: string }>({
     mutation: async (vars) => {
       // Add this group as a member of the target group
-      const res = await apiClient.groups[":cn"].members.$post({
-        param: { cn: vars.targetGroup },
-        json: { type: "group", id: props.cn },
+      const res = await apiClient.groups[":id"].members.$post({
+        param: { id: vars.targetGroup },
+        json: { type: "group", id: props.groupId },
       });
       if (!res.ok) {
         const data = await res.json();
@@ -36,9 +36,11 @@ export default function AddToGroup(props: AddToGroupProps) {
     prompts.dialog(
       (close) => (
         <EntitySearch
+          apiBaseUrl="/api/accounts"
+          groupId={props.groupId}
           searchUsers={false}
           searchGroups={true}
-          excludeGroups={[...(props.excludeGroups ?? []), props.cn]}
+          excludeGroups={[...(props.excludeGroups ?? []), props.groupId]}
           placeholder="Search groups..."
           adding={mutation.loading()}
           onSelect={async (result: EntitySearchResult) => {

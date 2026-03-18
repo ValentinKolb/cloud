@@ -7,11 +7,12 @@ import RemoveMember from "./RemoveMember.island";
 type ManagersTabProps = {
   managerUsers: BaseUser[];
   managerGroups: BaseGroup[];
-  cn: string;
+  groupId: string;
   allManagerIds: string[];
-  allManagerGroupCns: string[];
+  allManagerGroupIds: string[];
+  canManage: boolean;
   isAdmin: boolean;
-  groupHref: (groupCn: string) => string;
+  groupHref: (groupId: string) => string;
 };
 
 export default function ManagersTab(props: ManagersTabProps) {
@@ -23,14 +24,14 @@ export default function ManagersTab(props: ManagersTabProps) {
     <div class="flex flex-col gap-3">
       <TabToolbar
         actions={
-          props.isAdmin ? (
+          props.canManage ? (
             <AddMember
-              cn={props.cn}
+              groupId={props.groupId}
               membershipRole="managers"
               searchUsers={true}
-              searchGroups={true}
+              searchGroups={props.isAdmin}
               excludeUserIds={props.allManagerIds}
-              excludeGroups={props.allManagerGroupCns}
+              excludeGroups={props.allManagerGroupIds}
             />
           ) : undefined
         }
@@ -46,10 +47,10 @@ export default function ManagersTab(props: ManagersTabProps) {
               <div class="paper overflow-hidden">
                 {props.managerGroups.map((group, i) => (
                   <div class={`flex items-center gap-3 p-3 ${i > 0 ? "border-t border-zinc-100 dark:border-zinc-800" : ""}`}>
-                    <a href={props.groupHref(group.cn)} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
+                    <a href={props.groupHref(group.id)} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
                       <GroupView group={group} />
                     </a>
-                    {props.isAdmin && <RemoveMember cn={props.cn} membershipRole="managers" type="group" id={group.cn} label={group.cn} />}
+                    {props.canManage && <RemoveMember groupId={props.groupId} membershipRole="managers" type="group" id={group.id} label={group.name} />}
                   </div>
                 ))}
               </div>
@@ -71,8 +72,8 @@ export default function ManagersTab(props: ManagersTabProps) {
                         <UserView user={user} />
                       </div>
                     )}
-                    {props.isAdmin && (
-                      <RemoveMember cn={props.cn} membershipRole="managers" type="user" id={user.id} label={user.displayName} />
+                    {props.canManage && (
+                      <RemoveMember groupId={props.groupId} membershipRole="managers" type="user" id={user.id} label={user.displayName} />
                     )}
                   </div>
                 ))}

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { SessionUserSchema } from "@valentinkolb/cloud-contracts/shared";
+import { UserSchema } from "@valentinkolb/cloud-contracts/shared";
 
 export const LoginSchema = z.object({
   username: z.string(),
@@ -20,5 +20,5 @@ export const VerifyTokenSchema = z.object({
 
 export const AuthResponseSchema = z.object({
   session_token: z.string(),
-  user: SessionUserSchema,
+  user: UserSchema,
 });

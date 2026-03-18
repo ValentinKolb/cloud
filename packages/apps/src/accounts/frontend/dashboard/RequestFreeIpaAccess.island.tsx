@@ -1,9 +1,8 @@
-import { apiClient } from "@/api/api-client";
-import { mutation as mutations } from "@valentinkolb/cloud-lib/browser";
-import { prompts } from "@valentinkolb/cloud-lib/ui";
+import { mutation as mutations } from "@valentinkolb/cloud/lib/browser";
+import { prompts } from "@valentinkolb/cloud/lib/ui";
+import { apiClient } from "@/accounts/client";
 
-
-type RequestAccountProps = {
+type RequestFreeIpaAccessProps = {
   givenname: string;
   sn: string;
   displayName: string;
@@ -13,7 +12,7 @@ type RequestAccountProps = {
   appName?: string;
 };
 
-export default function RequestAccount(props: RequestAccountProps) {
+export default function RequestFreeIpaAccess(props: RequestFreeIpaAccessProps) {
   const mutation = mutations.create<
     { id: string },
     {
@@ -26,37 +25,33 @@ export default function RequestAccount(props: RequestAccountProps) {
     }
   >({
     mutation: async (vars) => {
-      // First: save profile data on the user via PATCH /me
-      const profileRes = await apiClient.me.$patch({
+      const profileRes = await apiClient.users.me.$patch({
         json: {
           givenname: vars.firstName,
           sn: vars.lastName,
           displayName: vars.displayName || `${vars.firstName} ${vars.lastName}`,
-          phone: vars.phone,
         },
       });
       if (!profileRes.ok) {
         const data = await profileRes.json();
-        throw new Error((data as { message: string }).message ?? "Failed to update profile.");
+        throw new Error((data as { message?: string }).message ?? "Failed to update profile.");
       }
 
-      // Then: create account request with only comment + AGB
-      const res = await fetch("/api/ipa/account-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const res = await apiClient["account-requests"].$post({
+        json: {
+          phone: vars.phone,
           comment: vars.comment,
           acceptedAgb: vars.acceptedAgb,
-        }),
+        },
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error((data as { message: string }).message ?? "Failed to submit request.");
+        throw new Error(data.message ?? "Failed to submit request.");
       }
-      return data as unknown as { id: string };
+      return data as { id: string };
     },
     onSuccess: () => {
-      prompts.alert("Your account request has been submitted. You will be notified once it has been reviewed.", {
+      prompts.alert("Your FreeIPA account request has been submitted. You will be notified once it has been reviewed.", {
         title: "Request Submitted",
         icon: "ti ti-check",
       });
@@ -67,15 +62,15 @@ export default function RequestAccount(props: RequestAccountProps) {
 
   const handleClick = async () => {
     const result = await prompts.form({
-      title: `Request ${props.appName || ""} Account`,
-      icon: "ti ti-user-plus",
+      title: `Request ${props.appName || ""} FreeIPA Account`.trim(),
+      icon: "ti ti-building-fortress",
       confirmText: "Submit Request",
       fields: {
         info: {
           type: "info",
           content: () => (
             <div class="info-block-info text-xs">
-              Please verify your information and explain why you need a{props.appName ? ` ${props.appName}` : "n"} account.
+              Please verify your information and explain why you need a centrally managed FreeIPA account.
             </div>
           ),
         },
@@ -112,9 +107,9 @@ export default function RequestAccount(props: RequestAccountProps) {
         comment: {
           type: "text",
           multiline: true,
-          label: "Why do you need an account?",
-          placeholder: "I am part of ... and need access to ...",
-          description: "Please explain your role in the organization and why you need access.",
+          label: "Why do you need a FreeIPA account?",
+          placeholder: "I need group-based access to ...",
+          description: "Please explain your role and why you need a FreeIPA-managed account.",
         },
         agbNotice: {
           type: "info",
@@ -148,26 +143,26 @@ export default function RequestAccount(props: RequestAccountProps) {
       },
     });
 
-    if (result) {
-      if (!result.acceptedAgb) {
-        prompts.error("You must accept the Terms of Service to continue.");
-        return;
-      }
-      await mutation.mutate({
-        firstName: result.firstName,
-        lastName: result.lastName,
-        displayName: result.displayName || undefined,
-        phone: result.phone || undefined,
-        comment: result.comment || undefined,
-        acceptedAgb: true,
-      });
+    if (!result) return;
+    if (!result.acceptedAgb) {
+      prompts.error("You must accept the Terms of Service to continue.");
+      return;
     }
+
+    await mutation.mutate({
+      firstName: result.firstName,
+      lastName: result.lastName,
+      displayName: result.displayName || undefined,
+      phone: result.phone || undefined,
+      comment: result.comment || undefined,
+      acceptedAgb: true,
+    });
   };
 
   return (
-    <button type="button" onClick={handleClick} disabled={mutation.loading()} class="btn-success text-xs px-4 py-2 shrink-0">
-      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-user-plus" />}
-      <span>Request Access</span>
+    <button type="button" onClick={handleClick} disabled={mutation.loading()} class="btn-primary btn-sm">
+      {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-building-fortress" />}
+      <span>Request FreeIPA Account</span>
     </button>
   );
 }

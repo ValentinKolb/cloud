@@ -1,6 +1,7 @@
 import * as settings from "@valentinkolb/cloud/core/services";
 import { SETTINGS_MAP } from "@valentinkolb/cloud/core/services";
-import { err, fail, paginate, tryCatch, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
+import { validateSettingValue } from "@valentinkolb/cloud/core/services";
+import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/cloud/lib/server";
 
 const paginateEntries = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
   if (!pagination) {
@@ -37,7 +38,11 @@ export const settingsService = {
       const filtered = entries.filter((entry) => {
         if (group && entry.group.toLowerCase() !== group) return false;
         if (!query) return true;
-        return entry.key.toLowerCase().includes(query) || entry.description.toLowerCase().includes(query);
+        return (
+          entry.key.toLowerCase().includes(query) ||
+          entry.label.toLowerCase().includes(query) ||
+          entry.description.toLowerCase().includes(query)
+        );
       });
 
       return paginateEntries(filtered, config?.pagination);
@@ -46,23 +51,32 @@ export const settingsService = {
       if (!SETTINGS_MAP.has(config.key)) {
         return fail(err.badInput(`Unknown setting: ${config.key}`));
       }
-      return tryCatch(
-        async () => {
-          await settings.set(config.key, config.value);
-        },
-        (error) => err.internal(`Failed to update setting: ${error instanceof Error ? error.message : String(error)}`),
-      );
+      const def = SETTINGS_MAP.get(config.key)!;
+      const validated = validateSettingValue(def, config.value);
+      if (!validated.ok) {
+        return fail(err.badInput(validated.error));
+      }
+      try {
+        await settings.set(config.key, validated.value);
+        return ok(undefined);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.startsWith("Unknown setting:")) {
+          return fail(err.badInput(message));
+        }
+        return fail(err.internal(`Failed to update setting: ${message}`));
+      }
     },
     reset: async (config: { key: string }) => {
       if (!SETTINGS_MAP.has(config.key)) {
         return fail(err.badInput(`Unknown setting: ${config.key}`));
       }
-      return tryCatch(
-        async () => {
-          await settings.remove(config.key);
-        },
-        (error) => err.internal(`Failed to reset setting: ${error instanceof Error ? error.message : String(error)}`),
-      );
+      try {
+        await settings.remove(config.key);
+        return ok(undefined);
+      } catch (error) {
+        return fail(err.internal(`Failed to reset setting: ${error instanceof Error ? error.message : String(error)}`));
+      }
     },
   },
 };

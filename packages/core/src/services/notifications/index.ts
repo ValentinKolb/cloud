@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { sendEmail } from "./email";
 import type { PaginationParams } from "@valentinkolb/cloud-contracts/shared";
+import { escapeLikePattern } from "@valentinkolb/cloud-core/services/postgres";
 import { logger } from "@valentinkolb/cloud-core/services/logging";
 
 const log = logger("notifications");
@@ -25,6 +26,12 @@ export type SendNotificationParams = {
   rawHtml?: string;
   autoSend?: boolean; // default true - when false, only store in DB without sending
   sentBy?: string; // user ID of sender
+};
+
+export type SendNotificationResult = {
+  id: string;
+  status: NotificationStatus;
+  error?: string;
 };
 
 export type SendToUserParams = {
@@ -65,7 +72,7 @@ type DbNotificationRow = {
 /**
  * Send a notification. Persists to DB, attempts delivery (if autoSend=true), updates sent_at/error.
  */
-export const send = async (params: SendNotificationParams): Promise<{ id: string }> => {
+export const send = async (params: SendNotificationParams): Promise<SendNotificationResult> => {
   const { type, recipient, subject, content, rawHtml, autoSend = true, sentBy } = params;
 
   // Persist to DB
@@ -80,7 +87,7 @@ export const send = async (params: SendNotificationParams): Promise<{ id: string
   // Skip delivery if autoSend is false
   if (!autoSend) {
     log.info("Stored notification", { type, recipient });
-    return { id };
+    return { id, status: "pending" };
   }
 
   // Attempt delivery
@@ -89,13 +96,13 @@ export const send = async (params: SendNotificationParams): Promise<{ id: string
       await sendEmail(recipient, subject, { content, rawHtml });
     }
     await sql`UPDATE notifications.messages SET sent_at = now(), error = NULL WHERE id = ${id}`;
+    return { id, status: "sent" };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     log.error("Failed to send", { type, recipient, error });
     await sql`UPDATE notifications.messages SET error = ${error} WHERE id = ${id}`;
+    return { id, status: "error", error };
   }
-
-  return { id };
 };
 
 /**
@@ -145,14 +152,14 @@ export const list = async (
   let countRows: Array<{ count: number | string }> = [];
   let dataRows: DbNotificationRow[] = [];
 
-  const searchPattern = search ? `%${search}%` : null;
+  const searchPattern = search ? `%${escapeLikePattern(search)}%` : null;
 
   if (isAdmin) {
     // Admins see all notifications
     if (searchPattern) {
       countRows = await sql`
         SELECT COUNT(*)::int as count FROM notifications.messages
-        WHERE subject ILIKE ${searchPattern} OR content ILIKE ${searchPattern} OR recipient ILIKE ${searchPattern}
+        WHERE subject ILIKE ${searchPattern} ESCAPE '\' OR content ILIKE ${searchPattern} ESCAPE '\' OR recipient ILIKE ${searchPattern} ESCAPE '\'
       `;
       dataRows = await sql`
         SELECT
@@ -161,7 +168,7 @@ export const list = async (
           u.display_name as sent_by_name
         FROM notifications.messages m
         LEFT JOIN auth.users u ON m.sent_by = u.id
-        WHERE m.subject ILIKE ${searchPattern} OR m.content ILIKE ${searchPattern} OR m.recipient ILIKE ${searchPattern}
+        WHERE m.subject ILIKE ${searchPattern} ESCAPE '\' OR m.content ILIKE ${searchPattern} ESCAPE '\' OR m.recipient ILIKE ${searchPattern} ESCAPE '\'
         ORDER BY m.created_at DESC
         LIMIT ${perPage} OFFSET ${offset}
       `;
@@ -183,7 +190,7 @@ export const list = async (
     if (searchPattern) {
       countRows = await sql`
         SELECT COUNT(*)::int as count FROM notifications.messages
-        WHERE sent_by = ${sentBy} AND (subject ILIKE ${searchPattern} OR content ILIKE ${searchPattern} OR recipient ILIKE ${searchPattern})
+        WHERE sent_by = ${sentBy} AND (subject ILIKE ${searchPattern} ESCAPE '\' OR content ILIKE ${searchPattern} ESCAPE '\' OR recipient ILIKE ${searchPattern} ESCAPE '\')
       `;
       dataRows = await sql`
         SELECT
@@ -192,7 +199,7 @@ export const list = async (
           u.display_name as sent_by_name
         FROM notifications.messages m
         LEFT JOIN auth.users u ON m.sent_by = u.id
-        WHERE m.sent_by = ${sentBy} AND (m.subject ILIKE ${searchPattern} OR m.content ILIKE ${searchPattern} OR m.recipient ILIKE ${searchPattern})
+        WHERE m.sent_by = ${sentBy} AND (m.subject ILIKE ${searchPattern} ESCAPE '\' OR m.content ILIKE ${searchPattern} ESCAPE '\' OR m.recipient ILIKE ${searchPattern} ESCAPE '\')
         ORDER BY m.created_at DESC
         LIMIT ${perPage} OFFSET ${offset}
       `;

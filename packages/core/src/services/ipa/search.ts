@@ -1,12 +1,9 @@
 import { sql } from "bun";
-import type { BaseUser, BaseGroup, Role } from "@valentinkolb/cloud-contracts/shared";
-
-/** Build minimal roles array from realm string */
-const realmToRoles = (realm: string): Role[] => {
-  if (realm === "ipa") return ["ipa"];
-  if (realm === "ipa-limited") return ["ipa-limited"];
-  return ["guest"];
-};
+import type { BaseUser, BaseGroup } from "@valentinkolb/cloud-contracts/shared";
+import { buildRoles } from "@valentinkolb/cloud-core/services/account-model";
+import { freeipa } from "@valentinkolb/cloud-lib/server/services";
+import { toPgTextArray, toPgUuidArray } from "../postgres";
+import { getFreeIpaConfigSync } from "../freeipa-config";
 
 // ==========================
 // Search Options
@@ -19,7 +16,7 @@ export type SearchOptions = {
   groups?: boolean;
   /** User UUIDs to exclude from results */
   excludeUserIds?: string[];
-  /** Group CNs to exclude from results */
+  /** Group IDs to exclude from results */
   excludeGroups?: string[];
   /** Only return groups the user is a member of */
   onlyUserGroups?: string[];
@@ -38,7 +35,7 @@ export type SearchOptions = {
  * Executes a filtered lookup query and returns normalized matches.
  */
 export const search = async (query: string, options: SearchOptions): Promise<{ users: BaseUser[]; groups: BaseGroup[] }> => {
-  const q = `%${query.toLowerCase()}%`;
+  const q = `%${freeipa.util.escapeLike(query.toLowerCase())}%`;
   let users: BaseUser[] = [];
   let groups: BaseGroup[] = [];
 
@@ -46,21 +43,37 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
   if (options.users) {
     const excludeIds = options.excludeUserIds ?? [];
     const inGroups = options.usersInGroups ?? [];
+    const groupsAdmin = getFreeIpaConfigSync().groupsAdmin;
 
     // Build optional WHERE fragments
-    const excludeFilter = excludeIds.length > 0 ? sql`AND u.id NOT IN ${sql(excludeIds)}` : sql``;
+    const excludeFilter = excludeIds.length > 0 ? sql`AND u.id <> ALL(${toPgUuidArray(excludeIds)}::uuid[])` : sql``;
     const groupFilter =
       inGroups.length > 0
-        ? sql`AND EXISTS (SELECT 1 FROM auth.user_groups ug WHERE ug.user_id = u.id AND ug.group_cn IN ${sql(inGroups)})`
+        ? sql`AND EXISTS (
+            SELECT 1
+            FROM auth.user_groups_v2 ug
+            JOIN auth.groups g ON g.id = ug.group_id
+            WHERE ug.user_id = u.id
+              AND g.provider = 'ipa'
+              AND ug.group_id = ANY(${toPgUuidArray(inGroups)}::uuid[])
+          )`
         : sql``;
 
     const rows = await sql`
-      SELECT u.id, u.uid, u.realm, u.given_name, u.sn, u.display_name, u.mail
+      SELECT u.id, u.uid, u.provider, u.profile, u.given_name, u.sn, u.display_name, u.mail,
+        EXISTS(
+          SELECT 1
+          FROM auth.user_groups_v2 ug_admin
+          JOIN auth.groups g_admin ON g_admin.id = ug_admin.group_id
+          WHERE ug_admin.user_id = u.id
+            AND g_admin.provider = 'ipa'
+            AND g_admin.name = ANY(${toPgTextArray(groupsAdmin)}::text[])
+        ) AS effective_admin
       FROM auth.users u
-      WHERE u.realm IN ('ipa', 'ipa-limited')
+      WHERE u.provider = 'ipa'
         AND (
-          LOWER(u.uid) LIKE ${q} OR LOWER(u.display_name) LIKE ${q} OR
-          LOWER(u.given_name) LIKE ${q} OR LOWER(u.sn) LIKE ${q} OR LOWER(u.mail) LIKE ${q}
+          LOWER(u.uid) LIKE ${q} ESCAPE '\\' OR LOWER(u.display_name) LIKE ${q} ESCAPE '\\' OR
+          LOWER(u.given_name) LIKE ${q} ESCAPE '\\' OR LOWER(u.sn) LIKE ${q} ESCAPE '\\' OR LOWER(u.mail) LIKE ${q} ESCAPE '\\'
         )
         ${excludeFilter}
         ${groupFilter}
@@ -71,7 +84,15 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
     users = (rows as any[]).map((row) => ({
       id: row.id,
       uid: row.uid,
-      roles: realmToRoles(row.realm),
+      roles: buildRoles({
+        provider: row.provider,
+        profile: row.profile,
+        memberofGroup: [],
+        manages: [],
+        admin: Boolean(row.effective_admin),
+      }),
+      provider: row.provider,
+      profile: row.profile,
       givenname: row.given_name ?? "",
       sn: row.sn ?? "",
       displayName: row.display_name ?? "",
@@ -81,28 +102,31 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
 
   // ========== Search Groups ==========
   if (options.groups) {
-    const excludeCns = options.excludeGroups ?? [];
+    const excludeIds = options.excludeGroups ?? [];
     const onlyUserGroups = options.onlyUserGroups ?? [];
     const onlyPosix = options.onlyPosixGroups ?? false;
 
     // Build optional WHERE fragments
-    const excludeFilter = excludeCns.length > 0 ? sql`AND cn NOT IN ${sql(excludeCns)}` : sql``;
-    const userGroupsFilter = onlyUserGroups.length > 0 ? sql`AND cn IN ${sql(onlyUserGroups)}` : sql``;
+    const excludeFilter = excludeIds.length > 0 ? sql`AND id <> ALL(${toPgUuidArray(excludeIds)}::uuid[])` : sql``;
+    const userGroupsFilter = onlyUserGroups.length > 0 ? sql`AND id = ANY(${toPgUuidArray(onlyUserGroups)}::uuid[])` : sql``;
     const posixFilter = onlyPosix ? sql`AND gid_number IS NOT NULL` : sql``;
 
     const rows = await sql`
-      SELECT cn, description, gid_number
+      SELECT id, provider, name, description, gid_number
       FROM auth.groups
-      WHERE (LOWER(cn) LIKE ${q} OR LOWER(description) LIKE ${q})
+      WHERE provider = 'ipa'
+        AND (LOWER(name) LIKE ${q} ESCAPE '\\' OR LOWER(description) LIKE ${q} ESCAPE '\\')
         ${excludeFilter}
         ${userGroupsFilter}
         ${posixFilter}
-      ORDER BY cn
+      ORDER BY name
       LIMIT 10
     `;
 
     groups = (rows as any[]).map((row) => ({
-      cn: row.cn,
+      id: row.id,
+      provider: row.provider,
+      name: row.name,
       description: row.description ?? null,
       gidnumber: row.gid_number ?? null,
     }));

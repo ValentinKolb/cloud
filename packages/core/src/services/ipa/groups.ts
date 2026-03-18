@@ -1,40 +1,76 @@
 import { sql } from "bun";
 import type { BaseGroup, GroupMember, MutationResult } from "@valentinkolb/cloud-contracts/shared";
-import { call, mapIpaErrorCode, num, type DbRow } from "./lib";
-import { updateUserRealm, updateRealmForAffectedUsers } from "./realm";
+import { freeipa } from "@valentinkolb/cloud-lib/server/services";
+import { updateProfileForAffectedUsers, updateUserIpaProfile } from "./profile";
+import { toPgUuidArray } from "../postgres";
+import { getFreeIpaConfigSync } from "../freeipa-config";
 
-// ==========================
-// Reads: get (single group by CN, no relations)
-// ==========================
+type DbRow = Record<string, unknown>;
+type MutationError = Extract<MutationResult<unknown>, { ok: false }>;
+const getIpaUrl = (): string => getFreeIpaConfigSync().url;
+const ensureFreeIpaMutationAvailable = (): MutationError | null => {
+  const config = getFreeIpaConfigSync();
+  if (!config.enabled) {
+    return { ok: false, error: "FreeIPA is disabled.", status: 400 };
+  }
+  if (!config.configured) {
+    return { ok: false, error: "FreeIPA is enabled but not fully configured.", status: 500 };
+  }
+  return null;
+};
 
-/**
- * Returns one mirrored group by CN without expanding member or manager relations.
- */
-export const get = async (params: { cn: string }): Promise<BaseGroup | null> => {
-  const { cn } = params;
-  const rows: DbRow[] = await sql`SELECT cn, description, gid_number FROM auth.groups WHERE cn = ${cn}`;
-  if (rows.length === 0) return null;
+type IpaGroupRow = {
+  id: string;
+  cn: string;
+  name: string;
+  provider: "ipa" | "local";
+  description: string | null;
+  gidNumber: number | null;
+};
 
+const toBaseGroup = (row: IpaGroupRow): BaseGroup => ({
+  id: row.id,
+  provider: row.provider,
+  name: row.name,
+  description: row.description,
+  gidnumber: row.gidNumber,
+});
+
+const getIpaGroupById = async (id: string): Promise<IpaGroupRow | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT id, cn, name, provider, description, gid_number
+    FROM auth.groups
+    WHERE id = ${id} AND provider = 'ipa'
+  `;
+  if (!row) return null;
   return {
-    cn: rows[0]!.cn as string,
-    description: rows[0]!.description as string | null,
-    gidnumber: rows[0]!.gid_number as number | null,
+    id: row.id as string,
+    cn: row.cn as string,
+    name: row.name as string,
+    provider: row.provider as "ipa" | "local",
+    description: row.description as string | null,
+    gidNumber: row.gid_number as number | null,
   };
 };
 
-// ==========================
-// Reads: list (no relations, supports search/filter/pagination)
-// ==========================
+const getIpaGroupIdByCn = async (cn: string): Promise<string | null> => {
+  const [row] = await sql<DbRow[]>`SELECT id FROM auth.groups WHERE cn = ${cn} AND provider = 'ipa'`;
+  return (row?.id as string | undefined) ?? null;
+};
 
-/**
- * List groups with optional filters.
- * @param cns - Filter to specific group CNs
- * @param userId - Filter to groups the user is associated with:
- *   direct group memberships and any manage permission (direct or via manager group)
- * @param search - Search in group name and description
- */
+const ipaMutationError = (response: Awaited<ReturnType<typeof freeipa.client.call>>): MutationResult<never> => ({
+  ok: false,
+  error: response.error?.message ?? "FreeIPA request failed",
+  status: response.error ? freeipa.util.mapIpaErrorCode(response.error.code) : 500,
+});
+
+export const get = async (params: { id: string }): Promise<BaseGroup | null> => {
+  const row = await getIpaGroupById(params.id);
+  return row ? toBaseGroup(row) : null;
+};
+
 export const list = async (params: {
-  cns?: string[];
+  ids?: string[];
   userId?: string;
   search?: string;
   page?: number;
@@ -52,11 +88,10 @@ export const list = async (params: {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 20;
   const offset = (page - 1) * perPage;
-  const search = params.search ? `%${params.search.toLowerCase()}%` : null;
-  const cns = params.cns;
+  const search = params.search ? `%${freeipa.util.escapeLike(params.search.toLowerCase())}%` : null;
+  const ids = params.ids;
 
-  // If cns filter is provided but empty, return empty result immediately
-  if (cns && cns.length === 0) {
+  if (ids && ids.length === 0) {
     return {
       groups: [],
       total: 0,
@@ -64,648 +99,598 @@ export const list = async (params: {
     };
   }
 
-  // Build WHERE conditions
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const conditions: any[] = [];
-  if (cns) {
-    conditions.push(sql`cn IN ${sql(cns)}`);
-  }
+  const conditions = [sql`g.provider = 'ipa'`];
+  if (ids) conditions.push(sql`g.id = ANY(${toPgUuidArray(ids)}::uuid[])`);
+  if (search) conditions.push(sql`(LOWER(g.name) LIKE ${search} ESCAPE '\\' OR LOWER(g.description) LIKE ${search} ESCAPE '\\')`);
   if (params.userId) {
     conditions.push(sql`(
-      cn IN (SELECT group_cn FROM auth.user_groups WHERE user_id = ${params.userId})
-      OR cn IN (
+      g.id IN (
+        SELECT ug.group_id
+        FROM auth.user_groups_v2 ug
+        JOIN auth.groups g_filter ON g_filter.id = ug.group_id
+        WHERE ug.user_id = ${params.userId} AND g_filter.provider = 'ipa'
+      )
+      OR g.id IN (
         WITH RECURSIVE user_all_groups AS (
-          SELECT group_cn FROM auth.user_groups WHERE user_id = ${params.userId}
+          SELECT ug.group_id
+          FROM auth.user_groups_v2 ug
+          JOIN auth.groups g_filter ON g_filter.id = ug.group_id
+          WHERE ug.user_id = ${params.userId} AND g_filter.provider = 'ipa'
           UNION
-          SELECT gg.parent_cn FROM auth.group_groups gg
-          JOIN user_all_groups ag ON gg.child_cn = ag.group_cn
+          SELECT gg.parent_group_id
+          FROM auth.group_groups_v2 gg
+          JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+          JOIN user_all_groups ag ON gg.child_group_id = ag.group_id
+          WHERE g_parent.provider = 'ipa'
         )
-        SELECT DISTINCT g.cn FROM auth.groups g
-        LEFT JOIN auth.group_manager_users gmu ON gmu.group_cn = g.cn AND gmu.user_id = ${params.userId}
-        LEFT JOIN auth.group_manager_groups gmg ON gmg.group_cn = g.cn
-        LEFT JOIN user_all_groups ug ON ug.group_cn = gmg.manager_cn
-        WHERE gmu.user_id IS NOT NULL OR ug.group_cn IS NOT NULL
+        SELECT DISTINCT g_manage.id
+        FROM auth.groups g_manage
+        LEFT JOIN auth.group_manager_users_v2 gmu ON gmu.group_id = g_manage.id AND gmu.user_id = ${params.userId}
+        LEFT JOIN auth.group_manager_groups_v2 gmg ON gmg.group_id = g_manage.id
+        LEFT JOIN user_all_groups ug ON ug.group_id = gmg.manager_group_id
+        WHERE g_manage.provider = 'ipa' AND (gmu.user_id IS NOT NULL OR ug.group_id IS NOT NULL)
       )
     )`);
   }
-  if (search) {
-    conditions.push(sql`(LOWER(cn) LIKE ${search} OR LOWER(description) LIKE ${search})`);
-  }
 
-  const where = conditions.length > 0 ? conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`) : sql`TRUE`;
+  const where = conditions.reduce((acc, condition) => sql`${acc} AND ${condition}`);
 
-  const countRows: DbRow[] = await sql`SELECT COUNT(*)::int as count FROM auth.groups WHERE ${where}`;
-  const total = (countRows[0]?.count as number) ?? 0;
+  const [countRow] = await sql<DbRow[]>`SELECT COUNT(*)::int AS count FROM auth.groups g WHERE ${where}`;
+  const total = Number(countRow?.count ?? 0);
   const totalPages = Math.ceil(total / perPage);
 
-  const groupRows: DbRow[] = await sql`
-    SELECT cn, description, gid_number FROM auth.groups
+  const rows = await sql<DbRow[]>`
+    SELECT g.id, g.provider, g.name, g.description, g.gid_number
+    FROM auth.groups g
     WHERE ${where}
-    ORDER BY cn
-    LIMIT ${perPage} OFFSET ${offset}`;
-
-  const groups: BaseGroup[] = groupRows.map((row) => ({
-    cn: row.cn as string,
-    description: row.description as string | null,
-    gidnumber: row.gid_number as number | null,
-  }));
+    ORDER BY g.name
+    LIMIT ${perPage} OFFSET ${offset}
+  `;
 
   return {
-    groups,
+    groups: rows.map((row) => ({
+      id: row.id as string,
+      provider: row.provider as "ipa" | "local",
+      name: row.name as string,
+      description: row.description as string | null,
+      gidnumber: row.gid_number as number | null,
+    })),
     total,
     pagination: { page, perPage, totalPages, hasNext: page < totalPages },
   };
 };
 
-// ==========================
-// Reads: getMembers (users and/or groups that are members)
-// ==========================
+export const getMembers = async (params: { id: string; type?: "user" | "group"; recursive?: boolean }): Promise<GroupMember[]> => {
+  const group = await getIpaGroupById(params.id);
+  if (!group) return [];
 
-/**
- * Lists group members (users and/or groups), optionally traversing child-group recursion.
- */
-export const getMembers = async (params: { cn: string; type?: "user" | "group"; recursive?: boolean }): Promise<GroupMember[]> => {
-  const { cn, type, recursive } = params;
   const members: GroupMember[] = [];
 
-  // Get user members
-  if (!type || type === "user") {
-    if (recursive) {
-      // Recursive: get all users from this group and child groups
-      const userRows: DbRow[] = await sql`
-        WITH RECURSIVE child_groups AS (
-          SELECT ${cn}::text as group_cn
-          UNION
-          SELECT gg.child_cn FROM auth.group_groups gg
-          JOIN child_groups cg ON gg.parent_cn = cg.group_cn
-        )
-        SELECT DISTINCT u.uid, u.display_name
-        FROM auth.user_groups ug
-        JOIN child_groups cg ON ug.group_cn = cg.group_cn
-        JOIN auth.users u ON u.id = ug.user_id
-        ORDER BY u.uid`;
-      for (const row of userRows) {
-        members.push({
-          type: "user",
-          id: row.uid as string,
-          displayName: row.display_name as string | null,
-        });
-      }
-    } else {
-      // Direct members only
-      const userRows: DbRow[] = await sql`
-        SELECT u.uid, u.display_name
-        FROM auth.user_groups ug
-        JOIN auth.users u ON u.id = ug.user_id
-        WHERE ug.group_cn = ${cn}
-        ORDER BY u.uid`;
-      for (const row of userRows) {
-        members.push({
-          type: "user",
-          id: row.uid as string,
-          displayName: row.display_name as string | null,
-        });
-      }
+  if (!params.type || params.type === "user") {
+    const userRows = params.recursive
+      ? await sql<DbRow[]>`
+          WITH RECURSIVE child_groups AS (
+            SELECT ${group.id}::uuid AS group_id
+            UNION
+            SELECT gg.child_group_id
+            FROM auth.group_groups_v2 gg
+            JOIN auth.groups g_child ON g_child.id = gg.child_group_id
+            JOIN child_groups cg ON gg.parent_group_id = cg.group_id
+            WHERE g_child.provider = 'ipa'
+          )
+          SELECT DISTINCT u.id, u.uid, u.display_name
+          FROM auth.user_groups_v2 ug
+          JOIN child_groups cg ON ug.group_id = cg.group_id
+          JOIN auth.users u ON u.id = ug.user_id
+          WHERE u.provider = 'ipa'
+          ORDER BY u.uid
+        `
+      : await sql<DbRow[]>`
+          SELECT u.id, u.uid, u.display_name
+          FROM auth.user_groups_v2 ug
+          JOIN auth.users u ON u.id = ug.user_id
+          WHERE ug.group_id = ${group.id} AND u.provider = 'ipa'
+          ORDER BY u.uid
+        `;
+
+    for (const row of userRows) {
+      members.push({ type: "user", id: row.id as string, displayName: (row.display_name as string | null) ?? (row.uid as string) });
     }
   }
 
-  // Get group members
-  if (!type || type === "group") {
-    if (recursive) {
-      // Recursive: get all child groups
-      const groupRows: DbRow[] = await sql`
-        WITH RECURSIVE child_groups AS (
-          SELECT child_cn FROM auth.group_groups WHERE parent_cn = ${cn}
-          UNION
-          SELECT gg.child_cn FROM auth.group_groups gg
-          JOIN child_groups cg ON gg.parent_cn = cg.child_cn
-        )
-        SELECT DISTINCT cg.child_cn as cn, g.description
-        FROM child_groups cg
-        LEFT JOIN auth.groups g ON g.cn = cg.child_cn
-        ORDER BY cg.child_cn`;
-      for (const row of groupRows) {
-        members.push({
-          type: "group",
-          id: row.cn as string,
-          displayName: row.description as string | null,
-        });
-      }
-    } else {
-      // Direct child groups only
-      const groupRows: DbRow[] = await sql`
-        SELECT gg.child_cn as cn, g.description
-        FROM auth.group_groups gg
-        LEFT JOIN auth.groups g ON g.cn = gg.child_cn
-        WHERE gg.parent_cn = ${cn}
-        ORDER BY gg.child_cn`;
-      for (const row of groupRows) {
-        members.push({
-          type: "group",
-          id: row.cn as string,
-          displayName: row.description as string | null,
-        });
-      }
+  if (!params.type || params.type === "group") {
+    const groupRows = params.recursive
+      ? await sql<DbRow[]>`
+          WITH RECURSIVE child_groups AS (
+            SELECT gg.child_group_id
+            FROM auth.group_groups_v2 gg
+            JOIN auth.groups g_child ON g_child.id = gg.child_group_id
+            WHERE gg.parent_group_id = ${group.id} AND g_child.provider = 'ipa'
+            UNION
+            SELECT gg.child_group_id
+            FROM auth.group_groups_v2 gg
+            JOIN auth.groups g_child ON g_child.id = gg.child_group_id
+            JOIN child_groups cg ON gg.parent_group_id = cg.group_id
+            WHERE g_child.provider = 'ipa'
+          )
+          SELECT DISTINCT g.id, g.name, g.description
+          FROM child_groups cg
+          JOIN auth.groups g ON g.id = cg.group_id
+          WHERE g.provider = 'ipa'
+          ORDER BY g.name
+        `
+      : await sql<DbRow[]>`
+          SELECT g.id, g.name, g.description
+          FROM auth.group_groups_v2 gg
+          JOIN auth.groups g ON g.id = gg.child_group_id
+          WHERE gg.parent_group_id = ${group.id} AND g.provider = 'ipa'
+          ORDER BY g.name
+        `;
+
+    for (const row of groupRows) {
+      members.push({ type: "group", id: row.id as string, displayName: row.name as string });
     }
   }
 
   return members;
 };
 
-// ==========================
-// Reads: getManagers (users and/or groups that manage this group)
-// ==========================
+export const getManagers = async (params: { id: string; type?: "user" | "group"; recursive?: boolean }): Promise<GroupMember[]> => {
+  const group = await getIpaGroupById(params.id);
+  if (!group) return [];
 
-/**
- * Lists managers for a group, including recursive manager-group expansion when requested.
- */
-export const getManagers = async (params: { cn: string; type?: "user" | "group"; recursive?: boolean }): Promise<GroupMember[]> => {
-  const { cn, type, recursive } = params;
   const managers: GroupMember[] = [];
 
-  // Get user managers
-  if (!type || type === "user") {
-    if (recursive) {
-      // Recursive: managers of this group + managers via manager groups
-      const userRows: DbRow[] = await sql`
-        WITH RECURSIVE manager_groups AS (
-          SELECT manager_cn FROM auth.group_manager_groups WHERE group_cn = ${cn}
-          UNION
-          SELECT gg.parent_cn FROM auth.group_groups gg
-          JOIN manager_groups mg ON gg.child_cn = mg.manager_cn
-        )
-        SELECT DISTINCT u.uid, u.display_name
-        FROM (
-          -- Direct user managers
-          SELECT user_id FROM auth.group_manager_users WHERE group_cn = ${cn}
-          UNION
-          -- User members of manager groups (recursive)
-          SELECT ug.user_id
-          FROM auth.user_groups ug
-          JOIN manager_groups mg ON ug.group_cn = mg.manager_cn
-        ) all_managers
-        JOIN auth.users u ON u.id = all_managers.user_id
-        ORDER BY u.uid`;
-      for (const row of userRows) {
-        managers.push({
-          type: "user",
-          id: row.uid as string,
-          displayName: row.display_name as string | null,
-        });
-      }
-    } else {
-      // Direct user managers only
-      const userRows: DbRow[] = await sql`
-        SELECT u.uid, u.display_name
-        FROM auth.group_manager_users gmu
-        JOIN auth.users u ON u.id = gmu.user_id
-        WHERE gmu.group_cn = ${cn}
-        ORDER BY u.uid`;
-      for (const row of userRows) {
-        managers.push({
-          type: "user",
-          id: row.uid as string,
-          displayName: row.display_name as string | null,
-        });
-      }
+  if (!params.type || params.type === "user") {
+    const userRows = params.recursive
+      ? await sql<DbRow[]>`
+          WITH RECURSIVE manager_groups AS (
+            SELECT gmg.manager_group_id
+            FROM auth.group_manager_groups_v2 gmg
+            JOIN auth.groups g_manager ON g_manager.id = gmg.manager_group_id
+            WHERE gmg.group_id = ${group.id} AND g_manager.provider = 'ipa'
+            UNION
+            SELECT gg.parent_group_id
+            FROM auth.group_groups_v2 gg
+            JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+            JOIN manager_groups mg ON gg.child_group_id = mg.group_id
+            WHERE g_parent.provider = 'ipa'
+          )
+          SELECT DISTINCT u.id, u.uid, u.display_name
+          FROM (
+            SELECT gmu.user_id
+            FROM auth.group_manager_users_v2 gmu
+            JOIN auth.users u_direct ON u_direct.id = gmu.user_id
+            WHERE gmu.group_id = ${group.id} AND u_direct.provider = 'ipa'
+            UNION
+            SELECT ug.user_id
+            FROM auth.user_groups_v2 ug
+            JOIN auth.users u_member ON u_member.id = ug.user_id
+            JOIN manager_groups mg ON ug.group_id = mg.group_id
+            WHERE u_member.provider = 'ipa'
+          ) all_managers
+          JOIN auth.users u ON u.id = all_managers.user_id
+          ORDER BY u.uid
+        `
+      : await sql<DbRow[]>`
+          SELECT u.id, u.uid, u.display_name
+          FROM auth.group_manager_users_v2 gmu
+          JOIN auth.users u ON u.id = gmu.user_id
+          WHERE gmu.group_id = ${group.id} AND u.provider = 'ipa'
+          ORDER BY u.uid
+        `;
+
+    for (const row of userRows) {
+      managers.push({ type: "user", id: row.id as string, displayName: (row.display_name as string | null) ?? (row.uid as string) });
     }
   }
 
-  // Get group managers
-  if (!type || type === "group") {
-    // Note: recursive for groups would mean finding all parent groups of manager groups,
-    // which doesn't really make sense semantically. We'll just return direct manager groups.
-    const groupRows: DbRow[] = await sql`
-      SELECT gmg.manager_cn as cn, g.description
-      FROM auth.group_manager_groups gmg
-      LEFT JOIN auth.groups g ON g.cn = gmg.manager_cn
-      WHERE gmg.group_cn = ${cn}
-      ORDER BY gmg.manager_cn`;
+  if (!params.type || params.type === "group") {
+    const groupRows = await sql<DbRow[]>`
+      SELECT g.id, g.name, g.description
+      FROM auth.group_manager_groups_v2 gmg
+      JOIN auth.groups g ON g.id = gmg.manager_group_id
+      WHERE gmg.group_id = ${group.id} AND g.provider = 'ipa'
+      ORDER BY g.name
+    `;
+
     for (const row of groupRows) {
-      managers.push({
-        type: "group",
-        id: row.cn as string,
-        displayName: row.description as string | null,
-      });
+      managers.push({ type: "group", id: row.id as string, displayName: row.name as string });
     }
   }
 
   return managers;
 };
 
-// ==========================
-// Reads: getParents (groups this group is a member of)
-// ==========================
+export const getParents = async (params: { id: string; recursive?: boolean }): Promise<string[]> => {
+  const group = await getIpaGroupById(params.id);
+  if (!group) return [];
 
-/**
- * Lists parent groups for one group, optionally resolving the full parent chain.
- */
-export const getParents = async (params: { cn: string; recursive?: boolean }): Promise<string[]> => {
-  const { cn, recursive } = params;
+  const rows = params.recursive
+    ? await sql<DbRow[]>`
+        WITH RECURSIVE parent_groups AS (
+          SELECT gg.parent_group_id
+          FROM auth.group_groups_v2 gg
+          JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+          WHERE gg.child_group_id = ${group.id} AND g_parent.provider = 'ipa'
+          UNION
+          SELECT gg.parent_group_id
+          FROM auth.group_groups_v2 gg
+          JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+          JOIN parent_groups pg ON gg.child_group_id = pg.group_id
+          WHERE g_parent.provider = 'ipa'
+        )
+        SELECT DISTINCT parent_group_id
+        FROM parent_groups
+      `
+    : await sql<DbRow[]>`
+        SELECT gg.parent_group_id
+        FROM auth.group_groups_v2 gg
+        JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+        WHERE gg.child_group_id = ${group.id} AND g_parent.provider = 'ipa'
+      `;
 
-  if (recursive) {
-    const rows: DbRow[] = await sql`
-      WITH RECURSIVE parent_groups AS (
-        SELECT parent_cn FROM auth.group_groups WHERE child_cn = ${cn}
-        UNION
-        SELECT gg.parent_cn FROM auth.group_groups gg
-        JOIN parent_groups pg ON gg.child_cn = pg.parent_cn
-      )
-      SELECT DISTINCT parent_cn FROM parent_groups ORDER BY parent_cn`;
-    return rows.map((r) => r.parent_cn as string);
-  } else {
-    const rows: DbRow[] = await sql`
-      SELECT parent_cn FROM auth.group_groups WHERE child_cn = ${cn} ORDER BY parent_cn`;
-    return rows.map((r) => r.parent_cn as string);
-  }
+  return rows.map((row) => row.parent_group_id as string);
 };
 
-// ==========================
-// Reads: getManagedGroups (groups this group manages)
-// ==========================
+export const getManagedGroups = async (params: { id: string }): Promise<string[]> => {
+  const group = await getIpaGroupById(params.id);
+  if (!group) return [];
 
-/**
- * Lists groups that are managed by the provided manager group CN.
- */
-export const getManagedGroups = async (params: { cn: string }): Promise<string[]> => {
-  const { cn } = params;
-  const rows: DbRow[] = await sql`
-    SELECT group_cn FROM auth.group_manager_groups WHERE manager_cn = ${cn} ORDER BY group_cn`;
-  return rows.map((r) => r.group_cn as string);
+  const rows = await sql<DbRow[]>`
+    SELECT gmg.group_id
+    FROM auth.group_manager_groups_v2 gmg
+    JOIN auth.groups g ON g.id = gmg.group_id
+    WHERE gmg.manager_group_id = ${group.id} AND g.provider = 'ipa'
+    ORDER BY g.name
+  `;
+
+  return rows.map((row) => row.group_id as string);
 };
 
-// ==========================
-// Mutations (FreeIPA RPC + DB update)
-// ==========================
-
-/**
- * Creates a group in FreeIPA, then mirrors description/GID into the local `auth.groups` table.
- */
 export const add = async (params: {
   ipaSession: string;
   cn: string;
   description?: string;
   posix?: boolean;
 }): Promise<MutationResult<BaseGroup>> => {
-  const { ipaSession, cn, description, posix } = params;
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const options: Record<string, unknown> = { nonposix: params.posix ? false : true };
+  if (params.description) options.description = params.description;
 
-  const options: Record<string, unknown> = {};
-  if (description) options.description = description;
-  if (posix) options.nonposix = false;
-  else options.nonposix = true;
+  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession: params.ipaSession, method: "group_add", args: [params.cn], options });
+  if (response.error) return ipaMutationError(response);
 
-  const response = await call(ipaSession, "group_add", [cn], options);
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
-
-  // Extract gidnumber from FreeIPA response (only present for POSIX groups)
-  const raw = response.result?.result as Record<string, unknown> | undefined;
-  const gidnumber = raw ? num(raw.gidnumber) : null;
-
-  await sql`
-    INSERT INTO auth.groups (cn, description, gid_number, synced_at)
-    VALUES (${cn}, ${description ?? null}, ${gidnumber}, now())
-    ON CONFLICT (cn) DO UPDATE SET description = EXCLUDED.description, gid_number = ${gidnumber}, synced_at = now()`;
+  const gidnumber = freeipa.util.num((response.result?.result as Record<string, unknown> | undefined)?.gidnumber);
+  const [row] = await sql<DbRow[]>`
+    INSERT INTO auth.groups (id, cn, name, provider, description, gid_number, synced_at)
+    VALUES (gen_random_uuid(), ${params.cn}, ${params.cn}, 'ipa', ${params.description ?? null}, ${gidnumber}, now())
+    ON CONFLICT (provider, name) DO UPDATE
+      SET cn = EXCLUDED.cn,
+          description = EXCLUDED.description,
+          gid_number = EXCLUDED.gid_number,
+          synced_at = now()
+    RETURNING id, provider, name, description, gid_number
+  `;
+  if (!row) return { ok: false, error: "Failed to persist IPA group mirror", status: 500 };
 
   return {
     ok: true,
-    data: { cn, description: description ?? null, gidnumber },
+    data: {
+      id: row.id as string,
+      provider: row.provider as "ipa" | "local",
+      name: row.name as string,
+      description: row.description as string | null,
+      gidnumber: row.gid_number as number | null,
+    },
   };
 };
 
-/**
- * Updates group description in FreeIPA and mirrors the new description locally.
- */
-export const update = async (params: { ipaSession: string; cn: string; description: string }): Promise<MutationResult<void>> => {
-  const { ipaSession, cn, description } = params;
+export const update = async (params: { ipaSession: string; id: string; description: string }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await call(ipaSession, "group_mod", [cn], { description });
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_mod",
+    args: [group.cn],
+    options: { description: params.description },
+  });
+  if (response.error) return ipaMutationError(response);
 
-  await sql`UPDATE auth.groups SET description = ${description}, synced_at = now() WHERE cn = ${cn}`;
+  await sql`UPDATE auth.groups SET description = ${params.description}, synced_at = now() WHERE id = ${group.id}`;
   return { ok: true, data: undefined };
 };
 
-/**
- * Deletes a group in FreeIPA and removes its mirrored row from `auth.groups`.
- */
-export const del = async (params: { ipaSession: string; cn: string }): Promise<MutationResult<void>> => {
-  const { ipaSession, cn } = params;
+export const del = async (params: { ipaSession: string; id: string }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await call(ipaSession, "group_del", [cn], {});
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession: params.ipaSession, method: "group_del", args: [group.cn], options: {} });
+  if (response.error) return ipaMutationError(response);
 
-  await sql`DELETE FROM auth.groups WHERE cn = ${cn}`;
+  await sql`DELETE FROM auth.groups WHERE id = ${group.id}`;
   return { ok: true, data: undefined };
 };
 
-/**
- * Converts a group to POSIX in FreeIPA and mirrors the resulting GID locally.
- */
-export const makePosix = async (params: { ipaSession: string; cn: string }): Promise<MutationResult<{ gidnumber: number | null }>> => {
-  const { ipaSession, cn } = params;
+export const makePosix = async (params: { ipaSession: string; id: string }): Promise<MutationResult<{ gidnumber: number | null }>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await call(ipaSession, "group_mod", [cn], { posix: true });
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession: params.ipaSession, method: "group_mod", args: [group.cn], options: { posix: true } });
+  if (response.error) return ipaMutationError(response);
 
-  const raw = response.result?.result as Record<string, unknown> | undefined;
-  const gidnumber = raw ? num(raw.gidnumber) : null;
-  await sql`UPDATE auth.groups SET gid_number = ${gidnumber}, synced_at = now() WHERE cn = ${cn}`;
-
+  const gidnumber = freeipa.util.num((response.result?.result as Record<string, unknown> | undefined)?.gidnumber);
+  await sql`UPDATE auth.groups SET gid_number = ${gidnumber}, synced_at = now() WHERE id = ${group.id}`;
   return { ok: true, data: { gidnumber } };
 };
 
-/**
- * Adds a user or child group as member in FreeIPA and mirrors the relation in local join tables.
- */
-export const addMember = async (params: {
-  ipaSession: string;
-  cn: string;
-  /** User ID (database UUID) */
-  user?: string;
-  /** Group CN */
-  group?: string;
-}): Promise<MutationResult<void>> => {
-  const { ipaSession, cn, user, group } = params;
+export const addMember = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  // If user ID provided, look up the uid for FreeIPA
   let userUid: string | undefined;
-  if (user) {
-    const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${user}`;
-    if (userRows.length === 0) {
-      return { ok: false, error: "User not found", status: 404 };
-    }
-    userUid = userRows[0]!.uid as string;
+  if (params.user) {
+    const [userRow] = await sql<DbRow[]>`SELECT uid FROM auth.users WHERE id = ${params.user} AND provider = 'ipa'`;
+    if (!userRow) return { ok: false, error: "IPA user not found", status: 404 };
+    const [existing] = await sql<DbRow[]>`
+      SELECT 1
+      FROM auth.user_groups_v2
+      WHERE user_id = ${params.user}::uuid
+        AND group_id = ${group.id}::uuid
+      LIMIT 1
+    `;
+    if (existing) return { ok: false, error: "User is already a direct member of this group", status: 409 };
+    userUid = userRow.uid as string;
+  }
+
+  let childGroup: IpaGroupRow | null = null;
+  if (params.group) {
+    childGroup = await getIpaGroupById(params.group);
+    if (!childGroup) return { ok: false, error: "IPA group not found", status: 404 };
+    const [existing] = await sql<DbRow[]>`
+      SELECT 1
+      FROM auth.group_groups_v2
+      WHERE parent_group_id = ${group.id}::uuid
+        AND child_group_id = ${childGroup.id}::uuid
+      LIMIT 1
+    `;
+    if (existing) return { ok: false, error: "Group is already a direct member of this group", status: 409 };
   }
 
   const options: Record<string, unknown> = {};
   if (userUid) options.user = userUid;
-  if (group) options.group = group;
+  if (childGroup) options.group = childGroup.cn;
 
-  const response = await call(ipaSession, "group_add_member", [cn], options);
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_add_member",
+    args: [group.cn],
+    options,
+  });
+  if (response.error) return ipaMutationError(response);
 
-  // Check if FreeIPA actually added the member (it returns ok even if member wasn't added)
   const result = response.result?.result as Record<string, unknown> | undefined;
-  const failed = result?.failed as Record<string, unknown> | undefined;
-  const memberFailed = failed?.member as Record<string, unknown> | undefined;
-  const userFailed = memberFailed?.user as Array<[string, string]> | undefined;
-  const groupFailed = memberFailed?.group as Array<[string, string]> | undefined;
-
-  if (userUid && userFailed && userFailed.length > 0) {
-    const errorMsg = userFailed[0]?.[1] || "Failed to add user to group";
-    return { ok: false, error: errorMsg, status: 400 };
+  const memberFailed = (result?.failed as Record<string, unknown> | undefined)?.member as Record<string, unknown> | undefined;
+  if (userUid && Array.isArray(memberFailed?.user) && memberFailed.user.length > 0) {
+    return { ok: false, error: (memberFailed.user[0] as [string, string])[1] || "Failed to add user to group", status: 400 };
   }
-  if (group && groupFailed && groupFailed.length > 0) {
-    const errorMsg = groupFailed[0]?.[1] || "Failed to add group to group";
-    return { ok: false, error: errorMsg, status: 400 };
+  if (childGroup && Array.isArray(memberFailed?.group) && memberFailed.group.length > 0) {
+    return { ok: false, error: (memberFailed.group[0] as [string, string])[1] || "Failed to add group to group", status: 400 };
   }
 
-  if (user) {
-    await sql`INSERT INTO auth.user_groups (user_id, group_cn) VALUES (${user}, ${cn}) ON CONFLICT DO NOTHING`;
-    // Update user's realm based on new group memberships
-    await updateUserRealm(user);
+  if (params.user) {
+    await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${params.user}, ${group.id}) ON CONFLICT DO NOTHING`;
+    await updateUserIpaProfile(params.user);
   }
-  if (group) {
-    await sql`INSERT INTO auth.group_groups (parent_cn, child_cn) VALUES (${cn}, ${group}) ON CONFLICT DO NOTHING`;
-    // Update realm for all users affected by this group hierarchy change
-    await updateRealmForAffectedUsers(group);
+  if (childGroup) {
+    await sql`INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id) VALUES (${group.id}, ${childGroup.id}) ON CONFLICT DO NOTHING`;
+    await updateProfileForAffectedUsers(childGroup.id);
   }
 
   return { ok: true, data: undefined };
 };
 
-/**
- * Removes a user/group membership in FreeIPA, mirrors local relation deletion, and refreshes affected user realms.
- */
-export const removeMember = async (params: {
-  ipaSession: string;
-  cn: string;
-  /** User ID (database UUID) */
-  user?: string;
-  /** Group CN */
-  group?: string;
-}): Promise<MutationResult<void>> => {
-  const { ipaSession, cn, user, group } = params;
+export const removeMember = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  // If user ID provided, look up the uid for FreeIPA
   let userUid: string | undefined;
-  if (user) {
-    const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${user}`;
-    if (userRows.length === 0) {
-      return { ok: false, error: "User not found", status: 404 };
-    }
-    userUid = userRows[0]!.uid as string;
+  if (params.user) {
+    const [userRow] = await sql<DbRow[]>`SELECT uid FROM auth.users WHERE id = ${params.user} AND provider = 'ipa'`;
+    if (!userRow) return { ok: false, error: "IPA user not found", status: 404 };
+    userUid = userRow.uid as string;
+  }
+
+  let childGroup: IpaGroupRow | null = null;
+  if (params.group) {
+    childGroup = await getIpaGroupById(params.group);
+    if (!childGroup) return { ok: false, error: "IPA group not found", status: 404 };
   }
 
   const options: Record<string, unknown> = {};
   if (userUid) options.user = userUid;
-  if (group) options.group = group;
+  if (childGroup) options.group = childGroup.cn;
 
-  const response = await call(ipaSession, "group_remove_member", [cn], options);
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_remove_member",
+    args: [group.cn],
+    options,
+  });
+  if (response.error) return ipaMutationError(response);
 
-  // Check if FreeIPA actually removed the member (it returns ok even if member wasn't removed)
   const result = response.result?.result as Record<string, unknown> | undefined;
-  const failed = result?.failed as Record<string, unknown> | undefined;
-  const memberFailed = failed?.member as Record<string, unknown> | undefined;
-  const userFailed = memberFailed?.user as Array<[string, string]> | undefined;
-  const groupFailed = memberFailed?.group as Array<[string, string]> | undefined;
-
-  if (userUid && userFailed && userFailed.length > 0) {
-    const errorMsg = userFailed[0]?.[1] || "Failed to remove user from group";
-    return { ok: false, error: errorMsg, status: 400 };
+  const memberFailed = (result?.failed as Record<string, unknown> | undefined)?.member as Record<string, unknown> | undefined;
+  if (userUid && Array.isArray(memberFailed?.user) && memberFailed.user.length > 0) {
+    return { ok: false, error: (memberFailed.user[0] as [string, string])[1] || "Failed to remove user from group", status: 400 };
   }
-  if (group && groupFailed && groupFailed.length > 0) {
-    const errorMsg = groupFailed[0]?.[1] || "Failed to remove group from group";
-    return { ok: false, error: errorMsg, status: 400 };
+  if (childGroup && Array.isArray(memberFailed?.group) && memberFailed.group.length > 0) {
+    return { ok: false, error: (memberFailed.group[0] as [string, string])[1] || "Failed to remove group from group", status: 400 };
   }
 
-  if (user) {
-    await sql`DELETE FROM auth.user_groups WHERE user_id = ${user} AND group_cn = ${cn}`;
-    // Update user's realm based on remaining group memberships
-    await updateUserRealm(user);
+  if (params.user) {
+    await sql`DELETE FROM auth.user_groups_v2 WHERE user_id = ${params.user} AND group_id = ${group.id}`;
+    await updateUserIpaProfile(params.user);
   }
-  if (group) {
-    // Get affected users BEFORE removing the group hierarchy
-    const affectedUserIds: DbRow[] = await sql`
+  if (childGroup) {
+    const affectedUsers = await sql<DbRow[]>`
       WITH RECURSIVE child_groups AS (
-        SELECT ${group}::text as cn
+        SELECT ${childGroup.id}::uuid AS group_id
         UNION
-        SELECT gg.child_cn FROM auth.group_groups gg
-        JOIN child_groups cg ON gg.parent_cn = cg.cn
+        SELECT gg.child_group_id
+        FROM auth.group_groups_v2 gg
+        JOIN child_groups cg ON gg.parent_group_id = cg.group_id
       )
       SELECT DISTINCT ug.user_id
-      FROM auth.user_groups ug
-      JOIN child_groups cg ON ug.group_cn = cg.cn
+      FROM auth.user_groups_v2 ug
+      JOIN child_groups cg ON ug.group_id = cg.group_id
     `;
 
-    await sql`DELETE FROM auth.group_groups WHERE parent_cn = ${cn} AND child_cn = ${group}`;
-
-    // Update realm for all affected users after the hierarchy change
-    for (const row of affectedUserIds) {
-      await updateUserRealm(row.user_id as string);
+    await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${group.id} AND child_group_id = ${childGroup.id}`;
+    for (const row of affectedUsers) {
+      await updateUserIpaProfile(row.user_id as string);
     }
   }
 
   return { ok: true, data: undefined };
 };
 
-/**
- * Adds a user/group manager in FreeIPA and mirrors manager relations in local join tables.
- */
-export const addManager = async (params: {
-  ipaSession: string;
-  cn: string;
-  /** User ID (database UUID) */
-  user?: string;
-  /** Group CN */
-  group?: string;
-}): Promise<MutationResult<void>> => {
-  const { ipaSession, cn, user, group } = params;
+export const addManager = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  // If user ID provided, look up the uid for FreeIPA
   let userUid: string | undefined;
-  if (user) {
-    const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${user}`;
-    if (userRows.length === 0) {
-      return { ok: false, error: "User not found", status: 404 };
-    }
-    userUid = userRows[0]!.uid as string;
+  if (params.user) {
+    const [userRow] = await sql<DbRow[]>`SELECT uid FROM auth.users WHERE id = ${params.user} AND provider = 'ipa'`;
+    if (!userRow) return { ok: false, error: "IPA user not found", status: 404 };
+    const [existing] = await sql<DbRow[]>`
+      SELECT 1
+      FROM auth.group_manager_users_v2
+      WHERE group_id = ${group.id}::uuid
+        AND user_id = ${params.user}::uuid
+      LIMIT 1
+    `;
+    if (existing) return { ok: false, error: "User is already a direct manager of this group", status: 409 };
+    userUid = userRow.uid as string;
+  }
+
+  let managerGroup: IpaGroupRow | null = null;
+  if (params.group) {
+    managerGroup = await getIpaGroupById(params.group);
+    if (!managerGroup) return { ok: false, error: "IPA group not found", status: 404 };
+    const [existing] = await sql<DbRow[]>`
+      SELECT 1
+      FROM auth.group_manager_groups_v2
+      WHERE group_id = ${group.id}::uuid
+        AND manager_group_id = ${managerGroup.id}::uuid
+      LIMIT 1
+    `;
+    if (existing) return { ok: false, error: "Group is already a direct manager of this group", status: 409 };
   }
 
   const options: Record<string, unknown> = {};
   if (userUid) options.user = userUid;
-  if (group) options.group = group;
+  if (managerGroup) options.group = managerGroup.cn;
 
-  const response = await call(ipaSession, "group_add_member_manager", [cn], options);
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_add_member_manager",
+    args: [group.cn],
+    options,
+  });
+  if (response.error) return ipaMutationError(response);
 
-  // Check if FreeIPA actually added the manager (it returns ok even if manager wasn't added)
   const result = response.result?.result as Record<string, unknown> | undefined;
-  const failed = result?.failed as Record<string, unknown> | undefined;
-  const memberManagerFailed = failed?.membermanager as Record<string, unknown> | undefined;
-  const userFailed = memberManagerFailed?.user as Array<[string, string]> | undefined;
-  const groupFailed = memberManagerFailed?.group as Array<[string, string]> | undefined;
-
-  if (userUid && userFailed && userFailed.length > 0) {
-    const errorMsg = userFailed[0]?.[1] || "Failed to add user as manager";
-    return { ok: false, error: errorMsg, status: 400 };
+  const managerFailed = (result?.failed as Record<string, unknown> | undefined)?.membermanager as Record<string, unknown> | undefined;
+  if (userUid && Array.isArray(managerFailed?.user) && managerFailed.user.length > 0) {
+    return { ok: false, error: (managerFailed.user[0] as [string, string])[1] || "Failed to add user as manager", status: 400 };
   }
-  if (group && groupFailed && groupFailed.length > 0) {
-    const errorMsg = groupFailed[0]?.[1] || "Failed to add group as manager";
-    return { ok: false, error: errorMsg, status: 400 };
+  if (managerGroup && Array.isArray(managerFailed?.group) && managerFailed.group.length > 0) {
+    return { ok: false, error: (managerFailed.group[0] as [string, string])[1] || "Failed to add group as manager", status: 400 };
   }
 
-  if (user) {
-    await sql`INSERT INTO auth.group_manager_users (group_cn, user_id) VALUES (${cn}, ${user}) ON CONFLICT DO NOTHING`;
+  if (params.user) {
+    await sql`INSERT INTO auth.group_manager_users_v2 (group_id, user_id) VALUES (${group.id}, ${params.user}) ON CONFLICT DO NOTHING`;
   }
-  if (group) {
-    await sql`INSERT INTO auth.group_manager_groups (group_cn, manager_cn) VALUES (${cn}, ${group}) ON CONFLICT DO NOTHING`;
+  if (managerGroup) {
+    await sql`INSERT INTO auth.group_manager_groups_v2 (group_id, manager_group_id) VALUES (${group.id}, ${managerGroup.id}) ON CONFLICT DO NOTHING`;
   }
 
   return { ok: true, data: undefined };
 };
 
-/**
- * Removes a user/group manager assignment in FreeIPA and mirrors the local manager relation deletion.
- */
-export const removeManager = async (params: {
-  ipaSession: string;
-  cn: string;
-  /** User ID (database UUID) */
-  user?: string;
-  /** Group CN */
-  group?: string;
-}): Promise<MutationResult<void>> => {
-  const { ipaSession, cn, user, group } = params;
+export const removeManager = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const group = await getIpaGroupById(params.id);
+  if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  // If user ID provided, look up the uid for FreeIPA
   let userUid: string | undefined;
-  if (user) {
-    const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${user}`;
-    if (userRows.length === 0) {
-      return { ok: false, error: "User not found", status: 404 };
-    }
-    userUid = userRows[0]!.uid as string;
+  if (params.user) {
+    const [userRow] = await sql<DbRow[]>`SELECT uid FROM auth.users WHERE id = ${params.user} AND provider = 'ipa'`;
+    if (!userRow) return { ok: false, error: "IPA user not found", status: 404 };
+    userUid = userRow.uid as string;
+  }
+
+  let managerGroup: IpaGroupRow | null = null;
+  if (params.group) {
+    managerGroup = await getIpaGroupById(params.group);
+    if (!managerGroup) return { ok: false, error: "IPA group not found", status: 404 };
   }
 
   const options: Record<string, unknown> = {};
   if (userUid) options.user = userUid;
-  if (group) options.group = group;
+  if (managerGroup) options.group = managerGroup.cn;
 
-  const response = await call(ipaSession, "group_remove_member_manager", [cn], options);
-  if (response.error) {
-    return {
-      ok: false,
-      error: response.error.message,
-      status: mapIpaErrorCode(response.error.code),
-    };
-  }
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession: params.ipaSession,
+    method: "group_remove_member_manager",
+    args: [group.cn],
+    options,
+  });
+  if (response.error) return ipaMutationError(response);
 
-  // Check if FreeIPA actually removed the manager (it returns ok even if manager wasn't removed)
   const result = response.result?.result as Record<string, unknown> | undefined;
-  const failed = result?.failed as Record<string, unknown> | undefined;
-  const memberManagerFailed = failed?.membermanager as Record<string, unknown> | undefined;
-  const userFailed = memberManagerFailed?.user as Array<[string, string]> | undefined;
-  const groupFailed = memberManagerFailed?.group as Array<[string, string]> | undefined;
-
-  if (userUid && userFailed && userFailed.length > 0) {
-    const errorMsg = userFailed[0]?.[1] || "Failed to remove user as manager";
-    return { ok: false, error: errorMsg, status: 400 };
+  const managerFailed = (result?.failed as Record<string, unknown> | undefined)?.membermanager as Record<string, unknown> | undefined;
+  if (userUid && Array.isArray(managerFailed?.user) && managerFailed.user.length > 0) {
+    return { ok: false, error: (managerFailed.user[0] as [string, string])[1] || "Failed to remove user as manager", status: 400 };
   }
-  if (group && groupFailed && groupFailed.length > 0) {
-    const errorMsg = groupFailed[0]?.[1] || "Failed to remove group as manager";
-    return { ok: false, error: errorMsg, status: 400 };
+  if (managerGroup && Array.isArray(managerFailed?.group) && managerFailed.group.length > 0) {
+    return { ok: false, error: (managerFailed.group[0] as [string, string])[1] || "Failed to remove group as manager", status: 400 };
   }
 
-  if (user) {
-    await sql`DELETE FROM auth.group_manager_users WHERE group_cn = ${cn} AND user_id = ${user}`;
+  if (params.user) {
+    await sql`DELETE FROM auth.group_manager_users_v2 WHERE group_id = ${group.id} AND user_id = ${params.user}`;
   }
-  if (group) {
-    await sql`DELETE FROM auth.group_manager_groups WHERE group_cn = ${cn} AND manager_cn = ${group}`;
+  if (managerGroup) {
+    await sql`DELETE FROM auth.group_manager_groups_v2 WHERE group_id = ${group.id} AND manager_group_id = ${managerGroup.id}`;
   }
 
   return { ok: true, data: undefined };
+};
+
+export const getManagedGroupsByName = async (params: { id: string }): Promise<string[]> => {
+  const ids = await getManagedGroups(params);
+  if (ids.length === 0) return [];
+  const rows = await sql<DbRow[]>`SELECT name FROM auth.groups WHERE id = ANY(${toPgUuidArray(ids)}::uuid[]) ORDER BY name`;
+  return rows.map((row) => row.name as string);
 };

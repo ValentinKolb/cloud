@@ -9,31 +9,24 @@ type MembersTabProps = {
   memberGroups: BaseGroup[];
   pagination: PaginationResponse;
   search: string;
-  cn: string;
+  groupId: string;
   allMemberIds: string[];
-  allMemberGroupCns: string[];
+  allMemberGroupIds: string[];
   isAdmin: boolean;
   canManage: boolean;
   indirect: boolean;
   /** Direct member user UIDs (only set when indirect=true) */
   directMemberUserUids: string[];
-  /** Direct member group CNs (only set when indirect=true) */
-  directMemberGroupCns: string[];
-  groupHref: (groupCn: string) => string;
+  /** Direct member group IDs (only set when indirect=true) */
+  directMemberGroupIds: string[];
+  groupHref: (groupId: string) => string;
+  pageBaseUrl: string;
+  toggleIndirectUrl: string;
 };
 
 export default function MembersTab(props: MembersTabProps) {
-  const indirectParam = props.indirect ? "&indirect=true" : "";
-  const baseUrl = props.search
-    ? `/app/accounts/groups/${props.cn}?tab=members${indirectParam}&search=${encodeURIComponent(props.search)}&page=`
-    : `/app/accounts/groups/${props.cn}?tab=members${indirectParam}&page=`;
-
-  const toggleIndirectUrl = props.indirect
-    ? `/app/accounts/groups/${props.cn}?tab=members`
-    : `/app/accounts/groups/${props.cn}?tab=members&indirect=true`;
-
   const directUserSet = new Set(props.directMemberUserUids);
-  const directGroupSet = new Set(props.directMemberGroupCns);
+  const directGroupSet = new Set(props.directMemberGroupIds);
 
   const hasGroups = props.memberGroups.length > 0;
   const hasUsers = props.users.length > 0;
@@ -42,17 +35,17 @@ export default function MembersTab(props: MembersTabProps) {
   return (
     <div class="flex flex-col gap-3">
       <TabToolbar
-        indirectToggleUrl={toggleIndirectUrl}
+        indirectToggleUrl={props.toggleIndirectUrl}
         indirect={props.indirect}
         actions={
           props.canManage ? (
             <AddMember
-              cn={props.cn}
+              groupId={props.groupId}
               membershipRole="members"
               searchUsers={true}
               searchGroups={props.isAdmin}
               excludeUserIds={props.allMemberIds}
-              excludeGroups={props.allMemberGroupCns}
+              excludeGroups={props.allMemberGroupIds}
             />
           ) : undefined
         }
@@ -71,17 +64,17 @@ export default function MembersTab(props: MembersTabProps) {
               <h3 class="section-label mb-0">Groups</h3>
               <div class="paper overflow-hidden">
                 {props.memberGroups.map((group, i) => {
-                  const isIndirect = props.indirect && !directGroupSet.has(group.cn);
+                  const isIndirect = props.indirect && !directGroupSet.has(group.id);
                   return (
                     <div class={`flex items-center gap-3 p-3 ${i > 0 ? "border-t border-zinc-100 dark:border-zinc-800" : ""}`}>
-                      <a href={props.groupHref(group.cn)} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
+                      <a href={props.groupHref(group.id)} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
                         <GroupView group={group} />
                       </a>
                       {isIndirect && (
                         <span class="tag bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 shrink-0">indirect</span>
                       )}
                       {props.canManage && !isIndirect && (
-                        <RemoveMember cn={props.cn} membershipRole="members" type="group" id={group.cn} label={group.cn} />
+                        <RemoveMember groupId={props.groupId} membershipRole="members" type="group" id={group.id} label={group.name} />
                       )}
                     </div>
                   );
@@ -111,7 +104,7 @@ export default function MembersTab(props: MembersTabProps) {
                         <span class="tag bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 shrink-0">indirect</span>
                       )}
                       {props.canManage && !isIndirect && (
-                        <RemoveMember cn={props.cn} membershipRole="members" type="user" id={user.id} label={user.displayName} />
+                        <RemoveMember groupId={props.groupId} membershipRole="members" type="user" id={user.id} label={user.displayName} />
                       )}
                     </div>
                   );
@@ -122,7 +115,7 @@ export default function MembersTab(props: MembersTabProps) {
         </>
       )}
 
-      <Pagination currentPage={props.pagination.page} totalPages={props.pagination.total_pages} baseUrl={baseUrl} />
+      <Pagination currentPage={props.pagination.page} totalPages={props.pagination.total_pages} baseUrl={props.pageBaseUrl} />
     </div>
   );
 }

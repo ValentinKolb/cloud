@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import type { Context } from "hono";
 import type { JSX } from "solid-js/jsx-runtime";
 
-import type { Role, SessionUser } from "./shared";
+import type { Role, User } from "./shared";
 
 export type AppColor = "blue" | "emerald" | "violet" | "orange" | "red" | "amber" | "zinc" | "cyan" | "rose";
 
@@ -28,7 +28,7 @@ export type RuntimeAppMeta = AppMeta & {
   searchTagHelp?: AppSearchTagHelpEntry[];
 };
 
-export type WidgetFactory = (c: Context, user?: SessionUser) => Widget | Promise<Widget>;
+export type WidgetFactory = (c: Context, user?: User) => Widget | Promise<Widget>;
 
 export type WidgetData = {
   id: string;
@@ -70,7 +70,7 @@ export type AppLifecycle = {
 export type SearchPriority = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type AppSearchContext = {
-  get: <K extends "user" | "sessionToken">(key: K) => K extends "user" ? SessionUser : string;
+  get: <K extends "user" | "sessionToken">(key: K) => K extends "user" ? User : string;
 };
 
 export type AppSearchInput = {

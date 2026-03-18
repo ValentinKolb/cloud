@@ -1,7 +1,25 @@
 import { z } from "zod";
 
-export const RoleSchema = z.enum(["admin", "ipa", "ipa-limited", "guest", "group-manager"]);
+export const RoleSchema = z.enum([
+  "admin",
+  "ipa",
+  "ipa-limited",
+  "guest",
+  "group-manager",
+  "local",
+  "user",
+  "ipa/user",
+  "ipa/guest",
+  "local/user",
+  "local/guest",
+]);
 export type Role = z.infer<typeof RoleSchema>;
+
+export const UserProviderSchema = z.enum(["ipa", "local"]);
+export type UserProvider = z.infer<typeof UserProviderSchema>;
+
+export const UserProfileSchema = z.enum(["user", "guest"]);
+export type UserProfile = z.infer<typeof UserProfileSchema>;
 
 export const SpecialRoleSchema = z.enum(["*", "authenticated", "anonymous"]);
 export type SpecialRole = z.infer<typeof SpecialRoleSchema>;
@@ -13,6 +31,8 @@ export const BaseUserSchema = z.object({
   id: z.string(),
   uid: z.string(),
   roles: z.array(RoleSchema),
+  provider: UserProviderSchema,
+  profile: UserProfileSchema,
   givenname: z.string(),
   sn: z.string(),
   displayName: z.string(),
@@ -20,35 +40,55 @@ export const BaseUserSchema = z.object({
 });
 export type BaseUser = z.infer<typeof BaseUserSchema>;
 
-export const FullUserSchema = BaseUserSchema.extend({
-  phone: z.string().nullable(),
+export const IpaUserDataSchema = z.object({
   uidNumber: z.number().nullable(),
-  ipaAccountExpires: z.string().nullable(),
-  guestAccountExpires: z.string().nullable(),
-  ipaPasswordExpires: z.string().nullable(),
-  lastLoginIpa: z.string().nullable(),
-  lastLoginLocal: z.string().nullable(),
+  phone: z.string().nullable(),
   employeeType: z.string().nullable(),
+  mobile: z.string().nullable(),
   address: z.object({
     street: z.string().nullable(),
     postalCode: z.string().nullable(),
     city: z.string().nullable(),
     state: z.string().nullable(),
   }),
-  mobile: z.string().nullable(),
+  passwordExpires: z.string().nullable(),
+  lastLoginIpa: z.string().nullable(),
+  syncedAt: z.string().nullable(),
   sshPublicKeys: z.array(z.string()),
   sshFingerprints: z.array(z.string()),
 });
-export type FullUser = z.infer<typeof FullUserSchema>;
+export type IpaUserData = z.infer<typeof IpaUserDataSchema>;
 
-export const SessionUserSchema = FullUserSchema.extend({
+const RichUserFields = {
+  accountExpires: z.string().nullable(),
+  lastLoginLocal: z.string().nullable(),
   memberofGroup: z.array(z.string()),
+  memberofGroupIds: z.array(z.uuid()),
   manages: z.array(z.string()),
+  managesGroupIds: z.array(z.uuid()),
+} satisfies z.ZodRawShape;
+
+export const IpaUserSchema = BaseUserSchema.extend({
+  provider: z.literal("ipa"),
+  ipa: IpaUserDataSchema,
+  ...RichUserFields,
 });
-export type SessionUser = z.infer<typeof SessionUserSchema>;
+export type IpaUser = z.infer<typeof IpaUserSchema>;
+
+export const LocalUserSchema = BaseUserSchema.extend({
+  provider: z.literal("local"),
+  ipa: z.null(),
+  ...RichUserFields,
+});
+export type LocalUser = z.infer<typeof LocalUserSchema>;
+
+export const UserSchema = z.discriminatedUnion("provider", [IpaUserSchema, LocalUserSchema]);
+export type User = z.infer<typeof UserSchema>;
 
 export const BaseGroupSchema = z.object({
-  cn: z.string(),
+  id: z.uuid(),
+  provider: UserProviderSchema,
+  name: z.string(),
   description: z.string().nullable(),
   gidnumber: z.number().nullable(),
 });
@@ -122,7 +162,7 @@ export type PermissionLevel = z.infer<typeof PermissionLevelSchema>;
 
 export const PrincipalSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("user"), userId: z.uuid() }),
-  z.object({ type: z.literal("group"), groupCn: z.string() }),
+  z.object({ type: z.literal("group"), groupId: z.uuid() }),
   z.object({ type: z.literal("authenticated") }),
   z.object({ type: z.literal("public") }),
 ]);

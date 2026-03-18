@@ -1,38 +1,47 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/core/services";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
-import { createPagination, hasRole, type BaseGroup, type BaseUser } from "@/accounts/contracts";
+import { getSync } from "@valentinkolb/cloud-core/services/settings";
+import { createPagination, type BaseGroup, type BaseUser } from "@/accounts/contracts";
+import { canManageGroup, getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/lib/shared";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
 import AccountsNavSidebar from "../../AccountsNavSidebar";
-import { accountsService } from "../../../service";
 import { GROUPS_CONTEXT_QUERY_KEYS, buildGroupDetailUrl, buildGroupsUrl, parseGroupsListState } from "../../lib/url-state";
 import GroupActions from "./GroupActions.island";
 import ManagersTab from "./ManagersTab";
 import MemberOfTab from "./MemberOfTab";
 import MembersTab from "./MembersTab";
+import { getProviderBadge } from "../../lib/account-badges";
 
 const TABS = ["members", "managers", "member-of"] as const;
 
 type Tab = (typeof TABS)[number];
 
 export default ssr<AuthContext>(async (c) => {
-  const cn = c.req.param("cn");
+  const groupId = c.req.param("id");
   const user = c.get("user");
-  const isAdmin = hasRole(user, "admin");
+  const isAdmin = isAdminUser(user);
+  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
+  const defaultScope = getDefaultGroupScope(user);
 
   const listState = parseGroupsListState(
     {
       search: c.req.query("list_search"),
       page: c.req.query("list_page"),
+      provider: c.req.query("list_provider"),
+      scope: c.req.query("list_scope"),
       showAll: c.req.query("list_show_all"),
     },
-    { keys: GROUPS_CONTEXT_QUERY_KEYS, defaultShowAll: isAdmin },
+    { keys: GROUPS_CONTEXT_QUERY_KEYS, defaultScope },
   );
 
   const groupsListHref = buildGroupsUrl(listState, {
-    defaultShowAll: isAdmin,
+    defaultScope,
   });
+  const groupsBackLabel =
+    listState.scope === "managed" ? "Managed Groups" : listState.scope === "member" ? "My Groups" : "All Groups";
 
-  const group = await accountsService.group.get({ cn });
+  const group = await accountsService.group.get({ id: groupId });
 
   if (!group) {
     return (
@@ -49,7 +58,7 @@ export default ssr<AuthContext>(async (c) => {
         <div class="flex-1 flex items-center justify-center">
           <div class="text-center text-dimmed flex flex-col items-center gap-2">
             <i class="ti ti-alert-circle text-4xl" />
-            <p class="text-sm">Group "{cn}" not found.</p>
+            <p class="text-sm">Group not found.</p>
             <a href={groupsListHref} class="text-xs hover:text-primary">
               Back to Groups
             </a>
@@ -59,9 +68,12 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const canManage = isAdmin || user.manages.includes(cn);
+  const canManage = canManageGroup(user, groupId);
+  const providerBadge = group ? getProviderBadge(group.provider) : null;
   const requestedTab = c.req.query("tab") as Tab;
   const tab = (TABS.includes(requestedTab) && (requestedTab !== "member-of" || isAdmin) ? requestedTab : "members") as Tab;
+  const canMutateGroup = group.provider === "local" || freeIpaEnabled;
+  const canManageMutations = canManage && canMutateGroup;
 
   const rawPage = Number.parseInt(c.req.query("page") ?? "1", 10);
   const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
@@ -69,10 +81,10 @@ export default ssr<AuthContext>(async (c) => {
   const search = c.req.query("search") ?? "";
   const indirect = c.req.query("indirect") === "true";
 
-  const buildDetailHref = (targetCn: string, overrides: Record<string, string | null | undefined> = {}): string => {
-    const base = buildGroupDetailUrl(targetCn, listState, {
+  const buildDetailHref = (targetGroupId: string, overrides: Record<string, string | null | undefined> = {}): string => {
+    const base = buildGroupDetailUrl(targetGroupId, listState, {
       keys: GROUPS_CONTEXT_QUERY_KEYS,
-      defaultShowAll: isAdmin,
+      defaultScope,
     });
     const url = new URL(base, "https://local.invalid");
 
@@ -87,58 +99,66 @@ export default ssr<AuthContext>(async (c) => {
     return `${url.pathname}${url.search}`;
   };
 
-  const [pendingRequestsPage, parentGroupsPage, managedGroupsPage] = await Promise.all([
+  const membersPageBaseUrl = `${buildDetailHref(groupId, {
+    tab: "members",
+    page: null,
+  })}${buildDetailHref(groupId, { tab: "members", page: null }).includes("?") ? "&" : "?"}page=`;
+  const toggleIndirectUrl = buildDetailHref(groupId, {
+    tab: "members",
+    indirect: indirect ? null : "true",
+    page: null,
+  });
+
+  const [pendingRequestsPage, parentGroupIdsPage, managedGroupIdsPage] = await Promise.all([
     isAdmin
       ? accountsService.accountRequest.list({
           access: { userId: user.id, isAdmin: true },
           filter: { status: "pending" },
         })
       : Promise.resolve({ total: 0 }),
-    accountsService.group.parent.list({ cn }),
-    accountsService.group.managedGroup.list({ cn }),
+    accountsService.group.parent.list({ id: groupId }),
+    accountsService.group.managedGroup.list({ id: groupId }),
   ]);
 
-  const parentGroups = parentGroupsPage.items;
-  const managedGroups = managedGroupsPage.items;
+  const parentGroupIds = parentGroupIdsPage.items;
+  const managedGroupIds = managedGroupIdsPage.items;
 
   let membersData = {
     users: [] as BaseUser[],
     total: 0,
   };
-  let memberGroupCns: string[] = [];
+  let memberGroupIds: string[] = [];
   let memberGroups: BaseGroup[] = [];
   let managerUsers: BaseUser[] = [];
-  let managerGroupCns: string[] = [];
+  let managerGroupIds: string[] = [];
   let managerGroups: BaseGroup[] = [];
   let parentGroupsData: BaseGroup[] = [];
   let directMemberUserUids: string[] = [];
-  let directMemberGroupCns: string[] = [];
+  let directMemberGroupIds: string[] = [];
 
   if (tab === "members") {
     const members =
       (
         await accountsService.group.member.list({
-          cn,
+          id: groupId,
           recursive: indirect,
         })
       ).items ?? [];
 
     const memberUserUids = members.filter((m) => m.type === "user").map((m) => m.id);
-
-    memberGroupCns = members.filter((m) => m.type === "group").map((m) => m.id);
+    memberGroupIds = members.filter((m) => m.type === "group").map((m) => m.id);
 
     if (indirect) {
       const directMembers =
         (
           await accountsService.group.member.list({
-            cn,
+            id: groupId,
             recursive: false,
           })
         ).items ?? [];
 
       directMemberUserUids = directMembers.filter((m) => m.type === "user").map((m) => m.id);
-
-      directMemberGroupCns = directMembers.filter((m) => m.type === "group").map((m) => m.id);
+      directMemberGroupIds = directMembers.filter((m) => m.type === "group").map((m) => m.id);
     }
 
     const [usersPage, memberGroupsPage] = await Promise.all([
@@ -147,7 +167,7 @@ export default ssr<AuthContext>(async (c) => {
         filter: { search: search || undefined },
         pagination: { page, perPage },
       }),
-      accountsService.group.list({ scope: { cns: memberGroupCns } }),
+      accountsService.group.list({ scope: { ids: memberGroupIds } }),
     ]);
 
     membersData = {
@@ -156,25 +176,28 @@ export default ssr<AuthContext>(async (c) => {
     };
     memberGroups = memberGroupsPage.items;
   } else if (tab === "managers") {
-    const managers = (await accountsService.group.manager.list({ cn })).items;
-
+    const managers = (await accountsService.group.manager.list({ id: groupId })).items;
     const managerUserUids = managers.filter((m) => m.type === "user").map((m) => m.id);
-
-    managerGroupCns = managers.filter((m) => m.type === "group").map((m) => m.id);
+    managerGroupIds = managers.filter((m) => m.type === "group").map((m) => m.id);
 
     const [usersPage, managerGroupsPage] = await Promise.all([
       accountsService.user.list({
         scope: { uids: managerUserUids },
         pagination: { page: 1, perPage: 100 },
       }),
-      accountsService.group.list({ scope: { cns: managerGroupCns } }),
+      accountsService.group.list({ scope: { ids: managerGroupIds } }),
     ]);
 
     managerUsers = usersPage.items;
     managerGroups = managerGroupsPage.items;
   } else if (tab === "member-of") {
-    parentGroupsData = (await accountsService.group.list({ scope: { cns: parentGroups } })).items ?? [];
+    parentGroupsData = (await accountsService.group.list({ scope: { ids: parentGroupIds } })).items ?? [];
   }
+
+  const [parentGroupsForSummary, managedGroupsForSummary] = await Promise.all([
+    parentGroupIds.length > 0 ? accountsService.group.list({ scope: { ids: parentGroupIds } }) : Promise.resolve({ items: [] as BaseGroup[] }),
+    managedGroupIds.length > 0 ? accountsService.group.list({ scope: { ids: managedGroupIds } }) : Promise.resolve({ items: [] as BaseGroup[] }),
+  ]);
 
   const pagination = tab === "members" ? createPagination({ page, perPage, offset: (page - 1) * perPage }, membersData.total) : null;
 
@@ -186,7 +209,7 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Start", href: "/" },
         { title: "Accounts", href: "/app/accounts" },
         { title: "Groups", href: "/app/accounts/groups" },
-        { title: cn },
+        { title: group.name },
       ]}
     >
       <div class="app-cols h-full">
@@ -198,16 +221,20 @@ export default ssr<AuthContext>(async (c) => {
               <div>
                 <a href={groupsListHref} class="btn-secondary btn-sm">
                   <i class="ti ti-arrow-left" />
-                  All Groups
+                  {groupsBackLabel}
                 </a>
               </div>
+
               <div class="flex items-start gap-3">
                 <div class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 h-10 w-10">
                   <i class="ti ti-users-group text-lg" />
                 </div>
                 <div class="flex flex-col gap-0.5 min-w-0 flex-1">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-base font-semibold text-primary">{group.cn}</span>
+                    <span class="text-base font-semibold text-primary">{group.name}</span>
+                    {providerBadge && (
+                      <span class={`tag ${providerBadge.className}`}>{providerBadge.label}</span>
+                    )}
                     {group.gidnumber && (
                       <span class="tag bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 shrink-0">POSIX</span>
                     )}
@@ -217,39 +244,70 @@ export default ssr<AuthContext>(async (c) => {
                   </div>
                   <span class="text-xs text-dimmed">{group.description || "No description"}</span>
                 </div>
-                {isAdmin && (
-                  <GroupActions cn={group.cn} isPosix={!!group.gidnumber} description={group.description} listHref={groupsListHref} />
+                {isAdmin && canMutateGroup && (
+                  <GroupActions
+                    id={group.id}
+                    name={group.name}
+                    provider={group.provider}
+                    isPosix={!!group.gidnumber}
+                    description={group.description}
+                    listHref={groupsListHref}
+                  />
                 )}
               </div>
 
-              {(parentGroups.length > 0 || managedGroups.length > 0) && (
+              {(parentGroupsForSummary.items.length > 0 || managedGroupsForSummary.items.length > 0) && (
                 <div class="flex flex-col md:flex-row gap-2">
-                  {parentGroups.length > 0 && (
+                  {isAdmin && parentGroupsForSummary.items.length > 0 && (
                     <div class="paper p-3 flex flex-col gap-1.5 flex-1">
                       <span class="section-label mb-0">Member of</span>
                       <div class="flex items-center gap-1 flex-wrap">
-                        {parentGroups.map((parentCn) => (
+                        {parentGroupsForSummary.items.map((parentGroup) => (
                           <a
-                            href={buildDetailHref(parentCn)}
+                            href={buildDetailHref(parentGroup.id)}
                             class="tag bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/80 transition-colors"
                           >
-                            {parentCn}
+                            {parentGroup.name}
                           </a>
                         ))}
                       </div>
                     </div>
                   )}
 
-                  {managedGroups.length > 0 && (
+                  {!isAdmin && canManage && parentGroupsForSummary.items.length > 0 && (
+                    <details class="paper p-3 flex-1 group">
+                      <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
+                        <div class="flex flex-col gap-0.5">
+                          <span class="section-label mb-0">Member of</span>
+                          <span class="text-xs text-dimmed">
+                            {parentGroupsForSummary.items.length} parent group{parentGroupsForSummary.items.length === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        <i class="ti ti-chevron-right text-sm text-dimmed transition-transform group-open:rotate-90" />
+                      </summary>
+                      <div class="mt-3 flex items-center gap-1 flex-wrap">
+                        {parentGroupsForSummary.items.map((parentGroup) => (
+                          <a
+                            href={buildDetailHref(parentGroup.id)}
+                            class="tag bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/80 transition-colors"
+                          >
+                            {parentGroup.name}
+                          </a>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+
+                  {managedGroupsForSummary.items.length > 0 && (
                     <div class="paper p-3 flex flex-col gap-1.5 flex-1">
                       <span class="section-label mb-0">Manages</span>
                       <div class="flex items-center gap-1 flex-wrap">
-                        {managedGroups.map((managedCn) => (
+                        {managedGroupsForSummary.items.map((managedGroup) => (
                           <a
-                            href={buildDetailHref(managedCn)}
+                            href={buildDetailHref(managedGroup.id)}
                             class="tag bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80 transition-colors"
                           >
-                            {managedCn}
+                            {managedGroup.name}
                           </a>
                         ))}
                       </div>
@@ -258,13 +316,20 @@ export default ssr<AuthContext>(async (c) => {
                 </div>
               )}
 
-              {canManage && !isAdmin && (
-                <div class="info-block-info text-xs">You are a manager of this group and can add or remove members.</div>
+              {canManageMutations && !isAdmin && (
+                <div class="info-block-info text-xs">
+                  You can manage members and managers here. Group descriptions and hierarchy remain admin-managed.
+                </div>
+              )}
+              {!canMutateGroup && (
+                <div class="info-block-warning text-xs">
+                  FreeIPA is currently disabled. This group stays visible, but directory-backed mutations are unavailable.
+                </div>
               )}
 
-              <div class="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-700">
+              <div class="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-700" role="tablist" aria-label="Group detail sections">
                 <a
-                  href={buildDetailHref(cn, {
+                  href={buildDetailHref(groupId, {
                     tab: "members",
                     search: null,
                     page: null,
@@ -275,11 +340,13 @@ export default ssr<AuthContext>(async (c) => {
                       ? "border-zinc-800 dark:border-zinc-200 text-primary"
                       : "border-transparent text-dimmed hover:text-primary"
                   }`}
+                  role="tab"
+                  aria-selected={tab === "members"}
                 >
                   Members
                 </a>
                 <a
-                  href={buildDetailHref(cn, {
+                  href={buildDetailHref(groupId, {
                     tab: "managers",
                     search: null,
                     page: null,
@@ -290,12 +357,14 @@ export default ssr<AuthContext>(async (c) => {
                       ? "border-zinc-800 dark:border-zinc-200 text-primary"
                       : "border-transparent text-dimmed hover:text-primary"
                   }`}
+                  role="tab"
+                  aria-selected={tab === "managers"}
                 >
                   Managers
                 </a>
                 {isAdmin && (
                   <a
-                    href={buildDetailHref(cn, {
+                    href={buildDetailHref(groupId, {
                       tab: "member-of",
                       search: null,
                       page: null,
@@ -306,6 +375,8 @@ export default ssr<AuthContext>(async (c) => {
                         ? "border-zinc-800 dark:border-zinc-200 text-primary"
                         : "border-transparent text-dimmed hover:text-primary"
                     }`}
+                    role="tab"
+                    aria-selected={tab === "member-of"}
                   >
                     Member Of
                   </a>
@@ -318,15 +389,17 @@ export default ssr<AuthContext>(async (c) => {
                   memberGroups={memberGroups}
                   pagination={pagination}
                   search={search}
-                  cn={cn}
+                  groupId={groupId}
                   allMemberIds={membersData.users.map((u) => u.id)}
-                  allMemberGroupCns={memberGroupCns}
+                  allMemberGroupIds={memberGroupIds}
                   isAdmin={isAdmin}
-                  canManage={canManage}
+                  canManage={canManageMutations}
                   indirect={indirect}
                   directMemberUserUids={directMemberUserUids}
-                  directMemberGroupCns={directMemberGroupCns}
-                  groupHref={(groupCn) => buildDetailHref(groupCn)}
+                  directMemberGroupIds={directMemberGroupIds}
+                  groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
+                  pageBaseUrl={membersPageBaseUrl}
+                  toggleIndirectUrl={toggleIndirectUrl}
                 />
               )}
 
@@ -334,21 +407,22 @@ export default ssr<AuthContext>(async (c) => {
                 <ManagersTab
                   managerUsers={managerUsers}
                   managerGroups={managerGroups}
-                  cn={cn}
+                  groupId={groupId}
                   allManagerIds={managerUsers.map((u) => u.id)}
-                  allManagerGroupCns={managerGroupCns}
+                  allManagerGroupIds={managerGroupIds}
+                  canManage={canManageMutations}
                   isAdmin={isAdmin}
-                  groupHref={(groupCn) => buildDetailHref(groupCn)}
+                  groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
                 />
               )}
 
               {tab === "member-of" && (
                 <MemberOfTab
-                  cn={cn}
+                  groupId={groupId}
                   parentGroups={parentGroupsData}
-                  allParentGroupCns={parentGroups}
-                  isAdmin={isAdmin}
-                  groupHref={(groupCn) => buildDetailHref(groupCn)}
+                  allParentGroupIds={parentGroupIds}
+                  isAdmin={isAdmin && canMutateGroup}
+                  groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
                 />
               )}
             </div>

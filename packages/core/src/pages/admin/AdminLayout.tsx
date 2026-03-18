@@ -12,10 +12,11 @@ type AdminLayoutContext = {
 type Props = {
   children: JSX.Element;
   c: AdminLayoutContext;
-  title: string /** Remove inner padding — for pages with their own sidebar/layout */;
-  contentFullWidth?: boolean;
+  title: string;
+  /** Bypass the scroll wrapper — child manages its own overflow. */
+  fullHeight?: boolean;
 };
-export default function AdminLayout({ children, c, title, contentFullWidth }: Props) {
+export default function AdminLayout({ children, c, title, fullHeight }: Props) {
   const pathname = new URL(c.req.raw.url).pathname;
   const runtime = getRuntimeContext(c);
   const breadcrumbs: Breadcrumb[] = [
@@ -27,16 +28,14 @@ export default function AdminLayout({ children, c, title, contentFullWidth }: Pr
   }
   return (
     <Layout c={c} fullWidth title={breadcrumbs}>
-      {" "}
       <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
         <AdminSidebar pathname={pathname} apps={runtime.apps} />
         <div class="flex-1 min-w-0 min-h-0 flex flex-col">
-          <div class={`flex-1 min-h-0 ${contentFullWidth ? "flex flex-col" : "overflow-y-auto"}`}>
-            {" "}
-            {contentFullWidth ? children : <div class="p-4">{children}</div>}{" "}
-          </div>{" "}
-        </div>{" "}
-      </div>{" "}
+          <div class={`flex-1 min-h-0 ${fullHeight ? "flex flex-col" : "overflow-y-auto"}`} style="scrollbar-gutter: stable">
+            {fullHeight ? children : <div class="p-4">{children}</div>}
+          </div>
+        </div>
+      </div>
     </Layout>
   );
 }

@@ -5,19 +5,21 @@ import { RemoveBtn } from "@valentinkolb/cloud/lib/ui";
 import { refreshCurrentPath } from "../../lib/navigation";
 
 type RemoveFromGroupProps = {
-  /** Group CN to remove from parent */
-  cn: string;
-  /** Parent group CN */
-  parentCn: string;
+  /** Group id to remove from parent */
+  groupId: string;
+  /** Parent group id */
+  parentGroupId: string;
+  /** Parent group label */
+  parentGroupName: string;
 };
 
 export default function RemoveFromGroup(props: RemoveFromGroupProps) {
   const mutation = mutations.create<void, void>({
     mutation: async () => {
       // Remove this group from the parent group
-      const res = await apiClient.groups[":cn"].members.$delete({
-        param: { cn: props.parentCn },
-        json: { type: "group", id: props.cn },
+      const res = await apiClient.groups[":id"].members.$delete({
+        param: { id: props.parentGroupId },
+        json: { type: "group", id: props.groupId },
       });
       if (!res.ok) {
         const data = await res.json();
@@ -33,7 +35,7 @@ export default function RemoveFromGroup(props: RemoveFromGroupProps) {
   });
 
   const handleClick = async () => {
-    const confirmed = await prompts.confirm(`Remove this group from "${props.parentCn}"?`, {
+    const confirmed = await prompts.confirm(`Remove this group from "${props.parentGroupName}"?`, {
       title: "Remove from Group",
       icon: "ti ti-folder-minus",
       confirmText: "Remove",
@@ -46,5 +48,5 @@ export default function RemoveFromGroup(props: RemoveFromGroupProps) {
     }
   };
 
-  return <RemoveBtn ariaLabel={`Remove from ${props.parentCn}`} onClick={handleClick} loading={mutation.loading()} />;
+  return <RemoveBtn ariaLabel={`Remove from ${props.parentGroupName}`} onClick={handleClick} loading={mutation.loading()} />;
 }

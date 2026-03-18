@@ -1,16 +1,29 @@
 import { sql } from "bun";
-import { env } from "@valentinkolb/cloud-core/config/env";
+import { writeDeletedAccountAudit } from "@valentinkolb/cloud-core/services/account-lifecycle/audit";
+import { legacyAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/compat";
+import {
+  buildRoles as buildAccountRoles,
+  resolveEffectiveAdminState,
+  resolveAccountExpires,
+} from "@valentinkolb/cloud-core/services/account-model";
+import { buildIpaUserData, userIpaDataColumns, userIpaDataJoin } from "../accounts/ipa-data";
+import { logger } from "@valentinkolb/cloud-core/services/logging";
+import { session } from "@valentinkolb/cloud-core/services/session";
 import * as settings from "@valentinkolb/cloud-core/services/settings";
 import type {
   BaseUser,
-  FullUser,
-  SessionUser,
+  IpaUserData,
   MutationResult,
   PaginationResponse,
   Role,
+  User,
+  UserProfile,
+  UserProvider,
 } from "@valentinkolb/cloud-contracts/shared";
+import { freeipa } from "@valentinkolb/cloud-lib/server/services";
+import { toPgTextArray } from "../postgres";
+import { getFreeIpaConfigSync } from "../freeipa-config";
 
-type Realm = "ipa" | "ipa-limited" | "guest";
 type CreateUser = {
   email: string;
   givenname: string;
@@ -19,47 +32,131 @@ type CreateUser = {
   autoSendNotification?: boolean;
   requestId?: string;
 };
-import { call, mapIpaErrorCode, num, toPgTextArray, type DbRow } from "./lib";
-import { session } from "@valentinkolb/cloud-core/services/session";
+
+type IpaPatchData = {
+  givenname?: string;
+  sn?: string;
+  displayName?: string;
+  mail?: string;
+  ipa?: {
+    phone?: string;
+    address?: {
+      street?: string;
+      postalCode?: string;
+      city?: string;
+      state?: string;
+    };
+    sshPublicKeys?: string[];
+  };
+};
+
+type DbRow = Record<string, unknown>;
+type MutationError = Extract<MutationResult<unknown>, { ok: false }>;
 
 // ==========================
 // Helper functions
 // ==========================
 
-/**
- * Build roles array from user data.
- * Realm roles are mutually exclusive (ipa, ipa-limited, guest).
- * Other roles (admin, group-manager) can be combined.
- */
-const buildRoles = (params: { realm: string; memberofGroup: string[]; manages: string[] }): Role[] => {
-  const { realm, memberofGroup, manages } = params;
-  const roles: Role[] = [];
+const resolveProviderProfile = (row: DbRow): { provider: UserProvider; profile: UserProfile } => {
+  return {
+    provider: (row.provider as UserProvider | null | undefined) ?? "local",
+    profile: (row.profile as UserProfile | null | undefined) ?? "guest",
+  };
+};
 
-  // Realm role (mutually exclusive)
-  if (realm === "ipa") {
-    roles.push("ipa");
-  } else if (realm === "ipa-limited") {
-    roles.push("ipa-limited");
-  } else {
-    roles.push("guest");
+const buildRoles = (params: {
+  provider: UserProvider;
+  profile: UserProfile;
+  memberofGroup: string[];
+  manages: string[];
+  admin?: boolean;
+}): Role[] =>
+  buildAccountRoles(params);
+
+const log = logger("auth:ipa");
+const getIpaUrl = (): string => getFreeIpaConfigSync().url;
+
+const ensureFreeIpaMutationAvailable = (): MutationError | null => {
+  const config = getFreeIpaConfigSync();
+  if (!config.enabled) {
+    return { ok: false, error: "FreeIPA is disabled.", status: 400 };
   }
-
-  // Guest and ipa-limited users don't get additional roles
-  if (realm === "guest" || realm === "ipa-limited") {
-    return roles;
+  if (!config.configured) {
+    return { ok: false, error: "FreeIPA is enabled but not fully configured.", status: 500 };
   }
+  return null;
+};
 
-  // Admin role (member of any GROUPS_ADMIN group)
-  if (env.GROUPS_ADMIN.some((g) => memberofGroup.includes(g))) {
-    roles.push("admin");
-  }
+const emptyIpaUserData = (): IpaUserData => ({
+  uidNumber: null,
+  phone: null,
+  employeeType: null,
+  mobile: null,
+  address: {
+    street: null,
+    postalCode: null,
+    city: null,
+    state: null,
+  },
+  passwordExpires: null,
+  lastLoginIpa: null,
+  syncedAt: null,
+  sshPublicKeys: [],
+  sshFingerprints: [],
+});
 
-  // Group manager role
-  if (manages.length > 0) {
-    roles.push("group-manager");
-  }
-
-  return roles;
+const upsertUserIpaData = async (params: {
+  userId: string;
+  uidNumber?: number | null;
+  phone?: string | null;
+  employeeType?: string | null;
+  mobile?: string | null;
+  street?: string | null;
+  postalCode?: string | null;
+  city?: string | null;
+  state?: string | null;
+  passwordExpires?: Date | null;
+  lastLoginIpa?: Date | null;
+  syncedAt?: Date | null;
+  sshPublicKeys?: string[];
+  sshFingerprints?: string[];
+}) => {
+  await sql`
+    INSERT INTO auth.user_ipa_data (
+      user_id, uid_number, phone, employee_type, mobile, addr_street, addr_postal_code,
+      addr_city, addr_state, ipa_password_expires, last_login_ipa, synced_at, ssh_public_keys, ssh_fingerprints
+    )
+    VALUES (
+      ${params.userId},
+      ${params.uidNumber ?? null},
+      ${params.phone ?? null},
+      ${params.employeeType ?? null},
+      ${params.mobile ?? null},
+      ${params.street ?? null},
+      ${params.postalCode ?? null},
+      ${params.city ?? null},
+      ${params.state ?? null},
+      ${params.passwordExpires ?? null},
+      ${params.lastLoginIpa ?? null},
+      ${params.syncedAt ?? null},
+      ${freeipa.util.toPgTextArray(params.sshPublicKeys ?? [])}::text[],
+      ${freeipa.util.toPgTextArray(params.sshFingerprints ?? [])}::text[]
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      uid_number = EXCLUDED.uid_number,
+      phone = EXCLUDED.phone,
+      employee_type = EXCLUDED.employee_type,
+      mobile = EXCLUDED.mobile,
+      addr_street = EXCLUDED.addr_street,
+      addr_postal_code = EXCLUDED.addr_postal_code,
+      addr_city = EXCLUDED.addr_city,
+      addr_state = EXCLUDED.addr_state,
+      ipa_password_expires = EXCLUDED.ipa_password_expires,
+      last_login_ipa = EXCLUDED.last_login_ipa,
+      synced_at = EXCLUDED.synced_at,
+      ssh_public_keys = EXCLUDED.ssh_public_keys,
+      ssh_fingerprints = EXCLUDED.ssh_fingerprints
+  `;
 };
 
 // ==========================
@@ -67,42 +164,99 @@ const buildRoles = (params: { realm: string; memberofGroup: string[]; manages: s
 // ==========================
 
 /**
- * Get a user by ID or UID. Returns SessionUser with group relations and computed roles.
+ * Get a user by ID or UID. Returns the canonical rich User with group relations and computed roles.
  * Used by auth middleware and detail pages.
  */
-export const get = async (params: { id: string } | { uid: string }): Promise<SessionUser | null> => {
+export const get = async (params: { id: string } | { uid: string }): Promise<User | null> => {
   const whereClause = "id" in params ? sql`u.id = ${params.id}` : sql`u.uid = ${params.uid}`;
 
   const rows: DbRow[] = await sql`
     SELECT u.*,
-      COALESCE(ARRAY(SELECT group_cn FROM auth.user_groups WHERE user_id = u.id), '{}') AS member_groups,
+      ${userIpaDataColumns},
+      COALESCE(ARRAY(
+        SELECT g.name
+        FROM auth.user_groups_v2 ug
+        JOIN auth.groups g ON g.id = ug.group_id
+        WHERE ug.user_id = u.id
+        ORDER BY g.name
+      ), '{}') AS member_groups,
+      COALESCE(ARRAY(
+        SELECT ug.group_id
+        FROM auth.user_groups_v2 ug
+        JOIN auth.groups g ON g.id = ug.group_id
+        WHERE ug.user_id = u.id
+        ORDER BY g.name
+      ), '{}') AS member_group_ids,
       COALESCE(ARRAY(
         WITH RECURSIVE user_all_groups AS (
-          SELECT group_cn FROM auth.user_groups WHERE user_id = u.id
+          SELECT ug.group_id, g.provider
+          FROM auth.user_groups_v2 ug
+          JOIN auth.groups g ON g.id = ug.group_id
+          WHERE ug.user_id = u.id
           UNION
-          SELECT gg.parent_cn FROM auth.group_groups gg
-          JOIN user_all_groups ag ON gg.child_cn = ag.group_cn
+          SELECT gg.parent_group_id, g_parent.provider
+          FROM auth.group_groups_v2 gg
+          JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+          JOIN user_all_groups ag ON gg.child_group_id = ag.group_id
+          WHERE g_parent.provider = ag.provider
         )
-        SELECT DISTINCT g.cn FROM auth.groups g
-        LEFT JOIN auth.group_manager_users gmu ON gmu.group_cn = g.cn AND gmu.user_id = u.id
-        LEFT JOIN auth.group_manager_groups gmg ON gmg.group_cn = g.cn
-        LEFT JOIN user_all_groups ug ON ug.group_cn = gmg.manager_cn
-        WHERE gmu.user_id IS NOT NULL OR ug.group_cn IS NOT NULL
+        SELECT DISTINCT g.name
+        FROM auth.groups g
+        LEFT JOIN auth.group_manager_users_v2 gmu ON gmu.group_id = g.id AND gmu.user_id = u.id
+        LEFT JOIN auth.group_manager_groups_v2 gmg ON gmg.group_id = g.id
+        LEFT JOIN user_all_groups ug ON ug.group_id = gmg.manager_group_id AND ug.provider = g.provider
+        WHERE gmu.user_id IS NOT NULL OR ug.group_id IS NOT NULL
+        ORDER BY g.name
       ), '{}') AS manages
-    FROM auth.users u WHERE ${whereClause}`;
+      ,
+      COALESCE(ARRAY(
+        WITH RECURSIVE user_all_groups AS (
+          SELECT ug.group_id, g.provider
+          FROM auth.user_groups_v2 ug
+          JOIN auth.groups g ON g.id = ug.group_id
+          WHERE ug.user_id = u.id
+          UNION
+          SELECT gg.parent_group_id, g_parent.provider
+          FROM auth.group_groups_v2 gg
+          JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+          JOIN user_all_groups ag ON gg.child_group_id = ag.group_id
+          WHERE g_parent.provider = ag.provider
+        )
+        SELECT managed.id
+        FROM (
+          SELECT DISTINCT g.id, g.name
+          FROM auth.groups g
+          LEFT JOIN auth.group_manager_users_v2 gmu ON gmu.group_id = g.id AND gmu.user_id = u.id
+          LEFT JOIN auth.group_manager_groups_v2 gmg ON gmg.group_id = g.id
+          LEFT JOIN user_all_groups ug ON ug.group_id = gmg.manager_group_id AND ug.provider = g.provider
+          WHERE gmu.user_id IS NOT NULL OR ug.group_id IS NOT NULL
+        ) managed
+        ORDER BY managed.name
+      ), '{}') AS manages_group_ids
+  FROM auth.users u
+  ${userIpaDataJoin}
+  WHERE ${whereClause}`;
   if (rows.length === 0) return null;
-  return buildSessionUser(rows[0]!);
+  return buildUser(rows[0]!);
 };
 
 /**
  * Get a user by UID (minimal info for access checks).
  */
 export const getByUid = async (params: { uid: string }): Promise<{ id: string; roles: Role[] } | null> => {
-  const rows: DbRow[] = await sql`SELECT id, realm FROM auth.users WHERE uid = ${params.uid}`;
+  const rows: DbRow[] = await sql`SELECT id, provider, profile, admin FROM auth.users WHERE uid = ${params.uid}`;
   if (rows.length === 0) return null;
-  const realm = rows[0]!.realm as string;
-  // For minimal lookup, we only have realm - no groups/manages info
-  const roles = buildRoles({ realm, memberofGroup: [], manages: [] });
+  const { provider, profile } = resolveProviderProfile(rows[0]!);
+  const roles = buildRoles({
+    provider,
+    profile,
+    memberofGroup: [],
+    manages: [],
+    admin: resolveEffectiveAdminState({
+      provider,
+      storedAdmin: Boolean(rows[0]!.admin),
+    }),
+  });
   return { id: rows[0]!.id as string, roles };
 };
 
@@ -113,7 +267,8 @@ export const getByUid = async (params: { uid: string }): Promise<{ id: string; r
 export type ListParams = {
   uids?: string[];
   search?: string;
-  realm?: Realm | Realm[];
+  provider?: UserProvider;
+  profile?: UserProfile;
   page?: number;
   perPage?: number;
 };
@@ -131,7 +286,7 @@ export const list = async (params: ListParams): Promise<ListResult> => {
   const page = params.page ?? 1;
   const perPage = params.perPage ?? 20;
   const offset = (page - 1) * perPage;
-  const search = params.search ? `%${params.search.toLowerCase()}%` : null;
+  const search = params.search ? `%${freeipa.util.escapeLike(params.search.toLowerCase())}%` : null;
   const uids = params.uids;
 
   // If uids filter is provided but empty, return empty result immediately
@@ -149,22 +304,25 @@ export const list = async (params: ListParams): Promise<ListResult> => {
     };
   }
 
-  // Build realm filter
-  const realms = params.realm ? (Array.isArray(params.realm) ? params.realm : [params.realm]) : ["ipa", "ipa-limited", "guest"];
-
   // Build WHERE conditions
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const conditions: any[] = [sql`realm IN ${sql(realms)}`];
+  const conditions: any[] = [sql`TRUE`];
   if (uids) {
-    conditions.push(sql`uid IN ${sql(uids)}`);
+    conditions.push(sql`uid = ANY(${toPgTextArray(uids)}::text[])`);
+  }
+  if (params.provider) {
+    conditions.push(sql`provider = ${params.provider}`);
+  }
+  if (params.profile) {
+    conditions.push(sql`profile = ${params.profile}`);
   }
   if (search) {
     conditions.push(sql`(
-      LOWER(uid) LIKE ${search} OR
-      LOWER(display_name) LIKE ${search} OR
-      LOWER(given_name) LIKE ${search} OR
-      LOWER(sn) LIKE ${search} OR
-      LOWER(mail) LIKE ${search}
+      LOWER(uid) LIKE ${search} ESCAPE '\\' OR
+      LOWER(display_name) LIKE ${search} ESCAPE '\\' OR
+      LOWER(given_name) LIKE ${search} ESCAPE '\\' OR
+      LOWER(sn) LIKE ${search} ESCAPE '\\' OR
+      LOWER(mail) LIKE ${search} ESCAPE '\\'
     )`);
   }
 
@@ -175,7 +333,16 @@ export const list = async (params: ListParams): Promise<ListResult> => {
   const totalPages = Math.ceil(total / perPage);
 
   const rows: DbRow[] = await sql`
-    SELECT u.* FROM auth.users u
+    SELECT u.*,
+      EXISTS(
+        SELECT 1
+        FROM auth.user_groups_v2 ug_admin
+        JOIN auth.groups g_admin ON g_admin.id = ug_admin.group_id
+        WHERE ug_admin.user_id = u.id
+          AND g_admin.provider = 'ipa'
+          AND g_admin.name = ANY(${toPgTextArray(getFreeIpaConfigSync().groupsAdmin)}::text[])
+      ) AS effective_admin
+    FROM auth.users u
     WHERE ${where}
     ORDER BY uid
     LIMIT ${perPage} OFFSET ${offset}`;
@@ -205,24 +372,34 @@ export const list = async (params: ListParams): Promise<ListResult> => {
  */
 export const getGroups = async (params: { id: string; recursive?: boolean }): Promise<string[]> => {
   if (params.recursive) {
-    // Recursive: use CTE to traverse group_groups
     const rows: DbRow[] = await sql`
       WITH RECURSIVE all_groups AS (
-        -- Direct memberships
-        SELECT group_cn FROM auth.user_groups WHERE user_id = ${params.id}
+        SELECT ug.group_id
+        FROM auth.user_groups_v2 ug
+        JOIN auth.groups g ON g.id = ug.group_id
+        WHERE ug.user_id = ${params.id} AND g.provider = 'ipa'
         UNION
-        -- Indirect memberships via group hierarchy
-        SELECT gg.parent_cn
-        FROM auth.group_groups gg
-        JOIN all_groups ag ON gg.child_cn = ag.group_cn
+        SELECT gg.parent_group_id
+        FROM auth.group_groups_v2 gg
+        JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+        JOIN all_groups ag ON gg.child_group_id = ag.group_id
+        WHERE g_parent.provider = 'ipa'
       )
-      SELECT group_cn FROM all_groups`;
-    return rows.map((r) => r.group_cn as string);
+      SELECT g.name
+      FROM all_groups ag
+      JOIN auth.groups g ON g.id = ag.group_id
+      ORDER BY g.name`;
+    return rows.map((r) => r.name as string);
   }
 
-  // Direct memberships only
-  const rows: DbRow[] = await sql`SELECT group_cn FROM auth.user_groups WHERE user_id = ${params.id}`;
-  return rows.map((r) => r.group_cn as string);
+  const rows: DbRow[] = await sql`
+    SELECT g.name
+    FROM auth.user_groups_v2 ug
+    JOIN auth.groups g ON g.id = ug.group_id
+    WHERE ug.user_id = ${params.id} AND g.provider = 'ipa'
+    ORDER BY g.name
+  `;
+  return rows.map((r) => r.name as string);
 };
 
 // ==========================
@@ -235,30 +412,40 @@ export const getGroups = async (params: { id: string; recursive?: boolean }): Pr
  */
 export const getManagedGroups = async (params: { id: string; recursive?: boolean }): Promise<string[]> => {
   if (params.recursive === false) {
-    // Direct manager assignments + direct group memberships only
     const rows: DbRow[] = await sql`
-      SELECT DISTINCT g.cn FROM auth.groups g
-      LEFT JOIN auth.group_manager_users gmu ON gmu.group_cn = g.cn AND gmu.user_id = ${params.id}
-      LEFT JOIN auth.group_manager_groups gmg ON gmg.group_cn = g.cn
-      LEFT JOIN auth.user_groups ug ON ug.group_cn = gmg.manager_cn AND ug.user_id = ${params.id}
-      WHERE gmu.user_id IS NOT NULL OR ug.user_id IS NOT NULL`;
-    return rows.map((r) => r.cn as string);
+      SELECT DISTINCT g.name
+      FROM auth.groups g
+      LEFT JOIN auth.group_manager_users_v2 gmu ON gmu.group_id = g.id AND gmu.user_id = ${params.id}
+      LEFT JOIN auth.group_manager_groups_v2 gmg ON gmg.group_id = g.id
+      LEFT JOIN auth.user_groups_v2 ug ON ug.group_id = gmg.manager_group_id AND ug.user_id = ${params.id}
+      LEFT JOIN auth.groups g_manager ON g_manager.id = gmg.manager_group_id
+      WHERE g.provider = 'ipa'
+        AND (gmu.user_id IS NOT NULL OR (ug.user_id IS NOT NULL AND g_manager.provider = 'ipa'))
+      ORDER BY g.name`;
+    return rows.map((r) => r.name as string);
   }
 
-  // Recursive (default): consider user's full group hierarchy
   const rows: DbRow[] = await sql`
     WITH RECURSIVE user_all_groups AS (
-      SELECT group_cn FROM auth.user_groups WHERE user_id = ${params.id}
+      SELECT ug.group_id
+      FROM auth.user_groups_v2 ug
+      JOIN auth.groups g ON g.id = ug.group_id
+      WHERE ug.user_id = ${params.id} AND g.provider = 'ipa'
       UNION
-      SELECT gg.parent_cn FROM auth.group_groups gg
-      JOIN user_all_groups ag ON gg.child_cn = ag.group_cn
+      SELECT gg.parent_group_id
+      FROM auth.group_groups_v2 gg
+      JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
+      JOIN user_all_groups ag ON gg.child_group_id = ag.group_id
+      WHERE g_parent.provider = 'ipa'
     )
-    SELECT DISTINCT g.cn FROM auth.groups g
-    LEFT JOIN auth.group_manager_users gmu ON gmu.group_cn = g.cn AND gmu.user_id = ${params.id}
-    LEFT JOIN auth.group_manager_groups gmg ON gmg.group_cn = g.cn
-    LEFT JOIN user_all_groups ug ON ug.group_cn = gmg.manager_cn
-    WHERE gmu.user_id IS NOT NULL OR ug.group_cn IS NOT NULL`;
-  return rows.map((r) => r.cn as string);
+    SELECT DISTINCT g.name
+    FROM auth.groups g
+    LEFT JOIN auth.group_manager_users_v2 gmu ON gmu.group_id = g.id AND gmu.user_id = ${params.id}
+    LEFT JOIN auth.group_manager_groups_v2 gmg ON gmg.group_id = g.id
+    LEFT JOIN user_all_groups ug ON ug.group_id = gmg.manager_group_id
+    WHERE g.provider = 'ipa' AND (gmu.user_id IS NOT NULL OR ug.group_id IS NOT NULL)
+    ORDER BY g.name`;
+  return rows.map((r) => r.name as string);
 };
 
 // ==========================
@@ -269,118 +456,84 @@ export const getManagedGroups = async (params: { id: string; recursive?: boolean
  * Builds the lightweight user DTO used in list/search responses.
  */
 const buildBaseUser = (row: DbRow): BaseUser => {
-  const realm = row.realm as string;
+  const { provider, profile } = resolveProviderProfile(row);
   const displayName = (row.display_name as string) ?? "";
   const mail = (row.mail as string) ?? null;
-  // For BaseUser we don't have groups info, so build minimal roles
-  const roles = buildRoles({ realm, memberofGroup: [], manages: [] });
+  const roles = buildRoles({
+    provider,
+    profile,
+    memberofGroup: [],
+    manages: [],
+    admin: resolveEffectiveAdminState({
+      provider,
+      storedAdmin: Boolean(row.effective_admin ?? row.admin),
+    }),
+  });
   return {
     id: row.id as string,
     uid: row.uid as string,
     roles,
+    provider,
+    profile,
     givenname: (row.given_name as string) ?? "",
     sn: (row.sn as string) ?? "",
-    // For guest users without a display name, use their email
-    displayName: displayName || (realm === "guest" && mail ? mail : ""),
+    displayName: displayName || (profile === "guest" && mail ? mail : ""),
     mail,
   };
 };
 
 /**
- * Builds the full user DTO used for profile/detail views.
+ * Builds the canonical rich user DTO used for profile/detail views and session context.
  */
-const buildFullUser = (row: DbRow): FullUser => {
-  const realm = row.realm as string;
+const buildUser = (row: DbRow): User => {
+  const { provider, profile } = resolveProviderProfile(row);
   const displayName = (row.display_name as string) ?? "";
   const mail = (row.mail as string) ?? null;
   const memberofGroup = (row.member_groups as string[]) ?? [];
+  const memberofGroupIds = (row.member_group_ids as string[]) ?? [];
   const manages = (row.manages as string[]) ?? [];
-  const roles = buildRoles({ realm, memberofGroup, manages });
-  return {
+  const managesGroupIds = (row.manages_group_ids as string[]) ?? [];
+  const roles = buildRoles({
+    provider,
+    profile,
+    memberofGroup,
+    manages,
+    admin: resolveEffectiveAdminState({
+      provider,
+      storedAdmin: Boolean(row.admin),
+      memberofGroup,
+    }),
+  });
+  const common = {
     id: row.id as string,
     uid: row.uid as string,
     roles,
+    profile,
     givenname: (row.given_name as string) ?? "",
     sn: (row.sn as string) ?? "",
-    displayName: displayName || (realm === "guest" && mail ? mail : ""),
+    displayName: displayName || (profile === "guest" && mail ? mail : ""),
     mail,
-    phone: (row.phone as string) ?? null,
-    uidNumber: (row.uid_number as number) ?? null,
-    ipaAccountExpires: row.ipa_account_expires ? (row.ipa_account_expires as Date).toISOString() : null,
-    ipaPasswordExpires: row.ipa_password_expires ? (row.ipa_password_expires as Date).toISOString() : null,
-    lastLoginIpa: row.last_login_ipa ? (row.last_login_ipa as Date).toISOString() : null,
+    accountExpires: resolveAccountExpires(row)?.toISOString() ?? null,
     lastLoginLocal: row.last_login_local ? (row.last_login_local as Date).toISOString() : null,
-    employeeType: (row.employee_type as string) ?? null,
-    address: {
-      street: (row.addr_street as string) ?? null,
-      postalCode: (row.addr_postal_code as string) ?? null,
-      city: (row.addr_city as string) ?? null,
-      state: (row.addr_state as string) ?? null,
-    },
-    mobile: (row.mobile as string) ?? null,
-    sshPublicKeys: (row.ssh_public_keys as string[]) ?? [],
-    sshFingerprints: (row.ssh_fingerprints as string[]) ?? [],
+    memberofGroup,
+    memberofGroupIds,
+    manages,
+    managesGroupIds,
   };
-};
 
-/**
- * Builds the session user object including permission-relevant group relations.
- */
-const buildSessionUser = (row: DbRow): SessionUser => {
-  const realm = row.realm as string;
-  const memberofGroup = (row.member_groups as string[]) ?? [];
-  const manages = (row.manages as string[]) ?? [];
-  const isLimited = realm === "guest" || realm === "ipa-limited";
+  if (provider === "ipa") {
+    return {
+      ...common,
+      provider: "ipa",
+      ipa: buildIpaUserData(row) ?? emptyIpaUserData(),
+    };
+  }
 
-  const full = buildFullUser(row);
   return {
-    ...full,
-    // For limited users, clear group relations
-    memberofGroup: isLimited ? [] : memberofGroup,
-    manages: isLimited ? [] : manages,
+    ...common,
+    provider: "local",
+    ipa: null,
   };
-};
-
-// ==========================
-// MUTATION: addGuest
-// ==========================
-
-/**
- * Create a guest user in the local database.
- */
-export const addGuest = async (params: {
-  email: string;
-  givenname?: string;
-  sn?: string;
-  displayName?: string;
-}): Promise<MutationResult<BaseUser>> => {
-  let guestUid: string;
-  try {
-    const abbrLen = await settings.get<number>("user.abbr_length");
-    guestUid = await generateUniqueAbbreviation(abbrLen);
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Failed to generate UID",
-      status: 500,
-    };
-  }
-  const displayName = params.displayName || "";
-
-  try {
-    const rows: DbRow[] = await sql`
-      INSERT INTO auth.users (uid, realm, mail, given_name, sn, display_name)
-      VALUES (${guestUid}, 'guest', ${params.email}, ${params.givenname ?? ""}, ${params.sn ?? ""}, ${displayName})
-      RETURNING *
-    `;
-    return { ok: true, data: buildBaseUser(rows[0]!) };
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Failed to create guest user",
-      status: 500,
-    };
-  }
 };
 
 // ==========================
@@ -390,9 +543,18 @@ export const addGuest = async (params: {
 /** Generate random lowercase abbreviation of specified length */
 export const generateAbbreviation = (length: number): string => {
   const chars = "abcdefghijklmnopqrstuvwxyz";
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+  const limit = Math.floor(256 / chars.length) * chars.length;
+  let value = "";
+  while (value.length < length) {
+    const bytes = new Uint8Array(length - value.length);
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      if (byte >= limit) continue;
+      value += chars[byte % chars.length]!;
+      if (value.length === length) break;
+    }
+  }
+  return value;
 };
 
 /** Check if a UID exists in auth.users */
@@ -445,40 +607,16 @@ const generatePassword = (): string => {
 
 /** Calculate account expiration date based on config */
 const calculateAccountExpiration = async (): Promise<Date | null> => {
-  const expiresDays = await settings.get<number | null>("user.account.expires_days");
-  const expiresDay = await settings.get<number | null>("user.account.expires_date_day");
-  const expiresMonth = await settings.get<number | null>("user.account.expires_date_month");
-  const bufferDays = await settings.get<number>("user.account.expires_date_buffer_days");
+  const expiresDays = await settings.get<number | null>("user.account.ipa_expires_days");
+  const days = expiresDays;
 
-  if (expiresDay && expiresMonth) {
-    const now = new Date();
-    const thisYear = now.getFullYear();
-    let expiry = new Date(thisYear, expiresMonth - 1, expiresDay);
-    const daysUntil = (expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysUntil < bufferDays) {
-      expiry = new Date(thisYear + 1, expiresMonth - 1, expiresDay);
-    }
-    return expiry;
-  }
-
-  if (expiresDays) {
+  if (days && days > 0) {
     const expiry = new Date();
-    expiry.setDate(expiry.getDate() + expiresDays);
+    expiry.setDate(expiry.getDate() + days);
     return expiry;
   }
 
   return null;
-};
-
-/** Format date to FreeIPA GeneralizedTime format (YYYYMMDDHHMMSSZ) */
-const toGeneralizedTime = (date: Date): string => {
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(date.getUTCDate()).padStart(2, "0");
-  const h = String(date.getUTCHours()).padStart(2, "0");
-  const min = String(date.getUTCMinutes()).padStart(2, "0");
-  const s = String(date.getUTCSeconds()).padStart(2, "0");
-  return `${y}${m}${d}${h}${min}${s}Z`;
 };
 
 export type AddIpaResult = {
@@ -493,21 +631,29 @@ export type AddIpaResult = {
  * Create a new user in FreeIPA and the local database.
  * UID = existing guest UID (if promoting) or new abbreviation.
  */
-export const addIpa = async (params: { ipaSession: string; data: CreateUser }): Promise<MutationResult<AddIpaResult>> => {
+export const addIpa = async (params: {
+  ipaSession: string;
+  data: CreateUser;
+  profile?: UserProfile;
+  accountExpires?: Date | null;
+}): Promise<MutationResult<AddIpaResult>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
   const { ipaSession, data } = params;
   const { email, givenname, sn } = data;
+  const targetProfile = params.profile ?? "user";
 
   const displayName = data.displayName || `${givenname} ${sn}`;
 
-  // Check if a guest with this email already exists (promotion case)
-  const existingGuestRows: DbRow[] = await sql`
-    SELECT id, uid FROM auth.users WHERE mail = ${email} AND realm = 'guest'
+  // Check if a local account with this email already exists (provider switch case)
+  const existingLocalRows: DbRow[] = await sql`
+    SELECT id, uid FROM auth.users WHERE mail = ${email} AND provider = 'local'
   `;
 
   // Use existing guest UID or generate a new one
   let uid: string;
-  if (existingGuestRows.length > 0) {
-    uid = existingGuestRows[0]!.uid as string;
+  if (existingLocalRows.length > 0) {
+    uid = existingLocalRows[0]!.uid as string;
   } else {
     try {
       const abbrLen = await settings.get<number>("user.abbr_length");
@@ -521,13 +667,18 @@ export const addIpa = async (params: { ipaSession: string; data: CreateUser }): 
     }
   }
 
-  if ((await uidExists(uid)) && existingGuestRows.length === 0) {
+  if ((await uidExists(uid)) && existingLocalRows.length === 0) {
     return { ok: false, error: `UID '${uid}' already exists`, status: 400 };
   }
 
   const temporaryPassword = generatePassword();
-  const accountExpiry = await calculateAccountExpiration();
+  const accountExpiry = params.accountExpires === undefined ? await calculateAccountExpiration() : params.accountExpires;
   const now = new Date();
+  const legacyColumns = legacyAccountColumnsFromCanonical({
+    provider: "ipa",
+    profile: targetProfile,
+    accountExpires: accountExpiry,
+  });
 
   const ipaOpts: Record<string, unknown> = {
     givenname,
@@ -538,10 +689,10 @@ export const addIpa = async (params: { ipaSession: string; data: CreateUser }): 
     userpassword: temporaryPassword,
   };
   if (accountExpiry) {
-    ipaOpts.krbprincipalexpiration = toGeneralizedTime(accountExpiry);
+    ipaOpts.krbprincipalexpiration = freeipa.util.toGeneralizedTime(accountExpiry);
   }
 
-  const response = await call(ipaSession, "user_add", [uid], ipaOpts);
+  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_add", args: [uid], options: ipaOpts });
   if (response.error) {
     const code = response.error.code;
     if (code === 4001)
@@ -565,44 +716,62 @@ export const addIpa = async (params: { ipaSession: string; data: CreateUser }): 
 
   // Extract uidNumber from IPA response
   const ipaResult = response.result?.result as Record<string, unknown> | undefined;
-  const uidNumber = ipaResult ? num(ipaResult.uidnumber) : null;
+  const uidNumber = ipaResult ? freeipa.util.num(ipaResult.uidnumber) : null;
 
   let id: string;
-  if (existingGuestRows.length > 0) {
-    // Promotion: update existing guest to IPA user
-    const guestId = existingGuestRows[0]!.id as string;
+  if (existingLocalRows.length > 0) {
+    // Provider switch: update existing local account to IPA user
+    const guestId = existingLocalRows[0]!.id as string;
     const updateRows: DbRow[] = await sql`
       UPDATE auth.users SET
-        uid_number = ${uidNumber},
-        realm = 'ipa',
+        realm = ${legacyColumns.realm},
+        provider = 'ipa',
+        profile = ${targetProfile},
+        admin = false,
         given_name = ${givenname},
         sn = ${sn},
         display_name = ${displayName},
-        ipa_account_expires = ${accountExpiry},
-        ipa_password_expires = ${now},
-        synced_at = now()
+        mail = ${email},
+        account_expires = ${accountExpiry},
+        ipa_account_expires = ${legacyColumns.ipaAccountExpires},
+        guest_expires_at = ${legacyColumns.guestExpiresAt}
       WHERE id = ${guestId}
       RETURNING id
     `;
     id = updateRows[0]!.id as string;
+    await upsertUserIpaData({
+      userId: id,
+      uidNumber,
+      passwordExpires: now,
+      syncedAt: now,
+    });
     await session.deleteAllForUser(guestId);
   } else {
     // New user: insert
     const insertRows: DbRow[] = await sql`
-      INSERT INTO auth.users (uid, uid_number, realm, given_name, sn, display_name, mail, ipa_account_expires, ipa_password_expires, synced_at)
-      VALUES (${uid}, ${uidNumber}, 'ipa', ${givenname}, ${sn}, ${displayName}, ${email}, ${accountExpiry}, ${now}, now())
+      INSERT INTO auth.users (uid, realm, provider, profile, admin, given_name, sn, display_name, mail, account_expires, ipa_account_expires, guest_expires_at)
+      VALUES (${uid}, ${legacyColumns.realm}, 'ipa', ${targetProfile}, false, ${givenname}, ${sn}, ${displayName}, ${email}, ${accountExpiry}, ${legacyColumns.ipaAccountExpires}, ${legacyColumns.guestExpiresAt})
       ON CONFLICT (uid) DO UPDATE SET
-        uid_number = EXCLUDED.uid_number,
+        realm = EXCLUDED.realm,
+        provider = EXCLUDED.provider,
+        profile = EXCLUDED.profile,
+        admin = false,
         given_name = EXCLUDED.given_name,
         sn = EXCLUDED.sn,
         display_name = EXCLUDED.display_name,
         mail = EXCLUDED.mail,
+        account_expires = EXCLUDED.account_expires,
         ipa_account_expires = EXCLUDED.ipa_account_expires,
-        ipa_password_expires = EXCLUDED.ipa_password_expires,
-        synced_at = now()
+        guest_expires_at = EXCLUDED.guest_expires_at
       RETURNING id
     `;
     id = insertRows[0]!.id as string;
+    await upsertUserIpaData({
+      userId: id,
+      uidNumber,
+      passwordExpires: now,
+      syncedAt: now,
+    });
   }
 
   return {
@@ -616,33 +785,9 @@ export const addIpa = async (params: { ipaSession: string; data: CreateUser }): 
   };
 };
 
-/** @deprecated Use addIpa instead */
-export const add = async (
-  ipaSession: string,
-  params: CreateUser,
-): Promise<{ ok: true; user: AddIpaResult } | { ok: false; error: string; status: 400 | 401 | 403 | 404 | 409 | 500 }> => {
-  const result = await addIpa({ ipaSession, data: params });
-  if (result.ok) {
-    return { ok: true, user: result.data };
-  }
-  return result;
-};
-
 // ==========================
 // MUTATION: updateProfile
 // ==========================
-
-export type UpdateProfileData = {
-  givenname: string;
-  sn: string;
-  displayName: string;
-  mail?: string;
-  phone?: string;
-  street?: string;
-  postalCode?: string;
-  city?: string;
-  state?: string;
-};
 
 /**
  * Update user profile. Handles all realms internally.
@@ -650,18 +795,20 @@ export type UpdateProfileData = {
 export const updateProfile = async (params: {
   ipaSession?: string | null;
   id: string;
-  data: UpdateProfileData;
+  data: IpaPatchData;
 }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
   const { ipaSession, id, data } = params;
 
-  const userRows: DbRow[] = await sql`SELECT uid, realm FROM auth.users WHERE id = ${id}`;
+  const userRows: DbRow[] = await sql`SELECT uid, provider, profile FROM auth.users WHERE id = ${id}`;
   if (userRows.length === 0) {
     return { ok: false, error: "User not found", status: 404 };
   }
   const uid = userRows[0]!.uid as string;
-  const realm = userRows[0]!.realm as Realm;
+  const { provider } = resolveProviderProfile(userRows[0]!);
 
-  if (realm === "ipa" || realm === "ipa-limited") {
+  if (provider === "ipa") {
     if (!ipaSession) {
       return {
         ok: false,
@@ -671,38 +818,58 @@ export const updateProfile = async (params: {
     }
 
     const ipaOptions: Record<string, unknown> = {
-      givenname: data.givenname,
-      sn: data.sn,
-      displayname: data.displayName,
     };
+    if (data.givenname !== undefined) ipaOptions.givenname = data.givenname;
+    if (data.sn !== undefined) ipaOptions.sn = data.sn;
+    if (data.displayName !== undefined) ipaOptions.displayname = data.displayName;
     if (data.mail !== undefined) ipaOptions.mail = data.mail || "";
-    if (data.phone !== undefined) ipaOptions.telephonenumber = data.phone || "";
-    if (data.street !== undefined) ipaOptions.street = data.street || "";
-    if (data.postalCode !== undefined) ipaOptions.postalcode = data.postalCode || "";
-    if (data.city !== undefined) ipaOptions.l = data.city || "";
-    if (data.state !== undefined) ipaOptions.st = data.state || "";
+    if (data.ipa?.phone !== undefined) ipaOptions.telephonenumber = data.ipa.phone || "";
+    if (data.ipa?.address?.street !== undefined) ipaOptions.street = data.ipa.address.street || "";
+    if (data.ipa?.address?.postalCode !== undefined) ipaOptions.postalcode = data.ipa.address.postalCode || "";
+    if (data.ipa?.address?.city !== undefined) ipaOptions.l = data.ipa.address.city || "";
+    if (data.ipa?.address?.state !== undefined) ipaOptions.st = data.ipa.address.state || "";
+    if (data.ipa?.sshPublicKeys !== undefined) {
+      ipaOptions.ipasshpubkey = data.ipa.sshPublicKeys.length > 0 ? data.ipa.sshPublicKeys : "";
+    }
 
-    const response = await call(ipaSession, "user_mod", [uid], ipaOptions);
+    const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_mod", args: [uid], options: ipaOptions });
     if (response.error) {
       return {
         ok: false,
         error: response.error.message ?? "Failed to update user in FreeIPA",
-        status: mapIpaErrorCode(response.error.code),
+        status: freeipa.util.mapIpaErrorCode(response.error.code),
       };
     }
+
+    const result = response.result?.result as Record<string, unknown> | undefined;
+    await upsertUserIpaData({
+      userId: id,
+      phone: data.ipa?.phone,
+      street: data.ipa?.address?.street,
+      postalCode: data.ipa?.address?.postalCode,
+      city: data.ipa?.address?.city,
+      state: data.ipa?.address?.state,
+      sshPublicKeys:
+        data.ipa?.sshPublicKeys !== undefined
+          ? Array.isArray(result?.ipasshpubkey)
+            ? (result?.ipasshpubkey as string[])
+            : []
+          : undefined,
+      sshFingerprints:
+        data.ipa?.sshPublicKeys !== undefined
+          ? Array.isArray(result?.sshpubkeyfp)
+            ? (result?.sshpubkeyfp as string[])
+            : []
+          : undefined,
+      syncedAt: new Date(),
+    });
   }
 
   await sql`
     UPDATE auth.users
-    SET given_name = ${data.givenname},
-        sn = ${data.sn},
-        display_name = ${data.displayName},
-        phone = CASE WHEN ${data.phone !== undefined} THEN ${data.phone ?? null} ELSE phone END,
-        addr_street = CASE WHEN ${data.street !== undefined} THEN ${data.street ?? null} ELSE addr_street END,
-        addr_postal_code = CASE WHEN ${data.postalCode !== undefined} THEN ${data.postalCode ?? null} ELSE addr_postal_code END,
-        addr_city = CASE WHEN ${data.city !== undefined} THEN ${data.city ?? null} ELSE addr_city END,
-        addr_state = CASE WHEN ${data.state !== undefined} THEN ${data.state ?? null} ELSE addr_state END,
-        synced_at = now()
+    SET given_name = CASE WHEN ${data.givenname !== undefined} THEN ${data.givenname ?? ""} ELSE given_name END,
+        sn = CASE WHEN ${data.sn !== undefined} THEN ${data.sn ?? ""} ELSE sn END,
+        display_name = CASE WHEN ${data.displayName !== undefined} THEN ${data.displayName ?? ""} ELSE display_name END
     WHERE id = ${id}
   `;
 
@@ -721,9 +888,11 @@ export const updateProfile = async (params: {
  * Replace all SSH public keys for a user.
  */
 export const updateSshKeys = async (params: { ipaSession: string; id: string; keys: string[] }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
   const { ipaSession, id, keys } = params;
 
-  const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${id} AND realm IN ('ipa', 'ipa-limited')`;
+  const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${id} AND provider = 'ipa'`;
   if (userRows.length === 0) {
     return {
       ok: false,
@@ -734,14 +903,18 @@ export const updateSshKeys = async (params: { ipaSession: string; id: string; ke
   const uid = userRows[0]!.uid as string;
 
   // FreeIPA: empty string clears all keys, array sets them
-  const response = await call(ipaSession, "user_mod", [uid], {
-    ipasshpubkey: keys.length > 0 ? keys : "",
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession,
+    method: "user_mod",
+    args: [uid],
+    options: { ipasshpubkey: keys.length > 0 ? keys : "" },
   });
   if (response.error) {
     return {
       ok: false,
       error: response.error.message ?? "Failed to update SSH keys",
-      status: mapIpaErrorCode(response.error.code),
+      status: freeipa.util.mapIpaErrorCode(response.error.code),
     };
   }
 
@@ -751,11 +924,12 @@ export const updateSshKeys = async (params: { ipaSession: string; id: string; ke
   const newFingerprints = Array.isArray(result?.sshpubkeyfp) ? (result.sshpubkeyfp as string[]) : [];
 
   await sql`
-    UPDATE auth.users
-    SET ssh_public_keys = ${toPgTextArray(newKeys)}::text[],
-        ssh_fingerprints = ${toPgTextArray(newFingerprints)}::text[],
-        synced_at = now()
-    WHERE id = ${id}
+    INSERT INTO auth.user_ipa_data (user_id, ssh_public_keys, ssh_fingerprints, synced_at)
+    VALUES (${id}, ${freeipa.util.toPgTextArray(newKeys)}::text[], ${freeipa.util.toPgTextArray(newFingerprints)}::text[], now())
+    ON CONFLICT (user_id) DO UPDATE SET
+      ssh_public_keys = EXCLUDED.ssh_public_keys,
+      ssh_fingerprints = EXCLUDED.ssh_fingerprints,
+      synced_at = EXCLUDED.synced_at
   `;
 
   return { ok: true, data: undefined };
@@ -773,6 +947,8 @@ export const resetPassword = async (params: {
   /** User ID (database UUID) */
   id: string;
 }): Promise<MutationResult<{ password: string }>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
   const { ipaSession, id } = params;
 
   // Look up uid from database
@@ -784,23 +960,29 @@ export const resetPassword = async (params: {
 
   const newPassword = generatePassword();
 
-  const response = await call(ipaSession, "user_mod", [uid], {
-    userpassword: newPassword,
+  const response = await freeipa.client.call({
+    url: getIpaUrl(),
+    ipaSession,
+    method: "user_mod",
+    args: [uid],
+    options: { userpassword: newPassword },
   });
 
   if (response.error) {
     return {
       ok: false,
       error: response.error.message ?? "Failed to reset password",
-      status: mapIpaErrorCode(response.error.code),
+      status: freeipa.util.mapIpaErrorCode(response.error.code),
     };
   }
 
   // Update password expiry in local DB (password is now "expired" / temporary)
   await sql`
-    UPDATE auth.users
-    SET ipa_password_expires = now(), synced_at = now()
-    WHERE id = ${id}
+    INSERT INTO auth.user_ipa_data (user_id, ipa_password_expires, synced_at)
+    VALUES (${id}, now(), now())
+    ON CONFLICT (user_id) DO UPDATE SET
+      ipa_password_expires = EXCLUDED.ipa_password_expires,
+      synced_at = EXCLUDED.synced_at
   `;
 
   return { ok: true, data: { password: newPassword } };
@@ -819,14 +1001,35 @@ export const setExpiry = async (params: {
   id: string;
   expiryDate: string | null;
 }): Promise<MutationResult<void>> => {
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
   const { ipaSession, id, expiryDate } = params;
 
   // Look up uid from database
-  const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${id}`;
+  const userRows: DbRow[] = await sql`SELECT uid, provider, profile FROM auth.users WHERE id = ${id}`;
   if (userRows.length === 0) {
     return { ok: false, error: "User not found", status: 404 };
   }
   const uid = userRows[0]!.uid as string;
+  const { provider, profile } = resolveProviderProfile(userRows[0]!);
+
+  if (provider === "local" && profile === "guest") {
+    const guestExpiry = expiryDate ? new Date(expiryDate) : null;
+    if (guestExpiry) guestExpiry.setUTCHours(23, 59, 59, 0);
+    const legacyColumns = legacyAccountColumnsFromCanonical({
+      provider: "local",
+      profile,
+      accountExpires: guestExpiry,
+    });
+    await sql`
+      UPDATE auth.users
+      SET account_expires = ${guestExpiry},
+          ipa_account_expires = ${legacyColumns.ipaAccountExpires},
+          guest_expires_at = ${legacyColumns.guestExpiresAt}
+      WHERE id = ${id}
+    `;
+    return { ok: true, data: undefined };
+  }
 
   let dbExpiry: Date | null = null;
   const response = await (async () => {
@@ -835,12 +1038,20 @@ export const setExpiry = async (params: {
       date.setUTCHours(23, 59, 59, 0);
       const ipaExpiry = date.toISOString().replace(/[-:T]/g, "").slice(0, 14) + "Z";
       dbExpiry = date;
-      return call(ipaSession, "user_mod", [uid], {
-        krbprincipalexpiration: ipaExpiry,
+      return freeipa.client.call({
+        url: getIpaUrl(),
+        ipaSession,
+        method: "user_mod",
+        args: [uid],
+        options: { krbprincipalexpiration: ipaExpiry },
       });
     }
-    return call(ipaSession, "user_mod", [uid], {
-      krbprincipalexpiration: null,
+    return freeipa.client.call({
+      url: getIpaUrl(),
+      ipaSession,
+      method: "user_mod",
+      args: [uid],
+      options: { krbprincipalexpiration: null },
     });
   })();
 
@@ -848,14 +1059,21 @@ export const setExpiry = async (params: {
     return {
       ok: false,
       error: response.error.message ?? "Failed to update account expiry",
-      status: mapIpaErrorCode(response.error.code),
+      status: freeipa.util.mapIpaErrorCode(response.error.code),
     };
   }
 
   await sql`
     UPDATE auth.users
-    SET ipa_account_expires = ${dbExpiry}, synced_at = now()
+    SET account_expires = ${dbExpiry},
+        ipa_account_expires = ${dbExpiry},
+        guest_expires_at = NULL
     WHERE id = ${id}
+  `;
+  await sql`
+    INSERT INTO auth.user_ipa_data (user_id, synced_at)
+    VALUES (${id}, now())
+    ON CONFLICT (user_id) DO UPDATE SET synced_at = EXCLUDED.synced_at
   `;
 
   return { ok: true, data: undefined };
@@ -872,10 +1090,17 @@ export const demoteToGuest = async (params: {
   ipaSession: string;
   /** User ID (database UUID) */
   id: string;
+  actor: { userId: string; uid: string };
 }): Promise<MutationResult<void>> => {
-  const { ipaSession, id } = params;
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const { ipaSession, id, actor } = params;
 
-  const userRows: DbRow[] = await sql`SELECT uid FROM auth.users WHERE id = ${id} AND realm IN ('ipa', 'ipa-limited')`;
+  const userRows: DbRow[] = await sql`
+    SELECT uid, mail, display_name, provider, profile
+    FROM auth.users
+    WHERE id = ${id} AND provider = 'ipa'
+  `;
   if (userRows.length === 0) {
     return {
       ok: false,
@@ -883,30 +1108,76 @@ export const demoteToGuest = async (params: {
       status: 404,
     };
   }
+  const { provider: previousProvider, profile: previousProfile } = resolveProviderProfile(userRows[0]!);
   const uid = userRows[0]!.uid as string;
+  const mail = (userRows[0]!.mail as string) ?? null;
+  const displayName = (userRows[0]!.display_name as string) ?? null;
+  const guestExpiresDays = await settings.get<number | null>("user.account.local_guest_expires_days");
+  const accountExpires = guestExpiresDays && guestExpiresDays > 0 ? new Date(Date.now() + guestExpiresDays * 24 * 60 * 60 * 1000) : null;
+  const legacyColumns = legacyAccountColumnsFromCanonical({
+    provider: "local",
+    profile: "guest",
+    accountExpires,
+  });
 
-  const response = await call(ipaSession, "user_del", [uid], {});
-  if (response.error) {
+  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
+  const ipaDeleteMessage = (response.error?.message ?? "").toLowerCase();
+  const ipaDeleteNotFound = ipaDeleteMessage.includes("not found") || ipaDeleteMessage.includes("does not exist");
+  if (response.error && !ipaDeleteNotFound) {
     return {
       ok: false,
       error: response.error.message ?? "Failed to delete user from FreeIPA",
-      status: mapIpaErrorCode(response.error.code),
+      status: freeipa.util.mapIpaErrorCode(response.error.code),
     };
   }
 
-  await sql`
-    UPDATE auth.users
-    SET realm = 'guest', uid_number = NULL, synced_at = NULL,
-        employee_type = NULL, addr_street = NULL, addr_postal_code = NULL,
-        addr_city = NULL, addr_state = NULL, mobile = NULL,
-        ssh_public_keys = '{}', ssh_fingerprints = '{}',
-        ipa_account_expires = NULL, ipa_password_expires = NULL,
-        last_login_ipa = NULL
-    WHERE id = ${id}
-  `;
+  await sql.begin(async (tx) => {
+    await tx`
+      UPDATE auth.users
+      SET realm = ${legacyColumns.realm}, provider = 'local', profile = 'guest', admin = false,
+          account_expires = ${accountExpires},
+          ipa_account_expires = ${legacyColumns.ipaAccountExpires},
+          guest_expires_at = ${legacyColumns.guestExpiresAt}
+      WHERE id = ${id}
+    `;
+    await tx`DELETE FROM auth.user_ipa_data WHERE user_id = ${id}`;
 
-  await sql`DELETE FROM auth.user_groups WHERE user_id = ${id}`;
-  await sql`DELETE FROM auth.group_manager_users WHERE user_id = ${id}`;
+    await tx`
+      DELETE FROM auth.user_groups_v2
+      WHERE user_id = ${id}
+        AND group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')
+    `;
+    await tx`
+      DELETE FROM auth.group_manager_users_v2
+      WHERE user_id = ${id}
+        AND group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')
+    `;
+    await writeDeletedAccountAudit({
+      db: tx,
+      userId: id,
+      uid,
+      mail,
+      displayName,
+      previousProvider,
+      previousProfile,
+      reason: "manual_demote",
+      meta: {
+        actorUserId: actor.userId,
+        actorUid: actor.uid,
+        guestExpiresAt: accountExpires?.toISOString() ?? null,
+        freeIpaUserAlreadyMissing: ipaDeleteNotFound,
+      },
+    });
+  });
+  try {
+    await session.deleteAllForUser(id);
+  } catch (error) {
+    log.warn("Failed to revoke sessions after manual demotion", {
+      userId: id,
+      uid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return { ok: true, data: undefined };
 };
@@ -922,17 +1193,27 @@ export const deleteUser = async (params: {
   ipaSession?: string | null;
   /** User ID (database UUID) */
   id: string;
+  actor: { userId: string; uid: string };
 }): Promise<MutationResult<void>> => {
-  const { ipaSession, id } = params;
+  const unavailable = ensureFreeIpaMutationAvailable();
+  if (unavailable) return unavailable;
+  const { ipaSession, id, actor } = params;
 
-  const userRows: DbRow[] = await sql`SELECT uid, realm FROM auth.users WHERE id = ${id}`;
+  const userRows: DbRow[] = await sql`
+    SELECT uid, provider, profile, mail, display_name
+    FROM auth.users
+    WHERE id = ${id}
+  `;
   if (userRows.length === 0) {
     return { ok: false, error: "User not found", status: 404 };
   }
   const uid = userRows[0]!.uid as string;
-  const realm = userRows[0]!.realm as Realm;
+  const { provider, profile } = resolveProviderProfile(userRows[0]!);
+  const mail = (userRows[0]!.mail as string) ?? null;
+  const displayName = (userRows[0]!.display_name as string) ?? null;
+  let ipaDeleteNotFound = false;
 
-  if (realm === "ipa" || realm === "ipa-limited") {
+  if (provider === "ipa") {
     if (!ipaSession) {
       return {
         ok: false,
@@ -940,26 +1221,46 @@ export const deleteUser = async (params: {
         status: 400,
       };
     }
-    const response = await call(ipaSession, "user_del", [uid], {});
-    if (response.error) {
+    const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
+    const ipaDeleteMessage = (response.error?.message ?? "").toLowerCase();
+    ipaDeleteNotFound = ipaDeleteMessage.includes("not found") || ipaDeleteMessage.includes("does not exist");
+    if (response.error && !ipaDeleteNotFound) {
       return {
         ok: false,
         error: response.error.message ?? "Failed to delete user from FreeIPA",
-        status: mapIpaErrorCode(response.error.code),
+        status: freeipa.util.mapIpaErrorCode(response.error.code),
       };
     }
   }
 
-  await sql`DELETE FROM auth.users WHERE id = ${id}`;
+  await sql.begin(async (tx) => {
+    await writeDeletedAccountAudit({
+      db: tx,
+      userId: id,
+      uid,
+      mail,
+      displayName,
+      previousProvider: provider,
+      previousProfile: profile,
+      reason: "manual_delete",
+      meta: {
+        actorUserId: actor.userId,
+        actorUid: actor.uid,
+        deletedFromFreeIpa: provider === "ipa",
+        freeIpaUserAlreadyMissing: provider === "ipa" ? ipaDeleteNotFound : false,
+      },
+    });
+    await tx`DELETE FROM auth.users WHERE id = ${id}`;
+  });
+  try {
+    await session.deleteAllForUser(id);
+  } catch (error) {
+    log.warn("Failed to revoke sessions after manual deletion", {
+      userId: id,
+      uid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return { ok: true, data: undefined };
 };
-
-// ==========================
-// Type aliases
-// ==========================
-
-export type AddUserResult = AddIpaResult;
-
-// Legacy: MutationResult type (now in schemas.ts)
-type LegacyMutationResult = { ok: true } | { ok: false; error: string; status: 400 | 401 | 403 | 404 | 500 };

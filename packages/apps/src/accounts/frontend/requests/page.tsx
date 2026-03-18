@@ -1,11 +1,13 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
+import { accountsAppService as accountsService } from "@valentinkolb/cloud/core/services";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
+import { getSync } from "@valentinkolb/cloud-core/services/settings";
 import { dates } from "@valentinkolb/cloud/lib/shared";
 import { Pagination } from "@valentinkolb/cloud/lib/ui";
-import { accountsService } from "../../service";
 import AccountsNavSidebar from "../AccountsNavSidebar";
 import DenyRequest from "../users/DenyRequest.island";
+import CreateUserForm from "../users/new/CreateUserForm.island";
 
 type StatusFilter = "pending" | "completed" | "denied" | "all";
 
@@ -35,6 +37,7 @@ const STATUS_PILL: Record<Exclude<StatusFilter, "all">, string> = {
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
+  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
   const page = parsePage(c.req.query("page"));
   const perPage = 40;
   const status = parseStatus(c.req.query("status"));
@@ -63,11 +66,8 @@ export default ssr<AuthContext>(async (c) => {
         <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
           <div class="flex flex-col gap-3">
             <div class="flex items-center justify-between">
-              <h1 class="text-sm font-semibold text-primary">Account Requests</h1>
-              <a href="/app/accounts/users/new" class="btn-secondary btn-sm">
-                <i class="ti ti-plus" />
-                New User
-              </a>
+              <h1 class="text-sm font-semibold text-primary">FreeIPA Account Requests</h1>
+              <CreateUserForm buttonClass="btn-input btn-input-sm" freeIpaEnabled={freeIpaEnabled} />
             </div>
 
             <div class="flex flex-wrap items-center gap-1">
@@ -102,10 +102,22 @@ export default ssr<AuthContext>(async (c) => {
                         </div>
                         {request.status === "pending" ? (
                           <div class="flex items-center gap-1 shrink-0">
-                            <a href={`/app/accounts/users/new?request=${request.id}`} class="btn-secondary btn-sm">
-                              <i class="ti ti-user-plus" />
-                              Create
-                            </a>
+                            {freeIpaEnabled ? (
+                              <CreateUserForm
+                                buttonLabel="Create FreeIPA account"
+                                buttonIcon="ti ti-user-plus"
+                                buttonClass="btn-secondary btn-sm"
+                                freeIpaEnabled={freeIpaEnabled}
+                                prefill={{
+                                  requestId: request.id,
+                                  email: request.email,
+                                  givenname: request.firstName,
+                                  sn: request.lastName,
+                                  displayName: request.displayName ?? undefined,
+                                  firstName: request.firstName,
+                                }}
+                              />
+                            ) : null}
                             <DenyRequest requestId={request.id} email={request.email} firstName={request.firstName} />
                           </div>
                         ) : null}

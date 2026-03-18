@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import { join } from "node:path";
 import { auth, type AuthContext } from "@valentinkolb/cloud-lib/server/middleware/auth";
 import { getSync } from "@valentinkolb/cloud-core/services/settings";
+import { createProfilePage } from "@/pages/me/page";
 import notFoundPage from "@/pages/NotFound";
 import loginPage from "@/pages/auth/page";
 import newPasswordPage from "@/pages/auth/new-password/page";
-import { createProfilePage, type AccountsService } from "@/pages/me/page";
 import { createHomePage } from "@/pages/home/page";
 import adminPage from "@/pages/admin/page";
 import datenschutzPage from "@/pages/legal/datenschutz";
@@ -24,8 +24,7 @@ export const createPagesRouter = (
 ): Hono<AuthContext> => {
   const brandingPublicDir = options?.brandingPublicDir ?? "public";
   const homePage = createHomePage(apps);
-  const accountsService = (apps.find((app) => app.meta.id === "accounts")?.service as AccountsService | undefined) ?? null;
-  const profilePage = createProfilePage(accountsService);
+  const profilePage = createProfilePage();
 
   const pages = new Hono<AuthContext>()
     // Prevent browser from caching SSR pages (user state changes on login/logout)
@@ -43,9 +42,13 @@ export const createPagesRouter = (
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     // Admin pages (admin only)
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
+    .get("/admin/sync", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/app/accounts#sync-activity", 302))
     // Auth routes
     .get("/auth/login", auth.requireRole("anonymous", auth.redirect("/")), ...loginPage)
     .get("/auth/new-password", ...newPasswordPage)
+    .get("/auth/extend", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
+      return c.redirect("/me?action=extend", 302);
+    })
     // Legal pages
     .get("/legal/datenschutz", ...datenschutzPage)
     .get("/impressum", async (c) => {

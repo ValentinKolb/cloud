@@ -7,7 +7,26 @@ import * as settings from "@valentinkolb/cloud-core/services/settings";
 /** Data stored in Redis for each session. */
 type SessionData = {
   userId: string;
-  ipaSession: string;
+  ipaSession: string | null;
+};
+
+const scanKeys = async (pattern: string): Promise<string[]> => {
+  const keys: string[] = [];
+  let cursor = "0";
+
+  do {
+    const result = (await redis.scan(cursor, "MATCH", pattern, "COUNT", 100)) as unknown;
+    const nextCursor = Array.isArray(result) ? String(result[0] ?? "0") : String((result as { cursor?: string | number }).cursor ?? "0");
+    const batch = Array.isArray(result) ? result[1] : (result as { keys?: string[] }).keys;
+
+    if (Array.isArray(batch)) {
+      keys.push(...batch.map(String));
+    }
+
+    cursor = nextCursor;
+  } while (cursor !== "0");
+
+  return keys;
 };
 
 const parseToken = (token: string): { userId: string; randomToken: string } | null => {
@@ -19,6 +38,12 @@ const parseToken = (token: string): { userId: string; randomToken: string } | nu
   return { userId, randomToken };
 };
 
+const parseBearer = (header: string | undefined): string | null => {
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(\S+)$/i);
+  return match?.[1] ?? null;
+};
+
 export const session = {
   /**
    * Get session token from cookie or Authorization header.
@@ -26,7 +51,7 @@ export const session = {
    */
   getToken: (c: Context): string | null => {
     const cookie = getCookie(c, "session_token");
-    const bearer = c.req.header("Authorization")?.replace("Bearer ", "");
+    const bearer = parseBearer(c.req.header("Authorization"));
     return cookie || bearer || null;
   },
 
@@ -36,7 +61,7 @@ export const session = {
    */
   parseToken,
 
-  create: async (c: Context, userId: string, ipaSession: string): Promise<string> => {
+  create: async (c: Context, userId: string, ipaSession: string | null = null): Promise<string> => {
     const randomToken = crypto.randomUUID();
     const expiryHours = await settings.get<number>("user.session.expiry_hours");
     const ttl = expiryHours * 60 * 60;
@@ -75,7 +100,7 @@ export const session = {
    * Useful when promoting a guest user to IPA user - forces re-login.
    */
   deleteAllForUser: async (userId: string): Promise<void> => {
-    const keys = await redis.keys(`session:${userId}:*`);
+    const keys = await scanKeys(`session:${userId}:*`);
     if (keys.length > 0) await redis.del(...keys);
   },
 

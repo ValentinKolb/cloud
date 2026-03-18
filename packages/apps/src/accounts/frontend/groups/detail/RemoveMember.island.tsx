@@ -5,8 +5,8 @@ import { RemoveBtn } from "@valentinkolb/cloud/lib/ui";
 import { refreshCurrentPath } from "../../lib/navigation";
 
 type RemoveMemberProps = {
-  /** Group CN */
-  cn: string;
+  /** Group ID */
+  groupId: string;
   /** "members" or "managers" */
   membershipRole: "members" | "managers";
   /** Type of entity to remove */
@@ -20,9 +20,9 @@ type RemoveMemberProps = {
 export default function RemoveMember(props: RemoveMemberProps) {
   const mutation = mutations.create<void, void>({
     mutation: async () => {
-      const endpoint = props.membershipRole === "members" ? apiClient.groups[":cn"].members.$delete : apiClient.groups[":cn"].managers.$delete;
+      const endpoint = props.membershipRole === "members" ? apiClient.groups[":id"].members.$delete : apiClient.groups[":id"].managers.$delete;
       const res = await endpoint({
-        param: { cn: props.cn },
+        param: { id: props.groupId },
         json: { type: props.type, id: props.id },
       });
       if (!res.ok) {

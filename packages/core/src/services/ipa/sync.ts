@@ -1,11 +1,78 @@
 import { sql } from "bun";
-import { env } from "@valentinkolb/cloud-core/config/env";
-import { call, str, num, parseGeneralizedTime, toPgTextArray, excludedGroupsSet, type DbRow } from "./lib";
-import { getServiceSession } from "./auth";
-import { calculateRealm, calculateRealmFromLocalDb } from "./realm";
+import { legacyAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/compat";
+import { applyIpaAccountTransitionPolicy } from "@valentinkolb/cloud-core/services/accounts/switching";
+import {
+  parseIpaAccountTransitionPolicy,
+  parseIpaMatchMode,
+} from "@valentinkolb/cloud-core/services/account-model";
+import { writeDeletedAccountAudit } from "@valentinkolb/cloud-core/services/account-lifecycle/audit";
 import { logger } from "@valentinkolb/cloud-core/services/logging";
+import * as settings from "@valentinkolb/cloud-core/services/settings";
+import { session } from "@valentinkolb/cloud-core/services/session";
+import { freeipa } from "@valentinkolb/cloud-lib/server/services";
+import { getFreeIpaConfigSync } from "../freeipa-config";
+import { calculateIpaProfile, calculateIpaProfileFromLocalDb } from "./profile";
 
-const log = logger("ipa-sync");
+type DbRow = Record<string, unknown>;
+
+const log = logger("auth:ipa:sync");
+
+const getExcludedGroupsSet = (): Set<string> => freeipa.util.toExcludedGroupsSet(getFreeIpaConfigSync().groupsExcluded);
+
+const upsertUserIpaData = async (
+  db: typeof sql,
+  params: {
+    userId: string;
+    uidNumber: number | null;
+    phone: string | null;
+    ipaPasswordExpires: Date | null;
+    lastLoginIpa: Date | null;
+    employeeType: string | null;
+    addrStreet: string | null;
+    addrPostalCode: string | null;
+    addrCity: string | null;
+    addrState: string | null;
+    mobile: string | null;
+    sshPublicKeys: string[];
+    sshFingerprints: string[];
+  },
+) =>
+  db`
+    INSERT INTO auth.user_ipa_data (
+      user_id, uid_number, phone, employee_type, mobile, addr_street, addr_postal_code,
+      addr_city, addr_state, ipa_password_expires, last_login_ipa, synced_at, ssh_public_keys, ssh_fingerprints
+    )
+    VALUES (
+      ${params.userId},
+      ${params.uidNumber},
+      ${params.phone},
+      ${params.employeeType},
+      ${params.mobile},
+      ${params.addrStreet},
+      ${params.addrPostalCode},
+      ${params.addrCity},
+      ${params.addrState},
+      ${params.ipaPasswordExpires},
+      ${params.lastLoginIpa},
+      now(),
+      ${freeipa.util.toPgTextArray(params.sshPublicKeys)}::text[],
+      ${freeipa.util.toPgTextArray(params.sshFingerprints)}::text[]
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      uid_number = EXCLUDED.uid_number,
+      phone = EXCLUDED.phone,
+      employee_type = EXCLUDED.employee_type,
+      mobile = EXCLUDED.mobile,
+      addr_street = EXCLUDED.addr_street,
+      addr_postal_code = EXCLUDED.addr_postal_code,
+      addr_city = EXCLUDED.addr_city,
+      addr_state = EXCLUDED.addr_state,
+      ipa_password_expires = EXCLUDED.ipa_password_expires,
+      last_login_ipa = EXCLUDED.last_login_ipa,
+      synced_at = EXCLUDED.synced_at,
+      ssh_public_keys = EXCLUDED.ssh_public_keys,
+      ssh_fingerprints = EXCLUDED.ssh_fingerprints
+  `;
 
 // ==========================
 // Sync Types
@@ -44,26 +111,7 @@ type SyncGroup = {
   managerGroups: string[];
 };
 
-type SyncHost = {
-  fqdn: string;
-  description: string | null;
-  location: string | null;
-  locality: string | null;
-  memberofHostgroup: string[];
-  macAddress: string[];
-  platform: string | null;
-  osVersion: string | null;
-  sshFingerprints: string[];
-};
-
-type SyncHostgroup = {
-  cn: string;
-  description: string | null;
-  hosts: string[];
-  hostgroups: string[];
-};
-
-type IpaCallResponse = Awaited<ReturnType<typeof call>>;
+type IpaCallResponse = Awaited<ReturnType<typeof freeipa.client.call>>;
 
 // ==========================
 // Transform helpers
@@ -76,23 +124,23 @@ const transformSyncUser = (raw: Record<string, unknown>): SyncUser => {
   const directGroups = (raw.memberof_group as string[]) ?? [];
   const indirectGroups = (raw.memberofindirect_group as string[]) ?? [];
   return {
-    uid: str(raw.uid),
-    uidNumber: num(raw.uidnumber),
-    givenname: str(raw.givenname),
-    sn: str(raw.sn),
-    displayName: str(raw.displayname) || [str(raw.givenname), str(raw.sn)].filter(Boolean).join(" ") || str(raw.uid),
-    mail: str(raw.mail) || null,
-    phone: str(raw.telephonenumber) || null,
-    ipaAccountExpires: parseGeneralizedTime(raw.krbprincipalexpiration),
-    ipaPasswordExpires: parseGeneralizedTime(raw.krbpasswordexpiration),
-    lastLoginIpa: parseGeneralizedTime(raw.krblastsuccessfulauth),
+    uid: freeipa.util.str(raw.uid),
+    uidNumber: freeipa.util.num(raw.uidnumber),
+    givenname: freeipa.util.str(raw.givenname),
+    sn: freeipa.util.str(raw.sn),
+    displayName: freeipa.util.str(raw.displayname) || [freeipa.util.str(raw.givenname), freeipa.util.str(raw.sn)].filter(Boolean).join(" ") || freeipa.util.str(raw.uid),
+    mail: freeipa.util.str(raw.mail) || null,
+    phone: freeipa.util.str(raw.telephonenumber) || null,
+    ipaAccountExpires: freeipa.util.parseGeneralizedTime(raw.krbprincipalexpiration),
+    ipaPasswordExpires: freeipa.util.parseGeneralizedTime(raw.krbpasswordexpiration),
+    lastLoginIpa: freeipa.util.parseGeneralizedTime(raw.krblastsuccessfulauth),
     memberofGroup: [...directGroups, ...indirectGroups],
-    employeeType: str(raw.employeetype) || null,
-    addrStreet: str(raw.street) || null,
-    addrPostalCode: str(raw.postalcode) || null,
-    addrCity: str(raw.l) || null,
-    addrState: str(raw.st) || null,
-    mobile: str(raw.mobile) || null,
+    employeeType: freeipa.util.str(raw.employeetype) || null,
+    addrStreet: freeipa.util.str(raw.street) || null,
+    addrPostalCode: freeipa.util.str(raw.postalcode) || null,
+    addrCity: freeipa.util.str(raw.l) || null,
+    addrState: freeipa.util.str(raw.st) || null,
+    mobile: freeipa.util.str(raw.mobile) || null,
     sshPublicKeys: Array.isArray(raw.ipasshpubkey) ? raw.ipasshpubkey : [],
     sshFingerprints: Array.isArray(raw.sshpubkeyfp) ? raw.sshpubkeyfp : [],
   };
@@ -102,39 +150,14 @@ const transformSyncUser = (raw: Record<string, unknown>): SyncUser => {
  * Normalizes one raw IPA group record into the sync group model.
  */
 const transformSyncGroup = (raw: Record<string, unknown>): SyncGroup => ({
-  cn: str(raw.cn),
-  description: str(raw.description) || null,
-  gidnumber: num(raw.gidnumber),
+  cn: freeipa.util.str(raw.cn),
+  description: freeipa.util.str(raw.description) || null,
+  gidnumber: freeipa.util.num(raw.gidnumber),
   users: (raw.member_user as string[]) ?? [],
-  groups: ((raw.member_group as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
-  parentGroups: ((raw.memberof_group as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
+  groups: ((raw.member_group as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
+  parentGroups: ((raw.memberof_group as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
   managerUsers: (raw.membermanager_user as string[]) ?? [],
-  managerGroups: ((raw.membermanager_group as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
-});
-
-/**
- * Normalizes one raw IPA host record into the sync host model.
- */
-const transformSyncHost = (raw: Record<string, unknown>): SyncHost => ({
-  fqdn: str(raw.fqdn),
-  description: str(raw.description) || null,
-  location: str(raw.nshostlocation) || null,
-  locality: str(raw.l) || null,
-  memberofHostgroup: ((raw.memberof_hostgroup as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
-  macAddress: Array.isArray(raw.macaddress) ? raw.macaddress : [],
-  platform: str(raw.nshardwareplatform) || null,
-  osVersion: str(raw.nsosversion) || null,
-  sshFingerprints: Array.isArray(raw.sshpubkeyfp) ? raw.sshpubkeyfp : [],
-});
-
-/**
- * Normalizes one raw IPA hostgroup record into the sync hostgroup model.
- */
-const transformSyncHostgroup = (raw: Record<string, unknown>): SyncHostgroup => ({
-  cn: str(raw.cn),
-  description: str(raw.description) || null,
-  hosts: (raw.member_host as string[]) ?? [],
-  hostgroups: ((raw.member_hostgroup as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
+  managerGroups: ((raw.membermanager_group as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
 });
 
 /**
@@ -167,23 +190,37 @@ const readIpaList = (config: { response: IpaCallResponse; entity: string }): Rec
 // ==========================
 
 /**
- * Runs a full IPA-to-local sync pass for users, groups, hosts, and memberships.
+ * Runs a full IPA-to-local sync pass for users, groups, and memberships.
  */
 export const syncFromIpa = async (): Promise<void> => {
-  const session = await getServiceSession();
+  const startedAt = Date.now();
+  const config = getFreeIpaConfigSync();
+  if (!config.enabled) {
+    log.info("Sync skipped", { reason: "freeipa_disabled" });
+    return;
+  }
+  if (!config.configured) {
+    throw new Error("FreeIPA is enabled but not fully configured.");
+  }
+  const excludedGroupsSet = freeipa.util.toExcludedGroupsSet(config.groupsExcluded);
+  const ipaSession = await freeipa.session.getServiceSession({
+    url: config.url,
+    serviceUser: config.serviceUser,
+    servicePassword: config.servicePassword,
+  });
 
-  const [usersRes, groupsRes, hostsRes, hostgroupsRes] = await Promise.all([
-    call(session, "user_find", [], { sizelimit: 0, all: true }),
-    call(session, "group_find", [], {
-      sizelimit: 0,
-      no_members: false,
-      all: true,
-    }),
-    call(session, "host_find", [], { sizelimit: 0, all: true }),
-    call(session, "hostgroup_find", [], {
-      sizelimit: 0,
-      no_members: false,
-      all: true,
+  const [usersRes, groupsRes] = await Promise.all([
+    freeipa.client.call({ url: config.url, ipaSession, method: "user_find", args: [], options: { sizelimit: 0, all: true } }),
+    freeipa.client.call({
+      url: config.url,
+      ipaSession,
+      method: "group_find",
+      args: [],
+      options: {
+        sizelimit: 0,
+        no_members: false,
+        all: true,
+      },
     }),
   ]);
 
@@ -192,37 +229,39 @@ export const syncFromIpa = async (): Promise<void> => {
   const users = allRawUsers
     .filter((raw) => {
       const groups = (raw.memberof_group as string[]) ?? [];
-      return env.GROUPS_BASE_SYNC.some((g) => groups.includes(g));
+      return config.groupsBaseSync.some((g) => groups.includes(g));
     })
     .map(transformSyncUser);
 
   const allRawGroups = readIpaList({ response: groupsRes, entity: "groups" });
   const groups = allRawGroups.map(transformSyncGroup).filter((g) => !excludedGroupsSet.has(g.cn));
 
-  const allRawHosts = readIpaList({ response: hostsRes, entity: "hosts" });
-  const hosts = allRawHosts.map(transformSyncHost);
-
-  const allRawHostgroups = readIpaList({ response: hostgroupsRes, entity: "hostgroups" });
-  const hostgroups = allRawHostgroups.map(transformSyncHostgroup);
-
   const activeUsers = users.filter((u) => !isExpired(u));
-  const activeUids = activeUsers.map((u) => u.uid);
+  const expiredUsers = users.length - activeUsers.length;
+  const inScopeUids = new Set(users.map((u) => u.uid));
   const groupCns = new Set(groups.map((g) => g.cn));
-  const hostFqdns = hosts.map((h) => h.fqdn);
-  const hostgroupCns = new Set(hostgroups.map((hg) => hg.cn));
+  const matchMode = parseIpaMatchMode(await settings.get<string | null>("freeipa.user_match_mode"));
+  const transitionPolicy = parseIpaAccountTransitionPolicy(
+    await settings.get<string | null>("freeipa.account_transition_policy"),
+  );
+
+  let matchedExistingUsersByMail = 0;
+  let migratedLocalUsers = 0;
+  let skippedLocalMailConflicts = 0;
+  let skippedLocalUidConflicts = 0;
+  let upsertedUsersByUid = 0;
+  let insertedUsersByUid = 0;
+  let updatedUsersByUid = 0;
+  let deletedGroups = 0;
 
   const [localCountsRow] = await sql<DbRow[]>`
     SELECT
-      (SELECT COUNT(*)::int FROM auth.users WHERE realm IN ('ipa', 'ipa-limited')) AS ipa_users,
-      (SELECT COUNT(*)::int FROM auth.groups) AS groups,
-      (SELECT COUNT(*)::int FROM auth.hosts) AS hosts,
-      (SELECT COUNT(*)::int FROM auth.hostgroups) AS hostgroups
+      (SELECT COUNT(*)::int FROM auth.users WHERE provider = 'ipa') AS ipa_users,
+      (SELECT COUNT(*)::int FROM auth.groups WHERE provider = 'ipa') AS groups
   `;
 
   const localIpaUsers = Number(localCountsRow?.ipa_users ?? 0);
   const localGroups = Number(localCountsRow?.groups ?? 0);
-  const localHosts = Number(localCountsRow?.hosts ?? 0);
-  const localHostgroups = Number(localCountsRow?.hostgroups ?? 0);
 
   if (activeUsers.length === 0 && localIpaUsers > 0) {
     throw new Error(`Refusing IPA sync: remote active users list is empty while local has ${localIpaUsers} IPA users`);
@@ -230,259 +269,287 @@ export const syncFromIpa = async (): Promise<void> => {
   if (groupCns.size === 0 && localGroups > 0) {
     throw new Error(`Refusing IPA sync: remote groups list is empty while local has ${localGroups} groups`);
   }
-  if (hostFqdns.length === 0 && localHosts > 0) {
-    throw new Error(`Refusing IPA sync: remote hosts list is empty while local has ${localHosts} hosts`);
-  }
-  if (hostgroupCns.size === 0 && localHostgroups > 0) {
-    throw new Error(`Refusing IPA sync: remote hostgroups list is empty while local has ${localHostgroups} hostgroups`);
+
+  const localIpaRows = await sql<DbRow[]>`
+    SELECT id, uid, mail, display_name, profile
+    FROM auth.users
+    WHERE provider = 'ipa'
+    ORDER BY uid
+  `;
+  const staleLocalUsers = localIpaRows.filter((row) => !inScopeUids.has(row.uid as string));
+  const staleLimit = Math.max(10, Math.ceil(Math.max(localIpaUsers, 1) * 0.2));
+  if (staleLocalUsers.length > staleLimit) {
+    throw new Error(
+      `Refusing IPA sync: ${staleLocalUsers.length} local IPA users disappeared from sync scope (limit ${staleLimit})`,
+    );
   }
 
+  const staleDemotedUsers: Array<{ id: string; uid: string }> = [];
   await sql.begin(async (tx) => {
     // 1. Upsert active IPA users
     //    Match order: mail (existing IPA user, handles UID renames) → mail (guest promotion) → uid (new or unchanged)
     for (const u of activeUsers) {
-      const realm = calculateRealm(u.memberofGroup);
+      const profile = calculateIpaProfile(u.memberofGroup);
+      const provider = "ipa";
+      const legacyColumns = legacyAccountColumnsFromCanonical({
+        provider,
+        profile,
+        accountExpires: u.ipaAccountExpires,
+      });
 
       if (u.mail) {
-        // First: match existing IPA/ipa-limited user by mail (handles UID renames)
+        // First: match existing IPA user by mail (handles UID renames)
         const updated = await tx`
           UPDATE auth.users SET
-            uid = ${u.uid}, realm = ${realm},
-            uid_number = ${u.uidNumber},
+            uid = ${u.uid}, realm = ${legacyColumns.realm}, provider = ${provider}, profile = ${profile}, admin = false,
             given_name = ${u.givenname}, sn = ${u.sn},
             display_name = ${u.displayName}, mail = ${u.mail},
-            phone = ${u.phone}, ipa_account_expires = ${u.ipaAccountExpires},
-            ipa_password_expires = ${u.ipaPasswordExpires},
-            last_login_ipa = ${u.lastLoginIpa},
-            employee_type = ${u.employeeType},
-            addr_street = ${u.addrStreet},
-            addr_postal_code = ${u.addrPostalCode},
-            addr_city = ${u.addrCity},
-            addr_state = ${u.addrState},
-            mobile = ${u.mobile},
-            ssh_public_keys = ${toPgTextArray(u.sshPublicKeys)}::text[],
-            ssh_fingerprints = ${toPgTextArray(u.sshFingerprints)}::text[],
-            synced_at = now()
-          WHERE mail = ${u.mail} AND realm IN ('ipa', 'ipa-limited')
+            account_expires = ${u.ipaAccountExpires},
+            ipa_account_expires = ${u.ipaAccountExpires},
+            guest_expires_at = NULL
+          WHERE mail = ${u.mail} AND provider = 'ipa'
           RETURNING id`;
-        if (updated.length > 0) continue;
+        if (updated.length > 0) {
+          await upsertUserIpaData(tx, { userId: updated[0]!.id as string, ...u });
+          matchedExistingUsersByMail += 1;
+          continue;
+        }
 
-        // Second: promote guest with matching mail (keep existing UID if it's an abbreviation)
-        const promoted = await tx`
-          UPDATE auth.users SET
-            uid = ${u.uid}, realm = ${realm},
-            uid_number = ${u.uidNumber},
-            given_name = ${u.givenname}, sn = ${u.sn},
-            display_name = ${u.displayName}, mail = ${u.mail},
-            phone = ${u.phone}, ipa_account_expires = ${u.ipaAccountExpires},
-            ipa_password_expires = ${u.ipaPasswordExpires},
-            last_login_ipa = ${u.lastLoginIpa},
-            employee_type = ${u.employeeType},
-            addr_street = ${u.addrStreet},
-            addr_postal_code = ${u.addrPostalCode},
-            addr_city = ${u.addrCity},
-            addr_state = ${u.addrState},
-            mobile = ${u.mobile},
-            ssh_public_keys = ${toPgTextArray(u.sshPublicKeys)}::text[],
-            ssh_fingerprints = ${toPgTextArray(u.sshFingerprints)}::text[],
-            synced_at = now()
-          WHERE mail = ${u.mail} AND realm = 'guest'
-          RETURNING id`;
-        if (promoted.length > 0) continue;
+        // Second: optionally migrate a unique local account to IPA.
+        if (matchMode === "migrate") {
+          const localMatches = await tx<DbRow[]>`
+            SELECT id
+            FROM auth.users
+            WHERE mail = ${u.mail} AND provider = 'local'
+            ORDER BY profile = 'user' DESC, created_at ASC
+            LIMIT 2
+          `;
+
+          if (localMatches.length === 1) {
+            const migrated = await tx`
+              UPDATE auth.users SET
+                uid = ${u.uid}, realm = ${legacyColumns.realm}, provider = ${provider}, profile = ${profile}, admin = false,
+                given_name = ${u.givenname}, sn = ${u.sn},
+                display_name = ${u.displayName}, mail = ${u.mail},
+                account_expires = ${u.ipaAccountExpires},
+                ipa_account_expires = ${u.ipaAccountExpires},
+                guest_expires_at = NULL
+              WHERE id = ${localMatches[0]!.id as string}::uuid
+              RETURNING id`;
+            if (migrated.length > 0) {
+              await upsertUserIpaData(tx, { userId: migrated[0]!.id as string, ...u });
+              migratedLocalUsers += 1;
+              continue;
+            }
+          } else if (localMatches.length > 1) {
+            skippedLocalMailConflicts += 1;
+            log.warn("Skipping IPA provider migration because multiple local accounts matched by mail", {
+              mail: u.mail,
+              uid: u.uid,
+            });
+            continue;
+          }
+        }
+      }
+
+      const uidConflictRows = await tx<DbRow[]>`
+        SELECT id
+        FROM auth.users
+        WHERE uid = ${u.uid} AND provider = 'local'
+        LIMIT 1
+      `;
+      if (uidConflictRows.length > 0) {
+        skippedLocalUidConflicts += 1;
+        log.warn("Skipping IPA sync user upsert because a local account already uses the UID", {
+          uid: u.uid,
+          mail: u.mail,
+        });
+        continue;
       }
 
       // Third: insert new or update existing by uid
-      await tx`
-        INSERT INTO auth.users (uid, uid_number, realm, given_name, sn, display_name, mail, phone, ipa_account_expires, ipa_password_expires, last_login_ipa, employee_type, addr_street, addr_postal_code, addr_city, addr_state, mobile, ssh_public_keys, ssh_fingerprints, synced_at)
-        VALUES (${u.uid}, ${u.uidNumber}, ${realm}, ${u.givenname}, ${u.sn}, ${
+      const upserted = await tx<DbRow[]>`
+        INSERT INTO auth.users (uid, realm, provider, profile, admin, given_name, sn, display_name, mail, account_expires, ipa_account_expires, guest_expires_at)
+        VALUES (${u.uid}, ${legacyColumns.realm}, ${provider}, ${profile}, false, ${u.givenname}, ${u.sn}, ${
           u.displayName
-        }, ${u.mail}, ${u.phone}, ${u.ipaAccountExpires}, ${u.ipaPasswordExpires}, ${u.lastLoginIpa}, ${u.employeeType}, ${u.addrStreet}, ${
-          u.addrPostalCode
-        }, ${u.addrCity}, ${u.addrState}, ${u.mobile}, ${toPgTextArray(
-          u.sshPublicKeys,
-        )}::text[], ${toPgTextArray(u.sshFingerprints)}::text[], now())
+        }, ${u.mail}, ${u.ipaAccountExpires}, ${u.ipaAccountExpires}, NULL)
         ON CONFLICT (uid) DO UPDATE SET
-          realm = ${realm},
-          uid_number = EXCLUDED.uid_number,
+          realm = ${legacyColumns.realm},
+          provider = ${provider},
+          profile = ${profile},
+          admin = false,
           given_name = EXCLUDED.given_name, sn = EXCLUDED.sn,
           display_name = EXCLUDED.display_name, mail = EXCLUDED.mail,
-          phone = EXCLUDED.phone, ipa_account_expires = EXCLUDED.ipa_account_expires,
-          ipa_password_expires = EXCLUDED.ipa_password_expires,
-          last_login_ipa = EXCLUDED.last_login_ipa,
-          employee_type = EXCLUDED.employee_type,
-          addr_street = EXCLUDED.addr_street,
-          addr_postal_code = EXCLUDED.addr_postal_code,
-          addr_city = EXCLUDED.addr_city,
-          addr_state = EXCLUDED.addr_state,
-          mobile = EXCLUDED.mobile,
-          ssh_public_keys = EXCLUDED.ssh_public_keys,
-          ssh_fingerprints = EXCLUDED.ssh_fingerprints,
-          synced_at = now()`;
+          account_expires = EXCLUDED.account_expires, ipa_account_expires = EXCLUDED.ipa_account_expires,
+          guest_expires_at = NULL
+        RETURNING id, (xmax = 0) AS inserted`;
+      await upsertUserIpaData(tx, { userId: upserted[0]!.id as string, ...u });
+      upsertedUsersByUid += 1;
+      if (Boolean(upserted[0]?.inserted)) insertedUsersByUid += 1;
+      else updatedUsersByUid += 1;
     }
 
-    // 2. Demote IPA/ipa-limited users not active anymore → guest (keep UID, clear uid_number + IPA fields)
-    if (activeUids.length > 0) {
-      await tx`
-        UPDATE auth.users
-        SET realm = 'guest', uid_number = NULL, synced_at = NULL,
-            employee_type = NULL, addr_street = NULL, addr_postal_code = NULL,
-            addr_city = NULL, addr_state = NULL, mobile = NULL,
-            ssh_public_keys = '{}', ssh_fingerprints = '{}',
-            ipa_account_expires = NULL, ipa_password_expires = NULL,
-            last_login_ipa = NULL
-        WHERE realm IN ('ipa', 'ipa-limited') AND uid NOT IN ${sql(activeUids)}`;
-    } else {
-      await tx`
-        UPDATE auth.users
-        SET realm = 'guest', uid_number = NULL, synced_at = NULL,
-            employee_type = NULL, addr_street = NULL, addr_postal_code = NULL,
-            addr_city = NULL, addr_state = NULL, mobile = NULL,
-            ssh_public_keys = '{}', ssh_fingerprints = '{}',
-            ipa_account_expires = NULL, ipa_password_expires = NULL,
-            last_login_ipa = NULL
-        WHERE realm IN ('ipa', 'ipa-limited')`;
-    }
-    await tx`DELETE FROM auth.user_groups WHERE user_id IN (SELECT id FROM auth.users WHERE realm = 'guest')`;
-    await tx`DELETE FROM auth.group_manager_users WHERE user_id IN (SELECT id FROM auth.users WHERE realm = 'guest')`;
+    for (const stale of staleLocalUsers) {
+      const userId = stale.id as string;
+      const uid = stale.uid as string;
+      const previousProfile = (stale.profile as "user" | "guest" | null) ?? "guest";
 
-    // 3. Upsert groups + delete stale
+      if (transitionPolicy === "delete") {
+        await writeDeletedAccountAudit({
+          db: tx,
+          userId,
+          uid,
+          mail: (stale.mail as string) ?? null,
+          displayName: (stale.display_name as string) ?? null,
+          previousProvider: "ipa",
+          previousProfile,
+          reason: "sync_out_of_scope_deleted",
+          meta: {
+            reason: "missing_from_ipa_sync_scope",
+          },
+        });
+        await tx`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+        staleDemotedUsers.push({ id: userId, uid });
+        continue;
+      }
+
+      const target = await applyIpaAccountTransitionPolicy({
+        userId,
+        currentProfile: previousProfile,
+        policy: transitionPolicy,
+        db: tx,
+      });
+      await writeDeletedAccountAudit({
+        db: tx,
+        userId,
+        uid,
+        mail: (stale.mail as string) ?? null,
+        displayName: (stale.display_name as string) ?? null,
+        previousProvider: "ipa",
+        previousProfile,
+        reason: "sync_out_of_scope_demoted",
+        meta: {
+          accountExpiresAt: target.accountExpires?.toISOString() ?? null,
+          targetProfile: target.targetProfile,
+          reason: "missing_from_ipa_sync_scope",
+        },
+      });
+      staleDemotedUsers.push({ id: userId, uid });
+    }
+
+    // 2. Upsert groups + delete stale
     for (const g of groups) {
       await tx`
-        INSERT INTO auth.groups (cn, description, gid_number, synced_at)
-        VALUES (${g.cn}, ${g.description}, ${g.gidnumber}, now())
-        ON CONFLICT (cn) DO UPDATE SET
-          description = EXCLUDED.description, gid_number = EXCLUDED.gid_number, synced_at = now()`;
+        INSERT INTO auth.groups (id, cn, name, provider, description, gid_number, synced_at)
+        VALUES (gen_random_uuid(), ${g.cn}, ${g.cn}, 'ipa', ${g.description}, ${g.gidnumber}, now())
+        ON CONFLICT (provider, name) DO UPDATE SET
+          cn = EXCLUDED.cn,
+          description = EXCLUDED.description,
+          gid_number = EXCLUDED.gid_number,
+          synced_at = now()`;
     }
     const groupCnArray = [...groupCns];
     if (groupCnArray.length > 0) {
-      await tx`DELETE FROM auth.groups WHERE cn NOT IN ${sql(groupCnArray)}`;
+      const deleted = await tx<DbRow[]>`
+        DELETE FROM auth.groups
+        WHERE provider = 'ipa'
+          AND name <> ALL(${freeipa.util.toPgTextArray(groupCnArray)}::text[])
+        RETURNING name
+      `;
+      deletedGroups = deleted.length;
     } else {
       log.warn("Skipping stale group deletion because resolved group list is empty");
     }
 
-    // 4. Upsert hosts + delete stale
-    for (const h of hosts) {
-      await tx`
-        INSERT INTO auth.hosts (fqdn, description, location, locality, mac_address, platform, os_version, ssh_fingerprints, synced_at)
-        VALUES (${h.fqdn}, ${h.description}, ${h.location}, ${h.locality}, ${toPgTextArray(h.macAddress)}::text[], ${h.platform}, ${
-          h.osVersion
-        }, ${toPgTextArray(h.sshFingerprints)}::text[], now())
-        ON CONFLICT (fqdn) DO UPDATE SET
-          description = EXCLUDED.description, location = EXCLUDED.location,
-          locality = EXCLUDED.locality,
-          mac_address = EXCLUDED.mac_address, platform = EXCLUDED.platform,
-          os_version = EXCLUDED.os_version, ssh_fingerprints = EXCLUDED.ssh_fingerprints,
-          synced_at = now()`;
-    }
-    if (hostFqdns.length > 0) {
-      await tx`DELETE FROM auth.hosts WHERE fqdn NOT IN ${sql(hostFqdns)}`;
-    } else {
-      log.warn("Skipping stale host deletion because resolved host list is empty");
-    }
+    const groupRows = await tx<DbRow[]>`SELECT id, name FROM auth.groups WHERE provider = 'ipa'`;
+    const groupNameToId = new Map<string, string>(groupRows.map((row) => [row.name as string, row.id as string]));
 
-    // 5. Upsert hostgroups + delete stale
-    for (const hg of hostgroups) {
-      await tx`
-        INSERT INTO auth.hostgroups (cn, description, synced_at)
-        VALUES (${hg.cn}, ${hg.description}, now())
-        ON CONFLICT (cn) DO UPDATE SET description = EXCLUDED.description, synced_at = now()`;
-    }
-    const hgCnArray = [...hostgroupCns];
-    if (hgCnArray.length > 0) {
-      await tx`DELETE FROM auth.hostgroups WHERE cn NOT IN ${sql(hgCnArray)}`;
-    } else {
-      log.warn("Skipping stale hostgroup deletion because resolved hostgroup list is empty");
-    }
+    // 3. Rebuild junction tables
+    await tx`DELETE FROM auth.user_groups_v2 WHERE group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')`;
+    await tx`
+      DELETE FROM auth.group_groups_v2
+      WHERE parent_group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')
+         OR child_group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')
+    `;
+    await tx`DELETE FROM auth.group_manager_users_v2 WHERE group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')`;
+    await tx`
+      DELETE FROM auth.group_manager_groups_v2
+      WHERE group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')
+         OR manager_group_id IN (SELECT id FROM auth.groups WHERE provider = 'ipa')
+    `;
 
-    // 6. Rebuild junction tables
-    await tx`TRUNCATE auth.user_groups, auth.group_groups, auth.group_manager_users, auth.group_manager_groups, auth.host_hostgroups, auth.hostgroup_hostgroups`;
-
-    const userIdRows: DbRow[] = await tx`SELECT id, uid FROM auth.users WHERE realm IN ('ipa', 'ipa-limited')`;
+    const userIdRows: DbRow[] = await tx`SELECT id, uid FROM auth.users WHERE provider = 'ipa'`;
     const uidToId = new Map<string, string>(userIdRows.map((r) => [r.uid as string, r.id as string]));
 
     // user_groups — built from group's member_user (authoritative source)
     for (const g of groups) {
+      const groupId = groupNameToId.get(g.cn);
+      if (!groupId) continue;
       for (const uid of g.users) {
         const userId = uidToId.get(uid);
-        if (userId) await tx`INSERT INTO auth.user_groups (user_id, group_cn) VALUES (${userId}, ${g.cn}) ON CONFLICT DO NOTHING`;
+        if (userId) {
+          await tx`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${userId}, ${groupId}) ON CONFLICT DO NOTHING`;
+        }
       }
     }
 
     // group_groups + manager junctions
     for (const g of groups) {
+      const groupId = groupNameToId.get(g.cn);
+      if (!groupId) continue;
       for (const child of g.groups) {
-        if (groupCns.has(child))
-          await tx`INSERT INTO auth.group_groups (parent_cn, child_cn) VALUES (${g.cn}, ${child}) ON CONFLICT DO NOTHING`;
+        const childGroupId = groupNameToId.get(child);
+        if (childGroupId) {
+          await tx`INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id) VALUES (${groupId}, ${childGroupId}) ON CONFLICT DO NOTHING`;
+        }
       }
       for (const uid of g.managerUsers) {
         const userId = uidToId.get(uid);
-        if (userId) await tx`INSERT INTO auth.group_manager_users (group_cn, user_id) VALUES (${g.cn}, ${userId}) ON CONFLICT DO NOTHING`;
+        if (userId) {
+          await tx`INSERT INTO auth.group_manager_users_v2 (group_id, user_id) VALUES (${groupId}, ${userId}) ON CONFLICT DO NOTHING`;
+        }
       }
       for (const mgr of g.managerGroups) {
-        if (groupCns.has(mgr))
-          await tx`INSERT INTO auth.group_manager_groups (group_cn, manager_cn) VALUES (${g.cn}, ${mgr}) ON CONFLICT DO NOTHING`;
+        const managerGroupId = groupNameToId.get(mgr);
+        if (managerGroupId) {
+          await tx`INSERT INTO auth.group_manager_groups_v2 (group_id, manager_group_id) VALUES (${groupId}, ${managerGroupId}) ON CONFLICT DO NOTHING`;
+        }
       }
     }
 
-    // host_hostgroups
-    for (const h of hosts) {
-      for (const hg of h.memberofHostgroup) {
-        if (hostgroupCns.has(hg))
-          await tx`INSERT INTO auth.host_hostgroups (host_fqdn, hostgroup_cn) VALUES (${h.fqdn}, ${hg}) ON CONFLICT DO NOTHING`;
-      }
-    }
-
-    // hostgroup_hostgroups
-    for (const hg of hostgroups) {
-      for (const child of hg.hostgroups) {
-        if (hostgroupCns.has(child))
-          await tx`INSERT INTO auth.hostgroup_hostgroups (parent_cn, child_cn) VALUES (${hg.cn}, ${child}) ON CONFLICT DO NOTHING`;
-      }
-    }
   });
+
+  for (const staleUser of staleDemotedUsers) {
+    try {
+      await session.deleteAllForUser(staleUser.id);
+    } catch (error) {
+      log.warn("Failed to revoke sessions after stale IPA demotion", {
+        userId: staleUser.id,
+        uid: staleUser.uid,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   log.info("Sync complete", {
-    users: activeUsers.length,
-    groups: groups.length,
-    hosts: hosts.length,
-    hostgroups: hostgroups.length,
+    durationMs: Date.now() - startedAt,
+    remoteUsersFetched: allRawUsers.length,
+    remoteUsersInScope: users.length,
+    remoteExpiredUsers: expiredUsers,
+    activeUsersSynced: activeUsers.length,
+    matchedExistingUsersByMail,
+    migratedLocalUsers,
+    skippedLocalMailConflicts,
+    skippedLocalUidConflicts,
+    staleUsersDemoted: staleDemotedUsers.length,
+    upsertedUsersByUid,
+    insertedUsersByUid,
+    updatedUsersByUid,
+    groupsSynced: groups.length,
+    deletedGroups,
+    localIpaUsersBefore: localIpaUsers,
+    localGroupsBefore: localGroups,
   });
-};
-
-/** Start the sync interval (initial sync + every 5 min). */
-let syncInterval: ReturnType<typeof setInterval> | undefined;
-
-export const startSyncInterval = async (): Promise<void> => {
-  if (syncInterval) return;
-
-  try {
-    await syncFromIpa();
-  } catch (e) {
-    log.error("Initial sync failed", {
-      error: e instanceof Error ? e.message : String(e),
-    });
-  }
-  syncInterval = setInterval(
-    async () => {
-      try {
-        await syncFromIpa();
-      } catch (e) {
-        log.error("Periodic sync failed", {
-          error: e instanceof Error ? e.message : String(e),
-        });
-      }
-    },
-    5 * 60 * 1000,
-  );
-};
-
-/**
- * Stops the periodic IPA sync interval.
- */
-export const stopSyncInterval = async (): Promise<void> => {
-  if (!syncInterval) return;
-  clearInterval(syncInterval);
-  syncInterval = undefined;
 };
 
 /**
@@ -494,10 +561,28 @@ export const stopSyncInterval = async (): Promise<void> => {
  * Realm is calculated from LOCAL DB group memberships (optimistically updated by mutations).
  */
 export const syncUser = async (username: string): Promise<void> => {
-  const session = await getServiceSession();
+  const config = getFreeIpaConfigSync();
+  if (!config.enabled) {
+    log.info("Single-user sync skipped", { reason: "freeipa_disabled", username });
+    return;
+  }
+  if (!config.configured) {
+    throw new Error("FreeIPA is enabled but not fully configured.");
+  }
+  const ipaSession = await freeipa.session.getServiceSession({
+    url: config.url,
+    serviceUser: config.serviceUser,
+    servicePassword: config.servicePassword,
+  });
 
   // Fetch user from FreeIPA
-  const userRes = await call(session, "user_show", [username], { all: true });
+  const userRes = await freeipa.client.call({
+    url: config.url,
+    ipaSession,
+    method: "user_show",
+    args: [username],
+    options: { all: true },
+  });
   if (userRes.error || !userRes.result?.result) {
     log.warn("Could not fetch user", {
       username,
@@ -516,44 +601,44 @@ export const syncUser = async (username: string): Promise<void> => {
   }
 
   // Check if user is in sync groups (from FreeIPA response)
-  const inSyncGroups = env.GROUPS_BASE_SYNC.some((g) => user.memberofGroup.includes(g));
+  const inSyncGroups = config.groupsBaseSync.some((g) => user.memberofGroup.includes(g));
   if (!inSyncGroups) {
     log.warn("User not in sync groups, skipping", { username });
     return;
   }
 
-  // Get user ID first to calculate realm from local DB
+  // Get user ID first to calculate the effective IPA profile from local DB state.
   const userRows: DbRow[] = await sql`SELECT id FROM auth.users WHERE uid = ${user.uid}`;
   if (userRows.length === 0) {
     log.warn("User not found in local DB", { username });
     return;
   }
 
-  // Calculate realm from LOCAL DB group memberships (not FreeIPA!)
+  // Calculate profile from LOCAL DB group memberships (not FreeIPA!)
   const userId = userRows[0]!.id as string;
-  const realm = await calculateRealmFromLocalDb(userId);
+  const profile = await calculateIpaProfileFromLocalDb(userId);
+  const provider = "ipa";
+  const legacyColumns = legacyAccountColumnsFromCanonical({
+    provider,
+    profile,
+    accountExpires: user.ipaAccountExpires,
+  });
 
   // Update user attributes only (no group sync!)
   await sql`
     UPDATE auth.users SET
-      realm = ${realm},
-      uid_number = ${user.uidNumber},
+      realm = ${legacyColumns.realm},
+      provider = ${provider},
+      profile = ${profile},
+      admin = false,
       given_name = ${user.givenname},
       sn = ${user.sn},
       display_name = ${user.displayName},
       mail = ${user.mail},
-      phone = ${user.phone},
+      account_expires = ${user.ipaAccountExpires},
       ipa_account_expires = ${user.ipaAccountExpires},
-      ipa_password_expires = ${user.ipaPasswordExpires},
-      employee_type = ${user.employeeType},
-      addr_street = ${user.addrStreet},
-      addr_postal_code = ${user.addrPostalCode},
-      addr_city = ${user.addrCity},
-      addr_state = ${user.addrState},
-      mobile = ${user.mobile},
-      ssh_public_keys = ${toPgTextArray(user.sshPublicKeys)}::text[],
-      ssh_fingerprints = ${toPgTextArray(user.sshFingerprints)}::text[],
-      synced_at = now()
+      guest_expires_at = NULL
     WHERE uid = ${user.uid}
   `;
+  await upsertUserIpaData(sql, { userId, ...user });
 };
