@@ -1,6 +1,6 @@
 import { topic } from "@valentinkolb/sync";
 import { z } from "zod";
-import { notebooksYjs } from "@valentinkolb/cloud/lib/shared";
+import { notebooksYjs } from "../lib/yjs";
 
 export const TOPIC_PREFIX = "cloud:notebooks:yjs";
 export const TOPIC_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;

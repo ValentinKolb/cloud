@@ -1,7 +1,7 @@
 import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud-contracts/shared";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
-import { notebooksYjs } from "../../shared";
+import { notebooksYjs } from "../../../lib/yjs";
 
 type YjsErrorCode = (typeof notebooksYjs.errorCode)[keyof typeof notebooksYjs.errorCode];
 

@@ -1,5 +1,5 @@
 import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud/contracts/shared";
-import { getNotebookPresenceColor } from "@valentinkolb/cloud/lib/shared";
+import { getNotebookPresenceColor } from "../lib/yjs";
 import { ephemeral } from "@valentinkolb/sync";
 import { z } from "zod";
 import { NODE_ID } from "./yjs-sync";

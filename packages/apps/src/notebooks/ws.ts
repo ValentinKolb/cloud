@@ -1,7 +1,7 @@
-import type { NotebookPresenceParticipant, SessionUser } from "@valentinkolb/cloud/contracts/shared";
-import { ipa, logger } from "@valentinkolb/cloud/core/services";
+import type { NotebookPresenceParticipant, User } from "@valentinkolb/cloud/contracts/shared";
+import { accounts, logger } from "@valentinkolb/cloud/core/services";
 import { auth } from "@valentinkolb/cloud/lib/server";
-import { notebooksYjs } from "@valentinkolb/cloud/lib/shared";
+import { notebooksYjs } from "./lib/yjs";
 import type { TopicLiveEvent } from "@valentinkolb/sync";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
@@ -80,7 +80,7 @@ type WsContext = {
   socket: ServerWebSocket<unknown>;
   phase: WsPhase;
   sessionToken: string | null;
-  user: SessionUser | null;
+  user: User | null;
   noteId: string | null;
   canWrite: boolean;
   peerId: string;
@@ -382,16 +382,16 @@ const fatal = async (ctx: WsContext, code: NotebooksYjsErrorCode, message: strin
 
 const ensureValidBase64 = (payload: string): boolean => payload.length > 0 && payload.length % 4 === 0 && BASE64_REGEX.test(payload);
 
-const resolveSessionUser = async (sessionToken: string | null): Promise<SessionUser | null> => {
+const resolveSessionUser = async (sessionToken: string | null): Promise<User | null> => {
   if (!sessionToken) return null;
   const session = await auth.session.getData(sessionToken);
   if (!session) return null;
-  return ipa.users.get({ id: session.userId });
+  return accounts.users.get({ id: session.userId });
 };
 
 const evaluateAccess = async (
   noteId: string,
-  user: SessionUser,
+  user: User,
   mode: "read" | "write",
   deniedCode: NotebooksYjsErrorCode,
 ): Promise<AccessEvaluation> => {
@@ -408,7 +408,7 @@ const evaluateAccess = async (
   const permission = await notebooksService.notebook.permission.get({
     notebookId: note.notebookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
 
   if (permission === "none") {

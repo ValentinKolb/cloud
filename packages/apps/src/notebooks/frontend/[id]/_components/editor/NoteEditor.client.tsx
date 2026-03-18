@@ -1,7 +1,8 @@
 import { EditorView, lineNumbers } from "@codemirror/view";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts/shared";
-import { editor, yjs } from "@valentinkolb/cloud/lib/browser";
-import { getNotebookPresenceColor } from "@valentinkolb/cloud/lib/shared";
+import { editor } from "../../../lib/editor";
+import { getNotebookPresenceColor } from "../../../lib/yjs";
+import { yjs } from "../../../lib/yjs";
 import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { createCodeMirror } from "solid-codemirror";
 import { createSignal, onCleanup, onMount } from "solid-js";

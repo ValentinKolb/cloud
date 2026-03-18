@@ -36,7 +36,7 @@ export default ssr<AuthContext>(async (c) => {
   const permission = await notebooksService.notebook.permission.get({
     notebookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
   if (permission === "none") {
     return (

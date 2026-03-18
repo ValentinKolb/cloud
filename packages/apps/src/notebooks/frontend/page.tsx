@@ -14,7 +14,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const notebookPage = await notebooksService.notebook.list({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
   });
   const notebooks = notebookPage.items;
 

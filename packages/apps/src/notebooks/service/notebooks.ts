@@ -55,9 +55,12 @@ export type NotebookAdminListItem = Notebook & {
 // ==========================
 
 /**
- * Escapes group CN values into a Postgres `text[]` literal for notebook access filters.
+ * Escapes group IDs into a Postgres `uuid[]` literal for notebook access filters.
  */
-const toPgTextArray = (values: string[]): string => `{${values.map((value) => `"${value.replace(/"/g, '\\"')}"`).join(",")}}`;
+const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
 
 /**
  * Converts one `notebooks.notebooks` row into the API-facing `Notebook` model.
@@ -115,7 +118,8 @@ export const list = async (params: {
   query?: string;
   pagination?: { limit: number; offset: number };
 }): Promise<{ items: Notebook[]; total: number }> => {
-  const { userId, groups } = params;
+  const { userId } = params;
+  const groups = params.groups ?? [];
   const query = params.query?.trim().toLowerCase();
   const pattern = query && query.length > 0 ? `%${query}%` : null;
 
@@ -138,9 +142,9 @@ export const list = async (params: {
             WHERE na.notebook_id = n.id
               AND (
                 a.user_id = ${userId}::uuid
-                OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+                OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
                 OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-                OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+                OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
               )
           )
             AND (
@@ -167,9 +171,9 @@ export const list = async (params: {
             WHERE na.notebook_id = n.id
               AND (
                 a.user_id = ${userId}::uuid
-                OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+                OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
                 OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-                OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+                OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
               )
           )
             AND (
@@ -192,9 +196,9 @@ export const list = async (params: {
       WHERE na.notebook_id = n.id
         AND (
           a.user_id = ${userId}::uuid
-          OR a.group_cn = ANY(${toPgTextArray(groups)}::text[])
+          OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
           OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
         )
     )
       AND (

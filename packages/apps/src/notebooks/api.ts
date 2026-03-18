@@ -138,7 +138,7 @@ const checkNotebookAccess = async (c: Context<AuthContext>, notebookId: string, 
   const hasAccess = await notebooksService.notebook.permission.canAccess({
     notebookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
     requiredLevel,
   });
 
@@ -153,7 +153,7 @@ const checkNotebookAccess = async (c: Context<AuthContext>, notebookId: string, 
   const permission = await notebooksService.notebook.permission.get({
     notebookId,
     userId: user.id,
-    userGroups: user.memberofGroup,
+    userGroups: user.memberofGroupIds,
   });
 
   return { notebook, permission };
@@ -218,7 +218,7 @@ const app = new Hono<AuthContext>()
       const pagination = parsePagination(query);
       const result = await notebooksService.notebook.list({
         userId: user.id,
-        groups: user.memberofGroup,
+        groups: user.memberofGroupIds,
         pagination,
         filter: { query: query.q },
       });

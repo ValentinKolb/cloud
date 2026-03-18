@@ -3,7 +3,7 @@ import { StateField, RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
-import { formatDateTime } from "@/shared/date";
+import { dates } from "@valentinkolb/cloud/lib/shared";
 import dayjs from "dayjs";
 
 type TableData = {
@@ -69,7 +69,7 @@ export function createTable(data: { headers: string[]; rows: any[][] }, perPage:
       (typeof cell === "object" && cell && dayjs.isDayjs(cell)) ||
       (typeof cell === "string" && cell.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/))
     ) {
-      return formatDateTime(dayjs.isDayjs(cell) ? cell.toDate() : cell);
+      return dates.formatDateTime(dayjs.isDayjs(cell) ? cell.toDate() : cell);
     }
     return String(cell);
   };

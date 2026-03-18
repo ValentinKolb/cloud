@@ -1,5 +1,7 @@
 export type * from "./calendar";
 export { calendar } from "./calendar";
+export * from "./account-display";
+export * from "./account-session";
 export type * from "./date";
 export { dates } from "./date";
 export type * from "./encoding";
@@ -11,5 +13,3 @@ export { gradients } from "./gradients";
 export type * from "./icons";
 export { icons } from "./icons";
 export { markdown } from "./markdown";
-export type * from "./notebooks-yjs";
-export { getNotebookPresenceColor, notebooksYjs } from "./notebooks-yjs";

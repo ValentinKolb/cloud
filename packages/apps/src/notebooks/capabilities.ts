@@ -23,7 +23,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
 
   const notebooksPage = await notebooksService.notebook.list({
     userId: user.id,
-    groups: user.memberofGroup,
+    groups: user.memberofGroupIds,
     pagination: { page: 1, perPage: input.limit },
     filter: { query: input.query },
   });

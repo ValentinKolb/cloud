@@ -16,19 +16,20 @@ import {
 type DbNotebookAccess = {
   access_id: string;
   user_id: string | null;
-  group_cn: string | null;
+  group_id: string | null;
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
   user_display_name: string | null;
   user_uid: string | null;
+  group_name: string | null;
 };
 
 const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
   const principal: AccessEntry["principal"] = row.user_id
     ? { type: "user", userId: row.user_id }
-    : row.group_cn
-      ? { type: "group", groupCn: row.group_cn }
+    : row.group_id
+      ? { type: "group", groupId: row.group_id }
       : row.authenticated_only
         ? { type: "authenticated" }
         : { type: "public" };
@@ -37,7 +38,7 @@ const mapAccessRow = (row: DbNotebookAccess): AccessEntry => {
     principal.type === "user"
       ? row.user_display_name || row.user_uid || "Unknown User"
       : principal.type === "group"
-        ? principal.groupCn
+        ? row.group_name || "Unknown Group"
         : principal.type === "authenticated"
           ? "All users (incl. guests)"
           : "Public";
@@ -74,29 +75,30 @@ export const listNotebookAccessPage = async (config: {
   const principalCondition =
     principalType === undefined
       ? sql`true`
-      : principalType === "user"
-        ? sql`a.user_id IS NOT NULL`
+        : principalType === "user"
+          ? sql`a.user_id IS NOT NULL`
         : principalType === "group"
-          ? sql`a.group_cn IS NOT NULL`
-          : principalType === "authenticated"
-            ? sql`a.authenticated_only = true`
-            : sql`a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false`;
+          ? sql`a.group_id IS NOT NULL`
+        : principalType === "authenticated"
+          ? sql`a.authenticated_only = true`
+            : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false`;
 
   const baseQuery = sql`
     FROM notebooks.notebook_access na
     JOIN auth.access a ON na.access_id = a.id
     LEFT JOIN auth.users u ON u.id = a.user_id
+    LEFT JOIN auth.groups g ON g.id = a.group_id
     WHERE na.notebook_id = ${config.notebookId}::uuid
       AND ${principalCondition}
       AND (
         ${pattern}::text IS NULL
         OR LOWER(COALESCE(u.display_name, u.uid, '')) LIKE ${pattern}
-        OR LOWER(COALESCE(a.group_cn, '')) LIKE ${pattern}
+        OR LOWER(COALESCE(g.name, '')) LIKE ${pattern}
         OR LOWER(COALESCE(a.user_id::text, '')) LIKE ${pattern}
         OR (a.authenticated_only = true AND 'all users incl guests authenticated' LIKE ${pattern})
         OR (
           a.user_id IS NULL
-          AND a.group_cn IS NULL
+          AND a.group_id IS NULL
           AND a.authenticated_only = false
           AND 'public' LIKE ${pattern}
         )
@@ -109,18 +111,19 @@ export const listNotebookAccessPage = async (config: {
           SELECT
             a.id as access_id,
             a.user_id,
-            a.group_cn,
+            a.group_id,
             a.authenticated_only,
             a.permission,
             a.created_at,
             u.display_name AS user_display_name,
-            u.uid AS user_uid
+            u.uid AS user_uid,
+            g.name AS group_name
           ${baseQuery}
           ORDER BY
             CASE
-              WHEN a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false THEN 4
+              WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false THEN 4
               WHEN a.authenticated_only THEN 3
-              WHEN a.group_cn IS NOT NULL THEN 2
+              WHEN a.group_id IS NOT NULL THEN 2
               ELSE 1
             END,
             a.created_at
@@ -129,18 +132,19 @@ export const listNotebookAccessPage = async (config: {
           SELECT
             a.id as access_id,
             a.user_id,
-            a.group_cn,
+            a.group_id,
             a.authenticated_only,
             a.permission,
             a.created_at,
             u.display_name AS user_display_name,
-            u.uid AS user_uid
+            u.uid AS user_uid,
+            g.name AS group_name
           ${baseQuery}
           ORDER BY
             CASE
-              WHEN a.user_id IS NULL AND a.group_cn IS NULL AND a.authenticated_only = false THEN 4
+              WHEN a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false THEN 4
               WHEN a.authenticated_only THEN 3
-              WHEN a.group_cn IS NOT NULL THEN 2
+              WHEN a.group_id IS NOT NULL THEN 2
               ELSE 1
             END,
             a.created_at
@@ -283,7 +287,7 @@ export const grantNotebookAccess = async (params: {
     if (principal.type === "public" && e.principal.type === "public") return true;
     if (principal.type === "authenticated" && e.principal.type === "authenticated") return true;
     if (principal.type === "user" && e.principal.type === "user" && principal.userId === e.principal.userId) return true;
-    if (principal.type === "group" && e.principal.type === "group" && principal.groupCn === e.principal.groupCn) return true;
+    if (principal.type === "group" && e.principal.type === "group" && principal.groupId === e.principal.groupId) return true;
     return false;
   });
 
