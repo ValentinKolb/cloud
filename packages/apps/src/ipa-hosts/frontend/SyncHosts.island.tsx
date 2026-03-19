@@ -45,7 +45,7 @@ const SyncHosts = () => {
   };
 
   return (
-    <button type="button" class="btn-simple btn-sm" onClick={handleClick} disabled={mutation.loading()}>
+    <button type="button" class="btn-input btn-sm" onClick={handleClick} disabled={mutation.loading()}>
       <i class={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} />
       Sync now
     </button>

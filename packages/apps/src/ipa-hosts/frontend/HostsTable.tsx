@@ -11,28 +11,30 @@ type Props = {
 const HostsTable = (props: Props) => {
   return props.hosts.length > 0 ? (
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
+      <table class="w-full text-xs">
         <thead>
-          <tr class="border-b border-zinc-200 bg-zinc-50/50 dark:border-zinc-700 dark:bg-zinc-800/30">
-            <th class="px-4 py-2 text-left text-xs font-medium text-dimmed">FQDN</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-dimmed">Description</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-dimmed">Location</th>
-            <th class="px-4 py-2 text-left text-xs font-medium text-dimmed">MAC</th>
-            <th class="px-4 py-2 text-right text-xs font-medium text-dimmed">Actions</th>
+          <tr class="border-b border-zinc-100 dark:border-zinc-800">
+            <th class="px-3 py-2 text-left font-medium text-dimmed">FQDN</th>
+            <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
+            <th class="px-3 py-2 text-left font-medium text-dimmed">Location</th>
+            <th class="px-3 py-2 text-left font-medium text-dimmed">MAC</th>
+            <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
+              <span class="sr-only">Actions</span>
+            </th>
           </tr>
         </thead>
         <tbody>
           {props.hosts.map((host) => (
-            <tr class="border-b border-zinc-100 hover:bg-zinc-50 last:border-0 dark:border-zinc-800 dark:hover:bg-zinc-800/30">
-              <td class="px-4 py-2">
+            <tr class="border-b border-zinc-50 hover:bg-zinc-50 last:border-0 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+              <td class="px-3 py-1.5">
                 <div class="flex items-center gap-1.5">
-                  <span class="max-w-[260px] truncate text-xs font-medium">{host.fqdn}</span>
+                  <span class="max-w-[260px] truncate font-medium text-primary">{host.fqdn}</span>
                   <CopyButton text={host.fqdn} class="icon-btn h-5 w-5 text-xs text-dimmed" />
                 </div>
               </td>
-              <td class="max-w-[200px] truncate px-4 py-2 text-xs text-dimmed">{host.description || "-"}</td>
-              <td class="whitespace-nowrap px-4 py-2 text-xs text-dimmed">{[host.locality, host.location].filter(Boolean).join(" · ") || "-"}</td>
-              <td class="px-4 py-2">
+              <td class="max-w-[220px] truncate px-3 py-1.5 text-dimmed">{host.description || "-"}</td>
+              <td class="whitespace-nowrap px-3 py-1.5 text-dimmed">{[host.locality, host.location].filter(Boolean).join(" · ") || "-"}</td>
+              <td class="px-3 py-1.5">
                 {host.macAddress.length > 0 ? (
                   <div class="flex flex-col gap-0.5">
                     {host.macAddress.map((mac) => (
@@ -46,7 +48,7 @@ const HostsTable = (props: Props) => {
                   <span class="text-xs text-dimmed">-</span>
                 )}
               </td>
-              <td class="px-4 py-2 text-right">
+              <td class="px-3 py-1.5 text-right">
                 <EditHost
                   fqdn={host.fqdn}
                   description={host.description}
@@ -63,7 +65,7 @@ const HostsTable = (props: Props) => {
       </table>
     </div>
   ) : (
-    <div class="px-4 py-6 text-center text-xs text-dimmed">{props.emptyMessage ?? "No hosts found."}</div>
+    <div class="px-3 py-6 text-center text-xs text-dimmed">{props.emptyMessage ?? "No hosts found."}</div>
   );
 };
 

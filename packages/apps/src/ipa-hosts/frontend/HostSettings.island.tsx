@@ -52,7 +52,7 @@ const HostSettings = () => {
   };
 
   return (
-    <button type="button" class="btn-simple btn-sm" onClick={handleSettings} disabled={saveMutation.loading()}>
+    <button type="button" class="btn-input btn-sm" onClick={handleSettings} disabled={saveMutation.loading()}>
       <i class={saveMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-settings"} />
       Settings
     </button>

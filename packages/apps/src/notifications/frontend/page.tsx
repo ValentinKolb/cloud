@@ -66,74 +66,72 @@ export default ssr<AuthContext>(async (c) => {
   };
 
   return (
-    <AdminLayout c={c} title="Notifications">
-      <div class="max-w-6xl mx-auto flex flex-col gap-4">
-        <div class="flex items-center justify-between gap-4" style="view-transition-name: page-header">
-          <h1 class="text-xl font-bold text-primary">Notifications</h1>
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-dimmed">{total} total</span>
-            <SendAllPending />
+    <AdminLayout c={c} title="Notifications" fullHeight>
+      <div class="flex-1 min-h-0 overflow-y-auto">
+        <div class="flex flex-col gap-2 p-4">
+          <div class="min-w-0" style="view-transition-name: admin-notifications-title">
+            <h1 class="text-base font-semibold text-primary">Notifications</h1>
+            <p class="mt-1 text-xs text-dimmed">{total} entries</p>
           </div>
-        </div>
 
-        <SearchBar />
+          <SearchBar action="/admin/notifications" value={search} placeholder="Search notifications..." ariaLabel="Search notifications" />
 
-        {notifs.length > 0 ? (
-          <div class="paper overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50">
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Status</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Recipient</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Subject</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Sent By</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Created</th>
-                    <th class="text-right px-4 py-3 font-medium text-dimmed">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {notifs.map((n) => (
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800 last:border-0 hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
-                      <td class="px-4 py-3">{getStatusBadge(n.status)}</td>
-                      <td class="px-4 py-3">
-                        <span class="font-mono text-xs">{n.recipient}</span>
-                      </td>
-                      <td class="px-4 py-3">
-                        <span class="line-clamp-1 max-w-xs" title={n.subject}>
-                          {n.subject}
-                        </span>
-                        {n.error && (
-                          <span class="block text-xs text-red-500 line-clamp-1" title={n.error}>
-                            {n.error}
-                          </span>
-                        )}
-                      </td>
-                      <td class="px-4 py-3 text-dimmed">{n.sentByName ?? <span class="italic">System</span>}</td>
-                      <td class="px-4 py-3 text-dimmed whitespace-nowrap">{formatDate(n.createdAt)}</td>
-                      <td class="px-4 py-3 text-right">
-                        <NotificationActions
-                          id={n.id}
-                          status={n.status}
-                          subject={n.subject}
-                          content={n.content}
-                          recipient={n.recipient}
-                          isAdmin={hasRole(user, "admin")}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="ml-auto">
+              <SendAllPending />
             </div>
           </div>
-        ) : (
-          <div class="paper p-6 text-center text-sm text-dimmed">
-            {search ? "No notifications found matching your search." : "No notifications found."}
-          </div>
-        )}
 
-        <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={baseUrl} />
+          {notifs.length > 0 ? (
+            <section class="paper overflow-hidden" style="view-transition-name: admin-notifications-table">
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead>
+                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Status</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Recipient</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Subject</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Sent by</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Created</th>
+                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
+                        <span class="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {notifs.map((notification) => (
+                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+                        <td class="px-3 py-1.5">{getStatusBadge(notification.status)}</td>
+                        <td class="px-3 py-1.5 font-mono text-[11px]">{notification.recipient}</td>
+                        <td class="max-w-[28rem] truncate px-3 py-1.5 text-primary" title={notification.error ? `${notification.subject} · ${notification.error}` : notification.subject}>
+                          {notification.subject}
+                        </td>
+                        <td class="px-3 py-1.5 text-dimmed">{notification.sentByName ?? <span class="italic">System</span>}</td>
+                        <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{formatDate(notification.createdAt)}</td>
+                        <td class="px-3 py-1.5 text-right">
+                          <NotificationActions
+                            id={notification.id}
+                            status={notification.status}
+                            subject={notification.subject}
+                            content={notification.content}
+                            recipient={notification.recipient}
+                            isAdmin={hasRole(user, "admin")}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : (
+            <section class="paper p-6 text-center text-sm text-dimmed">
+              {search ? "No notifications found matching your search." : "No notifications found."}
+            </section>
+          )}
+
+          <Pagination currentPage={pagination.page} totalPages={pagination.total_pages} baseUrl={baseUrl} />
+        </div>
       </div>
     </AdminLayout>
   );

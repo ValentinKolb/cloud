@@ -21,83 +21,86 @@ export default ssr<AuthContext>(async (c) => {
   };
 
   return (
-    <AdminLayout c={c} title="OAuth">
-      <div class="max-w-6xl mx-auto flex flex-col gap-4">
-        <div class="flex items-center justify-between gap-4" style="view-transition-name: page-header">
-          <h1 class="text-xl font-bold text-primary">OAuth</h1>
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-dimmed">{clients.length} clients</span>
+    <AdminLayout c={c} title="OAuth" fullHeight>
+      <div class="flex-1 min-h-0 overflow-y-auto">
+        <div class="flex flex-col gap-2 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3" style="view-transition-name: admin-oauth-toolbar">
+            <div class="min-w-0">
+              <h1 class="text-base font-semibold text-primary">OAuth</h1>
+              <p class="mt-1 text-xs text-dimmed">{clients.length} clients</p>
+            </div>
             <CreateClientButton />
           </div>
-        </div>
 
-        {clients.length > 0 ? (
-          <div class="paper overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50">
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Name</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Description</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Type</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Scopes</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Profiles</th>
-                    <th class="text-left px-4 py-3 font-medium text-dimmed">Created</th>
-                    <th class="text-right px-4 py-3 font-medium text-dimmed">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {clients.map((client) => (
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800 last:border-0 hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
-                      <td class="px-4 py-3 font-medium">{client.name}</td>
-                      <td class="px-4 py-3 text-dimmed text-xs max-w-xs truncate">
-                        {client.description || <span class="italic">No description</span>}
-                      </td>
-                      <td class="px-4 py-3">
-                        {client.isPublic ? (
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                            Public
-                          </span>
-                        ) : (
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-300">
-                            Confidential
-                          </span>
-                        )}
-                      </td>
-                      <td class="px-4 py-3">
-                        <div class="flex flex-wrap gap-1">
-                          {client.scopes.map((scope) => (
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-dimmed">{scope}</span>
-                          ))}
-                        </div>
-                      </td>
-                      <td class="px-4 py-3">
-                        <div class="flex flex-wrap gap-1">
-                          {client.allowedProfiles.map((profile) => (
-                            <span class="text-xs px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-400">
-                              {profile}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td class="px-4 py-3 text-dimmed whitespace-nowrap">{formatDate(client.createdAt)}</td>
-                      <td class="px-4 py-3 text-right">
-                        <ClientActions client={client} />
-                      </td>
+          {clients.length > 0 ? (
+            <section class="paper overflow-hidden" style="view-transition-name: admin-oauth-table">
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead>
+                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Client</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Type</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Scopes</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Profiles</th>
+                      <th class="px-3 py-2 text-left font-medium text-dimmed">Created</th>
+                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
+                        <span class="sr-only">Actions</span>
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div class="paper p-6 text-center text-sm text-dimmed">
-            No OAuth clients found. Create one to allow external applications to authenticate users.
-          </div>
-        )}
+                  </thead>
+                  <tbody>
+                    {clients.map((client) => (
+                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+                        <td class="px-3 py-1.5 font-medium text-primary">{client.name}</td>
+                        <td class="max-w-[18rem] truncate px-3 py-1.5 text-dimmed" title={client.description || "No description"}>
+                          {client.description || <span class="italic">No description</span>}
+                        </td>
+                        <td class="px-3 py-1.5">
+                          <span
+                            class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                              client.isPublic
+                                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                            }`}
+                          >
+                            {client.isPublic ? "Public" : "Confidential"}
+                          </span>
+                        </td>
+                        <td class="px-3 py-1.5">
+                          <div class="flex flex-wrap gap-1">
+                            {client.scopes.map((scope) => (
+                              <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-dimmed dark:bg-zinc-800">{scope}</span>
+                            ))}
+                          </div>
+                        </td>
+                        <td class="px-3 py-1.5">
+                          <div class="flex flex-wrap gap-1">
+                            {client.allowedProfiles.map((profile) => (
+                              <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                {profile}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{formatDate(client.createdAt)}</td>
+                        <td class="px-3 py-1.5 text-right">
+                          <ClientActions client={client} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : (
+            <section class="paper p-6 text-center text-sm text-dimmed">
+              No OAuth clients found. Create one to allow external applications to authenticate users.
+            </section>
+          )}
 
-        <div class="info-block-info p-4">
-          <h2 class="text-sm font-medium mb-3">Discovery Endpoints</h2>
+          <section class="info-block-info p-4" style="view-transition-name: admin-oauth-reference">
+            <h2 class="mb-3 text-sm font-medium">Discovery Endpoints</h2>
           <div class="space-y-1 text-xs font-mono mb-4">
             <div class="flex flex-col gap-0.5">
               <span class="opacity-70">OpenID Configuration:</span>
@@ -113,7 +116,7 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           </div>
 
-          <h2 class="text-sm font-medium mb-2 border-t border-blue-300 dark:border-blue-700 pt-4">OAuth Endpoints</h2>
+            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">OAuth Endpoints</h2>
           <div class="space-y-2 text-xs font-mono mb-4">
             <div class="flex flex-col gap-0.5">
               <span class="opacity-70">Authorization Endpoint URL:</span>
@@ -133,7 +136,7 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           </div>
 
-          <h2 class="text-sm font-medium mb-2 border-t border-blue-300 dark:border-blue-700 pt-4">Available Scopes</h2>
+            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">Available Scopes</h2>
           <div class="space-y-2 text-xs mb-4">
             <div class="flex gap-2">
               <code class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900 font-medium">openid</code>
@@ -153,24 +156,25 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           </div>
 
-          <h2 class="text-sm font-medium mb-2 border-t border-blue-300 dark:border-blue-700 pt-4">Claim Mapping</h2>
-          <div class="space-y-1 text-xs font-mono">
+            <h2 class="mb-2 border-t border-blue-300 pt-4 text-sm font-medium dark:border-blue-700">Claim Mapping</h2>
+            <div class="space-y-1 text-xs font-mono">
             <div>
-              <span class="opacity-70">ID Claim:</span> <code>sub</code> oder <code>uid</code> <span class="opacity-60">(Username)</span>
+                <span class="opacity-70">ID Claim:</span> <code>sub</code> or <code>uid</code> <span class="opacity-60">(username)</span>
             </div>
             <div>
-              <span class="opacity-70">Database ID:</span> <code>id</code> <span class="opacity-60">(UUID)</span>
+                <span class="opacity-70">Database ID:</span> <code>id</code> <span class="opacity-60">(UUID)</span>
             </div>
             <div>
-              <span class="opacity-70">Display Name Claim:</span> <code>display_name</code>
+                <span class="opacity-70">Display Name Claim:</span> <code>display_name</code>
             </div>
             <div>
-              <span class="opacity-70">Email Claim:</span> <code>email</code>
+                <span class="opacity-70">Email Claim:</span> <code>email</code>
             </div>
             <div>
-              <span class="opacity-70">Groups Claim:</span> <code>groups</code>
+                <span class="opacity-70">Groups Claim:</span> <code>groups</code>
+              </div>
             </div>
-          </div>
+          </section>
         </div>
       </div>
     </AdminLayout>

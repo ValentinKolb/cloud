@@ -44,8 +44,8 @@ const NewHostgroup = () => {
   };
 
   return (
-    <button type="button" class="btn-simple btn-sm" onClick={handleClick} disabled={mutation.loading()}>
-      <i class="ti ti-plus" />
+    <button type="button" class="btn-input btn-sm" onClick={handleClick} disabled={mutation.loading()}>
+      <i class={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
       New Hostgroup
     </button>
   );
