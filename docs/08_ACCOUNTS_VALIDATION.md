@@ -18,15 +18,11 @@ This validation is mapped to skills and was executed after the Accounts cleanup.
 
 ## File-Level Review
 
-### Services
+### Core Account Facade
 
 | File | Status | Notes |
 | --- | --- | --- |
-| `cloud/packages/apps/src/accounts/service/index.ts` | pass | Facade shape is consistent. |
-| `cloud/packages/apps/src/accounts/service/users.ts` | pass | Functional, stateless; concise behavioral docstrings added. |
-| `cloud/packages/apps/src/accounts/service/groups.ts` | pass | Nested domain structure kept; concise behavioral docstrings added. |
-| `cloud/packages/apps/src/accounts/service/account-requests.ts` | pass | Access rules preserved; concise behavioral docstrings added. |
-| `cloud/packages/apps/src/accounts/service/shared.ts` | pass | Shared pagination/error adapters are stable and minimal. |
+| `cloud/packages/core/src/services/accounts/app.ts` | pass | App-facing facade now lives in core; Accounts app no longer owns a domain service layer. |
 
 ### API
 
