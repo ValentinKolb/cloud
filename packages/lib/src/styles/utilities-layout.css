@@ -1,4 +1,4 @@
-/* Layout, containers, dividers, and prose styles */
+/* Layout, containers, dividers, and prose styles — flat, solid surfaces */
 @utility section {
   @apply py-5;
 }
@@ -7,7 +7,7 @@
   @apply mx-auto max-w-[65ch] px-2 py-4 pb-10 transition-[max-width] duration-500 ease-in-out md:px-4 lg:max-w-[80ch] [&_img]:mx-auto [&_img]:max-h-[50vh] [&_img]:w-auto;
 
   & img {
-    @apply rounded-2xl;
+    @apply rounded-lg;
   }
 }
 
@@ -16,23 +16,22 @@
 }
 
 @utility paper {
-  box-shadow: var(--theme-shadow-elevated);
-  @apply rounded-2xl transition-all duration-200;
-  @apply bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-white/20 dark:border-zinc-700/25;
+  @apply rounded-lg transition-colors duration-150;
+  @apply bg-white border border-zinc-100;
+  @apply dark:bg-zinc-900 dark:border-zinc-800;
 }
 
 @utility dialog-panel {
   @apply fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2;
   @apply w-full max-w-md max-h-[90vh] p-4 overflow-x-hidden overflow-y-auto;
-  @apply backdrop:bg-black/30;
-  @apply rounded-2xl bg-white/70 dark:bg-zinc-900/70;
-  @apply backdrop-blur-xl border border-white/20 dark:border-zinc-700/30;
-  @apply shadow-xl backdrop:backdrop-blur-sm;
+  @apply backdrop:bg-black/40;
+  @apply rounded-lg bg-white dark:bg-zinc-900;
+  @apply border border-zinc-200 dark:border-zinc-800;
+  @apply shadow-lg;
 }
 
 @utility paper-highlighted {
-  @apply paper dark:border-zinc-600/40;
-  box-shadow: var(--theme-shadow-hover);
+  @apply paper border-zinc-300 dark:border-zinc-700;
 }
 
 @utility no-scrollbar {
@@ -118,6 +117,6 @@
   }
 
   hr {
-    @apply my-8 border-zinc-300 dark:border-zinc-700;
+    @apply my-8 border-zinc-200 dark:border-zinc-800;
   }
 }

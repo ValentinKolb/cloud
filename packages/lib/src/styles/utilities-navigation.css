@@ -1,10 +1,10 @@
-/* Navigation and list interaction utilities */
+/* Navigation and list interaction utilities — flat, solid surfaces */
 @utility list-item {
   display: flex !important;
   padding: var(--theme-list-padding);
   border-left: var(--theme-list-inactive-border);
   @apply rounded-lg items-center gap-2 text-sm leading-none cursor-pointer text-dimmed;
-  @apply transition-[background-color,color,box-shadow] duration-150 ease-out hover:text-secondary;
+  @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
 
   & + .list-item {
     margin-top: 0.25rem;
@@ -17,8 +17,8 @@
 
 /* Sidebar layout primitives */
 @utility sidebar {
-  @apply flex h-full min-h-0 flex-col rounded-2xl border border-zinc-200/70 bg-zinc-50/70 p-2;
-  @apply dark:border-zinc-700/70 dark:bg-zinc-900/40;
+  @apply flex h-full min-h-0 flex-col rounded-lg border border-zinc-200 bg-white p-2;
+  @apply dark:border-zinc-800 dark:bg-zinc-900;
 }
 
 @utility sidebar-container {
@@ -97,7 +97,7 @@
 @utility sidebar-item {
   display: flex !important;
   @apply min-h-8 items-center gap-2 rounded-lg px-2 py-1.5 text-xs leading-none text-dimmed;
-  @apply transition-[background-color,color,box-shadow] duration-150 ease-out hover:text-secondary;
+  @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
 
   &:hover {
     background: var(--theme-list-hover-bg);
@@ -109,10 +109,10 @@
 }
 
 @utility sidebar-item-active {
-  @apply bg-blue-50/70 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35;
-  @apply hover:bg-blue-100/75 hover:text-blue-700;
-  @apply dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40;
-  @apply dark:hover:bg-blue-900/55 dark:hover:text-blue-200;
+  @apply bg-blue-50 text-blue-700 font-medium;
+  @apply hover:bg-blue-100 hover:text-blue-700;
+  @apply dark:bg-blue-950 dark:text-blue-300;
+  @apply dark:hover:bg-blue-900 dark:hover:text-blue-200;
 }
 
 @utility sidebar-item-meta {
@@ -120,9 +120,9 @@
 }
 
 @utility sidebar-item-action {
-  @apply ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-dimmed;
-  @apply transition-colors duration-150 ease-out hover:text-secondary hover:bg-zinc-200/60;
-  @apply dark:hover:bg-zinc-700/60;
+  @apply ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-dimmed;
+  @apply transition-colors duration-150 ease-out hover:text-secondary hover:bg-zinc-100;
+  @apply dark:hover:bg-zinc-800;
 }
 
 /* Sidebar tree primitives */
@@ -138,7 +138,7 @@
   display: flex !important;
   padding-left: calc(var(--sidebar-level, 0) * 0.75rem + 0.625rem);
   @apply min-h-8 items-center gap-2 rounded-lg py-1 pr-2 text-xs text-dimmed;
-  @apply transition-[background-color,color,box-shadow] duration-150 ease-out hover:text-secondary;
+  @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
 
   &:hover {
     background: var(--theme-list-hover-bg);
@@ -155,10 +155,10 @@
 
 @utility list-item-active {
   border-left: var(--theme-list-active-border);
-  @apply rounded-lg bg-blue-50/70 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35;
-  @apply hover:bg-blue-100/75 hover:text-blue-700;
-  @apply dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40;
-  @apply dark:hover:bg-blue-900/55 dark:hover:text-blue-200;
+  @apply rounded-lg bg-blue-50 text-blue-700 font-medium;
+  @apply hover:bg-blue-100 hover:text-blue-700;
+  @apply dark:bg-blue-950 dark:text-blue-300;
+  @apply dark:hover:bg-blue-900 dark:hover:text-blue-200;
 }
 
 @utility section-label {
@@ -169,7 +169,7 @@
   border-right: var(--theme-rail-item-inactive-border-r);
   @apply w-8 h-8 rounded-lg;
   @apply flex items-center justify-center text-dimmed;
-  @apply transition-[background-color,color,box-shadow] duration-150 ease-out;
+  @apply transition-[background-color,color] duration-150 ease-out;
 
   &:hover {
     background: var(--theme-list-hover-bg);
@@ -180,8 +180,7 @@
 @utility rail-item-active {
   border-right: var(--theme-rail-item-active-border-r);
   @apply rounded-lg text-blue-600 dark:text-blue-300;
-  @apply bg-blue-50/70 dark:bg-blue-950/40;
-  @apply ring-1 ring-inset ring-blue-500/35 dark:ring-blue-400/40;
+  @apply bg-blue-50 dark:bg-blue-950;
 }
 
 @utility bottom-bar-item {

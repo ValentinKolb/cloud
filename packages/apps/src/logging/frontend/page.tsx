@@ -1,11 +1,10 @@
 import { ssr } from "@valentinkolb/cloud/core/config";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
 import { AdminLayout } from "@valentinkolb/cloud/core/ssr";
-import { Pagination, LogEntriesTable } from "@valentinkolb/cloud/lib/ui";
+import { Pagination } from "@valentinkolb/cloud/lib/ui";
 import { createPagination } from "@/logging/contracts";
 import LogFilterBar from "./_components/LogFilterBar.island";
-import LogCleanup from "./_components/LogCleanup.island";
-import LogRetention from "./_components/LogRetention.island";
+import LogTable from "./_components/LogTable.island";
 import { parseLogFilterFromUrl } from "./_components/types";
 import { loggingService } from "../service";
 
@@ -13,12 +12,8 @@ export default ssr<AuthContext>(async (c) => {
   const url = new URL(c.req.url);
   const filter = parseLogFilterFromUrl(url);
 
-  const perPage = 50;
-  const pagination = {
-    page: filter.page,
-    perPage,
-    offset: (filter.page - 1) * perPage,
-  };
+  const perPage = 100;
+  const pagination = { page: filter.page, perPage, offset: (filter.page - 1) * perPage };
 
   const [{ items: entries, total }, sources] = await Promise.all([
     loggingService.entry.list({
@@ -43,22 +38,17 @@ export default ssr<AuthContext>(async (c) => {
   })();
 
   return (
-    <AdminLayout c={c} title="Logs">
-      <div class="max-w-6xl mx-auto flex flex-col gap-4">
-        <div class="flex items-center justify-between gap-4" style="view-transition-name: page-header">
-          <h1 class="text-xl font-bold text-primary">Logs</h1>
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-dimmed">{total} total</span>
-            <LogRetention />
-            <LogCleanup />
+    <AdminLayout c={c} title="Logs" fullHeight>
+      <div class="flex-1 min-h-0 overflow-y-auto">
+        <div class="flex flex-col gap-2 p-4">
+          <div class="min-w-0" style="view-transition-name: admin-logs-title">
+            <h1 class="text-base font-semibold text-primary">Logs</h1>
+            <p class="mt-1 text-xs text-dimmed">{total} entries</p>
           </div>
+          <LogFilterBar filter={filter} sources={sources} />
+          <LogTable entries={entries} />
+          <Pagination currentPage={paginationResult.page} totalPages={paginationResult.total_pages} baseUrl={baseUrl} />
         </div>
-
-        <LogFilterBar filter={filter} sources={sources} total={total} />
-
-        <LogEntriesTable entries={entries} emptyMessage={filter.search ? "No log entries found matching your search." : "No log entries found."} />
-
-        <Pagination currentPage={paginationResult.page} totalPages={paginationResult.total_pages} baseUrl={baseUrl} />
       </div>
     </AdminLayout>
   );
