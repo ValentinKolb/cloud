@@ -13,7 +13,6 @@ const app = {
     icon: "ti ti-help-circle",
     description: "Frequently asked questions and public help content.",
     color: "cyan",
-    adminHref: "/admin/faq",
   },
   service: faqService,
   routes: {

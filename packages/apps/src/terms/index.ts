@@ -13,7 +13,6 @@ const app = {
     icon: "ti ti-file-text",
     description: "Manage and publish legal terms versions.",
     color: "rose",
-    adminHref: "/admin/terms",
   },
   service: termsService,
   routes: {
