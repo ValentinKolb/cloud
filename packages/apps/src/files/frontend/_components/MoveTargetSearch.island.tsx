@@ -161,33 +161,42 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
   };
   onMount(() => doSearch("", selectedBase()));
   return (
-    <div class="flex flex-col gap-4">
-      {/* Info */}
+    <div class="flex flex-col gap-5">
       <Show
         when={!props.isMultiBaseCopy}
         fallback={
-          <div class="flex items-center gap-2 text-xs text-dimmed">
-            <i class="ti ti-copy" /> <span>Files from multiple locations will be copied.</span>
+          <div class="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-secondary dark:border-zinc-800 dark:bg-zinc-900/50">
+            <div class="flex items-center gap-2">
+              <i class="ti ti-copy text-blue-500" />
+              <span>Files from multiple locations will be copied into the selected destination.</span>
+            </div>
           </div>
         }
       >
-        <div class="flex flex-col gap-1 text-xs text-dimmed">
-          <div class="flex items-center gap-2">
-            <i class="ti ti-arrow-move-right" />
-            <span>
-              <strong>Same location:</strong> Files are moved.
-            </span>
+        <div class="grid gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-secondary dark:border-zinc-800 dark:bg-zinc-900/50">
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-blue-500 shadow-sm dark:bg-zinc-950">
+              <i class="ti ti-arrow-move-right" />
+            </div>
+            <div>
+              <div class="font-medium text-primary">Move within the same location</div>
+              <div class="text-xs text-dimmed">Items stay in the same base and are moved into the chosen folder.</div>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <i class="ti ti-copy" />
-            <span>
-              <strong>Different location:</strong> Files are copied.
-            </span>
+          <div class="flex items-center gap-3">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-blue-500 shadow-sm dark:bg-zinc-950">
+              <i class="ti ti-copy" />
+            </div>
+            <div>
+              <div class="font-medium text-primary">Copy to a different location</div>
+              <div class="text-xs text-dimmed">Selecting another base copies the items instead of removing them here.</div>
+            </div>
           </div>
         </div>
       </Show>
-      {/* Base chips */}
-      <div class="flex flex-wrap gap-1.5">
+      <div class="flex flex-col gap-2">
+        <div class="section-label mb-0">Destination</div>
+        <div class="flex flex-wrap gap-2">
         <For each={props.bases}>
           {(base) => {
             const isSelected = () => selectedBase().type === base.type && selectedBase().id === base.id;
@@ -196,7 +205,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
               <button
                 type="button"
                 onClick={() => handleBaseChange(base)}
-                class={`chip ${isSelected() ? "bg-zinc-200 dark:bg-zinc-700 text-primary font-medium" : "text-secondary hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+                class={`btn-input btn-sm ${isSelected() ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : ""}`}
               >
                 <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"}`} /> {base.name}
                 <Show when={isCurrent}>
@@ -207,52 +216,59 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
           }}
         </For>
       </div>
-      {/* Search */}
+      </div>
       <div class="group relative flex">
         <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
           <i class="ti ti-search group-focus-within:hidden" /> <i class="ti ti-pencil hidden text-blue-500 group-focus-within:block" />
         </div>
         <input
           type="text"
-          class="input-subtle w-full pl-9"
+          class="input w-full pl-9"
           placeholder="Search folders..."
           value={searchQuery()}
           onInput={(e) => handleSearchInput(e.currentTarget.value)}
           autofocus
         />
       </div>
-      {/* Results */}
-      <div class="h-48 overflow-y-auto">
+      <div class="paper overflow-hidden">
+        <div class="flex items-center justify-between border-b border-zinc-100 px-4 py-3 text-xs text-dimmed dark:border-zinc-800">
+          <span>Folders</span>
+          <span>{directories().length} results</span>
+        </div>
+        <div class="max-h-[22rem] overflow-y-auto">
         <Show when={loading()}>
-          <div class="flex items-center justify-center py-8 text-dimmed">
+          <div class="flex items-center justify-center py-10 text-dimmed">
             <i class="ti ti-loader-2 animate-spin text-xl" />
           </div>
         </Show>
         <Show when={!loading() && directories().length === 0}>
-          <div class="flex items-center gap-2 text-xs text-dimmed py-4 px-3">
+          <div class="flex items-center gap-2 px-4 py-6 text-sm text-dimmed">
             <i class="ti ti-folder-off" /> <span>No folders found</span>
           </div>
         </Show>
         <Show when={!loading() && directories().length > 0}>
-          <div class="flex flex-col app-divider">
+          <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
             <For each={directories()}>
               {(dir) => (
-                <div class="flex items-center gap-3 px-2 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex shrink-0 items-center justify-center thumbnail bg-zinc-100 dark:bg-zinc-800 text-dimmed h-8 w-8">
-                    <i class="ti ti-folder text-sm" />
+                <div class="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/40">
+                  <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                    <i class="ti ti-folder text-base" />
                   </div>
-                  <div class="flex-1 min-w-0 text-sm truncate">{formatDisplayPath(dir.path, selectedBase().name)}</div>
+                  <div class="min-w-0 flex-1">
+                    <div class="truncate text-sm text-primary">{dir.name || "/"}</div>
+                    <div class="truncate text-xs text-dimmed">{formatDisplayPath(dir.path, selectedBase().name)}</div>
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleTransfer(dir.path)}
                     disabled={transferringPath() !== null}
-                    class="btn-primary btn-sm disabled:opacity-50"
+                    class="btn-input btn-sm disabled:opacity-50"
                   >
                     <Show
                       when={transferringPath() === dir.path}
                       fallback={
                         <>
-                          {actionLabel()} <i class="ti ti-arrow-right" />
+                          {actionLabel()} here <i class="ti ti-arrow-right" />
                         </>
                       }
                     >
@@ -264,6 +280,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
             </For>
           </div>
         </Show>
+      </div>
       </div>
     </div>
   );

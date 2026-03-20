@@ -8,12 +8,11 @@ import { filePageBaseUrl, filePageUrl } from "../url";
 // =============================================================================
 
 export type FileContextValue = {
-  baseType: string;
+  baseType: FileBaseInfo["type"];
   baseId: string;
   currentPath: string;
   bases: FileBaseInfo[];
   settings: FileSettings;
-  openLightbox?: (imagePath: string) => void;
 };
 
 export const FileContext = createContext<FileContextValue>();

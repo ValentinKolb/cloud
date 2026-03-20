@@ -5,6 +5,7 @@ import { Layout } from "@valentinkolb/cloud/core/ssr";
 import BaseSidebar from "../_components/BaseSidebar";
 import FileList from "../_components/FileList.island";
 import FileDetailPanel from "../_components/FileDetailPanel.island";
+import FileDetailLayoutSync from "../_components/FileDetailLayoutSync.island";
 import { filePageBaseUrl } from "../url";
 import type { FileBaseInfo, SearchResult, FileInfo } from "@/files/contracts";
 
@@ -167,9 +168,9 @@ export default ssr<AuthContext>(async (c) => {
         <BaseSidebar bases={basesInfo} currentBaseType="search" currentBaseId="" />
 
         {/* Main content */}
-        <div class="flex-1 min-w-0 flex flex-col">
+        <div class="order-3 lg:order-2 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           <div class="flex-1 min-h-0 overflow-y-auto">
-            <div class="flex flex-col gap-3 p-3">
+            <div class="flex flex-col gap-3">
               {/* Search form */}
               <form action="/app/files/search" method="get" class="flex flex-col gap-4">
                 {/* Pattern input */}
@@ -183,7 +184,7 @@ export default ssr<AuthContext>(async (c) => {
                     name="pattern"
                     value={pattern}
                     placeholder="**/*.pdf, report*, *.{jpg,png}"
-                    class="input-subtle w-full pl-9 pr-9"
+                    class="input w-full pl-9 pr-9"
                     autofocus
                   />
                   {pattern ? (
@@ -341,8 +342,11 @@ export default ssr<AuthContext>(async (c) => {
           </div>
         </div>
 
-        {/* Detail Panel (desktop - right side) */}
-        <div class="hidden xl:flex flex-col w-72 shrink-0">
+        <div
+          id="files-detail-panel"
+          class={`${detailFileParam ? "flex" : "hidden"} order-2 lg:order-3 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:h-full lg:w-80 xl:w-72`}
+          style="view-transition-name: files-detail-panel-shell"
+        >
           <FileDetailPanel
             initialFile={detailFile}
             initialFilePath={detailFileParam}
@@ -351,8 +355,10 @@ export default ssr<AuthContext>(async (c) => {
             items={searchResults.flatMap((r) => r.files)}
             bases={basesInfo}
             useFullDetailKey
+            showEmpty={false}
           />
         </div>
+        <FileDetailLayoutSync detailContainerId="files-detail-panel" />
       </div>
     </Layout>
   );

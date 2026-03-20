@@ -13,3 +13,4 @@ export type { LightboxImage } from "./Lightbox";
 export { default as RemoveBtn } from "./RemoveBtn";
 export { default as LogEntriesTable } from "./LogEntriesTable";
 export type { LogTableEntry } from "./LogEntriesTable";
+export { default as ContextMenu } from "./ContextMenu";

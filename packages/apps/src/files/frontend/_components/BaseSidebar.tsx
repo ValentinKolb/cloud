@@ -43,7 +43,7 @@ export default function BaseSidebar(props: BaseSidebarProps) {
           <div class="sidebar-mobile-actions">
             <a
               href="/app/files/search"
-              class={`sidebar-item-mobile ${isSearch ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""}`}
+              class={`sidebar-item-mobile ${isSearch ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200" : ""}`}
             >
               <i class="ti ti-search" />
               Search
@@ -53,7 +53,7 @@ export default function BaseSidebar(props: BaseSidebarProps) {
               return (
                 <a
                   href={getHref(base)}
-                  class={`sidebar-item-mobile ${active ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""}`}
+                  class={`sidebar-item-mobile ${active ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200" : ""}`}
                 >
                   {base.type === "home" ? <i class="ti ti-home" /> : <i class="ti ti-users-group" />}
                   <span class="truncate">{base.type === "home" ? getHomeLabel(base.name) : base.name}</span>
@@ -65,64 +65,64 @@ export default function BaseSidebar(props: BaseSidebarProps) {
       </nav>
 
       <aside class="sidebar-container">
-        <div class="sidebar-header">
-          <div class="sidebar-header-icon bg-blue-500">
-            <i class="ti ti-folders text-xs" />
-          </div>
-          <div class="sidebar-header-text">
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+          <div class="flex items-center gap-3">
+            <div class="sidebar-header-icon bg-blue-500">
+              <i class="ti ti-folders text-xs" />
+            </div>
             <p class="sidebar-header-title">Files</p>
           </div>
-        </div>
 
-        <div class="flex flex-col gap-3">
-          <section class="sidebar-group">
-            <p class="sidebar-section-title">Actions</p>
-            <a href="/app/files/search" class={`sidebar-item text-xs ${isSearch ? "sidebar-item-active" : ""}`}>
-              <i class="ti ti-search text-sm" />
-              <span>Search</span>
-            </a>
-          </section>
-        </div>
-
-        <div class="sidebar-body mt-2">
-          {homeBases.length > 0 && (
+          <div class="flex flex-col gap-3">
             <section class="sidebar-group">
-              <p class="sidebar-section-title">Home</p>
-              {homeBases.map((base) => {
-                const active = isActive(base, props.currentBaseType, props.currentBaseId);
-                return (
-                  <a href={getHref(base)} class={`sidebar-item text-xs ${active ? "sidebar-item-active" : ""}`}>
-                    <i class="ti ti-home text-sm" />
-                    <span class="truncate">{getHomeLabel(base.name)}</span>
-                  </a>
-                );
-              })}
+              <p class="sidebar-section-title">Actions</p>
+              <a href="/app/files/search" class={`sidebar-item text-xs ${isSearch ? "sidebar-item-active" : ""}`}>
+                <i class="ti ti-search text-sm" />
+                <span>Search</span>
+              </a>
             </section>
-          )}
+          </div>
 
-          {groupBases.length > 0 && (
-            <section class="sidebar-group">
-              <p class="sidebar-section-title">Groups</p>
-              {groupBases.map((base) => {
-                const active = isActive(base, props.currentBaseType, props.currentBaseId);
-                return (
-                  <a href={getHref(base)} class={`sidebar-item text-xs ${active ? "sidebar-item-active" : ""}`}>
-                    <i class="ti ti-users-group text-sm" />
-                    <span class="truncate">{base.name}</span>
-                  </a>
-                );
-              })}
-            </section>
-          )}
+          <div class="sidebar-body">
+            {homeBases.length > 0 && (
+              <section class="sidebar-group">
+                <p class="sidebar-section-title">Home</p>
+                {homeBases.map((base) => {
+                  const active = isActive(base, props.currentBaseType, props.currentBaseId);
+                  return (
+                    <a href={getHref(base)} class={`sidebar-item text-xs ${active ? "sidebar-item-active" : ""}`}>
+                      <i class="ti ti-home text-sm" />
+                      <span class="truncate">{getHomeLabel(base.name)}</span>
+                    </a>
+                  );
+                })}
+              </section>
+            )}
 
-          {props.bases.length === 0 && (
-            <p class="px-2 py-1 text-xs text-dimmed">
-              <i class="ti ti-folder-off mr-1" />
-              No accessible bases
-            </p>
-          )}
+            {groupBases.length > 0 && (
+              <section class="sidebar-group">
+                <p class="sidebar-section-title">Groups</p>
+                {groupBases.map((base) => {
+                  const active = isActive(base, props.currentBaseType, props.currentBaseId);
+                  return (
+                    <a href={getHref(base)} class={`sidebar-item text-xs ${active ? "sidebar-item-active" : ""}`}>
+                      <i class="ti ti-users-group text-sm" />
+                      <span class="truncate">{base.name}</span>
+                    </a>
+                  );
+                })}
+              </section>
+            )}
 
-          {props.settingsPanel ? <section class="sidebar-group">{props.settingsPanel()}</section> : null}
+            {props.bases.length === 0 && (
+              <p class="px-2 py-1 text-xs text-dimmed">
+                <i class="ti ti-folder-off mr-1" />
+                No accessible bases
+              </p>
+            )}
+
+            {props.settingsPanel ? <section class="sidebar-group">{props.settingsPanel()}</section> : null}
+          </div>
         </div>
       </aside>
     </>

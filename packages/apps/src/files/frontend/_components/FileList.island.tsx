@@ -1,629 +1,806 @@
-import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
-import type { FileInfo, FileBaseInfo } from "@/files/contracts";
-import { formatBytes } from "@valentinkolb/filegate/utils";
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { Portal } from "solid-js/web";
+import type { FileBaseInfo, FileInfo } from "@/files/contracts";
+import { mutation as mutations, dnd } from "@valentinkolb/cloud/lib/browser";
+import { Lightbox, prompts } from "@valentinkolb/cloud/lib/ui";
+import type { LightboxImage } from "@valentinkolb/cloud/lib/ui";
 import { dates, fileIcons } from "@valentinkolb/cloud/lib/shared";
+import { formatBytes } from "@valentinkolb/filegate/utils";
+import { apiClient } from "@/files/client";
 import {
+  DETAIL_FILE_SELECT_EVENT,
+  FILE_LIGHTBOX_EVENT,
+  FILE_SELECTION_EVENT,
   FileContext,
+  type DetailFileSelectPayload,
   type FileContextValue,
+  type FileLightboxPayload,
   type SelectionKey,
-  fileAppUrl,
-  fileAppUrlForPath,
-  fileApiUrl,
   buildItemPath,
   buildSelectionKey,
-  setSelectedInUrl,
+  clearSelection,
   consumeHighlightedFiles,
-  FILE_SELECTION_EVENT,
+  fileApiUrl,
+  fileAppUrlForPath,
+  parseSelectionKey,
   setDetailFileInUrl,
-  DETAIL_FILE_SELECT_EVENT,
-  type DetailFileSelectPayload,
-  FILE_LIGHTBOX_EVENT,
-  type FileLightboxPayload,
+  setHighlightedFiles,
+  setSelectedInUrl,
 } from "./context";
-import { type FileSettings, getGridSizePixels } from "./FileSettings.island";
-import FileActions from "./FileActions.island";
-import { Lightbox, type LightboxImage } from "@valentinkolb/cloud/lib/ui";
+import type { FileListColumn, FileSettings } from "./FileSettings.island";
+import { DEFAULT_FILE_SETTINGS, getGridSizePixels } from "./FileSettings.island";
+import { buildFileMenuElements, openFileItem } from "./FileActions";
+import { refreshCurrentPath } from "../lib/navigation";
 
 type FileListProps = {
   items: FileInfo[];
-  baseType: string;
+  baseType: FileBaseInfo["type"];
   baseId: string;
   currentPath: string;
   parentPath: string | null;
   settings?: FileSettings;
   initialSelected?: string[];
   bases?: FileBaseInfo[];
-  /** Hide selection checkboxes (e.g., for search results) */
   hideSelection?: boolean;
-  /** Use item.path directly instead of building from currentPath + name (for search results) */
   useItemPath?: boolean;
-  /** Show "no matches" instead of "empty folder" when true */
   isFiltered?: boolean;
-  /** Force list view regardless of settings (for search results) */
   forceListView?: boolean;
-  /** Currently selected file path for detail panel */
   selectedFilePath?: string | null;
-  /** Use full detail key format (baseType:baseId:path) for search results */
   useFullDetailKey?: boolean;
 };
 
-// =============================================================================
-// Action Templates
-// =============================================================================
-
-type ActionTemplate = { icon: string; label: string; inline?: boolean };
-
-type FileCategory = ReturnType<typeof fileIcons.getFileCategory>;
-
-const CATEGORY_ACTIONS: Record<FileCategory, ActionTemplate[]> = {
-  image: [
-    { icon: "ti ti-external-link", label: "Open", inline: true },
-    { icon: "ti ti-download", label: "Download" },
-  ],
-  pdf: [
-    { icon: "ti ti-external-link", label: "Open", inline: true },
-    { icon: "ti ti-download", label: "Download" },
-  ],
-  video: [
-    { icon: "ti ti-player-play", label: "Play", inline: true },
-    { icon: "ti ti-download", label: "Download" },
-  ],
-  audio: [
-    { icon: "ti ti-player-play", label: "Play", inline: true },
-    { icon: "ti ti-download", label: "Download" },
-  ],
-  text: [
-    { icon: "ti ti-file-text", label: "View", inline: true },
-    { icon: "ti ti-download", label: "Download" },
-  ],
-  code: [
-    { icon: "ti ti-code", label: "View", inline: true },
-    { icon: "ti ti-download", label: "Download" },
-  ],
-  document: [{ icon: "ti ti-download", label: "Download" }],
-  archive: [{ icon: "ti ti-download", label: "Download" }],
-  other: [{ icon: "ti ti-download", label: "Download" }],
+type DragMeta = {
+  item: FileInfo;
+  itemPath: string;
 };
 
-const DIRECTORY_ACTIONS: ActionTemplate[] = [{ icon: "ti ti-download", label: "Download .tar" }];
-
-function buildActions(item: FileInfo, baseType: string, baseId: string, itemPath: string) {
-  const isDir = item.type === "directory";
-  const templates = isDir ? DIRECTORY_ACTIONS : (CATEGORY_ACTIONS[fileIcons.getFileCategory(item)] ?? DIRECTORY_ACTIONS);
-  const baseUrl = `${fileApiUrl(baseType, baseId)}/content?path=${encodeURIComponent(itemPath)}`;
-  return templates.map((t) => ({
-    icon: t.icon,
-    label: t.label,
-    url: t.inline ? `${baseUrl}&inline=true` : baseUrl,
-    openInNewTab: t.inline,
-  }));
-}
-
-// =============================================================================
-// FileList Component
-// =============================================================================
-
-const DEFAULT_SETTINGS: FileSettings = {
-  computeSizes: false,
-  viewMode: "list",
-  gridSize: "m",
-  showHidden: false,
-  hideSettings: false,
+type DropMeta = {
+  targetPath: string;
+  label: string;
 };
 
-export default function FileList({
-  items,
-  baseType,
-  baseId,
-  currentPath,
-  parentPath,
-  settings = DEFAULT_SETTINGS,
-  initialSelected = [],
-  bases = [],
-  hideSelection = false,
-  useItemPath = false,
-  isFiltered = false,
-  forceListView = false,
-  selectedFilePath = null,
-  useFullDetailKey = false,
-}: FileListProps) {
-  const baseUrl = fileAppUrl(baseType, baseId);
-  const viewMode = forceListView ? "list" : settings.viewMode;
-  const gridSize = getGridSizePixels(settings.gridSize);
+type MarqueeRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
 
-  // Get full path for an item
-  const getItemPath = (item: FileInfo): string => {
-    // For search results, use item.path directly (it's already the full relative path)
-    // For directory listings, build from currentPath + name
-    return useItemPath ? item.path : buildItemPath(currentPath, item.name);
+type ActiveContextMenu = {
+  x: number;
+  y: number;
+  item: FileInfo;
+  itemPath: string;
+};
+
+const getMimeLabel = (item: FileInfo) => {
+  if (item.type === "directory") return "Folder";
+  return item.mimeType || "Unknown";
+};
+
+const getParentPathFromItemPath = (itemPath: string) => itemPath.substring(0, itemPath.lastIndexOf("/")) || "/";
+
+const isPointerOnInteractiveTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement && !!target.closest("button, a, input, textarea, select, [data-dnd-ignore]");
+
+const intersects = (a: DOMRect, b: DOMRect) =>
+  !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+
+const createRowTemplate = (columns: FileListColumn[]) => {
+  const segments = ["minmax(0, 1fr)"];
+  if (columns.includes("size")) segments.push("fit-content(8rem)");
+  if (columns.includes("mime")) segments.push("fit-content(8.5rem)");
+  if (columns.includes("modified")) segments.push("fit-content(11rem)");
+  return segments.join(" ");
+};
+
+export default function FileList(props: FileListProps) {
+  const settings = props.settings ?? DEFAULT_FILE_SETTINGS;
+  const viewMode = props.forceListView ? "list" : settings.viewMode;
+  const isGrid = () => viewMode === "grid";
+  const gridSize = () => getGridSizePixels(settings.gridSize);
+  const gridTileWidth = createMemo(() => Math.max(gridSize() + 14, 104));
+  const listColumns = createMemo<FileListColumn[]>(() => settings.listColumns ?? DEFAULT_FILE_SETTINGS.listColumns);
+  const rowTemplate = createMemo(() => createRowTemplate(listColumns()));
+  const isCompactList = () => settings.listDensity === "compact";
+  const contextValue: FileContextValue = {
+    baseType: props.baseType,
+    baseId: props.baseId,
+    currentPath: props.currentPath,
+    bases: props.bases ?? [],
+    settings,
   };
 
-  // Build selection key for an item
-  const getSelectionKey = (item: FileInfo): SelectionKey => {
-    return buildSelectionKey(baseType, baseId, getItemPath(item));
-  };
-
-  // Selection state (using full selection keys)
-  const [selected, setSelected] = createSignal<Set<SelectionKey>>(new Set(initialSelected));
-
-  // Highlighted files (using filenames only, not full paths)
+  const getItemPath = (item: FileInfo) => (props.useItemPath ? item.path : buildItemPath(props.currentPath, item.name));
+  const getSelectionKey = (item: FileInfo) => buildSelectionKey(props.baseType, props.baseId, getItemPath(item));
+  const [selected, setSelected] = createSignal<Set<SelectionKey>>(new Set(props.initialSelected ?? []));
   const [highlighted, setHighlighted] = createSignal<Set<string>>(new Set());
-
-  // Detail panel selection (local state for instant highlighting without reload)
-  const [detailSelectedPath, setDetailSelectedPath] = createSignal<string | null>(selectedFilePath ?? null);
-
-  // Lightbox state
+  const [detailSelectedPath, setDetailSelectedPath] = createSignal<string | null>(props.selectedFilePath ?? null);
   const [lightboxIndex, setLightboxIndex] = createSignal<number | null>(null);
+  const [marqueeRect, setMarqueeRect] = createSignal<MarqueeRect | null>(null);
+  const [activeContextMenu, setActiveContextMenu] = createSignal<ActiveContextMenu | null>(null);
+  let containerRef: HTMLDivElement | undefined;
+  const itemRefs = new Map<SelectionKey, HTMLElement>();
 
-  // Build list of images for lightbox
-  const imageItems = items.filter((item) => item.type === "file" && fileIcons.getFileCategory(item) === "image");
-  const lightboxImages: LightboxImage[] = imageItems.map((item) => {
-    const itemPath = getItemPath(item);
-    const contentUrl = `${fileApiUrl(baseType, baseId)}/content?path=${encodeURIComponent(itemPath)}`;
-    return {
-      src: `${contentUrl}&inline=true`,
-      alt: item.name,
-      downloadUrl: contentUrl,
-    };
-  });
+  const imageItems = createMemo(() => props.items.filter((item) => item.type === "file" && fileIcons.getFileCategory(item) === "image"));
+  const lightboxImages = createMemo<LightboxImage[]>(() =>
+    imageItems().map((item) => {
+      const itemPath = getItemPath(item);
+      const contentUrl = `${fileApiUrl(props.baseType, props.baseId)}/content?path=${encodeURIComponent(itemPath)}`;
+      return {
+        src: `${contentUrl}&inline=true`,
+        alt: item.name,
+        downloadUrl: contentUrl,
+      };
+    }),
+  );
 
-  // Open lightbox for a specific image path.
-  // Falls back to matching by name for compatibility with older callers.
   const openLightbox = (imagePath: string) => {
-    const idx = imageItems.findIndex((item) => {
+    const idx = imageItems().findIndex((item) => {
       const path = getItemPath(item);
       return path === imagePath || item.name === imagePath;
     });
     if (idx !== -1) setLightboxIndex(idx);
   };
 
-  // Toggle selection for a file (using selection key)
-  const toggleSelect = (item: FileInfo) => {
-    const key = getSelectionKey(item);
-    const current = new Set(selected());
-    current.has(key) ? current.delete(key) : current.add(key);
-    setSelected(current);
-    setSelectedInUrl(current);
+  const buildDetailKey = (itemPath: string) => (props.useFullDetailKey ? `${props.baseType}:${props.baseId}:${itemPath}` : itemPath);
+
+  const selectForDetail = (item: FileInfo) => {
+    const itemPath = getItemPath(item);
+    setDetailSelectedPath(itemPath);
+    setDetailFileInUrl(buildDetailKey(itemPath), item, props.baseType, props.baseId);
   };
 
-  // Sync with external selection changes
+  const navigateToFolder = (itemPath: string) => {
+    window.location.href = fileAppUrlForPath(props.baseType, props.baseId, itemPath);
+  };
+
+  const closeContextMenu = () => setActiveContextMenu(null);
+
+  const openContextMenu = (event: MouseEvent, item: FileInfo, itemPath: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setActiveContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      item,
+      itemPath,
+    });
+  };
+
+  const toggleSelect = (item: FileInfo) => {
+    const key = getSelectionKey(item);
+    const next = new Set(selected());
+    next.has(key) ? next.delete(key) : next.add(key);
+    setSelected(next);
+    setSelectedInUrl(next);
+  };
+
+  const dragMutation = mutations.create<
+    { transferred: number; errors: { path: string; error: string }[]; targetPath: string },
+    { sourcePaths: string[]; targetPath: string },
+    { sourcePaths: string[] }
+  >({
+    onBefore: (vars) => ({ sourcePaths: vars.sourcePaths }),
+    mutation: async ({ sourcePaths, targetPath }) => {
+      const res = await apiClient[":baseType"][":baseId"].transfer.$post({
+        param: { baseType: props.baseType, baseId: props.baseId },
+        json: {
+          paths: sourcePaths,
+          targetBaseType: props.baseType,
+          targetBaseId: props.baseId,
+          targetPath,
+        },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ message: "Move failed" }));
+        throw new Error("message" in data ? data.message : "Move failed");
+      }
+      const data = (await res.json()) as { transferred: number; errors: { path: string; error: string }[] };
+      return { ...data, targetPath };
+    },
+    onSuccess: (result, ctx) => {
+      if (result.errors.length > 0) {
+        prompts.error(`Moved ${result.transferred} item(s), but ${result.errors.length} failed.`);
+      }
+      setHighlightedFiles((ctx?.sourcePaths ?? []).map((path) => path.split("/").pop() ?? path));
+      clearSelection();
+      refreshCurrentPath();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const fileDnd = dnd.create<DragMeta, DropMeta, null>({
+    onDrop: ({ active, over }) => {
+      if (!over || dragMutation.loading()) return;
+      const activePath = active.meta.itemPath;
+      const selectedPaths = [...selected()]
+        .map((key) => parseSelectionKey(key)?.path ?? null)
+        .filter((path): path is string => !!path);
+      const sourcePaths = selected().has(buildSelectionKey(props.baseType, props.baseId, activePath)) && selectedPaths.length > 0 ? selectedPaths : [activePath];
+      if (sourcePaths.some((path) => path === over.meta.targetPath || getParentPathFromItemPath(path) === over.meta.targetPath)) {
+        return;
+      }
+      dragMutation.mutate({ sourcePaths, targetPath: over.meta.targetPath });
+    },
+  });
+
+  onCleanup(() => fileDnd.destroy());
+
   onMount(() => {
-    // Load highlights from sessionStorage
     const highlightedFiles = consumeHighlightedFiles();
-    if (highlightedFiles.length > 0) {
-      setHighlighted(new Set(highlightedFiles));
-    }
+    if (highlightedFiles.length > 0) setHighlighted(new Set(highlightedFiles));
 
-    // Listen for selection changes from toolbar
-    const selectionHandler = (e: Event) => {
-      setSelected(new Set((e as CustomEvent<string[]>).detail));
-    };
-    window.addEventListener(FILE_SELECTION_EVENT, selectionHandler);
-
-    // Listen for detail panel selection changes (for instant highlighting)
-    const detailHandler = (e: Event) => {
-      const payload = (e as CustomEvent<DetailFileSelectPayload>).detail;
-      // Only update if this FileList's base matches or if using full key
-      if (useFullDetailKey) {
-        // For search: extract path from full key if bases match
-        if (payload.baseType === baseType && payload.baseId === baseId) {
+    const selectionHandler = (event: Event) => setSelected(new Set((event as CustomEvent<string[]>).detail));
+    const detailHandler = (event: Event) => {
+      const payload = (event as CustomEvent<DetailFileSelectPayload>).detail;
+      if (props.useFullDetailKey) {
+        if (payload.baseType === props.baseType && payload.baseId === props.baseId) {
           setDetailSelectedPath(payload.item?.path ?? null);
         } else {
           setDetailSelectedPath(null);
         }
-      } else {
-        // For normal view: use itemKey directly (it's just the path)
-        setDetailSelectedPath(payload.itemKey);
+        return;
       }
+      setDetailSelectedPath(payload.itemKey);
     };
-    window.addEventListener(DETAIL_FILE_SELECT_EVENT, detailHandler);
+    const lightboxHandler = (event: Event) => {
+      const payload = (event as CustomEvent<FileLightboxPayload>).detail;
+      if (payload.baseType === props.baseType && payload.baseId === props.baseId) openLightbox(payload.path);
+    };
+    const handleGlobalPointer = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Node && target instanceof HTMLElement && target.closest("[data-files-context-menu]")) return;
+      closeContextMenu();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeContextMenu();
+    };
 
-    const lightboxHandler = (e: Event) => {
-      const payload = (e as CustomEvent<FileLightboxPayload>).detail;
-      if (payload.baseType !== baseType || payload.baseId !== baseId) return;
-      openLightbox(payload.path);
-    };
+    window.addEventListener(FILE_SELECTION_EVENT, selectionHandler);
+    window.addEventListener(DETAIL_FILE_SELECT_EVENT, detailHandler);
     window.addEventListener(FILE_LIGHTBOX_EVENT, lightboxHandler);
+    document.addEventListener("mousedown", handleGlobalPointer);
+    document.addEventListener("keydown", handleEscape);
+
+    let dragStart: { x: number; y: number } | null = null;
+    let baseSelection = new Set<SelectionKey>();
+    const previousUserSelect = document.body.style.userSelect;
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragStart || !containerRef) return;
+      const containerRect = containerRef.getBoundingClientRect();
+      const left = Math.min(dragStart.x, event.clientX) - containerRect.left;
+      const top = Math.min(dragStart.y, event.clientY) - containerRect.top;
+      const width = Math.abs(event.clientX - dragStart.x);
+      const height = Math.abs(event.clientY - dragStart.y);
+      if (width < 4 && height < 4) return;
+      const rect = new DOMRect(Math.min(dragStart.x, event.clientX), Math.min(dragStart.y, event.clientY), width, height);
+      setMarqueeRect({ left, top, width, height });
+      const next = new Set(baseSelection);
+      for (const [key, element] of itemRefs.entries()) {
+        if (intersects(rect, element.getBoundingClientRect())) next.add(key);
+      }
+      setSelected(next);
+      setSelectedInUrl(next);
+    };
+
+    const stopMarquee = () => {
+      dragStart = null;
+      setMarqueeRect(null);
+      document.body.style.userSelect = previousUserSelect;
+    };
+
+    const onPointerUp = () => stopMarquee();
+
+    containerRef?.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || isPointerOnInteractiveTarget(event.target)) return;
+      if ((event.target as HTMLElement).closest("[data-file-item]")) return;
+      dragStart = { x: event.clientX, y: event.clientY };
+      baseSelection = new Set();
+      document.body.style.userSelect = "none";
+      setSelected(baseSelection);
+      setSelectedInUrl(baseSelection);
+    });
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
 
     onCleanup(() => {
+      document.body.style.userSelect = previousUserSelect;
       window.removeEventListener(FILE_SELECTION_EVENT, selectionHandler);
       window.removeEventListener(DETAIL_FILE_SELECT_EVENT, detailHandler);
       window.removeEventListener(FILE_LIGHTBOX_EVENT, lightboxHandler);
+      document.removeEventListener("mousedown", handleGlobalPointer);
+      document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
     });
   });
 
-  // Build detail file key for URL (either just path or full baseType:baseId:path)
-  const buildDetailKey = (itemPath: string): string => {
-    return useFullDetailKey ? `${baseType}:${baseId}:${itemPath}` : itemPath;
+  const sortedItems = createMemo(() => props.items);
+
+  const headerLabel = (column: FileListColumn) => {
+    switch (column) {
+      case "size":
+        return "Size";
+      case "mime":
+        return "Type";
+      case "modified":
+        return "Updated";
+    }
   };
-
-  // Context value for child components
-  const contextValue: FileContextValue = {
-    baseType,
-    baseId,
-    currentPath,
-    bases,
-    settings,
-    openLightbox,
-  };
-
-  const isGrid = viewMode === "grid";
-
-  // Calculate grid item width based on gridSize (icon + padding)
-  const gridItemWidth = gridSize + 24; // icon size + ~24px padding
 
   return (
     <FileContext.Provider value={contextValue}>
-      <div
-        class="overflow-hidden"
-        classList={{
-          "flex flex-col app-divider": !isGrid,
-          "grid gap-1 p-2": isGrid,
-        }}
-        style={
-          isGrid
-            ? {
-                "grid-template-columns": `repeat(auto-fill, minmax(${gridItemWidth}px, 1fr))`,
-              }
-            : undefined
-        }
-      >
-        {/* Parent directory */}
-        <Show when={parentPath !== null}>
-          <a
-            href={fileAppUrlForPath(baseType, baseId, parentPath!)}
-            class="flex items-center gap-3 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors group"
-            classList={{
-              "px-3 py-2.5": !isGrid,
-              "flex-col p-2 thumbnail": isGrid,
-            }}
-          >
-            <div
-              class="flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 text-zinc-500 thumbnail"
-              style={isGrid ? { width: `${gridSize}px`, height: `${gridSize}px` } : { width: "32px", height: "32px" }}
-            >
-              <i
-                class="ti ti-folder-up"
-                classList={{
-                  "text-lg": !isGrid,
-                  "text-3xl": gridSize < 64,
-                  "text-4xl": gridSize >= 64 && gridSize < 96,
-                  "text-5xl": gridSize >= 96,
-                }}
-              />
+      <div ref={containerRef} class="relative h-full min-h-full select-none">
+        <Show
+          when={isGrid()}
+          fallback={
+            <div class="paper overflow-hidden">
+              <div class="grid" style={{ "grid-template-columns": rowTemplate() }}>
+                <div class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-100 px-3 py-2 text-xs font-medium text-dimmed dark:border-zinc-800">
+                  <div>Name</div>
+                  <For each={listColumns()}>
+                    {(column) => (
+                      <div classList={{ "text-left": column === "mime", "text-right": column !== "mime" }}>
+                        {headerLabel(column)}
+                      </div>
+                    )}
+                  </For>
+                </div>
+
+                <Show when={props.parentPath !== null}>
+                  <div class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-50 px-3 py-0 text-sm transition-colors hover:bg-zinc-50 dark:border-zinc-800/60 dark:hover:bg-zinc-900/40">
+                    <button
+                      type="button"
+                      ref={(element) => {
+                        fileDnd.droppable(element, () => ({
+                          id: `folder:${props.parentPath!}`,
+                          disabled: dragMutation.loading(),
+                          meta: { targetPath: props.parentPath!, label: ".." },
+                        }));
+                      }}
+                      class="flex min-w-0 items-center gap-3 py-2 text-left"
+                      onClick={() => navigateToFolder(props.parentPath!)}
+                    >
+                      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-100 text-zinc-500 dark:bg-zinc-800">
+                        <i class="ti ti-folder-up text-base" />
+                      </div>
+                      <div class="min-w-0 truncate text-secondary">..</div>
+                    </button>
+                    <For each={listColumns()}>
+                      {(column) => (
+                        <div class="text-dimmed" classList={{ "text-left": column === "mime", "text-right": column !== "mime" }}>
+                          —
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+
+                <For each={sortedItems()}>
+                  {(item) => {
+                    const itemPath = getItemPath(item);
+                    const selectionKey = getSelectionKey(item);
+                    return (
+                      <FileRow
+                        ref={(element) => itemRefs.set(selectionKey, element)}
+                        item={item}
+                        itemPath={itemPath}
+                        ctx={contextValue}
+                        columns={listColumns()}
+                        compact={isCompactList()}
+                        isSelected={!props.hideSelection && selected().has(selectionKey)}
+                        selectedCount={selected().size}
+                        isHighlighted={highlighted().has(item.name)}
+                        isDetailSelected={detailSelectedPath() === itemPath}
+                        onToggleSelect={() => toggleSelect(item)}
+                        onPrimaryAction={() => (item.type === "directory" ? navigateToFolder(itemPath) : selectForDetail(item))}
+                        onSecondaryAction={() => openFileItem({ item, itemPath, ctx: contextValue })}
+                        onShowDetail={() => selectForDetail(item)}
+                        onContextMenu={(event) => openContextMenu(event, item, itemPath)}
+                        hideCheckbox={props.hideSelection}
+                        dnd={fileDnd}
+                        dragDisabled={dragMutation.loading()}
+                      />
+                    );
+                  }}
+                </For>
+
+                <Show when={sortedItems().length === 0 && props.parentPath === null}>
+                  <div class="col-span-full px-4 py-8 text-center text-xs text-dimmed">{props.isFiltered ? "No files match the search" : "This folder is empty"}</div>
+                </Show>
+              </div>
             </div>
-            <span
-              classList={{
-                "text-sm": !isGrid,
-                "text-[11px] mt-1.5": isGrid,
-              }}
-              class="text-secondary group-hover:text-primary transition-colors"
-            >
-              ..
-            </span>
-          </a>
-        </Show>
-
-        {/* File items */}
-        <For each={items}>
-          {(item) => {
-            const itemPath = getItemPath(item);
-            return (
-              <FileItem
-                item={item}
-                ctx={contextValue}
-                itemPath={itemPath}
-                isSelected={!hideSelection && selected().has(getSelectionKey(item))}
-                isHighlighted={highlighted().has(item.name)}
-                isDetailSelected={detailSelectedPath() === itemPath}
-                onToggleSelect={() => toggleSelect(item)}
-                onSelectForDetail={() => setDetailFileInUrl(buildDetailKey(itemPath), item, baseType, baseId)}
-                hideCheckbox={hideSelection}
-              />
-            );
-          }}
-        </For>
-
-        {/* Empty state */}
-        <Show when={items.length === 0 && parentPath === null}>
+          }
+        >
           <div
-            class="flex gap-2 justify-center text-xs text-dimmed"
-            classList={{
-              "px-4 py-8": !isGrid,
-              "col-span-full py-8": isGrid,
+            class="grid h-full content-start gap-x-3 gap-y-4"
+            style={{
+              "grid-template-columns": `repeat(auto-fill, minmax(${gridTileWidth()}px, 1fr))`,
             }}
           >
-            <i class={`ti ${isFiltered ? "ti-filter-off" : "ti-folder-open"}`} />
-            <span>{isFiltered ? "No files match the filter" : "This folder is empty"}</span>
+            <Show when={props.parentPath !== null}>
+              <button
+                type="button"
+                ref={(element) => {
+                  fileDnd.droppable(element, () => ({
+                    id: `folder:${props.parentPath!}`,
+                    disabled: dragMutation.loading(),
+                    meta: { targetPath: props.parentPath!, label: ".." },
+                    }));
+                }}
+                class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/45"
+                onClick={() => navigateToFolder(props.parentPath!)}
+              >
+                <div class="relative flex w-full justify-center">
+                  <div
+                    data-dnd-preview
+                    class="relative flex items-center justify-center overflow-hidden rounded-lg text-zinc-400"
+                    style={{ width: `${gridSize()}px`, height: `${gridSize()}px` }}
+                  >
+                    <i class="ti ti-folder-up text-4xl" />
+                  </div>
+                </div>
+                <div class="flex w-full items-start gap-1">
+                  <span class="min-w-0 flex-1 truncate text-center text-xs leading-tight text-dimmed">..</span>
+                </div>
+              </button>
+            </Show>
+
+            <For each={sortedItems()}>
+              {(item) => {
+                const itemPath = getItemPath(item);
+                const selectionKey = getSelectionKey(item);
+                return (
+                  <GridTile
+                    ref={(element) => itemRefs.set(selectionKey, element)}
+                    item={item}
+                    itemPath={itemPath}
+                    ctx={contextValue}
+                    isSelected={!props.hideSelection && selected().has(selectionKey)}
+                    selectedCount={selected().size}
+                    isHighlighted={highlighted().has(item.name)}
+                    isDetailSelected={detailSelectedPath() === itemPath}
+                    onToggleSelect={() => toggleSelect(item)}
+                    onPrimaryAction={() => (item.type === "directory" ? navigateToFolder(itemPath) : selectForDetail(item))}
+                    onSecondaryAction={() => openFileItem({ item, itemPath, ctx: contextValue })}
+                    onShowDetail={() => selectForDetail(item)}
+                    onContextMenu={(event) => openContextMenu(event, item, itemPath)}
+                    hideCheckbox={props.hideSelection}
+                    dnd={fileDnd}
+                    dragDisabled={dragMutation.loading()}
+                  />
+                );
+              }}
+            </For>
+
+            <Show when={sortedItems().length === 0 && props.parentPath === null}>
+              <div class="col-span-full py-8 text-center text-xs text-dimmed">{props.isFiltered ? "No files match the search" : "This folder is empty"}</div>
+            </Show>
           </div>
         </Show>
-      </div>
 
-      {/* Lightbox */}
-      <Show when={lightboxIndex() !== null && lightboxImages.length > 0}>
-        <Lightbox images={lightboxImages} initialIndex={lightboxIndex()!} onClose={() => setLightboxIndex(null)} />
-      </Show>
+        <Show when={marqueeRect()}>
+          {(rect) => (
+            <div
+              class="pointer-events-none absolute rounded-md border border-blue-500/70 bg-blue-500/12"
+              style={{
+                left: `${rect().left}px`,
+                top: `${rect().top}px`,
+                width: `${rect().width}px`,
+                height: `${rect().height}px`,
+              }}
+            />
+          )}
+        </Show>
+
+        <Show when={lightboxIndex() !== null && lightboxImages().length > 0}>
+          <Lightbox images={lightboxImages()} initialIndex={lightboxIndex()!} onClose={() => setLightboxIndex(null)} />
+        </Show>
+
+        <Show when={activeContextMenu()}>
+          {(menu) => (
+            <Portal>
+              <div
+                data-files-context-menu
+                role="menu"
+                aria-label="File actions"
+                class="fixed z-50 w-52 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-zinc-300/60 bg-white/95 p-1 text-zinc-900 shadow-lg ring-1 ring-black/5 backdrop-blur-sm dark:border-zinc-600/50 dark:bg-zinc-950/95 dark:text-zinc-100"
+                style={{
+                  left: `${Math.min(menu().x, window.innerWidth - 220)}px`,
+                  top: `${Math.min(menu().y, window.innerHeight - 320)}px`,
+                }}
+              >
+                {buildFileMenuElements({
+                  item: menu().item,
+                  itemPath: menu().itemPath,
+                  ctx: contextValue,
+                  onShowDetail: () => selectForDetail(menu().item),
+                  onCloseDetail: closeContextMenu,
+                }).map((entry) =>
+                  "label" in entry ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      class={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 ${
+                        entry.variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300"
+                      }`}
+                      onClick={() => {
+                        if ("action" in entry && entry.action) {
+                          void Promise.resolve(entry.action()).finally(closeContextMenu);
+                        } else if ("href" in entry && entry.href) {
+                          window.open(entry.href, entry.external ? "_blank" : "_self");
+                          closeContextMenu();
+                        }
+                      }}
+                    >
+                      {entry.icon && <i class={entry.icon} />}
+                      <span>{entry.label}</span>
+                    </button>
+                  ) : null,
+                )}
+              </div>
+            </Portal>
+          )}
+        </Show>
+      </div>
     </FileContext.Provider>
   );
 }
 
-// =============================================================================
-// FileItem Component (inline - no separate file needed)
-// =============================================================================
-
-function FileItem(props: {
+function GridTile(props: {
+  ref?: (element: HTMLDivElement) => void;
   item: FileInfo;
-  ctx: FileContextValue;
   itemPath: string;
+  ctx: FileContextValue;
   isSelected: boolean;
+  selectedCount: number;
   isHighlighted: boolean;
   isDetailSelected: boolean;
   onToggleSelect: () => void;
-  onSelectForDetail: () => void;
+  onPrimaryAction: () => void;
+  onSecondaryAction: () => void;
+  onShowDetail: () => void;
+  onContextMenu: (event: MouseEvent) => void;
   hideCheckbox?: boolean;
+  dnd: ReturnType<typeof dnd.create<DragMeta, DropMeta, null>>;
+  dragDisabled?: boolean;
 }) {
-  const { item, ctx, itemPath } = props;
-  const { viewMode, gridSize: gridSizeKey } = ctx.settings;
-  const gridSize = getGridSizePixels(gridSizeKey);
-  const isGrid = viewMode === "grid";
+  const size = getGridSizePixels(props.ctx.settings.gridSize);
+  const dragId = `file:${props.itemPath}`;
+  const isDroppable = props.item.type === "directory";
 
-  const isDir = item.type === "directory";
-  const href = isDir ? fileAppUrlForPath(ctx.baseType, ctx.baseId, itemPath) : undefined;
-
-  const icon = fileIcons.getFileIcon(item);
-  const actions = buildActions(item, ctx.baseType, ctx.baseId, itemPath);
-
-  // Handle click on file row (opens detail panel)
-  const handleFileClick = (e: MouseEvent) => {
-    if (isDir) return;
-    // Don't trigger if clicking on checkbox or other interactive elements
-    if ((e.target as HTMLElement).closest("button, a, input")) return;
-    props.onSelectForDetail();
-  };
-
-  const handleFileKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      props.onSelectForDetail();
-    }
-  };
-
-  // Calculate icon text size based on gridSize
-  const iconTextSize = gridSize >= 96 ? "text-5xl" : gridSize >= 64 ? "text-4xl" : "text-3xl";
-
-  // Grid view
-  if (isGrid) {
-    return (
-      <div
-        class="relative group flex flex-col items-center p-2 thumbnail transition-colors cursor-pointer"
-        classList={{
-          "bg-blue-100 dark:bg-blue-900/40": props.isDetailSelected,
-          "bg-blue-50 dark:bg-blue-950/30": props.isHighlighted && !props.isDetailSelected,
-          "hover:bg-zinc-100 dark:hover:bg-zinc-800/50": !props.isHighlighted && !props.isDetailSelected,
+  return (
+    <div
+        ref={(element) => {
+          props.ref?.(element);
+          props.dnd.draggable(element, () => ({
+            id: dragId,
+            disabled: props.dragDisabled,
+            focusable: false,
+            keyboard: false,
+            meta: { item: props.item, itemPath: props.itemPath },
+          }));
+          if (isDroppable) {
+            props.dnd.droppable(element, () => ({
+              id: `folder:${props.itemPath}`,
+              disabled: props.dragDisabled,
+              meta: {
+                targetPath: props.itemPath,
+                label: props.item.name,
+              },
+            }));
+          }
         }}
-        onClick={handleFileClick}
-        onKeyDown={handleFileKeyDown}
+        data-file-item
+        class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 transition-colors"
+        classList={{
+          "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
+          "bg-blue-50 dark:bg-blue-950/25": props.isHighlighted && !props.isDetailSelected,
+          "hover:bg-zinc-100 dark:hover:bg-zinc-800/45": !props.isHighlighted && !props.isDetailSelected,
+        }}
+        onClick={(event) => {
+          if (isPointerOnInteractiveTarget(event.target)) return;
+          props.onPrimaryAction();
+        }}
+        onDblClick={(event) => {
+          if (isPointerOnInteractiveTarget(event.target)) return;
+          props.onSecondaryAction();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            props.onPrimaryAction();
+          }
+        }}
+        onContextMenu={props.onContextMenu}
         role="button"
         tabIndex={0}
       >
-        {/* Checkbox overlay */}
-        <Show when={!props.hideCheckbox}>
-          <input
-            type="checkbox"
-            checked={props.isSelected}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onToggleSelect();
-            }}
-            class="absolute top-1 left-1 z-10"
-            classList={{
-              "opacity-0 group-hover:opacity-100": !props.isSelected,
-            }}
-          />
-        </Show>
+        <div class="relative flex w-full justify-center">
+          <Show when={!props.hideCheckbox}>
+            <input
+              type="checkbox"
+              checked={props.isSelected}
+              class="absolute left-1 top-1 z-10 opacity-0 transition-opacity group-hover:opacity-100"
+              classList={{ "opacity-100": props.isSelected }}
+              data-dnd-ignore
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onToggleSelect();
+              }}
+            />
+          </Show>
 
-        {/* Info button for folders (opens detail panel) */}
-        <Show when={isDir}>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              props.onSelectForDetail();
-            }}
-            class="absolute top-1 right-1 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 text-dimmed hover:text-blue-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-            title="Show details"
+          <div
+            data-dnd-preview
+            data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
+            class="relative flex items-center justify-center overflow-hidden rounded-lg text-zinc-500"
+            style={{ width: `${size}px`, height: `${size}px` }}
           >
-            <i class="ti ti-info-circle text-sm" />
-          </button>
-        </Show>
-
-        {/* Icon */}
-        {isDir ? (
-          <a href={href} class="flex flex-col items-center w-full">
-            <div
-              class="flex items-center justify-center thumbnail bg-zinc-100 dark:bg-zinc-800 transition-colors mb-1.5"
-              style={{ width: `${gridSize}px`, height: `${gridSize}px` }}
-            >
-              <i class={`ti ${icon} ${iconTextSize} group-hover:hidden`} />
-              <i class={`ti ti-folder-open text-blue-500 ${iconTextSize} hidden group-hover:inline`} />
-            </div>
-            <span
-              class="text-[11px] text-center w-full truncate leading-tight"
-              classList={{
-                "text-dimmed": item.isHidden,
-                "text-primary": !item.isHidden,
-              }}
-              title={item.name}
-            >
-              {item.name}
-            </span>
-          </a>
-        ) : fileIcons.getFileCategory(item) === "image" ? (
-          <div class="flex flex-col items-center w-full">
-            <div class="thumbnail bg-zinc-100 dark:bg-zinc-800 mb-1.5" style={{ width: `${gridSize}px`, height: `${gridSize}px` }}>
-              <img
-                src={`${fileApiUrl(ctx.baseType, ctx.baseId)}/thumbnail?path=${encodeURIComponent(itemPath)}`}
-                alt={item.name}
-                class="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            <span
-              class="text-[11px] text-center w-full truncate leading-tight"
-              classList={{
-                "text-dimmed": item.isHidden,
-                "text-primary": !item.isHidden,
-              }}
-              title={item.name}
-            >
-              {item.name}
-            </span>
+            <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={size} />
           </div>
-        ) : (
-          <div class="flex flex-col items-center w-full">
-            <div
-              class="flex items-center justify-center thumbnail bg-zinc-100 dark:bg-zinc-800 mb-1.5"
-              style={{ width: `${gridSize}px`, height: `${gridSize}px` }}
-            >
-              <i class={`ti ${icon} ${iconTextSize}`} />
-            </div>
-            <span
-              class="text-[11px] text-center w-full truncate leading-tight"
-              classList={{
-                "text-dimmed": item.isHidden,
-                "text-primary": !item.isHidden,
-              }}
-              title={item.name}
-            >
-              {item.name}
-            </span>
-          </div>
-        )}
+        </div>
+
+        <div class="flex w-full items-start gap-1">
+          <span class="min-w-0 flex-1 truncate text-center text-xs leading-tight text-primary" title={props.item.name}>
+            {props.item.name}
+          </span>
+        </div>
       </div>
-    );
-  }
-
-  // List view
-  const rowClass = () => {
-    let cls = "flex items-center gap-3 px-3 py-2.5 transition-colors";
-    if (props.isDetailSelected) {
-      cls += " bg-blue-100 dark:bg-blue-900/40";
-    } else if (props.isHighlighted) {
-      cls += " bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/30";
-    } else {
-      // Only apply gray hover when not selected
-      cls += " hover:bg-zinc-100 dark:hover:bg-zinc-800/50";
-    }
-    if (isDir) {
-      cls += " group";
-    } else {
-      cls += " cursor-pointer";
-    }
-    return cls;
-  };
-
-  // Checkbox element
-  const checkbox = (
-    <input
-      type="checkbox"
-      checked={props.isSelected}
-      onClick={(e) => {
-        e.stopPropagation();
-        props.onToggleSelect();
-      }}
-      class="shrink-0"
-    />
   );
+}
 
-  // Icon element (with thumbnail for images)
-  const isImage = !isDir && fileIcons.getFileCategory(item) === "image";
-  const iconEl = isDir ? (
-    <div class="w-8 h-8 flex items-center justify-center thumbnail bg-zinc-100 dark:bg-zinc-800 shrink-0 transition-colors">
-      <i class={`ti ${icon} text-lg group-hover:hidden`} />
-      <i class="ti ti-folder-open text-blue-500 text-lg hidden group-hover:inline" />
-    </div>
-  ) : isImage ? (
-    <button
-      type="button"
-      class="w-8 h-8 thumbnail bg-zinc-100 dark:bg-zinc-800 shrink-0 relative cursor-pointer"
-      onClick={() => ctx.openLightbox?.(itemPath)}
-    >
-      <i class={`ti ${icon} text-lg absolute inset-0 flex items-center justify-center`} />
-      <img
-        src={`${fileApiUrl(ctx.baseType, ctx.baseId)}/thumbnail?path=${encodeURIComponent(itemPath)}`}
-        alt=""
-        class="w-full h-full object-cover relative z-10"
-        loading="lazy"
-      />
-    </button>
-  ) : (
-    <div class="w-8 h-8 flex items-center justify-center thumbnail bg-zinc-100 dark:bg-zinc-800 shrink-0">
-      <i class={`ti ${icon} text-lg`} />
-    </div>
-  );
+function FileRow(props: {
+  ref?: (element: HTMLDivElement) => void;
+  item: FileInfo;
+  itemPath: string;
+  ctx: FileContextValue;
+  columns: FileListColumn[];
+  compact: boolean;
+  isSelected: boolean;
+  selectedCount: number;
+  isHighlighted: boolean;
+  isDetailSelected: boolean;
+  onToggleSelect: () => void;
+  onPrimaryAction: () => void;
+  onSecondaryAction: () => void;
+  onShowDetail: () => void;
+  onContextMenu: (event: MouseEvent) => void;
+  hideCheckbox?: boolean;
+  dnd: ReturnType<typeof dnd.create<DragMeta, DropMeta, null>>;
+  dragDisabled?: boolean;
+}) {
+  const dragId = `file:${props.itemPath}`;
+  const previewSize = () => (props.compact ? 30 : 48);
 
-  // Name element
-  const nameEl = (
-    <span
-      class={`text-sm truncate ${
-        item.isHidden ? "text-dimmed" : "text-primary"
-      } ${isDir ? "group-hover:text-primary transition-colors" : ""}`}
-    >
-      {item.name}
-      <Show when={props.isHighlighted}>
-        <span class="ml-2 px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-          moved
-        </span>
-      </Show>
-    </span>
-  );
-
-  // Meta + actions (responsive)
-  const metaEl = (
-    <div class="flex items-center gap-4 text-xs text-dimmed shrink-0">
-      <Show when={item.size > 0}>
-        <span class="hidden sm:inline">{formatBytes({ bytes: item.size })}</span>
-      </Show>
-      <span class="hidden md:inline">{dates.formatDateRelative(item.mtime)}</span>
-      {/* Folders get info icon to open detail panel */}
-      <Show when={isDir}>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            props.onSelectForDetail();
-          }}
-          class="text-dimmed hover:text-blue-500 transition-colors p-1"
-          title="Show details"
-        >
-          <i class="ti ti-info-circle" />
-        </button>
-      </Show>
-    </div>
-  );
-
-  if (isDir) {
-    return (
-      <div class={rowClass()}>
-        <Show when={!props.hideCheckbox}>{checkbox}</Show>
-        <a href={href} class="flex items-center gap-3 flex-1 min-w-0">
-          {iconEl}
-          <div class="flex-1 min-w-0">{nameEl}</div>
-        </a>
-        {metaEl}
-      </div>
-    );
-  }
-
-  // File row - clicking opens detail panel
   return (
-    <div class={rowClass()} onClick={handleFileClick} onKeyDown={handleFileKeyDown} role="button" tabIndex={0}>
-      <Show when={!props.hideCheckbox}>{checkbox}</Show>
-      {iconEl}
-      <div class="flex-1 min-w-0">{nameEl}</div>
-      {metaEl}
-    </div>
+    <div
+        ref={(element) => {
+          props.ref?.(element);
+          props.dnd.draggable(element, () => ({
+            id: dragId,
+            disabled: props.dragDisabled,
+            focusable: false,
+            keyboard: false,
+            meta: { item: props.item, itemPath: props.itemPath },
+          }));
+          if (props.item.type === "directory") {
+            props.dnd.droppable(element, () => ({
+              id: `folder:${props.itemPath}`,
+              disabled: props.dragDisabled,
+              meta: {
+                targetPath: props.itemPath,
+                label: props.item.name,
+              },
+            }));
+          }
+        }}
+        data-file-item
+        class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-50 px-3 py-0 text-sm transition-colors last:border-b-0 dark:border-zinc-800/60"
+        classList={{
+          "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
+          "bg-blue-50 dark:bg-blue-950/20": props.isHighlighted && !props.isDetailSelected,
+          "hover:bg-zinc-50 dark:hover:bg-zinc-900/40": !props.isHighlighted && !props.isDetailSelected,
+        }}
+        onClick={(event) => {
+          if (isPointerOnInteractiveTarget(event.target)) return;
+          props.onPrimaryAction();
+        }}
+        onDblClick={(event) => {
+          if (isPointerOnInteractiveTarget(event.target)) return;
+          props.onSecondaryAction();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            props.onPrimaryAction();
+          }
+        }}
+        onContextMenu={props.onContextMenu}
+        role="button"
+        tabIndex={0}
+      >
+        <div class="flex min-w-0 items-center gap-3" classList={{ "py-1.5": props.compact, "py-2.5": !props.compact }}>
+          <Show when={!props.hideCheckbox}>
+            <input
+              type="checkbox"
+              checked={props.isSelected}
+              data-dnd-ignore
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onToggleSelect();
+              }}
+            />
+          </Show>
+          <div
+            data-dnd-preview
+            data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
+            class="relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl text-zinc-500"
+            style={{ width: `${previewSize()}px`, height: `${previewSize()}px` }}
+          >
+            <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={previewSize()} mode="list" />
+          </div>
+          <div class="min-w-0">
+            <p class="truncate text-primary" classList={{ "text-[13px]": props.compact, "text-sm": !props.compact }}>
+              {props.item.name}
+            </p>
+            <Show when={!props.compact}>
+              <p class="truncate text-xs text-dimmed">{props.item.type === "directory" ? "Folder" : fileIcons.getFileCategory(props.item)}</p>
+            </Show>
+          </div>
+        </div>
+
+        <For each={props.columns}>
+          {(column) => (
+            <div
+              class="truncate text-xs text-dimmed"
+              classList={{
+                "py-1.5": props.compact,
+                "py-2.5": !props.compact,
+                "justify-self-start text-left": column === "mime",
+                "justify-self-end text-right": column !== "mime",
+              }}
+            >
+              {column === "size" && (props.item.type === "directory" ? "—" : formatBytes({ bytes: props.item.size }))}
+              {column === "mime" && getMimeLabel(props.item)}
+              {column === "modified" && dates.formatDateTime(props.item.mtime)}
+            </div>
+          )}
+        </For>
+
+      </div>
+  );
+}
+
+function FilePreview(props: {
+  item: FileInfo;
+  itemPath: string;
+  ctx: FileContextValue;
+  size: number;
+  mode?: "grid" | "list";
+}) {
+  const isImage = () => props.item.type === "file" && fileIcons.getFileCategory(props.item) === "image";
+  const icon = () => fileIcons.getFileIcon(props.item);
+
+  return (
+    <Show
+      when={isImage()}
+      fallback={
+        <i
+          class={`ti ${icon()} ${props.mode === "list" ? (props.size <= 36 ? "text-lg" : "text-xl") : props.size >= 192 ? "text-6xl" : props.size >= 144 ? "text-5xl" : "text-4xl"}`}
+        />
+      }
+    >
+      <img
+        src={`${fileApiUrl(props.ctx.baseType, props.ctx.baseId)}/thumbnail?path=${encodeURIComponent(props.itemPath)}`}
+        alt=""
+        class={props.mode === "list" ? "h-full w-full rounded-lg object-cover" : "max-h-full max-w-full rounded-lg object-contain"}
+        loading="lazy"
+        draggable={false}
+      />
+    </Show>
   );
 }

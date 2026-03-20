@@ -1,20 +1,18 @@
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { FileInfo, FileBaseInfo } from "@/files/contracts";
 import { dates, fileIcons } from "@valentinkolb/cloud/lib/shared";
 import { formatBytes } from "@valentinkolb/filegate/utils";
-import { prompts } from "@valentinkolb/cloud/lib/ui";
-import { apiClient } from "@/files/client";
-import MoveTargetSearch from "./MoveTargetSearch.island";
-import { refreshCurrentPath } from "../lib/navigation";
 import {
   fileApiUrl,
-  setHighlightedFiles,
-  fileAppUrlForPath,
   setDetailFileInUrl,
   DETAIL_FILE_SELECT_EVENT,
   type DetailFileSelectPayload,
-  requestFileLightboxOpen,
 } from "./context";
+import {
+  buildFileMenuElements,
+  canOpenFileInline,
+  type FileActionContext,
+} from "./FileActions";
 
 type FileDetailPanelProps = {
   initialFile: FileInfo | null;
@@ -24,6 +22,7 @@ type FileDetailPanelProps = {
   items: FileInfo[];
   bases: FileBaseInfo[];
   useFullDetailKey?: boolean;
+  showEmpty?: boolean;
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -38,6 +37,12 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "File",
 };
 
+type FileActionEntry = Extract<ReturnType<typeof buildFileMenuElements>[number], { label: string }>;
+
+const asFileBaseType = (value: string): FileBaseInfo["type"] => (value === "group" ? "group" : "home");
+
+const isActionEntry = (entry: ReturnType<typeof buildFileMenuElements>[number]): entry is FileActionEntry => "label" in entry;
+
 const parseFullDetailKey = (key: string) => {
   const firstColon = key.indexOf(":");
   const secondColon = key.indexOf(":", firstColon + 1);
@@ -49,17 +54,6 @@ const parseFullDetailKey = (key: string) => {
     };
   }
   return null;
-};
-
-const hasFileExtension = (name: string) => {
-  const trimmed = name.trim();
-  const dotIndex = trimmed.lastIndexOf(".");
-  return dotIndex > 0 && dotIndex < trimmed.length - 1;
-};
-
-const buildCopyName = (name: string) => {
-  const dotIndex = name.lastIndexOf(".");
-  return dotIndex > 0 ? `${name.slice(0, dotIndex)}-copy${name.slice(dotIndex)}` : `${name}-copy`;
 };
 
 export default function FileDetailPanel(props: FileDetailPanelProps) {
@@ -128,178 +122,13 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
   };
 
   const contentUrl = () => `${fileApiUrl(baseType(), baseId())}/content?path=${encodeURIComponent(itemPath())}`;
-  const canPreviewInline = () => ["image", "pdf", "video", "audio", "text", "code"].includes(category());
+  const actionContext = createMemo<FileActionContext>(() => ({
+    baseType: asFileBaseType(baseType()),
+    baseId: baseId(),
+    bases: props.bases,
+  }));
 
   const handleClose = () => setDetailFileInUrl(null);
-
-  const handleDownload = () => {
-    const link = document.createElement("a");
-    link.href = contentUrl();
-    link.download = file()?.name ?? "download";
-    link.click();
-  };
-
-  const handleOpen = () => {
-    if (category() === "image") {
-      requestFileLightboxOpen({
-        baseType: baseType(),
-        baseId: baseId(),
-        path: itemPath(),
-      });
-      return;
-    }
-    window.open(`${contentUrl()}&inline=true`, "_blank");
-  };
-
-  const handleDelete = async () => {
-    const currentFile = file();
-    if (!currentFile) return;
-
-    const message = isDirectory() ? `Move "${currentFile.name}" and all contained items to Trash?` : `Move "${currentFile.name}" to Trash?`;
-
-    const confirmed = await prompts.confirm(message, {
-      title: "Move to Trash",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Move to Trash",
-      cancelText: "Cancel",
-    });
-
-    if (!confirmed) return;
-
-    const res = await apiClient[":baseType"][":baseId"].$delete({
-      param: { baseType: baseType(), baseId: baseId() },
-      query: { path: itemPath() },
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ message: "Delete failed" }));
-      await prompts.error("message" in data ? data.message : "Delete failed");
-      return;
-    }
-
-    setDetailFileInUrl(null);
-    refreshCurrentPath();
-  };
-
-  const handleRename = async () => {
-    const currentFile = file();
-    if (!currentFile) return;
-
-    const result = await prompts.form({
-      title: isDirectory() ? "Rename Folder" : "Rename File",
-      icon: "ti ti-pencil",
-      confirmText: "Rename",
-      fields: {
-        newName: {
-          type: "text",
-          label: "New name",
-          default: currentFile.name,
-          required: true,
-          validate: (value) => {
-            if (!value?.trim()) return "Name is required";
-            if (value.includes("/")) return "Name cannot contain /";
-            if (value === "." || value === "..") return "Invalid name";
-            return null;
-          },
-        },
-      },
-    });
-
-    if (!result || result.newName.trim() === currentFile.name) return;
-    const newName = result.newName.trim();
-
-    if (!isDirectory() && !hasFileExtension(newName)) {
-      const confirmed = await prompts.confirm(`The new filename "${newName}" has no extension. Do you want to continue?`, {
-        title: "Rename without extension",
-        icon: "ti ti-alert-triangle",
-        confirmText: "Rename anyway",
-        cancelText: "Cancel",
-      });
-      if (!confirmed) return;
-    }
-
-    const currentItemPath = itemPath();
-    const parentPath = currentItemPath.substring(0, currentItemPath.lastIndexOf("/")) || "/";
-    const newPath = parentPath === "/" ? `/${newName}` : `${parentPath}/${newName}`;
-
-    const res = await apiClient[":baseType"][":baseId"].$post({
-      param: { baseType: baseType(), baseId: baseId() },
-      query: { action: "move", path: currentItemPath, to: newPath },
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ message: "Rename failed" }));
-      await prompts.error("message" in data ? data.message : "Rename failed");
-      return;
-    }
-
-    refreshCurrentPath();
-  };
-
-  const handleMove = () => {
-    const currentFile = file();
-    if (!currentFile) return;
-
-    prompts.dialog(
-      (close) => (
-        <MoveTargetSearch
-          sourceBaseType={baseType()}
-          sourceBaseId={baseId()}
-          sourcePaths={[itemPath()]}
-          bases={props.bases}
-          onComplete={(target) => {
-            setHighlightedFiles(target.movedFiles);
-            const url = fileAppUrlForPath(target.baseType, target.baseId, target.path);
-            window.location.href = url;
-          }}
-          close={close}
-        />
-      ),
-      { title: `Move "${currentFile.name}"`, icon: "ti ti-folder-share" },
-    );
-  };
-
-  const handleDuplicate = async () => {
-    const currentFile = file();
-    if (!currentFile) return;
-
-    const defaultName = buildCopyName(currentFile.name);
-    const result = await prompts.form({
-      title: "Duplicate",
-      icon: "ti ti-copy",
-      confirmText: "Duplicate",
-      fields: {
-        newName: {
-          type: "text",
-          label: "New name",
-          placeholder: defaultName,
-          default: defaultName,
-          required: true,
-          validate: (value) => {
-            if (!value?.trim()) return "Name is required";
-            if (value.includes("/")) return "Name cannot contain /";
-            return null;
-          },
-        },
-      },
-    });
-
-    if (!result) return;
-
-    const res = await apiClient[":baseType"][":baseId"].duplicate.$post({
-      param: { baseType: baseType(), baseId: baseId() },
-      json: { path: itemPath(), newName: result.newName.trim() },
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ message: "Duplicate failed" }));
-      await prompts.error("message" in data ? data.message : "Duplicate failed");
-      return;
-    }
-
-    refreshCurrentPath();
-  };
 
   const fullPath = () => {
     const baseName = baseType() === "home" ? "~" : baseId();
@@ -307,114 +136,103 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
     return `${baseName}${path.startsWith("/") ? "" : "/"}${path}`;
   };
 
+  const detailFacts = () => {
+    const currentFile = file();
+    if (!currentFile) return [];
+    return [
+      { label: "Filename", value: currentFile.name, mono: false },
+      { label: "Kind", value: isDirectory() ? "Folder" : CATEGORY_LABELS[category()] || "File" },
+      { label: "Updated", value: dates.formatDateTime(currentFile.mtime) },
+      { label: "Size", value: isDirectory() ? "Folder" : formatBytes({ bytes: currentFile.size }) },
+      { label: "Path", value: fullPath(), mono: true },
+    ];
+  };
+
+  const actionItems = createMemo<FileActionEntry[]>(() => {
+    const currentFile = file();
+    if (!currentFile) return [];
+    const items = buildFileMenuElements({
+      item: currentFile,
+      itemPath: itemPath(),
+      ctx: actionContext(),
+      onCloseDetail: handleClose,
+    }).filter(isActionEntry);
+    return items.filter((entry) => !entry.label.startsWith("Show "));
+  });
+
+  const actionButtonClass = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
+  const dangerActionButtonClass = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300";
+
   return (
     <Show
       when={file()}
       fallback={
-        <div class="p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-          <i class="ti ti-file-info text-sm" />
-          Select a file to view details
-        </div>
+        props.showEmpty === false ? null : (
+          <div class="p-8 flex items-center justify-center text-dimmed text-xs gap-2">
+            <i class="ti ti-file-info text-sm" />
+            Select a file to view details
+          </div>
+        )
       }
     >
       {(currentFile) => (
-        <div class="flex flex-col overflow-y-auto">
-          <div class="flex items-center justify-between px-3 py-2">
-            <span class="section-label mb-0">Detail</span>
+        <div class="flex h-full min-h-0 flex-col overflow-y-auto">
+          <div class="flex items-start justify-end gap-2">
             <button type="button" onClick={handleClose} class="p-1 text-dimmed hover:text-primary transition-colors" aria-label="Close">
               <i class="ti ti-x" />
             </button>
           </div>
 
-          <div class="px-4 pb-4 flex flex-col gap-4">
-            <div class="flex justify-center py-4">
+          <div class="flex flex-col gap-2 pb-0">
+            <div class="flex justify-center">
               {category() === "image" && !isDirectory() ? (
-                <img src={`${contentUrl()}&inline=true`} alt={currentFile().name} class="max-w-full max-h-40 thumbnail object-contain" />
+                <img src={`${contentUrl()}&inline=true`} alt={currentFile().name} class="max-h-36 max-w-full rounded-xl object-contain" />
               ) : (
-                <div class="w-20 h-20 flex items-center justify-center thumbnail bg-zinc-100 dark:bg-zinc-800">
-                  <i class={`ti ${icon()} text-4xl`} />
+                <div class="flex h-18 w-18 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
+                  <i class={`ti ${icon()} text-3xl`} />
                 </div>
               )}
             </div>
 
-            <div class="text-center">
-              <h4 class="font-medium text-primary break-all text-sm">{currentFile().name}</h4>
-              <p class="text-xs text-dimmed">{isDirectory() ? "Folder" : CATEGORY_LABELS[category()] || "File"}</p>
-            </div>
+            <div class="h-2" />
 
-            <div class="flex flex-col gap-1 text-xs text-dimmed">
-              {!isDirectory() && (
-                <div class="flex items-center gap-1.5">
-                  <i class="ti ti-file text-[10px]" />
-                  <span>{formatBytes({ bytes: currentFile().size })}</span>
-                </div>
-              )}
-              <div class="flex items-center gap-1.5">
-                <i class="ti ti-clock text-[10px]" />
-                <span>{dates.formatDateTime(currentFile().mtime)}</span>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <i class="ti ti-folder text-[10px]" />
-                <span class="font-mono break-all">{fullPath()}</span>
+            <div class="paper overflow-hidden">
+              <div class="grid grid-cols-1 divide-y divide-zinc-200 dark:divide-zinc-800">
+                <For each={detailFacts()}>
+                  {(fact) => (
+                    <div class="px-3 py-2.5">
+                      <div class="text-[11px] uppercase tracking-wider text-dimmed">{fact.label}</div>
+                      <div classList={{ "font-mono break-all": fact.mono }} class="mt-1 text-xs text-primary">
+                        {fact.value}
+                      </div>
+                    </div>
+                  )}
+                </For>
               </div>
             </div>
 
-            <div class="flex items-center justify-center gap-1 pt-2 border-t border-zinc-200 dark:border-zinc-700">
-              {!isDirectory() && (
-                <>
+            <div class="grid grid-cols-1 gap-0.5">
+              <For each={actionItems()}>
+                {(entry) => (
                   <button
                     type="button"
-                    onClick={handleDownload}
-                    class="p-2 text-dimmed hover:text-primary transition-colors"
-                    title="Download"
+                    class={entry.variant === "danger" ? dangerActionButtonClass : actionButtonClass}
+                    title={entry.label}
+                    onClick={() => {
+                      if ("action" in entry && entry.action) {
+                        void entry.action();
+                        return;
+                      }
+                      if ("href" in entry && entry.href) {
+                        window.open(entry.href, entry.external ? "_blank" : "_self");
+                      }
+                    }}
                   >
-                    <i class="ti ti-download" />
+                    {entry.icon && <i class={entry.icon} />}
+                    <span>{entry.label === "Open" && canOpenFileInline(currentFile()) ? "Preview" : entry.label}</span>
                   </button>
-                  {canPreviewInline() && (
-                    <button
-                      type="button"
-                      onClick={handleOpen}
-                      class="p-2 text-dimmed hover:text-primary transition-colors"
-                      title={category() === "image" ? "View image" : "Open in browser"}
-                    >
-                      <i class="ti ti-eye" />
-                    </button>
-                  )}
-                </>
-              )}
-
-              {isDirectory() && (
-                <a
-                  href={fileAppUrlForPath(baseType(), baseId(), itemPath())}
-                  class="p-2 text-dimmed hover:text-primary transition-colors"
-                  title="Open folder"
-                >
-                  <i class="ti ti-folder-open" />
-                </a>
-              )}
-
-              <button type="button" onClick={handleRename} class="p-2 text-dimmed hover:text-primary transition-colors" title="Rename">
-                <i class="ti ti-pencil" />
-              </button>
-
-              {props.bases.length > 0 && (
-                <button type="button" onClick={handleMove} class="p-2 text-dimmed hover:text-primary transition-colors" title="Move to...">
-                  <i class="ti ti-folder-share" />
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={handleDuplicate}
-                class="p-2 text-dimmed hover:text-primary transition-colors"
-                title="Duplicate"
-              >
-                <i class="ti ti-copy" />
-              </button>
-
-              <button type="button" onClick={handleDelete} class="p-2 text-dimmed hover:text-red-500 transition-colors" title="Delete">
-                <i class="ti ti-trash" />
-              </button>
+                )}
+              </For>
             </div>
           </div>
         </div>

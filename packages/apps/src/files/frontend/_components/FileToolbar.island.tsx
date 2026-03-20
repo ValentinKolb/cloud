@@ -26,7 +26,6 @@ type FileToolbarProps = {
   baseType: string;
   baseId: string;
   currentPath: string;
-  showFilter?: boolean;
   initialFilterQuery?: string;
   initialSelected?: SelectionKey[];
   /** All item names in current directory (for Select All) */
@@ -61,7 +60,6 @@ export default function FileToolbar({
   baseType,
   baseId,
   currentPath,
-  showFilter = false,
   initialFilterQuery = "",
   initialSelected = [],
   allItems = [],
@@ -156,6 +154,7 @@ export default function FileToolbar({
       {
         title: `Move ${keys.length} item${keys.length > 1 ? "s" : ""}`,
         icon: "ti ti-folder-share",
+        size: "large",
       },
     );
   };
@@ -235,12 +234,11 @@ export default function FileToolbar({
 
   return (
     <div class="flex flex-col gap-2 w-full">
-      {/* Action row */}
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <Dropdown
           trigger={
             <span
-              class="btn-secondary btn-sm"
+              class="btn-input btn-sm"
               classList={{
                 "opacity-50 pointer-events-none": isLoading || uploadManager.state.isUploading,
               }}
@@ -280,20 +278,10 @@ export default function FileToolbar({
           width="w-44"
         />
 
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onClick={() => navigateWithParam("filter", showFilter ? undefined : "")}
-          title={showFilter ? "Close filter" : "Filter files"}
-        >
-          <i class={`ti text-sm ${showFilter ? "ti-filter-off" : "ti-filter"}`} />
-        </button>
-
-        {/* Selection dropdown */}
         <Show when={selectionCount() > 0}>
           <Dropdown
             trigger={
-              <span class="btn-secondary btn-sm">
+              <span class="btn-input btn-sm">
                 <i class="ti ti-checks text-sm" />
                 <span class="text-[10px]">{selectionCount()}</span>
                 <i class="ti ti-chevron-down text-[10px]" />
@@ -340,59 +328,58 @@ export default function FileToolbar({
           />
         </Show>
 
-        <div class="flex-1" />
+        <form
+          onSubmit={handleFilterSubmit}
+          class="input flex min-h-[calc((var(--theme-input-py)*2)+1.25rem)] min-w-[14rem] flex-1 items-center gap-2 p-0 pr-2"
+          role="search"
+        >
+          <input
+            type="search"
+            placeholder="Search in this folder..."
+            aria-label="Search files"
+            class="min-h-0 flex-1 bg-transparent px-3 py-0 text-sm focus-visible:outline-0"
+            value={filterQuery()}
+            onInput={(e) => setFilterQuery(e.currentTarget.value)}
+          />
+          <Show when={filterQuery()} fallback={<span class="hidden text-[11px] text-dimmed sm:inline">Enter</span>}>
+            <button
+              type="button"
+              onClick={() => {
+                setFilterQuery("");
+                navigateWithParam("filter", undefined);
+              }}
+              class="text-dimmed transition-colors hover:text-primary"
+              title="Clear search"
+            >
+              <i class="ti ti-x text-sm" />
+            </button>
+          </Show>
+        </form>
 
-        <div class="flex items-center gap-2 text-xs text-dimmed">
+        <div class="input ml-auto inline-flex min-h-[calc((var(--theme-input-py)*2)+1.25rem)] items-center gap-2 px-2 py-0 text-xs text-dimmed">
           <Show when={folderCount > 0}>
-            <span class="flex items-center gap-1" title={`${folderCount} folder${folderCount !== 1 ? "s" : ""}`}>
-              <i class="ti ti-folder" />
-              {folderCount}
+            <span class="inline-flex items-center gap-1" title={`${folderCount} folder${folderCount !== 1 ? "s" : ""}`}>
+              <i class="ti ti-folder text-[11px]" />
+              <span>{folderCount}</span>
             </span>
           </Show>
+          <Show when={folderCount > 0 && fileCount > 0}>
+            <span class="text-zinc-300 dark:text-zinc-600">/</span>
+          </Show>
           <Show when={fileCount > 0}>
-            <span class="flex items-center gap-1" title={`${fileCount} file${fileCount !== 1 ? "s" : ""} (${totalSize})`}>
-              <i class="ti ti-file" />
-              {fileCount}
-              <Show when={totalSize !== "—"}>
-                <span class="hidden sm:inline text-dimmed">({totalSize})</span>
-              </Show>
+            <span class="inline-flex items-center gap-1" title={`${fileCount} file${fileCount !== 1 ? "s" : ""} (${totalSize})`}>
+              <i class="ti ti-file text-[11px]" />
+              <span>{fileCount}</span>
             </span>
           </Show>
           <Show when={folderCount === 0 && fileCount === 0}>
-            <span class="text-dimmed">Empty</span>
+            <span>Empty</span>
+          </Show>
+          <Show when={totalSize !== "—" && fileCount > 0}>
+            <span class="hidden sm:inline text-dimmed">{totalSize}</span>
           </Show>
         </div>
       </div>
-
-      {/* Filter bar */}
-      <Show when={showFilter}>
-        <form onSubmit={handleFilterSubmit} class="flex items-center gap-2" role="search">
-          <div class="flex items-center gap-2 flex-1 input-subtle p-0 pr-2">
-            <input
-              type="search"
-              placeholder="Filter in this folder..."
-              aria-label="Filter files"
-              class="flex-1 py-1.5 px-2 focus-visible:outline-0 min-w-0 text-sm"
-              value={filterQuery()}
-              onInput={(e) => setFilterQuery(e.currentTarget.value)}
-              autofocus
-            />
-            <Show when={filterQuery()} fallback={<span class="text-[11px] text-dimmed hidden sm:inline">Enter</span>}>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilterQuery("");
-                  navigateWithParam("filter", undefined);
-                }}
-                class="text-dimmed hover:text-primary transition-colors"
-                title="Clear filter"
-              >
-                <i class="ti ti-x text-sm" />
-              </button>
-            </Show>
-          </div>
-        </form>
-      </Show>
 
       {/* Upload progress */}
       <Show when={uploadManager.state.files.length > 0}>

@@ -26,12 +26,15 @@ export default function Lightbox(props: LightboxProps) {
   const SWIPE_THRESHOLD = 50;
 
   const current = () => props.images[index()];
-  const hasPrev = () => index() > 0;
-  const hasNext = () => index() < props.images.length - 1;
   const isMultiple = () => props.images.length > 1;
-
-  const prev = () => hasPrev() && setIndex((i) => i - 1);
-  const next = () => hasNext() && setIndex((i) => i + 1);
+  const prev = () => {
+    if (!isMultiple()) return;
+    setIndex((i) => (i - 1 + props.images.length) % props.images.length);
+  };
+  const next = () => {
+    if (!isMultiple()) return;
+    setIndex((i) => (i + 1) % props.images.length);
+  };
 
   const close = () => {
     dialogRef.close();
@@ -98,59 +101,60 @@ export default function Lightbox(props: LightboxProps) {
   return (
     <dialog
       ref={dialogRef}
-      class="fixed inset-0 m-0 h-dvh w-dvw max-h-none max-w-none bg-black/90 backdrop:bg-transparent p-0"
+      class="fixed inset-0 m-0 h-dvh w-dvw max-h-none max-w-none bg-black/92 backdrop:bg-transparent p-0 text-white"
       onMouseDown={handleBackdropClick}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       aria-label="Image lightbox"
     >
       {/* Top bar */}
-      <div class="absolute top-0 left-0 right-0 z-10 flex items-center justify-between p-4">
-        {/* Counter */}
-        <Show when={isMultiple()}>
-          <span class="text-white/80 text-sm" aria-live="polite">
-            {index() + 1} / {props.images.length}
-          </span>
-        </Show>
-        <Show when={!isMultiple()}>
-          <span />
-        </Show>
+      <div class="absolute inset-x-0 top-0 z-10 flex items-start justify-between p-4 sm:p-6">
+        <div class="flex min-w-0 flex-col gap-2">
+          <Show when={isMultiple()}>
+            <span class="inline-flex w-fit items-center rounded-full border border-white/12 bg-white/8 px-3 py-1 text-xs text-white/80 backdrop-blur" aria-live="polite">
+              {index() + 1} / {props.images.length}
+            </span>
+          </Show>
+          <Show when={current()?.alt}>
+            <div class="max-w-[min(70vw,42rem)] rounded-2xl border border-white/10 bg-black/30 px-4 py-2 backdrop-blur-sm">
+              <div class="truncate text-sm font-medium text-white">{current()?.alt}</div>
+            </div>
+          </Show>
+        </div>
 
-        {/* Actions */}
         <div class="flex items-center gap-2">
           <Show when={current()?.downloadUrl}>
             <a
               href={current()!.downloadUrl}
               download=""
-              class="flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              class="inline-flex h-11 items-center gap-2 rounded-full border border-white/12 bg-white/8 px-4 text-sm text-white transition-colors hover:bg-white/14"
               aria-label="Download image"
             >
-              <i class="ti ti-download text-xl" />
+              <i class="ti ti-download text-base" />
+              <span class="hidden sm:inline">Download</span>
             </a>
           </Show>
           <button
             type="button"
             onClick={close}
-            class="flex items-center justify-center w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            class="inline-flex h-11 items-center gap-2 rounded-full border border-white/12 bg-white/8 px-4 text-sm text-white transition-colors hover:bg-white/14"
             aria-label="Close lightbox"
           >
-            <i class="ti ti-x text-xl" />
+            <i class="ti ti-x text-base" />
+            <span class="hidden sm:inline">Close</span>
           </button>
         </div>
       </div>
 
-      {/* Image container */}
-      <div class="flex items-center justify-center h-full w-full p-12">
+      <div class="flex h-full w-full items-center justify-center px-6 pb-20 pt-24 sm:px-12 sm:pb-24 sm:pt-28">
         <img src={current()?.src} alt={current()?.alt ?? ""} class="max-h-full max-w-full object-contain select-none" draggable={false} />
       </div>
 
-      {/* Navigation buttons */}
       <Show when={isMultiple()}>
         <button
           type="button"
           onClick={prev}
-          disabled={!hasPrev()}
-          class="absolute left-4 top-1/2 -translate-y-1/2 flex items-center justify-center w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+          class="absolute left-4 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/12 bg-white/8 text-white transition-colors hover:bg-white/14 sm:left-6"
           aria-label="Previous image"
         >
           <i class="ti ti-chevron-left text-2xl" />
@@ -158,23 +162,21 @@ export default function Lightbox(props: LightboxProps) {
         <button
           type="button"
           onClick={next}
-          disabled={!hasNext()}
-          class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center justify-center w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+          class="absolute right-4 top-1/2 z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/12 bg-white/8 text-white transition-colors hover:bg-white/14 sm:right-6"
           aria-label="Next image"
         >
           <i class="ti ti-chevron-right text-2xl" />
         </button>
       </Show>
 
-      {/* Dot indicators */}
       <Show when={isMultiple() && props.images.length <= 10}>
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2" role="tablist" aria-label="Image navigation">
+        <div class="absolute bottom-5 left-1/2 flex -translate-x-1/2 gap-2 rounded-full border border-white/10 bg-black/30 px-3 py-2 backdrop-blur" role="tablist" aria-label="Image navigation">
           <For each={props.images}>
             {(_, i) => (
               <button
                 type="button"
                 onClick={() => setIndex(i())}
-                class="w-2 h-2 rounded-full transition-colors"
+                class="h-2.5 w-2.5 rounded-full transition-colors"
                 classList={{
                   "bg-white": index() === i(),
                   "bg-white/40 hover:bg-white/60": index() !== i(),

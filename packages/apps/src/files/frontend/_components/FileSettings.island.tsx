@@ -1,6 +1,5 @@
-import { createSignal, Show } from "solid-js";
-import { Switch } from "@valentinkolb/cloud/lib/ui";
-import { SegmentedControl } from "@valentinkolb/cloud/lib/ui";
+import { createMemo, createSignal, Show } from "solid-js";
+import { Dropdown, SegmentedControl, Switch } from "@valentinkolb/cloud/lib/ui";
 import { cookies } from "@valentinkolb/cloud/lib/browser";
 import { refreshCurrentPath } from "../lib/navigation";
 
@@ -9,15 +8,17 @@ const COOKIE_NAME = "settings-app-files";
 
 /** View mode type */
 export type ViewMode = "list" | "grid";
+export type FileListColumn = "size" | "mime" | "modified";
+export type ListDensity = "comfortable" | "compact";
 
 /** Grid size options */
 export type GridSize = "s" | "m" | "l" | "xl";
 
 const GRID_SIZE_VALUES: Record<GridSize, number> = {
-  s: 48,
-  m: 64,
-  l: 96,
-  xl: 128,
+  s: 64,
+  m: 92,
+  l: 136,
+  xl: 184,
 };
 
 /** File settings structure */
@@ -27,22 +28,23 @@ export type FileSettings = {
   showHidden: boolean;
   gridSize: GridSize;
   hideSettings: boolean;
+  listColumns: FileListColumn[];
+  listDensity: ListDensity;
 };
 
 /** Default settings */
-const DEFAULT_SETTINGS: FileSettings = {
+export const DEFAULT_FILE_SETTINGS: FileSettings = {
   computeSizes: false,
   viewMode: "list",
   showHidden: false,
   gridSize: "m",
   hideSettings: false,
+  listColumns: ["size", "modified"],
+  listDensity: "comfortable",
 };
 
 /** Get pixel value for grid size */
 export const getGridSizePixels = (size: GridSize): number => GRID_SIZE_VALUES[size];
-
-/** Read settings from cookie */
-const readSettings = (): FileSettings => cookies.readJsonCookie(COOKIE_NAME, DEFAULT_SETTINGS);
 
 /** Write settings to cookie */
 const writeSettings = (settings: FileSettings) => cookies.writeJsonCookie(COOKIE_NAME, settings);
@@ -59,12 +61,26 @@ const GRID_SIZE_OPTIONS: { value: GridSize; label: string }[] = [
   { value: "xl", label: "XL" },
 ];
 
+const LIST_COLUMN_OPTIONS: { value: FileListColumn; label: string; icon: string }[] = [
+  { value: "size", label: "File size", icon: "ti ti-ruler-measure" },
+  { value: "mime", label: "MIME type", icon: "ti ti-file-type" },
+  { value: "modified", label: "Updated", icon: "ti ti-clock" },
+];
+
 /**
  * File manager settings panel (desktop only).
  * Persists settings in a JSON cookie for server-side access.
  */
 export default function FileSettings({ initialSettings }: FileSettingsProps) {
   const [settings, setSettings] = createSignal<FileSettings>(initialSettings);
+  const selectedColumnsLabel = createMemo(() => {
+    const selected = settings().listColumns;
+    if (selected.length === LIST_COLUMN_OPTIONS.length) return "All columns";
+    if (selected.length === 0) return "No extras";
+    return LIST_COLUMN_OPTIONS.filter((option) => selected.includes(option.value))
+      .map((option) => option.label)
+      .join(", ");
+  });
 
   const updateSetting = <K extends keyof FileSettings>(key: K, value: FileSettings[K]) => {
     const newSettings = { ...settings(), [key]: value };
@@ -78,6 +94,12 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
 
   const toggleMinimize = () => {
     updateSetting("hideSettings", !settings().hideSettings);
+  };
+
+  const toggleListColumn = (column: FileListColumn) => {
+    const current = settings().listColumns;
+    const next = current.includes(column) ? current.filter((value) => value !== column) : [...current, column];
+    updateSetting("listColumns", next);
   };
 
   return (
@@ -123,6 +145,55 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
             </div>
           </Show>
 
+          <Show when={settings().viewMode === "list"}>
+            <div class="flex flex-col gap-3">
+              <div class="flex flex-col gap-1">
+                <div class="text-xs text-secondary">Density</div>
+                <SegmentedControl
+                  options={[
+                    { value: "compact" as ListDensity, label: "Compact" },
+                    { value: "comfortable" as ListDensity, label: "Cozy" },
+                  ]}
+                  value={() => settings().listDensity}
+                  onChange={(v) => updateSetting("listDensity", v)}
+                />
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <div class="text-xs text-secondary">List columns</div>
+                <Dropdown
+                  trigger={
+                    <span class="btn-input btn-sm w-full justify-between text-left">
+                      <span class="inline-flex min-w-0 items-center gap-2 truncate">
+                        <i class="ti ti-columns-3 text-sm text-blue-500" />
+                        <span class="truncate text-xs">{selectedColumnsLabel()}</span>
+                      </span>
+                      <i class="ti ti-chevron-down text-[10px] text-dimmed" />
+                    </span>
+                  }
+                  width="w-52"
+                  position="bottom-right"
+                  elements={LIST_COLUMN_OPTIONS.map((option) => ({
+                    element: (close) => (
+                      <button
+                        type="button"
+                        class="flex w-full items-center gap-3 px-4 py-2 text-sm text-zinc-700 transition-colors hover:bg-white/30 dark:text-zinc-300 dark:hover:bg-white/10"
+                        onClick={() => {
+                          toggleListColumn(option.value);
+                          close();
+                        }}
+                      >
+                        <input type="checkbox" checked={settings().listColumns.includes(option.value)} readOnly class="pointer-events-none" />
+                        <i class={`${option.icon} text-dimmed`} />
+                        <span>{option.label}</span>
+                      </button>
+                    ),
+                  }))}
+                />
+              </div>
+            </div>
+          </Show>
+
           {/* Show hidden files toggle */}
           <Switch label="Show hidden files" value={() => settings().showHidden} onChange={(v) => updateSetting("showHidden", v)} />
 
@@ -141,17 +212,24 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
 
 /** Parse settings from cookie string (for server-side use) */
 export const parseFileSettings = (cookieHeader: string | undefined): FileSettings => {
-  if (!cookieHeader) return DEFAULT_SETTINGS;
+  if (!cookieHeader) return DEFAULT_FILE_SETTINGS;
   try {
     const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
     if (match) {
+      const parsed = JSON.parse(decodeURIComponent(match[1]!)) as Partial<FileSettings>;
+      const listColumns = Array.isArray(parsed.listColumns)
+        ? parsed.listColumns.filter((value): value is FileListColumn => ["size", "mime", "modified"].includes(String(value)))
+        : DEFAULT_FILE_SETTINGS.listColumns;
+      const listDensity = parsed.listDensity === "compact" ? "compact" : DEFAULT_FILE_SETTINGS.listDensity;
       return {
-        ...DEFAULT_SETTINGS,
-        ...JSON.parse(decodeURIComponent(match[1]!)),
+        ...DEFAULT_FILE_SETTINGS,
+        ...parsed,
+        listColumns,
+        listDensity,
       };
     }
   } catch {
     // Ignore parse errors
   }
-  return DEFAULT_SETTINGS;
+  return DEFAULT_FILE_SETTINGS;
 };

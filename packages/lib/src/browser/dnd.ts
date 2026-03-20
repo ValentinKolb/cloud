@@ -198,8 +198,11 @@ const createLiveRegion = () => {
 
 const createGhost = (source: HTMLElement) => {
   if (typeof document === "undefined") return null;
-  const rect = source.getBoundingClientRect();
-  const clone = source.cloneNode(true) as HTMLElement;
+  const preview = source.querySelector<HTMLElement>("[data-dnd-preview]") ?? source;
+  const rect = preview.getBoundingClientRect();
+  const previewStyle = getComputedStyle(preview);
+  const clone = preview.cloneNode(true) as HTMLElement;
+  const count = Number(preview.dataset.dndCount ?? "0");
   clone.style.position = "fixed";
   clone.style.top = `${rect.top}px`;
   clone.style.left = `${rect.left}px`;
@@ -211,8 +214,31 @@ const createGhost = (source: HTMLElement) => {
   clone.style.transform = "translate3d(0,0,0)";
   clone.style.opacity = "0.92";
   clone.style.boxShadow = "0 12px 28px rgba(0, 0, 0, 0.28)";
+  clone.style.borderRadius = previewStyle.borderRadius;
+  clone.style.overflow = previewStyle.overflow;
   clone.style.willChange = "transform";
   clone.setAttribute("aria-hidden", "true");
+  if (Number.isFinite(count) && count > 1) {
+    const badge = document.createElement("span");
+    badge.textContent = count > 9 ? "9+" : String(count);
+    badge.style.position = "absolute";
+    badge.style.top = "0.25rem";
+    badge.style.right = "0.25rem";
+    badge.style.minWidth = "1.25rem";
+    badge.style.height = "1.25rem";
+    badge.style.padding = "0 0.375rem";
+    badge.style.display = "inline-flex";
+    badge.style.alignItems = "center";
+    badge.style.justifyContent = "center";
+    badge.style.borderRadius = "999px";
+    badge.style.background = "rgb(59 130 246)";
+    badge.style.color = "white";
+    badge.style.fontSize = "10px";
+    badge.style.fontWeight = "600";
+    badge.style.lineHeight = "1";
+    badge.style.boxShadow = "0 6px 16px rgba(37, 99, 235, 0.35)";
+    clone.appendChild(badge);
+  }
   document.body.appendChild(clone);
   return clone;
 };
@@ -290,13 +316,18 @@ export const createDnd = <TDragMeta, TDropMeta, TIntent>(
     if (!activeDrag) return;
 
     const droppableSnapshots = getDroppableSnapshots(pointer);
-    const nextOverId = detectCollision({
-      active: activeDrag.snapshot,
-      pointer,
-      droppables: droppableSnapshots,
-      previousOverId: overId(),
-      previousIntent: intent(),
-    });
+    const collisionPool =
+      activeDrag.mode === "pointer" ? droppableSnapshots.filter((entry) => entry.containsPointer) : droppableSnapshots;
+    const nextOverId =
+      collisionPool.length === 0
+        ? null
+        : detectCollision({
+            active: activeDrag.snapshot,
+            pointer,
+            droppables: collisionPool,
+            previousOverId: overId(),
+            previousIntent: intent(),
+          });
     const nextOver = nextOverId ? droppableSnapshots.find((entry) => entry.id === nextOverId) ?? null : null;
 
     const nextIntent = options.buildIntent
@@ -440,6 +471,11 @@ export const createDnd = <TDragMeta, TDropMeta, TIntent>(
     const currentOver = currentOverId
       ? getDroppableSnapshots(pointer).find((entry) => entry.id === currentOverId) ?? null
       : null;
+
+    if (!currentOver) {
+      clearSession();
+      return;
+    }
 
     announce(options.announcements?.drop?.(activeDrag.snapshot, currentOver));
     options.onDrop?.({
