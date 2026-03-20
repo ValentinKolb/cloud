@@ -22,6 +22,7 @@ type FilterBarProps = {
   filter: FilterState;
   total: number;
   baseUrl: string;
+  hideGroupBy?: boolean;
 };
 
 // Static filter options (defined outside component to avoid recreation)
@@ -93,6 +94,7 @@ const SORT_OPTIONS: FilterChipSection[] = [
       { value: "sort:deadline", label: "Deadline", icon: "ti ti-clock" },
       { value: "sort:priority", label: "Priority", icon: "ti ti-flag" },
       { value: "sort:created", label: "Created", icon: "ti ti-calendar-plus" },
+      { value: "sort:updated", label: "Updated", icon: "ti ti-history" },
       {
         value: "sort:title",
         label: "Title",
@@ -160,7 +162,12 @@ export default function FilterBar(props: FilterBarProps) {
     },
   ];
 
-  const hasFilters = hasActiveFilters(filter);
+  const hasFilters = props.hideGroupBy
+    ? hasActiveFilters({
+        ...filter,
+        groupBy: defaultFilter.groupBy,
+      })
+    : hasActiveFilters(filter);
 
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: filter-bar">
@@ -245,21 +252,23 @@ export default function FilterBar(props: FilterBarProps) {
         </div>
 
         {/* Group By */}
-        <div class="hidden lg:block">
-          <FilterChip
-            label="Group By"
-            icon="ti ti-layout-list"
-            options={GROUP_BY_OPTIONS}
-            value={[filter.groupBy]}
-            onChange={(v) =>
-              navigate({
-                groupBy: (v[0] ?? defaultFilter.groupBy) as ItemGroupBy,
-              })
-            }
-            isActive={filter.groupBy !== defaultFilter.groupBy}
-            defaultValue={[defaultFilter.groupBy]}
-          />
-        </div>
+        {!props.hideGroupBy && (
+          <div class="hidden lg:block">
+            <FilterChip
+              label="Group By"
+              icon="ti ti-layout-list"
+              options={GROUP_BY_OPTIONS}
+              value={[filter.groupBy]}
+              onChange={(v) =>
+                navigate({
+                  groupBy: (v[0] ?? defaultFilter.groupBy) as ItemGroupBy,
+                })
+              }
+              isActive={filter.groupBy !== defaultFilter.groupBy}
+              defaultValue={[defaultFilter.groupBy]}
+            />
+          </div>
+        )}
 
         {/* Clear Filters */}
         {hasFilters && (
@@ -272,12 +281,12 @@ export default function FilterBar(props: FilterBarProps) {
             <span class="hidden sm:inline">Clear</span>
           </a>
         )}
-      </div>
 
-      <div class="text-xs text-dimmed">
-        {filter.search && `Results for "${filter.search}": `}
-        {props.total === 0 ? "No items" : props.total === 1 ? "1 item" : `${props.total} items`}
-        {hasFilters && !filter.search && " (filtered)"}
+        <span class="text-xs text-dimmed whitespace-nowrap">
+          {filter.search && `Results for "${filter.search}": `}
+          {props.total === 0 ? "No items" : props.total === 1 ? "1 item" : `${props.total} items`}
+          {hasFilters && !filter.search && " (filtered)"}
+        </span>
       </div>
     </div>
   );

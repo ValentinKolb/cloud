@@ -441,7 +441,7 @@ export default function KanbanBoard(props: Props) {
     boardDnd.isDragging() && boardDnd.intent()?.bucketKey === bucketKey && boardDnd.intent()?.previewIndex === index;
 
   return (
-    <div class="h-full overflow-x-auto overflow-y-hidden p-3">
+    <div class="h-full overflow-x-auto overflow-y-hidden px-3 py-1">
       <div class="flex h-full min-w-max items-stretch gap-3">
         <For each={buckets()}>
           {(bucket) => {

@@ -18,6 +18,7 @@ const WIDTH_OPTIONS = [
   { value: "narrow" as const, label: "S" },
   { value: "medium" as const, label: "M" },
   { value: "wide" as const, label: "L" },
+  { value: "xl" as const, label: "XL" },
 ];
 
 /**

@@ -69,9 +69,9 @@ export const defaultFilter: FilterState = {
   assignedTo: "all",
   deadlineFilter: "all",
   search: "",
-  sort: "column",
+  sort: "deadline",
   sortDesc: false,
-  groupBy: "column",
+  groupBy: "priority",
   page: 1,
 };
 

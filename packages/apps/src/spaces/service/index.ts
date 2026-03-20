@@ -148,8 +148,13 @@ export const spacesService = {
     },
   },
   comment: {
-    list: async (config: { itemId: string; pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<SpaceComment>> => {
-      const items = await comments.list({ itemId: config.itemId });
+    list: async (config: {
+      itemId: string;
+      viewerUserId?: string | null;
+      pagination?: PageParams;
+      filter?: { query?: string };
+    }): Promise<Paginated<SpaceComment>> => {
+      const items = await comments.list({ itemId: config.itemId, viewerUserId: config.viewerUserId });
       const query = config.filter?.query?.trim().toLowerCase();
       const filtered = query && query.length > 0 ? items.filter((comment) => comment.content.toLowerCase().includes(query)) : items;
       return paginateItems(filtered, config.pagination);

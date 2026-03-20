@@ -317,6 +317,9 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
     case "created":
       orderClause = sortDesc ? sql`i.created_at DESC` : sql`i.created_at ASC`;
       break;
+    case "updated":
+      orderClause = sortDesc ? sql`i.updated_at DESC` : sql`i.updated_at ASC`;
+      break;
     case "title":
       orderClause = sortDesc ? sql`i.title DESC` : sql`i.title ASC`;
       break;

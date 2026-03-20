@@ -561,6 +561,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const user = c.get("user");
       const spaceId = c.req.param("id");
       const itemId = c.req.param("itemId");
 
@@ -593,6 +594,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateItemSchema),
     async (c) => {
+      const user = c.get("user");
       const spaceId = c.req.param("id");
       const itemId = c.req.param("itemId");
       const data = c.req.valid("json");
@@ -620,6 +622,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
+      const user = c.get("user");
       const spaceId = c.req.param("id");
       const itemId = c.req.param("itemId");
 
@@ -648,6 +651,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", MoveItemSchema),
     async (c) => {
+      const user = c.get("user");
       const spaceId = c.req.param("id");
       const itemId = c.req.param("itemId");
       const { columnId, rank, completed } = c.req.valid("json");
@@ -676,6 +680,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", SetCompletedSchema),
     async (c) => {
+      const user = c.get("user");
       const spaceId = c.req.param("id");
       const itemId = c.req.param("itemId");
       const { completed } = c.req.valid("json");
@@ -715,7 +720,8 @@ const app = new Hono<AuthContext>()
       const itemCheck = await requireItemInSpace(spaceId, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
 
-      const result = await spacesService.comment.list({ itemId });
+      const user = c.get("user");
+      const result = await spacesService.comment.list({ itemId, viewerUserId: user.id });
       return respond(c, ok(result.items));
     },
   )
@@ -797,11 +803,11 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "Delete comment",
-      description: "Delete your own comment (or any comment if admin).",
+      description: "Delete your own comment within 10 minutes.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Comment deleted"),
-        403: jsonResponse(ErrorResponseSchema, "Cannot delete another user's comment"),
+        403: jsonResponse(ErrorResponseSchema, "Cannot delete this comment"),
         404: jsonResponse(ErrorResponseSchema, "Comment not found"),
       },
     }),
@@ -813,13 +819,11 @@ const app = new Hono<AuthContext>()
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
 
-      const isAdmin = user.roles.includes("admin");
       return respondMessage(
         c,
         spacesService.comment.remove({
           id: commentId,
           userId: user.id,
-          isAdmin,
         }),
         "Comment deleted",
       );

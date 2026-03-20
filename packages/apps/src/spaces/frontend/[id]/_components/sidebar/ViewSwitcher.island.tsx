@@ -9,6 +9,7 @@ type ViewOption = {
 
 const views: ViewOption[] = [
   { id: "list", label: "List", icon: "ti-list-check" },
+  { id: "table", label: "Table", icon: "ti-table" },
   { id: "kanban", label: "Kanban", icon: "ti-layout-kanban" },
   { id: "calendar", label: "Calendar", icon: "ti-calendar" },
 ];
@@ -61,7 +62,7 @@ export default function ViewSwitcher(props: Props) {
             onClick={() => handleClick(view.id)}
             class={`btn-input btn-input-sm ${
               props.currentView === view.id
-                ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40"
+                ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
                 : ""
             }`}
           >

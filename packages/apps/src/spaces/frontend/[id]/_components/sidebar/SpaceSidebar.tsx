@@ -10,6 +10,7 @@ type Props = {
 
 const views: Array<{ id: ViewType; label: string; icon: string }> = [
   { id: "list", label: "List", icon: "ti-list-check" },
+  { id: "table", label: "Table", icon: "ti-table" },
   { id: "kanban", label: "Kanban", icon: "ti-layout-kanban" },
   { id: "calendar", label: "Calendar", icon: "ti-calendar" },
 ];
@@ -19,6 +20,8 @@ const getViewIcon = (view: ViewType): string => {
   switch (view) {
     case "list":
       return "ti-list-check";
+    case "table":
+      return "ti-table";
     case "kanban":
       return "ti-layout-kanban";
     case "calendar":
@@ -58,10 +61,14 @@ export default function SpaceSidebar(props: Props) {
             <div style={`view-transition-name:${vt("create-mobile")}`}>
               <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="chip" />
             </div>
+            <a href="/app/spaces" class="sidebar-item-mobile" style={`view-transition-name:${vt("all-spaces-mobile")}`}>
+              <i class="ti ti-layout-grid" />
+              All Spaces
+            </a>
             {views.map((view) => (
               <a
                 href={buildViewHref(props.ctx, view.id)}
-                class={`sidebar-item-mobile ${props.ctx.currentView === view.id ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""}`}
+                class={`sidebar-item-mobile ${props.ctx.currentView === view.id ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200" : ""}`}
                 style={`view-transition-name:${vt(`view-${view.id}-mobile`)}`}
               >
                 <i class={`ti ${view.icon}`} />
@@ -76,61 +83,74 @@ export default function SpaceSidebar(props: Props) {
       </nav>
 
       <aside class="sidebar-container">
-        <div class="sidebar-header">
-          <div
-            class="sidebar-header-icon"
-            style={`background-color: ${props.ctx.space.color}; view-transition-name: space-color-${props.ctx.space.id}`}
-          >
-            <i class={`ti ${getViewIcon(props.ctx.currentView)} text-xs`} />
-          </div>
-          <div class="sidebar-header-text">
-            <p class="sidebar-header-title" style={`view-transition-name: space-name-${props.ctx.space.id}`}>
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+          <div class="relative flex items-center gap-3 pr-7">
+            <div
+              class="sidebar-header-icon"
+              style={`background-color: ${props.ctx.space.color}; view-transition-name: space-color-${props.ctx.space.id}`}
+            >
+              <i class={`ti ${getViewIcon(props.ctx.currentView)} text-xs`} />
+            </div>
+            <p class="sidebar-header-title flex-1" style={`view-transition-name: space-name-${props.ctx.space.id}`}>
               {props.ctx.space.name}
             </p>
+            <a
+              href={settingsHref}
+              class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
+              title="Settings"
+              style={`view-transition-name:${vt("settings-desktop")}`}
+            >
+              <i class="ti ti-settings text-xs" />
+            </a>
           </div>
-          <a href={settingsHref} class="sidebar-header-settings" title="Settings" style={`view-transition-name:${vt("settings-desktop")}`}>
-            <i class="ti ti-settings text-xs" />
-          </a>
-        </div>
 
-        <div class="flex flex-col gap-3">
-          <section class="sidebar-group">
-            <p class="sidebar-section-title">Actions</p>
-            <div style={`view-transition-name:${vt("create-desktop")}`}>
-              <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="sidebar" />
-            </div>
-          </section>
-
-          <section class="sidebar-group">
-            <p class="sidebar-section-title">Navigation</p>
-            {views.map((view) => (
+          <div class="flex flex-col gap-3">
+            <section class="sidebar-group">
+              <p class="sidebar-section-title">Actions</p>
+              <div style={`view-transition-name:${vt("create-desktop")}`}>
+                <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="sidebar" />
+              </div>
               <a
-                href={buildViewHref(props.ctx, view.id)}
-                class={`sidebar-item text-xs ${props.ctx.currentView === view.id ? "sidebar-item-active" : ""}`}
-                style={`view-transition-name:${vt(`view-${view.id}-desktop`)}`}
+                href="/app/spaces"
+                class="sidebar-item text-xs"
+                style={`view-transition-name:${vt("all-spaces-desktop")}`}
               >
-                <i class={`ti ${view.icon} text-sm`} />
-                <span>{view.label}</span>
+                <i class="ti ti-layout-grid text-sm" />
+                <span>All Spaces</span>
               </a>
-            ))}
-          </section>
-        </div>
+            </section>
 
-        <div class="sidebar-body mt-2">
-          <section class="sidebar-group">
-            <SidebarSettings
-              spaceId={props.ctx.space.id}
-              currentView={props.ctx.currentView}
-              currentPanelWidth={props.ctx.currentPanelWidth}
-              hasOverride={props.ctx.hasOverride}
-              hideSettings={props.ctx.settings.hideSettings}
-            />
-          </section>
-        </div>
+            <section class="sidebar-group">
+              <p class="sidebar-section-title">Navigation</p>
+              {views.map((view) => (
+                <a
+                  href={buildViewHref(props.ctx, view.id)}
+                  class={`sidebar-item text-xs ${props.ctx.currentView === view.id ? "sidebar-item-active" : ""}`}
+                  style={`view-transition-name:${vt(`view-${view.id}-desktop`)}`}
+                >
+                  <i class={`ti ${view.icon} text-sm`} />
+                  <span>{view.label}</span>
+                </a>
+              ))}
+            </section>
+          </div>
 
-        <div class="sidebar-footer">
-          <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
-            <CopyICalButton icalToken={props.ctx.space.icalToken} />
+          <div class="sidebar-body">
+            <section class="sidebar-group">
+              <SidebarSettings
+                spaceId={props.ctx.space.id}
+                currentView={props.ctx.currentView}
+                currentPanelWidth={props.ctx.currentPanelWidth}
+                hasOverride={props.ctx.hasOverride}
+                hideSettings={props.ctx.settings.hideSettings}
+              />
+            </section>
+          </div>
+
+          <div class="sidebar-footer">
+            <div style={`view-transition-name:${vt("copy-ical-desktop")}`}>
+              <CopyICalButton icalToken={props.ctx.space.icalToken} />
+            </div>
           </div>
         </div>
       </aside>

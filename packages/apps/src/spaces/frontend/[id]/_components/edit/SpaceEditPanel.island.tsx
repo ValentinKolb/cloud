@@ -222,6 +222,7 @@ function SpaceSettingsForm(props: { space: SpaceDetail }) {
 
 const VIEW_OPTIONS: { value: ViewType; label: string; icon: string }[] = [
   { value: "list", label: "List", icon: "ti-list-check" },
+  { value: "table", label: "Table", icon: "ti-table" },
   { value: "kanban", label: "Kanban", icon: "ti-layout-kanban" },
   { value: "calendar", label: "Calendar", icon: "ti-calendar" },
 ];
@@ -230,6 +231,7 @@ const WIDTH_OPTIONS: { value: DetailPanelWidth; label: string }[] = [
   { value: "narrow", label: "Narrow" },
   { value: "medium", label: "Medium" },
   { value: "wide", label: "Wide" },
+  { value: "xl", label: "XL" },
 ];
 
 function LocalSettingsForm(props: { spaceId: string; initialSettings: SpaceUserSettings }) {

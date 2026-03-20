@@ -43,14 +43,16 @@ const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
   color: priority.color,
 }));
 
+const getPriorityMeta = (priority: SpaceItem["priority"]) => PRIORITY_OPTIONS.find((entry) => entry.value === priority) ?? null;
+
 const DROPDOWN_TRIGGER_CLASS =
   "inline-flex items-center gap-2 btn-sm rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors";
 
 const ICON_ACTION_BUTTON_CLASS =
-  "p-1.5 text-dimmed hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors disabled:opacity-50";
+  "inline-flex h-5 w-5 items-center justify-center text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 transition-colors disabled:opacity-50";
 
 const DANGER_ICON_ACTION_BUTTON_CLASS =
-  "p-1.5 text-dimmed hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors disabled:opacity-50";
+  "inline-flex h-5 w-5 items-center justify-center text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors disabled:opacity-50";
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
@@ -65,7 +67,8 @@ const isSpaceComment = (value: unknown): value is SpaceComment => {
     isNullableString(value["userId"]) &&
     isNullableString(value["userName"]) &&
     typeof value["createdAt"] === "string" &&
-    typeof value["updatedAt"] === "string"
+    typeof value["updatedAt"] === "string" &&
+    typeof value["canDelete"] === "boolean"
   );
 };
 
@@ -103,6 +106,22 @@ function IconActionButton(props: {
     >
       <i class={props.icon} />
     </button>
+  );
+}
+
+function SectionHeader(props: { title: string; onEdit?: () => void; editLabel?: string; disabled?: boolean }) {
+  return (
+    <div class="flex items-center justify-between gap-2">
+      <h3 class="section-label mb-0">{props.title}</h3>
+      <Show when={props.onEdit}>
+        <IconActionButton
+          icon="ti ti-pencil"
+          title={props.editLabel ?? `Edit ${props.title.toLowerCase()}`}
+          onClick={() => props.onEdit?.()}
+          disabled={props.disabled}
+        />
+      </Show>
+    </div>
   );
 }
 
@@ -281,25 +300,7 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
     </div>
   );
 
-  return (
-    <div>
-      <h3 class="section-label mb-1">Tags</h3>
-      <div class="flex flex-col gap-2">
-        <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-52" onClose={handleClose} />
-        <Show when={selectedTags().length > 0}>
-          <div class="flex flex-wrap gap-1">
-            <For each={selectedTags()}>
-              {(tag) => (
-                <span class="px-2 py-0.5 rounded text-xs" style={`background-color: ${tag.color}20; color: ${tag.color}`}>
-                  {tag.name}
-                </span>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
-    </div>
-  );
+  return <Dropdown trigger={trigger} elements={dropdownElements()} position="bottom-right" width="w-52" onClose={handleClose} />;
 }
 
 /** Assignees section with add/remove functionality */
@@ -373,7 +374,7 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
           type="button"
           onClick={handleAdd}
           disabled={props.loading}
-          class="inline-flex items-center gap-1.5 btn-sm rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 text-dimmed hover:border-blue-400 hover:text-blue-500 transition-colors w-fit disabled:opacity-50"
+          class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary disabled:opacity-50"
         >
           <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
           Add
@@ -481,36 +482,40 @@ export default function ItemDetailPanel(props: Props) {
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
 
-  // Edit title via prompt
-  const editTitle = async () => {
-    const result = await prompts.prompt("Edit title", props.item.title, {
-      title: "Edit Title",
-      icon: "ti ti-edit",
-    });
-    if (result && result !== props.item.title) {
-      updateMutation.mutate({ title: result });
-    }
-  };
-
-  // Edit description via prompt
-  const editDescription = async () => {
+  // Edit title + description together via prompt
+  const editContent = async () => {
     const result = await prompts.form({
-      title: "Edit Description",
+      title: "Edit Content",
       icon: "ti ti-edit",
       fields: {
+        title: {
+          type: "text",
+          label: "Title",
+          default: props.item.title,
+          required: true,
+          maxLength: 200,
+        },
         description: {
           type: "text",
+          label: "Description",
+          description: "Markdown is supported.",
           multiline: true,
           default: props.item.description || "",
-          label: false,
-          placeholder: "Description in markdown ...",
+          placeholder: "Optional description...",
+          maxLength: 5000,
         },
       },
     });
-    if (result && result.description !== props.item.description) {
-      updateMutation.mutate({ description: result.description || null });
+    if (result && (result.title !== props.item.title || result.description !== (props.item.description || ""))) {
+      updateMutation.mutate({
+        title: result.title,
+        description: result.description || null,
+      });
     }
   };
+
+  const editTitle = editContent;
+  const editDescription = editContent;
 
   // Edit deadline via prompt
   const editDeadline = async () => {
@@ -558,20 +563,45 @@ export default function ItemDetailPanel(props: Props) {
     }
   };
 
+  const facts = [
+    { label: "Created", value: dates.formatDateTime(props.item.createdAt) },
+    { label: "Updated", value: dates.formatDateTime(props.item.updatedAt) },
+  ];
+  const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
+
   return (
     <>
-      <div class="p-2 flex flex-col gap-4" style="view-transition-name: detail-panel">
+      <div class="flex flex-col gap-4" style="view-transition-name: detail-panel">
         {/* Header */}
-        <div class="flex items-start justify-between gap-2">
-          <button
-            type="button"
-            onClick={editTitle}
-            class="font-semibold text-lg hover:text-blue-500 transition-colors text-left"
-            disabled={isLoading()}
-          >
-            {props.item.title}
-            <i class="ti ti-pencil text-xs ml-2 opacity-50" />
-          </button>
+        <div class="flex items-start justify-between gap-3" style="view-transition-name: space-item-detail-header">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-start gap-2">
+              <h2 class="min-w-0 flex-1 text-lg font-semibold leading-tight text-primary">{props.item.title}</h2>
+              <IconActionButton icon="ti ti-pencil" title="Edit title" onClick={editTitle} disabled={isLoading()} />
+            </div>
+            <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span
+                class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium ${
+                  isEvent()
+                    ? "bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-300"
+                    : "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"
+                }`}
+              >
+                <i class={`ti ${isEvent() ? "ti-calendar-event" : "ti-checkbox"}`} />
+                {isEvent() ? "Event" : "Task"}
+              </span>
+              <span
+                class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium ${
+                  isCompleted()
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                    : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                }`}
+              >
+                <i class={`ti ${isCompleted() ? "ti-circle-check" : "ti-circle"}`} />
+                {isCompleted() ? "Completed" : "Active"}
+              </span>
+            </div>
+          </div>
           <a
             href={props.baseUrl}
             onClick={(event) => {
@@ -579,10 +609,10 @@ export default function ItemDetailPanel(props: Props) {
               event.preventDefault();
               setDetailItemInUrl(null);
             }}
-            class="p-1 text-dimmed hover:text-primary shrink-0"
+            class="shrink-0 text-dimmed transition-colors hover:text-primary"
             aria-label="Close detail"
           >
-            <i class="ti ti-x" />
+            <i class="ti ti-x text-base" />
           </a>
         </div>
 
@@ -609,116 +639,150 @@ export default function ItemDetailPanel(props: Props) {
           <span class="text-sm font-medium">{isCompleted() ? "Completed" : "Mark as complete"}</span>
         </button>
 
-        {/* Type badge + Actions */}
+        {/* Secondary actions */}
         <div class="flex items-center justify-between gap-2">
-          <span
-            class={`px-2 py-0.5 rounded text-xs font-medium ${
-              isEvent()
-                ? "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400"
-                : "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-            }`}
-          >
-            <i class={`ti ${isEvent() ? "ti-calendar-event" : "ti-checkbox"} mr-1`} />
-            {isEvent() ? "Event" : "Task"}
-          </span>
-
-          <div class="flex items-center gap-1">
+          <span class="truncate text-[11px] text-dimmed">{props.item.id}</span>
+          <div class="flex items-center gap-2">
             <IconActionButton icon="ti ti-copy" title="Duplicate" onClick={handleDuplicate} disabled={isLoading()} />
             <IconActionButton icon="ti ti-trash" title="Delete" onClick={handleDelete} disabled={isLoading()} danger />
           </div>
         </div>
 
-        {/* Deadline (Tasks) */}
-        <Show when={!isEvent()}>
-          <button
-            type="button"
-            onClick={editDeadline}
-            disabled={isLoading()}
-            class="group flex items-center gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors w-full text-left"
-          >
-            <div class="w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center shrink-0">
-              <i class="ti ti-calendar-due text-orange-500 text-lg" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-xs text-dimmed uppercase tracking-wide">Deadline</div>
-              <Show when={props.item.deadline} fallback={<span class="text-sm text-dimmed italic">No deadline set</span>}>
-                <span class="text-sm font-medium">{dates.formatDateTime(props.item.deadline!)}</span>
-              </Show>
-            </div>
-          </button>
-        </Show>
-
-        {/* Event Time - Prominent, two lines */}
-        <Show when={isEvent()}>
-          <button
-            type="button"
-            onClick={editEventTime}
-            disabled={isLoading()}
-            class="group flex items-start gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors w-full text-left"
-          >
-            <div class="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center shrink-0">
-              <i class="ti ti-calendar-event text-purple-500 text-lg" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <Show
-                when={props.item.startsAt && props.item.endsAt}
-                fallback={
-                  <>
-                    <div class="text-xs text-dimmed uppercase tracking-wide">Time</div>
-                    <span class="text-sm text-dimmed italic">No time set</span>
-                  </>
-                }
-              >
-                <div class="flex flex-col gap-0.5">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-dimmed w-10">Start</span>
-                    <span class="text-sm font-medium">{dates.formatDateTime(props.item.startsAt!)}</span>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-dimmed w-10">End</span>
-                    <span class="text-sm font-medium">{dates.formatDateTime(props.item.endsAt!)}</span>
-                  </div>
+        <div class="paper overflow-hidden" style="view-transition-name: space-item-detail-facts">
+          <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2">
+            <For each={facts}>
+              {(fact) => (
+                <div class="bg-white px-3 py-2 dark:bg-zinc-900">
+                  <dt class="text-[10px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
+                  <dd class="mt-1 text-xs text-primary">{fact.value}</dd>
                 </div>
-              </Show>
-            </div>
-          </button>
-        </Show>
-
-        {/* Description */}
-        <div class="group/desc">
-          <div class="flex items-center gap-1.5 mb-1.5">
-            <h3 class="section-label mb-0">Description</h3>
-          </div>
-          <button
-            type="button"
-            onClick={editDescription}
-            class="w-full text-left p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors text-sm"
-            disabled={isLoading()}
-          >
-            <Show when={props.item.description} fallback={<span class="text-xs text-dimmed">No description</span>}>
-              <MarkdownView html={markdown.render(props.item.description!)} smallHeadings />
-            </Show>
-          </button>
+              )}
+            </For>
+          </dl>
         </div>
 
-        {/* Priority */}
-        <EditableDropdown
-          label="Priority"
-          icon="ti ti-flag"
-          value={props.item.priority}
-          options={PRIORITY_DROPDOWN_OPTIONS}
-          onChange={(v) => updateMutation.mutate({ priority: v })}
-          loading={isLoading()}
-          allowClear
-        />
+        <div class="flex flex-col gap-2">
+          <SectionHeader
+            title={scheduleTitle()}
+            onEdit={isEvent() ? editEventTime : editDeadline}
+            editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
+            disabled={isLoading()}
+          />
+          <div class="paper overflow-hidden">
+            <Show
+              when={isEvent()}
+              fallback={
+                <div class="flex items-start gap-3 px-3 py-2 text-xs">
+                  <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-300">
+                    <i class="ti ti-calendar-due text-base" />
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[10px] uppercase tracking-[0.22em] text-dimmed">Due</div>
+                    <Show when={props.item.deadline} fallback={<span class="mt-1 block italic text-dimmed">No deadline set</span>}>
+                      <div class="mt-1 flex flex-col gap-1">
+                        <span class="text-primary">{dates.formatDateTime(props.item.deadline!)}</span>
+                        <span class="text-dimmed">{dates.formatTimeSpan(props.item.deadline!)}</span>
+                      </div>
+                    </Show>
+                  </div>
+                </div>
+              }
+            >
+              <div class="grid gap-px bg-zinc-100 text-xs dark:bg-zinc-800">
+                <div class="bg-white px-3 py-2 dark:bg-zinc-900">
+                  <div class="text-[10px] uppercase tracking-[0.22em] text-dimmed">Start</div>
+                  <div class="mt-1 text-primary">
+                    <Show when={props.item.startsAt} fallback={<span class="italic text-dimmed">Not set</span>}>
+                      {dates.formatDateTime(props.item.startsAt!)}
+                    </Show>
+                  </div>
+                </div>
+                <div class="bg-white px-3 py-2 dark:bg-zinc-900">
+                  <div class="text-[10px] uppercase tracking-[0.22em] text-dimmed">End</div>
+                  <div class="mt-1 text-primary">
+                    <Show when={props.item.endsAt} fallback={<span class="italic text-dimmed">Not set</span>}>
+                      {dates.formatDateTime(props.item.endsAt!)}
+                    </Show>
+                  </div>
+                </div>
+                <div class="bg-white px-3 py-2 dark:bg-zinc-900">
+                  <div class="text-[10px] uppercase tracking-[0.22em] text-dimmed">Duration</div>
+                  <div class="mt-1 text-primary">
+                    <Show when={props.item.startsAt && props.item.endsAt} fallback={<span class="italic text-dimmed">Not set</span>}>
+                      {dates.formatDuration(props.item.startsAt!, props.item.endsAt!)}
+                    </Show>
+                  </div>
+                </div>
+              </div>
+            </Show>
+          </div>
+        </div>
 
-        {/* Tags */}
-        <TagsDropdown
-          tags={props.tags}
-          selectedIds={props.item.tags?.map((t) => t.id) ?? []}
-          onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
-          loading={isLoading()}
-        />
+        {/* Description */}
+        <div class="flex flex-col gap-2" style="view-transition-name: space-item-detail-description">
+          <SectionHeader title="Description" onEdit={editDescription} disabled={isLoading()} />
+          <div class="paper overflow-hidden">
+            <div class="px-3 py-2 text-sm">
+              <Show when={props.item.description} fallback={<span class="text-xs text-dimmed">No description</span>}>
+                <MarkdownView html={markdown.render(props.item.description!)} smallHeadings />
+              </Show>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <EditableDropdown
+              label="Priority"
+              icon="ti ti-flag"
+              value={props.item.priority}
+              options={PRIORITY_DROPDOWN_OPTIONS}
+              onChange={(v) => updateMutation.mutate({ priority: v })}
+              loading={isLoading()}
+              allowClear
+            />
+
+            <div>
+              <h3 class="section-label mb-1">Tags</h3>
+              <TagsDropdown
+                tags={props.tags}
+                selectedIds={props.item.tags?.map((t) => t.id) ?? []}
+                onChange={(ids) => updateMutation.mutate({ tagIds: ids })}
+                loading={isLoading()}
+              />
+            </div>
+          </div>
+
+          <Show when={getPriorityMeta(props.item.priority) || (props.item.tags?.length ?? 0) > 0}>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <Show when={getPriorityMeta(props.item.priority)}>
+                {(priority) => (
+                  <span
+                    class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium"
+                    style={`background-color: ${priority().color}12; border-color: ${priority().color}33; color: ${priority().color}`}
+                  >
+                    <i class={priority().icon} />
+                    {priority().label}
+                  </span>
+                )}
+              </Show>
+              <Show when={getPriorityMeta(props.item.priority) && (props.item.tags?.length ?? 0) > 0}>
+                <span class="mx-0.5 h-4 w-px shrink-0 bg-zinc-200 dark:bg-zinc-700" aria-hidden="true" />
+              </Show>
+              <For each={props.item.tags ?? []}>
+                {(tag) => (
+                  <span
+                    class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium"
+                    style={`background-color: ${tag.color}12; border-color: ${tag.color}33; color: ${tag.color}`}
+                  >
+                    <span class="h-2 w-2 rounded-full" style={`background-color: ${tag.color}`} />
+                    {tag.name}
+                  </span>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
 
         {/* Assignees */}
         <AssigneesSection
@@ -729,7 +793,7 @@ export default function ItemDetailPanel(props: Props) {
       </div>
 
       {/* Comments */}
-      <div class="px-2 pb-2">
+      <div class="pt-3" style="view-transition-name: space-item-detail-comments">
         <CommentsSection
           spaceId={props.spaceId}
           itemId={props.item.id}

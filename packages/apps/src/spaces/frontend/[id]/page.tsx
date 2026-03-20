@@ -11,7 +11,7 @@ import SpaceSidebar from "./_components/sidebar/SpaceSidebar";
 import type { SpaceContext } from "./_components/sidebar/types";
 
 // Settings store
-import { parseSpaceSettings, getDetailPanelWidthClass, isValidView, isValidPanelWidth } from "./_components/settings/SpaceSettingsStore";
+import { parseSpaceSettings, isValidView, isValidPanelWidth } from "./_components/settings/SpaceSettingsStore";
 
 // Filter components
 import FilterBar from "./_components/filter/FilterBar.island";
@@ -19,9 +19,11 @@ import { parseFilterFromUrl, buildFilterUrl, defaultFilter } from "./_components
 
 // Detail components
 import ItemDetailHost from "./_components/detail/ItemDetailHost.island";
+import SpaceDetailLayoutSync from "./_components/detail/SpaceDetailLayoutSync.island";
 
 // List components
 import ItemsList from "./_components/list";
+import ItemsTable from "./_components/table/ItemsTable.island";
 import KanbanBoard from "./_components/kanban/KanbanBoard.island";
 import type { KanbanBucketInitial } from "./_components/kanban/types";
 
@@ -85,7 +87,7 @@ export default ssr<AuthContext>(async (c) => {
 
   // Parse filter from URL
   const url = new URL(c.req.url);
-  const filter = currentView === "list" ? parseFilterFromUrl(url) : defaultFilter;
+  const filter = currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter;
 
   // Get space details
   const space = await spacesService.space.getDetail({ id: spaceId });
@@ -150,7 +152,7 @@ export default ssr<AuthContext>(async (c) => {
     pageSize: listPageSize,
     totalPages: 0,
   };
-  if (currentView === "list") {
+  if (currentView === "list" || currentView === "table") {
     itemsResult = await spacesService.item.listFiltered({
       spaceId,
       filter: {
@@ -295,7 +297,7 @@ export default ssr<AuthContext>(async (c) => {
     }
     // Fetch comments for selected item
     if (selectedItem) {
-      selectedItemComments = (await spacesService.comment.list({ itemId: selectedItemId })).items;
+      selectedItemComments = (await spacesService.comment.list({ itemId: selectedItemId, viewerUserId: user.id })).items;
     }
   }
 
@@ -311,8 +313,14 @@ export default ssr<AuthContext>(async (c) => {
     query: url.searchParams.toString(),
   };
 
-  // Get detail panel width class
-  const detailPanelWidthClass = getDetailPanelWidthClass(currentPanelWidth);
+  const detailPanelResponsiveWidthClass =
+    currentPanelWidth === "narrow"
+      ? "w-full lg:w-80"
+      : currentPanelWidth === "medium"
+        ? "w-full lg:w-[28rem]"
+        : currentPanelWidth === "wide"
+          ? "w-full lg:w-[36rem]"
+          : "w-full lg:w-[44rem]";
 
   // Get base URL for iCal links
   const icalBaseUrl = `${url.protocol}//${url.host}`;
@@ -331,49 +339,36 @@ export default ssr<AuthContext>(async (c) => {
 
   // Build item link base URL (preserves list filters only in list mode)
   const itemLinkBaseUrl = withViewOverrides({
-    baseUrl: currentView === "list" ? buildFilterUrl(baseSpaceUrl, {}, filter) : baseSpaceUrl,
+    baseUrl: currentView === "list" || currentView === "table" ? buildFilterUrl(baseSpaceUrl, {}, filter) : baseSpaceUrl,
     hasViewOverride,
     currentView,
     hasPanelWidthOverride,
     currentPanelWidth,
   });
 
+  const settingsPanel = (
+    <SpaceEditPanel space={space} baseUrl={icalBaseUrl} initialSettings={settings} accessEntries={accessEntries} isAdmin={isAdmin} />
+  );
+
+  const itemDetailPanel = (
+    <ItemDetailHost
+      spaceId={ctx.space.id}
+      baseUrl={itemLinkBaseUrl}
+      currentUserId={user.id}
+      tags={ctx.tags}
+      initialItem={selectedItem}
+      initialComments={selectedItemComments}
+    />
+  );
+
   return (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Spaces", href: "/app/spaces" }, { title: space.name }]}>
-      <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+      <div class="app-cols flex-1 min-h-0">
         {/* Sidebar */}
         <SpaceSidebar ctx={ctx} />
 
         {/* Main Content */}
-        <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
-          {/* Mobile/Tablet: Settings or Item Detail above content */}
-          {isSettingsMode && (
-            <>
-              <div class="xl:hidden overflow-y-auto">
-                <SpaceEditPanel
-                  space={space}
-                  baseUrl={icalBaseUrl}
-                  initialSettings={settings}
-                  accessEntries={accessEntries}
-                  isAdmin={isAdmin}
-                />
-              </div>
-              <div class="divider xl:hidden" />
-            </>
-          )}
-          {!isSettingsMode && (
-            <div class="xl:hidden overflow-y-auto">
-              <ItemDetailHost
-                spaceId={ctx.space.id}
-                baseUrl={itemLinkBaseUrl}
-                currentUserId={user.id}
-                tags={ctx.tags}
-                initialItem={selectedItem}
-                initialComments={selectedItemComments}
-              />
-            </div>
-          )}
-
+        <div class="order-3 lg:order-2 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Description */}
           {space.description && (
             <>
@@ -385,25 +380,24 @@ export default ssr<AuthContext>(async (c) => {
           )}
 
           {/* Filter Bar (list view only) */}
-          {currentView === "list" && (
+          {(currentView === "list" || currentView === "table") && (
             <>
-              <div class="p-2">
-                <FilterBar
-                  spaceId={spaceId}
-                  columns={ctx.columns}
-                  tags={ctx.tags}
-                  filter={filter}
-                  total={itemsResult.total}
-                  baseUrl={itemLinkBaseUrl}
-                />
-              </div>
-              <div class="divider" />
+              <FilterBar
+                spaceId={spaceId}
+                columns={ctx.columns}
+                tags={ctx.tags}
+                filter={filter}
+                total={itemsResult.total}
+                baseUrl={itemLinkBaseUrl}
+                hideGroupBy={currentView === "table"}
+              />
+              <div class="h-2" />
             </>
           )}
 
           {/* Scrollable content area */}
           <div class="flex-1 min-h-0 overflow-y-auto">
-            {currentView === "list" && (
+            {(currentView === "list" || currentView === "table") && (
               <>
                 {itemsResult.items.length === 0 ? (
                   <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
@@ -412,6 +406,13 @@ export default ssr<AuthContext>(async (c) => {
                       ? "No items yet. Create your first item!"
                       : "No items match your filters."}
                   </p>
+                ) : currentView === "table" ? (
+                  <ItemsTable
+                    items={itemsResult.items}
+                    columns={ctx.columns}
+                    selectedItemId={selectedItemId}
+                    baseUrl={itemLinkBaseUrl}
+                  />
                 ) : (
                   <ItemsList
                     items={itemsResult.items}
@@ -460,19 +461,14 @@ export default ssr<AuthContext>(async (c) => {
           </div>
         </div>
 
-        {/* Right Panel (Desktop xl+) */}
-        {isSettingsMode ? (
-          <div class={`hidden xl:flex flex-col ${detailPanelWidthClass} shrink-0 overflow-y-auto`}>
-            <SpaceEditPanel
-              space={space}
-              baseUrl={icalBaseUrl}
-              initialSettings={settings}
-              accessEntries={accessEntries}
-              isAdmin={isAdmin}
-            />
-          </div>
-        ) : (
-          <div class={`hidden xl:flex flex-col ${detailPanelWidthClass} shrink-0 overflow-y-auto`}>
+        <div
+          id="space-detail-panel"
+          class={`${isSettingsMode || selectedItemId ? "flex" : "hidden"} order-2 lg:order-3 flex-col ${detailPanelResponsiveWidthClass} shrink-0 overflow-y-auto`}
+          style={`view-transition-name: ${isSettingsMode ? "space-settings-panel" : "space-detail-panel-shell"}`}
+        >
+          {isSettingsMode ? (
+            settingsPanel
+          ) : (
             <ItemDetailHost
               spaceId={ctx.space.id}
               baseUrl={itemLinkBaseUrl}
@@ -480,11 +476,10 @@ export default ssr<AuthContext>(async (c) => {
               tags={ctx.tags}
               initialItem={selectedItem}
               initialComments={selectedItemComments}
-              showEmpty
-              emptyText="Select an item to view details"
             />
-          </div>
-        )}
+          )}
+        </div>
+        <SpaceDetailLayoutSync detailContainerId="space-detail-panel" forceOpen={isSettingsMode} />
       </div>
     </Layout>
   );

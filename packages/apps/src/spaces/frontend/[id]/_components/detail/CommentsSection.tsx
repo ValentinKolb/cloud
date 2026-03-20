@@ -97,17 +97,58 @@ export default function CommentsSection(props: Props) {
     return date.toLocaleDateString();
   };
 
-  // Sort newest first
-  const sortedComments = () => [...props.comments].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const sortedComments = () => [...props.comments].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   return (
     <div class="flex flex-col gap-3">
-      {/* Header */}
-      <div class="text-xs text-dimmed">
-        {props.comments.length > 0 ? `${props.comments.length} comment${props.comments.length > 1 ? "s" : ""}` : "Comments"}
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="section-label mb-0">Comments</h3>
+        <span class="inline-flex items-center rounded-md border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+          {props.comments.length} {props.comments.length === 1 ? "comment" : "comments"}
+        </span>
       </div>
 
-      {/* Add comment input */}
+      <div class="flex flex-col gap-3">
+        <Show when={sortedComments().length > 0} fallback={<p class="text-xs text-dimmed">No comments yet.</p>}>
+          <For each={sortedComments()}>
+            {(comment) => (
+              <div class={`flex ${comment.userId === props.currentUserId ? "justify-end" : "justify-start"}`}>
+                <div
+                  class={`group w-[90%] max-w-[90%] border border-zinc-200 bg-white px-3 py-3 dark:border-zinc-800 dark:bg-zinc-900/50 ${
+                    comment.userId === props.currentUserId ? "rounded-xl rounded-br-[2px]" : "rounded-xl rounded-bl-[2px]"
+                  }`}
+                >
+                  <div class="flex items-start gap-2">
+                    <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs dark:bg-zinc-700">
+                      {(comment.userName ?? "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="truncate text-xs font-medium text-primary">{comment.userName ?? "Unknown"}</span>
+                        <span class="text-xs text-dimmed">{formatDate(comment.createdAt)}</span>
+                        <Show when={comment.canDelete}>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(comment.id)}
+                            disabled={deleteCommentMutation.loading()}
+                            class="btn-simple ml-auto text-xs text-dimmed hover:text-red-500 disabled:opacity-50"
+                          >
+                            <i class="ti ti-trash" />
+                          </button>
+                        </Show>
+                      </div>
+                      <div class="mt-1">
+                        <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </For>
+        </Show>
+      </div>
+
       <form onSubmit={handleSubmit} class="flex flex-col gap-1.5">
         <TextInput
           value={() => newComment()}
@@ -120,52 +161,12 @@ export default function CommentsSection(props: Props) {
         <button
           type="submit"
           disabled={createCommentMutation.loading() || !newComment().trim()}
-          class="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-blue-500 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {createCommentMutation.loading() ? (
-            <i class="ti ti-loader-2 animate-spin" />
-          ) : (
-            <>
-              <i class="ti ti-send" />
-              Comment
-            </>
-          )}
+          {createCommentMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-send" />}
+          Comment
         </button>
       </form>
-
-      {/* Comments list - newest first */}
-      <div class="flex flex-col gap-2">
-        <For each={sortedComments()}>
-          {(comment) => (
-            <div class="group p-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/50">
-              <div class="flex items-start gap-2">
-                <div class="w-6 h-6 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-xs shrink-0">
-                  {(comment.userName ?? "?").charAt(0).toUpperCase()}
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xs text-dimmed">{comment.userName ?? "Unknown"}</span>
-                    <span class="text-xs text-dimmed">{formatDate(comment.createdAt)}</span>
-                    <Show when={comment.userId === props.currentUserId}>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(comment.id)}
-                        disabled={deleteCommentMutation.loading()}
-                        class="text-xs text-dimmed hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50 ml-auto"
-                      >
-                        <i class="ti ti-trash" />
-                      </button>
-                    </Show>
-                  </div>
-                  <div class="mt-0.5">
-                    <MarkdownView html={markdown.render(comment.content)} smallHeadings class="text-sm" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </For>
-      </div>
     </div>
   );
 }

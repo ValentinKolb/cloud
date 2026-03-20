@@ -218,7 +218,7 @@ export default function ItemList(props: ItemListProps) {
   // Flat list - no grouping container
   if (props.groupBy === "none") {
     return (
-      <div class="mx-2 flex flex-col gap-1 p-2">
+      <div class="flex flex-col gap-1">
         {props.items.map((item) => (
           <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
         ))}
@@ -230,7 +230,7 @@ export default function ItemList(props: ItemListProps) {
   const nonEmptyGroups = visibleGroups.filter((g) => (itemsByGroup[g.key] || []).length > 0);
 
   return (
-    <div class="flex flex-col gap-2 p-2">
+    <div class="flex flex-col gap-2">
       {nonEmptyGroups.map((group) => {
         const groupItems = itemsByGroup[group.key]!;
         return (

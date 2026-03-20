@@ -26,7 +26,8 @@ const isSpaceComment = (value: unknown): value is SpaceComment =>
   isNullableString(value["userId"]) &&
   isNullableString(value["userName"]) &&
   typeof value["createdAt"] === "string" &&
-  typeof value["updatedAt"] === "string";
+  typeof value["updatedAt"] === "string" &&
+  typeof value["canDelete"] === "boolean";
 const isSpaceCommentArray = (value: unknown): value is SpaceComment[] => Array.isArray(value) && value.every(isSpaceComment);
 
 /**
@@ -37,9 +38,7 @@ export default function ItemDetailHost(props: Props) {
   const [item, setItem] = createSignal<SpaceItem | null>(props.initialItem);
   const [comments, setComments] = createSignal<SpaceComment[]>(props.initialComments ?? []);
   const [loading, setLoading] = createSignal(false);
-  let rootRef: HTMLDivElement | undefined;
   let requestId = 0;
-  const isVisible = () => !!rootRef && rootRef.offsetParent !== null;
 
   const clearSelection = () => {
     requestId += 1;
@@ -101,7 +100,6 @@ export default function ItemDetailHost(props: Props) {
 
   onMount(() => {
     const unsubscribe = subscribeToDetailSelection(({ itemId, item: prefetchedItem }) => {
-      if (!isVisible()) return;
       if (!itemId) {
         clearSelection();
         return;
@@ -114,7 +112,7 @@ export default function ItemDetailHost(props: Props) {
   });
 
   return (
-    <div ref={rootRef}>
+    <div>
       <Show
         when={item()}
         keyed

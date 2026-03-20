@@ -70,6 +70,7 @@ export const SpaceCommentSchema = z.object({
   content: z.string().describe("Comment content"),
   createdAt: z.string().describe("Creation timestamp (ISO)"),
   updatedAt: z.string().describe("Last update timestamp (ISO)"),
+  canDelete: z.boolean().describe("Whether the current viewer may delete this comment"),
 });
 export type SpaceComment = z.infer<typeof SpaceCommentSchema>;
 
@@ -256,7 +257,7 @@ export type ItemStatus = z.infer<typeof ItemStatusSchema>;
 export const DeadlineFilterSchema = z.enum(["all", "overdue", "today", "week", "none"]);
 export type DeadlineFilter = z.infer<typeof DeadlineFilterSchema>;
 
-export const ItemSortSchema = z.enum(["column", "priority", "deadline", "created", "title"]);
+export const ItemSortSchema = z.enum(["column", "priority", "deadline", "created", "updated", "title"]);
 export type ItemSort = z.infer<typeof ItemSortSchema>;
 
 export const ItemGroupBySchema = z.enum(["column", "priority", "tag", "deadline", "none"]);
@@ -278,11 +279,11 @@ export const ItemFilterSchema = z.object({
   search: z.string().optional().describe("Search in title and description"),
 
   // Sort options
-  sort: ItemSortSchema.default("column").describe("Sort field"),
+  sort: ItemSortSchema.default("deadline").describe("Sort field"),
   sortDesc: z.boolean().default(false).describe("Sort descending"),
 
   // Grouping
-  groupBy: ItemGroupBySchema.default("column").describe("Group items by field"),
+  groupBy: ItemGroupBySchema.default("priority").describe("Group items by field"),
 
   // Pagination
   page: z.number().int().min(1).default(1).describe("Page number (1-indexed)"),

@@ -15,16 +15,17 @@ const COOKIE_NAME = "settings-app-spaces";
 const WIDGET_SETTINGS_COOKIE = "settings-widgets";
 
 /** Detail panel width options */
-export type DetailPanelWidth = "narrow" | "medium" | "wide";
+export type DetailPanelWidth = "narrow" | "medium" | "wide" | "xl";
 
 /** View type */
-export type ViewType = "list" | "kanban" | "calendar";
+export type ViewType = "list" | "table" | "kanban" | "calendar";
 
 /** Tailwind classes for panel widths */
 const DETAIL_PANEL_WIDTH_VALUES: Record<DetailPanelWidth, string> = {
   narrow: "w-80",
   medium: "w-[28rem]",
   wide: "w-[36rem]",
+  xl: "w-[44rem]",
 };
 
 /** Settings for a single space (stored in cookie as user defaults) */
@@ -51,11 +52,12 @@ export const DEFAULT_SPACE_SETTINGS: SpaceUserSettings = {
 export const getDetailPanelWidthClass = (width: DetailPanelWidth): string => DETAIL_PANEL_WIDTH_VALUES[width];
 
 /** Check if a string is a valid view type */
-export const isValidView = (view: string | undefined): view is ViewType => view === "list" || view === "kanban" || view === "calendar";
+export const isValidView = (view: string | undefined): view is ViewType =>
+  view === "list" || view === "table" || view === "kanban" || view === "calendar";
 
 /** Check if a string is a valid panel width */
 export const isValidPanelWidth = (width: string | undefined): width is DetailPanelWidth =>
-  width === "narrow" || width === "medium" || width === "wide";
+  width === "narrow" || width === "medium" || width === "wide" || width === "xl";
 
 const DEFAULT_ALL: AllSpacesSettings = {
   lastSpaceId: null,
