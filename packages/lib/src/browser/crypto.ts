@@ -1,10 +1,35 @@
 import { fromBase64, toBase64, fromBase32, toBase32, toHex, fromHex } from "../shared/encoding";
+import { PASSWORD_WORDS } from "./password-words";
 
 const DEFAULT_SIGNATURE_AGE = 1000 * 60 * 60; // 1 hour
 const CLOCK_SKEW_TOLERANCE = 1000 * 30; // 30 seconds
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const PASSWORD_UPPERCASE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const PASSWORD_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
+const PASSWORD_DIGITS = "0123456789";
+const PASSWORD_SYMBOLS = "!@#$%^&*()-_=+[]{}<>?";
+
+export type RandomPasswordOptions = {
+  length?: number;
+  uppercase?: boolean;
+  numbers?: boolean;
+  symbols?: boolean;
+};
+
+export type MemorablePasswordOptions = {
+  words?: number;
+  capitalize?: boolean;
+  fullWords?: boolean;
+  separator?: string;
+  addNumber?: boolean;
+  addSymbol?: boolean;
+};
+
+export type PinPasswordOptions = {
+  length?: number;
+};
 
 //====================================
 // COMMON UTILITIES
@@ -79,12 +104,97 @@ const generateKey = (length: number = 32): string => {
   return toHex(globalThis.crypto.getRandomValues(new Uint8Array(length)));
 };
 
+const randomIndex = (max: number): number => {
+  if (max <= 1) return 0;
+  const ceiling = Math.floor(0x100000000 / max) * max;
+  const buffer = new Uint32Array(1);
+
+  do {
+    globalThis.crypto.getRandomValues(buffer);
+  } while (buffer[0]! >= ceiling);
+
+  return buffer[0]! % max;
+};
+
+const randomPick = (source: string): string => source[randomIndex(source.length)]!;
+
+const randomPickWord = (): string => PASSWORD_WORDS[randomIndex(PASSWORD_WORDS.length)]!;
+
+const secureShuffle = <T>(items: T[]): T[] => {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i--) {
+    const j = randomIndex(i + 1);
+    [next[i], next[j]] = [next[j]!, next[i]!];
+  }
+  return next;
+};
+
+const insertPartAtRandomPosition = (parts: string[], value: string): void => {
+  parts.splice(randomIndex(parts.length + 1), 0, value);
+};
+
+const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+const generateRandomPassword = (options: RandomPasswordOptions = {}): string => {
+  const length = clamp(Math.floor(options.length ?? 20), 4, 64);
+  const uppercase = options.uppercase ?? true;
+  const numbers = options.numbers ?? true;
+  const symbols = options.symbols ?? false;
+  const pools: string[] = [PASSWORD_LOWERCASE];
+  if (uppercase) pools.push(PASSWORD_UPPERCASE);
+  if (numbers) pools.push(PASSWORD_DIGITS);
+  if (symbols) pools.push(PASSWORD_SYMBOLS);
+
+  const allChars = pools.join("");
+  const required: string[] = [randomPick(PASSWORD_LOWERCASE)];
+  if (uppercase) required.push(randomPick(PASSWORD_UPPERCASE));
+  if (numbers) required.push(randomPick(PASSWORD_DIGITS));
+  if (symbols) required.push(randomPick(PASSWORD_SYMBOLS));
+
+  const chars = [...required];
+  while (chars.length < length) {
+    chars.push(randomPick(allChars));
+  }
+
+  return secureShuffle(chars).join("");
+};
+
+const transformMemorableWord = (word: string, options: Required<Pick<MemorablePasswordOptions, "capitalize" | "fullWords">>): string => {
+  const base = options.fullWords ? word : word.slice(0, Math.max(3, Math.min(5, word.length)));
+  return options.capitalize ? `${base[0]?.toUpperCase() ?? ""}${base.slice(1)}` : base;
+};
+
+const generateMemorablePassword = (options: MemorablePasswordOptions = {}): string => {
+  const words = clamp(Math.floor(options.words ?? 4), 3, 10);
+  const capitalize = options.capitalize ?? false;
+  const fullWords = options.fullWords ?? true;
+  const separator = options.separator ?? "-";
+  const addNumber = options.addNumber ?? false;
+  const addSymbol = options.addSymbol ?? false;
+  const readableSymbols = "._+!";
+  const parts = Array.from({ length: words }, () => transformMemorableWord(randomPickWord(), { capitalize, fullWords }));
+  if (addNumber) insertPartAtRandomPosition(parts, randomPick(PASSWORD_DIGITS));
+  if (addSymbol) insertPartAtRandomPosition(parts, randomPick(readableSymbols));
+  return parts.join(separator);
+};
+
+const generatePin = (options: PinPasswordOptions = {}): string => {
+  const length = clamp(Math.floor(options.length ?? 6), 3, 12);
+  return Array.from({ length }, () => randomPick(PASSWORD_DIGITS)).join("");
+};
+
 export const common = {
   hash,
   fnv1aHash,
   readableId,
   uuid: () => globalThis.crypto.randomUUID(),
   generateKey,
+};
+
+export const password = {
+  random: generateRandomPassword,
+  memorable: generateMemorablePassword,
+  pin: generatePin,
 };
 
 //====================================
@@ -642,6 +752,7 @@ export const totp = {
 export const crypto = {
   common,
   asymmetric,
+  password,
   symmetric,
   totp,
 } as const;

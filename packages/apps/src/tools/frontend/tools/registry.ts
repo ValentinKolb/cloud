@@ -81,6 +81,15 @@ export const tools: ToolDef[] = [
     color: "red",
   },
   {
+    id: "password",
+    name: "Password Generator",
+    icon: "ti ti-key",
+    description: "Generate random, memorable, or PIN-style passwords",
+    category: "security",
+    color: "blue",
+    featured: true,
+  },
+  {
     id: "encryption",
     name: "Encryption",
     icon: "ti ti-lock",

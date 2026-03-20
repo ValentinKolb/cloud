@@ -12,6 +12,7 @@ import LoremIpsumGenerator from "../tools/LoremIpsumGenerator.island";
 import ColorConverter from "../tools/ColorConverter.island";
 import ImageProcessor from "../tools/ImageProcessor.island";
 import EncryptionTool from "../tools/EncryptionTool.island";
+import PasswordGenerator from "../tools/PasswordGenerator.island";
 
 const toolComponents: Record<string, () => JSX.Element> = {
   mailto: () => <MailtoGenerator />,
@@ -23,6 +24,7 @@ const toolComponents: Record<string, () => JSX.Element> = {
   color: () => <ColorConverter />,
   image: () => <ImageProcessor />,
   encryption: () => <EncryptionTool />,
+  password: () => <PasswordGenerator />,
 };
 
 export default ssr<AuthContext>(async (c) => {
