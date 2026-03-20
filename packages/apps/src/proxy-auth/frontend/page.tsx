@@ -20,7 +20,7 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <AdminLayout c={c} title="Proxy Auth" fullHeight>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2 p-4">
+        <div class="flex flex-col gap-2">
           <div class="flex flex-wrap items-center justify-between gap-3" style="view-transition-name: admin-proxy-auth-toolbar">
             <div class="min-w-0">
               <h1 class="text-base font-semibold text-primary">Proxy Auth</h1>

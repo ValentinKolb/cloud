@@ -54,7 +54,7 @@ const ColorInput = (props: ColorInputProps) => {
     >
       <div class="relative">
         <div
-          class={`input-subtle flex items-center gap-2 transition-all ${isFocused() ? "ring-2 ring-blue-500" : ""} ${
+          class={`input flex items-center gap-2 transition-all ${isFocused() ? "border-blue-500 bg-white dark:border-blue-400 dark:bg-zinc-900" : ""} ${
             disabled() || isTransparent() ? "cursor-not-allowed opacity-50" : "cursor-pointer"
           }`}
           onClick={() => {

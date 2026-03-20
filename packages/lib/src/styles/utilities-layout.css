@@ -59,7 +59,7 @@
 }
 
 @utility app-cols {
-  @apply flex gap-4;
+  @apply flex flex-col gap-2 lg:flex-row lg:items-stretch lg:gap-2;
 }
 
 @utility app-rows {

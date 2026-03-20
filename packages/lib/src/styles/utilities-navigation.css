@@ -17,12 +17,12 @@
 
 /* Sidebar layout primitives */
 @utility sidebar {
-  @apply flex h-full min-h-0 flex-col rounded-lg border border-zinc-200 bg-white p-2;
+  @apply flex h-full min-h-0 flex-col gap-3 rounded-lg border border-zinc-200 bg-white;
   @apply dark:border-zinc-800 dark:bg-zinc-900;
 }
 
 @utility sidebar-container {
-  @apply hidden lg:flex w-52 shrink-0 min-h-0 overflow-y-auto flex-col p-2;
+  @apply hidden lg:flex w-52 shrink-0 min-h-0 overflow-y-auto flex-col gap-3;
 }
 
 @utility sidebar-header-icon {
@@ -58,7 +58,7 @@
 }
 
 @utility sidebar-mobile-actions {
-  @apply mt-2 flex flex-wrap gap-2;
+  @apply flex flex-wrap gap-2;
 }
 
 @utility sidebar-item-mobile {
@@ -66,15 +66,15 @@
 }
 
 @utility sidebar-header {
-  @apply flex min-h-10 items-center gap-2 px-2 py-1.5;
+  @apply flex min-h-10 items-center gap-2;
 }
 
 @utility sidebar-body {
-  @apply flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1 pb-3;
+  @apply flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto;
 }
 
 @utility sidebar-footer {
-  @apply mt-auto flex flex-col gap-2 px-1 pt-3;
+  @apply mt-auto flex flex-col gap-2;
 }
 
 @utility sidebar-section {
@@ -82,11 +82,11 @@
 }
 
 @utility sidebar-section-title {
-  @apply px-2 pt-1 text-[0.6875rem] font-medium normal-case tracking-normal text-dimmed select-none;
+  @apply text-[0.6875rem] font-medium normal-case tracking-normal text-dimmed select-none;
 }
 
 @utility sidebar-controls {
-  @apply flex flex-col gap-2 px-2 py-1;
+  @apply flex flex-col gap-2;
 }
 
 @utility sidebar-control-row {

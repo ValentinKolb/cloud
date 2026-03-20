@@ -35,7 +35,7 @@ export const Pagination = (props: PaginationProps): null | JSX.Element => {
               href={`${props.baseUrl}${page}`}
               class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
                 isActive
-                  ? "bg-blue-50 text-blue-700 font-medium ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40"
+                  ? "border-blue-500/35 bg-blue-50 text-blue-700 font-medium dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
                   : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
               }`}
               aria-current={isActive ? "page" : undefined}

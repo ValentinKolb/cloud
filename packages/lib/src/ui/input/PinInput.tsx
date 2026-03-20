@@ -146,9 +146,9 @@ const PinInput = ({
                 inputMode="numeric"
                 pattern="[0-9]"
                 maxLength={1}
-                class={`input-subtle ${stretch ? "w-full" : "w-10"} text-center font-mono font-semibold transition-all ${
+                class={`input ${stretch ? "w-full" : "w-10"} text-center font-mono font-semibold transition-all ${
                   (value?.() || "")[index()] ? "bg-zinc-50 dark:bg-zinc-800 " : ""
-                } ${disabled ? "cursor-not-allowed opacity-50" : ""} ${error?.() ? "ring-1 ring-red-500" : ""}`}
+                } ${disabled ? "cursor-not-allowed opacity-50" : ""} ${error?.() ? "!border-red-500" : ""}`}
                 value={(value?.() || "")[index()] || ""}
                 onInput={(e) => handleChange(index(), e.currentTarget.value)}
                 onKeyDown={(e) => handleKeyDown(index(), e)}

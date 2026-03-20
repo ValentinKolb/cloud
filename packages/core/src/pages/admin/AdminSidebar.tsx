@@ -32,7 +32,7 @@ export default function AdminSidebar({ pathname, apps }: { pathname: string; app
             {adminLinks.map((link) => (
               <a
                 href={link.href}
-                class={`sidebar-item-mobile ${isActive(pathname, link.href) ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""}`}
+                class={`sidebar-item-mobile ${isActive(pathname, link.href) ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200" : ""}`}
                 aria-current={isActive(pathname, link.href) ? "page" : undefined}
               >
                 <i class={`ti ${link.icon}`} />
@@ -44,24 +44,24 @@ export default function AdminSidebar({ pathname, apps }: { pathname: string; app
       </nav>
 
       <aside class="sidebar-container">
-        <div class="sidebar-header">
-          <div class="sidebar-header-icon bg-zinc-600 dark:bg-zinc-700">
-            <i class="ti ti-settings text-xs" />
-          </div>
-          <div class="sidebar-header-text">
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+          <div class="flex items-center gap-3">
+            <div class="sidebar-header-icon bg-zinc-600 dark:bg-zinc-700">
+              <i class="ti ti-settings text-xs" />
+            </div>
             <p class="sidebar-header-title">Admin</p>
           </div>
-        </div>
 
-        <div class="sidebar-body mt-1">
-          <section class="sidebar-group">
-            {adminLinks.map((link) => (
-              <a href={link.href} class={`sidebar-item ${isActive(pathname, link.href) ? "sidebar-item-active" : ""}`}>
-                <i class={`ti ${link.icon} text-sm`} />
-                <span>{link.label}</span>
-              </a>
-            ))}
-          </section>
+          <div class="sidebar-body">
+            <section class="sidebar-group">
+              {adminLinks.map((link) => (
+                <a href={link.href} class={`sidebar-item ${isActive(pathname, link.href) ? "sidebar-item-active" : ""}`}>
+                  <i class={`ti ${link.icon} text-sm`} />
+                  <span>{link.label}</span>
+                </a>
+              ))}
+            </section>
+          </div>
         </div>
       </aside>
     </>

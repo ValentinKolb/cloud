@@ -60,7 +60,7 @@ const TagsInput = (props: TagsInputProps) => {
         <div
           contentEditable={!disabled()}
           id={a11y.inputId}
-          class={`input-subtle w-full pl-9 outline-none ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-text"}`}
+          class={`input w-full pl-9 outline-none ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-text"}`}
           role="textbox"
           aria-multiline="false"
           aria-label={!props.label ? placeholder() || "Enter tags" : undefined}

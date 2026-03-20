@@ -5,7 +5,7 @@ import { openNoteSearchPrompt } from "./openNoteSearchPrompt";
 type Props = {
   notebookId: string;
   notebookName: string;
-  variant?: "compact" | "chip" | "sidebar";
+  variant?: "compact" | "chip" | "sidebar" | "sidebar-mobile";
 };
 
 export default function SearchButton(props: Props) {
@@ -48,7 +48,21 @@ export default function SearchButton(props: Props) {
       <button
         type="button"
         onClick={handleSearch}
-        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs bg-zinc-200/60 dark:bg-zinc-800/60"
+        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs"
+        title="Search notes (Mod+Shift+K)"
+      >
+        <i class="ti ti-search" />
+        <span>Search</span>
+      </button>
+    );
+  }
+
+  if (props.variant === "sidebar-mobile") {
+    return (
+      <button
+        type="button"
+        onClick={handleSearch}
+        class="sidebar-item-mobile w-full"
         title="Search notes (Mod+Shift+K)"
       >
         <i class="ti ti-search" />

@@ -11,7 +11,7 @@ export default function RemoveBtn(props: RemoveBtnProps) {
       type="button"
       onClick={props.onClick}
       disabled={props.disabled || props.loading}
-      class="p-1.5 shrink-0 transition-colors disabled:opacity-50 group/rm"
+      class="p-1 shrink-0 transition-colors disabled:opacity-50 group/rm"
       aria-label={props.ariaLabel}
     >
       {props.loading ? (

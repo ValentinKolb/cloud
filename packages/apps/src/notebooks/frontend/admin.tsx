@@ -6,7 +6,7 @@ import { SearchBar } from "@valentinkolb/cloud/lib/islands";
 import AdminNotebookActions from "./_components/AdminNotebookActions.island";
 import { notebooksService } from "../service";
 
-const PER_PAGE = 25;
+const PER_PAGE = 100;
 
 export default ssr<AuthContext>(async (c) => {
   const search = (c.req.query("search") ?? "").trim();
@@ -24,7 +24,7 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <AdminLayout c={c} title="Notebooks" fullHeight>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2 p-4">
+        <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-notebooks-title">
             <h1 class="text-base font-semibold text-primary">Notebooks</h1>
             <p class="mt-1 text-xs text-dimmed">{notebooks.total} notebooks</p>

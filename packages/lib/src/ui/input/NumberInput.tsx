@@ -57,7 +57,7 @@ const NumberInput = (props: NumberInputProps) => {
       <div class={`flex flex-row flex-nowrap gap-3 text-nowrap ${disabled() ? "opacity-50" : ""}`}>
         <button
           type="button"
-          class={`input-subtle ti ti-minus px-3 cursor-pointer hover:text-primary ${value() <= min() && "opacity-40"}`}
+          class={`input ti ti-minus px-3 cursor-pointer hover:text-primary ${value() <= min() && "opacity-40"}`}
           aria-label="Decrease value"
           onClick={() => {
             const v = Math.max(min(), value() - step());
@@ -70,7 +70,7 @@ const NumberInput = (props: NumberInputProps) => {
           <input
             id={a11y.inputId}
             type="number"
-            class={`input-subtle w-full text-center font-mono font-semibold ${disabled() ? "cursor-not-allowed" : ""}`}
+            class={`input w-full text-center font-mono font-semibold ${disabled() ? "cursor-not-allowed" : ""}`}
             placeholder={props.placeholder}
             value={value()}
             onChange={(e) => {
@@ -96,7 +96,7 @@ const NumberInput = (props: NumberInputProps) => {
 
         <button
           type="button"
-          class={`input-subtle ti ti-plus px-3 cursor-pointer hover:text-primary ${value() >= max() && "opacity-40"}`}
+          class={`input ti ti-plus px-3 cursor-pointer hover:text-primary ${value() >= max() && "opacity-40"}`}
           aria-label="Increase value"
           onClick={() => {
             const v = Math.min(max(), value() + step());

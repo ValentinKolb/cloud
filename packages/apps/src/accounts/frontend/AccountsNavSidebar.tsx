@@ -91,35 +91,18 @@ export default function AccountsNavSidebar(props: Props) {
       </nav>
 
       <aside class="sidebar-container">
-        <div class="sidebar-header">
-          <div class="sidebar-header-icon bg-blue-500">
-            <i class="ti ti-users-group text-xs" />
-          </div>
-          <div class="sidebar-header-text">
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+          <div class="flex items-center gap-3">
+            <div class="sidebar-header-icon bg-blue-500">
+              <i class="ti ti-users-group text-xs" />
+            </div>
             <p class="sidebar-header-title">Accounts</p>
           </div>
-        </div>
 
-        <div class="sidebar-body mt-2">
-          <section class="sidebar-group">
-            <p class="sidebar-section-title">General</p>
-            <For each={generalItems()}>
-              {(item) => (
-                <a href={item.href} class={navItemClass(item.active)}>
-                  <i class={`${item.icon} text-sm`} />
-                  <span class="flex-1">{item.label}</span>
-                  <Show when={item.badge}>
-                    <span class="text-[10px] text-dimmed">{item.badge}</span>
-                  </Show>
-                </a>
-              )}
-            </For>
-          </section>
-
-          <Show when={props.isAdmin}>
+          <div class="sidebar-body">
             <section class="sidebar-group">
-              <p class="sidebar-section-title">Admin</p>
-              <For each={adminItems()}>
+              <p class="sidebar-section-title">General</p>
+              <For each={generalItems()}>
                 {(item) => (
                   <a href={item.href} class={navItemClass(item.active)}>
                     <i class={`${item.icon} text-sm`} />
@@ -131,7 +114,24 @@ export default function AccountsNavSidebar(props: Props) {
                 )}
               </For>
             </section>
-          </Show>
+
+            <Show when={props.isAdmin}>
+              <section class="sidebar-group">
+                <p class="sidebar-section-title">Admin</p>
+                <For each={adminItems()}>
+                  {(item) => (
+                    <a href={item.href} class={navItemClass(item.active)}>
+                      <i class={`${item.icon} text-sm`} />
+                      <span class="flex-1">{item.label}</span>
+                      <Show when={item.badge}>
+                        <span class="text-[10px] text-dimmed">{item.badge}</span>
+                      </Show>
+                    </a>
+                  )}
+                </For>
+              </section>
+            </Show>
+          </div>
         </div>
       </aside>
     </>

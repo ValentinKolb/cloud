@@ -24,7 +24,10 @@ const customEditorCSS = EditorView.theme({
     maxWidth: "100%",
     margin: "0 auto",
   },
-  ".cm-content": { maxWidth: "100%", overflowX: "hidden" },
+  ".cm-content": {
+    maxWidth: "100%",
+    overflowX: "hidden",
+  },
   ".cm-gutters": {
     backgroundColor: "transparent",
     border: "none",
@@ -56,6 +59,8 @@ const customEditorCSS = EditorView.theme({
     zIndex: "1000",
   },
   ".cm-ySelectionCaret > .cm-ySelectionInfo": {
+    top: "0.15em",
+    left: "0.25rem",
     borderRadius: "var(--radius-md)",
     padding: "1px 4px",
     fontSize: "11px",
@@ -66,6 +71,7 @@ const customEditorCSS = EditorView.theme({
     opacity: "1",
     transitionDelay: "0s",
     whiteSpace: "nowrap",
+    boxShadow: "0 1px 2px rgb(0 0 0 / 0.16)",
   },
 });
 

@@ -72,27 +72,27 @@ export default function LocationSidebar(props: Props) {
       </nav>
 
       <aside class="sidebar-container">
-        <div class="sidebar-header">
-          <div class="sidebar-header-icon bg-cyan-500">
-            <i class="ti ti-temperature-celsius text-xs" />
-          </div>
-          <div class="sidebar-header-text">
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+          <div class="flex items-center gap-3">
+            <div class="sidebar-header-icon bg-cyan-500">
+              <i class="ti ti-temperature-celsius text-xs" />
+            </div>
             <p class="sidebar-header-title">Weather</p>
           </div>
-        </div>
 
-        <div class="flex flex-col gap-3">
-          <section class="sidebar-group">
-            <p class="sidebar-section-title">Actions</p>
-            <AddLocationButton />
-          </section>
-        </div>
+          <div class="flex flex-col gap-3">
+            <section class="sidebar-group">
+              <p class="sidebar-section-title">Actions</p>
+              <AddLocationButton />
+            </section>
+          </div>
 
-        <div class="sidebar-body mt-2">
-          <section class="sidebar-group">
-            <p class="sidebar-section-title">Locations</p>
-            <div class="sidebar-group">{props.locations.map((loc) => renderLocation(loc, "desktop"))}</div>
-          </section>
+          <div class="sidebar-body">
+            <section class="sidebar-group">
+              <p class="sidebar-section-title">Locations</p>
+              <div class="sidebar-group">{props.locations.map((loc) => renderLocation(loc, "desktop"))}</div>
+            </section>
+          </div>
         </div>
       </aside>
     </>

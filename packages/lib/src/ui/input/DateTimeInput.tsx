@@ -68,7 +68,7 @@ const DateTimeInput = (props: DateTimeInputProps) => {
         <input
           id={a11y.inputId}
           type={dateOnly() ? "date" : "datetime-local"}
-          class={`input-subtle w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+          class={`input w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
           value={inputValue()}
           onChange={(e) => props.onChange?.(e.currentTarget.value)}
           disabled={disabled()}

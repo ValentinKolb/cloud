@@ -111,7 +111,7 @@ export default function NoteEditor(props: Props) {
   addExtension(
     EditorView.theme({
       ".cm-editor": { minHeight: "100%" },
-      ".cm-scroller": { width: "100%", minHeight: "100%", padding: "0.5rem 1rem" },
+      ".cm-scroller": { width: "100%", minHeight: "100%", padding: "1rem" },
     }),
   );
 
@@ -233,7 +233,7 @@ export default function NoteEditor(props: Props) {
   return (
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
       <div
-        class="flex-1 min-h-0 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50/35 dark:bg-zinc-900/25 overflow-y-auto cursor-text"
+        class="paper flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-950 cursor-text"
         onMouseDown={(event) => {
           const target = event.target as HTMLElement | null;
           if (target?.closest(".cm-editor")) return;

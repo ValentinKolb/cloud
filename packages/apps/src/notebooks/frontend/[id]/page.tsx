@@ -139,7 +139,7 @@ export default ssr<AuthContext>(async (c) => {
         ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
       ]}
     >
-      <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+      <div class="app-cols flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.id} notebookName={notebook.name} canWrite={canWrite} />
 
         {/* Sidebar */}

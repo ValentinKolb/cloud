@@ -81,7 +81,7 @@ const TabLink = (props: { href: string; label: string; icon: string; active: boo
     href={props.href}
     class={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-colors ${
       props.active
-        ? "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40"
+        ? "border-blue-500/35 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
         : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-800"
     }`}
   >
@@ -115,7 +115,7 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <AdminLayout c={c} title="Settings" fullHeight>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2 p-4">
+        <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-settings-title">
             <h1 class="text-base font-semibold text-primary">Settings</h1>
             <p class="mt-1 text-xs text-dimmed">Runtime configuration, help content, and terms of service.</p>

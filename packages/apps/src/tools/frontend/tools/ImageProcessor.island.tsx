@@ -632,7 +632,7 @@ export default function ImageProcessor() {
                 <input
                   id="image-export-max-width"
                   type="number"
-                  class="input-border w-full text-center font-mono text-sm"
+                  class="input w-full text-center font-mono text-sm"
                   placeholder="auto"
                   value={mw() ?? ""}
                   min={1}
@@ -649,7 +649,7 @@ export default function ImageProcessor() {
                 <input
                   id="image-export-max-height"
                   type="number"
-                  class="input-border w-full text-center font-mono text-sm"
+                  class="input w-full text-center font-mono text-sm"
                   placeholder="auto"
                   value={mh() ?? ""}
                   min={1}

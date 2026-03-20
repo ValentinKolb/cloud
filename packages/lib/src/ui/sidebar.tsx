@@ -135,7 +135,7 @@ function SidebarRowItem(props: { row: SidebarRow; mobile?: boolean }) {
       return (
         <a
           href={props.row.href}
-          class={`btn-input btn-input-sm ${props.row.active ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""} ${props.row.class ?? ""}`}
+          class={`btn-input btn-input-sm ${props.row.active ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200" : ""} ${props.row.class ?? ""}`}
           data-row={props.row.id}
         >
           <Show when={props.row.icon}>
@@ -148,7 +148,7 @@ function SidebarRowItem(props: { row: SidebarRow; mobile?: boolean }) {
     return (
       <button
         type="button"
-        class={`btn-input btn-input-sm ${props.row.active ? "bg-blue-50/70 text-blue-700 ring-1 ring-inset ring-blue-500/35 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-400/40" : ""} ${props.row.class ?? ""}`}
+        class={`btn-input btn-input-sm ${props.row.active ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200" : ""} ${props.row.class ?? ""}`}
         data-row={props.row.id}
       >
         <Show when={props.row.icon}>

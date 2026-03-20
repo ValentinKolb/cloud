@@ -40,7 +40,7 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <AdminLayout c={c} title="Logs" fullHeight>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2 p-4">
+        <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-logs-title">
             <h1 class="text-base font-semibold text-primary">Logs</h1>
             <p class="mt-1 text-xs text-dimmed">{total} entries</p>

@@ -28,11 +28,11 @@ export default function AdminLayout({ children, c, title, fullHeight }: Props) {
   }
   return (
     <Layout c={c} fullWidth title={breadcrumbs}>
-      <div class="flex flex-col lg:flex-row lg:items-stretch gap-4 flex-1 min-h-0">
+      <div class="app-cols flex-1 min-h-0">
         <AdminSidebar pathname={pathname} apps={runtime.apps} />
         <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div class={`flex-1 min-h-0 ${fullHeight ? "flex flex-col" : "overflow-y-auto"}`} style="scrollbar-gutter: stable">
-            {fullHeight ? children : <div class="p-4">{children}</div>}
+            {children}
           </div>
         </div>
       </div>

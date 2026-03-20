@@ -171,7 +171,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
   const breadcrumbs: Breadcrumb[] = !title ? [{ title: appName }] : typeof title === "string" ? [{ title }] : title;
   const showRail =
     !!user; /* * Grid layout: * Rail mode: [rail | content] * No rail: [content] * * Rows: [header] [main] [footer?] * The rail spans rows 1+2 via grid-row, so logo aligns with the header. */
-  const contentPadding = "p-2";
+  const contentPadding = "p-2.5 md:p-0 md:pr-2 md:pb-2";
   const gridClass = showRail
     ? "grid-cols-1 md:grid-cols-[auto_1fr] grid-rows-[auto_1fr]"
     : `grid-cols-1 ${!fullPage ? "grid-rows-[auto_1fr_auto]" : "grid-rows-[auto_1fr]"}`;
@@ -192,7 +192,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
       )}{" "}
       {/* ── Header (row 1) ── */}{" "}
       <header
-        class="flex justify-between items-center m-2 md:m-1.5 py-2 md:py-1.5 px-4 md:px-4 rounded-2xl md:rounded-xl bg-white/30 dark:bg-zinc-900/30 backdrop-blur-md border border-white/20 dark:border-zinc-700/25"
+        class="flex justify-between items-center m-2 md:ml-0 md:m-1.5 py-1.5 md:py-2 px-2 md:px-3 paper"
         style="box-shadow: var(--theme-shadow-elevated)"
       >
         {" "}

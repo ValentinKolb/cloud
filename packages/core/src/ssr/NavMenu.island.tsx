@@ -83,7 +83,7 @@ export default function NavMenu(props: NavMenuProps) {
   return (
     <Dropdown
       trigger={
-        <button type="button" class="icon-btn inline" aria-label="Menu">
+        <button type="button" class="icon-btn inline items-center justify-center" aria-label="Menu">
           <i class="ti ti-menu-2 text-lg" />
         </button>
       }

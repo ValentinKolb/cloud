@@ -39,6 +39,7 @@ const SelectInput = (props: SelectInputProps) => {
 
   const [isOpen, setIsOpen] = createSignal(false);
   const [focusedIndex, setFocusedIndex] = createSignal(-1);
+  const [isDarkTheme, setIsDarkTheme] = createSignal(false);
   const a11y = createInputA11y({ description: props.description, error: props.error });
 
   let triggerRef: HTMLDivElement | undefined;
@@ -46,6 +47,11 @@ const SelectInput = (props: SelectInputProps) => {
   let optionRefs: HTMLDivElement[] = [];
 
   const selectedOption = createMemo(() => options().find((option) => option.id === props.value?.()));
+
+  const syncTheme = () => {
+    if (typeof document === "undefined") return;
+    setIsDarkTheme(document.documentElement.classList.contains("dark") || document.body.classList.contains("dark"));
+  };
 
   const focusOption = (index: number) => {
     setFocusedIndex(index);
@@ -69,6 +75,7 @@ const SelectInput = (props: SelectInputProps) => {
   const toggleDropdown = (open: boolean) => {
     if (disabled()) return;
 
+    syncTheme();
     setIsOpen(open);
     if (!open) {
       dialogRef?.close();
@@ -183,8 +190,8 @@ const SelectInput = (props: SelectInputProps) => {
             <div
               ref={triggerRef}
               id={a11y.inputId}
-              class={`input-subtle w-full pl-9 pr-8 ${
-                isOpen() ? "!border-blue-500 !ring-2 !ring-blue-500 dark:!border-blue-400 dark:!ring-blue-400" : ""
+              class={`input w-full pl-9 pr-8 ${
+                isOpen() ? "!border-blue-500 !bg-white dark:!border-blue-400 dark:!bg-zinc-900" : ""
               } ${disabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
               onClick={() => toggleDropdown(!isOpen())}
               onKeyDown={handleKeyDown}
@@ -219,6 +226,7 @@ const SelectInput = (props: SelectInputProps) => {
           <dialog
             ref={dialogRef}
             class="popup border border-zinc-200 p-1 backdrop:bg-transparent dark:border-zinc-700"
+            classList={{ dark: isDarkTheme() }}
             onKeyDown={handleKeyDown}
             onClick={handleDialogClick}
             aria-label="Options"

@@ -69,15 +69,15 @@
 
 @utility btn-input {
   @apply inline-flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium leading-5 select-none cursor-pointer;
-  @apply transition-[background-color,color,border-color,ring-color] duration-150;
-  @apply bg-zinc-100 text-zinc-600 ring-1 ring-zinc-100 border-0;
-  @apply hover:bg-zinc-200/70 hover:text-zinc-800 hover:ring-zinc-200/70;
+  @apply transition-[background-color,color,border-color] duration-150 border;
+  @apply bg-zinc-100 text-zinc-600 border-zinc-100;
+  @apply hover:bg-zinc-200/70 hover:text-zinc-800 hover:border-zinc-200/70;
   @apply active:bg-zinc-200;
-  @apply focus-visible:outline-none focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-blue-400;
-  @apply dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-800;
-  @apply dark:hover:bg-zinc-700 dark:hover:text-zinc-100 dark:hover:ring-zinc-700;
+  @apply focus-visible:outline-none focus-visible:bg-white focus-visible:border-blue-400;
+  @apply dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-800;
+  @apply dark:hover:bg-zinc-700 dark:hover:text-zinc-100 dark:hover:border-zinc-700;
   @apply dark:active:bg-zinc-700;
-  @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:ring-blue-400;
+  @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:border-blue-400;
   @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none;
 }
 
@@ -92,37 +92,24 @@
 }
 
 @utility btn-input-active {
-  @apply bg-blue-50 text-blue-600 ring-blue-200;
-  @apply hover:bg-blue-100 hover:ring-blue-200;
-  @apply dark:bg-blue-950 dark:text-blue-300 dark:ring-blue-800;
-  @apply dark:hover:bg-blue-900 dark:hover:ring-blue-700;
+  @apply bg-blue-50 text-blue-600 border-blue-200;
+  @apply hover:bg-blue-100 hover:border-blue-200;
+  @apply dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800;
+  @apply dark:hover:bg-blue-900 dark:hover:border-blue-700;
 }
 
-/* Input: grey bg + matching ring unfocused, white bg + blue ring on focus */
-@utility input-base {
+/* Input: grey bg + matching border unfocused, white bg + blue border on focus */
+@utility input {
   padding: var(--theme-input-py) var(--theme-input-px);
-  @apply rounded-md;
-  @apply text-sm leading-5 border-0 focus-visible:outline-none;
-  @apply bg-zinc-100 text-zinc-800 ring-1 ring-zinc-100;
-  @apply hover:bg-zinc-200/70 hover:ring-zinc-200/70;
-  @apply focus:!bg-white focus:!ring-2 focus:!ring-blue-400 focus-within:!bg-white focus-within:!ring-2 focus-within:!ring-blue-400;
-  @apply dark:bg-zinc-800 dark:text-zinc-200 dark:ring-zinc-800;
-  @apply dark:hover:bg-zinc-700 dark:hover:ring-zinc-700;
-  @apply dark:focus:!bg-zinc-900 dark:focus:!ring-blue-400 dark:focus-within:!bg-zinc-900 dark:focus-within:!ring-blue-400;
-  @apply disabled:bg-zinc-50 disabled:text-zinc-400 disabled:ring-zinc-50 disabled:cursor-not-allowed;
-  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:ring-zinc-900;
-}
-
-@utility input-border {
-  @apply input-base;
-}
-
-@utility input-subtle {
-  @apply input-base;
-}
-
-@utility input-simple {
-  @apply input-base;
+  @apply rounded-md border text-sm leading-5 focus-visible:outline-none;
+  @apply bg-zinc-100 text-zinc-800 border-zinc-100;
+  @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
+  @apply focus:!bg-white focus:!border-blue-400 focus-within:!bg-white focus-within:!border-blue-400;
+  @apply dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-800;
+  @apply dark:hover:bg-zinc-700 dark:hover:border-zinc-700;
+  @apply dark:focus:!bg-zinc-900 dark:focus:!border-blue-400 dark:focus-within:!bg-zinc-900 dark:focus-within:!border-blue-400;
+  @apply disabled:bg-zinc-50 disabled:text-zinc-400 disabled:border-zinc-50 disabled:cursor-not-allowed;
+  @apply dark:disabled:bg-zinc-900 dark:disabled:text-zinc-500 dark:disabled:border-zinc-900;
 }
 
 @utility icon-btn {

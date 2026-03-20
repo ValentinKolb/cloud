@@ -41,7 +41,7 @@
 }
 
 @utility popup {
-  @apply rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-lg;
+  @apply rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-lg text-zinc-900 dark:text-zinc-100;
 }
 
 @utility tag {

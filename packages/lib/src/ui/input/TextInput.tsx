@@ -95,7 +95,7 @@ const TextInput = (props: TextInputProps) => {
           <textarea
             id={a11y.inputId}
             name={props.name}
-            class={`input-subtle w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            class={`input w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
             style={props.lines ? `min-height: ${props.lines * 1.5}em; max-height: ${Math.max(props.lines * 1.5, 20)}em` : "min-height: 3.75rem; height: 5rem; max-height: 12.5rem"}
             placeholder={props.placeholder}
             value={props.value?.() ?? ""}
@@ -119,7 +119,7 @@ const TextInput = (props: TextInputProps) => {
             id={a11y.inputId}
             name={props.name}
             type={props.password && !showPassword() ? "password" : (props.type ?? "text")}
-            class={`input-subtle w-full pl-9 ${props.password || canClear() ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            class={`input w-full pl-9 ${props.password || canClear() ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
             placeholder={props.placeholder}
             value={currentValue()}
             onChange={(e) => props.onChange?.(e.target.value)}
