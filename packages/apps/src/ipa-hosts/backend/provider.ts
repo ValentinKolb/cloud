@@ -80,7 +80,7 @@ const toLike = (value?: string): string | null => {
 
 export const hostList = async (params: { search?: string; page?: number; perPage?: number }): Promise<{ hosts: IpaHostRecord[]; total: number }> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = toLike(params.search);
 
@@ -126,7 +126,7 @@ export const hostListUngrouped = async (
   params: { search?: string; page?: number; perPage?: number },
 ): Promise<{ hosts: IpaHostRecord[]; total: number }> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = toLike(params.search);
 
@@ -258,7 +258,7 @@ export const hostRemoveFromGroup = async (ipaSession: string, fqdn: string, host
 
 export const hostgroupList = async (params: { search?: string; page?: number; perPage?: number }): Promise<{ hostgroups: IpaHostgroupRecord[]; total: number }> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = toLike(params.search);
 
@@ -302,7 +302,7 @@ export const hostgroupListWithHosts = async (
   params: { search?: string; page?: number; perPage?: number },
 ): Promise<{ hostgroups: IpaHostgroupWithHostsRecord[]; total: number }> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = toLike(params.search);
 

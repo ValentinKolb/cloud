@@ -334,6 +334,14 @@ export const SETTINGS: SettingDef[] = [
     options: [...IPA_ACCOUNT_TRANSITION_OPTIONS],
     group: "freeipa",
   },
+  {
+    key: "freeipa.sync_cron",
+    label: "Sync Cron",
+    kind: "cron",
+    default: "*/5 * * * *",
+    description: "Five-field cron schedule for the FreeIPA sync job in app.timezone.",
+    group: "freeipa",
+  },
 
   {
     key: "user.abbr_length",
@@ -386,14 +394,6 @@ export const SETTINGS: SettingDef[] = [
     kind: "number_list",
     default: [30, 7],
     description: "Days before expiry to send reminder emails.",
-    group: "user",
-  },
-  {
-    key: "user.account.ipa_sync_cron",
-    label: "IPA Sync Cron",
-    kind: "cron",
-    default: "*/5 * * * *",
-    description: "Five-field cron schedule for the IPA sync job in app.timezone",
     group: "user",
   },
   {

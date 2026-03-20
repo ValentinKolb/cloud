@@ -26,7 +26,7 @@ export const SearchQuerySchema = z.object({
 
 export const PaginationQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional().default(1),
-  per_page: z.coerce.number().int().min(1).max(100).optional().default(20),
+  per_page: z.coerce.number().int().min(1).max(100).optional().default(100),
 });
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
 
@@ -47,7 +47,7 @@ export type PaginationParams = {
 
 export const parsePagination = (query: { page?: number; per_page?: number }): PaginationParams => {
   const page = query.page ?? 1;
-  const perPage = query.per_page ?? 20;
+  const perPage = query.per_page ?? 100;
   const offset = (page - 1) * perPage;
   return { page, perPage, offset };
 };

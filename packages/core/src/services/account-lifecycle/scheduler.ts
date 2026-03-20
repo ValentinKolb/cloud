@@ -15,6 +15,7 @@ const ipaBackfillLog = logger("auth:ipa:backfill");
 const localUserBackfillLog = logger("auth:local-user:backfill");
 const guestBackfillLog = logger("auth:guest:backfill");
 const logCleanupLog = logger("logging");
+const DEFAULT_IPA_SYNC_CRON = "*/5 * * * *";
 
 type EmptyJobInput = Record<string, never>;
 
@@ -260,19 +261,41 @@ let registerPromise: Promise<void> | null = null;
 const doRegister = async (): Promise<void> => {
   const [scheduleTz, ipaSyncCron, reminderCron, cleanupCron] = await Promise.all([
     getTimezoneSetting(),
-    getCronSetting("user.account.ipa_sync_cron", "*/5 * * * *"),
+    getCronSetting("freeipa.sync_cron", DEFAULT_IPA_SYNC_CRON),
     getCronSetting("user.account.reminder_cron", "0 9 * * *"),
     getCronSetting("app.cleanup_schedule", "0 4 * * *"),
   ]);
 
-  await lifecycleScheduler.register({
-    id: "auth:ipa:sync",
-    cron: ipaSyncCron,
-    tz: scheduleTz,
-    job: ipaSyncJob,
-    input: {},
-    misfire: "skip",
-  });
+  try {
+    await lifecycleScheduler.register({
+      id: "auth:ipa:sync",
+      cron: ipaSyncCron,
+      tz: scheduleTz,
+      job: ipaSyncJob,
+      input: {},
+      misfire: "skip",
+    });
+  } catch (error) {
+    if (ipaSyncCron !== DEFAULT_IPA_SYNC_CRON) {
+      log.warn("Invalid configured FreeIPA sync cron, falling back to default", {
+        key: "freeipa.sync_cron",
+        configuredCron: ipaSyncCron,
+        fallbackCron: DEFAULT_IPA_SYNC_CRON,
+        timezone: scheduleTz,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await lifecycleScheduler.register({
+        id: "auth:ipa:sync",
+        cron: DEFAULT_IPA_SYNC_CRON,
+        tz: scheduleTz,
+        job: ipaSyncJob,
+        input: {},
+        misfire: "skip",
+      });
+    } else {
+      throw error;
+    }
+  }
 
   await lifecycleScheduler.register({
     id: "auth:reminder:daily",

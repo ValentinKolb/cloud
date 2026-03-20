@@ -16,7 +16,7 @@ export default ssr<AuthContext>(async (c) => {
   const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
   const rawUngroupedPage = Number(c.req.query("ungrouped_page") ?? "1");
   const ungroupedPage = Number.isInteger(rawUngroupedPage) && rawUngroupedPage > 0 ? rawUngroupedPage : 1;
-  const perPage = 20;
+  const perPage = 100;
   const search = c.req.query("search") ?? "";
 
   const [hostgroupsPage, ungroupedHostsPage] = await Promise.all([
@@ -49,7 +49,7 @@ export default ssr<AuthContext>(async (c) => {
   return (
     <AdminLayout c={c} title="Hosts" fullHeight>
       <div class="flex-1 min-h-0 overflow-y-auto">
-        <div class="flex flex-col gap-2 p-4">
+        <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-hosts-title">
             <h1 class="text-base font-semibold text-primary">Hosts</h1>
             <p class="mt-1 text-xs text-dimmed">
