@@ -86,7 +86,7 @@ export const list = async (params: {
   };
 }> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = params.search ? `%${freeipa.util.escapeLike(params.search.toLowerCase())}%` : null;
   const ids = params.ids;
@@ -202,12 +202,12 @@ export const getMembers = async (params: { id: string; type?: "user" | "group"; 
     const groupRows = params.recursive
       ? await sql<DbRow[]>`
           WITH RECURSIVE child_groups AS (
-            SELECT gg.child_group_id
+            SELECT gg.child_group_id AS group_id
             FROM auth.group_groups_v2 gg
             JOIN auth.groups g_child ON g_child.id = gg.child_group_id
             WHERE gg.parent_group_id = ${group.id} AND g_child.provider = 'ipa'
             UNION
-            SELECT gg.child_group_id
+            SELECT gg.child_group_id AS group_id
             FROM auth.group_groups_v2 gg
             JOIN auth.groups g_child ON g_child.id = gg.child_group_id
             JOIN child_groups cg ON gg.parent_group_id = cg.group_id
@@ -245,12 +245,12 @@ export const getManagers = async (params: { id: string; type?: "user" | "group";
     const userRows = params.recursive
       ? await sql<DbRow[]>`
           WITH RECURSIVE manager_groups AS (
-            SELECT gmg.manager_group_id
+            SELECT gmg.manager_group_id AS group_id
             FROM auth.group_manager_groups_v2 gmg
             JOIN auth.groups g_manager ON g_manager.id = gmg.manager_group_id
             WHERE gmg.group_id = ${group.id} AND g_manager.provider = 'ipa'
             UNION
-            SELECT gg.parent_group_id
+            SELECT gg.parent_group_id AS group_id
             FROM auth.group_groups_v2 gg
             JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
             JOIN manager_groups mg ON gg.child_group_id = mg.group_id
@@ -309,18 +309,18 @@ export const getParents = async (params: { id: string; recursive?: boolean }): P
   const rows = params.recursive
     ? await sql<DbRow[]>`
         WITH RECURSIVE parent_groups AS (
-          SELECT gg.parent_group_id
+          SELECT gg.parent_group_id AS group_id
           FROM auth.group_groups_v2 gg
           JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
           WHERE gg.child_group_id = ${group.id} AND g_parent.provider = 'ipa'
           UNION
-          SELECT gg.parent_group_id
+          SELECT gg.parent_group_id AS group_id
           FROM auth.group_groups_v2 gg
           JOIN auth.groups g_parent ON g_parent.id = gg.parent_group_id
           JOIN parent_groups pg ON gg.child_group_id = pg.group_id
           WHERE g_parent.provider = 'ipa'
         )
-        SELECT DISTINCT parent_group_id
+        SELECT DISTINCT group_id AS parent_group_id
         FROM parent_groups
       `
     : await sql<DbRow[]>`

@@ -12,19 +12,10 @@ const LEVEL: Record<string, { icon: string; color: string; label: string }> = {
   error: { icon: "ti ti-alert-circle", color: "text-red-500 dark:text-red-400", label: "error" },
 };
 
-/** Parse metadata — could be string (JSON) or object */
-function parseMeta(metadata: Record<string, unknown> | string | null): Record<string, unknown> | null {
-  if (!metadata) return null;
-  if (typeof metadata === "object") return metadata;
-  try { const parsed = JSON.parse(metadata); return typeof parsed === "object" && parsed !== null ? parsed : null; }
-  catch { return null; }
-}
-
 /** key=value, key2=value2 for the inline detail column */
-function formatMetaInline(metadata: Record<string, unknown> | string | null): string {
-  const obj = parseMeta(metadata);
-  if (!obj) return typeof metadata === "string" ? metadata : "";
-  return Object.entries(obj)
+function formatMetaInline(metadata: Record<string, unknown> | null): string {
+  if (!metadata) return "";
+  return Object.entries(metadata)
     .map(([k, v]) => {
       if (v === null || v === undefined) return `${k}=null`;
       if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return `${k}=${v}`;
@@ -34,17 +25,11 @@ function formatMetaInline(metadata: Record<string, unknown> | string | null): st
 }
 
 /** Structured metadata view for the detail dialog */
-function MetadataDetail(props: { metadata: Record<string, unknown> | string | null }) {
-  const obj = parseMeta(props.metadata);
-  if (!obj) {
-    if (typeof props.metadata === "string") {
-      return <pre class="text-xs text-secondary whitespace-pre-wrap break-all bg-zinc-100 dark:bg-zinc-800 rounded-md px-3 py-2">{props.metadata}</pre>;
-    }
-    return null;
-  }
+function MetadataDetail(props: { metadata: Record<string, unknown> | null }) {
+  if (!props.metadata) return null;
 
-  const entries = Object.entries(obj);
-  const jsonRaw = JSON.stringify(obj, null, 2);
+  const entries = Object.entries(props.metadata);
+  const jsonRaw = JSON.stringify(props.metadata, null, 2);
   const [showRaw, setShowRaw] = createSignal(false);
 
   return (

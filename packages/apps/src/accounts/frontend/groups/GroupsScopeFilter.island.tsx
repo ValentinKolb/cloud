@@ -25,6 +25,9 @@ const SCOPE_OPTIONS: FilterChipSection[] = [
   },
 ];
 
+const SCOPE_VALUES = new Set<GroupsListState["scope"]>(["managed", "member", "all"]);
+const PROVIDER_VALUES = new Set<Exclude<GroupsListState["provider"], never>>(["", "ipa", "local"]);
+
 export default function GroupsScopeFilter(props: GroupsScopeFilterProps) {
   return (
     <FilterChip
@@ -32,17 +35,20 @@ export default function GroupsScopeFilter(props: GroupsScopeFilterProps) {
       icon="ti ti-adjustments-horizontal"
       options={SCOPE_OPTIONS}
       value={[props.state.scope, props.state.provider]}
-      onChange={(value) =>
-        (window.location.href = buildGroupsUrl(
+      onChange={(value) => {
+        const nextScope = value.find((entry): entry is GroupsListState["scope"] => SCOPE_VALUES.has(entry as GroupsListState["scope"])) ?? props.defaultScope;
+        const nextProvider = value.find((entry): entry is GroupsListState["provider"] => PROVIDER_VALUES.has(entry as GroupsListState["provider"])) ?? "";
+
+        window.location.href = buildGroupsUrl(
           {
             ...props.state,
-            scope: (value[0] as GroupsListState["scope"] | undefined) ?? props.defaultScope,
-            provider: (value[1] as GroupsListState["provider"] | undefined) ?? "",
+            scope: nextScope,
+            provider: nextProvider,
             page: 1,
           },
           { defaultScope: props.defaultScope },
-        ))
-      }
+        );
+      }}
       defaultValue={[props.defaultScope, ""]}
     />
   );

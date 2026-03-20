@@ -59,7 +59,7 @@ export default function AddMember(props: AddMemberProps) {
   };
 
   return (
-    <button type="button" class="btn-secondary btn-sm" onClick={handleClick} disabled={mutation.loading()}>
+    <button type="button" class="btn-input btn-input-sm" onClick={handleClick} disabled={mutation.loading()}>
       <i class={props.membershipRole === "members" ? "ti ti-user-plus" : "ti ti-shield-plus"} />
       <span>{mutation.loading() ? "Adding..." : "Add"}</span>
     </button>

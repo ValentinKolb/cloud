@@ -284,7 +284,7 @@ export type ListResult = {
  */
 export const list = async (params: ListParams): Promise<ListResult> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = params.search ? `%${freeipa.util.escapeLike(params.search.toLowerCase())}%` : null;
   const uids = params.uids;

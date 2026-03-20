@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import type { PaginationParams } from "@valentinkolb/cloud-contracts/shared";
 import { registerSettings, registerGroupLabel } from "@valentinkolb/cloud-core/services/settings/defaults";
-import { escapeLikePattern, toPgTextArray } from "@valentinkolb/cloud-core/services/postgres";
+import { escapeLikePattern, parsePgJsonRecord, toPgTextArray } from "@valentinkolb/cloud-core/services/postgres";
 
 // ── Settings Registration ──────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ const mapRow = (row: DbLogRow): LogEntry => ({
   level: row.level as LogLevel,
   source: row.source,
   message: row.message,
-  metadata: row.metadata,
+  metadata: parsePgJsonRecord(row.metadata),
   createdAt: row.created_at,
 });
 

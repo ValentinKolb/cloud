@@ -7,6 +7,7 @@ import { SearchBar } from "@valentinkolb/cloud/lib/islands";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
 import AccountsNavSidebar from "../AccountsNavSidebar";
 import DeletedAccountsFilters from "./DeletedAccountsFilters.island";
+import DeletedAccountDetails from "./DeletedAccountDetails.island";
 
 const formatReason = (reason: string): string => {
   switch (reason) {
@@ -48,7 +49,7 @@ const buildUrl = (params: { search?: string; reason?: string; page?: number }) =
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const page = parsePage(c.req.query("page"));
-  const perPage = 30;
+  const perPage = 100;
   const search = (c.req.query("search") ?? "").trim();
   const reason = (c.req.query("reason") ?? "").trim();
 
@@ -76,55 +77,63 @@ export default ssr<AuthContext>(async (c) => {
       <div class="app-cols h-full">
         <AccountsNavSidebar active="deleted-accounts" isAdmin pendingRequests={pendingRequestsPage.total} />
 
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
-          <div class="flex flex-col gap-3">
-            <div class="flex flex-col gap-2 md:flex-row md:items-center">
-              <div class="min-w-0 flex-1">
-                <SearchBar
-                  action={buildUrl({ reason, page: 1 })}
-                  value={search}
-                  placeholder="Search deleted accounts..."
-                  ariaLabel="Search deleted accounts"
-                />
-              </div>
-              <DeletedAccountsFilters search={search} reason={reason} />
+        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
+          <div class="flex flex-col gap-2">
+            <div class="min-w-0" style="view-transition-name: accounts-deleted-title">
+              <h1 class="text-base font-semibold text-primary">Deleted Accounts</h1>
+              <p class="mt-1 text-xs text-dimmed">{deletedAccountsPage.total} {deletedAccountsPage.total === 1 ? "deleted account" : "deleted accounts"}</p>
             </div>
 
-            <p class="text-xs text-dimmed">{deletedAccountsPage.total === 1 ? "1 deleted account" : `${deletedAccountsPage.total} deleted accounts`}</p>
+            <div style="view-transition-name: accounts-deleted-search">
+              <SearchBar
+                action={buildUrl({ reason, page: 1 })}
+                value={search}
+                placeholder="Search deleted accounts..."
+                ariaLabel="Search deleted accounts"
+              />
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-deleted-filters">
+              <DeletedAccountsFilters search={search} reason={reason} />
+            </div>
 
             {deletedAccountsPage.items.length === 0 ? (
               <div class="paper p-6 text-center text-sm text-dimmed">No deleted accounts found.</div>
             ) : (
-              <div class="paper overflow-hidden">
+              <div class="paper overflow-hidden" style="view-transition-name: accounts-deleted-table">
                 <div class="overflow-x-auto">
-                  <table class="w-full text-sm">
+                  <table class="w-full text-xs">
                     <thead>
-                      <tr class="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50">
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Account</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Previous Realm</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Reason</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Deleted</th>
+                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Account</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Email</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Previous realm</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Reason</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Deleted</th>
+                        <th class="px-3 py-2 text-right font-medium text-dimmed">Details</th>
                       </tr>
                     </thead>
                     <tbody>
                       {deletedAccountsPage.items.map((entry) => (
-                        <tr class="border-b border-zinc-100 align-top last:border-0 dark:border-zinc-800">
-                          <td class="px-4 py-3">
-                            <div class="flex flex-col gap-0.5">
-                              <span class="text-primary">{entry.displayName || entry.uid}</span>
-                              <span class="text-xs text-dimmed">{entry.uid}</span>
-                              {entry.mail ? <span class="text-xs text-dimmed">{entry.mail}</span> : null}
-                              {Object.keys(entry.meta).length > 0 ? (
-                                <details class="mt-2 text-xs text-dimmed">
-                                  <summary class="cursor-pointer select-none text-primary">Details</summary>
-                                  <pre class="mt-2 whitespace-pre-wrap break-words rounded-xl bg-zinc-50 p-2 text-[11px] dark:bg-zinc-900">{JSON.stringify(entry.meta, null, 2)}</pre>
-                                </details>
-                              ) : null}
-                            </div>
+                        <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+                          <td class="px-3 py-1.5 font-medium text-primary">{entry.displayName || entry.uid}</td>
+                          <td class="max-w-[18rem] truncate px-3 py-1.5 text-dimmed" title={entry.mail || "-"}>
+                            {entry.mail || "-"}
                           </td>
-                          <td class="px-4 py-3 text-dimmed">{entry.previousRealm || "-"}</td>
-                          <td class="px-4 py-3 text-dimmed">{formatReason(entry.reason)}</td>
-                          <td class="px-4 py-3 text-dimmed whitespace-nowrap">{dates.formatDateTime(entry.deletedAt)}</td>
+                          <td class="px-3 py-1.5 text-dimmed">{entry.previousRealm || "-"}</td>
+                          <td class="px-3 py-1.5 text-dimmed">{formatReason(entry.reason)}</td>
+                          <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{dates.formatDateTime(entry.deletedAt)}</td>
+                          <td class="px-3 py-1.5 text-right">
+                            <DeletedAccountDetails
+                              displayName={entry.displayName || entry.uid}
+                              uid={entry.uid}
+                              mail={entry.mail}
+                              previousRealm={entry.previousRealm}
+                              reason={formatReason(entry.reason)}
+                              deletedAt={dates.formatDateTime(entry.deletedAt)}
+                              metadata={entry.meta}
+                            />
+                          </td>
                         </tr>
                       ))}
                     </tbody>

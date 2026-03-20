@@ -62,8 +62,8 @@ export default ssr<AuthContext>(async (c) => {
     >
       <div class="app-cols h-full">
         <AccountsNavSidebar active="users" isAdmin={true} pendingRequests={pendingRequestsPage.total} />
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
-          <div class="max-w-2xl mx-auto">
+        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
+          <div class="max-w-2xl mx-auto w-full">
             {accountRequest && (
               <div class="paper p-4 mb-4 flex flex-col gap-3 border-amber-500">
                 <div class="flex items-center justify-between">

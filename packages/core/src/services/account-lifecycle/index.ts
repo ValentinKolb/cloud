@@ -9,6 +9,7 @@ import { renderTemplate } from "@valentinkolb/cloud-core/services/settings/templ
 import { session } from "@valentinkolb/cloud-core/services/session";
 import { getConfiguredExpiryDays, parseIpaAccountTransitionPolicy } from "@valentinkolb/cloud-core/services/account-model";
 import { getFreeIpaConfigSync } from "@valentinkolb/cloud-core/services/freeipa-config";
+import { parsePgJsonRecord } from "@valentinkolb/cloud-core/services/postgres";
 import { dates } from "@valentinkolb/cloud-lib/shared";
 import { freeipa } from "@valentinkolb/cloud-lib/server/services";
 import { writeDeletedAccountAudit } from "./audit";
@@ -847,7 +848,7 @@ export const accountLifecycle = {
         previousRealm: (row.previous_realm as string) ?? null,
         reason: row.reason as string,
         deletedAt: (row.deleted_at as Date).toISOString(),
-        meta: (row.meta as Record<string, unknown>) ?? {},
+        meta: parsePgJsonRecord(row.meta) ?? {},
       })),
       total: Number(countRows[0]?.total ?? 0),
       page: config.page,

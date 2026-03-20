@@ -102,7 +102,7 @@ export const create = async (params: {
 
 export const list = async (params: { page?: number; perPage?: number; search?: string }) => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = params.search?.trim().toLowerCase();
   const pattern = search ? `%${escapeLikePattern(search)}%` : null;

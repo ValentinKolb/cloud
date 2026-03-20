@@ -2,9 +2,10 @@ import { ssr } from "@valentinkolb/cloud/core/config";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/core/services";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
 import { getSync } from "@valentinkolb/cloud-core/services/settings";
-import { createPagination, type BaseGroup, type BaseUser } from "@/accounts/contracts";
+import { createPagination } from "@/accounts/contracts";
 import { canManageGroup, getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/lib/shared";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
+import type { JSX } from "solid-js/jsx-runtime";
 import AccountsNavSidebar from "../../AccountsNavSidebar";
 import { GROUPS_CONTEXT_QUERY_KEYS, buildGroupDetailUrl, buildGroupsUrl, parseGroupsListState } from "../../lib/url-state";
 import GroupActions from "./GroupActions.island";
@@ -14,6 +15,11 @@ import MembersTab from "./MembersTab";
 import { getProviderBadge } from "../../lib/account-badges";
 
 const TABS = ["members", "managers", "member-of"] as const;
+const TAB_META: Record<(typeof TABS)[number], { label: string; icon: string }> = {
+  members: { label: "Members", icon: "ti ti-users-group" },
+  managers: { label: "Managers", icon: "ti ti-user-cog" },
+  "member-of": { label: "Member Of", icon: "ti ti-folders" },
+};
 
 type Tab = (typeof TABS)[number];
 
@@ -77,7 +83,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const rawPage = Number.parseInt(c.req.query("page") ?? "1", 10);
   const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1;
-  const perPage = 40;
+  const perPage = 100;
   const search = c.req.query("search") ?? "";
   const indirect = c.req.query("indirect") === "true";
 
@@ -101,8 +107,20 @@ export default ssr<AuthContext>(async (c) => {
 
   const membersPageBaseUrl = `${buildDetailHref(groupId, {
     tab: "members",
+    search: search || null,
+    indirect: indirect ? "true" : null,
     page: null,
-  })}${buildDetailHref(groupId, { tab: "members", page: null }).includes("?") ? "&" : "?"}page=`;
+  })}${buildDetailHref(groupId, { tab: "members", search: search || null, indirect: indirect ? "true" : null, page: null }).includes("?") ? "&" : "?"}page=`;
+  const managersPageBaseUrl = `${buildDetailHref(groupId, {
+    tab: "managers",
+    search: search || null,
+    page: null,
+  })}${buildDetailHref(groupId, { tab: "managers", search: search || null, page: null }).includes("?") ? "&" : "?"}page=`;
+  const memberOfPageBaseUrl = `${buildDetailHref(groupId, {
+    tab: "member-of",
+    search: search || null,
+    page: null,
+  })}${buildDetailHref(groupId, { tab: "member-of", search: search || null, page: null }).includes("?") ? "&" : "?"}page=`;
   const toggleIndirectUrl = buildDetailHref(groupId, {
     tab: "members",
     indirect: indirect ? null : "true",
@@ -123,83 +141,104 @@ export default ssr<AuthContext>(async (c) => {
   const parentGroupIds = parentGroupIdsPage.items;
   const managedGroupIds = managedGroupIdsPage.items;
 
-  let membersData = {
-    users: [] as BaseUser[],
-    total: 0,
-  };
-  let memberGroupIds: string[] = [];
-  let memberGroups: BaseGroup[] = [];
-  let managerUsers: BaseUser[] = [];
-  let managerGroupIds: string[] = [];
-  let managerGroups: BaseGroup[] = [];
-  let parentGroupsData: BaseGroup[] = [];
-  let directMemberUserUids: string[] = [];
+  let memberItems = [] as Awaited<ReturnType<typeof accountsService.entity.list>>["items"];
+  let managerItems = [] as Awaited<ReturnType<typeof accountsService.entity.list>>["items"];
+  let parentItems = [] as Awaited<ReturnType<typeof accountsService.entity.list>>["items"];
+  let directMemberUserIds: string[] = [];
   let directMemberGroupIds: string[] = [];
+  let directManagerUserIds: string[] = [];
+  let directManagerGroupIds: string[] = [];
+  let membersPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, 0);
+  let managersPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, 0);
+  let memberOfPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, 0);
 
   if (tab === "members") {
-    const members =
-      (
-        await accountsService.group.member.list({
-          id: groupId,
-          recursive: indirect,
-        })
-      ).items ?? [];
-
-    const memberUserUids = members.filter((m) => m.type === "user").map((m) => m.id);
-    memberGroupIds = members.filter((m) => m.type === "group").map((m) => m.id);
-
-    if (indirect) {
-      const directMembers =
-        (
-          await accountsService.group.member.list({
-            id: groupId,
-            recursive: false,
-          })
-        ).items ?? [];
-
-      directMemberUserUids = directMembers.filter((m) => m.type === "user").map((m) => m.id);
-      directMemberGroupIds = directMembers.filter((m) => m.type === "group").map((m) => m.id);
-    }
-
-    const [usersPage, memberGroupsPage] = await Promise.all([
-      accountsService.user.list({
-        scope: { uids: memberUserUids },
-        filter: { search: search || undefined },
+    const [membersPage, directMembersPage] = await Promise.all([
+      accountsService.entity.list({
         pagination: { page, perPage },
+        search: search || undefined,
+        memberOfGroupId: groupId,
+        recursive: indirect,
       }),
-      accountsService.group.list({ scope: { ids: memberGroupIds } }),
+      accountsService.group.member.list({
+        id: groupId,
+        recursive: false,
+      }),
     ]);
 
-    membersData = {
-      users: usersPage.items,
-      total: usersPage.total,
-    };
-    memberGroups = memberGroupsPage.items;
+    memberItems = membersPage.items;
+    directMemberUserIds = directMembersPage.items.filter((member) => member.type === "user").map((member) => member.id);
+    directMemberGroupIds = directMembersPage.items.filter((member) => member.type === "group").map((member) => member.id);
+    membersPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, membersPage.total);
   } else if (tab === "managers") {
-    const managers = (await accountsService.group.manager.list({ id: groupId })).items;
-    const managerUserUids = managers.filter((m) => m.type === "user").map((m) => m.id);
-    managerGroupIds = managers.filter((m) => m.type === "group").map((m) => m.id);
-
-    const [usersPage, managerGroupsPage] = await Promise.all([
-      accountsService.user.list({
-        scope: { uids: managerUserUids },
-        pagination: { page: 1, perPage: 100 },
+    const [managersPage, directManagersPage] = await Promise.all([
+      accountsService.entity.list({
+        pagination: { page, perPage },
+        search: search || undefined,
+        managerOfGroupId: groupId,
       }),
-      accountsService.group.list({ scope: { ids: managerGroupIds } }),
+      accountsService.group.manager.list({
+        id: groupId,
+      }),
     ]);
 
-    managerUsers = usersPage.items;
-    managerGroups = managerGroupsPage.items;
+    managerItems = managersPage.items;
+    directManagerUserIds = directManagersPage.items.filter((manager) => manager.type === "user").map((manager) => manager.id);
+    directManagerGroupIds = directManagersPage.items.filter((manager) => manager.type === "group").map((manager) => manager.id);
+    managersPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, managersPage.total);
   } else if (tab === "member-of") {
-    parentGroupsData = (await accountsService.group.list({ scope: { ids: parentGroupIds } })).items ?? [];
+    const parentGroupsPage = await accountsService.entity.list({
+      pagination: { page, perPage },
+      search: search || undefined,
+      parentGroupId: groupId,
+      kind: "group",
+    });
+
+    parentItems = parentGroupsPage.items;
+    memberOfPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, parentGroupsPage.total);
   }
 
-  const [parentGroupsForSummary, managedGroupsForSummary] = await Promise.all([
-    parentGroupIds.length > 0 ? accountsService.group.list({ scope: { ids: parentGroupIds } }) : Promise.resolve({ items: [] as BaseGroup[] }),
-    managedGroupIds.length > 0 ? accountsService.group.list({ scope: { ids: managedGroupIds } }) : Promise.resolve({ items: [] as BaseGroup[] }),
-  ]);
+  const facts: Array<{ label: string; value: JSX.Element }> = [
+    {
+      label: "Provider",
+      value: <span>{group.provider === "ipa" ? "FreeIPA" : "Local"}</span>,
+    },
+    {
+      label: "Description",
+      value: group.description ? <span>{group.description}</span> : <span class="italic text-dimmed">No description</span>,
+    },
+    {
+      label: "Group type",
+      value: <span>{group.gidnumber ? "POSIX group" : "Standard group"}</span>,
+    },
+    {
+      label: "GID",
+      value: group.gidnumber ? <span class="font-mono">{group.gidnumber}</span> : <span class="italic text-dimmed">Not set</span>,
+    },
+    {
+      label: "Parent groups",
+      value: <span>{parentGroupIds.length}</span>,
+    },
+    {
+      label: "Managed groups",
+      value: <span>{managedGroupIds.length}</span>,
+    },
+    {
+      label: "Access",
+      value: <span>{canManage ? "Can manage members" : "Read-only"}</span>,
+    },
+    {
+      label: "Mutations",
+      value: <span>{canMutateGroup ? "Available" : "Unavailable while FreeIPA is disabled"}</span>,
+    },
+  ];
 
-  const pagination = tab === "members" ? createPagination({ page, perPage, offset: (page - 1) * perPage }, membersData.total) : null;
+  const activeCountText =
+    tab === "members"
+      ? `${membersPagination.total} ${search ? "matching " : ""}member${membersPagination.total === 1 ? "" : "s"}`
+      : tab === "managers"
+        ? `${managersPagination.total} ${search ? "matching " : ""}manager${managersPagination.total === 1 ? "" : "s"}`
+        : `${memberOfPagination.total} ${search ? "matching " : ""}parent group${memberOfPagination.total === 1 ? "" : "s"}`;
 
   return (
     <Layout
@@ -217,7 +256,7 @@ export default ssr<AuthContext>(async (c) => {
 
         <div class="flex-1 min-w-0 flex flex-col">
           <div class="flex-1 min-h-0 overflow-y-auto">
-            <div class="flex flex-col gap-4 p-4">
+            <div class="flex flex-col gap-3">
               <div>
                 <a href={groupsListHref} class="btn-secondary btn-sm">
                   <i class="ti ti-arrow-left" />
@@ -225,24 +264,21 @@ export default ssr<AuthContext>(async (c) => {
                 </a>
               </div>
 
-              <div class="flex items-start gap-3">
-                <div class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 h-10 w-10">
-                  <i class="ti ti-users-group text-lg" />
-                </div>
-                <div class="flex flex-col gap-0.5 min-w-0 flex-1">
+              <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-group-title">
+                <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <span class="text-base font-semibold text-primary">{group.name}</span>
-                    {providerBadge && (
-                      <span class={`tag ${providerBadge.className}`}>{providerBadge.label}</span>
-                    )}
+                    <h1 class="text-base font-semibold text-primary">{group.name}</h1>
+                    {providerBadge && <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{providerBadge.label}</span>}
                     {group.gidnumber && (
-                      <span class="tag bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 shrink-0">POSIX</span>
-                    )}
-                    {group.gidnumber && (
-                      <span class="tag bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 shrink-0">GID {group.gidnumber}</span>
+                      <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                        POSIX
+                      </span>
                     )}
                   </div>
-                  <span class="text-xs text-dimmed">{group.description || "No description"}</span>
+                  <p class="mt-1 truncate text-xs text-dimmed">
+                    {group.description || "No description"}
+                    {group.gidnumber ? ` · GID ${group.gidnumber}` : ""}
+                  </p>
                 </div>
                 {isAdmin && canMutateGroup && (
                   <GroupActions
@@ -256,147 +292,59 @@ export default ssr<AuthContext>(async (c) => {
                 )}
               </div>
 
-              {(parentGroupsForSummary.items.length > 0 || managedGroupsForSummary.items.length > 0) && (
-                <div class="flex flex-col md:flex-row gap-2">
-                  {isAdmin && parentGroupsForSummary.items.length > 0 && (
-                    <div class="paper p-3 flex flex-col gap-1.5 flex-1">
-                      <span class="section-label mb-0">Member of</span>
-                      <div class="flex items-center gap-1 flex-wrap">
-                        {parentGroupsForSummary.items.map((parentGroup) => (
-                          <a
-                            href={buildDetailHref(parentGroup.id)}
-                            class="tag bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/80 transition-colors"
-                          >
-                            {parentGroup.name}
-                          </a>
-                        ))}
-                      </div>
+              <div class="paper overflow-hidden" style="view-transition-name: accounts-group-facts">
+                <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2 xl:grid-cols-4">
+                  {facts.map((fact) => (
+                    <div class="min-w-0 bg-white px-3 py-2.5 dark:bg-zinc-900">
+                      <dt class="text-[11px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
+                      <dd class="mt-1 min-w-0 truncate text-xs text-primary">{fact.value}</dd>
                     </div>
-                  )}
-
-                  {!isAdmin && canManage && parentGroupsForSummary.items.length > 0 && (
-                    <details class="paper p-3 flex-1 group">
-                      <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
-                        <div class="flex flex-col gap-0.5">
-                          <span class="section-label mb-0">Member of</span>
-                          <span class="text-xs text-dimmed">
-                            {parentGroupsForSummary.items.length} parent group{parentGroupsForSummary.items.length === 1 ? "" : "s"}
-                          </span>
-                        </div>
-                        <i class="ti ti-chevron-right text-sm text-dimmed transition-transform group-open:rotate-90" />
-                      </summary>
-                      <div class="mt-3 flex items-center gap-1 flex-wrap">
-                        {parentGroupsForSummary.items.map((parentGroup) => (
-                          <a
-                            href={buildDetailHref(parentGroup.id)}
-                            class="tag bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 hover:bg-violet-200 dark:hover:bg-violet-900/80 transition-colors"
-                          >
-                            {parentGroup.name}
-                          </a>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-
-                  {managedGroupsForSummary.items.length > 0 && (
-                    <div class="paper p-3 flex flex-col gap-1.5 flex-1">
-                      <span class="section-label mb-0">Manages</span>
-                      <div class="flex items-center gap-1 flex-wrap">
-                        {managedGroupsForSummary.items.map((managedGroup) => (
-                          <a
-                            href={buildDetailHref(managedGroup.id)}
-                            class="tag bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80 transition-colors"
-                          >
-                            {managedGroup.name}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {canManageMutations && !isAdmin && (
-                <div class="info-block-info text-xs">
-                  You can manage members and managers here. Group descriptions and hierarchy remain admin-managed.
-                </div>
-              )}
-              {!canMutateGroup && (
-                <div class="info-block-warning text-xs">
-                  FreeIPA is currently disabled. This group stays visible, but directory-backed mutations are unavailable.
-                </div>
-              )}
-
-              <div class="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-700" role="tablist" aria-label="Group detail sections">
-                <a
-                  href={buildDetailHref(groupId, {
-                    tab: "members",
-                    search: null,
-                    page: null,
-                    indirect: null,
-                  })}
-                  class={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
-                    tab === "members"
-                      ? "border-zinc-800 dark:border-zinc-200 text-primary"
-                      : "border-transparent text-dimmed hover:text-primary"
-                  }`}
-                  role="tab"
-                  aria-selected={tab === "members"}
-                >
-                  Members
-                </a>
-                <a
-                  href={buildDetailHref(groupId, {
-                    tab: "managers",
-                    search: null,
-                    page: null,
-                    indirect: null,
-                  })}
-                  class={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
-                    tab === "managers"
-                      ? "border-zinc-800 dark:border-zinc-200 text-primary"
-                      : "border-transparent text-dimmed hover:text-primary"
-                  }`}
-                  role="tab"
-                  aria-selected={tab === "managers"}
-                >
-                  Managers
-                </a>
-                {isAdmin && (
-                  <a
-                    href={buildDetailHref(groupId, {
-                      tab: "member-of",
-                      search: null,
-                      page: null,
-                      indirect: null,
-                    })}
-                    class={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${
-                      tab === "member-of"
-                        ? "border-zinc-800 dark:border-zinc-200 text-primary"
-                        : "border-transparent text-dimmed hover:text-primary"
-                    }`}
-                    role="tab"
-                    aria-selected={tab === "member-of"}
-                  >
-                    Member Of
-                  </a>
-                )}
+                  ))}
+                </dl>
               </div>
 
-              {tab === "members" && pagination && (
+              {canManageMutations && !isAdmin && <p class="text-xs text-dimmed">You can manage members and managers here.</p>}
+              {!canMutateGroup && (
+                <p class="text-xs text-amber-700 dark:text-amber-300">FreeIPA is currently disabled. This group stays visible, but directory-backed mutations are unavailable.</p>
+              )}
+
+              <div class="flex flex-wrap items-start justify-between gap-2" style="view-transition-name: accounts-group-tabs">
+                <nav class="flex flex-wrap items-center gap-1" aria-label="Group detail sections">
+                  {TABS.filter((entryTab) => entryTab !== "member-of" || isAdmin).map((entryTab) => (
+                    <a
+                      href={buildDetailHref(groupId, {
+                        tab: entryTab,
+                        search: null,
+                        page: null,
+                        indirect: null,
+                      })}
+                      class={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-colors ${
+                        tab === entryTab
+                          ? "border-blue-500/35 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
+                          : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-800"
+                      }`}
+                      role="tab"
+                      aria-selected={tab === entryTab}
+                    >
+                      <i class={`${TAB_META[entryTab].icon} text-sm`} />
+                      <span>{TAB_META[entryTab].label}</span>
+                    </a>
+                  ))}
+                </nav>
+                <p class="px-1 py-2 text-xs text-dimmed">{activeCountText}</p>
+              </div>
+
+              {tab === "members" && (
                 <MembersTab
-                  users={membersData.users}
-                  memberGroups={memberGroups}
-                  pagination={pagination}
+                  items={memberItems}
+                  pagination={membersPagination}
                   search={search}
                   groupId={groupId}
-                  allMemberIds={membersData.users.map((u) => u.id)}
-                  allMemberGroupIds={memberGroupIds}
+                  allMemberIds={directMemberUserIds}
+                  allMemberGroupIds={directMemberGroupIds}
                   isAdmin={isAdmin}
                   canManage={canManageMutations}
                   indirect={indirect}
-                  directMemberUserUids={directMemberUserUids}
-                  directMemberGroupIds={directMemberGroupIds}
                   groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
                   pageBaseUrl={membersPageBaseUrl}
                   toggleIndirectUrl={toggleIndirectUrl}
@@ -405,24 +353,27 @@ export default ssr<AuthContext>(async (c) => {
 
               {tab === "managers" && (
                 <ManagersTab
-                  managerUsers={managerUsers}
-                  managerGroups={managerGroups}
+                  items={managerItems}
+                  pagination={managersPagination}
                   groupId={groupId}
-                  allManagerIds={managerUsers.map((u) => u.id)}
-                  allManagerGroupIds={managerGroupIds}
+                  allManagerIds={directManagerUserIds}
+                  allManagerGroupIds={directManagerGroupIds}
                   canManage={canManageMutations}
                   isAdmin={isAdmin}
                   groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
+                  pageBaseUrl={managersPageBaseUrl}
                 />
               )}
 
               {tab === "member-of" && (
                 <MemberOfTab
                   groupId={groupId}
-                  parentGroups={parentGroupsData}
+                  items={parentItems}
                   allParentGroupIds={parentGroupIds}
                   isAdmin={isAdmin && canMutateGroup}
                   groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
+                  pagination={memberOfPagination}
+                  pageBaseUrl={memberOfPageBaseUrl}
                 />
               )}
             </div>

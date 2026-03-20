@@ -22,7 +22,7 @@ export default ssr<AuthContext>(async (c) => {
   const sessionUser = c.get("user");
   const isAdmin = isAdminUser(sessionUser);
   const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
-  const perPage = 40;
+  const perPage = 100;
   const defaultScope = getDefaultGroupScope(sessionUser);
   const listState = parseGroupsListState(
     {
@@ -60,25 +60,25 @@ export default ssr<AuthContext>(async (c) => {
       <div class="app-cols h-full">
         <AccountsNavSidebar active="groups" isAdmin={isAdmin} pendingRequests={pendingRequestsPage.total} />
 
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center gap-2">
-              <div class="flex-1 min-w-0">
-                <SearchBar action={buildGroupsUrl({ ...listState, page: 1 }, { defaultScope })} value={listState.search} />
-              </div>
-              <GroupsScopeFilter state={listState} defaultScope={defaultScope} />
-              {isAdmin && (
-                <div class="shrink-0 [&>button]:btn-sm">
-                  <NewGroup freeIpaEnabled={freeIpaEnabled} />
-                </div>
-              )}
+        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
+          <div class="flex flex-col gap-2">
+            <div class="min-w-0" style="view-transition-name: accounts-groups-title">
+              <h1 class="text-base font-semibold text-primary">Groups</h1>
+              <p class="mt-1 text-xs text-dimmed">{groupsPage.total} {listState.search ? "results" : "groups"}</p>
             </div>
 
-            <p class="text-xs text-dimmed">
-              {listState.search
-                ? `${groupsPage.total} result${groupsPage.total !== 1 ? "s" : ""}`
-                : `${groupsPage.total} groups`}
-            </p>
+            <div style="view-transition-name: accounts-groups-search">
+              <SearchBar action={buildGroupsUrl({ ...listState, page: 1 }, { defaultScope })} value={listState.search} />
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <GroupsScopeFilter state={listState} defaultScope={defaultScope} />
+              {isAdmin ? (
+                <div class="ml-auto shrink-0 [&>button]:btn-input [&>button]:btn-input-sm">
+                  <NewGroup freeIpaEnabled={freeIpaEnabled} />
+                </div>
+              ) : null}
+            </div>
 
             {groupsPage.items.length === 0 ? (
               <div class="paper p-6 text-center text-sm text-dimmed">
@@ -86,33 +86,58 @@ export default ssr<AuthContext>(async (c) => {
                   ? "You do not manage any groups yet."
                   : listState.search
                     ? "No groups found."
-                    : "No groups available in this view."}
+                  : "No groups available in this view."}
               </div>
             ) : (
-              <div class="flex flex-col gap-2">
-                {groupsPage.items.map((group) => {
-                  const isManaged = sessionUser.managesGroupIds.includes(group.id);
-                  const providerBadge = getProviderBadge(group.provider);
-                  return (
-                    <a href={buildGroupDetailUrl(group.id, listState, { defaultScope })} class="sidebar-item sidebar-item-tall">
-                      <i class={`ti text-sm ${isManaged ? "ti-user-edit text-blue-500" : "ti-users-group"}`} />
-                      <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-1.5">
-                          <p class="truncate text-xs font-medium text-primary">{group.name}</p>
-                          <span class={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${providerBadge.className}`}>
-                            {providerBadge.label}
-                          </span>
-                        </div>
-                        <p class="sidebar-item-meta truncate">{group.description || "No description"}</p>
-                      </div>
-                      {group.gidnumber ? (
-                        <span class="text-[9px] px-1 py-px rounded shrink-0 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">
-                          POSIX
-                        </span>
-                      ) : null}
-                    </a>
-                  );
-                })}
+              <div class="paper overflow-hidden" style="view-transition-name: accounts-groups-table">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-xs">
+                    <thead>
+                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Group</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Managed by</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Flags</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupsPage.items.map((group) => {
+                        const isManaged = sessionUser.managesGroupIds.includes(group.id);
+                        const providerBadge = getProviderBadge(group.provider);
+                        const href = buildGroupDetailUrl(group.id, listState, { defaultScope });
+                        return (
+                          <tr class="group border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+                            <td class="p-0">
+                              <a href={href} class="flex items-center gap-2 truncate px-3 py-1.5 font-medium text-primary group-hover:underline">
+                                <i class={`ti shrink-0 text-sm ${isManaged ? "ti-user-edit text-blue-500" : "ti-users-group text-dimmed"}`} />
+                                <span class="truncate">{group.name}</span>
+                              </a>
+                            </td>
+                            <td class="max-w-[22rem] p-0 text-dimmed">
+                              <a href={href} class="block truncate px-3 py-1.5" title={group.description || "No description"} tabindex={-1}>
+                                {group.description || <span class="italic">No description</span>}
+                              </a>
+                            </td>
+                            <td class="p-0">
+                              <a href={href} class="block px-3 py-1.5" tabindex={-1}>
+                                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{providerBadge.label}</span>
+                              </a>
+                            </td>
+                            <td class="p-0">
+                              <a href={href} class="block px-3 py-1.5" tabindex={-1}>
+                                <div class="flex flex-wrap gap-1">
+                                  {isManaged ? <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Managed</span> : null}
+                                  {group.gidnumber ? <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">POSIX</span> : null}
+                                  {!isManaged && !group.gidnumber ? <span class="text-dimmed">-</span> : null}
+                                </div>
+                              </a>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 

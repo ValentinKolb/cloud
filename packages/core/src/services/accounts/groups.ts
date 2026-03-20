@@ -5,6 +5,7 @@ import { providers } from "../providers";
 import { freeipa } from "@valentinkolb/cloud-lib/server/services";
 import { toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseUser } from "./base-user";
+import { buildBaseGroup } from "./base-group";
 import {
   buildManagedGroupScopeCondition,
   buildMemberGroupScopeCondition,
@@ -22,13 +23,7 @@ const getGroup = async (id: string): Promise<BaseGroup | null> => {
     WHERE id = ${id}::uuid
   `;
   if (!row) return null;
-  return {
-    id: row.id as string,
-    provider: row.provider as UserProvider,
-    name: row.name as string,
-    description: (row.description as string) ?? null,
-    gidnumber: (row.gid_number as number) ?? null,
-  };
+  return buildBaseGroup(row);
 };
 
 const searchGroups = async (config: {
@@ -111,13 +106,7 @@ const searchGroups = async (config: {
       ORDER BY name
       LIMIT 10
     `;
-    groups = rows.map((row) => ({
-      id: row.id as string,
-      provider: row.provider as UserProvider,
-      name: row.name as string,
-      description: (row.description as string) ?? null,
-      gidnumber: (row.gid_number as number) ?? null,
-    }));
+    groups = rows.map(buildBaseGroup);
   }
 
   return { users, groups };
@@ -137,7 +126,7 @@ const listCanonical = async (params: {
   pagination: { page: number; perPage: number; totalPages: number; hasNext: boolean };
 }> => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const pattern = params.search ? `%${freeipa.util.escapeLike(params.search.toLowerCase())}%` : null;
   const ids = params.ids ?? [];
@@ -199,13 +188,7 @@ const listCanonical = async (params: {
 
   const total = Number(countRows[0]?.total ?? 0);
   return {
-    groups: rows.map((row) => ({
-      id: row.id as string,
-      provider: row.provider as UserProvider,
-      name: row.name as string,
-      description: (row.description as string) ?? null,
-      gidnumber: (row.gid_number as number) ?? null,
-    })),
+    groups: rows.map(buildBaseGroup),
     total,
     pagination: {
       page,

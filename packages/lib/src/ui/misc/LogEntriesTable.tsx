@@ -5,7 +5,7 @@ export type LogTableEntry = {
   level: string;
   source: string;
   message: string;
-  metadata: Record<string, unknown> | string | null;
+  metadata: Record<string, unknown> | null;
   createdAt: string;
 };
 

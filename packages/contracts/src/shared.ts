@@ -94,6 +94,28 @@ export const BaseGroupSchema = z.object({
 });
 export type BaseGroup = z.infer<typeof BaseGroupSchema>;
 
+export const EntityKindSchema = z.enum(["user", "group"]);
+export type EntityKind = z.infer<typeof EntityKindSchema>;
+
+export const EntityRelationSchema = z.object({
+  direct: z.boolean().optional(),
+});
+export type EntityRelation = z.infer<typeof EntityRelationSchema>;
+
+export const EntityListItemSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("user"),
+    user: BaseUserSchema,
+    relation: EntityRelationSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("group"),
+    group: BaseGroupSchema,
+    relation: EntityRelationSchema.optional(),
+  }),
+]);
+export type EntityListItem = z.infer<typeof EntityListItemSchema>;
+
 export const GroupMemberSchema = z.object({
   type: z.enum(["user", "group"]),
   id: z.string(),

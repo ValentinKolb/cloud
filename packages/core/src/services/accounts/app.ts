@@ -9,9 +9,12 @@ import * as settings from "../settings";
 import { renderTemplate } from "../settings/templates";
 import * as users from "./users";
 import * as groups from "./groups";
+import * as entities from "./entities";
 import type {
   BaseGroup,
   BaseUser,
+  EntityKind,
+  EntityListItem,
   GroupMember,
   MutationResult,
   User,
@@ -243,13 +246,14 @@ export const accountsAppService = {
     list: async (config: {
       pagination?: PageParams;
       filter?: { search?: string };
-      scope?: { uids?: string[]; provider?: UserProvider; profile?: UserProfile };
+      scope?: { ids?: string[]; uids?: string[]; provider?: UserProvider; profile?: UserProfile };
     }): Promise<Paginated<BaseUser>> => {
       const { page, perPage } = paginate(config.pagination);
       const result = await users.list({
         page,
         perPage,
         search: config.filter?.search,
+        ids: config.scope?.ids,
         uids: config.scope?.uids,
         provider: config.scope?.provider,
         profile: config.scope?.profile,
@@ -536,6 +540,43 @@ export const accountsAppService = {
       fromMutationResult(await groups.remove(config)),
     makePosix: async (config: { ipaSession?: string | null; id: string; provider?: UserProvider }) =>
       fromMutationResult(await groups.makePosix(config)),
+  },
+  entity: {
+    list: async (config: {
+      pagination?: PageParams;
+      search?: string;
+      kind?: EntityKind;
+      provider?: UserProvider;
+      profile?: UserProfile;
+      memberOfGroupId?: string;
+      managerOfGroupId?: string;
+      parentGroupId?: string;
+      managedByUserId?: string;
+      recursive?: boolean;
+    }): Promise<Paginated<EntityListItem>> => {
+      const { page, perPage } = paginate(config.pagination);
+      const result = await entities.list({
+        search: config.search,
+        kind: config.kind,
+        provider: config.provider,
+        profile: config.profile,
+        memberOfGroupId: config.memberOfGroupId,
+        managerOfGroupId: config.managerOfGroupId,
+        parentGroupId: config.parentGroupId,
+        managedByUserId: config.managedByUserId,
+        recursive: config.recursive,
+        page,
+        perPage,
+      });
+
+      return {
+        items: result.items,
+        page,
+        perPage,
+        total: result.total,
+        hasNext: result.pagination.hasNext,
+      };
+    },
   },
 
   accountRequest: {

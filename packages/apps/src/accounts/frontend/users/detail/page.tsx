@@ -2,9 +2,9 @@ import { ssr } from "@valentinkolb/cloud/core/config";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/core/services";
 import { Layout } from "@valentinkolb/cloud/core/ssr";
 import { getSync } from "@valentinkolb/cloud-core/services/settings";
-import { GroupView } from "@valentinkolb/cloud/lib/ui";
 import { dates } from "@valentinkolb/cloud/lib/shared";
 import { type AuthContext } from "@valentinkolb/cloud/lib/server";
+import type { JSX } from "solid-js/jsx-runtime";
 import type { BaseGroup } from "@/accounts/contracts";
 import AccountsNavSidebar from "../../AccountsNavSidebar";
 import { buildUserDetailUrl, buildUsersUrl, parseUsersListState } from "../../lib/url-state";
@@ -122,6 +122,89 @@ export default ssr<AuthContext>(async (c) => {
   const managementBadge = getManagementBadge(user);
 
   const displayTitle = user.displayName || user.mail || user.uid;
+  const primaryBadge = getPrimaryAccountBadge(user);
+  const supplementalRoles = getSupplementalRoles(user);
+  const ipa = user.provider === "ipa" ? user.ipa : null;
+  const totalMemberGroups = recursive ? allGroups.length : directGroups.length;
+
+  const facts: Array<{ label: string; value: JSX.Element }> = [
+    { label: "UID", value: <span class="font-mono">{user.uid}</span> },
+    { label: "Database ID", value: <span class="truncate font-mono text-[11px]">{user.id}</span> },
+    { label: "Managed by", value: <span>{getManagementLabel(user)}</span> },
+    { label: "Access", value: <span>{getAccountTypeLabel(user)}</span> },
+    {
+      label: "Email",
+      value: user.mail ? <span class="truncate">{user.mail}</span> : <span class="italic text-dimmed">Not set</span>,
+    },
+    {
+      label: isIpaUser ? "Password expires" : "Account expires",
+      value: isIpaUser ? (
+        ipa?.passwordExpires ? (
+          <span>{dates.formatDate(ipa.passwordExpires)}</span>
+        ) : (
+          <span class="italic text-dimmed">Never</span>
+        )
+      ) : user.accountExpires ? (
+        <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
+          {dates.formatDate(user.accountExpires)}
+          {isExpired ? " (expired)" : ""}
+        </span>
+      ) : (
+        <span class="italic text-dimmed">Never</span>
+      ),
+    },
+    {
+      label: isIpaUser ? "Account expires" : isGuestProfile ? "Guest expires" : "Last web login",
+      value: isIpaUser ? (
+        user.accountExpires ? (
+          <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
+            {dates.formatDate(user.accountExpires)}
+            {isExpired ? " (expired)" : ""}
+          </span>
+        ) : (
+          <span class="italic text-dimmed">Never</span>
+        )
+      ) : user.lastLoginLocal ? (
+        <span>{dates.formatDate(user.lastLoginLocal)}</span>
+      ) : (
+        <span class="italic text-dimmed">Never</span>
+      ),
+    },
+    {
+      label: isIpaUser ? "Last Kerberos login" : "Direct groups",
+      value: isIpaUser ? (
+        ipa?.lastLoginIpa ? (
+          <span>{dates.formatDate(ipa.lastLoginIpa)}</span>
+        ) : (
+          <span class="italic text-dimmed">Never / Not tracked</span>
+        )
+      ) : (
+        <span>{directGroups.length}</span>
+      ),
+    },
+    {
+      label: isIpaUser ? "Last web login" : "Managed groups",
+      value: isIpaUser ? (
+        user.lastLoginLocal ? (
+          <span>{dates.formatDate(user.lastLoginLocal)}</span>
+        ) : (
+          <span class="italic text-dimmed">Never</span>
+        )
+      ) : (
+        <span>{managedGroups.length}</span>
+      ),
+    },
+  ];
+
+  if (isIpaUser && ipa?.employeeType) {
+    facts.push({ label: "Role", value: <span>{ipa.employeeType}</span> });
+  }
+  if (isIpaUser && ipa?.mobile && ipa.mobile !== ipa.phone) {
+    facts.push({ label: "Mobile", value: <span>{ipa.mobile}</span> });
+  }
+  if (isIpaUser && ipa?.address && formatAddress(ipa.address)) {
+    facts.push({ label: "Address", value: <span>{formatAddress(ipa.address)}</span> });
+  }
 
   const detailHref = buildUserDetailUrl(id, listState);
   const toggleUrl = recursive ? detailHref : `${detailHref}${detailHref.includes("?") ? "&" : "?"}recursive=true`;
@@ -142,276 +225,198 @@ export default ssr<AuthContext>(async (c) => {
 
         <div class="flex-1 min-w-0 flex flex-col">
           <div class="flex-1 min-h-0 overflow-y-auto">
-            <div class="flex flex-col gap-4 p-4">
+            <div class="flex flex-col gap-3">
               <div>
                 <a href={buildUsersUrl(listState)} class="btn-secondary btn-sm">
                   <i class="ti ti-arrow-left" />
                   Back to Users
                 </a>
               </div>
-              <div class="paper p-6 flex flex-col gap-4">
-                <div class="flex items-center gap-4">
-                  <div class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 font-semibold text-zinc-600 dark:text-zinc-300 h-16 w-16 text-xl">
-                    {(user.displayName || user.mail || user.uid).slice(0, 2).toUpperCase()}
-                  </div>
-                  <div class="flex flex-col gap-1 min-w-0 flex-1">
-                    <h1 class="text-xl font-bold text-primary">{displayTitle}</h1>
-                    <p class="text-sm text-dimmed">
-                      {user.givenname} {user.sn}
-                    </p>
-                  </div>
-                  <UserActions
-                    user={user}
-                    listHref={buildUsersUrl(listState)}
-                    freeIpaEnabled={freeIpaEnabled}
-                  />
-                </div>
 
-                <div class="flex items-center gap-2 flex-wrap">
-                  {(() => {
-                    const badge = getPrimaryAccountBadge(user);
-                    return <span class={`text-xs font-medium px-2 py-0.5 rounded-full ${badge.className}`}>{badge.label}</span>;
-                  })()}
-                  <span class={`text-xs font-medium px-2 py-0.5 rounded-full ${managementBadge.className}`}>{managementBadge.label}</span>
-                  {getSupplementalRoles(user).map((role) => (
-                    <span class={`text-xs font-medium px-2 py-0.5 rounded-full ${getSupplementalRoleColor(role)}`}>
-                      {getSupplementalRoleLabel(role)}
-                    </span>
+              <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-user-title">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <h1 class="text-base font-semibold text-primary">{displayTitle}</h1>
+                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>{primaryBadge.label}</span>
+                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>{managementBadge.label}</span>
+                    {supplementalRoles.map((role) => (
+                      <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${getSupplementalRoleColor(role)}`}>
+                        {getSupplementalRoleLabel(role)}
+                      </span>
+                    ))}
+                    {isExpired && (
+                      <span class="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/50 dark:text-red-300">
+                        Expired
+                      </span>
+                    )}
+                  </div>
+                  <p class="mt-1 truncate text-xs text-dimmed">
+                    {user.uid}
+                    {user.mail ? ` · ${user.mail}` : ""}
+                    {user.givenname || user.sn ? ` · ${[user.givenname, user.sn].filter(Boolean).join(" ")}` : ""}
+                  </p>
+                </div>
+                <UserActions
+                  user={user}
+                  listHref={buildUsersUrl(listState)}
+                  freeIpaEnabled={freeIpaEnabled}
+                />
+              </div>
+
+              <div class="paper overflow-hidden" style="view-transition-name: accounts-user-facts">
+                <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2 xl:grid-cols-3">
+                  {facts.map((fact) => (
+                    <div class="min-w-0 bg-white px-3 py-2.5 dark:bg-zinc-900">
+                      <dt class="text-[11px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
+                      <dd class="mt-1 min-w-0 truncate text-xs text-primary">{fact.value}</dd>
+                    </div>
                   ))}
-                  {isExpired && (
-                    <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300">
-                      Account expired
-                    </span>
-                  )}
-                </div>
+                </dl>
+              </div>
 
-                <div class="border-t border-zinc-200 dark:border-zinc-700 pt-3">
-                  <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                    {(() => {
-                      const ipa = user.ipa;
-                      return (
-                        <>
-                    <dt class="text-dimmed">Database ID</dt>
-                    <dd class="font-mono text-secondary">{user.id}</dd>
-
-                    <dt class="text-dimmed">UID</dt>
-                    <dd class="font-mono text-secondary">{user.uid}</dd>
-
-                    <dt class="text-dimmed">Managed by</dt>
-                    <dd class="text-secondary">{getManagementLabel(user)}</dd>
-
-                    <dt class="text-dimmed">Access level</dt>
-                    <dd class="text-secondary">{getAccountTypeLabel(user)}</dd>
-
-                    {isIpaUser && (
-                      <>
-                        <dt class="text-dimmed">Password Expires</dt>
-                        <dd class="text-secondary">
-                          {ipa?.passwordExpires ? (
-                            dates.formatDate(ipa.passwordExpires)
-                          ) : (
-                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
-                          )}
-                        </dd>
-
-                        <dt class="text-dimmed">Account Expires</dt>
-                        <dd class="text-secondary">
-                          {user.accountExpires ? (
-                            <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
-                              {dates.formatDate(user.accountExpires)}
-                              {isExpired && " (expired)"}
-                            </span>
-                          ) : (
-                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
-                          )}
-                        </dd>
-                      </>
-                    )}
-
-                    {!isIpaUser && isGuestProfile && (
-                      <>
-                        <dt class="text-dimmed">Guest Expires</dt>
-                        <dd class="text-secondary">
-                          {user.accountExpires ? (
-                            <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
-                              {dates.formatDate(user.accountExpires)}
-                              {isExpired && " (expired)"}
-                            </span>
-                          ) : (
-                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
-                          )}
-                        </dd>
-                      </>
-                    )}
-
-                    {!isIpaUser && !isGuestProfile && (
-                      <>
-                        <dt class="text-dimmed">Account Expires</dt>
-                        <dd class="text-secondary">
-                          {user.accountExpires ? (
-                            <span class={isExpired ? "text-red-600 dark:text-red-400" : ""}>
-                              {dates.formatDate(user.accountExpires)}
-                              {isExpired && " (expired)"}
-                            </span>
-                          ) : (
-                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
-                          )}
-                        </dd>
-                      </>
-                    )}
-
-                    <dt class="text-dimmed">Email</dt>
-                    <dd class="text-secondary">
-                      {user.mail ? user.mail : <span class="text-zinc-400 dark:text-zinc-500 italic">Not set</span>}
-                    </dd>
-
-                    <dt class="text-dimmed">Phone</dt>
-                    <dd class="text-secondary">
-                      {ipa?.phone ? ipa.phone : <span class="text-zinc-400 dark:text-zinc-500 italic">Not set</span>}
-                    </dd>
-
-                    {isIpaUser && ipa?.employeeType && (
-                      <>
-                        <dt class="text-dimmed">Role</dt>
-                        <dd class="text-secondary">{ipa.employeeType}</dd>
-                      </>
-                    )}
-
-                    {isIpaUser && ipa?.mobile && ipa.mobile !== ipa.phone && (
-                      <>
-                        <dt class="text-dimmed">Mobile</dt>
-                        <dd class="text-secondary">{ipa.mobile}</dd>
-                      </>
-                    )}
-
-                    {isIpaUser && ipa?.address && formatAddress(ipa.address) && (
-                      <>
-                        <dt class="text-dimmed">Address</dt>
-                        <dd class="text-secondary">{formatAddress(ipa.address)}</dd>
-                      </>
-                    )}
-
-                    {isIpaUser && (
-                      <>
-                        <dt class="text-dimmed">Last Login (Kerberos)</dt>
-                        <dd class="text-secondary">
-                          {ipa?.lastLoginIpa ? (
-                            dates.formatDate(ipa.lastLoginIpa)
-                          ) : (
-                            <span class="text-zinc-400 dark:text-zinc-500 italic">Never / Not tracked</span>
-                          )}
-                        </dd>
-                      </>
-                    )}
-
-                    <dt class="text-dimmed">Last Login (Web)</dt>
-                    <dd class="text-secondary">
-                      {user.lastLoginLocal ? (
-                        dates.formatDate(user.lastLoginLocal)
-                      ) : (
-                        <span class="text-zinc-400 dark:text-zinc-500 italic">Never</span>
-                      )}
-                    </dd>
-                        </>
-                      );
-                    })()}
-                  </dl>
-                </div>
-
-                {isIpaUser && (user.ipa?.sshFingerprints.length ?? 0) > 0 && (
-                  <div class="border-t border-zinc-200 dark:border-zinc-700 pt-3">
-                    <details class="group">
-                      <summary class="text-sm text-dimmed cursor-pointer select-none flex items-center gap-1 hover:text-secondary transition-colors">
+              {isIpaUser && (ipa?.sshFingerprints.length ?? 0) > 0 && (
+                <div class="paper overflow-hidden" style="view-transition-name: accounts-user-ssh">
+                  <details class="group">
+                    <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs text-dimmed">
+                      <span class="flex items-center gap-2">
                         <i class="ti ti-key text-sm" />
-                        {user.ipa?.sshPublicKeys.length ?? 0} SSH {(user.ipa?.sshPublicKeys.length ?? 0) === 1 ? "Key" : "Keys"}
-                        <i class="ti ti-chevron-right text-xs transition-transform group-open:rotate-90" />
-                      </summary>
-                      <div class="mt-2 flex flex-col gap-1">
-                        {user.ipa?.sshFingerprints.map((fp) => (
-                          <code class="text-xs font-mono text-secondary bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded break-all">
+                        {(ipa?.sshPublicKeys.length ?? 0)} SSH {(ipa?.sshPublicKeys.length ?? 0) === 1 ? "key" : "keys"}
+                      </span>
+                      <i class="ti ti-chevron-right text-xs transition-transform group-open:rotate-90" />
+                    </summary>
+                    <div class="border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
+                      <div class="flex flex-col gap-1">
+                        {ipa?.sshFingerprints.map((fp) => (
+                          <code class="rounded bg-zinc-100 px-2 py-1 text-[11px] font-mono text-secondary dark:bg-zinc-800">
                             {fp}
                           </code>
                         ))}
                       </div>
-                    </details>
-                  </div>
-                )}
-              </div>
+                    </div>
+                  </details>
+                </div>
+              )}
 
-              <div class="flex flex-col gap-2">
-                <div class="flex items-center justify-between">
-                  <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-                    <i class="ti ti-users-group text-sm" />
-                    Groups
-                    {recursive && <span class="text-xs font-normal text-dimmed ml-1">(including inherited)</span>}
-                  </h2>
-                  <div class="flex items-center gap-2">
-                    <a
-                      href={toggleUrl}
-                      class={`btn-secondary btn-sm ${recursive ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
-                      title={recursive ? "Show direct memberships only" : "Show all memberships (including inherited)"}
-                    >
-                      <i class="ti ti-git-branch" />
-                      {recursive ? "All" : "Direct"}
-                    </a>
+              <div class="flex flex-col gap-2" style="view-transition-name: accounts-user-memberships">
+                <div class="min-w-0">
+                  <h2 class="text-base font-semibold text-primary">Groups</h2>
+                  <p class="mt-1 text-xs text-dimmed">
+                    {totalMemberGroups} {recursive ? "memberships including inherited groups" : "direct group memberships"}
+                  </p>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2">
+                  <a
+                    href={toggleUrl}
+                    class={`btn-input btn-input-sm ${recursive ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
+                    title={recursive ? "Show direct memberships only" : "Show all memberships including inherited ones"}
+                  >
+                    <i class="ti ti-git-branch" />
+                    {recursive ? "All groups" : "Direct only"}
+                  </a>
+                  <div class="ml-auto">
                     <AddToGroup id={user.id} userProvider={user.provider} excludeGroups={allGroups.map((group) => group.id)} />
                   </div>
                 </div>
 
                 {memberGroups.length > 0 ? (
-                  <>
-                    {memberGroups.map((group) => {
-                      const isDirect = directGroupSet.has(group.id);
-                      return (
-                        <div
-                          class={`paper p-3 flex items-center gap-3 ${!isDirect ? "border border-violet-200 dark:border-violet-800" : ""}`}
-                        >
-                          <a href={`/app/accounts/groups/${group.id}`} class="flex-1 min-w-0 hover:opacity-80 transition-opacity">
-                            <GroupView group={group} />
-                          </a>
-                          {!isDirect && (
-                            <span
-                              class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/50 text-violet-600 dark:text-violet-400"
-                              title="Inherited via group hierarchy"
-                            >
-                              <i class="ti ti-git-branch text-[10px]" />
-                            </span>
-                          )}
-                          {isDirect && <RemoveMember groupId={group.id} membershipRole="members" type="user" id={user.id} label={user.uid} />}
-                        </div>
-                      );
-                    })}
-                    {recursive && allGroups.length > directGroupSet.size && (
-                      <p class="text-xs text-dimmed flex items-center gap-1 mt-1">
-                        <i class="ti ti-git-branch text-[10px]" />
-                        {allGroups.length - directGroupSet.size} group(s) inherited via group hierarchy.
-                      </p>
-                    )}
-                  </>
+                  <div class="paper overflow-hidden">
+                    <div class="overflow-x-auto">
+                      <table class="w-full text-xs">
+                        <thead>
+                          <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Group</th>
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Provider</th>
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Membership</th>
+                            <th class="px-3 py-2 text-right font-medium text-dimmed">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {memberGroups.map((group) => {
+                            const isDirect = directGroupSet.has(group.id);
+                            const providerBadge = getPrimaryAccountBadge({ ...user, provider: group.provider, profile: "user" });
+                            return (
+                              <tr class="border-b border-zinc-50 dark:border-zinc-800/50">
+                                <td class="p-0">
+                                  <a href={`/app/accounts/groups/${group.id}`} class="group block px-3 py-1.5 font-medium text-primary">
+                                    <span class="truncate group-hover:underline">{group.name}</span>
+                                  </a>
+                                </td>
+                                <td class="max-w-[24rem] p-0 text-dimmed">
+                                  <a href={`/app/accounts/groups/${group.id}`} class="block truncate px-3 py-1.5" tabindex={-1} title={group.description || "No description"}>
+                                    {group.description || <span class="italic">No description</span>}
+                                  </a>
+                                </td>
+                                <td class="p-0">
+                                  <a href={`/app/accounts/groups/${group.id}`} class="block px-3 py-1.5" tabindex={-1}>
+                                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{group.provider === "ipa" ? "FreeIPA" : "Local"}</span>
+                                  </a>
+                                </td>
+                                <td class="p-0">
+                                  <a href={`/app/accounts/groups/${group.id}`} class="block px-3 py-1.5" tabindex={-1}>
+                                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isDirect ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" : "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"}`}>
+                                      {isDirect ? "Direct" : "Inherited"}
+                                    </span>
+                                  </a>
+                                </td>
+                                <td class="px-3 py-1.5 text-right">
+                                  {isDirect ? <RemoveMember groupId={group.id} membershipRole="members" type="user" id={user.id} label={user.uid} /> : null}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 ) : (
                   <div class="paper p-6 text-center text-sm text-dimmed">Not a member of any groups.</div>
                 )}
               </div>
 
               {managedGroups.length > 0 && (
-                <div class="paper p-6 flex flex-col gap-3">
-                  <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-                    <i class="ti ti-shield text-sm" />
-                    Manages
-                  </h2>
+                <div class="flex flex-col gap-2" style="view-transition-name: accounts-user-managed-groups">
+                  <div class="min-w-0">
+                    <h2 class="text-base font-semibold text-primary">Manages</h2>
+                    <p class="mt-1 text-xs text-dimmed">{managedGroups.length} manageable group{managedGroups.length === 1 ? "" : "s"}</p>
+                  </div>
 
-                  <div class="flex flex-wrap gap-1.5">
-                    {managedGroups.map((group) => {
-                      return (
-                        <a
-                          href={`/app/accounts/groups/${group.id}`}
-                          class="text-xs px-2 py-1 rounded transition-colors bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/80"
-                          title="Manageable group"
-                        >
-                          {group.name}
-                        </a>
-                      );
-                    })}
+                  <div class="paper overflow-hidden">
+                    <div class="overflow-x-auto">
+                      <table class="w-full text-xs">
+                        <thead>
+                          <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Group</th>
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
+                            <th class="px-3 py-2 text-left font-medium text-dimmed">Provider</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {managedGroups.map((group) => (
+                            <tr class="border-b border-zinc-50 dark:border-zinc-800/50">
+                              <td class="p-0">
+                                <a href={`/app/accounts/groups/${group.id}`} class="group block px-3 py-1.5 font-medium text-primary">
+                                  <span class="truncate group-hover:underline">{group.name}</span>
+                                </a>
+                              </td>
+                              <td class="max-w-[24rem] p-0 text-dimmed">
+                                <a href={`/app/accounts/groups/${group.id}`} class="block truncate px-3 py-1.5" tabindex={-1} title={group.description || "No description"}>
+                                  {group.description || <span class="italic">No description</span>}
+                                </a>
+                              </td>
+                              <td class="p-0">
+                                <a href={`/app/accounts/groups/${group.id}`} class="block px-3 py-1.5" tabindex={-1}>
+                                  <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${group.provider === "ipa" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"}`}>
+                                    {group.provider === "ipa" ? "FreeIPA" : "Local"}
+                                  </span>
+                                </a>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

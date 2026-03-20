@@ -18,7 +18,7 @@ import {
 } from "./model";
 import { buildRoles } from "./authz";
 import { legacyAccountColumnsFromCanonical } from "./compat";
-import { toPgTextArray } from "../postgres";
+import { toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseUser, resolveProviderProfile } from "./base-user";
 import {
   managedGroupIdsSubquery,
@@ -239,6 +239,7 @@ export const getByUid = async (params: { uid: string }): Promise<{ id: string; r
 };
 
 export const list = async (params: {
+  ids?: string[];
   uids?: string[];
   search?: string;
   provider?: UserProvider;
@@ -247,12 +248,13 @@ export const list = async (params: {
   perPage?: number;
 }) => {
   const page = params.page ?? 1;
-  const perPage = params.perPage ?? 20;
+  const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const search = params.search ? `%${freeipa.util.escapeLike(params.search.toLowerCase())}%` : null;
+  const ids = params.ids;
   const uids = params.uids;
 
-  if (uids && uids.length === 0) {
+  if ((ids && ids.length === 0) || (uids && uids.length === 0)) {
     return {
       users: [],
       total: 0,
@@ -268,6 +270,7 @@ export const list = async (params: {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any[] = [sql`TRUE`];
+  if (ids) conditions.push(sql`id = ANY(${toPgUuidArray(ids)}::uuid[])`);
   if (uids) conditions.push(sql`uid = ANY(${toPgTextArray(uids)}::text[])`);
   if (params.provider) conditions.push(sql`provider = ${params.provider}`);
   if (params.profile) conditions.push(sql`profile = ${params.profile}`);

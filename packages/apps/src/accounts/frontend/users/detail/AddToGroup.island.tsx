@@ -50,7 +50,7 @@ export default function AddToGroup(props: AddToGroupProps) {
   };
 
   return (
-    <button type="button" class="btn-secondary btn-sm" onClick={handleClick} disabled={mutation.loading()}>
+    <button type="button" class="btn-input btn-input-sm" onClick={handleClick} disabled={mutation.loading()}>
       <i class="ti ti-plus" />
       <span>{mutation.loading() ? "Adding..." : "Add"}</span>
     </button>

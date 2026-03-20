@@ -53,7 +53,7 @@ export default ssr<AuthContext>(async (c) => {
       <div class="app-cols h-full">
         <AccountsNavSidebar active="dashboard" isAdmin={isAdmin} pendingRequests={summary?.openRequests ?? 0} />
 
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
+        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
           <div class="flex flex-col gap-5">
 
             {/* Identity */}

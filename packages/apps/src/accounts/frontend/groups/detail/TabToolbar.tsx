@@ -16,17 +16,18 @@ type Props = {
  */
 export default function TabToolbar(props: Props) {
   return (
-    <div class="flex gap-2 items-stretch">
+    <div class="flex flex-wrap gap-2 items-stretch">
       <div class="flex-1">
         <SearchBar />
       </div>
       {props.indirectToggleUrl && (
         <a
           href={props.indirectToggleUrl}
-          class={`btn-secondary shrink-0 self-stretch px-3 text-xs ${props.indirect ? "bg-zinc-200! dark:bg-zinc-700!" : ""}`}
+          class={`btn-input btn-input-sm shrink-0 self-stretch ${props.indirect ? "!bg-violet-100 dark:!bg-violet-900/50 !text-violet-700 dark:!text-violet-300" : ""}`}
           title={props.indirect ? "Show direct members only" : "Show all members (including indirect)"}
         >
           <i class="ti ti-hierarchy text-sm" />
+          {props.indirect ? "All members" : "Direct only"}
         </a>
       )}
       {props.actions}

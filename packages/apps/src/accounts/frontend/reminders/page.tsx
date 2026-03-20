@@ -26,7 +26,7 @@ const buildUrl = (params: { search?: string; kind?: string; status?: string; pag
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const page = parsePage(c.req.query("page"));
-  const perPage = 30;
+  const perPage = 100;
   const search = (c.req.query("search") ?? "").trim();
   const kind = (c.req.query("kind") ?? "").trim();
   const status = (c.req.query("status") ?? "").trim();
@@ -57,57 +57,54 @@ export default ssr<AuthContext>(async (c) => {
       <div class="app-cols h-full">
         <AccountsNavSidebar active="reminders" isAdmin pendingRequests={pendingRequestsPage.total} />
 
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
-          <div class="flex flex-col gap-3">
-            <div class="flex flex-col gap-2 md:flex-row md:items-center">
-              <div class="min-w-0 flex-1">
-                <SearchBar
-                  action={buildUrl({ status, kind, page: 1 })}
-                  value={search}
-                  placeholder="Search reminder history..."
-                  ariaLabel="Search reminder history"
-                />
-              </div>
-              <ReminderFilters search={search} status={status} kind={kind} />
+        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
+          <div class="flex flex-col gap-2">
+            <div class="min-w-0" style="view-transition-name: accounts-reminders-title">
+              <h1 class="text-base font-semibold text-primary">Reminder History</h1>
+              <p class="mt-1 text-xs text-dimmed">{remindersPage.total} {remindersPage.total === 1 ? "entry" : "entries"}</p>
             </div>
 
-            <p class="text-xs text-dimmed">{remindersPage.total === 1 ? "1 reminder history entry" : `${remindersPage.total} reminder history entries`}</p>
+            <div style="view-transition-name: accounts-reminders-search">
+              <SearchBar
+                action={buildUrl({ status, kind, page: 1 })}
+                value={search}
+                placeholder="Search reminder history..."
+                ariaLabel="Search reminder history"
+              />
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-reminders-filters">
+              <ReminderFilters search={search} status={status} kind={kind} />
+            </div>
 
             {remindersPage.items.length === 0 ? (
               <div class="paper p-6 text-center text-sm text-dimmed">No reminder history entries found.</div>
             ) : (
-              <div class="paper overflow-hidden">
+              <div class="paper overflow-hidden" style="view-transition-name: accounts-reminders-table">
                 <div class="overflow-x-auto">
-                  <table class="w-full text-sm">
+                  <table class="w-full text-xs">
                     <thead>
-                      <tr class="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/50">
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">User</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Kind</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Target Expiry</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Status</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Attempts</th>
-                        <th class="px-4 py-3 text-left font-medium text-dimmed">Last Attempt</th>
+                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">User</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Kind</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Target expiry</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Status</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Attempts</th>
+                        <th class="px-3 py-2 text-left font-medium text-dimmed">Last attempt</th>
                       </tr>
                     </thead>
                     <tbody>
                       {remindersPage.items.map((entry) => (
-                        <tr class="border-b border-zinc-100 align-top last:border-0 dark:border-zinc-800">
-                          <td class="px-4 py-3">
-                            <div class="flex flex-col gap-0.5">
-                              <span class="text-primary">{entry.displayName || entry.uid || "(deleted user)"}</span>
-                              {entry.uid ? <span class="text-xs text-dimmed">{entry.uid}</span> : null}
-                              {entry.mail ? <span class="text-xs text-dimmed">{entry.mail}</span> : null}
-                              {entry.lastError ? <p class="mt-2 text-xs text-red-500">{entry.lastError}</p> : null}
-                            </div>
+                        <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
+                          <td class="px-3 py-1.5">
+                            <div class="truncate font-medium text-primary">{entry.displayName || entry.uid || "(deleted user)"}</div>
+                            {entry.lastError ? <div class="truncate text-[11px] text-red-500" title={entry.lastError}>{entry.lastError}</div> : null}
                           </td>
-                          <td class="px-4 py-3 text-dimmed">Account expiry</td>
-                          <td class="px-4 py-3 text-dimmed whitespace-nowrap">
-                            {dates.formatDateTime(entry.targetExpiryAt)}
-                            <div class="text-[11px]">Threshold: {entry.thresholdDays}d</div>
-                          </td>
-                          <td class="px-4 py-3 text-dimmed">{entry.status}</td>
-                          <td class="px-4 py-3 text-dimmed">{entry.attemptCount}</td>
-                          <td class="px-4 py-3 text-dimmed whitespace-nowrap">{entry.lastAttemptAt ? dates.formatDateTime(entry.lastAttemptAt) : "-"}</td>
+                          <td class="px-3 py-1.5 text-dimmed">Account expiry</td>
+                          <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{dates.formatDateTime(entry.targetExpiryAt)} · {entry.thresholdDays}d</td>
+                          <td class="px-3 py-1.5 text-dimmed">{entry.status}</td>
+                          <td class="px-3 py-1.5 text-dimmed">{entry.attemptCount}</td>
+                          <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{entry.lastAttemptAt ? dates.formatDateTime(entry.lastAttemptAt) : "-"}</td>
                         </tr>
                       ))}
                     </tbody>

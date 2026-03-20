@@ -12,3 +12,24 @@ export const toPgUuidArray = (values: string[] | null | undefined): string => {
 
 /** Escape a user string for safe use inside a LIKE/ILIKE pattern with `ESCAPE '\'`. */
 export const escapeLikePattern = (value: string): string => value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+
+/** Normalize a Postgres JSON/JSONB value that may come back as a parsed value or a JSON string. */
+export const parsePgJsonValue = (value: unknown): unknown => {
+  if (value == null || typeof value !== "string") return value;
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+};
+
+/** Normalize a Postgres JSON/JSONB object value to a plain record. */
+export const parsePgJsonRecord = (value: unknown): Record<string, unknown> | null => {
+  const parsed = parsePgJsonValue(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+};
