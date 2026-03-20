@@ -26,9 +26,24 @@ Use this reference when implementing app sidebars.
 
 ## Spacing Rules
 
-1. Use small vertical spacing inside one group.
-2. Use larger vertical spacing between groups.
-3. Keep this ratio identical across `Actions`, `Navigation`, and other groups.
+1. Let `sidebar-container` only place the column; do not use it as the visible surface.
+2. Render one inner `paper flex h-full min-h-0 flex-col gap-4 p-4` surface for desktop sidebars.
+3. Use small vertical spacing inside one group.
+4. Use larger vertical spacing between groups.
+5. Keep this ratio identical across `Actions`, `Navigation`, and other groups.
+
+## Desktop Recipe
+
+```tsx
+<aside class="sidebar-container">
+  <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+    <div class="flex items-center gap-3">{/* icon + title + optional settings */}</div>
+    <div class="flex flex-col gap-3">{/* top groups */}</div>
+    <div class="sidebar-body">{/* scrollable content */}</div>
+    <div class="sidebar-footer">{/* bottom actions */}</div>
+  </div>
+</aside>
+```
 
 ## Mobile Rules
 

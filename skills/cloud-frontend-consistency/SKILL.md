@@ -32,10 +32,20 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
    - Prefer full-width layouts with one clear working surface over narrow centered cards.
    - Use spacing, typography, and row density to create hierarchy before adding more containers.
    - Keep table rows scan-first; expanded detail belongs in a dialog or panel, not inline in the row.
+5. Admin/list page headers should stay quiet and live on the page background.
+   - Prefer a simple title block: page title + one short secondary line directly underneath.
+   - Do not wrap that title block in `paper` unless the page is form-heavy rather than table-heavy.
+   - Put search, filters, and actions below the title block as their own rows.
+6. Desktop app sidebars should now be real surfaces.
+   - Use `sidebar-container` only for column sizing and placement.
+   - Inside it, render one `paper flex h-full min-h-0 flex-col gap-4 p-4` surface.
+   - Keep the header as a simple local flex row with icon + title (+ optional settings action).
+   - Let the sidebar content use `sidebar-group`, `sidebar-body`, and `sidebar-footer`; do not reintroduce extra outer wrappers.
 
 ## Quick Lookup (Do Not Guess)
 
 - Browser helpers (`mutation.create`, `detailPanel`):
+  - includes `dnd.create(...)` for desktop-style drag and drop
   - import: `@valentinkolb/cloud/lib/browser`
   - source: `cloud/packages/lib/src/browser/index.ts`
 - UI prompt helpers (`prompts.*`):
@@ -63,6 +73,7 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
   - no global built-in apps client
   - cross-app calls use the same alias: `from "@/<other-app>/client"`
 - URL-driven detail panel via `detailPanel` helpers when preserving scroll is important.
+- Shared `dnd.create(...)` for accessible pointer/keyboard drag-and-drop before writing local drag systems.
 - Shared `SearchBar` and form inputs instead of ad-hoc controls.
 - For filter-heavy pages, pair this skill with `../cloud-query-state-patterns/SKILL.md`.
 
@@ -87,8 +98,10 @@ Use this skill for frontend architecture, interaction patterns, and visual consi
 4. Keep mobile simple:
    - Render flat pill actions in `sidebar-mobile-actions`
    - Avoid heavy settings/control blocks on mobile unless explicitly required
-5. Keep desktop sidebar surface neutral:
-   - No additional local border/background wrappers around `sidebar-container`
+5. Keep desktop sidebar as one calm surface:
+   - `sidebar-container` places the column
+   - a single inner `paper` surface owns border, background, and padding
+   - do not nest multiple cards inside the sidebar shell unless the content itself needs a sub-surface
 6. Add stable `view-transition-name` values for key sidebar actions and nav rows on high-frequency pages.
 
 ## Data View Pattern
@@ -106,6 +119,14 @@ Keep these rules in mind:
 4. Keep the page full-width and compact; avoid wrapping the table in unnecessary extra layout boxes.
 5. Keep rows single-line and scan-friendly; open rich detail in a dialog or panel.
 6. Structured payloads should be formatted first and only show raw JSON as an optional secondary view.
+7. For app-level list pages, use the same quiet title treatment as admin pages: simple background header, then search/filter rows, then the table.
+8. For desktop-like managers (files, spaces, mail-like UIs), keep single-click, double-click, selection, and context-menu behavior consistent across views.
+   - Use one shared action vocabulary for row/tile menus instead of separate per-view action sets.
+   - If drag-and-drop is needed, prefer `dnd.create(...)` and keep drop targets explicit and semantic.
+9. For desktop-like managers with side detail panels:
+   - let the panel host fill the whole column with no extra outer margin/padding
+   - keep the header minimal; remove redundant helper copy once the interaction is obvious
+   - put dense metadata into one calm facts surface and avoid repeating the same data above and inside that surface
 
 ## Flexibility Rule
 

@@ -29,12 +29,23 @@ import { dnd } from "@valentinkolb/cloud/lib/browser";
 Use for content-heavy app screens.
 
 ```tsx
-<div class="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)_34rem]">
-  <aside class="space-y-2">{/* navigation/books */}</aside>
-  <section class="min-w-0 space-y-4">{/* search + list */}</section>
-  <section class="min-w-0">{/* detail panel */}</section>
+<div class="app-cols h-full">
+  <aside class="sidebar-container">
+    <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+      <div class="flex items-center gap-3">{/* icon + title + optional settings */}</div>
+      <div class="flex flex-col gap-3">{/* actions / top groups */}</div>
+      <div class="sidebar-body">{/* nav / tree / settings blocks */}</div>
+      <div class="sidebar-footer">{/* bottom actions */}</div>
+    </div>
+  </aside>
+  <section class="order-3 lg:order-2 min-w-0 flex-1">{/* search + list */}</section>
+  <section class="order-2 lg:order-3 min-w-0 shrink-0 lg:w-80 xl:w-72">{/* detail panel */}</section>
 </div>
 ```
+
+Notes:
+- Let the sidebar surface own the padding; do not add a second outer shell inside the same column.
+- Let the detail panel host fill its column edge-to-edge; keep extra padding inside the panel content only where needed.
 
 ## Layout Recipe: Search + List Header
 
@@ -96,3 +107,13 @@ Use for content-heavy app screens.
 - Keep droppable IDs/meta domain-specific (`drop:item:<column>:<itemId>`, `drop:end:<column>`).
 - Build preview/insert intent in `buildIntent` and keep rendering logic declarative.
 - Prefer one backend mutation per drop (`columnId`, `rank`, optional `completed`), then reconcile from server response.
+
+## Interaction Recipe: Desktop-Like File/List Managers
+
+- Keep the filter/action row flush with the content surface; do not add extra horizontal wrapper padding around it.
+- When a view offers both grid and list/table representations, keep the same single-click, double-click, selection, and context-menu semantics in both.
+- Prefer one shared action menu definition for row/tile dropdowns and right-click menus.
+- Use `dnd.create` for move interactions instead of browser-native HTML drag previews.
+- If marquee selection is needed, start it from empty surface space; do not hijack clicks on interactive rows, inputs, or action buttons.
+- Use a real surface for the left sidebar, but keep the detail panel visually lighter than the sidebar if it already contains its own inner facts/actions surfaces.
+- For parent-folder entries like `..`, keep the same tile/row geometry as normal folders; only the icon/color should differ.

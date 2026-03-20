@@ -21,7 +21,9 @@ This is not a rigid template. It is the default grammar for dense data pages in 
 ```
 SSR page (page.tsx)
 ├── fetches data + pagination + filter state
-├── renders FilterBar island (search + filters + actions)
+├── renders quiet page title block on background
+├── renders search row
+├── renders filters/actions row (if needed)
 ├── renders Table island (rows + row detail interaction)
 └── renders Pagination component
 ```
@@ -31,26 +33,32 @@ SSR page (page.tsx)
 - Use a single vertical stack for the content area, usually `flex flex-col gap-2` or `gap-3`.
 - Do not add extra centered width wrappers unless the page is form-heavy rather than table-heavy.
 - Default page size for dense admin tables: **100**.
+- Prefer a plain page title block on the background:
+  - title: `text-base font-semibold text-primary`
+  - subtitle/count: `mt-1 text-xs text-dimmed`
+  - no `paper` around it for table-first pages
 
 ## FilterBar Island
 
-Preferred shape: one island, two rows. Keep search/filter/action behavior in one place instead of splitting every button into its own island.
+Preferred shape: SSR search row plus one compact filter/action row, or one island when the toolbar itself is interactive. Keep search/filter/action behavior cohesive instead of scattering it across many wrappers.
 
 ```
-Row 1: [SearchBar ─────────────────────────────]
-Row 2: [Filters...] [Clear?] [Count] ───────────── [Actions...]
+Title block: [Page title]
+            [Short count or description]
+Row 1:      [SearchBar ─────────────────────────────]
+Row 2:      [Filters...] [Clear?] [Count?] ───────── [Actions...]
 ```
 
 ### Rules
 
-- `SearchBar` always gets its own full-width row.
+- `SearchBar` should usually get its own full-width row directly below the title block.
 - Filter chips, entry count, and action buttons share the second row with `flex items-center gap-2 flex-wrap`.
 - Action buttons use `ml-auto` to push right.
 - Entry count should be visually quiet: small, dimmed, tabular numbers.
 - Action button text should usually hide on mobile via `hidden sm:inline`.
 - Use compact shared button styles like `btn-input btn-sm` for row-level toolbar actions.
 - Mutations such as settings, cleanup, backfill, export, or bulk tools can live here via `mutation.create`.
-- Avoid extra section headers above the filter bar if the page title already provides context.
+- Avoid extra summary cards above the filter rows if the page title already provides context.
 - If there are no actions, keep only search + filters + count. Do not add placeholder wrappers.
 
 ### Example
@@ -95,6 +103,9 @@ paper overflow-hidden
 
 - `text-xs` globally on the table. Row padding: `px-3 py-1.5`.
 - **Single-line first** — rows should optimize for scanning, not rich reading.
+- Header rows should usually be plain:
+  - `border-b border-zinc-100 dark:border-zinc-800`
+  - no tinted grey header background unless the table is intentionally more form-like than log-like
 - Use `truncate max-w-[30rem]` on text columns that could overflow.
 - Put the most identifying content early: status/icon, entity/source, primary message/title, time.
 - Lower-priority detail columns should hide responsively with `hidden xl:table-cell` or similar.
@@ -106,6 +117,7 @@ paper overflow-hidden
 
 - Let the table own the page width.
 - Prefer one `paper overflow-hidden` surface around the table, not multiple nested cards.
+- Do not wrap the title/search/filter stack in extra `paper` by default.
 - Use vertical rhythm (`gap-2`, `gap-3`, top/bottom padding) instead of adding decorative containers between toolbar, table, and pagination.
 - Keep pagination visually attached to the table block, usually directly below it.
 - On admin pages, the content should feel like a working area, not a centered marketing card.
