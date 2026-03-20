@@ -39,7 +39,7 @@ export const migrate = async (): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       book_id UUID NOT NULL REFERENCES contacts.books(id) ON DELETE CASCADE,
 
-      display_name TEXT NOT NULL,
+      label TEXT,
       first_name TEXT,
       last_name TEXT,
       company_name TEXT,
@@ -56,14 +56,18 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
 
+  await sql`ALTER TABLE contacts.contacts DROP COLUMN IF EXISTS display_name`.simple();
+  await sql`ALTER TABLE contacts.contacts ADD COLUMN IF NOT EXISTS label TEXT`.simple();
+
   await sql`
     CREATE INDEX IF NOT EXISTS idx_contacts_contacts_book
     ON contacts.contacts(book_id)
   `.simple();
 
+  await sql`DROP INDEX IF EXISTS idx_contacts_contacts_book_display_name`.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_contacts_contacts_book_display_name
-    ON contacts.contacts(book_id, display_name)
+    CREATE INDEX IF NOT EXISTS idx_contacts_contacts_book_label
+    ON contacts.contacts(book_id, label)
   `.simple();
 
   await sql`

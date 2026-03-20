@@ -13,16 +13,16 @@ const setDesktopDetailVisibility = (containerId: string, open: boolean) => {
 
   if (open) {
     detailContainer.classList.remove("hidden");
-    detailContainer.classList.add("xl:flex");
+    detailContainer.classList.add("flex");
     return;
   }
 
   detailContainer.classList.add("hidden");
-  detailContainer.classList.remove("xl:flex");
+  detailContainer.classList.remove("flex");
 };
 
 /**
- * Keeps desktop detail-column visibility in sync with URL/detail selection state.
+ * Keeps the responsive detail panel visibility in sync with URL/detail selection state.
  */
 export default function DesktopDetailLayoutSync(props: Props) {
   const syncFromUrl = () => {

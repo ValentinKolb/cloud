@@ -1,4 +1,6 @@
 import { prompts } from "@valentinkolb/cloud/lib/ui";
+import type { Contact } from "../../service";
+import ContactUpsertForm from "./ContactUpsertForm.island";
 
 type ContactBookOption = {
   id: string;
@@ -12,9 +14,6 @@ type Props = {
   label?: string;
 };
 
-/**
- * Opens the mandatory "select book" flow before creating a contact.
- */
 export default function CreateContactButton(props: Props) {
   const handleCreateContact = async () => {
     if (props.writableBooks.length === 0) {
@@ -50,7 +49,26 @@ export default function CreateContactButton(props: Props) {
     });
 
     if (!result) return;
-    window.location.href = `/app/contacts/${result.bookId}/e`;
+
+    const selectedBook = props.writableBooks.find((book) => book.id === result.bookId);
+    const created = await prompts.dialog<Contact | undefined>(
+      (close) => (
+        <ContactUpsertForm
+          mode="create"
+          bookId={result.bookId}
+          onCancel={() => close(undefined)}
+          onSaved={(contact) => close(contact)}
+        />
+      ),
+      {
+        title: selectedBook ? `New Contact in ${selectedBook.name}` : "New Contact",
+        icon: "ti ti-user-plus",
+        size: "large",
+      },
+    );
+
+    if (!created) return;
+    window.location.href = `/app/contacts/${result.bookId}?contact=${created.id}&contactBook=${result.bookId}`;
   };
 
   return (

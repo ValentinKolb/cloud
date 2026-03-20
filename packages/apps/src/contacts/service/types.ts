@@ -47,7 +47,7 @@ export type ContactAddress = {
 export type Contact = {
   id: string;
   bookId: string;
-  displayName: string;
+  label: string | null;
   firstName: string | null;
   lastName: string | null;
   companyName: string | null;
@@ -98,7 +98,7 @@ export type ContactAddressInput = {
 };
 
 export type CreateContactInput = {
-  displayName: string;
+  label?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   companyName?: string | null;
@@ -115,7 +115,7 @@ export type CreateContactInput = {
 };
 
 export type UpdateContactInput = {
-  displayName?: string;
+  label?: string | null;
   firstName?: string | null;
   lastName?: string | null;
   companyName?: string | null;

@@ -70,7 +70,7 @@ const ContactAddressSchema = z.object({
 const ContactSchema = z.object({
   id: z.string(),
   bookId: z.string(),
-  displayName: z.string(),
+  label: z.string().nullable(),
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
   companyName: z.string().nullable(),
@@ -134,7 +134,7 @@ const SearchContactsQuerySchema = PaginationQuerySchema.extend({
 });
 
 const CreateContactSchema = z.object({
-  displayName: z.string().min(1).max(200),
+  label: z.string().max(200).nullable().optional(),
   firstName: z.string().max(120).nullable().optional(),
   lastName: z.string().max(120).nullable().optional(),
   companyName: z.string().max(200).nullable().optional(),
@@ -151,7 +151,7 @@ const CreateContactSchema = z.object({
 });
 
 const UpdateContactSchema = z.object({
-  displayName: z.string().min(1).max(200).optional(),
+  label: z.string().max(200).nullable().optional(),
   firstName: z.string().max(120).nullable().optional(),
   lastName: z.string().max(120).nullable().optional(),
   companyName: z.string().max(200).nullable().optional(),
@@ -165,6 +165,10 @@ const UpdateContactSchema = z.object({
   emails: z.array(ContactEmailInputSchema).optional(),
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),
+});
+
+const MoveContactSchema = z.object({
+  targetBookId: z.string(),
 });
 
 const ContactBookListResponseSchema = z.object({
@@ -621,6 +625,40 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       return respond(c, contactsService.contact.update({ bookId, id: contactId, data }));
+    },
+  )
+
+  .post(
+    "/books/:bookId/contacts/:contactId/move",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Move contact",
+      description: "Move one contact from the current manual book to another writable manual book.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactSchema, "Moved contact"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Contact or book not found"),
+      },
+    }),
+    v("json", MoveContactSchema),
+    async (c) => {
+      const sourceBookId = c.req.param("bookId");
+      const contactId = c.req.param("contactId");
+      const { targetBookId } = c.req.valid("json");
+
+      const { error: sourceError } = await requireBookAccess(c, sourceBookId, "write");
+      if (sourceError) return sourceError;
+
+      const { book: targetBook, error: targetError } = await requireBookAccess(c, targetBookId, "write");
+      if (targetError || !targetBook) return targetError!;
+
+      if (targetBook.isSystem) {
+        return respond(c, fail(err.forbidden("System book is read-only")));
+      }
+
+      return respond(c, contactsService.contact.move({ sourceBookId, targetBookId, id: contactId }));
     },
   )
 

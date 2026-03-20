@@ -106,6 +106,7 @@ export const contactsService = {
     get: (config: { bookId: string; id: string }) => contacts.get(config),
     create: (config: { bookId: string; data: CreateContactInput }) => contacts.create(config),
     update: (config: { bookId: string; id: string; data: UpdateContactInput }) => contacts.update(config),
+    move: (config: { sourceBookId: string; targetBookId: string; id: string }) => contacts.move(config),
     remove: (config: { bookId: string; id: string }) => contacts.remove(config),
     search: (config: { userId: string; groups: string[]; pagination?: PageParams; filter?: { query?: string; includeSystem?: boolean } }) =>
       contacts.search(config),

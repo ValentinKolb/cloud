@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { err, fail, ok, paginate, type PageParams, type Paginated, type Result } from "@valentinkolb/cloud/lib/server";
+import { resolveStoredContactLabel } from "../shared";
 import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
 import { emptyToNull, isUuid, toDateOnly, toPgTextArray, toPgUuidArray } from "./shared";
 import type {
@@ -17,7 +18,7 @@ import type {
 type DbContact = {
   id: string;
   book_id: string;
-  display_name: string;
+  label: string | null;
   first_name: string | null;
   last_name: string | null;
   company_name: string | null;
@@ -81,7 +82,7 @@ type SearchRow = {
 const mapContact = (config: { row: DbContact; emails: ContactEmail[]; phones: ContactPhone[]; addresses: ContactAddress[] }): Contact => ({
   id: config.row.id,
   bookId: config.row.book_id,
-  displayName: config.row.display_name,
+  label: config.row.label,
   firstName: config.row.first_name,
   lastName: config.row.last_name,
   companyName: config.row.company_name,
@@ -221,7 +222,7 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
     SELECT
       id,
       book_id,
-      display_name,
+      label,
       first_name,
       last_name,
       company_name,
@@ -347,7 +348,7 @@ const replaceAddresses = async (contactId: string, addresses: ContactAddressInpu
 const mapManualSearchCondition = (searchPattern: string | null) => sql`
   (
     ${searchPattern}::text IS NULL
-    OR LOWER(c.display_name) LIKE ${searchPattern}
+    OR LOWER(COALESCE(c.label, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(c.first_name, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(c.last_name, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(c.company_name, '')) LIKE ${searchPattern}
@@ -404,8 +405,15 @@ export const list = async (config: {
     SELECT DISTINCT
       c.id,
       c.book_id,
-      c.display_name,
-      LOWER(c.display_name) AS sort_name,
+      c.label,
+      LOWER(
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
+          NULLIF(c.label, ''),
+          NULLIF(c.company_name, ''),
+          ''
+        )
+      ) AS sort_name,
       c.first_name,
       c.last_name,
       c.company_name,
@@ -456,7 +464,7 @@ export const get = async (config: { bookId: string; id: string }): Promise<Conta
     SELECT
       id,
       book_id,
-      display_name,
+      label,
       first_name,
       last_name,
       company_name,
@@ -490,10 +498,19 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
 
   if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
 
+  const label = resolveStoredContactLabel({
+    label: config.data.label,
+    firstName: config.data.firstName,
+    lastName: config.data.lastName,
+    companyName: config.data.companyName,
+    emails: config.data.emails,
+    phones: config.data.phones,
+  });
+
   const [row] = await sql<DbContact[]>`
     INSERT INTO contacts.contacts (
       book_id,
-      display_name,
+      label,
       first_name,
       last_name,
       company_name,
@@ -506,7 +523,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       source
     ) VALUES (
       ${config.bookId}::uuid,
-      ${config.data.displayName.trim()},
+      ${label},
       ${emptyToNull(config.data.firstName) ?? null},
       ${emptyToNull(config.data.lastName) ?? null},
       ${emptyToNull(config.data.companyName) ?? null},
@@ -521,7 +538,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
     RETURNING
       id,
       book_id,
-      display_name,
+      label,
       first_name,
       last_name,
       company_name,
@@ -564,7 +581,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
     SELECT
       id,
       book_id,
-      display_name,
+      label,
       first_name,
       last_name,
       company_name,
@@ -584,10 +601,17 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
 
   if (!existing) return fail(err.notFound("Contact"));
 
+  const nextLabel = resolveStoredContactLabel({
+    label: config.data.label === undefined ? existing.label : config.data.label,
+    firstName: config.data.firstName === undefined ? existing.first_name : config.data.firstName,
+    lastName: config.data.lastName === undefined ? existing.last_name : config.data.lastName,
+    companyName: config.data.companyName === undefined ? existing.company_name : config.data.companyName,
+  });
+
   const [row] = await sql<DbContact[]>`
     UPDATE contacts.contacts
     SET
-      display_name = ${config.data.displayName?.trim() ?? existing.display_name},
+      label = ${nextLabel},
       first_name = ${config.data.firstName === undefined ? existing.first_name : emptyToNull(config.data.firstName)},
       last_name = ${config.data.lastName === undefined ? existing.last_name : emptyToNull(config.data.lastName)},
       company_name = ${config.data.companyName === undefined ? existing.company_name : emptyToNull(config.data.companyName)},
@@ -604,7 +628,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
     RETURNING
       id,
       book_id,
-      display_name,
+      label,
       first_name,
       last_name,
       company_name,
@@ -635,6 +659,51 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
   if (!updated) return fail(err.internal("Failed to load updated contact"));
 
   return ok(updated);
+};
+
+/**
+ * Moves one manual contact to another manual book.
+ */
+export const move = async (config: { sourceBookId: string; targetBookId: string; id: string }): Promise<Result<Contact>> => {
+  if (isSystemBookId(config.sourceBookId) || isSystemBookId(config.targetBookId)) {
+    return fail(err.forbidden("System contacts are read-only"));
+  }
+
+  if (!isUuid(config.sourceBookId) || !isUuid(config.targetBookId) || !isUuid(config.id)) {
+    return fail(err.notFound("Contact"));
+  }
+
+  const [row] = await sql<DbContact[]>`
+    UPDATE contacts.contacts
+    SET
+      book_id = ${config.targetBookId}::uuid,
+      updated_at = now()
+    WHERE id = ${config.id}::uuid
+      AND book_id = ${config.sourceBookId}::uuid
+    RETURNING
+      id,
+      book_id,
+      label,
+      first_name,
+      last_name,
+      company_name,
+      department,
+      job_title,
+      vat_id,
+      website,
+      birthday,
+      note,
+      source,
+      created_at,
+      updated_at
+  `;
+
+  if (!row) return fail(err.notFound("Contact"));
+
+  const moved = await get({ bookId: row.book_id, id: row.id });
+  if (!moved) return fail(err.internal("Failed to load moved contact"));
+
+  return ok(moved);
 };
 
 /**
@@ -730,7 +799,11 @@ export const search = async (config: {
       SELECT DISTINCT
         c.id AS contact_id,
         c.book_id::text AS book_id,
-        c.display_name AS sort_name,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
+          NULLIF(c.label, ''),
+          NULLIF(c.company_name, '')
+        ) AS sort_name,
         'manual'::text AS source_kind
       FROM contacts.contacts c
       JOIN contacts.book_access ba ON ba.book_id = c.book_id

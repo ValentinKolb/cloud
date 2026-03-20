@@ -4,6 +4,7 @@ import { prompts } from "@valentinkolb/cloud/lib/ui";
 import { TextInput } from "@valentinkolb/cloud/lib/ui";
 import { RemoveBtn } from "@valentinkolb/cloud/lib/ui";
 import { apiClient } from "@/contacts/client";
+import { resolveContactName } from "../../shared";
 import type { Contact } from "../../service";
 
 type ContactUpsertMode = "create" | "edit";
@@ -12,7 +13,10 @@ type Props = {
   mode: ContactUpsertMode;
   bookId: string;
   initialContact?: Contact | null;
-  backHref: string;
+  backHref?: string;
+  onCancel?: () => void;
+  onSaved?: (contact: Contact) => void;
+  onDeleted?: () => void;
 };
 
 type EditableEmail = { label: string; email: string };
@@ -101,7 +105,7 @@ const sectionTitleClass = "text-sm font-semibold text-primary";
 export default function ContactUpsertForm(props: Props) {
   const initialContact = props.mode === "edit" ? (props.initialContact ?? null) : null;
 
-  const [displayName, setDisplayName] = createSignal(initialContact?.displayName ?? "");
+  const [label, setLabel] = createSignal(initialContact?.label ?? "");
   const [firstName, setFirstName] = createSignal(initialContact?.firstName ?? "");
   const [lastName, setLastName] = createSignal(initialContact?.lastName ?? "");
   const [companyName, setCompanyName] = createSignal(initialContact?.companyName ?? "");
@@ -116,13 +120,8 @@ export default function ContactUpsertForm(props: Props) {
   const [phones, setPhones] = createSignal<EditablePhone[]>(initialPhoneRows(initialContact));
   const [addresses, setAddresses] = createSignal<EditableAddress[]>(initialAddressRows(initialContact));
 
-  const upsertMutation = mutations.create<string, void>({
+  const upsertMutation = mutations.create<Contact, void>({
     mutation: async () => {
-      const trimmedDisplayName = displayName().trim();
-      if (!trimmedDisplayName) {
-        throw new Error("Display name is required");
-      }
-
       const normalizedEmails = emails()
         .map((email) => ({
           label: email.label.trim() || null,
@@ -176,7 +175,7 @@ export default function ContactUpsertForm(props: Props) {
       }
 
       const payload = {
-        displayName: trimmedDisplayName,
+        label: label().trim() || null,
         firstName: firstName().trim() || null,
         lastName: lastName().trim() || null,
         companyName: companyName().trim() || null,
@@ -205,7 +204,7 @@ export default function ContactUpsertForm(props: Props) {
         }
 
         const created = (await response.json()) as Contact;
-        return created.id;
+        return created;
       }
 
       if (!initialContact) {
@@ -227,10 +226,14 @@ export default function ContactUpsertForm(props: Props) {
         throw new Error(data.message ?? "Failed to update contact");
       }
 
-      return initialContact.id;
+      return (await response.json()) as Contact;
     },
-    onSuccess: (contactId) => {
-      window.location.href = detailHref(props.bookId, contactId);
+    onSuccess: (contact) => {
+      if (props.onSaved) {
+        props.onSaved(contact);
+        return;
+      }
+      window.location.href = detailHref(props.bookId, contact.id);
     },
     onError: (error) => {
       prompts.error(error.message);
@@ -258,6 +261,10 @@ export default function ContactUpsertForm(props: Props) {
       }
     },
     onSuccess: () => {
+      if (props.onDeleted) {
+        props.onDeleted();
+        return;
+      }
       window.location.href = `/app/contacts/${props.bookId}`;
     },
     onError: (error) => {
@@ -268,7 +275,7 @@ export default function ContactUpsertForm(props: Props) {
   const handleDelete = async () => {
     if (!initialContact) return;
 
-    const confirmed = await prompts.confirm(`Delete "${initialContact.displayName}"? This cannot be undone.`, {
+    const confirmed = await prompts.confirm(`Delete "${resolveContactName(initialContact)}"? This cannot be undone.`, {
       title: "Delete Contact",
       icon: "ti ti-trash",
       variant: "danger",
@@ -290,12 +297,11 @@ export default function ContactUpsertForm(props: Props) {
             <h3 class="text-xs text-dimmed">Identity</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <TextInput
-                label="Display Name"
-                placeholder="Max Mustermann"
+                label="Label"
+                placeholder="Optional label"
                 icon="ti ti-user"
-                required
-                value={displayName}
-                onInput={setDisplayName}
+                value={label}
+                onInput={setLabel}
               />
               <TextInput label="Website" placeholder="https://example.com" icon="ti ti-world" value={website} onInput={setWebsite} />
               <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={firstName} onInput={setFirstName} />
@@ -533,9 +539,20 @@ export default function ContactUpsertForm(props: Props) {
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
-          <a href={props.backHref} class="btn-secondary btn-sm">
-            Cancel
-          </a>
+          <Show
+            when={props.backHref}
+            fallback={
+              <Show when={props.onCancel}>
+                <button type="button" class="btn-secondary btn-sm" onClick={() => props.onCancel?.()}>
+                  Cancel
+                </button>
+              </Show>
+            }
+          >
+            <a href={props.backHref!} class="btn-secondary btn-sm">
+              Cancel
+            </a>
+          </Show>
           <button
             type="button"
             class="btn-primary btn-sm"

@@ -40,7 +40,11 @@ export const dispatchContactDetailSelect = (contact: Contact | null, contactId: 
 };
 
 /** Updates detail params without navigation and notifies detail/list islands. */
-export const setSelectedContactInUrl = (config: { contactId: string | null; bookId: string | null; contact?: Contact | null }) => {
+export const setSelectedContactInUrl = (config: {
+  contactId: string | null;
+  bookId: string | null;
+  contact?: Contact | null;
+}) => {
   withViewTransition(() => {
     detailPanel.setUrlParam("contact", config.contactId);
     detailPanel.setUrlParam("contactBook", config.bookId);
@@ -52,5 +56,3 @@ export const setSelectedContactInUrl = (config: { contactId: string | null; book
 export const clearSelectedContactInUrl = () => {
   setSelectedContactInUrl({ contactId: null, bookId: null, contact: null });
 };
-
-export const buildContactEditUrl = (bookId: string, contactId: string) => `/app/contacts/${bookId}/e/${contactId}`;

@@ -1,17 +1,15 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { resolveContactName } from "../../shared";
 import type { Contact } from "../../service";
 import { CONTACT_DETAIL_EVENT, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
 
 type Props = {
   contacts: Contact[];
-  bookNames: Record<string, string>;
   initialSelectedContactId: string | null;
   initialSelectedBookId: string | null;
-  showBookName?: boolean;
 };
 
 const contactKey = (contactId: string | null, bookId: string | null) => (contactId && bookId ? `${bookId}:${contactId}` : null);
-
 const primaryEmail = (contact: Contact) => contact.emails[0]?.email ?? null;
 const primaryPhone = (contact: Contact) => contact.phones[0]?.phone ?? null;
 
@@ -19,13 +17,8 @@ const stopRowSelection = (event: MouseEvent) => {
   event.stopPropagation();
 };
 
-/**
- * Contacts table with hybrid detail-panel selection behavior.
- */
 export default function ContactsList(props: Props) {
-  const [selectedKey, setSelectedKey] = createSignal<string | null>(
-    contactKey(props.initialSelectedContactId, props.initialSelectedBookId),
-  );
+  const [selectedKey, setSelectedKey] = createSignal<string | null>(contactKey(props.initialSelectedContactId, props.initialSelectedBookId));
 
   const selectContact = (contact: Contact) => {
     setSelectedKey(contactKey(contact.id, contact.bookId));
@@ -74,15 +67,13 @@ export default function ContactsList(props: Props) {
         }
       >
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
+          <table class="w-full text-xs">
             <thead>
-              <tr class="border-b border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50">
-                <th class="text-left px-4 py-3 font-medium text-dimmed">Name</th>
-                <th class="hidden md:table-cell text-left px-4 py-3 font-medium text-dimmed">Email</th>
-                <th class="hidden lg:table-cell text-left px-4 py-3 font-medium text-dimmed">Telephone</th>
-                <Show when={props.showBookName}>
-                  <th class="hidden xl:table-cell text-left px-4 py-3 font-medium text-dimmed">Book</th>
-                </Show>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                <th class="px-3 py-1.5 text-left font-medium text-dimmed">Name</th>
+                <th class="hidden md:table-cell px-3 py-1.5 text-left font-medium text-dimmed">Company</th>
+                <th class="hidden lg:table-cell px-3 py-1.5 text-left font-medium text-dimmed">Phone</th>
+                <th class="hidden xl:table-cell px-3 py-1.5 text-left font-medium text-dimmed">Email</th>
               </tr>
             </thead>
             <tbody>
@@ -94,8 +85,8 @@ export default function ContactsList(props: Props) {
 
                 return (
                   <tr
-                    class={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 cursor-pointer ${
-                      active() ? "bg-blue-100 dark:bg-blue-900/35" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+                    class={`group cursor-pointer border-b border-zinc-50 dark:border-zinc-800/50 last:border-0 ${
+                      active() ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
                     }`}
                     role="button"
                     tabIndex={0}
@@ -103,59 +94,28 @@ export default function ContactsList(props: Props) {
                     onClick={() => selectContact(contact)}
                     onKeyDown={(event) => handleRowKeyDown(event, contact)}
                   >
-                    <td class="px-4 py-3 min-w-0">
-                      <p class="font-medium truncate">{contact.displayName}</p>
-                      <div class="mt-1 text-xs text-dimmed flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <Show when={contact.companyName}>
-                          <span class="inline-flex items-center gap-1 truncate max-w-full">
-                            <i class="ti ti-building" />
-                            <span class="truncate">{contact.companyName}</span>
-                          </span>
-                        </Show>
-                        <Show when={email}>
-                          <a
-                            href={`mailto:${email}`}
-                            class="inline-flex items-center gap-1 hover:text-blue-500 md:hidden"
-                            onClick={stopRowSelection}
-                          >
-                            <i class="ti ti-mail" />
-                            <span class="truncate max-w-48">{email}</span>
-                          </a>
-                        </Show>
-                        <Show when={phone}>
-                          <a
-                            href={`tel:${phone}`}
-                            class="inline-flex items-center gap-1 hover:text-blue-500 lg:hidden"
-                            onClick={stopRowSelection}
-                          >
-                            <i class="ti ti-phone" />
-                            <span>{phone}</span>
-                          </a>
-                        </Show>
-                      </div>
+                    <td class="px-3 py-1.5 font-medium text-primary">
+                      <span class="truncate group-hover:underline">{resolveContactName(contact)}</span>
                     </td>
-
-                    <td class="hidden md:table-cell px-4 py-3 text-dimmed">
-                      <Show when={email} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
-                        <a href={`mailto:${email!}`} class="hover:text-blue-500 break-all" onClick={stopRowSelection}>
-                          {email}
-                        </a>
+                    <td class="hidden md:table-cell px-3 py-1.5 text-dimmed">
+                      <Show when={contact.companyName} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
+                        <span class="truncate">{contact.companyName}</span>
                       </Show>
                     </td>
-
-                    <td class="hidden lg:table-cell px-4 py-3 text-dimmed whitespace-nowrap">
+                    <td class="hidden lg:table-cell px-3 py-1.5 text-dimmed whitespace-nowrap">
                       <Show when={phone} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
                         <a href={`tel:${phone!}`} class="hover:text-blue-500" onClick={stopRowSelection}>
                           {phone}
                         </a>
                       </Show>
                     </td>
-
-                    <Show when={props.showBookName}>
-                      <td class="hidden xl:table-cell px-4 py-3 text-dimmed whitespace-nowrap">
-                        {props.bookNames[contact.bookId] ?? contact.bookId}
-                      </td>
-                    </Show>
+                    <td class="hidden xl:table-cell px-3 py-1.5 text-dimmed">
+                      <Show when={email} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
+                        <a href={`mailto:${email!}`} class="truncate hover:text-blue-500" onClick={stopRowSelection}>
+                          {email}
+                        </a>
+                      </Show>
+                    </td>
                   </tr>
                 );
               })}

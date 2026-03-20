@@ -1,4 +1,5 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts/app";
+import { resolveContactName } from "./shared";
 import { contactsService } from "./service";
 
 const SEARCH_TAGS = ["contact", "addressbook", "phone", "email"] as const;
@@ -36,7 +37,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
     const primary = contactPreview(entry.emails, entry.phones);
     return {
       id: entry.id,
-      title: entry.displayName,
+      title: resolveContactName(entry),
       href: `/app/contacts/${entry.bookId}?contact=${entry.id}&contactBook=${entry.bookId}`,
       preview: primary,
       icon: "ti ti-address-book",

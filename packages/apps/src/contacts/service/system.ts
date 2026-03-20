@@ -104,7 +104,7 @@ const mapSystemAddresses = (row: DbSystemUser): ContactAddress[] => {
 const mapSystemContact = (row: DbSystemUser): Contact => ({
   id: row.id,
   bookId: SYSTEM_BOOK_ID,
-  displayName: emptyToNull(row.display_name) ?? row.uid,
+  label: emptyToNull(row.display_name) ?? row.uid,
   firstName: emptyToNull(row.given_name),
   lastName: emptyToNull(row.sn),
   companyName: null,
@@ -190,7 +190,7 @@ export const listSystemContacts = async (config: { pagination?: PageParams; filt
         OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
         OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
       )
-    ORDER BY LOWER(COALESCE(NULLIF(u.display_name, ''), u.uid)) ASC
+    ORDER BY LOWER(COALESCE(NULLIF(TRIM(CONCAT_WS(' ', COALESCE(u.given_name, ''), COALESCE(u.sn, ''))), ''), NULLIF(u.display_name, ''), u.uid)) ASC
     LIMIT ${perPage}
     OFFSET ${offset}
   `;
