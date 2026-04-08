@@ -7,6 +7,8 @@ import { refreshCurrentPath } from "../../lib/navigation";
 type AddToGroupProps = {
   /** Group id to add to another group */
   groupId: string;
+  /** Provider of the current group */
+  groupProvider: "ipa" | "local";
   /** IDs to exclude (already member of) */
   excludeGroups?: string[];
 };
@@ -37,10 +39,10 @@ export default function AddToGroup(props: AddToGroupProps) {
       (close) => (
         <EntitySearch
           apiBaseUrl="/api/accounts"
-          groupId={props.groupId}
+          groupProvider={props.groupProvider}
           searchUsers={false}
           searchGroups={true}
-          excludeGroups={[...(props.excludeGroups ?? []), props.groupId]}
+          excludeGroupIds={[...(props.excludeGroups ?? []), props.groupId]}
           placeholder="Search groups..."
           adding={mutation.loading()}
           onSelect={async (result: EntitySearchResult) => {

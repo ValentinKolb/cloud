@@ -9,6 +9,7 @@ type ManagersTabProps = {
   items: EntityListItem[];
   pagination: PaginationResponse;
   groupId: string;
+  groupProvider: "ipa" | "local";
   allManagerIds: string[];
   allManagerGroupIds: string[];
   canManage: boolean;
@@ -27,6 +28,7 @@ export default function ManagersTab(props: ManagersTabProps) {
           props.canManage ? (
             <AddMember
               groupId={props.groupId}
+              groupProvider={props.groupProvider}
               membershipRole="managers"
               searchUsers={true}
               searchGroups={props.isAdmin}

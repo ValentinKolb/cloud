@@ -32,9 +32,6 @@ export const GroupMemberInputSchema = z.discriminatedUnion("type", [
 ]);
 export type GroupMemberInput = z.infer<typeof GroupMemberInputSchema>;
 
-export const GroupSearchProviderSchema = UserProviderSchema.optional();
-export type GroupSearchProvider = z.infer<typeof GroupSearchProviderSchema>;
-
 const CreateUserSharedSchema = {
   email: z.email(),
   givenname: z.string().min(1),

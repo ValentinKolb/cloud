@@ -6,7 +6,7 @@ import type {
   UserProvider,
 } from "@valentinkolb/cloud-contracts/shared";
 import { getFreeIpaConfigSync } from "../freeipa-config";
-import { escapeLikePattern, toPgTextArray } from "../postgres";
+import { escapeLikePattern, toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
 import { buildBaseUser } from "./base-user";
 import { buildManagedGroupScopeCondition } from "./group-sql";
@@ -16,9 +16,12 @@ type SqlFragment = any;
 
 export type EntityListParams = {
   search?: string;
-  kind?: EntityKind;
+  kinds?: EntityKind[];
   provider?: UserProvider;
   profile?: UserProfile;
+  excludeUserIds?: string[];
+  excludeGroupIds?: string[];
+  userMemberOfGroupIds?: string[];
   memberOfGroupId?: string;
   managerOfGroupId?: string;
   parentGroupId?: string;
@@ -399,11 +402,33 @@ export const list = async (params: EntityListParams): Promise<{
   const groupsAdmin = getFreeIpaConfigSync().groupsAdmin;
   const groupsAdminLiteral = toPgTextArray(groupsAdmin);
   const spec = buildQuerySpec(params);
+  const kindsCondition =
+    (params.kinds?.length ?? 0) === 0 ? sql`TRUE` : sql`kind = ANY(${toPgTextArray(params.kinds ?? [])}::text[])`;
+  const excludeUserCondition =
+    (params.excludeUserIds?.length ?? 0) === 0
+      ? sql`TRUE`
+      : sql`(kind <> 'user' OR id <> ALL(${toPgUuidArray(params.excludeUserIds ?? [])}::uuid[]))`;
+  const excludeGroupCondition =
+    (params.excludeGroupIds?.length ?? 0) === 0
+      ? sql`TRUE`
+      : sql`(kind <> 'group' OR id <> ALL(${toPgUuidArray(params.excludeGroupIds ?? [])}::uuid[]))`;
+  const userMemberOfGroupCondition =
+    (params.userMemberOfGroupIds?.length ?? 0) === 0
+      ? sql`TRUE`
+      : sql`(kind <> 'user' OR EXISTS (
+          SELECT 1
+          FROM auth.user_groups_v2 ug
+          WHERE ug.user_id = id
+            AND ug.group_id = ANY(${toPgUuidArray(params.userMemberOfGroupIds ?? [])}::uuid[])
+        ))`;
 
   const where = sql`
-    (${params.kind ?? null}::text IS NULL OR kind = ${params.kind ?? null})
+    ${kindsCondition}
     AND (${params.provider ?? null}::text IS NULL OR provider = ${params.provider ?? null})
     AND (${params.profile ?? null}::text IS NULL OR kind = 'group' OR profile = ${params.profile ?? null})
+    AND ${excludeUserCondition}
+    AND ${excludeGroupCondition}
+    AND ${userMemberOfGroupCondition}
     AND (
       ${pattern}::text IS NULL
       OR (

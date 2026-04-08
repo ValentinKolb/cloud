@@ -13,14 +13,12 @@ import {
   PaginationQuerySchema,
   PaginationResponseSchema,
   BaseGroupSchema,
-  BaseUserSchema,
   SearchQuerySchema,
   ErrorResponseSchema,
   MessageResponseSchema,
   CreateGroupSchema,
   UpdateGroupSchema,
   GroupMemberInputSchema,
-  GroupSearchProviderSchema,
 } from "@/accounts/contracts";
 const GroupsListResponseSchema = z.object({
   groups: z.array(BaseGroupSchema),
@@ -108,62 +106,6 @@ const requireGroupMutationContext = async (c: Context<AuthContext>, groupId: str
 
 /** Group management routes. */
 const app = new Hono<AuthContext>()
-  // Search endpoint — accessible by all full-account users
-  .get(
-    "/:id/search",
-    auth.requireRole("user"),
-    describeRoute({
-      tags: ["Groups"],
-      summary: "Search users/groups for member/manager autocomplete",
-      description: "Search users and/or groups with various filters. Available to all full-account users.",
-      ...requiresAuth,
-      responses: {
-        200: jsonResponse(
-          z.object({
-            users: z.array(BaseUserSchema),
-            groups: z.array(BaseGroupSchema),
-          }),
-          "Search results",
-        ),
-        401: jsonResponse(ErrorResponseSchema, "Authentication required"),
-      },
-    }),
-    v(
-      "query",
-      z.object({
-        q: z.string().min(2),
-        users: z.enum(["true", "false"]).optional().default("true"),
-        groups: z.enum(["true", "false"]).optional().default("false"),
-        exclude_user_ids: z.string().optional(),
-        exclude_groups: z.string().optional(),
-        only_user_groups: z.enum(["true", "false"]).optional().default("false"),
-        only_posix_groups: z.enum(["true", "false"]).optional().default("false"),
-        users_in_groups: z.string().optional(),
-        provider: GroupSearchProviderSchema,
-      }),
-    ),
-    async (c) => {
-      const { q, users, groups, exclude_user_ids, exclude_groups, only_user_groups, only_posix_groups, users_in_groups, provider } =
-        c.req.valid("query");
-      const user = c.get("user");
-      const groupId = c.req.param("id");
-
-      const result = await accountsService.group.search({
-        groupId: groupId === "_" ? undefined : groupId,
-        provider,
-        query: q,
-        includeUsers: users === "true",
-        includeGroups: groups === "true",
-        excludeUserIds: exclude_user_ids ? exclude_user_ids.split(",") : [],
-        excludeGroups: exclude_groups ? exclude_groups.split(",") : [],
-        onlyUserGroups: only_user_groups === "true" ? user.memberofGroupIds : undefined,
-        onlyPosixGroups: only_posix_groups === "true",
-        usersInGroups: users_in_groups ? users_in_groups.split(",") : undefined,
-      });
-
-      return respond(c, ok(result));
-    },
-  )
   // List groups — accessible by all full-account users
   .get(
     "/",

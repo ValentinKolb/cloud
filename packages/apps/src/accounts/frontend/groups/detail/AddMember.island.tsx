@@ -7,6 +7,8 @@ import { refreshCurrentPath } from "../../lib/navigation";
 type AddMemberProps = {
   /** Group id */
   groupId: string;
+  /** Provider of the current group */
+  groupProvider: "ipa" | "local";
   /** "members" or "managers" */
   membershipRole: "members" | "managers";
   /** Search for users */
@@ -41,11 +43,11 @@ export default function AddMember(props: AddMemberProps) {
       (close) => (
         <EntitySearch
           apiBaseUrl="/api/accounts"
-          groupId={props.groupId}
+          groupProvider={props.groupProvider}
           searchUsers={props.searchUsers !== false}
           searchGroups={props.searchGroups}
           excludeUserIds={props.excludeUserIds}
-          excludeGroups={props.excludeGroups}
+          excludeGroupIds={props.excludeGroups}
           placeholder={props.searchGroups ? "Search users or groups..." : "Search users..."}
           adding={mutation.loading()}
           onSelect={async (result: EntitySearchResult) => {

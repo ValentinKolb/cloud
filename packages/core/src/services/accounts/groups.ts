@@ -1,16 +1,14 @@
 import { sql } from "bun";
-import type { BaseGroup, BaseUser, GroupMember, MutationResult, UserProvider } from "@valentinkolb/cloud-contracts/shared";
+import type { BaseGroup, GroupMember, MutationResult, UserProvider } from "@valentinkolb/cloud-contracts/shared";
 import * as localGroups from "./local-groups";
 import { providers } from "../providers";
 import { freeipa } from "@valentinkolb/cloud-lib/server/services";
-import { toPgTextArray, toPgUuidArray } from "../postgres";
-import { buildBaseUser } from "./base-user";
+import { toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
 import {
   buildManagedGroupScopeCondition,
   buildMemberGroupScopeCondition,
 } from "./group-sql";
-import { getFreeIpaConfigSync } from "../freeipa-config";
 
 type DbRow = Record<string, unknown>;
 
@@ -24,92 +22,6 @@ const getGroup = async (id: string): Promise<BaseGroup | null> => {
   `;
   if (!row) return null;
   return buildBaseGroup(row);
-};
-
-const searchGroups = async (config: {
-  query: string;
-  provider?: UserProvider;
-  includeUsers: boolean;
-  includeGroups: boolean;
-  excludeUserIds: string[];
-  excludeGroups: string[];
-  onlyUserGroups?: string[];
-  onlyPosixGroups?: boolean;
-  usersInGroups?: string[];
-}): Promise<{ users: BaseUser[]; groups: BaseGroup[] }> => {
-  const pattern = `%${freeipa.util.escapeLike(config.query.toLowerCase())}%`;
-  const excludeUserCondition =
-    config.excludeUserIds.length === 0 ? sql`TRUE` : sql`u.id <> ALL(${toPgUuidArray(config.excludeUserIds)}::uuid[])`;
-  const usersInGroupsCondition =
-    (config.usersInGroups?.length ?? 0) === 0
-      ? sql`TRUE`
-      : sql`EXISTS (
-          SELECT 1
-          FROM auth.user_groups_v2 ug
-          ${config.provider === "ipa" ? sql`JOIN auth.groups g_filter ON g_filter.id = ug.group_id` : sql``}
-          WHERE ug.user_id = u.id
-            AND ug.group_id = ANY(${toPgUuidArray(config.usersInGroups ?? [])}::uuid[])
-            ${config.provider === "ipa" ? sql`AND g_filter.provider = 'ipa'` : sql``}
-        )`;
-  const excludeGroupsCondition =
-    config.excludeGroups.length === 0 ? sql`TRUE` : sql`id <> ALL(${toPgUuidArray(config.excludeGroups)}::uuid[])`;
-  const onlyUserGroupsCondition =
-    (config.onlyUserGroups?.length ?? 0) === 0 ? sql`TRUE` : sql`id = ANY(${toPgUuidArray(config.onlyUserGroups ?? [])}::uuid[])`;
-  let users: BaseUser[] = [];
-  let groups: BaseGroup[] = [];
-
-  if (config.includeUsers) {
-    const restrictToIpaUsers = config.provider === "ipa";
-    const groupsAdmin = getFreeIpaConfigSync().groupsAdmin;
-    const rows = await sql<DbRow[]>`
-      SELECT u.id, u.uid, u.provider, u.profile, u.given_name, u.sn, u.display_name, u.mail, u.admin,
-        CASE
-          WHEN u.provider = 'local' THEN u.admin
-          ELSE EXISTS(
-            SELECT 1
-            FROM auth.user_groups_v2 ug_admin
-            JOIN auth.groups g_admin ON g_admin.id = ug_admin.group_id
-            WHERE ug_admin.user_id = u.id
-              AND g_admin.provider = 'ipa'
-              AND g_admin.name = ANY(${toPgTextArray(groupsAdmin)}::text[])
-          )
-        END AS effective_admin
-      FROM auth.users u
-      WHERE (
-        LOWER(u.uid) LIKE ${pattern} ESCAPE '\\'
-        OR LOWER(u.display_name) LIKE ${pattern} ESCAPE '\\'
-        OR LOWER(u.given_name) LIKE ${pattern} ESCAPE '\\'
-        OR LOWER(u.sn) LIKE ${pattern} ESCAPE '\\'
-        OR LOWER(COALESCE(u.mail, '')) LIKE ${pattern} ESCAPE '\\'
-      )
-      AND (${restrictToIpaUsers} = false OR u.provider = 'ipa')
-      AND ${excludeUserCondition}
-      AND ${usersInGroupsCondition}
-      ORDER BY u.uid
-      LIMIT 10
-    `;
-    users = rows.map(buildBaseUser);
-  }
-
-  if (config.includeGroups) {
-    const rows = await sql<DbRow[]>`
-      SELECT id, provider, name, description, gid_number
-      FROM auth.groups
-      WHERE (${config.provider ?? null}::text IS NULL OR provider = ${config.provider ?? null})
-        AND (
-          LOWER(name) LIKE ${pattern} ESCAPE '\\'
-          OR LOWER(COALESCE(description, '')) LIKE ${pattern} ESCAPE '\\'
-        )
-        AND ${excludeGroupsCondition}
-        AND ${onlyUserGroupsCondition}
-        AND (${Boolean(config.onlyPosixGroups)} = false OR gid_number IS NOT NULL)
-      ORDER BY name
-      LIMIT 10
-    `;
-    groups = rows.map(buildBaseGroup);
-  }
-
-  return { users, groups };
 };
 
 const listCanonical = async (params: {
@@ -197,36 +109,6 @@ const listCanonical = async (params: {
       hasNext: page * perPage < total,
     },
   };
-};
-
-export const search = async (config: {
-  groupId?: string;
-  provider?: UserProvider;
-  query: string;
-  includeUsers?: boolean;
-  includeGroups?: boolean;
-  excludeUserIds?: string[];
-  excludeGroups?: string[];
-  onlyUserGroups?: string[];
-  onlyPosixGroups?: boolean;
-  usersInGroups?: string[];
-}) => {
-  const provider =
-    config.groupId && config.groupId !== "_"
-      ? (await getGroup(config.groupId))?.provider ?? null
-      : (config.provider ?? null);
-
-  return searchGroups({
-    provider: provider ?? undefined,
-    query: config.query,
-    includeUsers: config.includeUsers ?? true,
-    includeGroups: config.includeGroups ?? false,
-    excludeUserIds: config.excludeUserIds ?? [],
-    excludeGroups: config.excludeGroups ?? [],
-    onlyUserGroups: config.onlyUserGroups,
-    onlyPosixGroups: config.onlyPosixGroups,
-    usersInGroups: config.usersInGroups,
-  });
 };
 
 export const list = async (params: {

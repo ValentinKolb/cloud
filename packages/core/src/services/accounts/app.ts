@@ -388,19 +388,6 @@ export const accountsAppService = {
   },
 
   group: {
-    search: async (config: {
-      groupId?: string;
-      provider?: UserProvider;
-      query: string;
-      includeUsers?: boolean;
-      includeGroups?: boolean;
-      excludeUserIds?: string[];
-      excludeGroups?: string[];
-      onlyUserGroups?: string[];
-      onlyPosixGroups?: boolean;
-      usersInGroups?: string[];
-    }) =>
-      groups.search(config),
     list: async (config: {
       pagination?: PageParams;
       filter?: { search?: string };
@@ -545,9 +532,12 @@ export const accountsAppService = {
     list: async (config: {
       pagination?: PageParams;
       search?: string;
-      kind?: EntityKind;
+      kinds?: EntityKind[];
       provider?: UserProvider;
       profile?: UserProfile;
+      excludeUserIds?: string[];
+      excludeGroupIds?: string[];
+      userMemberOfGroupIds?: string[];
       memberOfGroupId?: string;
       managerOfGroupId?: string;
       parentGroupId?: string;
@@ -557,9 +547,12 @@ export const accountsAppService = {
       const { page, perPage } = paginate(config.pagination);
       const result = await entities.list({
         search: config.search,
-        kind: config.kind,
+        kinds: config.kinds,
         provider: config.provider,
         profile: config.profile,
+        excludeUserIds: config.excludeUserIds,
+        excludeGroupIds: config.excludeGroupIds,
+        userMemberOfGroupIds: config.userMemberOfGroupIds,
         memberOfGroupId: config.memberOfGroupId,
         managerOfGroupId: config.managerOfGroupId,
         parentGroupId: config.parentGroupId,

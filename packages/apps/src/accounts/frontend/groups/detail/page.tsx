@@ -191,7 +191,7 @@ export default ssr<AuthContext>(async (c) => {
       pagination: { page, perPage },
       search: search || undefined,
       parentGroupId: groupId,
-      kind: "group",
+      kinds: ["group"],
     });
 
     parentItems = parentGroupsPage.items;
@@ -340,6 +340,7 @@ export default ssr<AuthContext>(async (c) => {
                   pagination={membersPagination}
                   search={search}
                   groupId={groupId}
+                  groupProvider={group.provider}
                   allMemberIds={directMemberUserIds}
                   allMemberGroupIds={directMemberGroupIds}
                   isAdmin={isAdmin}
@@ -356,6 +357,7 @@ export default ssr<AuthContext>(async (c) => {
                   items={managerItems}
                   pagination={managersPagination}
                   groupId={groupId}
+                  groupProvider={group.provider}
                   allManagerIds={directManagerUserIds}
                   allManagerGroupIds={directManagerGroupIds}
                   canManage={canManageMutations}
@@ -368,6 +370,7 @@ export default ssr<AuthContext>(async (c) => {
               {tab === "member-of" && (
                 <MemberOfTab
                   groupId={groupId}
+                  groupProvider={group.provider}
                   items={parentItems}
                   allParentGroupIds={parentGroupIds}
                   isAdmin={isAdmin && canMutateGroup}

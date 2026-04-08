@@ -330,7 +330,7 @@ function AddAccessForm(props: {
         searchUsers
         searchGroups
         excludeUserIds={props.existingUserIds}
-          excludeGroups={props.existingGroupIds}
+        excludeGroupIds={props.existingGroupIds}
         onSelect={(result) => props.onSelectEntity(result, permission())}
         placeholder="Search users or groups..."
         adding={props.loading}

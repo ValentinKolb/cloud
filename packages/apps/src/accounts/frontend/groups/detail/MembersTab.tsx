@@ -10,6 +10,7 @@ type MembersTabProps = {
   pagination: PaginationResponse;
   search: string;
   groupId: string;
+  groupProvider: "ipa" | "local";
   allMemberIds: string[];
   allMemberGroupIds: string[];
   isAdmin: boolean;
@@ -32,6 +33,7 @@ export default function MembersTab(props: MembersTabProps) {
           props.canManage ? (
             <AddMember
               groupId={props.groupId}
+              groupProvider={props.groupProvider}
               membershipRole="members"
               searchUsers={true}
               searchGroups={props.isAdmin}

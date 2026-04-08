@@ -22,18 +22,15 @@ export type EntitySearchResult =
 
 type EntitySearchProps = {
   apiBaseUrl?: string;
-  groupId?: string;
   groupProvider?: "ipa" | "local";
   searchUsers?: boolean;
   searchGroups?: boolean;
   excludeUserIds?: string[];
-  excludeGroups?: string[];
+  excludeGroupIds?: string[];
   onSelect: (result: EntitySearchResult) => void;
   placeholder?: string;
   adding?: boolean;
-  onlyUserGroups?: boolean;
-  onlyPosixGroups?: boolean;
-  usersInGroups?: string[];
+  userMemberOfGroupIds?: string[];
   resultsHeightClass?: string;
 };
 
@@ -53,29 +50,31 @@ const EntitySearch = (props: EntitySearchProps) => {
 
     setLoading(true);
     try {
-      const url = new URL(`${props.apiBaseUrl ?? "/api"}/groups/${props.groupId ?? "_"}/search`, window.location.origin);
-      url.searchParams.set("q", q);
-      url.searchParams.set("users", props.searchUsers !== false ? "true" : "false");
-      url.searchParams.set("groups", props.searchGroups ? "true" : "false");
+      const url = new URL(`${props.apiBaseUrl ?? "/api/accounts"}/entities`, window.location.origin);
+      const kinds = [
+        ...(props.searchUsers !== false ? ["user"] : []),
+        ...(props.searchGroups ? ["group"] : []),
+      ];
+      if (kinds.length === 0) {
+        setUsers([]);
+        setGroups([]);
+        return;
+      }
+
+      url.searchParams.set("search", q);
+      url.searchParams.set("kinds", kinds.join(","));
+      url.searchParams.set("per_page", "10");
 
       if (props.excludeUserIds && props.excludeUserIds.length > 0) {
         url.searchParams.set("exclude_user_ids", props.excludeUserIds.join(","));
       }
 
-      if (props.excludeGroups && props.excludeGroups.length > 0) {
-        url.searchParams.set("exclude_groups", props.excludeGroups.join(","));
+      if (props.excludeGroupIds && props.excludeGroupIds.length > 0) {
+        url.searchParams.set("exclude_group_ids", props.excludeGroupIds.join(","));
       }
 
-      if (props.onlyUserGroups) {
-        url.searchParams.set("only_user_groups", "true");
-      }
-
-      if (props.onlyPosixGroups) {
-        url.searchParams.set("only_posix_groups", "true");
-      }
-
-      if (props.usersInGroups && props.usersInGroups.length > 0) {
-        url.searchParams.set("users_in_groups", props.usersInGroups.join(","));
+      if (props.userMemberOfGroupIds && props.userMemberOfGroupIds.length > 0) {
+        url.searchParams.set("user_member_of_group_ids", props.userMemberOfGroupIds.join(","));
       }
 
       if (props.groupProvider) {
@@ -88,8 +87,9 @@ const EntitySearch = (props: EntitySearchProps) => {
 
       if (res.ok) {
         const data = await res.json();
-        setUsers(data.users ?? []);
-        setGroups(data.groups ?? []);
+        const items = data.items ?? [];
+        setUsers(items.filter((item: { kind: string }) => item.kind === "user").map((item: { user: UserResult }) => item.user));
+        setGroups(items.filter((item: { kind: string }) => item.kind === "group").map((item: { group: GroupResult }) => item.group));
       }
     } finally {
       setLoading(false);

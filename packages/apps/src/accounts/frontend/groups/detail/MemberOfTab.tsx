@@ -7,6 +7,7 @@ import { getProviderBadge } from "../../lib/account-badges";
 
 type MemberOfTabProps = {
   groupId: string;
+  groupProvider: "ipa" | "local";
   items: EntityListItem[];
   allParentGroupIds: string[];
   isAdmin: boolean;
@@ -22,7 +23,7 @@ export default function MemberOfTab(props: MemberOfTabProps) {
     <div class="flex flex-col gap-2" style="view-transition-name: accounts-group-member-of">
       <TabToolbar
         actions={
-          props.isAdmin ? <AddGroupToGroup groupId={props.groupId} excludeGroups={props.allParentGroupIds} /> : undefined
+          props.isAdmin ? <AddGroupToGroup groupId={props.groupId} groupProvider={props.groupProvider} excludeGroups={props.allParentGroupIds} /> : undefined
         }
       />
 

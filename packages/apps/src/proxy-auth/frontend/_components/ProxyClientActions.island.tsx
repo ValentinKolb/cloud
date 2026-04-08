@@ -115,7 +115,7 @@ const ProxyClientActions = (props: Props) => {
                   apiBaseUrl="/api/accounts"
                   searchGroups
                   searchUsers={false}
-                  excludeGroups={groups().map((group) => group.id)}
+                  excludeGroupIds={groups().map((group) => group.id)}
                   onSelect={handleGroupSelect}
                   placeholder="Search groups..."
                 />

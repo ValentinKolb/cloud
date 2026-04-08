@@ -36,7 +36,7 @@ export default function AddToGroup(props: AddToGroupProps) {
           groupProvider={props.userProvider === "local" ? "local" : undefined}
           searchUsers={false}
           searchGroups={true}
-          excludeGroups={props.excludeGroups}
+          excludeGroupIds={props.excludeGroups}
           placeholder="Search groups..."
           adding={mutation.loading()}
           onSelect={async (result: EntitySearchResult) => {
