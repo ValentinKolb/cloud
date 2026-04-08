@@ -50,6 +50,12 @@ const applyCancelBehavior = <T>(dialog: HTMLDialogElement, close: DialogClose<T>
     event.preventDefault();
     close(undefined);
   };
+
+  dialog.onclick = (event) => {
+    if (event.target !== dialog) return;
+    if (behavior === "ignore") return;
+    close(undefined);
+  };
 };
 
 export const createDialogCore = (): DialogCore => {
