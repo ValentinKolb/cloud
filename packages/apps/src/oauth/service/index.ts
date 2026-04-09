@@ -37,7 +37,7 @@ const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => 
 };
 
 /**
- * Maps legacy mutation status codes into the shared service error format.
+ * Maps mutation status codes into the shared service error format.
  */
 const toServiceError = (status: MutationStatus, message: string): ServiceError => {
   if (status === 400) return err.badInput(message);

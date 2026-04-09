@@ -14,26 +14,5 @@ export const migrate = async (): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
-
-  await sql`
-    UPDATE faq.entries
-    SET audience = COALESCE(
-      ARRAY(
-        SELECT DISTINCT mapped
-        FROM (
-          SELECT CASE
-            WHEN value = 'ipa' THEN 'user'
-            WHEN value IN ('ipa-limited', 'guest') THEN 'guest'
-            WHEN value IN ('user', 'guest', 'anonymous') THEN value
-            ELSE NULL
-          END AS mapped
-          FROM unnest(audience) AS value
-        ) mapped_values
-        WHERE mapped IS NOT NULL
-      ),
-      ARRAY['anonymous']::text[]
-    )
-  `.simple();
-
   console.log("  ✓ faq.entries table");
 };

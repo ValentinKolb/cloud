@@ -36,7 +36,6 @@ export default ssr<AuthContext>(async (c) => {
       page: c.req.query("list_page"),
       provider: c.req.query("list_provider"),
       scope: c.req.query("list_scope"),
-      showAll: c.req.query("list_show_all"),
     },
     { keys: GROUPS_CONTEXT_QUERY_KEYS, defaultScope },
   );

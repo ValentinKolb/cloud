@@ -12,21 +12,4 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   console.log("  ✓ settings.entries table");
-
-  const [valueColumn] = await sql<{ data_type: string | null }[]>`
-    SELECT data_type
-    FROM information_schema.columns
-    WHERE table_schema = 'settings'
-      AND table_name = 'entries'
-      AND column_name = 'value'
-  `;
-
-  if (valueColumn?.data_type === "jsonb") {
-    await sql`
-      ALTER TABLE settings.entries
-      ALTER COLUMN value TYPE TEXT
-      USING value::text
-    `.simple();
-    console.log("  ✓ settings.entries.value migrated to text");
-  }
 };

@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { realmFromProviderProfile } from "../accounts/compat";
+import { storedRealmFromProviderProfile } from "../accounts/storage";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud-contracts/shared";
 
 export type DeletedAccountReason =
@@ -30,7 +30,7 @@ export const writeDeletedAccountAudit = async (config: {
   const previousRealm =
     config.previousRealm ??
     (config.previousProvider && config.previousProfile
-      ? realmFromProviderProfile(config.previousProvider, config.previousProfile)
+      ? storedRealmFromProviderProfile(config.previousProvider, config.previousProfile)
       : null);
   if (!previousRealm) {
     throw new Error("Deleted account audit requires previousRealm or previousProvider/previousProfile");

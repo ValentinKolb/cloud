@@ -17,7 +17,6 @@ import {
   resolveTargetAccountExpiry,
 } from "./model";
 import { buildRoles } from "./authz";
-import { legacyAccountColumnsFromCanonical } from "./compat";
 import { toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseUser, resolveProviderProfile } from "./base-user";
 import {
@@ -213,7 +212,7 @@ export const get = async (params: { id: string } | { uid: string }): Promise<Use
 export const getMinimal = async (params: { id: string } | { uid: string }): Promise<UserMutationTarget | null> => {
   const whereClause = "id" in params ? sql`id = ${params.id}` : sql`uid = ${params.uid}`;
   const rows = await sql<DbRow[]>`
-    SELECT id, uid, provider, profile, admin, given_name, sn, display_name, mail, account_expires, ipa_account_expires, guest_expires_at
+    SELECT id, uid, provider, profile, admin, given_name, sn, display_name, mail, account_expires
     FROM auth.users
     WHERE ${whereClause}
   `;

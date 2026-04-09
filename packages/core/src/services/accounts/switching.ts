@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import type { UserProfile, UserProvider } from "@valentinkolb/cloud-contracts/shared";
 import * as settings from "../settings";
-import { legacyAccountColumnsFromCanonical } from "./compat";
+import { storedAccountColumnsFromCanonical } from "./storage";
 import type { IpaAccountTransitionPolicy } from "./model";
 
 type SqlExecutor = typeof sql;
@@ -74,7 +74,7 @@ export const transitionIpaUserToLocal = async (params: {
   db?: SqlExecutor;
 }): Promise<void> => {
   const db = params.db ?? sql;
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider: "local",
     profile: params.targetProfile,
     accountExpires: params.accountExpires,
@@ -82,13 +82,13 @@ export const transitionIpaUserToLocal = async (params: {
 
   await db`
     UPDATE auth.users
-    SET realm = ${legacyColumns.realm},
+    SET realm = ${storedColumns.realm},
         provider = 'local',
         profile = ${params.targetProfile},
         admin = false,
         account_expires = ${params.accountExpires},
-        ipa_account_expires = ${legacyColumns.ipaAccountExpires},
-        guest_expires_at = ${legacyColumns.guestExpiresAt}
+        ipa_account_expires = ${storedColumns.ipaAccountExpires},
+        guest_expires_at = ${storedColumns.guestExpiresAt}
     WHERE id = ${params.userId}::uuid
   `;
 

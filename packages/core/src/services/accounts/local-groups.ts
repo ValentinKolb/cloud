@@ -81,10 +81,10 @@ export const create = async (params: {
   name: string;
   description?: string;
 }): Promise<MutationResult<BaseGroup>> => {
-  const legacyCn = `local:${params.name}`;
+  const storedCn = `local:${params.name}`;
   const rows = await sql<DbRow[]>`
     INSERT INTO auth.groups (id, cn, provider, name, description, synced_at)
-    VALUES (gen_random_uuid(), ${legacyCn}, 'local', ${params.name}, ${params.description ?? null}, now())
+    VALUES (gen_random_uuid(), ${storedCn}, 'local', ${params.name}, ${params.description ?? null}, now())
     RETURNING id, provider, name, description, gid_number
   `;
 

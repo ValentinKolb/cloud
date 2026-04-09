@@ -1,9 +1,5 @@
 import { sql } from "bun";
 
-/**
- * Creates the weather locations table.
- * Safe to run multiple times (uses IF NOT EXISTS).
- */
 export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS weather_locations (

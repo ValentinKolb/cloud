@@ -50,13 +50,7 @@ export const resolveEffectiveAdminState = (params: {
 };
 
 export const resolveAccountExpires = (row: Record<string, unknown>): Date | null => {
-  const accountExpires = row.account_expires as Date | null | undefined;
-  if (accountExpires) return accountExpires;
-
-  const ipaAccountExpires = row.ipa_account_expires as Date | null | undefined;
-  if (ipaAccountExpires) return ipaAccountExpires;
-
-  return (row.guest_expires_at as Date | null | undefined) ?? null;
+  return (row.account_expires as Date | null | undefined) ?? null;
 };
 
 export const normalizeManualAccountExpiry = (value: string | null | undefined): Date | null => {

@@ -7,7 +7,6 @@ export type QueryKeys = {
 
 export type GroupQueryKeys = QueryKeys & {
   scope: string;
-  legacyShowAll?: string;
 };
 
 export const USERS_QUERY_KEYS: QueryKeys = {
@@ -22,7 +21,6 @@ export const GROUPS_QUERY_KEYS: GroupQueryKeys = {
   page: "page",
   provider: "provider",
   scope: "scope",
-  legacyShowAll: "show_all",
 };
 
 /**
@@ -34,7 +32,6 @@ export const GROUPS_CONTEXT_QUERY_KEYS: GroupQueryKeys = {
   page: "list_page",
   provider: "list_provider",
   scope: "list_scope",
-  legacyShowAll: "list_show_all",
 };
 
 export type UsersListState = {
@@ -154,19 +151,11 @@ export const parseGroupsListState = (
     page?: number | string | null;
     provider?: string | null;
     scope?: string | null;
-    showAll?: string | boolean | null;
   },
   options: GroupsStateOptions = {},
 ): GroupsListState => {
   const defaultScope = options.defaultScope ?? "member";
-  let scope = input.scope;
-
-  if (!scope && input.showAll !== null && input.showAll !== undefined) {
-    const legacy = String(input.showAll).trim().toLowerCase();
-    scope = legacy === "true" || legacy === "1" || legacy === "yes" ? "all" : "member";
-  }
-
-  const normalizedScope = scope === "managed" || scope === "member" || scope === "all" ? scope : defaultScope;
+  const normalizedScope = input.scope === "managed" || input.scope === "member" || input.scope === "all" ? input.scope : defaultScope;
 
   return {
     search: normalizeSearch(input.search),
@@ -185,7 +174,6 @@ export const parseGroupsListStateFromParams = (params: URLSearchParams, options:
       page: params.get(keys.page),
       provider: keys.provider ? params.get(keys.provider) : null,
       scope: params.get(keys.scope),
-      showAll: keys.legacyShowAll ? params.get(keys.legacyShowAll) : null,
     },
     options,
   );
@@ -199,7 +187,6 @@ export const writeGroupsListState = (params: URLSearchParams, state: GroupsListS
   writeIfNonDefault(params, keys.page, String(state.page), "1");
   if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
   writeIfNonDefault(params, keys.scope, state.scope, defaultScope);
-  if (keys.legacyShowAll) params.delete(keys.legacyShowAll);
 };
 
 export const buildGroupsUrl = (
@@ -226,7 +213,6 @@ export const buildGroupsPageBaseUrl = (
   writeIfNonDefault(params, keys.search, state.search, "");
   if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
   writeIfNonDefault(params, keys.scope, state.scope, defaultScope);
-  if (keys.legacyShowAll) params.delete(keys.legacyShowAll);
 
   const query = params.toString();
   const basePath = options.basePath ?? "/app/accounts/groups";

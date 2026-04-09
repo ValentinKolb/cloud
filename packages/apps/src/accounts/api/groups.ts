@@ -129,7 +129,6 @@ const app = new Hono<AuthContext>()
         ...PaginationQuerySchema.shape,
         ...SearchQuerySchema.shape,
         scope: z.enum(["managed", "member", "all"]).optional(),
-        show_all: z.enum(["true", "false"]).optional(),
         provider: z.enum(["local", "ipa"]).optional(),
       }),
     ),
@@ -142,8 +141,8 @@ const app = new Hono<AuthContext>()
         pagination: { page: params.page, perPage: params.perPage },
         filter: { search: query.search },
         scope: {
-          userId: query.scope === "all" || query.show_all === "true" ? undefined : user.id,
-          mode: query.scope ?? (query.show_all === "true" ? "all" : "member"),
+          userId: query.scope === "all" ? undefined : user.id,
+          mode: query.scope ?? "member",
           provider: query.provider,
         },
       });

@@ -10,9 +10,7 @@
 import { sql } from "bun";
 import { env } from "@valentinkolb/cloud-core/config/env";
 import { crypto } from "@valentinkolb/cloud-lib/server/services";
-import { toPgTextArray } from "../postgres";
 import {
-  LEGACY_SETTING_MIGRATIONS,
   SETTINGS,
   SETTINGS_MAP,
   getSettingLabel,
@@ -28,10 +26,8 @@ type StoredRow = { key: string; value: string };
 type PendingRow = { key: string; value: unknown; rewrite: boolean; existed: boolean };
 type NormalizationStats = {
   encryptedLoaded: number;
-  legacyReencrypted: number;
   normalizedUpdated: number;
   envBootstrapped: number;
-  keyMigrated: number;
   invalidSkipped: number;
 };
 
@@ -105,50 +101,20 @@ const normalizeStoredEntries = async (): Promise<{ rows: Array<{ key: string; va
   const rows = await sql<StoredRow[]>`SELECT key, value FROM settings.entries`;
   const stats: NormalizationStats = {
     encryptedLoaded: 0,
-    legacyReencrypted: 0,
     normalizedUpdated: 0,
     envBootstrapped: 0,
-    keyMigrated: 0,
     invalidSkipped: 0,
   };
   const pendingRows = new Map<string, PendingRow>();
-  const keysToDelete = new Set<string>();
 
   for (const row of rows) {
     try {
       const value = await decryptValue(row.value);
       pendingRows.set(row.key, { key: row.key, value, rewrite: false, existed: true });
       stats.encryptedLoaded += 1;
-      continue;
     } catch {
-      try {
-        const value = parseJsonValue(row.value);
-        pendingRows.set(row.key, { key: row.key, value, rewrite: true, existed: true });
-        stats.legacyReencrypted += 1;
-      } catch {
-        console.warn(`[settings] skipping invalid stored value for "${row.key}"`);
-        stats.invalidSkipped += 1;
-      }
-    }
-  }
-
-  for (const migration of LEGACY_SETTING_MIGRATIONS) {
-    const legacyRow = pendingRows.get(migration.from);
-    if (!legacyRow) continue;
-
-    if (!pendingRows.has(migration.to)) {
-      pendingRows.set(migration.to, {
-        key: migration.to,
-        value: legacyRow.value,
-        rewrite: true,
-        existed: false,
-      });
-    }
-
-    if (migration.from !== migration.to) {
-      pendingRows.delete(migration.from);
-      keysToDelete.add(migration.from);
-      stats.keyMigrated += 1;
+      console.warn(`[settings] skipping invalid stored value for "${row.key}"`);
+      stats.invalidSkipped += 1;
     }
   }
 
@@ -175,10 +141,6 @@ const normalizeStoredEntries = async (): Promise<{ rows: Array<{ key: string; va
       await upsertEncryptedRow(key, validated.value);
       stats.normalizedUpdated += 1;
     }
-  }
-
-  if (keysToDelete.size > 0) {
-    await sql`DELETE FROM settings.entries WHERE key = ANY(${toPgTextArray(Array.from(keysToDelete))}::text[])`;
   }
 
   return { rows: normalized, stats };
@@ -212,7 +174,7 @@ export async function loadCache(): Promise<void> {
   cache = new Map(bootstrappedRows.map((row) => [row.key, row.value]));
 
   console.log(
-    `[settings] loaded ${bootstrappedRows.length} custom setting(s) (${stats.encryptedLoaded} encrypted, ${stats.legacyReencrypted} legacy re-encrypted, ${stats.normalizedUpdated} normalized, ${stats.keyMigrated} migrated, ${stats.envBootstrapped} env-bootstrapped, ${stats.invalidSkipped} skipped)`,
+    `[settings] loaded ${bootstrappedRows.length} custom setting(s) (${stats.encryptedLoaded} encrypted, ${stats.normalizedUpdated} normalized, ${stats.envBootstrapped} env-bootstrapped, ${stats.invalidSkipped} skipped)`,
   );
 }
 

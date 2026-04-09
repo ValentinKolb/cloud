@@ -105,9 +105,7 @@ export default ssr<AuthContext>(async (c) => {
             <div class="paper p-6">
               <div class="mb-6 flex flex-col gap-2">
                 <h1 class="text-xl font-bold text-primary">Create New Account</h1>
-                <p class="text-sm text-dimmed">
-                  This compatibility page now opens the same provider-first dialog flow used from the Users and Requests pages.
-                </p>
+                <p class="text-sm text-dimmed">This page opens the same provider-first dialog flow used from the Users and Requests pages.</p>
               </div>
               <CreateUserForm
                 autoOpen

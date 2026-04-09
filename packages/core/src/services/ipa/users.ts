@@ -1,6 +1,6 @@
 import { sql } from "bun";
 import { writeDeletedAccountAudit } from "@valentinkolb/cloud-core/services/account-lifecycle/audit";
-import { legacyAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/compat";
+import { storedAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/storage";
 import {
   buildRoles as buildAccountRoles,
   resolveEffectiveAdminState,
@@ -674,7 +674,7 @@ export const addIpa = async (params: {
   const temporaryPassword = generatePassword();
   const accountExpiry = params.accountExpires === undefined ? await calculateAccountExpiration() : params.accountExpires;
   const now = new Date();
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider: "ipa",
     profile: targetProfile,
     accountExpires: accountExpiry,
@@ -724,7 +724,7 @@ export const addIpa = async (params: {
     const guestId = existingLocalRows[0]!.id as string;
     const updateRows: DbRow[] = await sql`
       UPDATE auth.users SET
-        realm = ${legacyColumns.realm},
+        realm = ${storedColumns.realm},
         provider = 'ipa',
         profile = ${targetProfile},
         admin = false,
@@ -733,8 +733,8 @@ export const addIpa = async (params: {
         display_name = ${displayName},
         mail = ${email},
         account_expires = ${accountExpiry},
-        ipa_account_expires = ${legacyColumns.ipaAccountExpires},
-        guest_expires_at = ${legacyColumns.guestExpiresAt}
+        ipa_account_expires = ${storedColumns.ipaAccountExpires},
+        guest_expires_at = ${storedColumns.guestExpiresAt}
       WHERE id = ${guestId}
       RETURNING id
     `;
@@ -750,7 +750,7 @@ export const addIpa = async (params: {
     // New user: insert
     const insertRows: DbRow[] = await sql`
       INSERT INTO auth.users (uid, realm, provider, profile, admin, given_name, sn, display_name, mail, account_expires, ipa_account_expires, guest_expires_at)
-      VALUES (${uid}, ${legacyColumns.realm}, 'ipa', ${targetProfile}, false, ${givenname}, ${sn}, ${displayName}, ${email}, ${accountExpiry}, ${legacyColumns.ipaAccountExpires}, ${legacyColumns.guestExpiresAt})
+      VALUES (${uid}, ${storedColumns.realm}, 'ipa', ${targetProfile}, false, ${givenname}, ${sn}, ${displayName}, ${email}, ${accountExpiry}, ${storedColumns.ipaAccountExpires}, ${storedColumns.guestExpiresAt})
       ON CONFLICT (uid) DO UPDATE SET
         realm = EXCLUDED.realm,
         provider = EXCLUDED.provider,
@@ -1016,7 +1016,7 @@ export const setExpiry = async (params: {
   if (provider === "local" && profile === "guest") {
     const guestExpiry = expiryDate ? new Date(expiryDate) : null;
     if (guestExpiry) guestExpiry.setUTCHours(23, 59, 59, 0);
-    const legacyColumns = legacyAccountColumnsFromCanonical({
+    const storedColumns = storedAccountColumnsFromCanonical({
       provider: "local",
       profile,
       accountExpires: guestExpiry,
@@ -1024,8 +1024,8 @@ export const setExpiry = async (params: {
     await sql`
       UPDATE auth.users
       SET account_expires = ${guestExpiry},
-          ipa_account_expires = ${legacyColumns.ipaAccountExpires},
-          guest_expires_at = ${legacyColumns.guestExpiresAt}
+          ipa_account_expires = ${storedColumns.ipaAccountExpires},
+          guest_expires_at = ${storedColumns.guestExpiresAt}
       WHERE id = ${id}
     `;
     return { ok: true, data: undefined };
@@ -1114,7 +1114,7 @@ export const demoteToGuest = async (params: {
   const displayName = (userRows[0]!.display_name as string) ?? null;
   const guestExpiresDays = await settings.get<number | null>("user.account.local_guest_expires_days");
   const accountExpires = guestExpiresDays && guestExpiresDays > 0 ? new Date(Date.now() + guestExpiresDays * 24 * 60 * 60 * 1000) : null;
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider: "local",
     profile: "guest",
     accountExpires,
@@ -1134,10 +1134,10 @@ export const demoteToGuest = async (params: {
   await sql.begin(async (tx) => {
     await tx`
       UPDATE auth.users
-      SET realm = ${legacyColumns.realm}, provider = 'local', profile = 'guest', admin = false,
+      SET realm = ${storedColumns.realm}, provider = 'local', profile = 'guest', admin = false,
           account_expires = ${accountExpires},
-          ipa_account_expires = ${legacyColumns.ipaAccountExpires},
-          guest_expires_at = ${legacyColumns.guestExpiresAt}
+          ipa_account_expires = ${storedColumns.ipaAccountExpires},
+          guest_expires_at = ${storedColumns.guestExpiresAt}
       WHERE id = ${id}
     `;
     await tx`DELETE FROM auth.user_ipa_data WHERE user_id = ${id}`;

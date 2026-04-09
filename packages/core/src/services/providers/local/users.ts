@@ -4,7 +4,7 @@ import { logger } from "../../logging";
 import { session } from "../../session";
 import * as settings from "../../settings";
 import { generateUniqueAbbreviation } from "../../ipa/users";
-import { legacyAccountColumnsFromCanonical } from "../../accounts/compat";
+import { storedAccountColumnsFromCanonical } from "../../accounts/storage";
 import { resolveStoredAdminState } from "../../accounts/model";
 import type { MutationResult, UserProfile } from "@valentinkolb/cloud-contracts/shared";
 
@@ -31,7 +31,7 @@ export const create = async (params: {
   admin?: boolean;
 }): Promise<MutationResult<{ id: string }>> => {
   const uid = await createLocalUid();
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider: "local",
     profile: params.profile,
     accountExpires: params.accountExpires,
@@ -59,7 +59,7 @@ export const create = async (params: {
     )
     VALUES (
       ${uid},
-      ${legacyColumns.realm},
+      ${storedColumns.realm},
       'local',
       ${params.profile},
       ${params.data.email},
@@ -68,8 +68,8 @@ export const create = async (params: {
       ${params.data.displayName ?? ""},
       ${admin},
       ${params.accountExpires},
-      ${legacyColumns.ipaAccountExpires},
-      ${legacyColumns.guestExpiresAt}
+      ${storedColumns.ipaAccountExpires},
+      ${storedColumns.guestExpiresAt}
     )
     RETURNING id
   `;
@@ -144,7 +144,7 @@ export const setProfile = async (params: {
     return { ok: false, error: "Only local accounts can change profile locally", status: 400 };
   }
 
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider: "local",
     profile: params.profile,
     accountExpires: params.accountExpires,
@@ -157,13 +157,13 @@ export const setProfile = async (params: {
 
   await sql`
     UPDATE auth.users
-    SET realm = ${legacyColumns.realm},
+    SET realm = ${storedColumns.realm},
         provider = 'local',
         profile = ${params.profile},
         admin = ${admin},
         account_expires = ${params.accountExpires},
-        ipa_account_expires = ${legacyColumns.ipaAccountExpires},
-        guest_expires_at = ${legacyColumns.guestExpiresAt}
+        ipa_account_expires = ${storedColumns.ipaAccountExpires},
+        guest_expires_at = ${storedColumns.guestExpiresAt}
     WHERE id = ${params.id}::uuid
   `;
 
@@ -185,7 +185,7 @@ export const setExpiry = async (params: {
     return { ok: false, error: "Only local accounts support local expiry changes", status: 400 };
   }
 
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider: "local",
     profile: params.profile,
     accountExpires: params.accountExpires,
@@ -194,8 +194,8 @@ export const setExpiry = async (params: {
   await sql`
     UPDATE auth.users
     SET account_expires = ${params.accountExpires},
-        ipa_account_expires = ${legacyColumns.ipaAccountExpires},
-        guest_expires_at = ${legacyColumns.guestExpiresAt}
+        ipa_account_expires = ${storedColumns.ipaAccountExpires},
+        guest_expires_at = ${storedColumns.guestExpiresAt}
     WHERE id = ${params.id}::uuid
   `;
 

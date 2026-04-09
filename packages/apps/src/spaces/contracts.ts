@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// PostgreSQL uuid text format (accepts legacy non-RFC version/variant values too).
+// PostgreSQL uuid text format (accepts PostgreSQL's broader non-RFC version/variant values too).
 const SpaceUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
 export const SpaceSchema = z.object({

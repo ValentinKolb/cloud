@@ -20,19 +20,13 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_logging_entries_source
     ON logging.entries(source)
   `.simple();
-
   await sql`
     CREATE INDEX IF NOT EXISTS idx_logging_entries_level
     ON logging.entries(level)
   `.simple();
-
   await sql`
     CREATE INDEX IF NOT EXISTS idx_logging_entries_created_at
     ON logging.entries(created_at DESC)
   `.simple();
   console.log("  ✓ logging indexes");
-
-  // Migration: drop user_id column (moved to metadata)
-  await sql`ALTER TABLE logging.entries DROP COLUMN IF EXISTS user_id`.simple();
-  await sql`DROP INDEX IF EXISTS logging.idx_logging_entries_user_id`.simple();
 };

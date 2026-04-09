@@ -465,7 +465,7 @@ const app = new Hono<AuthContext>()
   // ITEMS
   // ==========================
 
-  // List Items (simple, for backwards compatibility)
+  // List Items (plain board snapshot)
   .get(
     "/:id/items",
     describeRoute({

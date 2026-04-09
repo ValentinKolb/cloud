@@ -4,8 +4,7 @@ import NewPasswordForm from "./NewPasswordForm.island";
 /** Set new password page (for expired/temporary passwords). */
 export default ssr((c) => {
   const params = new URL(c.req.url).searchParams;
-  // Support both ?ipa-uid= (new) and ?user= (legacy) params
-  const user = params.get("ipa-uid") ?? params.get("user") ?? "";
+  const user = params.get("ipa-uid") ?? "";
 
   return (
     <div class="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">

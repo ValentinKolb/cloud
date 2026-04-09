@@ -99,11 +99,6 @@ export type SettingValidationResult =
   | { ok: true; value: SettingDef["default"] }
   | { ok: false; error: string };
 
-export type SettingKeyMigration = {
-  from: string;
-  to: string;
-};
-
 const envString = (key: string): string | undefined => {
   const value = process.env[key]?.trim();
   return value && value.length > 0 ? value : undefined;
@@ -547,25 +542,6 @@ export const SETTINGS: SettingDef[] = [
     description: "Maximum API requests per second per IP address",
     group: "security",
   },
-];
-
-export const LEGACY_SETTING_MIGRATIONS: SettingKeyMigration[] = [
-  { from: "identity.ipa_match_mode", to: "freeipa.user_match_mode" },
-  { from: "identity.ipa_account_transition_policy", to: "freeipa.account_transition_policy" },
-  { from: "user.login.welcome_email_freeipa", to: "mail.user_welcome_freeipa" },
-  { from: "user.login.welcome_email_local", to: "mail.user_welcome_local" },
-  { from: "user.login.magic_link_email", to: "mail.magic_link_login" },
-  { from: "user.login.account_expires_email", to: "mail.account_expiry_reminder" },
-  { from: "user.login.account_denial_email", to: "mail.account_request_denial" },
-  { from: "email.noreply.smtp_host", to: "mail.noreply.smtp_host" },
-  { from: "email.noreply.smtp_port", to: "mail.noreply.smtp_port" },
-  { from: "email.noreply.from", to: "mail.noreply.from" },
-  { from: "email.noreply.user", to: "mail.noreply.user" },
-  { from: "email.noreply.password", to: "mail.noreply.password" },
-  { from: "freeipa.groups_admin", to: "freeipa.groups.admin" },
-  { from: "freeipa.groups_base_sync", to: "freeipa.groups.base_sync" },
-  { from: "freeipa.groups_base_ipa_realm", to: "freeipa.groups.base_ipa_realm" },
-  { from: "freeipa.groups_excluded", to: "freeipa.groups.excluded" },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

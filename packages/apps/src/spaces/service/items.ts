@@ -181,7 +181,7 @@ const toPgTextArray = (values: string[] | null | undefined): string => {
 };
 
 /**
- * List items for a space (board view) - simple version for backwards compatibility
+ * List items for a space as a plain board snapshot.
  */
 export const list = async (params: { spaceId: string; includeCompleted?: boolean }): Promise<SpaceItem[]> => {
   const { spaceId, includeCompleted = false } = params;

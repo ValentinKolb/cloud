@@ -4,6 +4,7 @@ import { env } from "@valentinkolb/cloud-core/config/env";
 import { logger } from "@valentinkolb/cloud-core/services/logging";
 import { notifications } from "@valentinkolb/cloud-core/services/notifications";
 import { applyIpaAccountTransitionPolicy } from "@valentinkolb/cloud-core/services/accounts/switching";
+import { storedAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/storage";
 import { get as getSetting } from "@valentinkolb/cloud-core/services/settings";
 import { renderTemplate } from "@valentinkolb/cloud-core/services/settings/templates";
 import { session } from "@valentinkolb/cloud-core/services/session";
@@ -55,6 +56,9 @@ const getGuestExpiresDays = async (): Promise<number> => {
 };
 const getDeletedAccountsRetentionDays = async (): Promise<number> => settingInt("user.account.deleted_accounts_retention_days", 365);
 const getReminderHistoryRetentionDays = async (): Promise<number> => settingInt("user.account.reminder_history_retention_days", 365);
+
+const storedExpiryColumns = (config: { provider: "ipa" | "local"; profile: "user" | "guest"; accountExpires: Date | null }) =>
+  storedAccountColumnsFromCanonical(config);
 
 const parseReminderDays = async (): Promise<number[]> => {
   const raw = await getSetting<number[]>("user.account.reminder_days");
@@ -603,10 +607,16 @@ export const accountLifecycle = {
       const remoteResult = remote.result?.result as Record<string, unknown> | undefined;
       const remoteExpiry = freeipa.util.parseGeneralizedTime(remoteResult?.krbprincipalexpiration);
       if (remoteExpiry && remoteExpiry >= minimumExpiry) {
+        const columns = storedExpiryColumns({
+          provider: "ipa",
+          profile: "user",
+          accountExpires: remoteExpiry,
+        });
         await sql`
           UPDATE auth.users
           SET account_expires = ${remoteExpiry},
-              ipa_account_expires = ${remoteExpiry}
+              ipa_account_expires = ${columns.ipaAccountExpires},
+              guest_expires_at = ${columns.guestExpiresAt}
           WHERE id = ${userId}::uuid
         `;
         await sql`
@@ -631,10 +641,16 @@ export const accountLifecycle = {
         continue;
       }
 
+      const columns = storedExpiryColumns({
+        provider: "ipa",
+        profile: "user",
+        accountExpires: minimumExpiry,
+      });
       await sql`
         UPDATE auth.users
         SET account_expires = ${minimumExpiry},
-            ipa_account_expires = ${minimumExpiry}
+            ipa_account_expires = ${columns.ipaAccountExpires},
+            guest_expires_at = ${columns.guestExpiresAt}
         WHERE id = ${userId}::uuid
       `;
       await sql`
@@ -659,7 +675,9 @@ export const accountLifecycle = {
 
     const rows = await sql<DbRow[]>`
       UPDATE auth.users
-      SET account_expires = ${target}
+      SET account_expires = ${target},
+          ipa_account_expires = NULL,
+          guest_expires_at = NULL
       WHERE provider = 'local'
         AND profile = 'user'
         AND (account_expires IS NULL OR account_expires < ${target})
@@ -682,11 +700,17 @@ export const accountLifecycle = {
 
     const days = Math.max(configuredDays, 7);
     const target = new Date(Date.now() + days * DAY_MS);
+    const columns = storedExpiryColumns({
+      provider: "local",
+      profile: "guest",
+      accountExpires: target,
+    });
 
     const rows = await sql<DbRow[]>`
       UPDATE auth.users
       SET account_expires = ${target},
-          guest_expires_at = ${target}
+          ipa_account_expires = ${columns.ipaAccountExpires},
+          guest_expires_at = ${columns.guestExpiresAt}
       WHERE provider = 'local'
         AND profile = 'guest'
         AND (account_expires IS NULL OR account_expires < ${target})
@@ -734,10 +758,16 @@ export const accountLifecycle = {
         throw new Error(response.error.message || "Failed to extend IPA account.");
       }
 
+      const columns = storedExpiryColumns({
+        provider: "ipa",
+        profile: "user",
+        accountExpires: expiresAt,
+      });
       await sql`
         UPDATE auth.users
         SET account_expires = ${expiresAt},
-            ipa_account_expires = ${expiresAt}
+            ipa_account_expires = ${columns.ipaAccountExpires},
+            guest_expires_at = ${columns.guestExpiresAt}
         WHERE id = ${config.user.id}::uuid
       `;
       await sql`
@@ -755,20 +785,32 @@ export const accountLifecycle = {
     if (config.user.provider === "local" && config.user.profile === "guest") {
       const guestDays = await getGuestExpiresDays();
       if (guestDays <= 0) {
+        const columns = storedExpiryColumns({
+          provider: "local",
+          profile: "guest",
+          accountExpires: null,
+        });
         await sql`
           UPDATE auth.users
           SET account_expires = NULL,
-              guest_expires_at = NULL
+              ipa_account_expires = ${columns.ipaAccountExpires},
+              guest_expires_at = ${columns.guestExpiresAt}
           WHERE id = ${config.user.id}::uuid
         `;
         return { message: "Guest account expiry is disabled." };
       }
 
       const expiresAt = new Date(Date.now() + guestDays * DAY_MS);
+      const columns = storedExpiryColumns({
+        provider: "local",
+        profile: "guest",
+        accountExpires: expiresAt,
+      });
       await sql`
         UPDATE auth.users
         SET account_expires = ${expiresAt},
-            guest_expires_at = ${expiresAt}
+            ipa_account_expires = ${columns.ipaAccountExpires},
+            guest_expires_at = ${columns.guestExpiresAt}
         WHERE id = ${config.user.id}::uuid
       `;
 
@@ -781,18 +823,32 @@ export const accountLifecycle = {
     if (config.user.provider === "local" && config.user.profile === "user") {
       const localUserDays = await getLocalUserExpiresDays();
       if (localUserDays <= 0) {
+        const columns = storedExpiryColumns({
+          provider: "local",
+          profile: "user",
+          accountExpires: null,
+        });
         await sql`
           UPDATE auth.users
-          SET account_expires = NULL
+          SET account_expires = NULL,
+              ipa_account_expires = ${columns.ipaAccountExpires},
+              guest_expires_at = ${columns.guestExpiresAt}
           WHERE id = ${config.user.id}::uuid
         `;
         return { message: "Local user account expiry is disabled." };
       }
 
       const expiresAt = new Date(Date.now() + localUserDays * DAY_MS);
+      const columns = storedExpiryColumns({
+        provider: "local",
+        profile: "user",
+        accountExpires: expiresAt,
+      });
       await sql`
         UPDATE auth.users
-        SET account_expires = ${expiresAt}
+        SET account_expires = ${expiresAt},
+            ipa_account_expires = ${columns.ipaAccountExpires},
+            guest_expires_at = ${columns.guestExpiresAt}
         WHERE id = ${config.user.id}::uuid
       `;
 

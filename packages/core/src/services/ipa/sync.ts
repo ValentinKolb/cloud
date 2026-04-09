@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { legacyAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/compat";
+import { storedAccountColumnsFromCanonical } from "@valentinkolb/cloud-core/services/accounts/storage";
 import { applyIpaAccountTransitionPolicy } from "@valentinkolb/cloud-core/services/accounts/switching";
 import {
   parseIpaAccountTransitionPolicy,
@@ -291,7 +291,7 @@ export const syncFromIpa = async (): Promise<void> => {
     for (const u of activeUsers) {
       const profile = calculateIpaProfile(u.memberofGroup);
       const provider = "ipa";
-      const legacyColumns = legacyAccountColumnsFromCanonical({
+      const storedColumns = storedAccountColumnsFromCanonical({
         provider,
         profile,
         accountExpires: u.ipaAccountExpires,
@@ -301,7 +301,7 @@ export const syncFromIpa = async (): Promise<void> => {
         // First: match existing IPA user by mail (handles UID renames)
         const updated = await tx`
           UPDATE auth.users SET
-            uid = ${u.uid}, realm = ${legacyColumns.realm}, provider = ${provider}, profile = ${profile}, admin = false,
+            uid = ${u.uid}, realm = ${storedColumns.realm}, provider = ${provider}, profile = ${profile}, admin = false,
             given_name = ${u.givenname}, sn = ${u.sn},
             display_name = ${u.displayName}, mail = ${u.mail},
             account_expires = ${u.ipaAccountExpires},
@@ -328,7 +328,7 @@ export const syncFromIpa = async (): Promise<void> => {
           if (localMatches.length === 1) {
             const migrated = await tx`
               UPDATE auth.users SET
-                uid = ${u.uid}, realm = ${legacyColumns.realm}, provider = ${provider}, profile = ${profile}, admin = false,
+                uid = ${u.uid}, realm = ${storedColumns.realm}, provider = ${provider}, profile = ${profile}, admin = false,
                 given_name = ${u.givenname}, sn = ${u.sn},
                 display_name = ${u.displayName}, mail = ${u.mail},
                 account_expires = ${u.ipaAccountExpires},
@@ -370,11 +370,11 @@ export const syncFromIpa = async (): Promise<void> => {
       // Third: insert new or update existing by uid
       const upserted = await tx<DbRow[]>`
         INSERT INTO auth.users (uid, realm, provider, profile, admin, given_name, sn, display_name, mail, account_expires, ipa_account_expires, guest_expires_at)
-        VALUES (${u.uid}, ${legacyColumns.realm}, ${provider}, ${profile}, false, ${u.givenname}, ${u.sn}, ${
+        VALUES (${u.uid}, ${storedColumns.realm}, ${provider}, ${profile}, false, ${u.givenname}, ${u.sn}, ${
           u.displayName
         }, ${u.mail}, ${u.ipaAccountExpires}, ${u.ipaAccountExpires}, NULL)
         ON CONFLICT (uid) DO UPDATE SET
-          realm = ${legacyColumns.realm},
+          realm = ${storedColumns.realm},
           provider = ${provider},
           profile = ${profile},
           admin = false,
@@ -618,7 +618,7 @@ export const syncUser = async (username: string): Promise<void> => {
   const userId = userRows[0]!.id as string;
   const profile = await calculateIpaProfileFromLocalDb(userId);
   const provider = "ipa";
-  const legacyColumns = legacyAccountColumnsFromCanonical({
+  const storedColumns = storedAccountColumnsFromCanonical({
     provider,
     profile,
     accountExpires: user.ipaAccountExpires,
@@ -627,7 +627,7 @@ export const syncUser = async (username: string): Promise<void> => {
   // Update user attributes only (no group sync!)
   await sql`
     UPDATE auth.users SET
-      realm = ${legacyColumns.realm},
+      realm = ${storedColumns.realm},
       provider = ${provider},
       profile = ${profile},
       admin = false,
