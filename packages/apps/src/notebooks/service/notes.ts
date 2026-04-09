@@ -128,6 +128,20 @@ const mapToNoteVersion = (row: DbNoteVersion): NoteVersion => ({
   createdAt: row.created_at.toISOString(),
 });
 
+const compareTreeNodes = (left: NoteTreeNode, right: NoteTreeNode): number => {
+  const leftTitle = left.title.trim().toLocaleLowerCase();
+  const rightTitle = right.title.trim().toLocaleLowerCase();
+  if (leftTitle !== rightTitle) return leftTitle.localeCompare(rightTitle);
+  return left.id.localeCompare(right.id);
+};
+
+const sortTreeNodes = (nodes: NoteTreeNode[]): void => {
+  nodes.sort(compareTreeNodes);
+  for (const node of nodes) {
+    if (node.children.length > 0) sortTreeNodes(node.children);
+  }
+};
+
 // ==========================
 // Lock Helpers
 // ==========================
@@ -297,6 +311,8 @@ export const getTree = async (params: { notebookId: string }): Promise<NoteTreeN
       roots.push(node);
     }
   }
+
+  sortTreeNodes(roots);
 
   return roots;
 };
