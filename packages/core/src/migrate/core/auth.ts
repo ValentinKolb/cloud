@@ -105,22 +105,6 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ auth.groups table");
 
   await sql`
-    CREATE TABLE IF NOT EXISTS auth.user_groups (
-      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-      group_cn TEXT NOT NULL REFERENCES auth.groups(cn) ON DELETE CASCADE,
-      PRIMARY KEY (user_id, group_cn)
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_user_groups_group
-    ON auth.user_groups(group_cn)
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_user_groups_user
-    ON auth.user_groups(user_id)
-  `.simple();
-
-  await sql`
     CREATE TABLE IF NOT EXISTS auth.user_groups_v2 (
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       group_id UUID NOT NULL REFERENCES auth.groups(id) ON DELETE CASCADE,
@@ -137,18 +121,6 @@ export const migrate = async (): Promise<void> => {
   `.simple();
 
   await sql`
-    CREATE TABLE IF NOT EXISTS auth.group_groups (
-      parent_cn TEXT NOT NULL REFERENCES auth.groups(cn) ON DELETE CASCADE,
-      child_cn TEXT NOT NULL REFERENCES auth.groups(cn) ON DELETE CASCADE,
-      PRIMARY KEY (parent_cn, child_cn)
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_group_groups_child
-    ON auth.group_groups(child_cn)
-  `.simple();
-
-  await sql`
     CREATE TABLE IF NOT EXISTS auth.group_groups_v2 (
       parent_group_id UUID NOT NULL REFERENCES auth.groups(id) ON DELETE CASCADE,
       child_group_id UUID NOT NULL REFERENCES auth.groups(id) ON DELETE CASCADE,
@@ -161,18 +133,6 @@ export const migrate = async (): Promise<void> => {
   `.simple();
 
   await sql`
-    CREATE TABLE IF NOT EXISTS auth.group_manager_users (
-      group_cn TEXT NOT NULL REFERENCES auth.groups(cn) ON DELETE CASCADE,
-      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-      PRIMARY KEY (group_cn, user_id)
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_group_manager_users_user
-    ON auth.group_manager_users(user_id)
-  `.simple();
-
-  await sql`
     CREATE TABLE IF NOT EXISTS auth.group_manager_users_v2 (
       group_id UUID NOT NULL REFERENCES auth.groups(id) ON DELETE CASCADE,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -182,18 +142,6 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_group_manager_users_v2_user
     ON auth.group_manager_users_v2(user_id)
-  `.simple();
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS auth.group_manager_groups (
-      group_cn TEXT NOT NULL REFERENCES auth.groups(cn) ON DELETE CASCADE,
-      manager_cn TEXT NOT NULL REFERENCES auth.groups(cn) ON DELETE CASCADE,
-      PRIMARY KEY (group_cn, manager_cn)
-    )
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_group_manager_groups_manager
-    ON auth.group_manager_groups(manager_cn)
   `.simple();
 
   await sql`
