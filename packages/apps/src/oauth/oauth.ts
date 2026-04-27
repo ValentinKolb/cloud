@@ -20,6 +20,23 @@ const getIssuer = () => {
 const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups"];
 const isOAuthScope = (value: string): value is OAuthScope => OAUTH_SCOPES.includes(value as OAuthScope);
 
+function readBasicClientCredentials(authHeader: string | undefined | null):
+  | { clientId: string; clientSecret: string }
+  | null {
+  if (!authHeader?.startsWith("Basic ")) return null;
+
+  const encoded = authHeader.slice("Basic ".length);
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+
+  const colon = decoded.indexOf(":");
+  if (colon === -1) return null;
+
+  return {
+    clientId: decoded.slice(0, colon),
+    clientSecret: decoded.slice(colon + 1),
+  };
+}
+
 const AuthorizeQuerySchema = z.object({
   client_id: z.string().min(1),
   redirect_uri: z.url(),
@@ -34,7 +51,7 @@ const TokenBodySchema = z.object({
   grant_type: z.literal("authorization_code"),
   code: z.string().min(1),
   redirect_uri: z.url(),
-  client_id: z.string().min(1),
+  client_id: z.string().min(1).optional(),
   client_secret: z.string().optional(),
   code_verifier: z.string().optional(),
 });
@@ -167,7 +184,16 @@ const app = new Hono<AuthContext>()
     v("form", TokenBodySchema),
     async (c) => {
       const body = c.req.valid("form");
-      const { code, redirect_uri, client_id, client_secret, code_verifier } = body;
+      let { code, redirect_uri, client_id, client_secret, code_verifier } = body;
+
+      const basicCredentials = readBasicClientCredentials(c.req.header("Authorization"));
+
+      client_id ??= basicCredentials?.clientId;
+      client_secret ??= basicCredentials?.clientSecret;
+
+      if (!client_id) {
+        return c.json({ message: "Missing client_id" }, 400);
+      }
 
       const client = await oauth.clients.validateCredentials({
         clientId: client_id,
