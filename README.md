@@ -1,76 +1,120 @@
-# Cloud
+<p align="center">
+  <img src="./packages/cloud/public/logo.svg" alt="Cloud" width="96" height="96">
+</p>
 
-A modular application platform — an "internet OS" for building internal tools, self-hosted by small-to-large businesses, open-source admins, and homelabs.
+<h1 align="center">Cloud</h1>
 
-Each app runs in its own container. The gateway discovers them at runtime via a Redis-backed service registry, so scaling an app means starting another container, and an app crash doesn't take the rest down.
+<p align="center">
+  <em>Self-hosted application platform.</em>
+</p>
 
-## Packages
+Cloud bundles a set of apps that cover the common operational needs of an organisation — accounts, settings, logging, notifications, files, notebooks, calendars, OAuth — and is built around the custom apps you write yourself. Custom apps get the same session, UI kit, search hooks, and admin pages as the apps in the box.
 
-- [`packages/cloud`](packages/cloud) (`@valentinkolb/cloud`) — platform library: runtime helpers, auth/session/accounts services, shared server + UI + contracts.
-- [`packages/apps`](packages/apps) (`@valentinkolb/cloud/apps`) — app implementations. Each subfolder is one container. Three roles:
-  - **`gateway`** — HTTP entrypoint on `:3000`, reverse-proxies to apps.
-  - **`core`** — auth flows, `/me`, `/admin/lifecycle`, entity search, session. Every deployment runs exactly one of these.
-  - **All others** — domain features (notebooks, files, spaces, weather, …) or admin UIs on top of core services (accounts, logging, settings, notifications).
+## Highlights
 
-The platform-level primitives — authentication, sessions, account lifecycle — always live in `packages/cloud`. Apps consume them but don't redefine them.
+- **Built around your own apps.** Adding an app is one config file plus a Dockerfile. The platform picks it up at runtime.
+- **Per-app deployment.** Every feature is a separate Bun container, started, updated and scaled on its own.
+- **Horizontal scaling.** Apps are stateless and discovered through a Redis-backed registry — `docker compose up --scale notebooks=3` and the gateway routes across all instances.
+- **Bun + Hono + SolidJS + Postgres + Redis.** End-to-end TypeScript.
+- **Admin surface for everything.** Per-app admin pages, settings managed in the UI, requests route-traced through the gateway.
 
-## Quick Start
+## What ships
+
+| Group | Apps |
+|---|---|
+| **Platform** | [`core`](packages/core) — auth, profile, admin login &nbsp;•&nbsp; [`gateway`](packages/gateway) — routing, app registry, request traces |
+| **Identity & access** | [`accounts`](packages/accounts) — users + groups, FreeIPA and local &nbsp;•&nbsp; [`oauth`](packages/oauth) — OAuth2 issuer &nbsp;•&nbsp; [`proxy-auth`](packages/proxy-auth) — Traefik forward-auth &nbsp;•&nbsp; [`ipa-hosts`](packages/ipa-hosts) — FreeIPA host management |
+| **Operations** | [`settings`](packages/settings) — system + per-app settings, legal docs &nbsp;•&nbsp; [`logging`](packages/logging) — structured logs with admin viewer &nbsp;•&nbsp; [`notifications`](packages/notifications) — transactional email |
+| **Productivity** | [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
+| **Content & misc** | [`faq`](packages/faq) &nbsp;•&nbsp; [`weather`](packages/weather) &nbsp;•&nbsp; [`quotes`](packages/quotes) &nbsp;•&nbsp; [`tools`](packages/tools) |
+| **Development** | [`ui-lab`](packages/ui-lab) — component showcase |
+
+## Build your own app
+
+The whole platform is structured around custom apps. Adding one means writing a small config file with `defineApp({...})` and a thin Dockerfile. The new app inherits the shared `Layout`, `AdminLayout`, session middleware, services, search hooks, and the full UI kit, and it shows up in the platform within seconds of starting its container.
+
+```ts
+// packages/my-app/src/config.ts
+import { defineApp } from "@valentinkolb/cloud";
+
+export const app = defineApp({
+  id: "my-app",
+  name: "My App",
+  icon: "ti ti-rocket",
+  basePath: "/app/my-app",
+  baseUrl: "http://app-my-app:3000",
+  nav: { href: "/app/my-app", section: "more" },
+});
+
+export const { ssr, plugin } = app;
+```
+
+That example uses Bun + SolidJS because the shared helpers (UI, auth, services) are TypeScript. Other languages work of course too — any HTTP service that talks Redis and Postgres can register with the gateway.
+
+A **hello-world reference app** is in progress that walks through the minimum end-to-end: config, SSR page, island, API route, admin settings, tests. _Coming next._
+
+## How it works
+
+```
+                          HTTPS
+                            │
+                            ▼
+                    ┌───────────────┐
+                    │    Gateway    │   routes /app/<id>/* by URL prefix
+                    └───┬───┬───┬───┘
+                        │   │   │
+            ┌───────────┘   │   └───────────┐
+            ▼               ▼               ▼
+       ┌─────────┐     ┌─────────┐     ┌─────────┐
+       │  core   │     │  files  │     │   ...   │   each app:
+       │         │     │         │     │         │   Bun + Hono + SolidJS SSR
+       └────┬────┘     └────┬────┘     └────┬────┘   one container per app
+            └───────────────┴────────────────┘
+                            │
+                ┌───────────┴───────────┐
+                ▼                       ▼
+           ┌─────────┐            ┌──────────┐
+           │  Redis  │            │ Postgres │
+           │  Valkey │            │          │
+           └─────────┘            └──────────┘
+       sessions, service           per-app
+       registry, cache             schemas
+```
+
+Each app boots, registers itself with the gateway through Redis, and starts handling requests at its declared URL prefix. The gateway holds no per-app code — adding an app touches only that app's own files and the compose file.
+
+Apps share the Postgres instance (each owns its own schema) and the Redis instance (sessions, service registry, ratelimits, snapshot cache). Per-app traffic, latency and route-trace data live in the gateway and are visible in the admin UI.
+
+## Quick start
 
 ```bash
 bun install
-bun run infra      # start postgres, valkey, geo, filegate
-bun run dev        # start the core set (6 containers)
+bun run infra      # postgres, valkey, geo, filegate
+bun run dev        # core 6-container set
 open http://localhost:3000
 ```
 
-Default admin login in dev: username `admin` with password `dev-admin` (the `ADMIN_LOGIN_TOKEN` on `app-core`).
+Dev admin: username `admin`, password `dev-admin` (the `ADMIN_LOGIN_TOKEN` on `app-core`).
 
-## Dev Stack Shape
-
-The compose file uses profiles so the default `bun run dev` only spins up what you need to log in and manage accounts.
-
-| Command | What it starts |
-|---------|----------------|
-| `bun run dev` | **Core set, 6 containers:** gateway, app-core, app-accounts, app-logging, app-settings, app-notifications |
-| `bun run dev:full` | Core set + all extras (19 containers total), via `--profile extra` |
-| `bun run dev:app <name>` | Start a single extra app into the already-running stack (e.g. `bun run dev:app files`) |
-| `bun run dev:app stop <name>` | Stop that one app |
-| `bun run dev:app logs <name>` | Tail its logs |
+| Command | What it does |
+|---|---|
+| `bun run dev` | Core 6 containers (gateway, core, accounts, logging, settings, notifications) |
+| `bun run dev:full` | All containers, every app on |
+| `bun run dev:app <name>` | Add one extra app to the running stack |
+| `bun run dev:app stop \| logs <name>` | Stop / tail one app |
+| `bun run typecheck` | skills + boundaries + cycles + biome + tsc |
 | `bun run dev:down` | Tear the dev stack down |
-| `bun run infra:down` | Tear infra down |
 
-`dev:app` containers join the existing dev network automatically (same compose project name), so the gateway discovers them within ~5 seconds.
-
-## Auth Model (short)
-
-- **FreeIPA** is the source of truth for IPA users; local DB is a mirror.
-- User types (`provider` × `profile`): `ipa/user`, `ipa/guest`, `local/user`, `local/guest`.
-- Local users log in via magic-link email; IPA users via Kerberos-backed password.
-- `ADMIN_LOGIN_TOKEN` enables an emergency local admin login for dev/recovery.
-
-Full details: [`cloud/docs/05_AUTH_FREEIPA.md`](docs/05_AUTH_FREEIPA.md) and `skills/cloud/references/auth-model.md`.
-
-## Environment
-
-Infrastructure env parsed in [`packages/cloud/src/config/env.ts`](packages/cloud/src/config/env.ts):
-
-- `DATABASE_URL`, `REDIS_URL`, `APP_URL`, `PORT`
-- `APP_SECRET` (settings encryption at rest)
-- `FREEIPA_URL`, `FREEIPA_SVC_USER`, `FREEIPA_SVC_PASSWORD`
-- `GROUPS_ADMIN`, `GROUPS_BASE_SYNC`, `GROUPS_BASE_IPA_REALM`, `GROUPS_EXCLUDED`
-- `FILEGATE_URL`, `FILEGATE_TOKEN`
-
-Runtime-editable settings (DB-backed, encrypted, admin-UI exposed) are defined in [`packages/cloud/src/services/settings/defaults.ts`](packages/cloud/src/services/settings/defaults.ts).
-
-## Quality Gates
+## Agent skills
 
 ```bash
-bun run typecheck     # skills + boundaries + cycles + service/API contracts + biome + tsc
-bun run format
-bun run lint
+bunx skills add github.com/ValentinKolb/cloud
 ```
 
-## Documentation vs Skills
+- [`cloud`](skills/cloud/SKILL.md) — architecture overview
+- [`cloud-app`](skills/cloud-app/SKILL.md) — building apps (frontend + backend reference)
+- [`cloud-ops`](skills/cloud-ops/SKILL.md) — dev, deploy, compose
 
-- Human docs — [`cloud/docs`](docs/).
-- Agent operational knowledge — [`cloud/skills`](skills/). Start with [`skills/cloud/SKILL.md`](skills/cloud/SKILL.md) for the overview, [`skills/cloud-app/SKILL.md`](skills/cloud-app/SKILL.md) for app development, [`skills/cloud-ops/SKILL.md`](skills/cloud-ops/SKILL.md) for dev/deploy/compose.
+## License
+
+MIT — see [LICENSE](./LICENSE).
