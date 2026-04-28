@@ -1,7 +1,8 @@
 import { createSignal } from "solid-js";
-import {TextInput } from "@valentinkolb/cloud-lib/ui";
-import { cookies, mutation as mutations } from "@valentinkolb/cloud-lib/browser";
-import { apiClient } from "@/api/api-client";
+import {TextInput } from "@valentinkolb/cloud/ui";
+import { cookies } from "@valentinkolb/stdlib/browser";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function LoginForm(props: { redirectTo?: string; showBanner?: boolean; defaultUsername?: string; appName?: string }) {
   const [username, setUsername] = createSignal(props.defaultUsername ?? "");
@@ -13,12 +14,12 @@ export default function LoginForm(props: { redirectTo?: string; showBanner?: boo
         json: { username: username(), password: password(), acceptedAgb: true },
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && "passwordExpired" in data && data.passwordExpired) {
+        const data = (await res.json().catch(() => null)) as { message?: string; passwordExpired?: boolean } | null;
+        if (data?.passwordExpired) {
           window.location.href = `/auth/new-password?ipa-uid=${encodeURIComponent(username())}`;
           throw new Error("Password expired — redirecting...");
         }
-        throw new Error((data as any)?.message ?? `Login failed (${res.status})`);
+        throw new Error(data?.message ?? `Login failed (${res.status})`);
       }
     },
     onSuccess: () => {

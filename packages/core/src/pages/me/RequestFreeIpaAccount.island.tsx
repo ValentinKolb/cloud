@@ -1,6 +1,6 @@
-import { mutation as mutations } from "@valentinkolb/cloud-lib/browser";
-import { prompts } from "@valentinkolb/cloud-lib/ui";
-import { apiClient } from "@/api/api-client";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 type RequestFreeIpaAccountProps = {
   givenname: string;
@@ -25,7 +25,7 @@ const mutation = mutations.create<
     }
   >({
     mutation: async (vars) => {
-      const profileRes = await apiClient.accounts.users.me.$patch({
+      const profileRes = await apiClient.me.$patch({
         json: {
           givenname: vars.firstName,
           sn: vars.lastName,
@@ -37,7 +37,7 @@ const mutation = mutations.create<
         throw new Error((data as { message?: string }).message ?? "Failed to update profile.");
       }
 
-      const res = await apiClient.accounts["account-requests"].$post({
+      const res = await apiClient.me["account-request"].$post({
         json: {
           phone: vars.phone,
           comment: vars.comment,

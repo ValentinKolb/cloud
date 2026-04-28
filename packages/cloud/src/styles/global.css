@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* global.css carries cloud-lib classes — UI primitives, layouts, shared
+   components — and is served to every container via the gateway. Apps must
+   NOT be scanned here; per-app classes come from each app's own app.css. */
+@source "../**/*.{ts,tsx}";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant light (html:not(.dark) &);
+
+@import "@tabler/icons-webfont/dist/tabler-icons.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./tokens.css";
+@import "./utilities-buttons.css";
+@import "./utilities-layout.css";
+@import "./utilities-navigation.css";
+@import "./utilities-feedback.css";
+@import "./base-popover.css";
+@import "./effects.css";
+@import "./input.css";
+
+@theme {
+  --color-dark: rgb(9 9 11);
+  --color-selection-bg: rgb(147 197 253 / 0.45);
+  --color-selection-fg: rgb(15 23 42);
+}
+
+:root {
+  --theme-shadow-elevated: none;
+  --theme-shadow-hover: none;
+  --theme-input-py: 0.375rem;
+  --theme-input-px: 0.5rem;
+  --theme-list-active-border: none;
+  --theme-list-inactive-border: none;
+  --theme-list-active-bg: rgb(244 244 245);
+  --theme-list-hover-bg: rgb(250 250 250);
+  --theme-list-padding: 0.5rem 0.75rem;
+  --theme-tab-active-border: none;
+  --theme-tab-inactive-border: none;
+  --theme-tab-active-bg: rgb(244 244 245);
+  --theme-tab-hover-bg: rgb(250 250 250);
+  --theme-rail-item-active-border-r: none;
+  --theme-rail-item-inactive-border-r: none;
+  --theme-divider: 1px solid rgb(228 228 231);
+}
+
+* {
+  font-variant-ligatures: contextual;
+  font-family: "JetBrains Mono Variable", monospace;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(161 161 170 / 0.4) transparent;
+}
+
+.dark * {
+  scrollbar-color: rgb(82 82 91 / 0.5) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(161 161 170 / 0.35);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(161 161 170 / 0.55);
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: rgb(82 82 91 / 0.5);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: rgb(82 82 91 / 0.7);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  /* Explicit values — avoids @apply layer ordering issues with multiple CSS files */
+  background-color: rgb(250 250 250); /* zinc-50 */
+  color: rgb(24 24 27);               /* zinc-900 */
+}
+
+.dark body {
+  background-color: rgb(9 9 11);  /* zinc-950 */
+  color: rgb(244 244 245);        /* zinc-100 */
+}
+
+.dark {
+  --theme-shadow-elevated: none;
+  --theme-shadow-hover: none;
+  --theme-list-active-bg: rgb(39 39 42);
+  --theme-list-hover-bg: rgb(30 30 33);
+  --theme-tab-active-bg: rgb(39 39 42);
+  --theme-tab-hover-bg: rgb(30 30 33);
+  --theme-divider: 1px solid rgb(39 39 42);
+  --color-selection-bg: rgb(59 130 246 / 0.5);
+  --color-selection-fg: rgb(239 246 255);
+}
+
+@view-transition {
+  navigation: auto;
+}
+
+::selection {
+  background-color: var(--color-selection-bg);
+  color: var(--color-selection-fg);
+}
+
+::-moz-selection {
+  background-color: var(--color-selection-bg);
+  color: var(--color-selection-fg);
+}
+
+/* SSR island wrappers should not break flex layout */
+solid-client,
+solid-island {
+  display: contents;
+}

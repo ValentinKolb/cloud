@@ -8,7 +8,6 @@ export const migrate = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS auth.users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       uid TEXT NOT NULL UNIQUE,
-      realm TEXT NOT NULL DEFAULT 'ipa',
       provider TEXT NOT NULL,
       profile TEXT NOT NULL,
       given_name TEXT NOT NULL DEFAULT '',
@@ -16,10 +15,8 @@ export const migrate = async (): Promise<void> => {
       display_name TEXT NOT NULL DEFAULT '',
       mail TEXT,
       account_expires TIMESTAMPTZ,
-      ipa_account_expires TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       last_login_local TIMESTAMPTZ,
-      guest_expires_at TIMESTAMPTZ,
       admin BOOLEAN NOT NULL DEFAULT false,
       CONSTRAINT users_provider_check CHECK (provider IN ('local', 'ipa')),
       CONSTRAINT users_profile_check CHECK (profile IN ('user', 'guest')),
@@ -31,10 +28,6 @@ export const migrate = async (): Promise<void> => {
     ON auth.users(provider, mail) WHERE mail IS NOT NULL
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_users_realm
-    ON auth.users(realm)
-  `.simple();
-  await sql`
     CREATE INDEX IF NOT EXISTS idx_users_provider_profile
     ON auth.users(provider, profile)
   `.simple();
@@ -44,14 +37,9 @@ export const migrate = async (): Promise<void> => {
     WHERE account_expires IS NOT NULL
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_users_guest_expires
-    ON auth.users(guest_expires_at)
-    WHERE realm = 'guest' AND guest_expires_at IS NOT NULL
-  `.simple();
-  await sql`
-    CREATE INDEX IF NOT EXISTS idx_users_local_guest_expires
-    ON auth.users(guest_expires_at)
-    WHERE provider = 'local' AND profile = 'guest' AND guest_expires_at IS NOT NULL
+    CREATE INDEX IF NOT EXISTS idx_users_mail
+    ON auth.users(mail)
+    WHERE mail IS NOT NULL
   `.simple();
   console.log("  ✓ auth.users table");
 
@@ -82,15 +70,14 @@ export const migrate = async (): Promise<void> => {
 
   await sql`
     CREATE TABLE IF NOT EXISTS auth.groups (
-      cn TEXT PRIMARY KEY,
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      cn TEXT NOT NULL UNIQUE,
       provider TEXT NOT NULL DEFAULT 'ipa',
-      id UUID NOT NULL DEFAULT gen_random_uuid(),
       name TEXT NOT NULL,
       description TEXT,
       gid_number INTEGER,
       synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT groups_provider_check CHECK (provider IN ('local', 'ipa')),
-      CONSTRAINT groups_id_unique UNIQUE (id),
       CONSTRAINT groups_provider_name_unique UNIQUE (provider, name)
     )
   `.simple();
@@ -284,8 +271,9 @@ export const migrate = async (): Promise<void> => {
       status TEXT NOT NULL DEFAULT 'pending',
       denied_reason TEXT,
       processed_at TIMESTAMPTZ,
-      processed_by UUID REFERENCES auth.users(id),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      processed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT account_requests_status_check CHECK (status IN ('pending', 'completed', 'denied'))
     )
   `.simple();
   await sql`
@@ -312,7 +300,6 @@ export const migrate = async (): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
       group_id UUID REFERENCES auth.groups(id) ON DELETE CASCADE,
-      group_cn TEXT REFERENCES auth.groups(cn) ON DELETE CASCADE,
       authenticated_only BOOLEAN NOT NULL DEFAULT false,
       permission auth.permission_level NOT NULL DEFAULT 'read',
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -349,10 +336,17 @@ export const migrate = async (): Promise<void> => {
       uid TEXT NOT NULL,
       mail TEXT,
       display_name TEXT,
-      previous_realm TEXT,
+      previous_provider TEXT,
+      previous_profile TEXT,
       reason TEXT NOT NULL,
       deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      meta JSONB NOT NULL DEFAULT '{}'::jsonb
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      CONSTRAINT deleted_accounts_reason_check CHECK (reason IN (
+        'ipa_expired_demoted', 'ipa_expired_deleted',
+        'sync_out_of_scope_demoted', 'sync_out_of_scope_deleted',
+        'guest_expired_deleted', 'local_user_expired_deleted',
+        'manual_delete', 'manual_demote'
+      ))
     )
   `.simple();
   await sql`
@@ -366,6 +360,10 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_deleted_accounts_uid
     ON auth.deleted_accounts(uid)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_deleted_accounts_deleted_user_id
+    ON auth.deleted_accounts(deleted_user_id)
   `.simple();
 
   await sql`
@@ -400,4 +398,118 @@ export const migrate = async (): Promise<void> => {
     ON auth.account_lifecycle_reminders(created_at DESC)
   `.simple();
   console.log("  ✓ auth.account_lifecycle_reminders table");
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Upgrade-safe ALTERs. The CREATE TABLE IF NOT EXISTS blocks above do not
+  // evolve existing tables — every constraint/column/index added after initial
+  // deploy must be applied idempotently here so fresh and upgraded DBs match.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // deleted_accounts.previous_provider / previous_profile were added after the
+  // initial shape; older DBs must receive them before destructive paths insert.
+  await sql`
+    ALTER TABLE auth.deleted_accounts
+    ADD COLUMN IF NOT EXISTS previous_provider TEXT,
+    ADD COLUMN IF NOT EXISTS previous_profile TEXT
+  `.simple();
+
+  // Exactly one pending account request per user — previously enforced only at
+  // service level, which races under concurrent submission.
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_account_requests_one_pending_per_user
+    ON auth.account_requests(user_id)
+    WHERE status = 'pending'
+  `.simple();
+
+  // account_lifecycle_reminders: the API expects a strict set of values. Add
+  // CHECK constraints as NOT VALID then VALIDATE so upgrade doesn't fail on
+  // pre-existing bad rows without operator awareness.
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'account_lifecycle_reminders_kind_check'
+          AND conrelid = 'auth.account_lifecycle_reminders'::regclass
+      ) THEN
+        ALTER TABLE auth.account_lifecycle_reminders
+          ADD CONSTRAINT account_lifecycle_reminders_kind_check
+          CHECK (kind IN ('account_expiry')) NOT VALID;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'account_lifecycle_reminders_status_check'
+          AND conrelid = 'auth.account_lifecycle_reminders'::regclass
+      ) THEN
+        ALTER TABLE auth.account_lifecycle_reminders
+          ADD CONSTRAINT account_lifecycle_reminders_status_check
+          CHECK (status IN ('pending', 'sent', 'error')) NOT VALID;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'account_lifecycle_reminders_threshold_days_check'
+          AND conrelid = 'auth.account_lifecycle_reminders'::regclass
+      ) THEN
+        ALTER TABLE auth.account_lifecycle_reminders
+          ADD CONSTRAINT account_lifecycle_reminders_threshold_days_check
+          CHECK (threshold_days > 0) NOT VALID;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'account_lifecycle_reminders_attempt_count_check'
+          AND conrelid = 'auth.account_lifecycle_reminders'::regclass
+      ) THEN
+        ALTER TABLE auth.account_lifecycle_reminders
+          ADD CONSTRAINT account_lifecycle_reminders_attempt_count_check
+          CHECK (attempt_count >= 0) NOT VALID;
+      END IF;
+    END $$;
+  `.simple();
+  // Validate best-effort. Swallow errors so an unexpectedly bad row doesn't
+  // block startup; operator sees the failure in logs.
+  await sql`
+    DO $$
+    BEGIN
+      BEGIN
+        ALTER TABLE auth.account_lifecycle_reminders
+          VALIDATE CONSTRAINT account_lifecycle_reminders_kind_check;
+      EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Skipping VALIDATE for account_lifecycle_reminders_kind_check: % ', SQLERRM;
+      END;
+      BEGIN
+        ALTER TABLE auth.account_lifecycle_reminders
+          VALIDATE CONSTRAINT account_lifecycle_reminders_status_check;
+      EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Skipping VALIDATE for account_lifecycle_reminders_status_check: %', SQLERRM;
+      END;
+      BEGIN
+        ALTER TABLE auth.account_lifecycle_reminders
+          VALIDATE CONSTRAINT account_lifecycle_reminders_threshold_days_check;
+      EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Skipping VALIDATE for account_lifecycle_reminders_threshold_days_check: %', SQLERRM;
+      END;
+      BEGIN
+        ALTER TABLE auth.account_lifecycle_reminders
+          VALIDATE CONSTRAINT account_lifecycle_reminders_attempt_count_check;
+      EXCEPTION WHEN check_violation THEN
+        RAISE NOTICE 'Skipping VALIDATE for account_lifecycle_reminders_attempt_count_check: %', SQLERRM;
+      END;
+    END $$;
+  `.simple();
+  console.log("  ✓ auth upgrade-safe ALTERs applied");
 };

@@ -1,0 +1,28 @@
+import { z } from "zod";
+
+import { UserSchema } from "../../contracts";
+
+export const LoginSchema = z.object({
+  username: z.string(),
+  password: z.string(),
+  acceptedAgb: z.literal(true),
+});
+
+export const EmailLoginSchema = z.object({
+  email: z.email(),
+  acceptedAgb: z.literal(true),
+});
+
+export const VerifyTokenSchema = z.object({
+  token: z.uuid(),
+  acceptedAgb: z.literal(true),
+});
+
+export const AdminLoginSchema = z.object({
+  token: z.string().min(1),
+});
+
+export const AuthResponseSchema = z.object({
+  session_token: z.string(),
+  user: UserSchema,
+});

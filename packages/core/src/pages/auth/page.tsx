@@ -1,13 +1,21 @@
-import { ssr } from "@config";
+import { ssr } from "../../config";
 import LoginForm from "./LoginForm.island";
 import GuestLoginForm from "./GuestLoginForm.island";
-import { getSync } from "@valentinkolb/cloud-core/services/settings";
+import AdminLoginForm from "./AdminLoginForm.island";
+import { coreSettings } from "@valentinkolb/cloud/services";
+import { listLegalLinks } from "@valentinkolb/cloud";
 
 /** Login page. */
-export default ssr((c) => {
-  const appName = getSync<string>("app.name") || "My App";
-  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
-  const allowSelfRegistration = Boolean(getSync<boolean>("user.allow_self_registration"));
+export default ssr(async (c) => {
+  const [rawAppName, freeIpaEnabledRaw, allowSelfRegistrationRaw, legalLinks] = await Promise.all([
+    coreSettings.get<string>("app.name"),
+    coreSettings.get<boolean>("freeipa.enable"),
+    coreSettings.get<boolean>("user.allow_self_registration"),
+    listLegalLinks(),
+  ]);
+  const appName = rawAppName || "My App";
+  const freeIpaEnabled = Boolean(freeIpaEnabledRaw);
+  const allowSelfRegistration = Boolean(allowSelfRegistrationRaw);
   const params = new URL(c.req.url).searchParams;
   const redirectTo = params.get("redirectTo") ?? undefined;
   const token = params.get("token") ?? undefined;
@@ -25,6 +33,9 @@ export default ssr((c) => {
 
   // If guest is hidden, force IPA method
   const isGuestHidden = freeIpaEnabled && hide === "guest";
+
+  // Admin login: hidden method, no switch link, no cookie interaction
+  const isAdminLogin = method === "admin";
 
   // Priority: hide=guest forces ipa > ?method= > cookie > fallback email
   const activeMethod = !freeIpaEnabled
@@ -47,7 +58,7 @@ export default ssr((c) => {
   if (hide && freeIpaEnabled) switchParams.set("hide", hide);
   const switchUrl = `/auth/login?${switchParams.toString()}`;
 
-  return (
+  return () => (
     <div class="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">
       <div class="flex flex-col items-center gap-4 w-full max-w-sm">
         {/* Logo */}
@@ -55,42 +66,38 @@ export default ssr((c) => {
 
         {/* Title */}
         <h1 class="text-xl font-bold" style={{ "view-transition-name": "page-title" }}>
-          {isEmailLogin ? "Sign in with email" : "Sign in with FreeIPA"}
+          {isAdminLogin ? "Admin" : isEmailLogin ? "Sign in with email" : "Sign in with FreeIPA"}
         </h1>
 
         {/* Form */}
         <div class="paper w-full p-6" style={{ "view-transition-name": "login-card" }}>
-          {isEmailLogin ? (
+          {isAdminLogin ? (
+            <AdminLoginForm redirectTo={redirectTo} />
+          ) : isEmailLogin ? (
             <GuestLoginForm redirectTo={redirectTo} token={token} allowSelfRegistration={allowSelfRegistration} />
           ) : (
             <LoginForm redirectTo={redirectTo} showBanner={hasBanner === "true"} defaultUsername={ipaUid} appName={appName} />
           )}
         </div>
 
-        {/* Switch link - hidden when guest login is disabled */}
-        {freeIpaEnabled && !isGuestHidden && (
+        {/* Switch link - hidden for admin method and when guest login is disabled */}
+        {!isAdminLogin && freeIpaEnabled && !isGuestHidden && (
           <a href={switchUrl} class="text-xs text-dimmed hover:text-primary underline" style={{ "view-transition-name": "login-switch" }}>
             {isEmailLogin ? "Sign in with FreeIPA instead" : "Sign in with email instead"}
           </a>
         )}
 
-        {/* Footer */}
+        {/* Footer — legal/info links contributed by every running app via
+            `defineApp.legalLinks`. Aggregated server-side. */}
         <div class="text-center text-xs text-dimmed">
-          <a href="/impressum" target="_blank" class="hover:text-primary">
-            Impressum
-          </a>
-          {" · "}
-          <a href="/legal/datenschutz" target="_blank" class="hover:text-primary">
-            Datenschutz
-          </a>
-          {" · "}
-          <a href="/legal/agb" target="_blank" class="hover:text-primary">
-            Nutzungsbedingungen
-          </a>
-          {" · "}
-          <a href="/faq" target="_blank" class="hover:text-primary">
-            FAQ
-          </a>
+          {legalLinks.map((link, i) => (
+            <>
+              {i > 0 ? " · " : null}
+              <a href={link.href} target="_blank" class="hover:text-primary">
+                {link.label}
+              </a>
+            </>
+          ))}
         </div>
       </div>
     </div>

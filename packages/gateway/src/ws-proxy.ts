@@ -1,0 +1,159 @@
+/**
+ * WebSocket proxying for the gateway.
+ *
+ * Mirrors the HTTP proxy: route the incoming Upgrade request through the
+ * registry trie, then open a parallel WebSocket connection to the upstream
+ * app container and bidirectionally relay frames.
+ *
+ * Pattern (same as Traefik / nginx / caddy):
+ *   client ──HTTP Upgrade──► gateway ──WebSocket──► upstream
+ *   client ◄────frames─────► gateway ◄────frames──► upstream
+ *
+ * Frames pass through opaquely. The gateway buffers any client frames that
+ * arrive before the upstream socket is open so the initial Yjs sync packet
+ * isn't lost during connection setup.
+ */
+import type { ServerWebSocket } from "bun";
+import { matchRoute, type RouteTable } from "./trie";
+
+type ProxyState = {
+  appId: string;
+  upstream: WebSocket;
+  upstreamReady: boolean;
+  /** Frames received from client before upstream is open. Flushed on upstream `open`. */
+  pending: (string | ArrayBufferLike | ArrayBufferView)[];
+  /**
+   * Captured by the `open` websocket handler the first time Bun calls it.
+   * Upstream-side event handlers reach this via the closure they share with
+   * `tryUpgradeWebSocket`, so reading via `state.client` is the simplest way
+   * to give them the `send` target without an extra capture function.
+   */
+  client: ServerWebSocket<ProxyData> | null;
+};
+
+type ProxyData = {
+  state: ProxyState;
+};
+
+/**
+ * Called from the gateway's fetch handler when an Upgrade: websocket request
+ * arrives. Looks up the route, derives the upstream ws:// URL, opens the
+ * parallel upstream connection, and asks Bun to upgrade the client side.
+ *
+ * Returns:
+ * - `undefined` when the upgrade succeeded (Bun answers 101 automatically).
+ * - a `Response` to return to the client when something failed.
+ */
+export const tryUpgradeWebSocket = (
+  req: Request,
+  server: { upgrade: (req: Request, options?: { data?: ProxyData; headers?: Record<string, string> }) => boolean },
+  table: RouteTable,
+  logFn: (msg: string, meta?: Record<string, unknown>) => void,
+): Response | undefined => {
+  const url = new URL(req.url);
+  const match = matchRoute(table, url.pathname);
+  if (!match) {
+    return new Response("WebSocket: no app registered for this path", { status: 502 });
+  }
+
+  // ws:// upstream URL — preserve path and query.
+  const upstream = new URL(url.pathname + url.search, match.baseUrl);
+  upstream.protocol = "ws:";
+
+  // Forward auth-relevant headers so the upstream's auth middleware sees the
+  // same request the gateway saw. Bun's WebSocket constructor only honours
+  // `headers` in the options bag (its built-in client variant).
+  const forwardedHeaders: Record<string, string> = {};
+  const cookie = req.headers.get("cookie");
+  if (cookie) forwardedHeaders.Cookie = cookie;
+  const auth = req.headers.get("authorization");
+  if (auth) forwardedHeaders.Authorization = auth;
+  forwardedHeaders["X-Forwarded-Host"] = url.host;
+  forwardedHeaders["X-Forwarded-Proto"] = url.protocol.replace(":", "");
+
+  let upstreamSocket: WebSocket;
+  try {
+    // Bun's WebSocket constructor accepts `{ headers }` as a second argument
+    // (not in the standard lib types — pass via `as never` to bypass the
+    // narrow `string | string[]` declaration that targets browser subprotocols).
+    upstreamSocket = new WebSocket(upstream.href, { headers: forwardedHeaders } as never);
+  } catch (err) {
+    logFn("WebSocket upstream connect failed", {
+      appId: match.appId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return new Response("WebSocket: upstream connect failed", { status: 502 });
+  }
+
+  const state: ProxyState = {
+    appId: match.appId,
+    upstream: upstreamSocket,
+    upstreamReady: false,
+    pending: [],
+    client: null,
+  };
+
+  // Upstream → client direction. Reads `state.client` lazily so the open
+  // handler (which Bun fires synchronously inside `server.upgrade()`) gets
+  // the chance to populate it. Earlier indirection via `_captureClient` was
+  // assigned AFTER `upgrade()` and therefore missed the open call entirely.
+  upstreamSocket.addEventListener("open", () => {
+    state.upstreamReady = true;
+    // Flush any pending client frames now that upstream accepts them.
+    for (const frame of state.pending) upstreamSocket.send(frame as never);
+    state.pending = [];
+  });
+
+  upstreamSocket.addEventListener("message", (event) => {
+    // ServerWebSocket.send accepts string | BufferSource. Frame data from
+    // the upstream WS comes through as either string or ArrayBuffer; both
+    // are valid BufferSource — `as never` bypasses the narrow overload.
+    state.client?.send(event.data as never);
+  });
+
+  upstreamSocket.addEventListener("close", (event) => {
+    state.client?.close(event.code || 1000, event.reason || undefined);
+  });
+
+  upstreamSocket.addEventListener("error", () => {
+    logFn("WebSocket upstream error", { appId: match.appId });
+    state.client?.close(1011, "upstream error");
+  });
+
+  const upgraded = server.upgrade(req, { data: { state } });
+  if (!upgraded) return new Response("WebSocket: upgrade failed", { status: 500 });
+  return undefined;
+};
+
+/**
+ * Bun.serve `websocket` config object — registered once on the gateway.
+ * Each handler dispatches against the per-connection ProxyData stored on
+ * the ws instance via `server.upgrade({ data })`.
+ */
+export const websocketHandlers = {
+  open(ws: ServerWebSocket<ProxyData>) {
+    // Hand the client socket to the upstream-side handlers via shared state.
+    // Direct assignment — Bun fires this synchronously inside server.upgrade(),
+    // so any earlier indirection misses it.
+    ws.data.state.client = ws;
+  },
+
+  message(ws: ServerWebSocket<ProxyData>, message: string | Buffer) {
+    const { state } = ws.data;
+    if (state.upstreamReady) {
+      state.upstream.send(message as never);
+    } else {
+      // Upstream still connecting — queue. Yjs sends sync immediately on connect.
+      state.pending.push(message as string | ArrayBufferLike | ArrayBufferView);
+    }
+  },
+
+  close(ws: ServerWebSocket<ProxyData>, code: number, reason: string) {
+    const { state } = ws.data;
+    try {
+      state.upstream.close(code || 1000, reason || undefined);
+    } catch {
+      // Upstream already closed/never opened. Nothing to do.
+    }
+  },
+};

@@ -12,30 +12,27 @@ const workspaceRoot = join(import.meta.dir, "..");
 
 const includeApps = process.env.CHECK_APPS_CYCLES === "1" || process.env.CHECK_APPS_CYCLES === "true";
 
+const packagesRoot = join(workspaceRoot, "packages");
+const allDirs = readdirSync(packagesRoot).filter((name) =>
+  statSync(join(packagesRoot, name)).isDirectory(),
+);
+
+// cloud-lib has its own intra-package alias; each app uses @/ only inside
+// itself, so each app is its own boundary unit for cycle detection.
 const packages: PackageConfig[] = [
   {
-    name: "cloud-contracts",
-    srcRoot: join(workspaceRoot, "packages", "contracts", "src"),
-    aliasPrefix: "@/",
-  },
-  {
-    name: "cloud-lib",
-    srcRoot: join(workspaceRoot, "packages", "lib", "src"),
-    aliasPrefix: "@/",
-  },
-  {
-    name: "cloud-core",
-    srcRoot: join(workspaceRoot, "packages", "core", "src"),
+    name: "cloud",
+    srcRoot: join(packagesRoot, "cloud", "src"),
     aliasPrefix: "@/",
   },
   ...(includeApps
-    ? [
-        {
-          name: "cloud-apps",
-          srcRoot: join(workspaceRoot, "packages", "apps", "src"),
+    ? allDirs
+        .filter((name) => name !== "cloud" && existsSync(join(packagesRoot, name, "src")))
+        .map((name) => ({
+          name,
+          srcRoot: join(packagesRoot, name, "src"),
           aliasPrefix: "@/",
-        },
-      ]
+        }))
     : []),
 ];
 
@@ -202,6 +199,6 @@ if (foundCycle) process.exit(1);
 
 console.log(
   includeApps
-    ? "Cycle check passed for cloud-contracts, cloud-lib, cloud-core, and cloud-apps."
-    : "Cycle check passed for cloud-contracts, cloud-lib, and cloud-core.",
+    ? "Cycle check passed for cloud and cloud-apps."
+    : "Cycle check passed for cloud.",
 );

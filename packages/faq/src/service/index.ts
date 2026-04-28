@@ -1,0 +1,195 @@
+import { sql } from "bun";
+import { logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import type { CreateFaq, FaqEntry, UpdateFaq } from "@/contracts";
+
+const log = logger("faq");
+
+type DbRow = {
+  id: string;
+  question: string;
+  answer: string;
+  audience: string[];
+  position: number;
+  created_at: string | Date;
+};
+
+type ListConfig = {
+  pagination?: PageParams;
+  filter?: {
+    audience?: string;
+    query?: string;
+  };
+};
+
+/**
+ * Converts one `faq.entries` row into the API-facing `FaqEntry` shape.
+ */
+const mapRow = (row: DbRow): FaqEntry => ({
+  id: row.id,
+  question: row.question,
+  answer: row.answer,
+  audience: row.audience as FaqEntry["audience"],
+  position: row.position,
+  createdAt: new Date(row.created_at).toISOString(),
+});
+
+const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
+  if (!pagination) {
+    return {
+      items,
+      page: 1,
+      perPage: items.length,
+      total: items.length,
+      hasNext: false,
+    };
+  }
+
+  const { page, perPage, offset } = paginate(pagination);
+  const sliced = items.slice(offset, offset + perPage);
+  return {
+    items: sliced,
+    page,
+    perPage,
+    total: items.length,
+    hasNext: page * perPage < items.length,
+  };
+};
+
+const matchesQuery = (entry: FaqEntry, query: string): boolean => {
+  const normalized = query.toLowerCase();
+  return entry.question.toLowerCase().includes(normalized) || entry.answer.toLowerCase().includes(normalized);
+};
+
+/**
+ * Lists FAQ entries ordered by position with optional text search and pagination.
+ */
+const list = async (config: ListConfig = {}) => {
+  const audience = config?.filter?.audience;
+  const rows = audience
+    ? await sql`
+        SELECT * FROM faq.entries
+        WHERE ${audience} = ANY(audience)
+        ORDER BY position ASC, created_at ASC
+      `
+    : await sql`
+        SELECT * FROM faq.entries
+        ORDER BY position ASC, created_at ASC
+      `;
+
+  const entries = (rows as DbRow[]).map(mapRow);
+  const query = config?.filter?.query?.trim().toLowerCase();
+  const filtered = query ? entries.filter((entry) => matchesQuery(entry, query)) : entries;
+
+  return paginateItems(filtered, config?.pagination);
+};
+
+/**
+ * Returns one FAQ entry by UUID, or `null` when it does not exist.
+ */
+const get = async (config: { id: string }) => {
+  const [row] = await sql`
+    SELECT * FROM faq.entries
+    WHERE id = ${config.id}::uuid
+  `;
+  return row ? mapRow(row as DbRow) : null;
+};
+
+/**
+ * Creates a new FAQ entry and appends it to the current tail position.
+ */
+const create = async (config: { data: CreateFaq }) => {
+  try {
+    const [maxRow] = await sql`SELECT COALESCE(MAX(position), -1) AS max_pos FROM faq.entries`;
+    const nextPos = (maxRow as { max_pos: number }).max_pos + 1;
+
+    const [row] = await sql`
+      INSERT INTO faq.entries (question, answer, audience, position)
+      VALUES (${config.data.question}, ${config.data.answer}, ${toPgTextArray(config.data.audience)}::text[], ${nextPos})
+      RETURNING *
+    `;
+
+    return ok(mapRow(row as DbRow));
+  } catch (error) {
+    log.error("Failed to create FAQ", { error: (error as Error).message });
+    return fail(err.internal("Failed to create FAQ"));
+  }
+};
+
+/**
+ * Updates one FAQ entry in-place and keeps existing values for omitted fields.
+ */
+const update = async (config: { id: string; data: UpdateFaq }) => {
+  try {
+    const [existing] = await sql`SELECT id FROM faq.entries WHERE id = ${config.id}::uuid`;
+    if (!existing) return fail(err.notFound("FAQ"));
+
+    const audienceLiteral = config.data.audience ? toPgTextArray(config.data.audience) : null;
+
+    const [row] = await sql`
+      UPDATE faq.entries SET
+        question = COALESCE(${config.data.question ?? null}, question),
+        answer = COALESCE(${config.data.answer ?? null}, answer),
+        audience = COALESCE(${audienceLiteral}::text[], audience)
+      WHERE id = ${config.id}::uuid
+      RETURNING *
+    `;
+
+    return ok(mapRow(row as DbRow));
+  } catch (error) {
+    log.error("Failed to update FAQ", {
+      error: (error as Error).message,
+      id: config.id,
+    });
+    return fail(err.internal("Failed to update FAQ"));
+  }
+};
+
+/**
+ * Deletes one FAQ entry and returns `NOT_FOUND` if the UUID is unknown.
+ */
+const remove = async (config: { id: string }) => {
+  try {
+    const [existing] = await sql`SELECT id FROM faq.entries WHERE id = ${config.id}::uuid`;
+    if (!existing) return fail(err.notFound("FAQ"));
+
+    await sql`DELETE FROM faq.entries WHERE id = ${config.id}::uuid`;
+    return ok();
+  } catch (error) {
+    log.error("Failed to delete FAQ", {
+      error: (error as Error).message,
+      id: config.id,
+    });
+    return fail(err.internal("Failed to delete FAQ"));
+  }
+};
+
+/**
+ * Rewrites FAQ positions in the provided order (index becomes persisted `position`).
+ */
+const reorder = async (config: { ids: string[] }) => {
+  try {
+    if (config.ids.length === 0) return ok();
+
+    for (const [index, id] of config.ids.entries()) {
+      await sql`UPDATE faq.entries SET position = ${index} WHERE id = ${id}::uuid`;
+    }
+    return ok();
+  } catch (error) {
+    log.error("Failed to reorder FAQs", { error: (error as Error).message });
+    return fail(err.internal("Failed to reorder FAQs"));
+  }
+};
+
+export const faqService = {
+  entry: {
+    list,
+    get,
+    create,
+    update,
+    remove,
+    reorder,
+  },
+};
+
+export type FaqService = typeof faqService;

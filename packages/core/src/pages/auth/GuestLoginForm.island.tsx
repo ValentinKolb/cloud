@@ -1,7 +1,8 @@
 import { createSignal, Show, onMount } from "solid-js";
-import {CheckboxInput,TextInput } from "@valentinkolb/cloud-lib/ui";
-import { cookies, mutation as mutations } from "@valentinkolb/cloud-lib/browser";
-import { apiClient } from "@/api/api-client";
+import {CheckboxInput,TextInput } from "@valentinkolb/cloud/ui";
+import { cookies } from "@valentinkolb/stdlib/browser";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 export default function GuestLoginForm(props: { redirectTo?: string; token?: string; allowSelfRegistration: boolean }) {
   const [email, setEmail] = createSignal("");
@@ -11,7 +12,7 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
 
   const emailMutation = mutations.create({
     mutation: async () => {
-      if (!acceptedAgb()) throw new Error("Please accept the Terms of Service.");
+      if (!acceptedAgb()) throw new Error("Please accept the Terms of Service and Privacy Policy.");
       const res = await apiClient.auth["email-login"].$post({
         json: { email: email(), acceptedAgb: true },
       });
@@ -23,13 +24,13 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
 
   const tokenMutation = mutations.create({
     mutation: async () => {
-      if (!acceptedAgb()) throw new Error("Please accept the Terms of Service.");
+      if (!acceptedAgb()) throw new Error("Please accept the Terms of Service and Privacy Policy.");
       const res = await apiClient.auth["verify-token"].$post({
         json: { token: tokenInput(), acceptedAgb: true },
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error((data as any)?.message ?? "Invalid or expired token");
+        const data = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(data?.message ?? "Invalid or expired token");
       }
     },
     onSuccess: () => {
@@ -72,8 +73,12 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
             label={
               <span>
                 I accept the{" "}
-                <a href="/legal/agb" target="_blank" class="text-primary hover:underline">
+                <a href="/legal/terms" target="_blank" class="text-primary hover:underline">
                   Terms of Service
+                </a>
+                {" "}and the{" "}
+                <a href="/legal/privacy" target="_blank" class="text-primary hover:underline">
+                  Privacy Policy
                 </a>
               </span>
             }
@@ -106,8 +111,12 @@ export default function GuestLoginForm(props: { redirectTo?: string; token?: str
           label={
             <span>
               I accept the{" "}
-              <a href="/legal/agb" target="_blank" class="text-primary hover:underline">
+              <a href="/legal/terms" target="_blank" class="text-primary hover:underline">
                 Terms of Service
+              </a>
+              {" "}and the{" "}
+              <a href="/legal/privacy" target="_blank" class="text-primary hover:underline">
+                Privacy Policy
               </a>
             </span>
           }

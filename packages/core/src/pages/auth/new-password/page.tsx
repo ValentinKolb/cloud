@@ -1,4 +1,4 @@
-import { ssr } from "@config";
+import { ssr } from "../../../config";
 import NewPasswordForm from "./NewPasswordForm.island";
 
 /** Set new password page (for expired/temporary passwords). */
@@ -6,7 +6,7 @@ export default ssr((c) => {
   const params = new URL(c.req.url).searchParams;
   const user = params.get("ipa-uid") ?? "";
 
-  return (
+  return () => (
     <div class="flex min-h-screen items-center justify-center bg-zinc-50 p-4 dark:bg-zinc-950">
       <div class="flex flex-col items-center gap-4 w-full max-w-sm">
         <div class="paper w-full p-8">

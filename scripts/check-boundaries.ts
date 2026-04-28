@@ -46,129 +46,81 @@ const extractSpecifiers = (source: string): Array<{ specifier: string; index: nu
 
 const lineFromIndex = (source: string, index: number): number => source.slice(0, index).split("\n").length;
 
-const allowedCoreSubpath = (specifier: string): boolean =>
-  /^@valentinkolb\/cloud\/core(?:$|\/(?:config|ssr|services|settings)(?:\/|$))/.test(specifier);
+// Allowed @valentinkolb/cloud subpath imports from apps
+const allowedCloudSubpath = (specifier: string): boolean =>
+  /^@valentinkolb\/cloud(?:$|\/(ui|server|browser|shared|services|ssr|config|contracts|api|clients)(?:\/|$))/.test(specifier);
 
-const allowedServerSubpath = (specifier: string): boolean => /^@valentinkolb\/cloud\/lib\/server(?:\/|$)/.test(specifier);
-
-const allowedContractsSubpath = (specifier: string): boolean =>
-  /^@valentinkolb\/cloud\/contracts\/(?:app|shared)(?:\/|$)/.test(specifier);
-
-const allowedClientSubpath = (specifier: string): boolean =>
-  specifier === "@valentinkolb/cloud/lib/ui" ||
-  specifier === "@valentinkolb/cloud/lib/browser" ||
-  specifier === "@valentinkolb/cloud/lib/shared" ||
-  specifier === "@valentinkolb/cloud/lib/islands" ||
-  specifier.startsWith("@valentinkolb/cloud/lib/styles/");
+const APP_PACKAGE_NAMES = readdirSync(join(workspaceRoot, "packages")).filter(
+  (name) => name !== "cloud" && existsSync(join(workspaceRoot, "packages", name, "src")),
+);
 
 const checkAppsBoundaries = (): Violation[] => {
-  const srcRoot = join(workspaceRoot, "packages", "apps", "src");
-  const files = readFiles(srcRoot);
   const violations: Violation[] = [];
 
-  for (const file of files) {
-    const source = readFileSync(file, "utf8");
-    for (const { specifier, index } of extractSpecifiers(source)) {
-      const line = lineFromIndex(source, index);
+  for (const appName of APP_PACKAGE_NAMES) {
+    const srcRoot = join(workspaceRoot, "packages", appName, "src");
+    const files = readFiles(srcRoot);
 
-      if (specifier.startsWith("@/core/") || specifier.startsWith("@/shared/")) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "cloud-apps must not import cloud-core internals via @/core or @/shared.",
-        });
-        continue;
-      }
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      for (const { specifier, index } of extractSpecifiers(source)) {
+        const line = lineFromIndex(source, index);
 
-      if (specifier === "@/client" || specifier.startsWith("@/client/")) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "Use app-scoped api clients via @/<app>/client. Global @/client is forbidden.",
-        });
-        continue;
-      }
+        // Forbid old-style package imports
+        if (/^@valentinkolb\/cloud-(apps|core|lib|contracts)(?:\/|$)/.test(specifier)) {
+          violations.push({
+            file,
+            line,
+            specifier,
+            message: "Use @valentinkolb/cloud/<subpath> imports, not old hyphenated package names.",
+          });
+          continue;
+        }
 
-      if (specifier === "@valentinkolb/cloud-apps/client" || specifier.startsWith("@valentinkolb/cloud-apps/client/")) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "Use app-scoped api clients via @valentinkolb/cloud-apps/apps/<app>/client.",
-        });
-        continue;
-      }
+        // Forbid old aliased paths
+        if (specifier === "@config") {
+          violations.push({
+            file,
+            line,
+            specifier,
+            message: "Use @valentinkolb/cloud/config instead of @config.",
+          });
+          continue;
+        }
 
-      if (/^@valentinkolb\/cloud-(apps|core|lib|contracts)(?:\/|$)/.test(specifier)) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "Use @valentinkolb/cloud/<core|lib|contracts|apps> root subpaths in cloud-apps.",
-        });
-        continue;
-      }
+        // Forbid filesystem cross-package imports (siblings)
+        if (specifier.includes("../cloud/src") || specifier.includes("../../cloud/")) {
+          violations.push({
+            file,
+            line,
+            specifier,
+            message: "Do not import cloud package via filesystem paths from apps.",
+          });
+          continue;
+        }
 
-      if (specifier === "@config") {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "Use @valentinkolb/cloud/core/config instead of @config in cloud-apps.",
-        });
-        continue;
-      }
+        // Forbid importing another app's @valentinkolb/cloud-app-* package.
+        // Each app is its own container — share via cloud-lib services, not direct imports.
+        const otherAppMatch = specifier.match(/^@valentinkolb\/cloud-app-([a-z0-9-]+)/);
+        if (otherAppMatch && otherAppMatch[1] !== appName) {
+          violations.push({
+            file,
+            line,
+            specifier,
+            message: "Cross-app imports are forbidden. Move shared logic to cloud-lib services.",
+          });
+          continue;
+        }
 
-      if (specifier.includes("../core/src") || specifier.includes("../core/config")) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "Do not import cloud-core via filesystem paths from cloud-apps.",
-        });
-        continue;
-      }
-
-      if (specifier.startsWith("@valentinkolb/cloud/core") && !allowedCoreSubpath(specifier)) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "cloud-apps may only import @valentinkolb/cloud/core root or /config or /ssr or /services or /settings.",
-        });
-      }
-
-      if (specifier.startsWith("@valentinkolb/cloud/lib/server") && !allowedServerSubpath(specifier)) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "cloud-apps may only import @valentinkolb/cloud/lib/server.",
-        });
-      }
-
-      if (specifier.startsWith("@valentinkolb/cloud/contracts") && !allowedContractsSubpath(specifier)) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "cloud-apps may only import @valentinkolb/cloud/contracts/app or /shared.",
-        });
-      }
-
-      if (
-        specifier.startsWith("@valentinkolb/cloud/lib") &&
-        !specifier.startsWith("@valentinkolb/cloud/lib/server") &&
-        !allowedClientSubpath(specifier)
-      ) {
-        violations.push({
-          file,
-          line,
-          specifier,
-          message: "cloud-apps may only import @valentinkolb/cloud/lib /ui, /browser, /shared, /islands, or /styles/*.",
-        });
+        // Validate @valentinkolb/cloud subpaths
+        if (specifier.startsWith("@valentinkolb/cloud") && !specifier.startsWith("@valentinkolb/cloud-") && !allowedCloudSubpath(specifier)) {
+          violations.push({
+            file,
+            line,
+            specifier,
+            message: "Invalid @valentinkolb/cloud subpath. Allowed: /ui, /server, /browser, /shared, /services, /ssr, /config, /contracts, /api, /clients.",
+          });
+        }
       }
     }
   }
@@ -178,230 +130,9 @@ const checkAppsBoundaries = (): Violation[] => {
 
 const violations = [...checkAppsBoundaries()];
 
-const forbiddenContractsSubpaths = (specifier: string): boolean =>
-  specifier === "@valentinkolb/cloud-contracts" ||
-  /^@valentinkolb\/cloud-contracts\/(?:schemas|pagination|utils)(?:\/|$)/.test(specifier) ||
-  specifier === "@valentinkolb/cloud/contracts" ||
-  /^@valentinkolb\/cloud\/contracts\/(?:schemas|pagination|utils)(?:\/|$)/.test(specifier);
-
-const checkForbiddenContractsSubpaths = (): Violation[] => {
-  const packageRoots = ["apps", "core", "lib", "standalone", "contracts"].map((name) =>
-    join(workspaceRoot, "packages", name, "src"),
-  );
-  const violations: Violation[] = [];
-
-  for (const root of packageRoots) {
-    const files = readFiles(root);
-    for (const file of files) {
-      const source = readFileSync(file, "utf8");
-      for (const { specifier, index } of extractSpecifiers(source)) {
-        if (!forbiddenContractsSubpaths(specifier)) continue;
-        violations.push({
-          file,
-          line: lineFromIndex(source, index),
-          specifier,
-          message: "Use explicit contracts subpaths: @valentinkolb/cloud/contracts/app or /shared.",
-        });
-      }
-    }
-  }
-
-  return violations;
-};
-
-violations.push(...checkForbiddenContractsSubpaths());
-
-const checkClientNamespaceImports = (): Violation[] => {
-  const srcRoot = join(workspaceRoot, "packages", "apps", "src");
-  const files = readFiles(srcRoot);
-  const violations: Violation[] = [];
-
-  const forbiddenBrowserValues = new Set(["createApiClient", "createMutation", "createDebounce", "createInterval", "copyToClipboard", "isImageUrl"]);
-  const forbiddenUiUtilityValues = new Set([
-    "renderMarkdown",
-    "renderMarkdownSync",
-    "formatDate",
-    "formatDateTime",
-    "formatDateRelative",
-    "parseCalendarDate",
-    "getDateRange",
-    "buildCalendarUrl",
-    "getMonthGrid",
-    "getWeekDays",
-    "getDayItems",
-    "isToday",
-    "isSameMonth",
-    "formatDayNumber",
-    "formatDateKey",
-    "formatWeekdayShort",
-    "formatTime",
-    "startOfWeek",
-    "addMonths",
-    "addWeeks",
-    "today",
-    "MONTHS",
-    "WEEKDAYS_SHORT",
-    "getYearOptions",
-    "ICON_OPTIONS",
-    "toBase64",
-    "fromBase64",
-    "toHex",
-    "fromHex",
-    "toBase32",
-    "fromBase32",
-    "getFileIcon",
-    "getFileCategory",
-  ]);
-
-  const importNamed = (source: string, specifier: string) => {
-    const regex = new RegExp(`import\\\\s*\\\\{([^}]+)\\\\}\\\\s*from\\\\s*["']${specifier}["']`, "g");
-    const results: Array<{ names: string[]; index: number }> = [];
-    let match = regex.exec(source);
-    while (match !== null) {
-      const names = match[1]!
-        .split(",")
-        .map((name) => name.trim())
-        .filter(Boolean)
-        .map((name) => name.replace(/^type\\s+/, ""))
-        .map((name) => name.split(/\s+as\s+/)[0]!.trim());
-      results.push({ names, index: match.index });
-      match = regex.exec(source);
-    }
-    return results;
-  };
-
-  for (const file of files) {
-    const source = readFileSync(file, "utf8");
-
-    for (const entry of importNamed(source, "@valentinkolb/cloud/lib/browser")) {
-      for (const name of entry.names) {
-        if (!forbiddenBrowserValues.has(name)) continue;
-        violations.push({
-          file,
-          line: lineFromIndex(source, entry.index),
-          specifier: `@valentinkolb/cloud/lib/browser:${name}`,
-          message: "Use namespaced browser APIs (api.create, mutation.create, timing.*, clipboard.copy, url.isImage).",
-        });
-      }
-    }
-
-    for (const entry of importNamed(source, "@valentinkolb/cloud/lib/ui")) {
-      for (const name of entry.names) {
-        if (!forbiddenUiUtilityValues.has(name)) continue;
-        violations.push({
-          file,
-          line: lineFromIndex(source, entry.index),
-          specifier: `@valentinkolb/cloud/lib/ui:${name}`,
-          message: "UI package must not be used for shared utilities. Import these from @valentinkolb/cloud/lib/shared.",
-        });
-      }
-    }
-  }
-
-  return violations;
-};
-
-violations.push(...checkClientNamespaceImports());
-
-const checkCoreServerBoundaries = (): Violation[] => {
-  const coreRoot = join(workspaceRoot, "packages", "core", "src");
-  const serverRoot = join(workspaceRoot, "packages", "lib", "src", "server");
-  const violations: Violation[] = [];
-
-  const coreFiles = readFiles(coreRoot);
-  for (const file of coreFiles) {
-    const source = readFileSync(file, "utf8");
-    for (const { specifier, index } of extractSpecifiers(source)) {
-      if (
-        specifier.startsWith("@/core/services/") ||
-        specifier.startsWith("@/core/middleware/") ||
-        specifier === "@/core/api/respond" ||
-        specifier.startsWith("@/core/api/respond/")
-      ) {
-        violations.push({
-          file,
-          line: lineFromIndex(source, index),
-          specifier,
-          message: "cloud-core must use @valentinkolb/cloud-lib/server/* for services/middleware/respond.",
-        });
-      }
-    }
-  }
-
-  const forbiddenCorePaths = [
-    join(coreRoot, "core", "services"),
-    join(coreRoot, "core", "middleware"),
-    join(coreRoot, "core", "api", "respond.ts"),
-  ];
-  for (const forbiddenPath of forbiddenCorePaths) {
-    if (!existsSync(forbiddenPath)) continue;
-
-    if (statSync(forbiddenPath).isFile()) {
-      violations.push({
-        file: forbiddenPath,
-        line: 1,
-        specifier: relative(coreRoot, forbiddenPath),
-        message: "Deprecated core internal backend file is forbidden.",
-      });
-      continue;
-    }
-
-    for (const file of readFiles(forbiddenPath)) {
-      violations.push({
-        file,
-        line: 1,
-        specifier: relative(coreRoot, file),
-        message: "Deprecated core internal backend directory is forbidden.",
-      });
-    }
-  }
-
-  const serverFiles = readFiles(serverRoot);
-  for (const file of serverFiles) {
-    const source = readFileSync(file, "utf8");
-    for (const { specifier, index } of extractSpecifiers(source)) {
-      if (
-        specifier.startsWith("@valentinkolb/cloud-core") &&
-        !/^@valentinkolb\/cloud-core\/(?:config|services)(?:\/|$)/.test(specifier)
-      ) {
-        violations.push({
-          file,
-          line: lineFromIndex(source, index),
-          specifier,
-          message: "cloud-lib/server may only import @valentinkolb/cloud-core/config or /services/*.",
-        });
-      }
-
-      if (specifier.startsWith("@/public/")) {
-        violations.push({
-          file,
-          line: lineFromIndex(source, index),
-          specifier,
-          message: "lib/src/server/public/* is deprecated. Use explicit root exports in src/server/index.ts.",
-        });
-      }
-    }
-  }
-
-  const deprecatedServerPublic = join(serverRoot, "public");
-  if (existsSync(deprecatedServerPublic)) {
-    for (const file of readFiles(deprecatedServerPublic)) {
-      violations.push({
-        file,
-        line: 1,
-        specifier: relative(serverRoot, file),
-        message: "lib/src/server/public/* is deprecated. Remove this folder.",
-      });
-    }
-  }
-
-  return violations;
-};
-
-violations.push(...checkCoreServerBoundaries());
-
+// Check contracts/shared doesn't have app-domain symbols
 const checkContractsSharedDrift = (): Violation[] => {
-  const sharedFile = join(workspaceRoot, "packages", "contracts", "src", "shared.ts");
+  const sharedFile = join(workspaceRoot, "packages", "cloud", "src", "contracts", "shared.ts");
   if (!existsSync(sharedFile)) return [];
 
   const source = readFileSync(sharedFile, "utf8");

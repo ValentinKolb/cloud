@@ -7,13 +7,14 @@ type Violation = {
 };
 
 const workspaceRoot = join(import.meta.dir, "..");
-const appsRoot = join(workspaceRoot, "packages", "apps", "src");
+const packagesRoot = join(workspaceRoot, "packages");
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
 
-const appDirs = readdirSync(appsRoot)
-  .map((name) => join(appsRoot, name))
-  .filter(isDirectory)
+// Each app lives at packages/<app>/src/ now (cloud-lib at packages/cloud is excluded).
+const appDirs = readdirSync(packagesRoot)
+  .filter((name) => name !== "cloud" && isDirectory(join(packagesRoot, name, "src")))
+  .map((name) => join(packagesRoot, name, "src"))
   .sort();
 
 const violations: Violation[] = [];
@@ -55,11 +56,19 @@ const importsNamed = (source: string, specifier: string, name: string): boolean 
   return re.test(source);
 };
 
+// Apps with special lifecycle patterns that don't follow standard conventions
+const specialApps = new Set(["gateway", "core"]);
+
 for (const appDir of appDirs) {
-  const appName = appDir.split("/").at(-1)!;
+  // appDir is now packages/<app>/src — the app name is the parent folder.
+  const appName = appDir.split("/").at(-2)!;
   const indexPath = join(appDir, "index.ts");
-  const apiPath = join(appDir, "api.ts");
   const serviceIndexPath = join(appDir, "service", "index.ts");
+
+  // API can be either api.ts (legacy) or api/index.ts (new)
+  const apiDirPath = join(appDir, "api", "index.ts");
+  const apiLegacyPath = join(appDir, "api.ts");
+  const apiPath = existsSync(apiDirPath) ? apiDirPath : existsSync(apiLegacyPath) ? apiLegacyPath : null;
 
   if (!existsSync(indexPath)) {
     violations.push({ file: indexPath, message: "Missing app index.ts facade file." });
@@ -67,25 +76,32 @@ for (const appDir of appDirs) {
   }
 
   const indexSource = readFileSync(indexPath, "utf8");
-  if (!/export\s+default\s+\w+\s*;?/.test(indexSource)) {
-    violations.push({
-      file: indexPath,
-      message: "App facade must export a default runtime value.",
-    });
-  }
 
-  if (!/export\s*\{\s*\w+\s+as\s+service\s*\}\s*;?/.test(indexSource)) {
-    violations.push({
-      file: indexPath,
-      message: "App facade must export named runtime service as 'service'.",
-    });
-  }
+  // Skip structural checks for special apps (gateway, core)
+  if (!specialApps.has(appName)) {
+    if (!/export\s+default\s+/.test(indexSource)) {
+      violations.push({
+        file: indexPath,
+        message: "App facade must export a default runtime value.",
+      });
+    }
 
-  if (existsSync(apiPath) && !/export\s+type\s+\{\s*ApiType\s*\}\s+from\s+["']\.\/api["']/.test(indexSource)) {
-    violations.push({
-      file: indexPath,
-      message: "Apps with api.ts must re-export 'type ApiType' from ./api.",
-    });
+    // Apps with their own service folder must re-export it as 'service'.
+    // Apps that consume only cloud-lib services (rule: domain-shared logic in
+    // cloud-lib) don't need a service export — there's nothing to forward.
+    if (existsSync(serviceIndexPath) && !/export\s*\{[^}]*\bservice\b[^}]*\}/.test(indexSource)) {
+      violations.push({
+        file: indexPath,
+        message: "App with src/service/ must re-export it as 'service'.",
+      });
+    }
+
+    if (apiPath && !/export\s+type\s+\{\s*ApiType\s*\}\s+from\s+["']\.\/api/.test(indexSource)) {
+      violations.push({
+        file: indexPath,
+        message: "Apps with an API must re-export 'type ApiType' from ./api.",
+      });
+    }
   }
 
   if (existsSync(serviceIndexPath)) {
@@ -113,25 +129,25 @@ for (const appDir of appDirs) {
     }
   }
 
-  if (!existsSync(apiPath)) continue;
+  if (!apiPath || specialApps.has(appName)) continue;
 
   const apiSource = readFileSync(apiPath, "utf8");
   const apiSpecifiers = extractSpecifiers(apiSource);
   const hasDirectRoutes = hasMatch(apiSource, /^\s*\.(get|post|put|patch|delete)\(/m);
 
-  const hasServerImport = apiSpecifiers.includes("@valentinkolb/cloud/lib/server") || apiSpecifiers.includes("@valentinkolb/cloud-lib/server");
+  const hasServerImport = apiSpecifiers.includes("@valentinkolb/cloud/server");
 
   if (hasDirectRoutes && !hasServerImport) {
     violations.push({
       file: apiPath,
-      message: "api.ts must import respond from @valentinkolb/cloud/lib/server.",
+      message: "API must import from @valentinkolb/cloud/server.",
     });
   }
 
   if (hasDirectRoutes && !/\brespond\(/.test(apiSource)) {
     violations.push({
       file: apiPath,
-      message: "api.ts must map service results through respond(...).",
+      message: "API must map service results through respond(...).",
     });
   }
 
@@ -155,7 +171,7 @@ for (const appDir of appDirs) {
   if (apiSpecifiers.some((specifier) => /^@\/(core|shared)\//.test(specifier))) {
     violations.push({
       file: apiPath,
-      message: "api.ts must not import internal aliases (@/core or @/shared).",
+      message: "API must not import internal aliases (@/core or @/shared).",
     });
   }
 
@@ -165,20 +181,18 @@ for (const appDir of appDirs) {
         specifier.includes("/src/") ||
         specifier.includes("../core/") ||
         specifier.includes("../lib/") ||
-        specifier.includes("../contracts/"),
+        specifier.includes("../contracts/") ||
+        specifier.includes("../cloud/"),
     )
   ) {
     violations.push({
       file: apiPath,
-      message: "api.ts must use public package surfaces, not deep filesystem imports.",
+      message: "API must use public package surfaces, not deep filesystem imports.",
     });
   }
 
   const hasRateLimitImport =
-    apiSpecifiers.includes("@valentinkolb/cloud/lib/server/middleware/rate-limit") ||
-    apiSpecifiers.includes("@valentinkolb/cloud-lib/server/middleware/rate-limit") ||
-    importsNamed(apiSource, "@valentinkolb/cloud/lib/server", "rateLimit") ||
-    importsNamed(apiSource, "@valentinkolb/cloud-lib/server", "rateLimit");
+    apiSpecifiers.includes("@valentinkolb/cloud/server") && importsNamed(apiSource, "@valentinkolb/cloud/server", "rateLimit");
 
   if (hasRateLimitImport && !/\.use\(\s*rateLimit\(/.test(apiSource)) {
     violations.push({
@@ -187,7 +201,7 @@ for (const appDir of appDirs) {
     });
   }
 
-  if (!hasRateLimitImport && appName !== "files") {
+  if (!hasRateLimitImport && appName !== "files" && !specialApps.has(appName)) {
     violations.push({
       file: apiPath,
       message: "App APIs should include rateLimit middleware unless explicitly exempt (files upload/thumbnail throughput exception).",

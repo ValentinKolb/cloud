@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
-import { apiClient } from "@/api/api-client";
-import {TextInput } from "@valentinkolb/cloud-lib/ui";
-import { mutation as mutations } from "@valentinkolb/cloud-lib/browser";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
+import {TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 
 type NewPasswordFormProps = {
   defaultUsername: string;
@@ -19,7 +19,7 @@ export default function NewPasswordForm(props: NewPasswordFormProps) {
       if (newPassword() !== confirmPassword()) {
         throw new Error("Passwords do not match");
       }
-      const res = await apiClient.auth["change-password"].$post({
+      const res = await apiClient.auth["change-expired-password"].$post({
         json: {
           username: username(),
           currentPassword: currentPassword(),

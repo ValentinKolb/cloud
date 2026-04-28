@@ -1,9 +1,9 @@
 import { createSignal, For, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/cloud-lib/browser";
-import { prompts } from "@valentinkolb/cloud-lib/ui";
-import { apiClient } from "@/api/api-client";
-import type { UserProfile, UserProvider } from "@valentinkolb/cloud-contracts/shared";
-import { TextInput } from "@valentinkolb/cloud-lib/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
+import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
+import { TextInput } from "@valentinkolb/cloud/ui";
 
 type Props = {
   provider: UserProvider;
@@ -38,7 +38,7 @@ export default function ProfileActions(props: Props) {
 
   const editMutation = mutations.create<void, { givenname: string; sn: string; displayName: string }>({
     mutation: async (vars) => {
-      const res = await apiClient.accounts.users.me.$patch({ json: vars });
+      const res = await apiClient.me.$patch({ json: vars });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message ?? "Failed to update profile.");
@@ -105,7 +105,7 @@ export default function ProfileActions(props: Props) {
 
   const detailsMutation = mutations.create<void, { ipa?: { phone?: string; address?: { street?: string; postalCode?: string; city?: string; state?: string }; sshPublicKeys?: string[] } }>({
     mutation: async (vars) => {
-      const res = await apiClient.accounts.users.me.$patch({ json: vars });
+      const res = await apiClient.me.$patch({ json: vars });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message ?? "Failed to update details.");
@@ -252,7 +252,7 @@ export default function ProfileActions(props: Props) {
 
   const extendMutation = mutations.create<void, void>({
     mutation: async () => {
-      const res = await apiClient.accounts.users.me["extend-account"].$post();
+      const res = await apiClient.me["account-extension"].$post();
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.message ?? "Failed to extend account.");

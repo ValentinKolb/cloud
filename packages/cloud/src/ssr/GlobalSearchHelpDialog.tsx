@@ -1,0 +1,106 @@
+import { For, Show, createMemo } from "solid-js";
+import { prompts } from "../ui";
+
+export type GlobalSearchHelpApp = {
+  appId: string;
+  appName: string;
+  appIcon: string;
+  tags: string[];
+  help?: string;
+  tagHelp?: Array<{ tag: string; help: string }>;
+};
+
+type GlobalSearchHelpDialogProps = { apps: GlobalSearchHelpApp[] };
+
+const examples = ["#note test", "report #file #excel", "#weather ulm"];
+
+export default function GlobalSearchHelpDialog(props: GlobalSearchHelpDialogProps) {
+  const apps = createMemo(() =>
+    props.apps
+      .filter((app) => app.tags.length > 0)
+      .map((app) => ({
+        ...app,
+        help: app.help?.trim() || undefined,
+        tags: [...new Set(app.tags.map((tag) => tag.toLowerCase()))].sort(),
+        tagHelp: [...new Map((app.tagHelp ?? []).map((entry) => [entry.tag.trim().toLowerCase(), entry.help.trim()])).entries()]
+          .filter(([tag, help]) => tag.length > 0 && help.length > 0)
+          .map(([tag, help]) => ({ tag, help })),
+      }))
+      .sort((a, b) => a.appName.localeCompare(b.appName)),
+  );
+
+  return (
+    <div class="flex max-h-[min(80vh,42rem)] min-h-0 flex-col gap-4 text-zinc-900 dark:text-zinc-100">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-sm text-dimmed">Use <code>#tag</code> to narrow your search. You can combine text + multiple tags.</p>
+        </div>
+      </div>
+
+      <section class="text-sm rounded-lg ring-1 ring-inset ring-zinc-200 dark:ring-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/35">
+        <p class="mb-2 text-dimmed">Examples</p>
+        <ul class="space-y-1 text-xs text-dimmed">
+          <For each={examples}>{(entry) => <li><code>{entry}</code></li>}</For>
+        </ul>
+      </section>
+
+      <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div class="flex flex-col gap-2">
+          <For each={apps()}>
+            {(app) => (
+              <section class="rounded-lg ring-1 ring-inset ring-zinc-200 dark:ring-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/35">
+                <header class="flex items-center gap-2 text-sm">
+                  <i class={app.appIcon} />
+                  <span>{app.appName}</span>
+                </header>
+                <Show when={app.help}>
+                  <p class="mt-1 text-xs text-dimmed">{app.help}</p>
+                </Show>
+                <Show
+                  when={(app.tagHelp?.length ?? 0) > 0}
+                  fallback={
+                    <p class="mt-1 text-xs text-dimmed">
+                      Tags:{" "}
+                      <For each={app.tags}>
+                        {(tag, index) => (
+                          <>
+                            <code>#{tag}</code>
+                            <Show when={index() < app.tags.length - 1}>, </Show>
+                          </>
+                        )}
+                      </For>
+                    </p>
+                  }
+                >
+                  <div class="mt-2 space-y-1 text-xs">
+                    <For each={app.tagHelp}>
+                      {(entry) => (
+                        <div class="grid grid-cols-[6rem_minmax(0,1fr)] gap-2">
+                          <code>#{entry.tag}</code>
+                          <span class="text-dimmed">{entry.help}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </section>
+            )}
+          </For>
+          <Show when={apps().length === 0}>
+            <div class="rounded-lg ring-1 ring-inset ring-zinc-200 dark:ring-zinc-800 p-3 text-xs text-dimmed bg-zinc-50/50 dark:bg-zinc-900/35">
+              No app-specific search tags available.
+            </div>
+          </Show>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const openGlobalSearchHelpDialog = (apps: GlobalSearchHelpApp[]) => {
+  void prompts.dialog<void>(() => <GlobalSearchHelpDialog apps={apps} />, {
+    title: "Search Tags",
+    icon: "ti ti-help-circle",
+    size: "large",
+  });
+};

@@ -1,10 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/contracts" },
-    { "path": "./packages/lib" },
-    { "path": "./packages/core" },
-    { "path": "./packages/apps" },
-    { "path": "./packages/standalone" }
+    { "path": "./packages/cloud" },
+    { "path": "./packages/apps" }
   ]
 }

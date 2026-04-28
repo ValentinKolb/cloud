@@ -1,10 +1,9 @@
-import { ssr } from "@config";
-import { type AuthContext } from "@valentinkolb/cloud-lib/server/middleware/auth";
-import Layout from "@/ssr/Layout";
-import { canManageAnyGroups, dates } from "@valentinkolb/cloud-lib/shared";
-import { getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud-lib/shared";
-import { accountsAppService } from "@/services";
-import { getSync } from "@valentinkolb/cloud-core/services/settings";
+import { ssr } from "../../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { Layout } from "@valentinkolb/cloud/ssr";
+import { dates } from "@valentinkolb/stdlib";
+import { canManageAnyGroups, getAccountTypeLabel, getManagementLabel, getSupplementalRoleLabel } from "@valentinkolb/cloud/shared";
+import { accountsAppService, coreSettings } from "@valentinkolb/cloud/services";
 import ProfileActions from "./ProfileActions.island";
 import ProfileSettings from "./ProfileSettings.island";
 import RequestFreeIpaAccount from "./RequestFreeIpaAccount.island";
@@ -25,9 +24,13 @@ const formatAddress = (a: {
   return parts.length > 0 ? parts.join(", ") : null;
 };
 
-export const createProfilePage = () => ssr<AuthContext>(async (c) => {
-  const appName = getSync<string>("app.name") || "My App";
-  const freeIpaEnabled = Boolean(getSync<boolean>("freeipa.enable"));
+export default ssr<AuthContext>(async (c) => {
+  const [rawAppName, freeIpaEnabledRaw] = await Promise.all([
+    coreSettings.get<string>("app.name"),
+    coreSettings.get<boolean>("freeipa.enable"),
+  ]);
+  const appName = rawAppName || "My App";
+  const freeIpaEnabled = Boolean(freeIpaEnabledRaw);
   const sessionUser = c.get("user");
   const manages = sessionUser.manages;
   const canManageGroups = canManageAnyGroups(sessionUser);
@@ -56,7 +59,7 @@ export const createProfilePage = () => ssr<AuthContext>(async (c) => {
     ? "bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"
     : "bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300";
 
-  return (
+  return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Profile" }]}>
       <div class="max-w-4xl mx-auto flex flex-col gap-4">
         {action === "extend" && (
@@ -256,7 +259,7 @@ export const createProfilePage = () => ssr<AuthContext>(async (c) => {
                 <div class="flex flex-col gap-3">
                   <div class="info-block-info text-xs">Request pending since {dates.formatDate(pendingRequest.createdAt.toISOString())}.</div>
                   <div class="flex justify-end">
-                    <WithdrawAccountRequest requestId={pendingRequest.id} />
+                    <WithdrawAccountRequest />
                   </div>
                 </div>
               ) : (
@@ -265,8 +268,8 @@ export const createProfilePage = () => ssr<AuthContext>(async (c) => {
                   sn={sessionUser.sn}
                   displayName={sessionUser.displayName}
                   phone={null}
-                  agbUrl="/legal/agb"
-                  privacyUrl="/legal/datenschutz"
+                  agbUrl="/legal/terms"
+                  privacyUrl="/legal/privacy"
                   appName={appName}
                 />
               )}
@@ -292,3 +295,4 @@ export const createProfilePage = () => ssr<AuthContext>(async (c) => {
     </Layout>
   );
 });
+

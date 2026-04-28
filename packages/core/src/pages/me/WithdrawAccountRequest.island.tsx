@@ -1,17 +1,11 @@
-import { mutation as mutations } from "@valentinkolb/cloud-lib/browser";
-import { prompts } from "@valentinkolb/cloud-lib/ui";
-import { apiClient } from "@/api/api-client";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@valentinkolb/cloud/clients/core";
 
-type WithdrawAccountRequestProps = {
-  requestId: string;
-};
-
-export default function WithdrawAccountRequest(props: WithdrawAccountRequestProps) {
+export default function WithdrawAccountRequest() {
   const mutation = mutations.create<void, void>({
     mutation: async () => {
-      const res = await apiClient.accounts["account-requests"][":id"].$delete({
-        param: { id: props.requestId },
-      });
+      const res = await apiClient.me["account-request"].$delete();
       if (!res.ok) {
         const data = (await res.json()) as { message?: string };
         throw new Error(data.message ?? "Failed to withdraw request.");

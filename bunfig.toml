@@ -1,0 +1,6 @@
+# Hoisted linker so workspace dependencies declared in one package
+# (e.g. cloud-lib) are visible to all sibling packages without each app
+# having to re-declare them. Matches the legacy single-`packages/apps`
+# behaviour now that each app is its own package.
+[install]
+linker = "hoisted"

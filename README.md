@@ -1,116 +1,76 @@
-# Cloud Monorepo
+# Cloud
 
-Cloud is a package-first Bun monorepo for a modular work cloud platform.
+A modular application platform — an "internet OS" for building internal tools, self-hosted by small-to-large businesses, open-source admins, and homelabs.
 
-It is built around a strict split between runtime orchestration, shared server/client APIs, and statically registered apps.
+Each app runs in its own container. The gateway discovers them at runtime via a Redis-backed service registry, so scaling an app means starting another container, and an app crash doesn't take the rest down.
 
 ## Packages
 
-- `cloud/packages/core` (`@valentinkolb/cloud/core`): runtime orchestration (`createCloud`), lifecycle, router composition.
-- `cloud/packages/lib` (`@valentinkolb/cloud/lib`): shared frontend/browser utilities (`/ui`, `/browser`, `/shared`, `/islands`) and server builder APIs under `/server`.
-- `cloud/packages/contracts` (`@valentinkolb/cloud/contracts`): shared types/schemas (`AppFacade`, pagination, zod contracts).
-- `cloud/packages/apps` (`@valentinkolb/cloud/apps`): built-in apps and app registry.
-- `cloud/packages/standalone` (`@valentinkolb/cloud/standalone`): standalone product entry with docker image (loads built-in apps by default).
+- [`packages/cloud`](packages/cloud) (`@valentinkolb/cloud`) — platform library: runtime helpers, auth/session/accounts services, shared server + UI + contracts.
+- [`packages/apps`](packages/apps) (`@valentinkolb/cloud/apps`) — app implementations. Each subfolder is one container. Three roles:
+  - **`gateway`** — HTTP entrypoint on `:3000`, reverse-proxies to apps.
+  - **`core`** — auth flows, `/me`, `/admin/lifecycle`, entity search, session. Every deployment runs exactly one of these.
+  - **All others** — domain features (notebooks, files, spaces, weather, …) or admin UIs on top of core services (accounts, logging, settings, notifications).
+
+The platform-level primitives — authentication, sessions, account lifecycle — always live in `packages/cloud`. Apps consume them but don't redefine them.
 
 ## Quick Start
 
-1. Install dependencies:
-
 ```bash
 bun install
+bun run infra      # start postgres, valkey, geo, filegate
+bun run dev        # start the core set (6 containers)
+open http://localhost:3000
 ```
 
-2. Run development server:
+Default admin login in dev: username `admin` with password `dev-admin` (the `ADMIN_LOGIN_TOKEN` on `app-core`).
 
-```bash
-bun run dev
-```
+## Dev Stack Shape
 
-3. Optional fast restart without setup/migrations:
+The compose file uses profiles so the default `bun run dev` only spins up what you need to log in and manage accounts.
 
-```bash
-bun run dev:skip-setup
-```
+| Command | What it starts |
+|---------|----------------|
+| `bun run dev` | **Core set, 6 containers:** gateway, app-core, app-accounts, app-logging, app-settings, app-notifications |
+| `bun run dev:full` | Core set + all extras (19 containers total), via `--profile extra` |
+| `bun run dev:app <name>` | Start a single extra app into the already-running stack (e.g. `bun run dev:app files`) |
+| `bun run dev:app stop <name>` | Stop that one app |
+| `bun run dev:app logs <name>` | Tail its logs |
+| `bun run dev:down` | Tear the dev stack down |
+| `bun run infra:down` | Tear infra down |
 
-4. Open [http://localhost:3000](http://localhost:3000).
+`dev:app` containers join the existing dev network automatically (same compose project name), so the gateway discovers them within ~5 seconds.
 
-## Docker (Standalone)
+## Auth Model (short)
 
-Build the standalone image from repo root:
+- **FreeIPA** is the source of truth for IPA users; local DB is a mirror.
+- User types (`provider` × `profile`): `ipa/user`, `ipa/guest`, `local/user`, `local/guest`.
+- Local users log in via magic-link email; IPA users via Kerberos-backed password.
+- `ADMIN_LOGIN_TOKEN` enables an emergency local admin login for dev/recovery.
 
-```bash
-bun run docker:build
-```
-
-Run it locally on port `3000` with the root `.env`:
-
-```bash
-docker run --rm -p 3000:3000 --env-file .env cloud-local
-```
-
-Start local infrastructure (`postgres`, `valkey`, `geo`, `filegate`) via root compose:
-
-```bash
-bun run docker:dev
-```
-
-This uses root `compose.yml`.
+Full details: [`cloud/docs/05_AUTH_FREEIPA.md`](docs/05_AUTH_FREEIPA.md) and `skills/cloud/references/auth-model.md`.
 
 ## Environment
 
-Main infrastructure env vars are parsed in `cloud/packages/core/src/config/env.ts`:
+Infrastructure env parsed in [`packages/cloud/src/config/env.ts`](packages/cloud/src/config/env.ts):
 
-- `APP_URL`, `PORT`
+- `DATABASE_URL`, `REDIS_URL`, `APP_URL`, `PORT`
+- `APP_SECRET` (settings encryption at rest)
 - `FREEIPA_URL`, `FREEIPA_SVC_USER`, `FREEIPA_SVC_PASSWORD`
 - `GROUPS_ADMIN`, `GROUPS_BASE_SYNC`, `GROUPS_BASE_IPA_REALM`, `GROUPS_EXCLUDED`
 - `FILEGATE_URL`, `FILEGATE_TOKEN`
 
-`compose.yml` uses `FILEGATE_TOKEN` and maps it to Filegate's `FILE_PROXY_TOKEN`.
-
-Runtime-editable settings (DB-backed) are defined in `cloud/packages/core/src/services/settings/defaults.ts`.
-These app/user/email/security defaults are no longer read from `.env`.
-
-Standalone-specific runtime env vars are parsed in `cloud/packages/standalone/src/runtime-options.ts`:
-
-- `SKIP_SETUP=true`: skip setup/migration phase on startup.
-- `DISABLE_APPS=contacts,tools,...`: comma-separated app IDs that should not be loaded by standalone.
-
-Example:
-
-```bash
-DISABLE_APPS=contacts,tools bun run dev
-```
-
-## Auth and FreeIPA Model
-
-- FreeIPA is the source of truth for managed users/groups/hosts.
-- Local realm types are:
-  - `guest`: local email-token account (no IPA account).
-  - `ipa-limited`: synced IPA user with limited role set.
-  - `ipa`: synced IPA user with full IPA realm role.
-- Full IPA sync runs periodically and updates local auth tables.
-- Guest accounts can be promoted to IPA users and IPA users can be demoted back to guest.
-
-See `cloud/docs/05_AUTH_FREEIPA.md` for details.
+Runtime-editable settings (DB-backed, encrypted, admin-UI exposed) are defined in [`packages/cloud/src/services/settings/defaults.ts`](packages/cloud/src/services/settings/defaults.ts).
 
 ## Quality Gates
 
-Run the full checks before merge:
-
 ```bash
-bun run typecheck
-```
-
-Format/lint commands:
-
-```bash
+bun run typecheck     # skills + boundaries + cycles + service/API contracts + biome + tsc
 bun run format
 bun run lint
 ```
 
 ## Documentation vs Skills
 
-- Human docs: `cloud/docs`
-- Agent operational knowledge: `cloud/skills`
-
-Docs stay compact and onboarding-focused; detailed implementation guidance belongs in skills.
+- Human docs — [`cloud/docs`](docs/).
+- Agent operational knowledge — [`cloud/skills`](skills/). Start with [`skills/cloud/SKILL.md`](skills/cloud/SKILL.md) for the overview, [`skills/cloud-app/SKILL.md`](skills/cloud-app/SKILL.md) for app development, [`skills/cloud-ops/SKILL.md`](skills/cloud-ops/SKILL.md) for dev/deploy/compose.

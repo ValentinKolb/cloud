@@ -1,31 +1,22 @@
 import { Hono } from "hono";
 import { join } from "node:path";
-import { auth, type AuthContext } from "@valentinkolb/cloud-lib/server/middleware/auth";
-import { getSync } from "@valentinkolb/cloud-core/services/settings";
-import { createProfilePage } from "@/pages/me/page";
-import notFoundPage from "@/pages/NotFound";
-import loginPage from "@/pages/auth/page";
-import newPasswordPage from "@/pages/auth/new-password/page";
-import { createHomePage } from "@/pages/home/page";
-import adminPage from "@/pages/admin/page";
-import datenschutzPage from "@/pages/legal/datenschutz";
-import type { AppFacade } from "@valentinkolb/cloud-contracts/app";
-
-type CreatePagesRouterOptions = {
-  brandingPublicDir?: string;
-};
+import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import { coreSettings } from "@valentinkolb/cloud/services";
+import profilePage from "./me/page";
+import notFoundPage from "./NotFound";
+import loginPage from "./auth/page";
+import newPasswordPage from "./auth/new-password/page";
+import homePage from "./home/page";
+import adminPage from "./admin/page";
 
 /**
- * Creates the SSR pages router and mounts all app page routes.
+ * Creates the SSR pages router.
+ * App pages are served by individual containers (microservices mode).
  */
 export const createPagesRouter = (
-  apps: readonly AppFacade[],
-  options?: CreatePagesRouterOptions,
+  options?: { brandingPublicDir?: string },
 ): Hono<AuthContext> => {
   const brandingPublicDir = options?.brandingPublicDir ?? "public";
-  const homePage = createHomePage(apps);
-  const profilePage = createProfilePage();
-
   const pages = new Hono<AuthContext>()
     // Prevent browser from caching SSR pages (user state changes on login/logout)
     // Skip for branding assets — they set their own cache headers
@@ -42,6 +33,8 @@ export const createPagesRouter = (
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     // Admin pages (admin only)
     .get("/admin", auth.requireRole("admin", auth.redirectToLogin), ...adminPage)
+    // /admin/apps was merged into the gateway admin page.
+    .get("/admin/apps", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/admin/gateway", 302))
     .get("/admin/sync", auth.requireRole("admin", auth.redirectToLogin), (c) => c.redirect("/app/accounts#sync-activity", 302))
     // Auth routes
     .get("/auth/login", auth.requireRole("anonymous", auth.redirect("/")), ...loginPage)
@@ -49,26 +42,18 @@ export const createPagesRouter = (
     .get("/auth/extend", auth.requireRole("authenticated", auth.redirectToLogin), async (c) => {
       return c.redirect("/me?action=extend", 302);
     })
-    // Legal pages
-    .get("/legal/datenschutz", ...datenschutzPage)
-    .get("/impressum", async (c) => {
-      const { getSync } = await import("@valentinkolb/cloud-core/services/settings");
-      const url = getSync<string>("app.impressum_url");
-      if (url) return c.redirect(url, 302);
-      return c.text("Impressum not configured", 404);
-    })
+    // Legal pages (Imprint / Privacy / Terms) live in the settings app — see
+    // packages/settings/src/index.ts and the `legal.*` settings group.
     // Branding assets (public, no auth, cached)
     .get("/branding/logo", async (c) => {
       return serveBranding(c, "app.logo", join(brandingPublicDir, "logo.svg"), "image/svg+xml");
     })
     .get("/branding/favicon", async (c) => {
-      return serveBranding(c, "app.favicon", join(brandingPublicDir, "favicon.png"), "image/x-icon");
+      // Default favicon = same SVG as the logo. User-uploaded favicons come
+      // through as data URIs and override this fallback (mime taken from the
+      // data URI, so PNG/ICO uploads still work).
+      return serveBranding(c, "app.favicon", join(brandingPublicDir, "logo.svg"), "image/svg+xml");
     });
-
-  for (const app of apps) {
-    if (!app.routes.pages) continue;
-    pages.route("/", app.routes.pages);
-  }
 
   // 404 catch-all (must be after all mounted routes)
   pages.get("/*", auth.requireRole("*"), ...notFoundPage);
@@ -77,7 +62,7 @@ export const createPagesRouter = (
 
 /** Serve a branding asset from settings (base64 data URI) or fall back to a static file. */
 async function serveBranding(c: import("hono").Context, settingKey: string, fallbackPath: string, fallbackMime: string): Promise<Response> {
-  const dataUri = getSync<string>(settingKey);
+  const dataUri = await coreSettings.get<string>(settingKey);
 
   if (dataUri) {
     // Parse data URI: data:<mime>;base64,<data>

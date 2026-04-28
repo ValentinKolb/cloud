@@ -28,5 +28,13 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_logging_entries_created_at
     ON logging.entries(created_at DESC)
   `.simple();
+  // Composite index for the dashboard summary query: filters of the shape
+  // `WHERE level = 'error' AND created_at > <cutoff> ORDER BY created_at DESC`
+  // become index-only scans. Massively cheaper than the single-column indexes
+  // when the table grows past tens of thousands of rows.
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_logging_entries_level_created_at
+    ON logging.entries(level, created_at DESC)
+  `.simple();
   console.log("  ✓ logging indexes");
 };

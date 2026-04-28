@@ -1,8 +1,10 @@
+# Infrastructure services – run with: bun run infra
 services:
   postgres:
     image: postgres:15-alpine
     container_name: ipa_postgres
     restart: unless-stopped
+    command: postgres -c max_connections=300
     environment:
       POSTGRES_DB: ipa
       POSTGRES_USER: ipa

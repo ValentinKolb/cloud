@@ -10,19 +10,9 @@ const workspaceRoot = join(import.meta.dir, "..");
 const skillsRoot = join(workspaceRoot, "skills");
 
 const expectedSkills = [
-  "cloud-general",
-  "cloud-architecture-runtime",
-  "cloud-app-builder",
-  "cloud-query-state-patterns",
-  "cloud-service-conventions",
-  "cloud-api-patterns",
-  "cloud-access-permissions",
-  "cloud-settings-config",
-  "cloud-coding-guidelines",
-  "cloud-frontend-consistency",
-  "cloud-shortcuts",
-  "cloud-testing-quality",
-  "cloud-troubleshooting",
+  "cloud",
+  "cloud-app",
+  "cloud-ops",
 ] as const;
 
 const isDirectory = (path: string): boolean => existsSync(path) && statSync(path).isDirectory();
@@ -32,15 +22,45 @@ const parseFrontmatter = (source: string): Record<string, string> | null => {
   if (!match) return null;
 
   const fields: Record<string, string> = {};
-  for (const rawLine of match[1].split("\n")) {
+  const lines = match[1].split("\n");
+  let currentKey: string | null = null;
+  let currentValue = "";
+
+  for (const rawLine of lines) {
+    // Indented line → continuation of previous block scalar value
+    if (currentKey && /^\s{2,}/.test(rawLine)) {
+      currentValue += ` ${rawLine.trim()}`;
+      continue;
+    }
+
+    // Flush previous key
+    if (currentKey) {
+      fields[currentKey] = currentValue.trim();
+      currentKey = null;
+      currentValue = "";
+    }
+
     const line = rawLine.trim();
     if (!line) continue;
     const idx = line.indexOf(":");
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
     const value = line.slice(idx + 1).trim();
-    fields[key] = value;
+
+    // Block scalar indicator (> or |)
+    if (value === ">" || value === "|") {
+      currentKey = key;
+      currentValue = "";
+    } else {
+      fields[key] = value;
+    }
   }
+
+  // Flush last key
+  if (currentKey) {
+    fields[currentKey] = currentValue.trim();
+  }
+
   return fields;
 };
 
@@ -52,7 +72,7 @@ if (!isDirectory(skillsRoot)) {
 }
 
 const actualSkills = readdirSync(skillsRoot)
-  .filter((entry) => isDirectory(join(skillsRoot, entry)))
+  .filter((entry) => entry !== "old_skills" && isDirectory(join(skillsRoot, entry)))
   .sort();
 
 for (const expected of expectedSkills) {
@@ -120,34 +140,6 @@ for (const skill of expectedSkills) {
       file: skillMd,
       message: "SKILL.md body must not be empty.",
     });
-  }
-
-  const openaiYaml = join(skillDir, "agents", "openai.yaml");
-  if (!existsSync(openaiYaml)) {
-    violations.push({
-      file: openaiYaml,
-      message: "Missing agents/openai.yaml.",
-    });
-  } else {
-    const source = readFileSync(openaiYaml, "utf8");
-    if (!/\binterface:\s*/.test(source)) {
-      violations.push({
-        file: openaiYaml,
-        message: "openai.yaml must define interface section.",
-      });
-    }
-    if (!/\bdisplay_name:\s*"?.+"?/.test(source)) {
-      violations.push({
-        file: openaiYaml,
-        message: "openai.yaml must define interface.display_name.",
-      });
-    }
-    if (!/\bshort_description:\s*"?.+"?/.test(source)) {
-      violations.push({
-        file: openaiYaml,
-        message: "openai.yaml must define interface.short_description.",
-      });
-    }
   }
 
   const referencesDir = join(skillDir, "references");

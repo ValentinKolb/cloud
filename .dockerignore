@@ -17,8 +17,17 @@ build
 _ssr
 **/_ssr
 
-# Generated frontend build css
+# Generated assets (rebuilt at runtime by preload)
+public
+_ssr
 **/public/build.css
+
+# Old packages (source moved to packages/cloud)
+packages/lib/src
+packages/core/src
+packages/app-runtime/src
+packages/contracts/src
+packages/standalone
 
 # Logs / caches
 *.log

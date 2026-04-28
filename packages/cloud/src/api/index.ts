@@ -1,0 +1,66 @@
+/**
+ * Core platform API surface — owned by cloud-lib, mounted by the core-app.
+ *
+ * Lives here (not in an app) because every container shares the same auth
+ * model, self-service shape, lifecycle controls and entity search; redefining
+ * any of these per-app would break the platform invariant.
+ *
+ * Apps that need a typed client to these routes import from
+ * `@valentinkolb/cloud/clients/core`. The client and the routes share their
+ * type via `CoreApiType` below.
+ */
+import { Hono } from "hono";
+import { Scalar } from "@scalar/hono-api-reference";
+import { generateSpecs } from "hono-openapi";
+import { prettyJSON } from "hono/pretty-json";
+import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
+import { openApiMeta } from "../server";
+import authRoutes from "./auth";
+import meRoutes from "./me";
+import adminLifecycleRoutes from "./admin-lifecycle";
+import accountsEntitiesRoutes from "./accounts-entities";
+import { createSearchRoutes } from "./search";
+
+/**
+ * Single-expression chain so `typeof buildCoreApi()` captures every route's
+ * input/output. Splitting into `new Hono()` + `.route(...)` calls would erase
+ * the typed shape for the client.
+ */
+const buildCoreApi = () => {
+  const searchRoutes = createSearchRoutes();
+  return new Hono()
+    .use(prettyJSON())
+    .route("/auth", authRoutes)
+    .route("/me", meRoutes)
+    .route("/accounts", accountsEntitiesRoutes)
+    .route("/admin/lifecycle", adminLifecycleRoutes)
+    .route("/", searchRoutes);
+};
+
+/** Type of the entire core HTTP surface — consumed by the client builder. */
+export type CoreApiType = ReturnType<typeof buildCoreApi>;
+
+/**
+ * Build the core router and accompanying OpenAPI assets. The core-app calls
+ * this and mounts the returned router under `/api`.
+ */
+export const createCoreApiRouter = async () => {
+  const api = buildCoreApi();
+
+  const spec = await generateSpecs(api, openApiMeta);
+  const llmsTxt = await createMarkdownFromOpenApi(JSON.stringify(spec));
+
+  api.get("/openapi.json", (c) => c.json(spec));
+  api.get(
+    "/docs",
+    Scalar({
+      theme: "saturn",
+      url: "/api/openapi.json",
+      hideClientButton: true,
+    }),
+  );
+
+  api.all("/*", (c) => c.json({ message: "API route not found" }, 404));
+
+  return { api, llmsTxt };
+};
