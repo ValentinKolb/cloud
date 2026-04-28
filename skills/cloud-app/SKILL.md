@@ -17,48 +17,55 @@ This skill covers everything you need to build a complete app. For platform over
 
 Apps are domain features *on top of* the platform. They must not redefine platform primitives.
 
-**Keep out of apps** — these live in `packages/cloud/` (core), not `packages/apps/`:
+**Keep out of apps** — these live in `packages/cloud/` (core):
 
 - **Auth flows, session semantics, role/permission logic** — every container shares the same auth model. A new login flow or role type is a core change, not an app change.
 - **The `auth.*` schema and anything that writes to it** — user/group/access/account-request/deleted-account tables are owned by core. Apps reference `auth.users(id)` via foreign keys; they never migrate or mutate those tables directly.
 - **Account lifecycle, IPA sync, provider switching, magic-link issuance** — these are platform invariants.
 
-The existing `accounts` app (`packages/apps/src/accounts/`) is **pure admin UI** backed by `@valentinkolb/cloud/services/accounts`. It owns no schema, no service layer, no lifecycle. It exists so operators can fork or replace the admin frontend without touching auth semantics. If you find yourself wanting to add auth logic there, move it to `packages/cloud/src/services/` first — then consume it from the app.
+The existing `accounts` app (`packages/accounts/`) is **pure admin UI** backed by `@valentinkolb/cloud/services/accounts`. It owns no schema, no service layer, no lifecycle. It exists so operators can fork or replace the admin frontend without touching auth semantics. If you find yourself wanting to add auth logic there, move it to `packages/cloud/src/services/` first — then consume it from the app.
 
 **Good app candidates:** domain features (files, notebooks, spaces, quotes, weather), tools, reporting. Anything where swapping the app out wouldn't change how users log in or what roles mean.
 
 ## App Directory Structure
 
-Every app follows this skeleton. Reference: `weather` (simple), `faq` (CRUD/admin), `contacts` (permissions/detail panels).
+Every app follows this skeleton. Reference apps: `expeditions` (canonical template — tenancy + items + permissions + admin + widget + email), `weather` (simple), `faq` (CRUD/admin), `contacts` (permissions/detail panels).
 
 ```
-packages/apps/src/my-app/
-├── index.ts              # app.start() — the entry point
-├── config.ts             # defineApp() — identity, SSR config, meta
-├── api/
-│   ├── index.ts          # Hono router (mounts sub-routers, exports ApiType)
-│   ├── client.ts         # Typed Hono client for frontend
-│   └── items.ts          # Route handlers (one file per resource)
-├── contracts.ts          # Zod schemas for input/output validation
-├── migrate.ts            # Database migrations (CREATE SCHEMA/TABLE IF NOT EXISTS)
-├── service/              # Business logic (stateless functions)
-│   ├── index.ts          # Service namespace export
-│   └── items.ts
-├── styles/
-│   └── app.css           # Tailwind entrypoint (required by CSS preloader)
-└── frontend/
-    ├── index.ts           # Explicit page route mapping (SSR pages to Hono routes)
-    ├── page.tsx           # Root page (SSR)
-    ├── [id]/
-    │   └── page.tsx       # Dynamic route page
-    └── _components/
-        ├── ItemList.island.tsx    # Interactive client component
-        └── ItemFilters.island.tsx
+packages/my-app/
+├── package.json          # workspace manifest
+├── tsconfig.json         # @/* and @valentinkolb/cloud/* path aliases
+├── tsconfig.typecheck.json
+└── src/
+    ├── index.ts              # app.start() — the entry point
+    ├── config.ts             # defineApp() — identity, SSR config, settings, widgets
+    ├── api/
+    │   ├── index.ts          # Hono router (mounts sub-routers, exports ApiType)
+    │   ├── client.ts         # Typed Hono client for frontend
+    │   ├── widgets.ts        # Dashboard widget endpoints
+    │   └── items.ts          # Route handlers (one file per resource)
+    ├── contracts.ts          # Zod schemas for input/output validation
+    ├── migrate.ts            # Database migrations (CREATE SCHEMA/TABLE IF NOT EXISTS)
+    ├── service/              # Business logic (stateless functions)
+    │   ├── index.ts          # Service namespace export
+    │   └── items.ts
+    ├── styles/
+    │   └── app.css           # Tailwind entrypoint (required by CSS preloader)
+    └── frontend/
+        ├── index.ts          # Explicit page route mapping (SSR pages to Hono routes)
+        ├── page.tsx          # Root page (SSR)
+        ├── [id]/
+        │   └── page.tsx      # Dynamic route page
+        └── _components/
+            ├── ItemList.island.tsx    # Interactive client component
+            └── ItemFilters.island.tsx
 ```
 
 **Also required when adding a new app:**
-1. Export the app in `packages/apps/src/index.ts`
-2. Add container in `compose.dev.yml` (see `cloud-ops` skill)
+1. Add a service block in `compose.dev.yml` (see `cloud-ops` skill).
+2. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
+
+The app self-registers in the Redis app registry via `createHeartbeat()` on startup; the gateway picks it up within ~5 s. There is no central registration file.
 
 ## The App Entry Point
 
@@ -72,7 +79,6 @@ export const app = defineApp({
   name: "My App",                        // display name
   icon: "ti ti-star",                    // Tabler icon class
   description: "Short description.",
-  color: "blue",                         // optional UI accent color
   basePath: "/app/my-app",              // SSR asset URL prefix
   baseUrl: "http://app-my-app:3000",    // container URL for service registry
   adminHref: "/admin/my-app",           // optional admin page link
@@ -83,12 +89,21 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],             // optional role filter
   },
+  widgets: [{ id: "today", path: "/api/my-app/widgets/today" }],
+  settings: {
+    "my-app.feature_enabled": {
+      kind: "boolean",
+      label: "Enable feature X",
+      default: true,
+      description: "Whether feature X is active.",
+    },
+  },
 });
 
 export const { ssr, plugin } = app;
 ```
 
-`defineApp()` creates the SSR config, Bun plugin for island bundling, and the `ssr` page handler wrapper used in page files. All app identity and meta lives here — one place.
+`defineApp()` creates the SSR config, Bun plugin for island bundling, and the `ssr` page handler wrapper used in page files. All app identity, widget endpoints, and per-app settings live here — one place. The `settings` map is typed: keys are exposed on `c.get("settings")` for any route using `Hono<AppContext<typeof app>>`.
 
 ### index.ts — App Bootstrap
 
@@ -259,16 +274,7 @@ export const migrate = async () => {
 
 **Warning:** Never add and drop temporary columns in migrations. PostgreSQL counts dropped columns towards the maximum column limit (1600). Repeated add/drop cycles across deployments can exhaust this limit even though the visible column count is low.
 
-Register app settings in `config.ts` or a separate file:
-
-```typescript
-import { registerSettings, registerGroupLabel } from "@valentinkolb/cloud/services";
-
-registerGroupLabel("my-app", "My App");
-registerSettings([
-  { key: "my-app.max_items", kind: "number", default: 100, group: "my-app", description: "Maximum items per user" },
-]);
-```
+App-owned settings are declared inside `defineApp({ settings: { ... } })` (see § config.ts above). The platform registers them automatically; they appear in `/admin/settings` grouped by the dotted-key prefix and become typed on `c.get("settings")` for routes using `Hono<AppContext<typeof app>>`.
 
 ### Hono API Routes
 
@@ -698,19 +704,21 @@ Filters and pagination live in URL params (SSR-friendly).
 **In SSR pages** — read directly from the Hono request URL:
 
 ```typescript
-const url = new URL(c.req.url);
+const url = new URL(c.req.raw.url);
 const search = url.searchParams.get("search") ?? "";
 const page = Number(url.searchParams.get("page") ?? 1);
 ```
 
-**In islands** — each app provides navigation helpers in `frontend/lib/navigation.ts`:
+**In islands** — import the shared navigation helpers from `@valentinkolb/cloud/ui`:
 
 ```typescript
-// frontend/lib/navigation.ts — standard helpers (create per app)
-export const currentPathWithQuery = () => window.location.pathname + window.location.search;
-export const refreshCurrentPath = () => window.location.assign(currentPathWithQuery());
-export const navigateTo = (href: string) => window.location.assign(href);
+import { navigateTo, refreshCurrentPath, currentPathWithQuery } from "@valentinkolb/cloud/ui";
+
+navigateTo("/app/my-app/123");   // hard navigation, adds history entry
+refreshCurrentPath();             // window.location.assign(currentPath) — full SSR re-render
 ```
+
+`refreshCurrentPath` is `window.location.assign(currentPathWithQuery())` — a full reload that re-runs SSR. It does not preserve scroll position or patch the DOM in place.
 
 **For search/filter bars** — use `SearchBar` from `@valentinkolb/cloud/ssr/islands`:
 
@@ -756,25 +764,36 @@ const vt = (key: string) => `contacts-sidebar-${key}`;
 
 ### Settings Integration
 
+Declare per-app settings inside `defineApp({ settings: { ... } })` as a typed map of dotted-key → definition. Reads happen either through the typed snapshot on `c.get("settings")` (sync, frozen for the request) or through the global getter from `@valentinkolb/cloud/services/settings`:
+
 ```typescript
+// config.ts — the single source of truth for app settings
+import { defineApp } from "@valentinkolb/cloud";
+
+export const app = defineApp({
+  id: "my-app",
+  // ...
+  settings: {
+    "my-app.feature_enabled": {
+      kind: "boolean",
+      label: "Enable feature X",
+      default: true,
+      description: "Whether feature X is active.",
+    },
+  },
+});
+
+// In a service or any non-request context:
 import * as settings from "@valentinkolb/cloud/services/settings";
-import { registerSettings, registerGroupLabel } from "@valentinkolb/cloud/services";
 
-// Define settings (in config.ts or similar)
-registerGroupLabel("my-app", "My App");
-registerSettings([
-  { key: "my-app.feature_enabled", kind: "boolean", default: true, group: "my-app", description: "Enable feature X" },
-]);
-
-// Use in service
 const enabled = settings.getSync<boolean>("my-app.feature_enabled");
 ```
 
-Settings automatically appear in the admin settings UI.
+Settings automatically appear in the admin settings UI, grouped by the dotted-key prefix.
 
 ### Universal Search Integration
 
-Add search to your app via `capabilities` in `app.start()`. See `packages/apps/src/weather/capabilities.ts` for a real example:
+Add search to your app via `capabilities` in `app.start()`. See `packages/weather/src/capabilities.ts` for a real example:
 
 ```typescript
 capabilities: {
@@ -814,8 +833,10 @@ See the `notebooks` app for a complete WebSocket implementation.
 
 ## New App Checklist
 
-1. Create directory: `packages/apps/src/my-app/`
-2. Create all skeleton files: `config.ts`, `index.ts`, `api/index.ts`, `api/client.ts`, `contracts.ts`, `migrate.ts`, `service/index.ts`, `styles/app.css`, `frontend/index.ts`, `frontend/page.tsx`
-3. Export in `packages/apps/src/index.ts`: `export { default as myAppApp, service as myAppService } from "@/my-app"`
-4. Add container in `compose.dev.yml` (see `cloud-ops` skill)
-5. Run `bun run dev` — migrations run on first startup
+1. Create directory: `packages/my-app/` with `package.json`, `tsconfig.json`, `tsconfig.typecheck.json`.
+2. Create skeleton source files under `packages/my-app/src/`: `config.ts`, `index.ts`, `api/index.ts`, `api/client.ts`, `contracts.ts`, `migrate.ts`, `service/index.ts`, `styles/app.css`, `frontend/index.ts`, `frontend/page.tsx`.
+3. Add a service block in `compose.dev.yml` (see `cloud-ops` skill).
+4. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
+5. `bun install` to refresh the lockfile, then `bun run dev:app my-app` (or `bun run dev:full`). Migrations run on first startup; the gateway picks up the new app from Redis within ~5 s.
+
+The reference implementation is `packages/expeditions/` — copy it as a starting point for any tenancy-with-items app.

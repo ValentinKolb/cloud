@@ -71,10 +71,10 @@ Some domains are deliberately NOT apps — they live in `@valentinkolb/cloud` (`
 
 | Domain | Where it lives | Why it's core |
 |--------|----------------|---------------|
-| **Accounts / auth** | `packages/cloud/src/services/{accounts,account-lifecycle,auth-flows,ipa,providers,session}/` + `packages/apps/src/core/migrate/core/auth.ts` | Auth is a platform invariant. Every app depends on the same user/role/session model. Provider switching, IPA sync, magic-link, account lifecycle, and session semantics must not diverge between deployments. |
-| **Logging, notifications, settings** | `packages/cloud/src/services/{logging,notifications,settings}/` + `packages/apps/src/core/migrate/core/*.ts` | Same reasoning — platform primitives, not app features. |
+| **Accounts / auth** | `packages/cloud/src/services/{accounts,account-lifecycle,auth-flows,ipa,providers,session}/` + `packages/core/src/migrate/core/auth.ts` | Auth is a platform invariant. Every app depends on the same user/role/session model. Provider switching, IPA sync, magic-link, account lifecycle, and session semantics must not diverge between deployments. |
+| **Logging, notifications, settings** | `packages/cloud/src/services/{logging,notifications,settings}/` + `packages/core/src/migrate/core/*.ts` | Same reasoning — platform primitives, not app features. |
 
-The `packages/apps/src/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. Same applies to the other "admin-face" apps.
+The `packages/accounts/` app is **pure admin UI** on top of `@valentinkolb/cloud/services/accounts`. It owns no schema, no service logic, no auth flows. A user may fork it or write a completely different admin frontend, but the underlying authentication, authorization, and account-lifecycle rules stay identical. Same applies to the other "admin-face" apps.
 
 Rule of thumb: if it touches `auth.*` tables, implements an auth flow, or defines role/permission semantics — it belongs in `packages/cloud/`, never in an app.
 
@@ -170,7 +170,7 @@ These are provided by the `@valentinkolb/cloud` package. Import paths:
 |------|---------|
 | `@valentinkolb/cloud` | `defineApp`, app registry, `createHeartbeat`, `buildRuntimeFromRegistry` |
 | `@valentinkolb/cloud/server` | `auth`, `v`, `respond`, `ok`, `fail`, `err`, `rateLimit`, `jsonResponse`, access helpers |
-| `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, `registerSettings`, `registerGroupLabel`, postgres helpers |
+| `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, postgres helpers |
 | `@valentinkolb/cloud/services/settings` | `getSync`, `set`, `get`, `loadCache` (settings access) |
 | `@valentinkolb/cloud/ui` | All UI components, `prompts`, `DialogHeader`, `FilterChip`, `Pagination`, etc. |
 | `@valentinkolb/cloud/browser` | `api.create()` (typed Hono client), `copyToClipboard` |
@@ -215,7 +215,7 @@ const value = settings.getSync<number>("logs.retention_days"); // sync, from cac
 await settings.set("logs.retention_days", 60);                 // async, updates DB + cache
 ```
 
-Settings are defined with `registerSettings()` and support env-var fallbacks. Resolution: DB value → env fallback → code default.
+App-owned settings are declared inside `defineApp({ settings: { ... } })` as a typed map (see the `cloud-app` skill). The platform registers them automatically and they appear in the admin settings UI grouped by the dotted-key prefix. They support env-var fallbacks; resolution order: DB value → env fallback → code default.
 
 ### Session
 
@@ -233,7 +233,7 @@ For local development without FreeIPA, set the environment variable:
 ADMIN_LOGIN_TOKEN=dev-admin
 ```
 
-Then navigate to the login page and use `dev-admin` as the password with any username. This creates a local admin user for testing. **Never use this in production.**
+Then navigate to `/auth/login?method=admin` and paste the token value (`dev-admin`) into the single token field. This bypasses FreeIPA and auto-creates a `local|user` admin account (uid `"admin"`). **Never use this in production.**
 
 ## Existing Apps (Reference)
 
@@ -241,6 +241,7 @@ Built-in apps serve as reference implementations. The most instructive ones:
 
 | App | Good example of... |
 |-----|-------------------|
+| `expeditions` | Reference / template app — tenancy, child items, permissions, admin, widget, email, logging |
 | `logging` | Admin table layout, filters, pagination |
 | `files` | Sidebar layout, file operations, Filegate integration |
 | `spaces` | Card grid layout, CRUD with forms, permissions |
@@ -250,7 +251,7 @@ Built-in apps serve as reference implementations. The most instructive ones:
 | `settings` | Admin forms, encrypted settings, dynamic inputs |
 | `accounts` | Complex CRUD, FreeIPA integration, group management |
 
-Source: `packages/apps/src/{app-id}/`
+Source: `packages/{app-id}/src/`
 
 ## Next Steps
 

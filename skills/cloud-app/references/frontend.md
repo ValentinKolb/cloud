@@ -275,23 +275,24 @@ const result = await prompts.form({
 | `pin` | `length`, `stretch` | `string` |
 | `info` | `content: string \| JSX.Element \| (() => JSX.Element)` | — (display only) |
 
-All field types support: `label`, `description`, `required`, `default`, `validate: (value) => string | null`
+Input field types (`text`, `number`, `select`, `tags`, `boolean`, `datetime`, `image`, `pin`) support: `label`, `description`, `required`, `default`, `validate: (value) => string | null`. The `info` field is display-only and accepts only `type: "info"` and `content`.
 
 #### prompts.dialog()
+
+`prompts.dialog` already renders a `DialogHeader` from the `title` and `icon` options — the body callback should render only the dialog content.
 
 ```typescript
 const result = await prompts.dialog(
   (close) => (
-    <div>
-      <DialogHeader title="Custom" icon="ti ti-star" close={close} />
-      <div class="p-4">
-        <button class="btn-primary" onClick={() => close("done")}>Done</button>
-      </div>
+    <div class="p-4">
+      <button class="btn-primary" onClick={() => close("done")}>Done</button>
     </div>
   ),
-  { size: "large" }
+  { title: "Custom", icon: "ti ti-star", size: "large" }
 );
 ```
+
+When you need to drive the header explicitly (e.g. a fully custom dialog body that should suppress the standard header), import `DialogHeader` from `@valentinkolb/cloud/ui` and accept `{ close, title, icon }` as its only props.
 
 #### prompts.error() / prompts.alert()
 
@@ -439,7 +440,7 @@ import { PermissionEditor } from "@valentinkolb/cloud/ui";
 
 **Props:** `resourceId`, `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess`, `updateAccess`, `revokeAccess`, `allowPublic?`
 
-See `packages/apps/src/contacts/frontend/_components/BookSettingsForm.island.tsx` for a real example.
+See `packages/contacts/src/frontend/_components/BookSettingsForm.island.tsx` for a real example.
 
 ### SidebarLayout / SidebarFromSpec
 
@@ -829,48 +830,39 @@ if (!res.ok) throw new Error((await res.json()).message);
 
 ### Detail Dialog
 
+`prompts.dialog` renders the header from `title` and `icon` automatically — the body callback only renders content.
+
 ```jsx
 const showDetail = async (item: Item) => {
   await prompts.dialog(
     (close) => (
-      <div>
-        <DialogHeader title={item.title} icon="ti ti-file" close={close} />
-        <div class="p-4 flex flex-col gap-3">
-          <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <span class="text-dimmed">ID</span>
-            <span class="flex items-center gap-1">{item.id} <CopyButton text={item.id} /></span>
-            <span class="text-dimmed">Created</span>
-            <span>{formatDate(item.createdAt)}</span>
-          </div>
+      <div class="p-4 flex flex-col gap-3">
+        <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+          <span class="text-dimmed">ID</span>
+          <span class="flex items-center gap-1">{item.id} <CopyButton text={item.id} /></span>
+          <span class="text-dimmed">Created</span>
+          <span>{formatDate(item.createdAt)}</span>
         </div>
       </div>
     ),
-    { size: "medium" }
+    { title: item.title, icon: "ti ti-file", size: "medium" }
   );
 };
 ```
 
 ### Confirmation Before Delete
 
+For destructive yes/no prompts use `prompts.confirm` directly — it ships with the right styling without a custom dialog:
+
 ```jsx
 const handleDelete = async (id: string) => {
-  const confirmed = await prompts.dialog(
-    (close) => (
-      <div>
-        <DialogHeader title="Delete Item" icon="ti ti-trash" close={close} variant="danger" />
-        <div class="p-4">
-          <p class="text-sm">Are you sure? This cannot be undone.</p>
-          <div class="flex justify-end gap-2 mt-4">
-            <button class="btn-secondary btn-sm" onClick={() => close(false)}>Cancel</button>
-            <button class="btn-danger btn-sm" onClick={() => close(true)}>Delete</button>
-          </div>
-        </div>
-      </div>
-    ),
-    { size: "small" }
+  const confirmed = await prompts.confirm(
+    "Are you sure? This cannot be undone.",
+    { title: "Delete Item", icon: "ti ti-trash", confirmText: "Delete", variant: "danger" },
   );
   if (confirmed) deleteMutation.mutate(id);
 };
+```
 ```
 
 ### Sticky Action Bar
@@ -896,19 +888,21 @@ Filters and pagination live in URL params (SSR-friendly).
 **In SSR pages** — read directly from the Hono request URL:
 
 ```typescript
-const url = new URL(c.req.url);
+const url = new URL(c.req.raw.url);
 const search = url.searchParams.get("search") ?? "";
 const page = Number(url.searchParams.get("page") ?? 1);
 ```
 
-**In islands** — each app provides navigation helpers in `frontend/lib/navigation.ts`:
+**In islands** — import the shared navigation helpers from `@valentinkolb/cloud/ui`:
 
 ```typescript
-// frontend/lib/navigation.ts — standard helpers (create per app)
-export const currentPathWithQuery = () => window.location.pathname + window.location.search;
-export const refreshCurrentPath = () => window.location.assign(currentPathWithQuery());
-export const navigateTo = (href: string) => window.location.assign(href);
+import { navigateTo, refreshCurrentPath, currentPathWithQuery } from "@valentinkolb/cloud/ui";
+
+navigateTo("/app/my-app/123");   // hard navigation, adds history entry
+refreshCurrentPath();             // window.location.assign(currentPathWithQuery()) — full SSR re-render
 ```
+
+`refreshCurrentPath` performs a full reload via `window.location.assign`. It does not patch the DOM in place or preserve scroll position; the SSR pass re-runs from scratch.
 
 **For search/filter bars** — use `SearchBar` from `@valentinkolb/cloud/ssr/islands`:
 

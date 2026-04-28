@@ -2,7 +2,7 @@
 
 ## User Storage
 
-Users live in `auth.users`. Key columns from the migration (`packages/apps/src/core/migrate/core/auth.ts`):
+Users live in `auth.users`. Key columns from the migration (`packages/core/src/migrate/core/auth.ts`):
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -136,8 +136,10 @@ Group queries support recursive traversal via PostgreSQL recursive CTEs:
 Sessions are stored in Redis:
 
 - **Key**: `session:{userId}:{randomToken}`
-- **Value**: JSON `{ userId: string, ipaSession: string | null }`
+- **Value**: JSON `{ userId: string, ipaSession: string | null, gen: number }`
 - **TTL**: Configurable via `user.session.expiry_hours` setting
+
+`gen` is the user's session-generation counter at the time the session was created. `session.revokeAllForUser(userId)` is an atomic INCR on a separate `session:gen:{userId}` key — any stored session whose `gen` is below the current counter is rejected at lookup time without touching the session key itself.
 
 Token extraction priority:
 1. Cookie: `session_token`

@@ -9,7 +9,7 @@ Sources: `packages/cloud/src/config/env.ts` (typed env) and `compose.dev.yml` (c
 | `DATABASE_URL` | string | yes | — | PostgreSQL connection string (set in compose) |
 | `REDIS_URL` | string | yes | — | Valkey/Redis connection string (set in compose) |
 | `APP_SECRET` | string | yes | — | Encryption key for settings at rest. **All apps must share the same secret** — settings are encrypted/decrypted with this key. An app can only use a different secret if it doesn't read any shared settings (e.g. mail config used by notifications). |
-| `APP_URL` | string | no | `localhost:3000` | Public-facing URL |
+| `APP_URL` | string | no | `localhost:3000` | Public-facing URL. Bootstrap value only — once running, the canonical source is the runtime setting `app.url` (env value used as fallback / first-boot bootstrap). |
 | `PORT` | int | no | `3000` | HTTP listen port |
 | `NODE_ENV` | string | no | — | `development` or `production` |
 
@@ -43,7 +43,7 @@ These env vars provide **initial bootstrap values**. Once the platform is runnin
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ADMIN_LOGIN_TOKEN` | string | — | Emergency local admin password (any username works) |
+| `ADMIN_LOGIN_TOKEN` | string | — | Token-only admin login. Open `/auth/login?method=admin` and paste this value into the token field. Bypasses FreeIPA, auto-creates a `local|user` admin account (uid `"admin"`). |
 
 ## App Identity (set per container in compose)
 
@@ -55,22 +55,36 @@ These env vars provide **initial bootstrap values**. Once the platform is runnin
 
 These are NOT environment variables — they are runtime-configurable settings stored in PostgreSQL, encrypted at rest, editable via the admin UI. They support env-var fallbacks for initial bootstrap.
 
-Source: `packages/cloud/src/services/settings/defaults.ts`
+Source: `packages/core/src/_settings.ts` (core platform settings) plus per-app settings declared in each app's `defineApp({ settings: { ... } })`.
 
 ### App Settings
 
 | Setting Key | Type | Default | Description |
 |-------------|------|---------|-------------|
+| `app.url` | string | `"localhost:3000"` | Public-facing application URL used for email links, OAuth redirects, WebSocket connections (envFallback: `APP_URL`) |
 | `app.name` | string | `"My App"` | Platform display name |
 | `app.contact_email` | email | `""` | Support contact email |
-| `app.copyright` | string | `""` | Copyright holder name |
-| `app.impressum_url` | url | `""` | External impressum URL |
-| `app.privacy_email` | email | `""` | Privacy officer contact email |
-| `app.organization_description` | text | `""` | Short organization description |
+| `app.copyright` | string | `""` | Copyright holder name shown in footer |
 | `app.logo` | image | `""` | Logo image |
 | `app.favicon` | image | `""` | Favicon |
 | `app.timezone` | timezone | `"Europe/Berlin"` | IANA timezone for scheduler jobs |
 | `app.cleanup_schedule` | cron | `"0 4 * * *"` | Cron schedule for cleanup jobs |
+
+### Legal Documents (Imprint, Privacy, Terms)
+
+Each document has a `mode` (`local` renders markdown content, `external` redirects to a URL).
+
+| Setting Key | Type | Default | Description |
+|-------------|------|---------|-------------|
+| `legal.imprint.mode` | enum | `"local"` | `local` or `external` — how `/impressum` is served |
+| `legal.imprint.content` | text | `""` | Markdown rendered at `/impressum` when mode = `local` |
+| `legal.imprint.url` | url | `""` | External URL redirected to when mode = `external` |
+| `legal.privacy.mode` | enum | `"local"` | Source for `/legal/privacy` |
+| `legal.privacy.content` | text | `""` | Markdown content for `/legal/privacy` |
+| `legal.privacy.url` | url | `""` | External URL for `/legal/privacy` |
+| `legal.terms.mode` | enum | `"local"` | Source for `/legal/terms` |
+| `legal.terms.content` | text | `""` | Markdown content for `/legal/terms` |
+| `legal.terms.url` | url | `""` | External URL for `/legal/terms` |
 
 ### FreeIPA Settings
 
@@ -78,6 +92,8 @@ Source: `packages/cloud/src/services/settings/defaults.ts`
 |-------------|------|---------|-------------|
 | `freeipa.enable` | boolean | `false` | Master enable switch |
 | `freeipa.url` | string | `"freeipa.ipa.example.com"` | IPA server hostname (envFallback: `FREEIPA_URL`) |
+| `freeipa.ca_cert` | text | `""` | FreeIPA root CA in PEM format. Preferred way to trust self-signed / private-CA servers. |
+| `freeipa.allow_insecure` | boolean | `false` | Skip TLS validation entirely. Local dev only. Ignored when `ca_cert` is set. |
 | `freeipa.service_user` | string | `"svc-cloud"` | Service account (envFallback: `FREEIPA_SVC_USER`) |
 | `freeipa.service_password` | secret | `""` | Service password (envFallback: `FREEIPA_SVC_PASSWORD`) |
 | `freeipa.groups.admin` | string_list | `["admins"]` | Groups granting admin role (envFallback: `GROUPS_ADMIN`) |

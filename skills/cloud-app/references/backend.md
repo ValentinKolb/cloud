@@ -302,7 +302,7 @@ if (!hasPermission(permission, "write")) {
 }
 ```
 
-See `packages/apps/src/contacts/service/access.ts` for a complete real-world implementation.
+See `packages/contacts/src/service/access.ts` for a complete real-world implementation.
 
 ### Permission Levels
 
@@ -570,7 +570,7 @@ await sql`
   $$
 `.simple();
 
--- Pair with a GIST index for performance:
+// Pair with a GIST index for performance:
 await sql`
   CREATE INDEX IF NOT EXISTS idx_items_time_range
   ON my_app.items USING GIST (tstzrange(starts_at, ends_at, '[]'))

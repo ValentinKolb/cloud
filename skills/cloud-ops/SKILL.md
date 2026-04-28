@@ -15,7 +15,7 @@ description: >
 # 1. Infrastructure (PostgreSQL, Valkey, Geo, Filegate)
 bun run infra
 
-# 2. Core dev stack — 6 containers, enough to log in and manage accounts
+# 2. Core dev stack — 7 containers, enough to log in, see the dashboard, and manage accounts
 bun run dev
 
 # 3. Open the platform
@@ -26,17 +26,17 @@ To stop: `bun run dev:down` (includes extras via `--profile extra`) and `bun run
 
 ## Dev Stack Shape
 
-The compose file uses **profiles** so `bun run dev` stays light. Full 18-app spin-up is opt-in.
+The compose file uses **profiles** so `bun run dev` stays light. Full spin-up is opt-in.
 
 | Command | What it does |
 |---------|--------------|
-| `bun run dev` | Core set only — `gateway`, `app-core`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications` (6 containers) |
-| `bun run dev:full` | Core + all extras via `--profile extra` (19 containers) |
+| `bun run dev` | Core set only — `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications` (7 containers) |
+| `bun run dev:full` | Core + all extras via `--profile extra` (20 containers total) |
 | `bun run dev:app <name>` | Start one extra app into the running stack — joins the existing network automatically |
 | `bun run dev:app stop <name>` / `logs <name>` | Stop / tail that app |
 | `bun run dev:down` | Tear down the dev stack |
 
-Why the split: the core set gives you login + admin panel + log viewer + settings UI; extras (`notebooks`, `files`, `spaces`, `weather`, …) are spun up only when a specific app is under development. Running all 18 simultaneously is the reason a small laptop stalls.
+Why the split: the core set gives you login + dashboard + admin panel + log viewer + settings UI; extras (`notebooks`, `files`, `spaces`, `weather`, …) are spun up only when a specific app is under development.
 
 ## Container Architecture
 
@@ -63,7 +63,7 @@ Both compose files share the same **Docker Compose project name** (= folder name
 
 Every app registers itself in Redis via `createHeartbeat` (60s interval, 2min TTL), carrying id, nav metadata, and `baseUrl` (e.g. `http://app-files:3000`). The gateway watches the registry and rebuilds its prefix-trie route table on change — usually within ≤5s of a new container appearing.
 
-Gateway source: [`packages/apps/src/gateway/index.ts`](../../packages/apps/src/gateway/index.ts).
+Gateway source: [`packages/gateway/src/index.ts`](../../packages/gateway/src/index.ts).
 
 ## Infrastructure Services (compose.yml)
 
@@ -90,16 +90,16 @@ Every app container:
 - Runs the CSS preload: `--preload=/app/packages/cloud/scripts/preload.ts`
 - Shares env via YAML anchors (`x-env`, `x-app`)
 
-**Core set (6, no profile — started by `bun run dev`):** `gateway`, `app-core`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications`.
+**Core set (7, no profile — started by `bun run dev`):** `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications`.
 
-**Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:app`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-terms`, `app-tools`, `app-ui-lab`, `app-weather`.
+**Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:app`):** `app-notebooks`, `app-contacts`, `app-expeditions`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
 
 ### Volume Mounts (Dev)
 
 ```yaml
 volumes:
   - ./packages/cloud/src:/app/packages/cloud/src       # shared core library
-  - ./packages/apps/src/{appId}:/app/packages/apps/src/{appId}  # app source
+  - ./packages/{appId}/src:/app/packages/{appId}/src   # app source
   - ./styles.css:/app/styles.css                        # global styles entry
 ```
 
@@ -117,13 +117,13 @@ app-my-app:
   profiles: [extra]           # omit for core-set apps
   volumes:
     - ./packages/cloud/src:/app/packages/cloud/src
-    - ./packages/apps/src/my-app:/app/packages/apps/src/my-app
+    - ./packages/my-app/src:/app/packages/my-app/src
     - ./styles.css:/app/styles.css
-  command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/apps/src/my-app/index.ts
+  command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/my-app/src/index.ts
 ```
 
-2. Register in `packages/apps/src/index.ts`.
-3. Start it standalone during development: `bun run dev:app my-app`.
+2. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
+3. Start it standalone during development: `bun run dev:app my-app`. The app self-registers in Redis via `createHeartbeat()` on startup; the gateway picks it up within ~5 s without any central registration step.
 
 ## Environment Variables
 
