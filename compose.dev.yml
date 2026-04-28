@@ -204,6 +204,18 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/spaces/src/index.ts
 
+  # Demo / template app — copy this stanza when scaffolding a new app.
+  app-expeditions:
+    <<: *app
+    container_name: app-expeditions
+    environment: { <<: *env, APP_ID: expeditions }
+    profiles: [extra]
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/expeditions/src:/app/packages/expeditions/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/expeditions/src/index.ts
+
   app-tools:
     <<: *app
     container_name: app-tools
