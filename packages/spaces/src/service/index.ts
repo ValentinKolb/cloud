@@ -148,6 +148,7 @@ export const spacesService = {
     tasks: {
       listMine: items.listMyTasks,
     },
+    dashboardSnapshot: items.dashboardSnapshot,
   },
   comment: {
     list: async (config: {

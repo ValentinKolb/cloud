@@ -8,6 +8,7 @@ export const app = defineApp({
   basePath: "/admin/logs",
   baseUrl: "http://app-logging:3000",
   adminHref: "/admin/logs",
+  widgets: [{ id: "errors", path: "/api/logging/widgets/errors" }],
 });
 
 export const { ssr, plugin } = app;

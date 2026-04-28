@@ -41,6 +41,10 @@ export const buildAppRoutes = (apps: AppRegistryEntry[]): AppRoute[] => {
     if (id === "gateway") continue; // Don't route to ourselves
     if (id === "core") continue;    // Core handled last so CORE_PREFIXES win
 
+    // Always route /api/<id> to its app — covers widget endpoints
+    // (`/api/<id>/widgets/<name>`) and API-only apps without a nav entry.
+    routes.push({ prefix: `/api/${id}`, appId: id, baseUrl });
+
     // Standard app prefixes derived from nav (strip query strings)
     if (nav?.href) {
       const href = nav.href.split("?")[0]!;
@@ -49,8 +53,6 @@ export const buildAppRoutes = (apps: AppRegistryEntry[]): AppRoute[] => {
       routes.push({ prefix: `${href}/_ssr`, appId: id, baseUrl });
       // API prefix (derive from nav.href: /app/X -> /api/app/X)
       routes.push({ prefix: `/api${href}`, appId: id, baseUrl });
-      // Some apps also serve under /api/{id} (legacy compat, e.g. accounts)
-      routes.push({ prefix: `/api/${id}`, appId: id, baseUrl });
     }
 
     if (nav?.adminHref) {

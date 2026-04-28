@@ -65,3 +65,36 @@ export const listLegalLinks = async (): Promise<Array<{ label: string; href: str
   }
   return [...seen.values()];
 };
+
+/**
+ * Aggregate every running app's widget endpoints into one flat list. Used by
+ * the dashboard app to build the widget grid: it fetches each widget URL
+ * with the user's session forwarded and renders the response.
+ *
+ * Order = registration order across apps.
+ */
+export type DashboardWidget = {
+  appId: string;
+  appName: string;
+  appIcon: string;
+  widgetId: string;
+  /** Fully-qualified URL — `<baseUrl>/<path>`. */
+  url: string;
+};
+
+export const listWidgets = async (): Promise<DashboardWidget[]> => {
+  const apps = await listApps();
+  const out: DashboardWidget[] = [];
+  for (const app of apps) {
+    for (const w of app.widgets ?? []) {
+      out.push({
+        appId: app.id,
+        appName: app.name,
+        appIcon: app.icon,
+        widgetId: w.id,
+        url: `${app.baseUrl.replace(/\/$/, "")}${w.path.startsWith("/") ? w.path : `/${w.path}`}`,
+      });
+    }
+  }
+  return out;
+};

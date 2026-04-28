@@ -146,6 +146,7 @@ export const notebooksService = {
     },
     copyToNotebook: notes.copyToNotebook,
     search: notes.search,
+    recentForUser: notes.recentForUser,
   },
   presence: {
     join: presence.join,

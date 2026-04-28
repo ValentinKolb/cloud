@@ -3,6 +3,7 @@ import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { getCurrentWeather, getWeatherData } from "./forecast";
 import { WEATHER_COUNTRY_CODE } from "./geo";
 import { weatherLocationService } from "./location";
+import { weatherLocationsService } from "./locations";
 import type { WeatherData } from "./types";
 import { weatherUiService } from "./ui";
 
@@ -84,6 +85,7 @@ export const weatherService = {
     getByCityName,
   },
   location: weatherLocationService,
+  locations: weatherLocationsService,
   ui: weatherUiService,
 };
 

@@ -194,6 +194,64 @@ export const lock = async (params: { id: string }): Promise<MutationResult<Note>
 // ==========================
 
 /**
+ * Recent notes accessible to a user, joined with their parent notebook's
+ * icon. Used by the dashboard widget. Limited to a small N — a peek, not
+ * a full list. Same access semantics as `notebooks.list`.
+ */
+export type RecentNote = {
+  id: string;
+  notebookId: string;
+  title: string;
+  updatedAt: string;
+  notebookIcon: string | null;
+  notebookName: string;
+};
+
+export const recentForUser = async (params: {
+  userId: string;
+  groups: string[];
+  limit: number;
+}): Promise<RecentNote[]> => {
+  const groupsArr = `{${params.groups.map((g) => `"${g}"`).join(",")}}`;
+  const rows = await sql<{
+    id: string;
+    notebook_id: string;
+    title: string;
+    updated_at: string;
+    notebook_icon: string | null;
+    notebook_name: string;
+  }[]>`
+    SELECT
+      nt.id, nt.notebook_id, nt.title, nt.updated_at,
+      nb.icon AS notebook_icon, nb.name AS notebook_name
+    FROM notebooks.notes nt
+    JOIN notebooks.notebooks nb ON nb.id = nt.notebook_id
+    WHERE EXISTS (
+      SELECT 1
+      FROM notebooks.notebook_access na
+      JOIN auth.access a ON a.id = na.access_id
+      WHERE na.notebook_id = nt.notebook_id
+        AND (
+          a.user_id = ${params.userId}::uuid
+          OR a.group_id = ANY(${groupsArr}::uuid[])
+          OR a.authenticated_only = true
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        )
+    )
+    ORDER BY nt.updated_at DESC
+    LIMIT ${params.limit}
+  `;
+  return rows.map((r) => ({
+    id: r.id,
+    notebookId: r.notebook_id,
+    title: r.title,
+    updatedAt: r.updated_at,
+    notebookIcon: r.notebook_icon,
+    notebookName: r.notebook_name,
+  }));
+};
+
+/**
  * List all notes in a notebook (flat list with hasChildren flag).
  */
 export const list = async (params: { notebookId: string }): Promise<Note[]> => {

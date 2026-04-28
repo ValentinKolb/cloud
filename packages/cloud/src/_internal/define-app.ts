@@ -17,7 +17,6 @@ import type {
   AppCapabilities,
   AppSearchContext,
   CloudContext,
-  WidgetFactory,
 } from "../contracts/app";
 import type { AppRegistryEntry } from "../contracts/registry";
 import type { Role } from "../contracts/shared";
@@ -90,6 +89,13 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    * always open in a new tab from the login footer.
    */
   legalLinks?: ReadonlyArray<{ label: string; href: string; icon?: string }>;
+  /**
+   * Dashboard widget endpoints this app exposes. Each entry references an
+   * HTTP path on this app that returns a `WidgetResponse`. The dashboard
+   * fetches them with the user's cookie forwarded; the endpoint is
+   * responsible for permission gating (200 = render, 204 = skip silently).
+   */
+  widgets?: ReadonlyArray<{ id: string; path: string }>;
 };
 
 export type StartOptions = {
@@ -99,7 +105,6 @@ export type StartOptions = {
   };
   lifecycle?: AppLifecycle;
   capabilities?: AppCapabilities;
-  widgets?: WidgetFactory[];
   port?: number;
   skipSetup?: boolean;
 };
@@ -220,6 +225,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     adminHref: opts.adminHref,
     nav: opts.nav,
     legalLinks: opts.legalLinks ? [...opts.legalLinks] : undefined,
+    widgets: opts.widgets ? opts.widgets.map((w) => ({ ...w })) : undefined,
   };
 
   // ── 3. start() — builds and boots the Hono server ────────────────────
@@ -254,6 +260,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
           }
         : undefined,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
+      widgets: meta.widgets ? meta.widgets.map((w) => ({ ...w })) : undefined,
     };
 
     // Heartbeat

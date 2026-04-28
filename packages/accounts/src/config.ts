@@ -14,6 +14,7 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],
   },
+  widgets: [{ id: "admin-queue", path: "/api/accounts/widgets/admin-queue" }],
 });
 
 export const { ssr, plugin } = app;

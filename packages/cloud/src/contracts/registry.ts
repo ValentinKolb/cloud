@@ -26,6 +26,12 @@ export type AppRegistryLegalLink = {
   icon?: string;
 };
 
+export type AppRegistryWidget = {
+  id: string;
+  /** Absolute path on the app's HTTP service, e.g. "/api/quotes/widgets/random". */
+  path: string;
+};
+
 export type AppRegistryEntry = {
   id: string;
   name: string;
@@ -35,4 +41,5 @@ export type AppRegistryEntry = {
   nav?: AppRegistryNav;
   search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];
+  widgets?: AppRegistryWidget[];
 };

@@ -8,6 +8,7 @@ export const app = defineApp({
   basePath: "/admin/ipa-hosts",
   baseUrl: "http://app-ipa-hosts:3000",
   adminHref: "/admin/ipa-hosts",
+  widgets: [{ id: "sync", path: "/api/ipa-hosts/widgets/sync" }],
 });
 
 export const { ssr, plugin } = app;

@@ -96,6 +96,19 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/dashboard": {
+      "name": "@valentinkolb/cloud-app-dashboard",
+      "version": "0.0.0",
+      "dependencies": {
+        "@valentinkolb/cloud": "workspace:*",
+        "@valentinkolb/stdlib": "0.3.0",
+        "hono": "^4.11.1",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.9",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/faq": {
       "name": "@valentinkolb/cloud-app-faq",
       "version": "0.0.0",
@@ -1012,6 +1025,8 @@
     "@valentinkolb/cloud-app-contacts": ["@valentinkolb/cloud-app-contacts@workspace:packages/contacts"],
 
     "@valentinkolb/cloud-app-core": ["@valentinkolb/cloud-app-core@workspace:packages/core"],
+
+    "@valentinkolb/cloud-app-dashboard": ["@valentinkolb/cloud-app-dashboard@workspace:packages/dashboard"],
 
     "@valentinkolb/cloud-app-faq": ["@valentinkolb/cloud-app-faq@workspace:packages/faq"],
 

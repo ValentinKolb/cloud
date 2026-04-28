@@ -1,6 +1,3 @@
-import type { Context } from "hono";
-import type { JSX } from "solid-js/jsx-runtime";
-
 import type { Role, User } from "./shared";
 
 /**
@@ -33,6 +30,21 @@ export type AppMeta = {
    * contributes its own (e.g. settings → terms/privacy/imprint, faq → FAQ).
    */
   legalLinks?: LegalLink[];
+  /**
+   * Dashboard widget endpoints this app exposes. Each entry references an
+   * HTTP endpoint that returns a `WidgetResponse` (see `contracts/widgets.ts`).
+   * The dashboard app fetches these with the user's session forwarded; the
+   * endpoint is responsible for permission / role gating and returns 204 to
+   * silently skip rendering for the current user.
+   */
+  widgets?: WidgetEndpoint[];
+};
+
+export type WidgetEndpoint = {
+  /** Unique-within-the-app id, e.g. "open-requests". */
+  id: string;
+  /** Absolute path on the app's HTTP service, e.g. "/api/accounts/widgets/open-requests". */
+  path: string;
 };
 
 export type RuntimeAppMeta = AppMeta & {
@@ -40,17 +52,6 @@ export type RuntimeAppMeta = AppMeta & {
   searchHelp?: string;
   searchTagHelp?: AppSearchTagHelpEntry[];
 };
-
-export type WidgetFactory = (c: Context, user?: User) => Widget | Promise<Widget>;
-
-export type WidgetData = {
-  id: string;
-  title: string;
-  icon: string;
-  content: JSX.Element;
-};
-
-export type Widget = WidgetData | null;
 
 export type CloudLogger = {
   debug: (message: string, metadata?: Record<string, unknown>) => void;

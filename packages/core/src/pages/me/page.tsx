@@ -290,7 +290,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="h-px flex-1 bg-zinc-200/70 dark:bg-zinc-700/50" />
         </div>
 
-        <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} availableWidgets={[]} freeIpaEnabled={freeIpaEnabled} />
+        <ProfileSettings provider={sessionUser.provider} profile={sessionUser.profile} freeIpaEnabled={freeIpaEnabled} />
       </div>
     </Layout>
   );

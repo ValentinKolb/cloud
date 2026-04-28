@@ -1,15 +1,13 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { cookies } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { gradients } from "@valentinkolb/stdlib";
 import { prompts, SegmentedControl } from "@valentinkolb/cloud/ui";
-import type { UserProfile, UserProvider, WidgetData } from "@valentinkolb/cloud/contracts";
+import type { UserProfile, UserProvider } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@valentinkolb/cloud/clients/core";
 
 type Props = {
   provider: UserProvider;
   profile: UserProfile;
-  availableWidgets: WidgetData[];
   freeIpaEnabled: boolean;
 };
 
@@ -78,15 +76,6 @@ export default function ProfileSettings(props: Props) {
     document.documentElement.classList.add(value);
     cookies.writeCookie("theme", value);
     setTheme(value);
-  };
-
-  const [nameGradient, setNameGradient] = createSignal(
-    typeof document !== "undefined" ? (cookies.readCookie("nameGradient") ?? "default") : "default",
-  );
-
-  const handleGradient = (id: string) => {
-    cookies.writeCookie("nameGradient", id);
-    setNameGradient(id);
   };
 
   // ── Account mutations ──
@@ -179,28 +168,6 @@ export default function ProfileSettings(props: Props) {
     window.location.href = "/auth/login";
   };
 
-  // ── Widget visibility state ──
-  const [hiddenWidgets, setHiddenWidgets] = createSignal<string[]>(
-    (() => {
-      if (typeof document === "undefined") return [];
-      try {
-        const raw = cookies.readCookie("hiddenWidgets");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) return parsed;
-        }
-      } catch {}
-      return [];
-    })(),
-  );
-
-  const toggleWidget = (id: string) => {
-    const current = hiddenWidgets();
-    const next = current.includes(id) ? current.filter((w) => w !== id) : [...current, id];
-    setHiddenWidgets(next);
-    cookies.writeJsonCookie("hiddenWidgets", next);
-  };
-
   const isIpa = props.provider === "ipa" && props.freeIpaEnabled;
   const isGuest = props.profile === "guest";
 
@@ -223,74 +190,8 @@ export default function ProfileSettings(props: Props) {
             { value: "dark", label: "Dark", icon: "ti-moon" },
           ]}
         />
-
-        <div class="flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <span class="text-sm text-primary">Name Color</span>
-            <p class="text-xs text-dimmed">Color of your name on the home page</p>
-          </div>
-          <div class="flex gap-1.5 shrink-0 flex-wrap justify-end">
-            {gradients.gradientPresets.map((preset) => (
-              <button
-                type="button"
-                title={preset.label}
-                onClick={() => handleGradient(preset.id)}
-                class={`w-6 h-6 rounded-full transition-all ${
-                  nameGradient() === preset.id ? "ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-zinc-900" : "hover:scale-110"
-                }`}
-                style={`background:${preset.preview}`}
-              />
-            ))}
-          </div>
-        </div>
       </div>
 
-      {/* Widgets */}
-      <Show when={props.availableWidgets.length > 0}>
-        <div class="paper p-6 flex flex-col gap-4">
-          <h2 class="text-sm font-semibold text-primary flex items-center gap-1">
-            <i class="ti ti-layout-dashboard text-sm" />
-            Widgets
-          </h2>
-
-          <div class="flex flex-col gap-3">
-            <For each={props.availableWidgets}>
-              {(widget) => (
-                <div
-                  class="flex items-center justify-between gap-4 p-2 -mx-2 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer"
-                  onClick={() => toggleWidget(widget.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      toggleWidget(widget.id);
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div class="flex items-center gap-2 min-w-0">
-                    <i class={`ti ti-${widget.icon} text-sm text-dimmed`} />
-                    <span class="text-sm text-primary">{widget.title}</span>
-                  </div>
-                  <span
-                    class={`relative shrink-0 transition-colors w-9 h-5 rounded-full ${
-                      !hiddenWidgets().includes(widget.id) ? "bg-blue-500 " : "bg-zinc-200 dark:bg-zinc-600/40"
-                    }`}
-                  >
-                    <span
-                      class={`absolute transition-transform top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm ${
-                        !hiddenWidgets().includes(widget.id) ? "translate-x-4 " : ""
-                      }`}
-                    />
-                  </span>
-                </div>
-              )}
-            </For>
-          </div>
-
-          <p class="text-xs text-dimmed">Changes apply on the home page.</p>
-        </div>
-      </Show>
 
       {/* Account */}
       <div class="paper p-6 flex flex-col gap-1">

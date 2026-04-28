@@ -178,6 +178,144 @@ const hydrateRelations = async (items: SpaceItem[]): Promise<SpaceItem[]> => {
 
 
 /**
+ * Dashboard widget query: today's events and the next deadlines, across
+ * every space the user can reach (direct user grant, group grant,
+ * authenticated_only, or fully public). One SQL roundtrip.
+ *
+ * - "Events today" = items with `starts_at` or `deadline` falling between
+ *   the start and end of `now()`'s local day, ignoring already-completed.
+ * - "Next deadlines" = open items (not in is_done columns and not
+ *   completed) ordered by deadline ASC NULLS LAST, then created_at.
+ */
+export type DashboardItem = {
+  id: string;
+  spaceId: string;
+  spaceName: string;
+  spaceColor: string | null;
+  spaceIcalToken: string | null;
+  title: string;
+  priority: "low" | "medium" | "high" | "urgent" | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  deadline: string | null;
+};
+
+export const dashboardSnapshot = async (params: {
+  userId: string;
+  groups: string[];
+  todoLimit: number;
+}): Promise<{ openTodoCount: number; urgentCount: number; events: DashboardItem[]; todos: DashboardItem[] }> => {
+  const groupsArr = `{${params.groups.map((g) => `"${g}"`).join(",")}}`;
+
+  // Open-todo aggregate (count + urgent-count) across all reachable spaces.
+  const [agg] = await sql<{ open_count: number; urgent_count: number }[]>`
+    SELECT
+      COUNT(*) FILTER (WHERE i.completed_at IS NULL AND c.is_done = false)::int AS open_count,
+      COUNT(*) FILTER (WHERE i.completed_at IS NULL AND c.is_done = false AND i.priority = 'urgent')::int AS urgent_count
+    FROM spaces.items i
+    JOIN spaces.columns c ON c.id = i.column_id
+    JOIN spaces.spaces s ON s.id = i.space_id
+    WHERE EXISTS (
+      SELECT 1 FROM spaces.space_access sa
+      JOIN auth.access a ON a.id = sa.access_id
+      WHERE sa.space_id = i.space_id
+        AND (
+          a.user_id = ${params.userId}::uuid
+          OR a.group_id = ANY(${groupsArr}::uuid[])
+          OR a.authenticated_only = true
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        )
+    )
+  `;
+
+  type DbWidget = {
+    id: string;
+    space_id: string;
+    space_name: string;
+    space_color: string | null;
+    space_ical: string | null;
+    title: string;
+    priority: "low" | "medium" | "high" | "urgent" | null;
+    starts_at: string | null;
+    ends_at: string | null;
+    deadline: string | null;
+  };
+
+  // Today's events: starts_at within today's window OR deadline within today.
+  const eventRows = await sql<DbWidget[]>`
+    SELECT i.id, i.space_id, s.name AS space_name, s.color AS space_color, s.ical_token AS space_ical,
+           i.title, i.priority,
+           i.starts_at::text AS starts_at, i.ends_at::text AS ends_at, i.deadline::text AS deadline
+    FROM spaces.items i
+    JOIN spaces.spaces s ON s.id = i.space_id
+    WHERE i.completed_at IS NULL
+      AND (
+        (i.starts_at IS NOT NULL AND i.starts_at >= date_trunc('day', now()) AND i.starts_at < date_trunc('day', now()) + interval '1 day')
+        OR (i.deadline IS NOT NULL AND i.deadline >= date_trunc('day', now()) AND i.deadline < date_trunc('day', now()) + interval '1 day')
+      )
+      AND EXISTS (
+        SELECT 1 FROM spaces.space_access sa
+        JOIN auth.access a ON a.id = sa.access_id
+        WHERE sa.space_id = i.space_id
+          AND (
+            a.user_id = ${params.userId}::uuid
+            OR a.group_id = ANY(${groupsArr}::uuid[])
+            OR a.authenticated_only = true
+            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+          )
+      )
+    ORDER BY COALESCE(i.starts_at, i.deadline) ASC
+    LIMIT 5
+  `;
+
+  // Next-up todos: open, not in is_done columns, ordered by deadline.
+  const todoRows = await sql<DbWidget[]>`
+    SELECT i.id, i.space_id, s.name AS space_name, s.color AS space_color, s.ical_token AS space_ical,
+           i.title, i.priority,
+           i.starts_at::text AS starts_at, i.ends_at::text AS ends_at, i.deadline::text AS deadline
+    FROM spaces.items i
+    JOIN spaces.columns c ON c.id = i.column_id
+    JOIN spaces.spaces s ON s.id = i.space_id
+    WHERE i.completed_at IS NULL
+      AND c.is_done = false
+      AND (i.starts_at IS NULL OR i.starts_at < date_trunc('day', now()) OR i.starts_at >= date_trunc('day', now()) + interval '1 day')
+      AND EXISTS (
+        SELECT 1 FROM spaces.space_access sa
+        JOIN auth.access a ON a.id = sa.access_id
+        WHERE sa.space_id = i.space_id
+          AND (
+            a.user_id = ${params.userId}::uuid
+            OR a.group_id = ANY(${groupsArr}::uuid[])
+            OR a.authenticated_only = true
+            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+          )
+      )
+    ORDER BY i.deadline ASC NULLS LAST, i.created_at ASC
+    LIMIT ${params.todoLimit}
+  `;
+
+  const map = (r: DbWidget): DashboardItem => ({
+    id: r.id,
+    spaceId: r.space_id,
+    spaceName: r.space_name,
+    spaceColor: r.space_color,
+    spaceIcalToken: r.space_ical,
+    title: r.title,
+    priority: r.priority,
+    startsAt: r.starts_at,
+    endsAt: r.ends_at,
+    deadline: r.deadline,
+  });
+
+  return {
+    openTodoCount: agg?.open_count ?? 0,
+    urgentCount: agg?.urgent_count ?? 0,
+    events: eventRows.map(map),
+    todos: todoRows.map(map),
+  };
+};
+
+/**
  * List items for a space as a plain board snapshot.
  */
 export const list = async (params: { spaceId: string; includeCompleted?: boolean }): Promise<SpaceItem[]> => {

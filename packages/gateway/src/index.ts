@@ -29,6 +29,7 @@ import { tryUpgradeWebSocket, websocketHandlers } from "./ws-proxy";
 import { getRouteTable, setRouteTable, stats } from "./stats";
 import { app, config } from "./config";
 import adminPage from "./frontend/page";
+import { widgetRoutes } from "./widgets";
 
 const log = logger("gateway");
 const port = parseInt(process.env.PORT ?? "3000", 10);
@@ -79,6 +80,7 @@ const registryEntry: AppRegistryEntry = {
     section: "hidden",
     adminHref: app.meta.adminHref,
   },
+  widgets: app.meta.widgets ? app.meta.widgets.map((w) => ({ ...w })) : undefined,
 };
 
 const heartbeat = createHeartbeat(app.meta.id, registryEntry);
@@ -104,7 +106,8 @@ const gatewayApp = new Hono<AuthContext>()
     "/admin/gateway",
     auth.requireRole("admin", auth.redirectToLogin),
     ...adminPage,
-  );
+  )
+  .route("/api/gateway/widgets", widgetRoutes);
 
 // ── Startup ─────────────────────────────────────────────────────────────────
 
@@ -169,11 +172,12 @@ export default {
       return tryUpgradeWebSocket(req, server, getRouteTable(), (msg, meta) => log.info(msg, meta));
     }
 
-    // Gateway's own admin routes + its SSR/public assets
+    // Gateway's own admin routes + its SSR/public assets + dashboard widgets
     if (
       url.pathname === "/admin/gateway" ||
       url.pathname.startsWith("/admin/gateway/") ||
-      url.pathname.startsWith("/public/gateway/")
+      url.pathname.startsWith("/public/gateway/") ||
+      url.pathname.startsWith("/api/gateway/")
     ) {
       return gatewayApp.fetch(req);
     }

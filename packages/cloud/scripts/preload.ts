@@ -60,9 +60,14 @@ const appCssPath = resolve(workspaceRoot, `packages/${appId}/src/styles/app.css`
 const appPublicDir = resolve(publicDir, appId);
 await mkdir(appPublicDir, { recursive: true });
 
+// `naming: "app.css"` is essential — without it, Bun.build with `root: workspaceRoot`
+// preserves the directory structure (packages/<id>/src/styles/app.css) inside outdir,
+// so Layout's `<link href="/public/<id>/app.css">` 404s and only global.css's classes
+// reach the browser. That's why responsive grid utilities went missing on dashboard.
 await Bun.build({
   entrypoints: [appCssPath],
   outdir: appPublicDir,
+  naming: "app.css",
   root: workspaceRoot, // same: auto-detect from /app
   plugins: [tailwind],
 });

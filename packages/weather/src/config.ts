@@ -14,6 +14,7 @@ export const app = defineApp({
     section: "more",
     requiresAuth: true,
   },
+  widgets: [{ id: "current", path: "/api/weather/widgets/current" }],
   settings: {
     "weather.default_lat": {
       kind: "string",

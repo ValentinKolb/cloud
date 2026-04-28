@@ -51,6 +51,16 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/core/src/index.ts
 
+  app-dashboard:
+    <<: *app
+    container_name: app-dashboard
+    environment: { <<: *env, APP_ID: dashboard }
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/dashboard/src:/app/packages/dashboard/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/dashboard/src/index.ts
+
   app-accounts:
     <<: *app
     container_name: app-accounts

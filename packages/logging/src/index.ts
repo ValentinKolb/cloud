@@ -1,12 +1,15 @@
 import { app } from "./config";
 import { Hono } from "hono";
 import apiRoutes from "./api";
+import widgetRoutes from "./api/widgets";
 import adminPageRoutes from "./frontend";
 import { loggingService } from "./service";
 
 export default await app.start({
   routes: {
-    api: new Hono().route("/admin/logs", apiRoutes),
+    api: new Hono()
+      .route("/logging/widgets", widgetRoutes)
+      .route("/admin/logs", apiRoutes),
     pages: new Hono().route("/admin/logs", adminPageRoutes),
   },
 });

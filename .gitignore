@@ -14,6 +14,9 @@ _old/
 # Local scratch notes (todos, draft reviews)
 todo/
 
+# Per-developer seed scripts (hardcoded user UUIDs etc.)
+scripts/seed-dashboard-demo.ts
+
 # Widgets parked while the runtime widget-fetch mechanism is being designed
 _disabled-widgets/
 

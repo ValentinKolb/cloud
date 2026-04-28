@@ -6,7 +6,6 @@ import profilePage from "./me/page";
 import notFoundPage from "./NotFound";
 import loginPage from "./auth/page";
 import newPasswordPage from "./auth/new-password/page";
-import homePage from "./home/page";
 import adminPage from "./admin/page";
 
 /**
@@ -27,8 +26,8 @@ export const createPagesRouter = (
       c.header("Pragma", "no-cache");
       c.header("Expires", "0");
     })
-    // Home page (requires login)
-    .get("/", auth.requireRole("authenticated", auth.redirectToLogin), ...homePage)
+    // Root: hand off to the dashboard app, which owns the user landing page.
+    .get("/", auth.requireRole("authenticated", auth.redirectToLogin), (c) => c.redirect("/app/dashboard", 302))
     // Profile
     .get("/me", auth.requireRole("authenticated", auth.redirectToLogin), ...profilePage)
     // Admin pages (admin only)

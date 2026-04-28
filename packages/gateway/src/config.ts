@@ -11,6 +11,7 @@ export const app = defineApp({
   baseUrl: `http://gateway:${port}`,
   adminHref: "/admin/gateway",
   nav: { href: "", section: "hidden" },
+  widgets: [{ id: "health", path: "/api/gateway/widgets/health" }],
 });
 
 export const { ssr, plugin, config } = app;
