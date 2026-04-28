@@ -4,7 +4,7 @@ import { getFreeIpaTls, getFreeIpaTlsFingerprint } from "./tls";
 export type LoginResult = { status: "success"; session: string } | { status: "password_expired" } | { status: "failed" };
 
 export const login = async (config: { url: string; username: string; password: string }): Promise<LoginResult> => {
-  const tls = getFreeIpaTls();
+  const tls = await getFreeIpaTls();
   const res = await fetch(`${baseUrl(config.url)}/ipa/session/login_password`, {
     method: "POST",
     headers: {
@@ -47,7 +47,7 @@ export const getServiceSession = async (config: {
   // Include TLS fingerprint so toggling allow_insecure or rotating ca_cert
   // forces a re-login (otherwise the cached session keeps using the old TLS
   // trust anchor for fetches that wouldn't have succeeded under it).
-  const currentKey = `${config.url}::${config.serviceUser}::${getFreeIpaTlsFingerprint()}`;
+  const currentKey = `${config.url}::${config.serviceUser}::${await getFreeIpaTlsFingerprint()}`;
   if (svcSessionKey !== currentKey) {
     svcSession = null;
     svcSessionKey = currentKey;

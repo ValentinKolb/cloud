@@ -6,7 +6,8 @@
  * Instead, the layer that owns settings registers a resolver via
  * `setFreeIpaTlsResolver()` and the transport calls `getFreeIpaTls()` per fetch.
  *
- * Resolver returns Bun fetch `tls` options or `undefined` for system trust.
+ * Resolver is async — it reads through the Redis cache-aside settings layer.
+ * Returns Bun fetch `tls` options or `undefined` for system trust.
  * Resolution order is the resolver's concern (typically: ca_cert > allow_insecure > undefined).
  */
 // `BunFetchRequestInitTLS` is declared as a global (see bun-types/globals.d.ts)
@@ -15,16 +16,16 @@
 // don't need).
 type FreeIpaTls = Bun.TLSOptions;
 
-let resolver: (() => FreeIpaTls | undefined) | null = null;
+let resolver: (() => Promise<FreeIpaTls | undefined>) | null = null;
 
 export const setFreeIpaTlsResolver = (
-  fn: (() => FreeIpaTls | undefined) | null,
+  fn: (() => Promise<FreeIpaTls | undefined>) | null,
 ): void => {
   resolver = fn;
 };
 
-export const getFreeIpaTls = (): FreeIpaTls | undefined => {
-  return resolver?.() ?? undefined;
+export const getFreeIpaTls = async (): Promise<FreeIpaTls | undefined> => {
+  return (await resolver?.()) ?? undefined;
 };
 
 /**
@@ -32,8 +33,8 @@ export const getFreeIpaTls = (): FreeIpaTls | undefined => {
  * (e.g. for the cached service session) so that flipping `allow_insecure` or
  * rotating `ca_cert` forces re-establishment of cached connections.
  */
-export const getFreeIpaTlsFingerprint = (): string => {
-  const tls = getFreeIpaTls();
+export const getFreeIpaTlsFingerprint = async (): Promise<string> => {
+  const tls = await getFreeIpaTls();
   if (!tls) return "sys";
   if (tls.ca && typeof tls.ca === "string" && tls.ca.length > 0) {
     // Cheap non-cryptographic hash; collision risk is irrelevant here (only

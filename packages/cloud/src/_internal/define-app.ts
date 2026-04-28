@@ -26,7 +26,7 @@ import { loadSnapshot } from "../services/settings/snapshot";
 import { registerSettings, type SettingDef } from "../services/settings/defaults";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
-import { getSync, set, loadCache as loadSettingsCache } from "../services/settings";
+import { get, set, loadCache as loadSettingsCache } from "../services/settings";
 import { appRegistry, listApps } from "./registry";
 import { createHeartbeat } from "./heartbeat";
 import { buildRuntimeFromRegistry } from "./runtime-context";
@@ -335,7 +335,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     // Lifecycle
     const cloudCtx: CloudContext = {
       logger,
-      settings: { get: getSync, set },
+      settings: { get, set },
       runtime: currentRuntime,
     };
 

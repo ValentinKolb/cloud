@@ -1,6 +1,5 @@
 import type { UserProfile, UserProvider } from "../../contracts/shared";
 import * as settings from "../settings";
-import { getFreeIpaConfigSync } from "../freeipa-config";
 
 export type IpaMatchMode = "ignore" | "migrate";
 export type IpaAccountTransitionPolicy =
@@ -22,11 +21,22 @@ export const parseIpaAccountTransitionPolicy = (value: string | null | undefined
   return "demote_to_local_guest";
 };
 
-export const calculateIpaProfileFromGroupNames = (groupNames: string[]): UserProfile =>
-  getFreeIpaConfigSync().groupsBaseIpaRealm.some((group: string) => groupNames.includes(group)) ? "user" : "guest";
+/**
+ * Pure helpers — caller passes the relevant FreeIPA group lists in. Avoids
+ * an implicit settings dependency inside what is otherwise a pure data
+ * transformation; the caller already needs `getFreeIpaConfig()` for other
+ * fields, so reading both lists at once is a single roundtrip.
+ */
+export const calculateIpaProfileFromGroupNames = (
+  groupNames: string[],
+  groupsBaseIpaRealm: string[],
+): UserProfile =>
+  groupsBaseIpaRealm.some((group) => groupNames.includes(group)) ? "user" : "guest";
 
-export const deriveIpaAdminFromGroupNames = (groupNames: string[]): boolean =>
-  getFreeIpaConfigSync().groupsAdmin.some((group: string) => groupNames.includes(group));
+export const deriveIpaAdminFromGroupNames = (
+  groupNames: string[],
+  groupsAdmin: string[],
+): boolean => groupsAdmin.some((group) => groupNames.includes(group));
 
 export const resolveStoredAdminState = (params: {
   provider: UserProvider;
@@ -38,13 +48,19 @@ export const resolveStoredAdminState = (params: {
   return params.requestedAdmin ?? params.currentAdmin ?? false;
 };
 
+/**
+ * `groupsAdmin` is required when `provider === "ipa"`; defaults to `[]` (no
+ * admin grant via group membership) when omitted, matching the previous sync
+ * behaviour where an unconfigured/disabled FreeIPA returned an empty list.
+ */
 export const resolveEffectiveAdminState = (params: {
   provider: UserProvider;
   storedAdmin?: boolean;
   memberofGroup?: string[];
+  groupsAdmin?: string[];
 }): boolean => {
   if (params.provider === "ipa") {
-    return deriveIpaAdminFromGroupNames(params.memberofGroup ?? []);
+    return deriveIpaAdminFromGroupNames(params.memberofGroup ?? [], params.groupsAdmin ?? []);
   }
   return params.storedAdmin ?? false;
 };

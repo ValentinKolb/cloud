@@ -7,6 +7,7 @@
 
 import { sql } from "bun";
 import { calculateIpaProfileFromGroupNames } from "../account-model";
+import { getFreeIpaConfig } from "../freeipa-config";
 
 type DbRow = Record<string, unknown>;
 
@@ -37,9 +38,13 @@ export const getAllUserGroups = async (userId: string): Promise<string[]> => {
 };
 
 /**
- * Calculate canonical IPA profile from effective group names.
+ * Calculate canonical IPA profile from effective group names. Reads
+ * `freeipa.groups.base_ipa_realm` from settings (cache-aside).
  */
-export const calculateIpaProfile = (memberOfGroups: string[]): "user" | "guest" => calculateIpaProfileFromGroupNames(memberOfGroups);
+export const calculateIpaProfile = async (memberOfGroups: string[]): Promise<"user" | "guest"> => {
+  const config = await getFreeIpaConfig();
+  return calculateIpaProfileFromGroupNames(memberOfGroups, config.groupsBaseIpaRealm);
+};
 
 /**
  * Calculate canonical IPA profile for a user from the local DB mirror.

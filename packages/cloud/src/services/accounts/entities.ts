@@ -5,7 +5,7 @@ import type {
   UserProfile,
   UserProvider,
 } from "../../contracts/shared";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 import { escapeLikePattern, toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
 import { buildBaseUser } from "./base-user";
@@ -399,7 +399,7 @@ export const list = async (params: EntityListParams): Promise<{
   const perPage = params.perPage ?? 100;
   const offset = (page - 1) * perPage;
   const pattern = params.search ? `%${escapeLikePattern(params.search.trim().toLowerCase())}%` : null;
-  const groupsAdmin = getFreeIpaConfigSync().groupsAdmin;
+  const groupsAdmin = (await getFreeIpaConfig()).groupsAdmin;
   const groupsAdminLiteral = toPgTextArray(groupsAdmin);
   const spec = buildQuerySpec(params);
   const kindsCondition =

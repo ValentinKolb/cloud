@@ -224,7 +224,7 @@ export const addIpa = async (params: {
   profile?: UserProfile;
   accountExpires?: Date | null;
 }): Promise<MutationResult<AddIpaResult>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const { ipaSession, data } = params;
   const { email, givenname, sn } = data;
@@ -274,7 +274,7 @@ export const addIpa = async (params: {
     ipaOpts.krbprincipalexpiration = freeipa.util.toGeneralizedTime(accountExpiry);
   }
 
-  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_add", args: [uid], options: ipaOpts });
+  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_add", args: [uid], options: ipaOpts });
   if (response.error) {
     const code = response.error.code;
     if (code === 4001)
@@ -395,7 +395,7 @@ export const updateProfile = async (params: {
   const { provider } = resolveProviderProfile(userRows[0]!);
 
   if (provider === "ipa") {
-    const unavailable = ensureFreeIpaMutationAvailable();
+    const unavailable = await ensureFreeIpaMutationAvailable();
     if (unavailable) return unavailable;
     if (!ipaSession) {
       return {
@@ -420,7 +420,7 @@ export const updateProfile = async (params: {
       ipaOptions.ipasshpubkey = data.ipa.sshPublicKeys.length > 0 ? data.ipa.sshPublicKeys : "";
     }
 
-    const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_mod", args: [uid], options: ipaOptions });
+    const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_mod", args: [uid], options: ipaOptions });
     if (response.error) {
       return {
         ok: false,
@@ -482,7 +482,7 @@ export const resetPassword = async (params: {
   /** User ID (database UUID) */
   id: string;
 }): Promise<MutationResult<{ password: string }>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const { ipaSession, id } = params;
 
@@ -496,7 +496,7 @@ export const resetPassword = async (params: {
   const newPassword = generateFreeIpaPassword();
 
   const response = await freeipa.client.call({
-    url: getIpaUrl(),
+    url: await getIpaUrl(),
     ipaSession,
     method: "user_mod",
     args: [uid],
@@ -536,7 +536,7 @@ export const setExpiry = async (params: {
   id: string;
   expiryDate: string | null;
 }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const { ipaSession, id, expiryDate } = params;
 
@@ -567,7 +567,7 @@ export const setExpiry = async (params: {
       const ipaExpiry = date.toISOString().replace(/[-:T]/g, "").slice(0, 14) + "Z";
       dbExpiry = date;
       return freeipa.client.call({
-        url: getIpaUrl(),
+        url: await getIpaUrl(),
         ipaSession,
         method: "user_mod",
         args: [uid],
@@ -575,7 +575,7 @@ export const setExpiry = async (params: {
       });
     }
     return freeipa.client.call({
-      url: getIpaUrl(),
+      url: await getIpaUrl(),
       ipaSession,
       method: "user_mod",
       args: [uid],
@@ -618,7 +618,7 @@ export const demoteToGuest = async (params: {
   id: string;
   actor: { userId: string; uid: string };
 }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const { ipaSession, id, actor } = params;
 
@@ -642,7 +642,7 @@ export const demoteToGuest = async (params: {
   const accountExpires = guestExpiresDays && guestExpiresDays > 0 ? new Date(Date.now() + guestExpiresDays * 24 * 60 * 60 * 1000) : null;
 
   log.warn("About to delete IPA user, this cannot be undone", { uid, userId: id });
-  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
+  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
   const ipaDeleteMessage = (response.error?.message ?? "").toLowerCase();
   const ipaDeleteNotFound = ipaDeleteMessage.includes("not found") || ipaDeleteMessage.includes("does not exist");
   if (response.error && !ipaDeleteNotFound) {
@@ -735,7 +735,7 @@ export const deleteUser = async (params: {
   let ipaDeleteNotFound = false;
 
   if (provider === "ipa") {
-    const unavailable = ensureFreeIpaMutationAvailable();
+    const unavailable = await ensureFreeIpaMutationAvailable();
     if (unavailable) return unavailable;
     if (!ipaSession) {
       return {
@@ -745,7 +745,7 @@ export const deleteUser = async (params: {
       };
     }
     log.warn("About to delete IPA user, this cannot be undone", { uid, userId: id });
-    const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
+    const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
     const ipaDeleteMessage = (response.error?.message ?? "").toLowerCase();
     ipaDeleteNotFound = ipaDeleteMessage.includes("not found") || ipaDeleteMessage.includes("does not exist");
     if (response.error && !ipaDeleteNotFound) {

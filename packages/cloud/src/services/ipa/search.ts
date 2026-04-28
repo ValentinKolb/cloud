@@ -3,7 +3,7 @@ import type { BaseUser, BaseGroup, UserProvider, UserProfile } from "../../contr
 import { buildRoles } from "../account-model";
 import { freeipa } from "../../server/services";
 import { toPgTextArray, toPgUuidArray } from "../postgres";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 
 // ==========================
 // Search Options
@@ -43,7 +43,7 @@ export const search = async (query: string, options: SearchOptions): Promise<{ u
   if (options.users) {
     const excludeIds = options.excludeUserIds ?? [];
     const inGroups = options.usersInGroups ?? [];
-    const groupsAdmin = getFreeIpaConfigSync().groupsAdmin;
+    const groupsAdmin = (await getFreeIpaConfig()).groupsAdmin;
 
     // Build optional WHERE fragments
     const excludeFilter = excludeIds.length > 0 ? sql`AND u.id <> ALL(${toPgUuidArray(excludeIds)}::uuid[])` : sql``;

@@ -3,7 +3,7 @@ import { accountLifecycle } from "../account-lifecycle";
 import { lifecycleJobs } from "../account-lifecycle/scheduler";
 import { logger, logging, type LogEntry } from "../logging";
 import { notifications } from "../notifications";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 import * as settings from "../settings";
 import { renderTemplate } from "../settings/templates";
 import { isUniqueViolation } from "../postgres";
@@ -427,7 +427,7 @@ export const accountsAppService = {
       currentPassword: string;
       newPassword: string;
     }): Promise<Result<void>> => {
-      if (!getFreeIpaConfigSync().enabled) return fail(err.badInput("FreeIPA is disabled."));
+      if (!(await getFreeIpaConfig()).enabled) return fail(err.badInput("FreeIPA is disabled."));
       if (config.user.provider !== "ipa") {
         return fail(err.badInput("Password change is only available for IPA accounts."));
       }
@@ -715,7 +715,7 @@ export const accountsAppService = {
       };
     },
     create: async (config: { user: Pick<User, "id" | "mail" | "provider">; data: { phone?: string; comment?: string; acceptedAgb: true } }) => {
-      if (!getFreeIpaConfigSync().enabled) {
+      if (!(await getFreeIpaConfig()).enabled) {
         return fail(err.badInput("FreeIPA is disabled"));
       }
       if (config.user.provider !== "local") {
@@ -952,7 +952,7 @@ export const accountsAppService = {
    * never import `providers.*` directly.
    */
   getServiceIpaSession: async (): Promise<Result<string>> => {
-    if (!getFreeIpaConfigSync().enabled) return fail(err.badInput("FreeIPA is disabled."));
+    if (!(await getFreeIpaConfig()).enabled) return fail(err.badInput("FreeIPA is disabled."));
     try {
       return ok(await providers.ipa.auth.getServiceSession());
     } catch {

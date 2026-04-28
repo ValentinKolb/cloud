@@ -3,11 +3,13 @@
  *
  * Resolution order: DB value -> env fallback -> code default.
  *
- * Custom DB values are encrypted at rest using APP_SECRET.
- * Cache is loaded once at startup; set/remove update both DB and cache.
+ * Custom DB values are encrypted at rest using APP_SECRET. All read/write
+ * goes through the Redis cache-aside layer in `./store.ts` (5-minute TTL).
+ * `loadCache()` runs once at boot to normalize legacy rows and bootstrap
+ * env-backed entries into Postgres.
  */
 
-import { sql, redis } from "bun";
+import { sql } from "bun";
 import { env } from "../../config/env";
 import { encryptValue, decryptValue, getAppSecret } from "./crypto";
 import {
@@ -19,11 +21,7 @@ import {
   type SettingOption,
   validateSettingValue,
 } from "./defaults";
-
-// Redis key namespace shared with store.ts — keep in sync.
-const REDIS_KEY = (k: string) => `settings:${k}`;
-
-let cache: Map<string, unknown> = new Map();
+import { readKey, writeKey, deleteKey, bulkRead } from "./store";
 
 type StoredRow = { key: string; value: string };
 type PendingRow = { key: string; value: unknown; rewrite: boolean; existed: boolean };
@@ -144,137 +142,62 @@ const bootstrapEnvBackedEntries = async (config: {
   return [...rowsByKey.entries()].map(([key, value]) => ({ key, value }));
 };
 
-/** Load all settings from DB into cache. Call once at startup. */
+/**
+ * Boot-time normalization + env-bootstrap. Runs once at startup. Does NOT
+ * populate any in-process cache — every read goes through Redis cache-aside
+ * (`store.ts`) at request time.
+ */
 export async function loadCache(): Promise<void> {
   getAppSecret();
   const { rows, stats } = await normalizeStoredEntries();
   const bootstrappedRows = await bootstrapEnvBackedEntries({ rows, stats });
-  cache = new Map(bootstrappedRows.map((row) => [row.key, row.value]));
 
   console.log(
     `[settings] loaded ${bootstrappedRows.length} custom setting(s) (${stats.encryptedLoaded} encrypted, ${stats.normalizedUpdated} normalized, ${stats.envBootstrapped} env-bootstrapped, ${stats.invalidSkipped} skipped)`,
   );
 }
 
-// ── Cross-container cache coherence ─────────────────────────────────────────
-//
-// The legacy `cache` Map (used by `getSync` for sync helpers without request
-// context) is kept fresh by:
-//   1. The new typed async API's writes (this file's `set`/`remove` invalidate
-//      the Redis cache-aside layer used by `coreSettings.get`).
-//   2. The per-request snapshot middleware (services/settings/snapshot.ts),
-//      which calls `primeLocalCache(map)` after building each snapshot. So
-//      sync helpers running inside any HTTP request see at-most-one-request-
-//      old values.
-//
-// Background services (cron, scheduled jobs) without request context still
-// see the boot-time cache until a request goes through their container,
-// which is acceptable for the few sync helpers that remain (oauth.getIssuer,
-// files MODES, getFreeIpaConfigSync) — these all run inside HTTP handlers.
-
-/** Replace the in-memory legacy cache. Used by snapshot middleware to keep
- * sync helpers fresh without polling. Internal — do not call from app code. */
-export const primeLocalCache = (next: Map<string, unknown>): void => {
-  cache = next;
-};
-
-function resolve<T>(key: string): T {
-  if (cache.has(key)) return cache.get(key) as T;
-
-  const def = SETTINGS_MAP.get(key);
-  const envFallback = resolveEnvValue(def, "fallback");
-  if (envFallback !== undefined) {
-    return envFallback as T;
-  }
-
-  if (def) {
-    return def.default as T;
-  }
-
-  return undefined as T;
-}
-
-export async function get<T = unknown>(key: string): Promise<T> {
-  return resolve<T>(key);
-}
-
 /**
- * **DEPRECATED — do not use in new code. Risky.**
- *
- * Reads from the in-process `cache` Map. The Map is hydrated:
- *   1. Once at boot from Postgres (`loadCache()`), and
- *   2. Once per HTTP request by the snapshot middleware (`primeLocalCache`).
- *
- * Outside an HTTP request lifecycle (cron jobs, scheduled workers, code that
- * runs after `loadCache()` but before any request hits this container) the
- * Map can be arbitrarily stale. There is no signal at the call site that
- * tells you whether you're getting fresh or boot-time data — the freshness
- * depends on whether *some unrelated middleware* ran recently in the same
- * process. That makes correctness non-local and bug reports unreproducible.
- *
- * Use `await get(key)` instead — it goes through the Redis cache-aside layer
- * and is always within Redis-TTL fresh, with no hidden dependency on request
- * timing. Inside HTTP handlers you can also use the typed per-request snapshot
- * `c.get("settings")[key]` (sync, frozen for the duration of the request).
- *
- * Kept for backward-compat with sync helpers that haven't migrated yet
- * (notably `getFreeIpaConfigSync` and the file-mode getters in
- * `packages/files/src/service/`). Phase H removes this export.
- *
- * @deprecated Use `await get(key)` or `c.get("settings")[key]` instead.
+ * Read a setting via the Redis cache-aside layer (always within Redis-TTL
+ * fresh). Resolution: Redis cache → Postgres → env-fallback → code default.
  */
-export function getSync<T = unknown>(key: string): T {
-  return resolve<T>(key);
+export async function get<T = unknown>(key: string): Promise<T> {
+  return readKey(key) as Promise<T>;
 }
 
 export async function set(key: string, value: unknown): Promise<void> {
-  const def = SETTINGS_MAP.get(key);
-  if (!def) {
-    throw new Error(`Unknown setting: ${key}`);
-  }
-
-  const validated = validateSettingValue(def, value);
-  if (!validated.ok) {
-    throw new Error(validated.error);
-  }
-
-  await upsertEncryptedRow(key, validated.value);
-  cache.set(key, validated.value);
-  // Invalidate the new cache-aside Redis layer so other containers'
-  // snapshots / coreSettings reads pick up the change on next access.
-  // Coexistence shim until phase F migrates all callers to the new API.
-  await redis.del(REDIS_KEY(key));
+  await writeKey(key, value);
 }
 
 export async function remove(key: string): Promise<void> {
-  await sql`DELETE FROM settings.entries WHERE key = ${key}`;
-  cache.delete(key);
-  await redis.del(REDIS_KEY(key));
+  await deleteKey(key);
 }
 
 import type { SettingEntry } from "../../contracts/shared";
 export type { SettingEntry } from "../../contracts/shared";
 
 export async function getAll(): Promise<SettingEntry[]> {
-  return Promise.all(
-    SETTINGS.map(async (def) => {
-      const isCustom = cache.has(def.key);
-      const value = await get(def.key);
-      return {
-        key: def.key,
-        label: getSettingLabel(def),
-        kind: def.kind,
-        description: def.description,
-        placeholder: def.placeholder,
-        group: def.group,
-        value,
-        default: def.default,
-        isCustom,
-        templateVars: "templateVars" in def ? def.templateVars : undefined,
-        options: "options" in def ? def.options : undefined,
-        min: "min" in def ? def.min : undefined,
-        max: "max" in def ? def.max : undefined,
-      };
-    }),
-  );
+  // Determine which keys have a custom row in Postgres (vs. falling back to
+  // env / code default). One indexed scan, then bulk-read all values.
+  const customRows = await sql<{ key: string }[]>`SELECT key FROM settings.entries`;
+  const customKeys = new Set(customRows.map((row) => row.key));
+
+  const allKeys = SETTINGS.map((def) => def.key);
+  const values = await bulkRead(allKeys);
+
+  return SETTINGS.map((def) => ({
+    key: def.key,
+    label: getSettingLabel(def),
+    kind: def.kind,
+    description: def.description,
+    placeholder: def.placeholder,
+    group: def.group,
+    value: values.get(def.key),
+    default: def.default,
+    isCustom: customKeys.has(def.key),
+    templateVars: "templateVars" in def ? def.templateVars : undefined,
+    options: "options" in def ? def.options : undefined,
+    min: "min" in def ? def.min : undefined,
+    max: "max" in def ? def.max : undefined,
+  }));
 }

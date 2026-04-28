@@ -1,5 +1,5 @@
 import { Filegate } from "@valentinkolb/filegate/client";
-import { getSync } from "@valentinkolb/cloud/services";
+import { get } from "@valentinkolb/cloud/services";
 // Settings declarations moved to files/src/config.ts:defineApp.settings — phase D
 import type {
   FileBase,
@@ -16,21 +16,18 @@ import * as paths from "./paths";
 import * as permissions from "./permissions";
 
 /**
- * Lazy Filegate client — deferred until first use so the settings DB cache is loaded.
+ * Lazy Filegate client — deferred until first use, then cached.
+ * Reset via `resetFilegateClient()` after settings change.
  */
 let _filegate: Filegate | null = null;
-const getFilegate = (): Filegate =>
-  (_filegate ??= new Filegate({
-    url: getSync<string>("files.filegate_url"),
-    token: getSync<string>("files.filegate_token"),
-  }));
-const filegate = new Proxy({} as Filegate, {
-  get(_, prop: keyof Filegate) {
-    const target = getFilegate();
-    const value = target[prop];
-    return typeof value === "function" ? value.bind(target) : value;
-  },
-});
+const getFilegate = async (): Promise<Filegate> => {
+  if (_filegate) return _filegate;
+  const [url, token] = await Promise.all([
+    get<string>("files.filegate_url"),
+    get<string>("files.filegate_token"),
+  ]);
+  return (_filegate = new Filegate({ url, token }));
+};
 
 /**
  * Drop the cached Filegate client. Called by the settings router after
@@ -39,26 +36,6 @@ const filegate = new Proxy({} as Filegate, {
  */
 export const resetFilegateClient = (): void => {
   _filegate = null;
-};
-
-/**
- * File mode constants from config (octal strings).
- * - Home: owner-only access
- * - Group: group-writable with SGID for directories
- */
-const MODES = {
-  get HOME_DIR() {
-    return getSync<string>("files.home_dir_mode");
-  },
-  get HOME_FILE() {
-    return getSync<string>("files.home_file_mode");
-  },
-  get GROUP_DIR() {
-    return getSync<string>("files.group_dir_mode");
-  },
-  get GROUP_FILE() {
-    return getSync<string>("files.group_file_mode");
-  },
 };
 
 /**
@@ -82,18 +59,22 @@ type OwnershipInfo = {
  * - Home: owner=user:user, dirs=700, files=600
  * - Group: owner=root:group, dirs=2770 (SGID), files=660
  */
-const getOwnershipInfo = (base: FileBase, isDirectory: boolean): OwnershipInfo | null => {
+const getOwnershipInfo = async (base: FileBase, isDirectory: boolean): Promise<OwnershipInfo | null> => {
   if (base.type === "home") {
     // Home: user owns files, need both uidNumber and gidNumber
     // nfsctl: chown user:user, chmod 700 (dirs), chmod 600 (files)
     if (base.uidNumber === undefined || base.gidNumber === undefined) {
       return null;
     }
+    const [dirMode, fileMode] = await Promise.all([
+      get<string>("files.home_dir_mode"),
+      get<string>("files.home_file_mode"),
+    ]);
     return {
       uid: base.uidNumber,
       gid: base.gidNumber,
-      mode: isDirectory ? MODES.HOME_DIR : MODES.HOME_FILE,
-      dirMode: MODES.HOME_DIR,
+      mode: isDirectory ? dirMode : fileMode,
+      dirMode,
     };
   } else {
     // Group: root owns files (uid=0), group has access
@@ -101,11 +82,15 @@ const getOwnershipInfo = (base: FileBase, isDirectory: boolean): OwnershipInfo |
     if (base.gidNumber === undefined) {
       return null;
     }
+    const [dirMode, fileMode] = await Promise.all([
+      get<string>("files.group_dir_mode"),
+      get<string>("files.group_file_mode"),
+    ]);
     return {
       uid: 0,
       gid: base.gidNumber,
-      mode: isDirectory ? MODES.GROUP_DIR : MODES.GROUP_FILE,
-      dirMode: MODES.GROUP_DIR,
+      mode: isDirectory ? dirMode : fileMode,
+      dirMode,
     };
   }
 };
@@ -121,10 +106,10 @@ export const info = async (params: {
   showHidden?: boolean;
   computeSizes?: boolean;
 }): Promise<MutationResult<FileInfoResponse>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
-  const result = await filegate.info({
+  const result = await (await getFilegate()).info({
     path: resolved.data.fullPath,
     showHidden: params.showHidden,
     computeSizes: params.computeSizes,
@@ -165,10 +150,10 @@ export const download = async (params: {
     inline: boolean;
   }>
 > => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
-  const result = await filegate.download({
+  const result = await (await getFilegate()).download({
     path: resolved.data.fullPath,
     inline: params.inline,
   });
@@ -204,10 +189,10 @@ export const download = async (params: {
  * Uses sensible defaults: 200x200 max size, preserves aspect ratio.
  */
 export const thumbnail = async (params: { base: FileBase; path: string }): Promise<MutationResult<{ response: Response }>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
-  const result = await filegate.thumbnail.image({
+  const result = await (await getFilegate()).thumbnail.image({
     path: resolved.data.fullPath,
     width: 200,
     height: 200,
@@ -241,12 +226,12 @@ export const upload = async (params: {
   content: ArrayBuffer;
   filename: string;
 }): Promise<MutationResult<FileInfo>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
-  const ownership = getOwnershipInfo(params.base, false); // false = file
+  const ownership = await getOwnershipInfo(params.base, false); // false = file
 
-  const result = await filegate.upload.single({
+  const result = await (await getFilegate()).upload.single({
     path: resolved.data.fullPath,
     filename: params.filename,
     data: params.content,
@@ -273,12 +258,12 @@ export const upload = async (params: {
  * Create a directory with proper ownership/permissions
  */
 export const mkdir = async (params: { base: FileBase; path: string }): Promise<MutationResult<FileInfo>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
-  const ownership = getOwnershipInfo(params.base, true); // true = directory
+  const ownership = await getOwnershipInfo(params.base, true); // true = directory
 
-  const result = await filegate.mkdir({
+  const result = await (await getFilegate()).mkdir({
     path: resolved.data.fullPath,
     ...(ownership && {
       uid: ownership.uid,
@@ -303,13 +288,13 @@ export const mkdir = async (params: { base: FileBase; path: string }): Promise<M
  * Uses filegate.transfer with mode="move".
  */
 export const move = async (params: { base: FileBase; from: string; to: string }): Promise<MutationResult<FileInfo>> => {
-  const fromResolved = paths.resolvePath(params.base, params.from);
+  const fromResolved = await paths.resolvePath(params.base, params.from);
   if (!fromResolved.ok) return fromResolved;
 
-  const toResolved = paths.resolvePath(params.base, params.to);
+  const toResolved = await paths.resolvePath(params.base, params.to);
   if (!toResolved.ok) return toResolved;
 
-  const result = await filegate.transfer({
+  const result = await (await getFilegate()).transfer({
     from: fromResolved.data.fullPath,
     to: toResolved.data.fullPath,
     mode: "move",
@@ -331,13 +316,13 @@ export const move = async (params: { base: FileBase; from: string; to: string })
  * Uses filegate.transfer with mode="copy".
  */
 export const copy = async (params: { base: FileBase; from: string; to: string }): Promise<MutationResult<FileInfo>> => {
-  const fromResolved = paths.resolvePath(params.base, params.from);
+  const fromResolved = await paths.resolvePath(params.base, params.from);
   if (!fromResolved.ok) return fromResolved;
 
-  const toResolved = paths.resolvePath(params.base, params.to);
+  const toResolved = await paths.resolvePath(params.base, params.to);
   if (!toResolved.ok) return toResolved;
 
-  const result = await filegate.transfer({
+  const result = await (await getFilegate()).transfer({
     from: fromResolved.data.fullPath,
     to: toResolved.data.fullPath,
     mode: "copy",
@@ -359,7 +344,7 @@ export const copy = async (params: { base: FileBase; from: string; to: string })
  * Filegate's ensureUniqueName handles name conflicts automatically (-01, -02, ...).
  */
 export const remove = async (params: { base: FileBase; path: string }): Promise<MutationResult<void>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
   // Prevent deleting the Trash folder itself or its contents
@@ -368,17 +353,17 @@ export const remove = async (params: { base: FileBase; path: string }): Promise<
   }
 
   // Ensure Trash directory exists
-  const trashPath = paths.resolvePath(params.base, "/Trash");
+  const trashPath = await paths.resolvePath(params.base, "/Trash");
   if (!trashPath.ok) return trashPath;
-  await filegate.mkdir({ path: trashPath.data.fullPath });
+  await (await getFilegate()).mkdir({ path: trashPath.data.fullPath });
 
   // Build target path: /Trash/<filename>
   const filename = resolved.data.relativePath.split("/").pop() || "unnamed";
-  const targetTrashPath = paths.resolvePath(params.base, `/Trash/${filename}`);
+  const targetTrashPath = await paths.resolvePath(params.base, `/Trash/${filename}`);
   if (!targetTrashPath.ok) return targetTrashPath;
 
   // Move to trash with auto-rename on conflict
-  const result = await filegate.transfer({
+  const result = await (await getFilegate()).transfer({
     from: resolved.data.fullPath,
     to: targetTrashPath.data.fullPath,
     mode: "move",
@@ -401,17 +386,17 @@ export const remove = async (params: { base: FileBase; path: string }): Promise<
  * Uses filegate.transfer with mode="copy".
  */
 export const duplicate = async (params: { base: FileBase; path: string; newName: string }): Promise<MutationResult<FileInfo>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
   // Get parent directory path
   const parentPath = params.path.substring(0, params.path.lastIndexOf("/")) || "/";
   const targetPath = parentPath === "/" ? `/${params.newName}` : `${parentPath}/${params.newName}`;
 
-  const targetResolved = paths.resolvePath(params.base, targetPath);
+  const targetResolved = await paths.resolvePath(params.base, targetPath);
   if (!targetResolved.ok) return targetResolved;
 
-  const result = await filegate.transfer({
+  const result = await (await getFilegate()).transfer({
     from: resolved.data.fullPath,
     to: targetResolved.data.fullPath,
     mode: "copy",
@@ -443,7 +428,7 @@ export const searchAll = async (params: {
   // Resolve all base paths
   const basePaths: { base: FileBase; fullPath: string }[] = [];
   for (const base of bases) {
-    const resolved = paths.resolvePath(base, "/");
+    const resolved = await paths.resolvePath(base, "/");
     if (resolved.ok) {
       basePaths.push({ base, fullPath: resolved.data.fullPath });
     }
@@ -454,7 +439,7 @@ export const searchAll = async (params: {
   }
 
   // Use filegate.glob to search all paths at once
-  const result = await filegate.glob({
+  const result = await (await getFilegate()).glob({
     paths: basePaths.map((b) => b.fullPath),
     pattern,
     showHidden,
@@ -502,12 +487,12 @@ export const chunkedUploadStart = async (params: {
   checksum: string;
   chunkSize: number;
 }): Promise<MutationResult<ChunkedUploadStartResponse>> => {
-  const resolved = paths.resolvePath(params.base, params.path);
+  const resolved = await paths.resolvePath(params.base, params.path);
   if (!resolved.ok) return resolved;
 
-  const ownership = getOwnershipInfo(params.base, false); // false = file
+  const ownership = await getOwnershipInfo(params.base, false); // false = file
 
-  const result = await filegate.upload.chunked.start({
+  const result = await (await getFilegate()).upload.chunked.start({
     path: resolved.data.fullPath,
     filename: params.filename,
     size: params.size,
@@ -542,7 +527,7 @@ export const chunkedUploadChunk = async (params: {
   data: Blob | ArrayBuffer | Uint8Array;
   checksum?: string;
 }): Promise<MutationResult<ChunkedUploadResponse>> => {
-  const result = await filegate.upload.chunked.send({
+  const result = await (await getFilegate()).upload.chunked.send({
     uploadId: params.uploadId,
     index: params.index,
     data: params.data,
@@ -575,7 +560,7 @@ export const searchDirectories = async (params: {
 }): Promise<MutationResult<{ directories: MoveTargetResult[]; total: number }>> => {
   const { base, query, limit = 20 } = params;
 
-  const resolved = paths.resolvePath(base, "/");
+  const resolved = await paths.resolvePath(base, "/");
   if (!resolved.ok) return resolved;
 
   // Build glob pattern: match directory names containing the query
@@ -583,7 +568,7 @@ export const searchDirectories = async (params: {
   const trimmedQuery = query.trim().toLowerCase();
   const pattern = trimmedQuery ? `**/*` : `**/*`;
 
-  const result = await filegate.glob({
+  const result = await (await getFilegate()).glob({
     paths: [resolved.data.fullPath],
     pattern,
     directories: true,
@@ -657,11 +642,11 @@ export const transfer = async (params: {
   let transferred = 0;
 
   // Get ownership info for target base (needed for cross-base copy)
-  const targetOwnership = getOwnershipInfo(targetBase, false);
+  const targetOwnership = await getOwnershipInfo(targetBase, false);
 
   for (const sourcePath of sourcePaths) {
     // Resolve source path
-    const sourceResolved = paths.resolvePath(sourceBase, sourcePath);
+    const sourceResolved = await paths.resolvePath(sourceBase, sourcePath);
     if (!sourceResolved.ok) {
       errors.push({ path: sourcePath, error: sourceResolved.error });
       continue;
@@ -671,7 +656,7 @@ export const transfer = async (params: {
     const filename = sourcePath.split("/").pop() || "";
     const fullTargetPath = targetPath === "/" ? `/${filename}` : `${targetPath}/${filename}`;
 
-    const targetResolved = paths.resolvePath(targetBase, fullTargetPath);
+    const targetResolved = await paths.resolvePath(targetBase, fullTargetPath);
     if (!targetResolved.ok) {
       errors.push({ path: sourcePath, error: targetResolved.error });
       continue;
@@ -679,7 +664,7 @@ export const transfer = async (params: {
 
     if (isSameBase) {
       // Same base: use move (fast rename, preserves permissions)
-      const result = await filegate.transfer({
+      const result = await (await getFilegate()).transfer({
         from: sourceResolved.data.fullPath,
         to: targetResolved.data.fullPath,
         mode: "move",
@@ -700,7 +685,7 @@ export const transfer = async (params: {
         continue;
       }
 
-      const result = await filegate.transfer({
+      const result = await (await getFilegate()).transfer({
         from: sourceResolved.data.fullPath,
         to: targetResolved.data.fullPath,
         mode: "copy",

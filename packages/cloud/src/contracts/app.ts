@@ -67,7 +67,7 @@ export type CloudRuntime = {
 export type CloudContext = {
   logger: (source: string) => CloudLogger;
   settings: {
-    get: <T = unknown>(key: string) => T;
+    get: <T = unknown>(key: string) => Promise<T>;
     set: (key: string, value: unknown) => Promise<void>;
   };
   runtime: CloudRuntime;

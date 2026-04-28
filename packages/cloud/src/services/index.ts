@@ -24,7 +24,7 @@ export type { AccountLifecycleService } from "./account-lifecycle";
 export { lifecycleJobs } from "./account-lifecycle/scheduler";
 
 export { settings } from "./settings/namespace";
-export { loadCache, get, getSync, set, remove, getAll } from "./settings";
+export { loadCache, get, set, remove, getAll } from "./settings";
 export type { SettingEntry } from "./settings";
 export { SETTINGS, SETTINGS_MAP, SETTING_GROUPS, GROUP_LABELS, registerSettings, registerGroupLabel } from "./settings/defaults";
 export { validateSettingValue, normalizeSettingValue, getSettingLabel } from "./settings/defaults";
@@ -33,8 +33,7 @@ export { renderTemplate } from "./settings/templates";
 export { settingsService } from "./settings/app";
 export type { SettingsService } from "./settings/app";
 
-// New (additive in phase A1) typed async API + cache-aside primitives.
-// Existing getSync/loadCache/set/remove above stay for backward compat until phase H.
+// Typed async API + cache-aside primitives.
 export { coreSettings, createSettingsAPI } from "./settings/api";
 export type { SettingsAPI } from "./settings/api";
 export { readKey as settingsReadKey, writeKey as settingsWriteKey, deleteKey as settingsDeleteKey, bulkRead as settingsBulkRead, allKnownKeys as settingsAllKnownKeys } from "./settings/store";
@@ -43,5 +42,5 @@ export { loadSnapshot as loadSettingsSnapshot } from "./settings/snapshot";
 export { weatherService } from "./weather";
 export type { WeatherService, WeatherData, DailyForecast, CurrentWeather, HourlyForecast, WeatherIcon } from "./weather";
 export { migrate as migrateWeather } from "./weather/migrate";
-export { getFreeIpaConfig, getFreeIpaConfigSync } from "./freeipa-config";
+export { getFreeIpaConfig } from "./freeipa-config";
 export type { FreeIpaConfig } from "./freeipa-config";

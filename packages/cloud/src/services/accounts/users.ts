@@ -24,7 +24,7 @@ import {
   recursiveGroupIdsSubquery,
   recursiveGroupNamesSubquery,
 } from "./group-sql";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 import type {
   BaseUser,
   MutationResult,
@@ -105,7 +105,7 @@ const buildUserMutationTarget = (row: DbRow): UserMutationTarget => ({
   storedAdmin: Boolean(row.admin),
 });
 
-const buildUser = (row: DbRow): User => {
+const buildUser = (row: DbRow, groupsAdmin: string[]): User => {
   const { provider, profile } = resolveProviderProfile(row);
   const displayName = (row.display_name as string) ?? "";
   const mail = (row.mail as string) ?? null;
@@ -122,6 +122,7 @@ const buildUser = (row: DbRow): User => {
       provider,
       storedAdmin: Boolean(row.admin),
       memberofGroup,
+      groupsAdmin,
     }),
   });
   const common = {
@@ -187,7 +188,8 @@ export const get = async (params: { id: string } | { uid: string }): Promise<Use
     WHERE ${whereClause}
   `;
   if (rows.length === 0) return null;
-  return buildUser(rows[0]!);
+  const { groupsAdmin } = await getFreeIpaConfig();
+  return buildUser(rows[0]!, groupsAdmin);
 };
 
 export const getMinimal = async (params: { id: string } | { uid: string }): Promise<UserMutationTarget | null> => {
@@ -272,7 +274,7 @@ export const list = async (params: {
   const countRows = await sql<DbRow[]>`SELECT COUNT(*)::int AS count FROM auth.users WHERE ${where}`;
   const total = (countRows[0]?.count as number) ?? 0;
   const totalPages = Math.ceil(total / perPage);
-  const groupsAdmin = getFreeIpaConfigSync().groupsAdmin;
+  const groupsAdmin = (await getFreeIpaConfig()).groupsAdmin;
   const rows = await sql<DbRow[]>`
     SELECT u.*,
       CASE
@@ -618,7 +620,7 @@ export const switchProvider = async (params: {
 }): Promise<MutationResult<void>> => {
   const user = await getMinimal({ id: params.id });
   if (!user) return { ok: false, error: "User not found", status: 404 };
-  const freeIpaConfig = getFreeIpaConfigSync();
+  const freeIpaConfig = await getFreeIpaConfig();
 
   const currentProvider = user.provider;
   const currentProfile = user.profile;

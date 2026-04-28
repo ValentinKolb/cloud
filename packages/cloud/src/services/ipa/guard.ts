@@ -1,12 +1,12 @@
 import type { MutationResult } from "../../contracts/shared";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 
 type MutationError = Extract<MutationResult<unknown>, { ok: false }>;
 
-export const getIpaUrl = (): string => getFreeIpaConfigSync().url;
+export const getIpaUrl = async (): Promise<string> => (await getFreeIpaConfig()).url;
 
-export const ensureFreeIpaMutationAvailable = (): MutationError | null => {
-  const config = getFreeIpaConfigSync();
+export const ensureFreeIpaMutationAvailable = async (): Promise<MutationError | null> => {
+  const config = await getFreeIpaConfig();
   if (!config.enabled) {
     return { ok: false, error: "FreeIPA is disabled.", status: 400 };
   }

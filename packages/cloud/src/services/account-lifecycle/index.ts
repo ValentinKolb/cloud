@@ -115,7 +115,7 @@ const markReminderError = async (id: string, error: string): Promise<void> => {
 };
 
 const deleteFromFreeIpa = async (ipaSession: string, uid: string): Promise<{ ok: true } | { ok: false; error: string }> => {
-  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
+  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession, method: "user_del", args: [uid], options: {} });
   if (!response.error) return { ok: true };
 
   const message = (response.error.message ?? "").toLowerCase();

@@ -27,7 +27,7 @@ export const call = async (
     options?: Record<string, unknown>;
   },
 ): Promise<IpaRpcResponse> => {
-  const tls = getFreeIpaTls();
+  const tls = await getFreeIpaTls();
   const res = await fetch(`${baseUrl(config.url)}/ipa/session/json`, {
     method: "POST",
     headers: {

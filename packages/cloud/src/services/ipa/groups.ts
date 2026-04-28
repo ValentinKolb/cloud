@@ -342,12 +342,12 @@ export const add = async (params: {
   description?: string;
   posix?: boolean;
 }): Promise<MutationResult<BaseGroup>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const options: Record<string, unknown> = { nonposix: params.posix ? false : true };
   if (params.description) options.description = params.description;
 
-  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession: params.ipaSession, method: "group_add", args: [params.cn], options });
+  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession: params.ipaSession, method: "group_add", args: [params.cn], options });
   if (response.error) return ipaMutationError(response);
 
   const gidnumber = freeipa.util.num((response.result?.result as Record<string, unknown> | undefined)?.gidnumber);
@@ -376,13 +376,13 @@ export const add = async (params: {
 };
 
 export const update = async (params: { ipaSession: string; id: string; description: string }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
   const response = await freeipa.client.call({
-    url: getIpaUrl(),
+    url: await getIpaUrl(),
     ipaSession: params.ipaSession,
     method: "group_mod",
     args: [group.cn],
@@ -395,12 +395,12 @@ export const update = async (params: { ipaSession: string; id: string; descripti
 };
 
 export const del = async (params: { ipaSession: string; id: string }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession: params.ipaSession, method: "group_del", args: [group.cn], options: {} });
+  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession: params.ipaSession, method: "group_del", args: [group.cn], options: {} });
   if (response.error) return ipaMutationError(response);
 
   await sql`DELETE FROM auth.groups WHERE id = ${group.id}`;
@@ -408,12 +408,12 @@ export const del = async (params: { ipaSession: string; id: string }): Promise<M
 };
 
 export const makePosix = async (params: { ipaSession: string; id: string }): Promise<MutationResult<{ gidnumber: number | null }>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
 
-  const response = await freeipa.client.call({ url: getIpaUrl(), ipaSession: params.ipaSession, method: "group_mod", args: [group.cn], options: { posix: true } });
+  const response = await freeipa.client.call({ url: await getIpaUrl(), ipaSession: params.ipaSession, method: "group_mod", args: [group.cn], options: { posix: true } });
   if (response.error) return ipaMutationError(response);
 
   const gidnumber = freeipa.util.num((response.result?.result as Record<string, unknown> | undefined)?.gidnumber);
@@ -422,7 +422,7 @@ export const makePosix = async (params: { ipaSession: string; id: string }): Pro
 };
 
 export const addMember = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
@@ -461,7 +461,7 @@ export const addMember = async (params: { ipaSession: string; id: string; user?:
   if (childGroup) options.group = childGroup.cn;
 
   const response = await freeipa.client.call({
-    url: getIpaUrl(),
+    url: await getIpaUrl(),
     ipaSession: params.ipaSession,
     method: "group_add_member",
     args: [group.cn],
@@ -491,7 +491,7 @@ export const addMember = async (params: { ipaSession: string; id: string; user?:
 };
 
 export const removeMember = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
@@ -514,7 +514,7 @@ export const removeMember = async (params: { ipaSession: string; id: string; use
   if (childGroup) options.group = childGroup.cn;
 
   const response = await freeipa.client.call({
-    url: getIpaUrl(),
+    url: await getIpaUrl(),
     ipaSession: params.ipaSession,
     method: "group_remove_member",
     args: [group.cn],
@@ -559,7 +559,7 @@ export const removeMember = async (params: { ipaSession: string; id: string; use
 };
 
 export const addManager = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
@@ -598,7 +598,7 @@ export const addManager = async (params: { ipaSession: string; id: string; user?
   if (managerGroup) options.group = managerGroup.cn;
 
   const response = await freeipa.client.call({
-    url: getIpaUrl(),
+    url: await getIpaUrl(),
     ipaSession: params.ipaSession,
     method: "group_add_member_manager",
     args: [group.cn],
@@ -626,7 +626,7 @@ export const addManager = async (params: { ipaSession: string; id: string; user?
 };
 
 export const removeManager = async (params: { ipaSession: string; id: string; user?: string; group?: string }): Promise<MutationResult<void>> => {
-  const unavailable = ensureFreeIpaMutationAvailable();
+  const unavailable = await ensureFreeIpaMutationAvailable();
   if (unavailable) return unavailable;
   const group = await getIpaGroupById(params.id);
   if (!group) return { ok: false, error: "IPA group not found", status: 404 };
@@ -649,7 +649,7 @@ export const removeManager = async (params: { ipaSession: string; id: string; us
   if (managerGroup) options.group = managerGroup.cn;
 
   const response = await freeipa.client.call({
-    url: getIpaUrl(),
+    url: await getIpaUrl(),
     ipaSession: params.ipaSession,
     method: "group_remove_member_manager",
     args: [group.cn],

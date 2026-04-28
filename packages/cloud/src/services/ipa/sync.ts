@@ -9,14 +9,12 @@ import { logger } from "../logging";
 import * as settings from "../settings";
 import { session } from "../session";
 import { freeipa } from "../../server/services";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 import { calculateIpaProfile, calculateIpaProfileFromLocalDb } from "./profile";
 
 type DbRow = Record<string, unknown>;
 
 const log = logger("auth:ipa:sync");
-
-const getExcludedGroupsSet = (): Set<string> => freeipa.util.toExcludedGroupsSet(getFreeIpaConfigSync().groupsExcluded);
 
 const upsertUserIpaData = async (
   db: typeof sql,
@@ -147,16 +145,18 @@ const transformSyncUser = (raw: Record<string, unknown>): SyncUser => {
 
 /**
  * Normalizes one raw IPA group record into the sync group model.
+ * `excludedGroupsSet` is hoisted to the caller so we don't re-read settings
+ * once per group.
  */
-const transformSyncGroup = (raw: Record<string, unknown>): SyncGroup => ({
+const transformSyncGroup = (raw: Record<string, unknown>, excludedGroupsSet: Set<string>): SyncGroup => ({
   cn: freeipa.util.str(raw.cn),
   description: freeipa.util.str(raw.description) || null,
   gidnumber: freeipa.util.num(raw.gidnumber),
   users: (raw.member_user as string[]) ?? [],
-  groups: ((raw.member_group as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
-  parentGroups: ((raw.memberof_group as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
+  groups: ((raw.member_group as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
+  parentGroups: ((raw.memberof_group as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
   managerUsers: (raw.membermanager_user as string[]) ?? [],
-  managerGroups: ((raw.membermanager_group as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
+  managerGroups: ((raw.membermanager_group as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
 });
 
 /**
@@ -193,7 +193,7 @@ const readIpaList = (config: { response: IpaCallResponse; entity: string }): Rec
  */
 export const syncFromIpa = async (): Promise<void> => {
   const startedAt = Date.now();
-  const config = getFreeIpaConfigSync();
+  const config = await getFreeIpaConfig();
   if (!config.enabled) {
     log.info("Sync skipped", { reason: "freeipa_disabled" });
     return;
@@ -233,7 +233,7 @@ export const syncFromIpa = async (): Promise<void> => {
     .map(transformSyncUser);
 
   const allRawGroups = readIpaList({ response: groupsRes, entity: "groups" });
-  const groups = allRawGroups.map(transformSyncGroup).filter((g) => !excludedGroupsSet.has(g.cn));
+  const groups = allRawGroups.map((raw) => transformSyncGroup(raw, excludedGroupsSet)).filter((g) => !excludedGroupsSet.has(g.cn));
 
   const activeUsers = users.filter((u) => !isExpired(u));
   const expiredUsers = users.length - activeUsers.length;
@@ -292,7 +292,7 @@ export const syncFromIpa = async (): Promise<void> => {
     // 1. Upsert active IPA users
     //    Match order: mail (existing IPA user, handles UID renames) → mail (guest promotion) → uid (new or unchanged)
     for (const u of activeUsers) {
-      const profile = calculateIpaProfile(u.memberofGroup);
+      const profile = await calculateIpaProfile(u.memberofGroup);
       const provider = "ipa";
 
       if (u.mail) {
@@ -640,7 +640,7 @@ const reconcileOutOfScopeUser = async (params: {
  * where possible (expired / out_of_scope → transition policy + session revocation).
  */
 export const syncUser = async (username: string): Promise<SyncUserOutcome> => {
-  const config = getFreeIpaConfigSync();
+  const config = await getFreeIpaConfig();
   if (!config.enabled) {
     log.info("Single-user sync skipped", { reason: "freeipa_disabled", username });
     return { status: "skipped_disabled" };

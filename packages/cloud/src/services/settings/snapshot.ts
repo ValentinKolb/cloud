@@ -15,15 +15,10 @@
  */
 
 import { allKnownKeys, bulkRead } from "./store";
-import { primeLocalCache } from "./index";
 
 /** Build a frozen nested object from the registered settings. */
 export const loadSnapshot = async (): Promise<Readonly<Record<string, unknown>>> => {
   const flat = await bulkRead(allKnownKeys());
-
-  // Side-effect: prime the legacy local Map used by `getSync` so sync
-  // helpers running inside this request see fresh values.
-  primeLocalCache(flat);
 
   const tree: Record<string, unknown> = {};
   for (const [key, value] of flat) {

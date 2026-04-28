@@ -1,18 +1,20 @@
 import { sql } from "bun";
-import { getSync } from "@valentinkolb/cloud/services";
+import { get } from "@valentinkolb/cloud/services";
 import type { FileBase, MutationResult } from "@/contracts";
 import path from "node:path";
 
 type DbRow = Record<string, unknown>;
 
 /**
- * Resolve a FileBase to the absolute path on the file server
+ * Resolve a FileBase to the absolute path on the file server.
+ * Reads `files.base_homes` / `files.base_groups` from settings via the
+ * Redis cache-aside layer (always within Redis-TTL fresh).
  */
-export const resolveBase = (base: FileBase): string => {
+export const resolveBase = async (base: FileBase): Promise<string> => {
   if (base.type === "home") {
-    return path.join(getSync<string>("files.base_homes"), base.uid);
+    return path.join(await get<string>("files.base_homes"), base.uid);
   }
-  return path.join(getSync<string>("files.base_groups"), base.name);
+  return path.join(await get<string>("files.base_groups"), base.name);
 };
 
 /**
@@ -26,8 +28,8 @@ export const resolveBase = (base: FileBase): string => {
  * that doesn't start with `..` (and isn't an absolute path) to be considered
  * contained.
  */
-export const resolvePath = (base: FileBase, relativePath: string): MutationResult<{ fullPath: string; relativePath: string }> => {
-  const basePath = path.resolve(resolveBase(base));
+export const resolvePath = async (base: FileBase, relativePath: string): Promise<MutationResult<{ fullPath: string; relativePath: string }>> => {
+  const basePath = path.resolve(await resolveBase(base));
 
   // Normalize the path and remove leading slashes
   const normalized = path.normalize(relativePath).replace(/^\/+/, "");

@@ -1,13 +1,12 @@
 import { sql } from "bun";
 import { job, scheduler } from "@valentinkolb/sync";
 import { freeipa } from "@valentinkolb/cloud/server/services";
-import { logger, getFreeIpaConfigSync, get as settingsGet, set as settingsSet } from "@valentinkolb/cloud/services";
+import { logger, getFreeIpaConfig, get as settingsGet, set as settingsSet } from "@valentinkolb/cloud/services";
 
 type DbRow = Record<string, unknown>;
 
 const syncLog = logger("ipa-hosts:sync");
 const schedulerLog = logger("ipa-hosts:scheduler");
-const getExcludedGroupsSet = (): Set<string> => freeipa.util.toExcludedGroupsSet(getFreeIpaConfigSync().groupsExcluded);
 
 const DEFAULT_SYNC_CRON = "*/5 * * * *";
 // Intentionally app-owned: managed from the ipa-hosts UI and not exposed in the global settings app.
@@ -46,23 +45,23 @@ type SyncSummary = {
   localHostgroupsBefore: number;
 };
 
-const transformSyncHost = (raw: Record<string, unknown>): SyncHost => ({
+const transformSyncHost = (raw: Record<string, unknown>, excludedGroupsSet: Set<string>): SyncHost => ({
   fqdn: freeipa.util.str(raw.fqdn),
   description: freeipa.util.str(raw.description) || null,
   location: freeipa.util.str(raw.nshostlocation) || null,
   locality: freeipa.util.str(raw.l) || null,
-  memberofHostgroup: ((raw.memberof_hostgroup as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
+  memberofHostgroup: ((raw.memberof_hostgroup as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
   macAddress: Array.isArray(raw.macaddress) ? raw.macaddress : [],
   platform: freeipa.util.str(raw.nshardwareplatform) || null,
   osVersion: freeipa.util.str(raw.nsosversion) || null,
   sshFingerprints: Array.isArray(raw.sshpubkeyfp) ? raw.sshpubkeyfp : [],
 });
 
-const transformSyncHostgroup = (raw: Record<string, unknown>): SyncHostgroup => ({
+const transformSyncHostgroup = (raw: Record<string, unknown>, excludedGroupsSet: Set<string>): SyncHostgroup => ({
   cn: freeipa.util.str(raw.cn),
   description: freeipa.util.str(raw.description) || null,
   hosts: (raw.member_host as string[]) ?? [],
-  hostgroups: ((raw.member_hostgroup as string[]) ?? []).filter((g) => !getExcludedGroupsSet().has(g)),
+  hostgroups: ((raw.member_hostgroup as string[]) ?? []).filter((g) => !excludedGroupsSet.has(g)),
 });
 
 const readIpaList = (config: { response: IpaCallResponse; entity: string }): Record<string, unknown>[] => {
@@ -87,7 +86,7 @@ const getTimezone = async (): Promise<string> => {
 };
 
 export const syncFromIpaHosts = async (): Promise<SyncSummary> => {
-  const config = getFreeIpaConfigSync();
+  const config = await getFreeIpaConfig();
   if (!config.enabled) {
     const summary: SyncSummary = {
       durationMs: 0,
@@ -125,10 +124,11 @@ export const syncFromIpaHosts = async (): Promise<SyncSummary> => {
     }),
   ]);
 
+  const excludedGroupsSet = freeipa.util.toExcludedGroupsSet(config.groupsExcluded);
   const allRawHosts = readIpaList({ response: hostsRes, entity: "hosts" });
-  const hosts = allRawHosts.map(transformSyncHost);
+  const hosts = allRawHosts.map((raw) => transformSyncHost(raw, excludedGroupsSet));
   const allRawHostgroups = readIpaList({ response: hostgroupsRes, entity: "hostgroups" });
-  const hostgroups = allRawHostgroups.map(transformSyncHostgroup);
+  const hostgroups = allRawHostgroups.map((raw) => transformSyncHostgroup(raw, excludedGroupsSet));
 
   const hostFqdns = hosts.map((host) => host.fqdn);
   const hostgroupCns = new Set(hostgroups.map((hostgroup) => hostgroup.cn));

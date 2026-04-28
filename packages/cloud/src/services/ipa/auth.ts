@@ -1,10 +1,10 @@
 import { freeipa } from "../../server/services";
 import { getFreeIpaTls } from "../../server/services/freeipa/tls";
 import type { MutationResult } from "../../contracts/shared";
-import { getFreeIpaConfigSync } from "../freeipa-config";
+import { getFreeIpaConfig } from "../freeipa-config";
 
-const getEnabledConfig = (): MutationResult<{ url: string; serviceUser: string; servicePassword: string }> => {
-  const config = getFreeIpaConfigSync();
+const getEnabledConfig = async (): Promise<MutationResult<{ url: string; serviceUser: string; servicePassword: string }>> => {
+  const config = await getFreeIpaConfig();
   if (!config.enabled) {
     return { ok: false, error: "FreeIPA is disabled.", status: 400 };
   }
@@ -27,13 +27,13 @@ const getEnabledConfig = (): MutationResult<{ url: string; serviceUser: string; 
 
 export type LoginResult = { status: "success"; session: string } | { status: "password_expired" } | { status: "failed" };
 export const login = async (username: string, password: string): Promise<LoginResult> => {
-  const config = getEnabledConfig();
+  const config = await getEnabledConfig();
   if (!config.ok) return { status: "failed" };
   return freeipa.session.login({ url: config.data.url, username, password });
 };
 
 export const getServiceSession = async (): Promise<string> => {
-  const config = getEnabledConfig();
+  const config = await getEnabledConfig();
   if (!config.ok) {
     throw new Error(config.error);
   }
@@ -58,10 +58,10 @@ export const changeExpiredPassword = async (params: {
   newPassword: string;
 }): Promise<MutationResult<void>> => {
   const { username, currentPassword, newPassword } = params;
-  const config = getEnabledConfig();
+  const config = await getEnabledConfig();
   if (!config.ok) return config;
 
-  const tls = getFreeIpaTls();
+  const tls = await getFreeIpaTls();
   const res = await fetch(`${freeipa.client.baseUrl(config.data.url)}/ipa/session/change_password`, {
     method: "POST",
     headers: {
@@ -98,7 +98,7 @@ export const changeExpiredPassword = async (params: {
  */
 export const changePassword = async (params: { ipaSession: string; uid: string; newPassword: string }): Promise<MutationResult<void>> => {
   const { ipaSession, uid, newPassword } = params;
-  const config = getEnabledConfig();
+  const config = await getEnabledConfig();
   if (!config.ok) return config;
 
   const response = await freeipa.client.call({

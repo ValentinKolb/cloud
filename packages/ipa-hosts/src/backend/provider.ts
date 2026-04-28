@@ -1,11 +1,11 @@
 import { sql } from "bun";
 import { freeipa } from "@valentinkolb/cloud/server/services";
-import { getFreeIpaConfigSync } from "@valentinkolb/cloud/services";
+import { getFreeIpaConfig } from "@valentinkolb/cloud/services";
 
 type DbRow = Record<string, unknown>;
 const disabledResult = (): IpaHostsMutationResult => ({ ok: false, error: "FreeIPA is disabled.", status: 500 });
-const getIpaUrl = (): string | null => {
-  const config = getFreeIpaConfigSync();
+const getIpaUrl = async (): Promise<string | null> => {
+  const config = await getFreeIpaConfig();
   return config.enabled ? config.url : null;
 };
 
@@ -217,7 +217,7 @@ export const hostMod = async (
   if (opts.macAddress !== undefined) ipaOpts.macaddress = opts.macAddress;
   if (Object.keys(ipaOpts).length === 0) return { ok: true };
 
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({ url, ipaSession, method: "host_mod", args: [fqdn], options: ipaOpts });
   if (response.error) {
@@ -244,7 +244,7 @@ export const hostMod = async (
 };
 
 export const hostDel = async (ipaSession: string, fqdn: string): Promise<IpaHostsMutationResult> => {
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({ url, ipaSession, method: "host_del", args: [fqdn], options: {} });
   if (response.error) {
@@ -256,7 +256,7 @@ export const hostDel = async (ipaSession: string, fqdn: string): Promise<IpaHost
 };
 
 export const hostAddToGroup = async (ipaSession: string, fqdn: string, hostgroupCn: string): Promise<IpaHostsMutationResult> => {
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({ url, ipaSession, method: "hostgroup_add_member", args: [hostgroupCn], options: { host: fqdn } });
   if (response.error) {
@@ -272,7 +272,7 @@ export const hostAddToGroup = async (ipaSession: string, fqdn: string, hostgroup
 };
 
 export const hostRemoveFromGroup = async (ipaSession: string, fqdn: string, hostgroupCn: string): Promise<IpaHostsMutationResult> => {
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({
     url,
@@ -465,7 +465,7 @@ export const hostgroupAdd = async (ipaSession: string, cn: string, opts?: { desc
   const ipaOpts: Record<string, unknown> = {};
   if (opts?.description !== undefined) ipaOpts.description = opts.description;
 
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({ url, ipaSession, method: "hostgroup_add", args: [cn], options: ipaOpts });
   if (response.error) {
@@ -486,7 +486,7 @@ export const hostgroupMod = async (ipaSession: string, cn: string, opts: { descr
   if (opts.description !== undefined) ipaOpts.description = opts.description;
   if (Object.keys(ipaOpts).length === 0) return { ok: true };
 
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({ url, ipaSession, method: "hostgroup_mod", args: [cn], options: ipaOpts });
   if (response.error) {
@@ -504,7 +504,7 @@ export const hostgroupMod = async (ipaSession: string, cn: string, opts: { descr
 };
 
 export const hostgroupDel = async (ipaSession: string, cn: string): Promise<IpaHostsMutationResult> => {
-  const url = getIpaUrl();
+  const url = await getIpaUrl();
   if (!url) return disabledResult();
   const response = await freeipa.client.call({ url, ipaSession, method: "hostgroup_del", args: [cn], options: {} });
   if (response.error) {
