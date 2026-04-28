@@ -4,6 +4,19 @@
 ./reviews
 **/moodboard
 
+# Pre-modularization reference material, kept on disk but not versioned
+_old/
+
+# Local tooling state (skill task tracking, lint cache)
+.dex/
+.fallow/
+
+# Local scratch notes (todos, draft reviews)
+todo/
+
+# Widgets parked while the runtime widget-fetch mechanism is being designed
+_disabled-widgets/
+
 # Environment / local config
 .env
 .env.*
@@ -20,13 +33,10 @@ build
 **/build
 _ssr
 **/_ssr
+/public
 
 # Generated CSS
 **/public/build.css
-packages/standalone/public/global.css
-packages/standalone/public/tabler-icons-*.ttf
-packages/standalone/public/tabler-icons-*.woff
-packages/standalone/public/tabler-icons-*.woff2
 
 # Logs / caches
 *.log
