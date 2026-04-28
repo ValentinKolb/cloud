@@ -27,7 +27,7 @@ Cloud bundles a set of apps that cover the common operational needs of an organi
 | **Operations** | [`settings`](packages/settings) — system + per-app settings, legal docs &nbsp;•&nbsp; [`logging`](packages/logging) — structured logs with admin viewer &nbsp;•&nbsp; [`notifications`](packages/notifications) — transactional email |
 | **Productivity** | [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
 | **Content & misc** | [`faq`](packages/faq) &nbsp;•&nbsp; [`weather`](packages/weather) &nbsp;•&nbsp; [`quotes`](packages/quotes) &nbsp;•&nbsp; [`tools`](packages/tools) |
-| **Development** | [`ui-lab`](packages/ui-lab) — component showcase |
+| **Development** | [`ui-lab`](packages/ui-lab) — component showcase &nbsp;•&nbsp; [`expeditions`](packages/expeditions) — reference / template app, see [APPS.md](./APPS.md) |
 
 ## Build your own app
 
@@ -51,7 +51,7 @@ export const { ssr, plugin } = app;
 
 That example uses Bun + SolidJS because the shared helpers (UI, auth, services) are TypeScript. Other languages work of course too — any HTTP service that talks Redis and Postgres can register with the gateway.
 
-A **hello-world reference app** is in progress that walks through the minimum end-to-end: config, SSR page, island, API route, admin settings, tests. _Coming next._
+**[APPS.md](./APPS.md)** is the end-to-end walkthrough — prerequisites, the file-by-file anatomy, the platform primitives (auth, logging, settings, email, widgets, search, websockets), and a pattern → reference-app map. The matching reference implementation is [`packages/expeditions/`](./packages/expeditions): tenancy entity, child items, permissions, admin page, widget, completion email — all in one small app.
 
 ## How it works
 
@@ -90,15 +90,15 @@ Apps share the Postgres instance (each owns its own schema) and the Redis instan
 ```bash
 bun install
 bun run infra      # postgres, valkey, geo, filegate
-bun run dev        # core 6-container set
+bun run dev        # core 7-container set
 open http://localhost:3000
 ```
 
-Dev admin: username `admin`, password `dev-admin` (the `ADMIN_LOGIN_TOKEN` on `app-core`).
+Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the token field (the `ADMIN_LOGIN_TOKEN` baked into `app-core`).
 
 | Command | What it does |
 |---|---|
-| `bun run dev` | Core 6 containers (gateway, core, accounts, logging, settings, notifications) |
+| `bun run dev` | Core 7 containers (gateway, core, dashboard, accounts, logging, settings, notifications) |
 | `bun run dev:full` | All containers, every app on |
 | `bun run dev:app <name>` | Add one extra app to the running stack |
 | `bun run dev:app stop \| logs <name>` | Stop / tail one app |
