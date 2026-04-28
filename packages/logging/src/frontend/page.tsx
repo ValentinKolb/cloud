@@ -2,7 +2,7 @@ import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { Pagination, StatCell } from "@valentinkolb/cloud/ui";
-import { getSync } from "@valentinkolb/cloud/services";
+import { get } from "@valentinkolb/cloud/services";
 import { createPagination } from "@/contracts";
 import LogFilterBar from "./_components/LogFilterBar.island";
 import LogTable from "./_components/LogTable.island";
@@ -39,7 +39,8 @@ export default ssr<AuthContext>(async (c) => {
     return qs ? `/admin/logs?${qs}&page=` : "/admin/logs?page=";
   })();
 
-  const retentionDays = typeof getSync("logs.retention_days") === "number" ? (getSync("logs.retention_days") as number) : 30;
+  const rawRetention = await get<unknown>("logs.retention_days");
+  const retentionDays = typeof rawRetention === "number" ? rawRetention : 30;
 
   return () => (
     <AdminLayout c={c} title="Logs" stretch>

@@ -1,5 +1,5 @@
 import { ssr } from "../config";
-import { getSync } from "@valentinkolb/cloud/services";
+import { get } from "@valentinkolb/cloud/services";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
@@ -9,7 +9,7 @@ import { proxyAuthService } from "../service";
 
 export default ssr<AuthContext>(async (c) => {
   const { items: clients } = await proxyAuthService.client.list();
-  const rawAppUrl = getSync<string>("app.url");
+  const rawAppUrl = await get<string>("app.url");
   const baseUrl = rawAppUrl.startsWith("http") ? rawAppUrl : `https://${rawAppUrl}`;
 
   const formatDate = (dateStr: string) => {

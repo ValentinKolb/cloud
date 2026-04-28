@@ -5,14 +5,14 @@ import { v } from "@valentinkolb/cloud/server";
 import { jsonResponse } from "@valentinkolb/cloud/server";
 import { auth, type AuthContext } from "@valentinkolb/cloud/server";
 import { oauth } from "./service/oauth";
-import { accounts, getSync } from "@valentinkolb/cloud/services";
+import { accounts, get } from "@valentinkolb/cloud/services";
 import { ErrorResponseSchema, type OAuthScope } from "@/contracts";
 import { logger } from "@valentinkolb/cloud/services";
 
 const log = logger("oauth");
 
-const getIssuer = () => {
-  const appUrl = getSync<string>("app.url");
+const getIssuer = async (): Promise<string> => {
+  const appUrl = await get<string>("app.url");
   return appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
 };
 
@@ -48,8 +48,8 @@ const TokenResponseSchema = z.object({
 
 /** OAuth 2.0 / OpenID Connect routes mounted at root-level standard paths. */
 const app = new Hono<AuthContext>()
-  .get("/.well-known/openid-configuration", (c) => {
-    const issuer = getIssuer();
+  .get("/.well-known/openid-configuration", async (c) => {
+    const issuer = await getIssuer();
     return c.json(oauth.tokens.getOpenIdConfiguration(issuer));
   })
   .get("/.well-known/jwks.json", async (c) => {
@@ -188,7 +188,7 @@ const app = new Hono<AuthContext>()
         return c.json({ message: "Invalid or expired authorization code" }, 400);
       }
 
-      const issuer = getIssuer();
+      const issuer = await getIssuer();
       try {
         const tokens = await oauth.tokens.createTokens({
           userId: result.userId,
@@ -236,7 +236,7 @@ const app = new Hono<AuthContext>()
       }
 
       const token = authHeader.substring(7);
-      const issuer = getIssuer();
+      const issuer = await getIssuer();
 
       try {
         const payload = await oauth.tokens.verifyAccessToken({ token, issuer });

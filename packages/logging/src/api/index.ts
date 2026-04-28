@@ -4,7 +4,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { ok } from "@valentinkolb/stdlib";
 import { loggingService } from "../service";
-import { getSync, set } from "@valentinkolb/cloud/services";
+import { get, set } from "@valentinkolb/cloud/services";
 import {
   LogEntrySchema,
   LogLevelSchema,
@@ -113,7 +113,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const value = getSync("logs.retention_days");
+      const value = await get<unknown>("logs.retention_days");
       return respond(c, ok({ retentionDays: typeof value === "number" ? value : 30 }));
     },
   )

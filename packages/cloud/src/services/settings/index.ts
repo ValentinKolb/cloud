@@ -198,6 +198,31 @@ export async function get<T = unknown>(key: string): Promise<T> {
   return resolve<T>(key);
 }
 
+/**
+ * **DEPRECATED — do not use in new code. Risky.**
+ *
+ * Reads from the in-process `cache` Map. The Map is hydrated:
+ *   1. Once at boot from Postgres (`loadCache()`), and
+ *   2. Once per HTTP request by the snapshot middleware (`primeLocalCache`).
+ *
+ * Outside an HTTP request lifecycle (cron jobs, scheduled workers, code that
+ * runs after `loadCache()` but before any request hits this container) the
+ * Map can be arbitrarily stale. There is no signal at the call site that
+ * tells you whether you're getting fresh or boot-time data — the freshness
+ * depends on whether *some unrelated middleware* ran recently in the same
+ * process. That makes correctness non-local and bug reports unreproducible.
+ *
+ * Use `await get(key)` instead — it goes through the Redis cache-aside layer
+ * and is always within Redis-TTL fresh, with no hidden dependency on request
+ * timing. Inside HTTP handlers you can also use the typed per-request snapshot
+ * `c.get("settings")[key]` (sync, frozen for the duration of the request).
+ *
+ * Kept for backward-compat with sync helpers that haven't migrated yet
+ * (notably `getFreeIpaConfigSync` and the file-mode getters in
+ * `packages/files/src/service/`). Phase H removes this export.
+ *
+ * @deprecated Use `await get(key)` or `c.get("settings")[key]` instead.
+ */
 export function getSync<T = unknown>(key: string): T {
   return resolve<T>(key);
 }

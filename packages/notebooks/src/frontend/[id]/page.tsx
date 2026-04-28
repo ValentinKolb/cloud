@@ -1,5 +1,5 @@
 import { ssr } from "../../config";
-import { getSync } from "@valentinkolb/cloud/services";
+import { get } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { markdown } from "@valentinkolb/cloud/shared";
@@ -129,6 +129,10 @@ export default ssr<AuthContext>(async (c) => {
     viewMode: isReadMode ? "read" : "edit",
   };
 
+  // Read app.url once in the async handler and pass it through closure into the
+  // sync render function. The render function MUST stay sync.
+  const appUrl = await get<string>("app.url");
+
   return () => (
     <Layout
       c={c}
@@ -172,7 +176,7 @@ export default ssr<AuthContext>(async (c) => {
                 noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebookId}
-                appUrl={getSync<string>("app.url")}
+                appUrl={appUrl}
                 sessionToken={sessionToken!}
                 userId={user.id}
                 displayName={user.displayName}
