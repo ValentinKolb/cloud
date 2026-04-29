@@ -35,6 +35,7 @@ services:
       - "3000:3000"
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/gateway/src:/app/packages/gateway/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/gateway/src/index.ts
@@ -57,6 +58,7 @@ services:
     environment: { <<: *env, APP_ID: dashboard }
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/dashboard/src:/app/packages/dashboard/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/dashboard/src/index.ts
@@ -67,6 +69,7 @@ services:
     environment: { <<: *env, APP_ID: accounts }
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/accounts/src:/app/packages/accounts/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/accounts/src/index.ts
@@ -77,6 +80,7 @@ services:
     environment: { <<: *env, APP_ID: logging }
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/logging/src:/app/packages/logging/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/logging/src/index.ts
@@ -87,6 +91,7 @@ services:
     environment: { <<: *env, APP_ID: settings }
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/settings/src:/app/packages/settings/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/settings/src/index.ts
@@ -97,6 +102,7 @@ services:
     environment: { <<: *env, APP_ID: notifications }
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/notifications/src:/app/packages/notifications/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/notifications/src/index.ts
@@ -112,6 +118,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/notebooks/src:/app/packages/notebooks/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/notebooks/src/index.ts
@@ -123,6 +130,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/contacts/src:/app/packages/contacts/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/contacts/src/index.ts
@@ -134,6 +142,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/faq/src:/app/packages/faq/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/faq/src/index.ts
@@ -145,6 +154,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/files/src:/app/packages/files/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/files/src/index.ts
@@ -156,6 +166,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/ipa-hosts/src:/app/packages/ipa-hosts/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/ipa-hosts/src/index.ts
@@ -167,6 +178,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/oauth/src:/app/packages/oauth/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/oauth/src/index.ts
@@ -178,6 +190,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/proxy-auth/src:/app/packages/proxy-auth/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/proxy-auth/src/index.ts
@@ -189,6 +202,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/quotes/src:/app/packages/quotes/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/quotes/src/index.ts
@@ -200,6 +214,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/spaces/src:/app/packages/spaces/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/spaces/src/index.ts
@@ -212,6 +227,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/expeditions/src:/app/packages/expeditions/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/expeditions/src/index.ts
@@ -223,6 +239,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/tools/src:/app/packages/tools/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/tools/src/index.ts
@@ -234,6 +251,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/ui-lab/src:/app/packages/ui-lab/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/ui-lab/src/index.ts
@@ -245,6 +263,7 @@ services:
     profiles: [extra]
     volumes:
       - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
       - ./packages/weather/src:/app/packages/weather/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/weather/src/index.ts
