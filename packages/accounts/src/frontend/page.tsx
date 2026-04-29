@@ -11,11 +11,11 @@ import { buildGroupsUrl } from "./lib/url-state";
 import { getAccountTypeLabel, getManagementLabel, getManagementBadge, getPrimaryAccountBadge } from "./lib/account-badges";
 
 const BASE_QUICK_LINKS = [
-  { href: "/admin/logs?source=auth:ipa:sync", label: "Sync logs" },
-  { href: "/admin/logs?source=auth:ipa:backfill", label: "IPA backfill" },
-  { href: "/admin/logs?source=auth:local-user:backfill", label: "Local user backfill" },
-  { href: "/admin/logs?source=auth:guest:backfill", label: "Guest backfill" },
-  { href: "/admin/logs?source=auth:reminder:daily", label: "Reminder runs" },
+  { href: "/admin/logging?source=auth:ipa:sync", label: "Sync logs" },
+  { href: "/admin/logging?source=auth:ipa:backfill", label: "IPA backfill" },
+  { href: "/admin/logging?source=auth:local-user:backfill", label: "Local user backfill" },
+  { href: "/admin/logging?source=auth:guest:backfill", label: "Guest backfill" },
+  { href: "/admin/logging?source=auth:reminder:daily", label: "Reminder runs" },
   { href: "/app/accounts/deleted-accounts", label: "Deleted accounts" },
   { href: "/app/accounts/reminders", label: "Reminder history" },
 ] as const;

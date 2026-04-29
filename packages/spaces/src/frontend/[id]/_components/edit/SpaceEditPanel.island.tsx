@@ -773,7 +773,7 @@ function ICalSection(props: { spaceId: string; icalToken: string | null; baseUrl
     onError: (err) => prompts.error(err.message),
   });
 
-  const icalUrl = () => (token() ? `${props.baseUrl}/api/app/spaces/calendar/ical/${token()}.ics` : null);
+  const icalUrl = () => (token() ? `${props.baseUrl}/api/spaces/calendar/ical/${token()}.ics` : null);
 
   return (
     <div class="flex flex-col gap-3">

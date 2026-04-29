@@ -5,10 +5,11 @@ export const app = defineApp({
   name: "Logs",
   icon: "ti ti-list-details",
   description: "View, filter, and clean up application logs.",
-  basePath: "/admin/logs",
+  basePath: "/admin/logging",
   baseUrl: "http://app-logging:3000",
-  adminHref: "/admin/logs",
-  widgets: [{ id: "errors", path: "/api/logging/widgets/errors" }],
+  adminHref: "/admin/logging",
+  widgets: [{ id: "errors", path: "/api/logging/widget/errors" }],
+  routes: ["/api/logging", "/admin/logging", "/public/logging"],
 });
 
 export const { ssr, plugin } = app;

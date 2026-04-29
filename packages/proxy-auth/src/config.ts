@@ -8,6 +8,9 @@ export const app = defineApp({
   basePath: "/admin/proxy-auth",
   baseUrl: "http://app-proxy-auth:3000",
   adminHref: "/admin/proxy-auth",
+  // Top-level `/proxy-auth` for the Traefik forward-auth verify endpoint
+  // — the URL must be configurable on the public origin without /api prefix.
+  routes: ["/proxy-auth", "/api/proxy-auth", "/admin/proxy-auth", "/public/proxy-auth"],
 });
 
 export const { ssr, plugin } = app;

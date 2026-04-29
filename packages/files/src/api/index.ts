@@ -56,7 +56,17 @@ const requireBaseAccess = async (c: Context<AuthContext>) => {
 };
 
 /** File management routes. Only for full IPA users. */
+//
+// Mounted at `/api/files`, so sub-routes become:
+//   /api/files/admin/*  — settings router (admin-gated)
+//   /api/files/...      — file ops (auth.requireAccount IPA user)
+//
+// Admin sub-router mounts BEFORE the user-auth middleware so admins (who may
+// not be IPA users) can still reach it.
+import { filesSettingsRouter } from "./settings";
+
 const app = new Hono<AuthContext>()
+  .route("/admin/settings", filesSettingsRouter)
   .use(auth.requireAccount({ provider: "ipa", profile: "user" }))
 
   // Get current user's home directory info

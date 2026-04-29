@@ -350,8 +350,8 @@ extending it — the choices below are load-bearing.
 4. **HTTP topology follows owner + consumer:**
    - `/api/auth/*` — session-making (anonymous until authed)
    - `/api/me/*` — self-service (any logged-in user)
-   - `/api/admin/*` — platform operators (admin role)
-   - `/api/app/accounts/*` — admin UI for managing third parties
+   - `/api/admin/account-lifecycle/*` — platform operators (admin role)
+   - `/api/accounts/*` — admin UI for managing third parties
 
 5. **REST conventions across these surfaces:**
    - `PUT` for field replacement (`/users/:id/{admin,profile,provider,expiry}`, `/groups/:id/posix`)

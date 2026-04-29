@@ -8,6 +8,7 @@ export const app = defineApp({
   basePath: "/admin/notifications",
   baseUrl: "http://app-notifications:3000",
   adminHref: "/admin/notifications",
+  routes: ["/api/notifications", "/admin/notifications", "/public/notifications"],
 });
 
 export const { ssr, plugin } = app;

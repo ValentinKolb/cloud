@@ -12,6 +12,8 @@ export const app = defineApp({
     match: "/tools",
     section: "more",
   },
+  // Top-level `/tools` (no `/app/tools` for the legacy short URL).
+  routes: ["/tools", "/public/tools"],
 });
 
 export const { ssr, plugin } = app;

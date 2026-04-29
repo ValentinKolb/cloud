@@ -2,8 +2,6 @@ import { app } from "./config";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
 import apiRoutes from "./api";
-import widgetRoutes from "./api/widgets";
-import wsRoutes from "./ws";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
 import { notebooksService, yjsSnapshotWorker } from "./service";
@@ -13,10 +11,7 @@ import { notebooksCapabilities } from "./capabilities";
 const result = await app.start({
   capabilities: notebooksCapabilities,
   routes: {
-    api: new Hono()
-      .route("/app/notebooks/ws", wsRoutes)
-      .route("/notebooks/widgets", widgetRoutes)
-      .route("/app/notebooks", apiRoutes),
+    api: new Hono().route("/notebooks", apiRoutes),
     pages: new Hono().route("/app/notebooks", pageRoutes).route("/admin/notebooks", adminPageRoutes),
   },
   lifecycle: {

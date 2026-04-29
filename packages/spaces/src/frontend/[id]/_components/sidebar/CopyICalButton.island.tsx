@@ -11,7 +11,7 @@ export default function CopyICalButton(props: Props) {
 
   const icalUrl = () =>
     props.icalToken
-      ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/app/spaces/calendar/ical/${props.icalToken}.ics`
+      ? `${typeof window !== "undefined" ? window.location.origin : ""}/api/spaces/calendar/ical/${props.icalToken}.ics`
       : null;
 
   const handleCopy = async () => {

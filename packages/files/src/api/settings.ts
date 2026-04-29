@@ -2,8 +2,8 @@
  * app-files's own settings HTTP API. Owns reads/writes for files.* keys.
  *
  * Endpoints:
- *   PUT    /api/admin/files/settings           — bulk update, atomic
- *   DELETE /api/admin/files/settings/:key{.+}  — reset to default
+ *   PUT    /api/files/admin/settings           — bulk update, atomic
+ *   DELETE /api/files/admin/settings/:key{.+}  — reset to default
  *
  * Side-effect on save: re-init Filegate client so a changed URL/token takes
  * effect immediately without restart.

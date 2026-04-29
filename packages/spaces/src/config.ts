@@ -15,7 +15,8 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],
   },
-  widgets: [{ id: "today", path: "/api/spaces/widgets/today" }],
+  widgets: [{ id: "today", path: "/api/spaces/widget/today" }],
+  routes: ["/api/spaces", "/app/spaces", "/admin/spaces", "/public/spaces"],
 });
 
 export const { ssr, plugin } = app;

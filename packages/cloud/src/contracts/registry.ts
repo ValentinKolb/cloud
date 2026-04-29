@@ -28,7 +28,7 @@ export type AppRegistryLegalLink = {
 
 export type AppRegistryWidget = {
   id: string;
-  /** Absolute path on the app's HTTP service, e.g. "/api/quotes/widgets/random". */
+  /** Absolute path on the app's HTTP service, e.g. "/api/quotes/widget/random". */
   path: string;
 };
 
@@ -38,6 +38,11 @@ export type AppRegistryEntry = {
   icon: string;
   description: string;
   baseUrl: string;
+  /**
+   * Top-level URL prefixes the gateway routes to this app. The gateway
+   * builds a prefix-trie from these strings, no derivation or heuristics.
+   */
+  routes: readonly string[];
   nav?: AppRegistryNav;
   search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];

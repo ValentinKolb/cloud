@@ -63,7 +63,13 @@ const HostgroupsListResponseSchema = z.object({
   pagination: PaginationResponseSchema,
 });
 
+// Mounted at `/api/ipa-hosts`. Sub-routes:
+//   /api/ipa-hosts/widget/*  — dashboard widget endpoints (own auth)
+//   /api/ipa-hosts/...       — admin api (auth.requireRole("admin"))
+import widgetRoutes from "./widgets";
+
 const app = new Hono<AuthContext>()
+  .route("/widget", widgetRoutes)
   .use(rateLimit())
   .use(auth.requireRole("admin"))
   .get(

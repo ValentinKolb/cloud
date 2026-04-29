@@ -8,6 +8,28 @@ export const app = defineApp({
   description: "Auth, search, admin, and platform services.",
   baseUrl: "http://app-core:3000",
   settings: CORE_SETTINGS,
+  // Core owns the platform's top-level paths plus the catch-all "/" so
+  // unmatched URLs fall through to its 404 page. Per-app admin pages
+  // (`/admin/spaces`, `/admin/logging`, …) are owned by their respective
+  // apps and have their own longer-prefix entries in the trie.
+  routes: [
+    "/",
+    "/auth",
+    "/me",
+    "/admin",
+    "/api/auth",
+    "/api/search",
+    "/api/accounts/entities",
+    "/api/admin/account-lifecycle",
+    "/api/admin/core",
+    "/api/llms.txt",
+    "/branding",
+    "/llms.txt",
+    "/_ssr",
+    "/public/global.css",
+    "/public/logo.svg",
+    "/public/core",
+  ],
 });
 
 export const { ssr, plugin } = app;

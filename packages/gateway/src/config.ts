@@ -11,7 +11,11 @@ export const app = defineApp({
   baseUrl: `http://gateway:${port}`,
   adminHref: "/admin/gateway",
   nav: { href: "", section: "hidden" },
-  widgets: [{ id: "health", path: "/api/gateway/widgets/health" }],
+  widgets: [{ id: "health", path: "/api/gateway/widget/health" }],
+  // Gateway is the dispatcher itself — it doesn't appear in its own route
+  // table (filtered out in `buildAppRoutes`). The list here is for shape
+  // completeness and any tooling that iterates registry entries.
+  routes: ["/api/gateway", "/admin/gateway"],
 });
 
 export const { ssr, plugin, config } = app;

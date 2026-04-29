@@ -287,7 +287,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
   const connect = () => {
     if (isDisposed || isTerminated) return;
 
-    const wsUrl = new URL("/api/app/notebooks/ws", resolveHttpBaseUrl(appUrl));
+    const wsUrl = new URL("/api/notebooks/ws", resolveHttpBaseUrl(appUrl));
     wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(wsUrl.href);
 

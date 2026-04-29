@@ -51,7 +51,7 @@ const app = new Hono<AuthContext>()
     const body: WidgetResponse = {
       title: "Logs",
       icon: "ti ti-list-tree",
-      href: "/admin/logs",
+      href: "/admin/logging",
       meta: "last 24h",
       blocks,
     };

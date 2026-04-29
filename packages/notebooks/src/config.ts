@@ -14,7 +14,8 @@ export const app = defineApp({
     section: "primary",
     requiresAuth: true,
   },
-  widgets: [{ id: "recent", path: "/api/notebooks/widgets/recent" }],
+  widgets: [{ id: "recent", path: "/api/notebooks/widget/recent" }],
+  routes: ["/api/notebooks", "/app/notebooks", "/admin/notebooks", "/public/notebooks"],
 });
 
 export const { ssr, plugin } = app;

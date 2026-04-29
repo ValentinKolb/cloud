@@ -35,7 +35,11 @@ export const app = defineApp({
   // Widgets are HTTP endpoints the dashboard calls to render a tile. The
   // `path` is relative to this app's HTTP service (the gateway prefixes it
   // automatically when forwarding the request).
-  widgets: [{ id: "active", path: "/api/expeditions/widgets/active" }],
+  widgets: [{ id: "active", path: "/api/expeditions/widget/active" }],
+  // Top-level URL prefixes the gateway routes to this container. Standard
+  // four-prefix scheme: api covers widget + CRUD, app + admin host the SSR
+  // pages, public serves the per-app CSS bundle.
+  routes: ["/api/expeditions", "/app/expeditions", "/admin/expeditions", "/public/expeditions"],
 });
 
 export const { ssr, plugin } = app;

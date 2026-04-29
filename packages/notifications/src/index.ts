@@ -6,7 +6,7 @@ import { notificationsService } from "./service";
 
 export default await app.start({
   routes: {
-    api: new Hono().route("/admin/notifications", apiRoutes),
+    api: new Hono().route("/notifications", apiRoutes),
     pages: new Hono().route("/admin/notifications", adminPageRoutes),
   },
 });

@@ -14,6 +14,7 @@ export const app = defineApp({
     match: "/app/ui-lab",
     section: "more",
   },
+  routes: ["/app/ui-lab", "/public/ui-lab"],
 });
 
 export const { ssr, plugin } = app;

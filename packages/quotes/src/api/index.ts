@@ -16,7 +16,13 @@ const ErrorResponseSchema = z.object({
 });
 
 /** Quotes API routes — public, no auth required. */
-const app = new Hono().use(rateLimit()).get(
+//
+// Mounted at `/api/quotes`. Sub-routes:
+//   /api/quotes/widget/*  — dashboard widget endpoint
+//   /api/quotes/...       — public quote-of-the-hour endpoint
+import widgetRoutes from "./widgets";
+
+const app = new Hono().route("/widget", widgetRoutes).use(rateLimit()).get(
   "/",
   describeRoute({
     tags: ["Quotes"],

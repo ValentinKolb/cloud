@@ -9,4 +9,4 @@ import type { ApiType } from ".";
  * `app` definition the server uses, so renames / signature changes break
  * the client at compile time. No hand-written DTO duplication.
  */
-export const apiClient = api.create<ApiType>({ baseUrl: "/api/app/expeditions" });
+export const apiClient = api.create<ApiType>({ baseUrl: "/api/expeditions" });

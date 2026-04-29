@@ -24,7 +24,7 @@ const LEVEL_OPTIONS: FilterChipSection[] = [
 ];
 
 export default function LogFilterBar(props: Props) {
-  const baseUrl = "/admin/logs";
+  const baseUrl = "/admin/logging";
   const { filter } = props;
 
   const navigate = (params: Partial<LogFilterState>) => {

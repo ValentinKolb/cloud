@@ -2,7 +2,7 @@
  * Bespoke admin form for files.* settings — app-files-internal island.
  *
  * Hand-coded form (8 fields) instead of dynamic dispatch. Bulk-PUTs to the
- * app's own /api/admin/files/settings endpoint.
+ * app's own /api/files/admin/settings endpoint.
  */
 
 import { createMemo, createSignal } from "solid-js";
@@ -16,7 +16,7 @@ import {
   readSettingsError,
 } from "@valentinkolb/cloud/ui";
 
-const ENDPOINT = "/api/admin/files/settings";
+const ENDPOINT = "/api/files/admin/settings";
 
 type Initial = {
   "files.filegate_url": string;

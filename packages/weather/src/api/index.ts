@@ -141,7 +141,17 @@ const locationsApi = new Hono<AuthContext>()
   );
 
 /** Weather API routes — public endpoints + auth for locations. */
+//
+// Mounted at `/api/weather`, so sub-routes become:
+//   /api/weather/widget/*  — dashboard widget endpoints (own auth)
+//   /api/weather/admin/*   — settings router (admin-gated)
+//   /api/weather/...       — CRUD (public weather data + auth-gated locations)
+import widgetRoutes from "./widgets";
+import { weatherSettingsRouter } from "./settings";
+
 const app = new Hono<AuthContext>()
+  .route("/widget", widgetRoutes)
+  .route("/admin/settings", weatherSettingsRouter)
   .use(rateLimit())
   // Public: Get weather data
   .get(

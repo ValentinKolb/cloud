@@ -25,7 +25,7 @@ export const FileContext = createContext<FileContextValue>();
 export const fileAppUrlForPath = (baseType: string, baseId: string, path?: string | null) => filePageUrl(baseType, baseId, path);
 
 /** Base URL for file API */
-export const fileApiUrl = (baseType: string, baseId: string) => `/api/app/files/${baseType}/${baseId}`;
+export const fileApiUrl = (baseType: string, baseId: string) => `/api/files/${baseType}/${baseId}`;
 
 /** Build full item path from current path and filename */
 export const buildItemPath = (currentPath: string, filename: string) =>

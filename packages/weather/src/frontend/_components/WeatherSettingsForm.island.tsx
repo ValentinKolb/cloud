@@ -10,7 +10,7 @@ import {
   readSettingsError,
 } from "@valentinkolb/cloud/ui";
 
-const ENDPOINT = "/api/admin/weather/settings";
+const ENDPOINT = "/api/weather/admin/settings";
 
 type Initial = {
   "weather.default_lat": string;

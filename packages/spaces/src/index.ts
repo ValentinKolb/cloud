@@ -1,7 +1,6 @@
 import { app } from "./config";
 import { Hono } from "hono";
 import apiRoutes from "./api";
-import widgetRoutes from "./api/widgets";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
 import { spacesService } from "./service";
@@ -11,9 +10,7 @@ import { spacesCapabilities } from "./capabilities";
 export default await app.start({
   capabilities: spacesCapabilities,
   routes: {
-    api: new Hono()
-      .route("/spaces/widgets", widgetRoutes)
-      .route("/app/spaces", apiRoutes),
+    api: new Hono().route("/spaces", apiRoutes),
     pages: new Hono().route("/app/spaces", pageRoutes).route("/admin/spaces", adminPageRoutes),
   },
   lifecycle: {

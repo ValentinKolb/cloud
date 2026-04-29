@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { app } from "./config";
 import apiRoutes from "./api";
-import widgetRoutes from "./api/widgets";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
 import { migrate } from "./migrate";
@@ -10,24 +9,20 @@ import { expeditionsService } from "./service";
 /**
  * Container entrypoint for the expeditions app.
  *
- * `app.start()` does the heavy lifting: spins up Hono, registers the
- * platform middleware (auth session loading, request logging, rate
- * limiting, settings snapshot), wires our route bundles into the global
- * paths the gateway expects, runs `lifecycle.setup` once on boot, and
- * starts heartbeating into the Redis registry so the gateway picks the
- * container up within a few seconds.
+ * `app.start()` spins up Hono, registers the platform middleware (auth
+ * session loading, request logging, rate limiting, settings snapshot),
+ * wires our route bundles into the global paths the gateway expects, runs
+ * `lifecycle.setup` once on boot, and heartbeats into the Redis registry.
  *
- * Route mounting:
- *   /api/expeditions/widgets/*  → widget endpoints (called by dashboard)
- *   /api/app/expeditions/*      → CRUD API (called by islands)
- *   /app/expeditions/*          → SSR pages
- *   /admin/expeditions/*        → admin SSR pages (admin-gated)
+ * Standard four-prefix mount:
+ *   /api/expeditions/*    — widget + CRUD endpoints (api/index.ts handles split)
+ *   /app/expeditions/*    — SSR pages
+ *   /admin/expeditions/*  — admin SSR pages (admin-gated)
+ *   /public/expeditions/* — built CSS, served automatically
  */
 export default await app.start({
   routes: {
-    api: new Hono()
-      .route("/expeditions/widgets", widgetRoutes)
-      .route("/app/expeditions", apiRoutes),
+    api: new Hono().route("/expeditions", apiRoutes),
     pages: new Hono()
       .route("/app/expeditions", pageRoutes)
       .route("/admin/expeditions", adminPageRoutes),

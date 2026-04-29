@@ -2,8 +2,6 @@ import { app } from "./config";
 import { Hono } from "hono";
 import type { AppContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import widgetRoutes from "./api/widgets";
-import { weatherSettingsRouter } from "./api/settings";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
 import { weatherCapabilities } from "./capabilities";
@@ -18,10 +16,7 @@ export type WeatherAppContext = AppContext<typeof app>;
 export default await app.start({
   capabilities: weatherCapabilities,
   routes: {
-    api: new Hono()
-      .route("/weather/widgets", widgetRoutes)
-      .route("/app/weather", apiRoutes)
-      .route("/admin/weather/settings", weatherSettingsRouter),
+    api: new Hono().route("/weather", apiRoutes),
     pages: new Hono().route("/app/weather", pageRoutes).route("/admin/weather", adminPageRoutes),
   },
 });

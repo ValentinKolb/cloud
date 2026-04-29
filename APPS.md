@@ -98,16 +98,33 @@ packages/expeditions/
 
 ### File responsibilities
 
-**`config.ts`** — app identity. `id` ends up in URLs and the Redis registry; `baseUrl` matches the container name in `compose.dev.yml`. Widget endpoints declared here are picked up by the dashboard at registration time.
+**`config.ts`** — app identity. `id` ends up in URLs and the Redis registry; `baseUrl` matches the container name in `compose.dev.yml`. The `routes` field declares the top-level URL prefixes the gateway should route to this container — every app owns its declarations explicitly, no derivation. Standard apps follow a four-prefix convention:
 
-**`index.ts`** — bootstrap. `app.start({ routes, lifecycle, capabilities })` starts Hono on port 3000, mounts route bundles at the platform-expected paths, runs `lifecycle.setup` once on boot, registers in Redis with a heartbeat, and shuts down on `SIGTERM`. Standard mount points:
+```ts
+routes: ["/api/<id>", "/app/<id>", "/admin/<id>", "/public/<id>"]
+```
 
-| Path | Purpose |
+| Prefix | What lives there |
 |---|---|
-| `/api/<id>/widgets/*` | dashboard widget endpoints |
-| `/api/app/<id>/*` | app's CRUD API (called by islands via `apiClient`) |
-| `/app/<id>/*` | SSR pages |
-| `/admin/<id>/*` | admin SSR pages, gated by `auth.requireRole("admin", …)` |
+| `/api/<id>` | every HTTP API endpoint — widget (`/api/<id>/widget/*`), admin api (`/api/<id>/admin/*`), websocket (`/api/<id>/ws/*`), CRUD (`/api/<id>/...`). The internal Hono mounts decide the sub-paths. |
+| `/app/<id>` | user-facing SSR pages |
+| `/admin/<id>` | admin SSR pages, gated by `auth.requireRole("admin", …)` |
+| `/public/<id>` | per-app built CSS bundle (auto-served by the platform) |
+
+Apps with non-standard URL needs (oauth's `/oauth/authorize`, `/.well-known/openid-configuration`; settings' `/legal/*`, `/impressum`; faq's `/faq`) just list whatever top-level prefixes they own — the gateway is dumb, it builds a longest-prefix-match trie from the union of all `routes` arrays.
+
+**`index.ts`** — bootstrap. `app.start({ routes, lifecycle, capabilities })` starts Hono on port 3000, mounts the `routes.api` Hono at `/api`, mounts `routes.pages` at `/`, runs `lifecycle.setup` once on boot, registers in Redis with a heartbeat, and shuts down on `SIGTERM`. Each app's `index.ts` mounts its sub-Honos at the per-app prefix:
+
+```ts
+routes: {
+  api: new Hono().route("/<id>", apiHono),     // widget + admin + crud all under /<id>
+  pages: new Hono()
+    .route("/app/<id>", pageRoutes)             // user-facing pages
+    .route("/admin/<id>", adminPageRoutes),     // admin pages
+}
+```
+
+Inside `apiHono`, sub-routes follow `/widget/*`, `/admin/*`, `/ws/*` for the dashboard widget endpoint, admin API, and WebSocket, with CRUD sitting at root. Mount widget/ws BEFORE auth middleware so they can keep their own permission gating instead of inheriting the api's `requireRole("user")`.
 
 **`migrate.ts`** — runs on every container startup. `CREATE … IF NOT EXISTS` and `.simple()` keep migrations idempotent. Postgres counts dropped columns toward the 1600-column hard limit, so design columns to stick around. The schema is namespaced (`expeditions.*`).
 
@@ -466,7 +483,7 @@ docker logs -f app-expeditions
 
 # smoke tests
 curl -sI http://localhost:3000/app/expeditions               | head -1   # 302 → login
-curl -sI http://localhost:3000/api/app/expeditions/          | head -1   # 401
+curl -sI http://localhost:3000/api/expeditions               | head -1   # 401
 curl -sI http://localhost:3000/public/expeditions/app.css    | head -1   # 200
 ```
 

@@ -17,6 +17,11 @@ export type AppMeta = {
   icon: string;
   description: string;
   adminHref?: string;
+  /**
+   * Top-level URL prefixes the gateway routes to this app. The gateway
+   * is dumb — it just builds a prefix-trie from these strings.
+   */
+  routes: readonly string[];
   nav?: {
     href: string;
     match?: string;
@@ -43,7 +48,7 @@ export type AppMeta = {
 export type WidgetEndpoint = {
   /** Unique-within-the-app id, e.g. "open-requests". */
   id: string;
-  /** Absolute path on the app's HTTP service, e.g. "/api/accounts/widgets/open-requests". */
+  /** Absolute path on the app's HTTP service, e.g. "/api/accounts/widget/open-requests". */
   path: string;
 };
 

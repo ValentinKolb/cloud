@@ -89,7 +89,7 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],             // optional role filter
   },
-  widgets: [{ id: "today", path: "/api/my-app/widgets/today" }],
+  widgets: [{ id: "today", path: "/api/my-app/widget/today" }],
   settings: {
     "my-app.feature_enabled": {
       kind: "boolean",
@@ -98,6 +98,9 @@ export const app = defineApp({
       description: "Whether feature X is active.",
     },
   },
+  // Top-level URL prefixes the gateway routes to this container. Standard
+  // four-prefix scheme; specials list whatever they actually own.
+  routes: ["/api/my-app", "/app/my-app", "/admin/my-app", "/public/my-app"],
 });
 
 export const { ssr, plugin } = app;
@@ -117,7 +120,7 @@ import { migrate } from "./migrate";
 
 export default await app.start({
   routes: {
-    api: new Hono().route("/app/my-app", apiRoutes),
+    api: new Hono().route("/my-app", apiRoutes),
     pages: new Hono().route("/app/my-app", pageRoutes).route("/admin/my-app", adminPages),
   },
   lifecycle: {
@@ -380,10 +383,10 @@ export const ItemListResponseSchema = z.object({
 import { api } from "@valentinkolb/cloud/browser";
 import type { ApiType } from ".";
 
-export const apiClient = api.create<ApiType>({ baseUrl: "/api/app/my-app" });
+export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 ```
 
-The base URL must match how routes are mounted: `app.start()` mounts API routes at `/api`, and the app mounts sub-routes at `/app/my-app`, so the full path is `/api/app/my-app`.
+The base URL must match how routes are mounted: `app.start()` mounts API routes at `/api`, and the app mounts its sub-Hono at `/my-app`, so the full path is `/api/my-app`. Sub-routes inside `apiRoutes` (`/widget/...`, `/admin/...`, root for CRUD) are picked up by the typed client automatically — `apiClient.widget.today.$get()` resolves to `/api/my-app/widget/today`, no manual stitching.
 
 **Always use the typed client in frontend code.** It provides full type inference for all endpoints.
 

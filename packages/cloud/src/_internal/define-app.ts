@@ -96,6 +96,21 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    * responsible for permission gating (200 = render, 204 = skip silently).
    */
   widgets?: ReadonlyArray<{ id: string; path: string }>;
+  /**
+   * Top-level URL prefixes the gateway should route to this app.
+   *
+   * Standard apps follow a four-prefix convention:
+   *   `/api/<id>`     — widget, admin, ws, crud — everything HTTP API
+   *   `/app/<id>`     — user-facing SSR pages
+   *   `/admin/<id>`   — admin SSR pages
+   *   `/public/<id>`  — built CSS and other static assets
+   *
+   * Apps with non-standard URLs (core's `/auth`, `/me`; oauth's `/oauth`,
+   * `/.well-known/...`; settings' `/legal/*`, `/impressum`) list whatever
+   * top-level paths they own. The gateway is dumb — it just builds a
+   * prefix-trie from these strings.
+   */
+  routes: readonly string[];
 };
 
 export type StartOptions = {
@@ -223,6 +238,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     icon: opts.icon,
     description: opts.description,
     adminHref: opts.adminHref,
+    routes: [...opts.routes],
     nav: opts.nav,
     legalLinks: opts.legalLinks ? [...opts.legalLinks] : undefined,
     widgets: opts.widgets ? opts.widgets.map((w) => ({ ...w })) : undefined,
@@ -241,6 +257,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       icon: meta.icon,
       description: meta.description,
       baseUrl,
+      routes: [...meta.routes],
       nav: (meta.nav || meta.adminHref)
         ? {
             href: meta.nav?.href ?? "",

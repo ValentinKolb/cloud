@@ -36,7 +36,7 @@ export default ssr<AuthContext>(async (c) => {
     for (const source of filter.sources) params.append("source", source);
     if (filter.search) params.set("search", filter.search);
     const qs = params.toString();
-    return qs ? `/admin/logs?${qs}&page=` : "/admin/logs?page=";
+    return qs ? `/admin/logging?${qs}&page=` : "/admin/logging?page=";
   })();
 
   const rawRetention = await get<unknown>("logs.retention_days");

@@ -19,7 +19,13 @@ const LogListResponseSchema = z.object({
   pagination: PaginationResponseSchema,
 });
 
+// Mounted at `/api/logging`. Sub-routes:
+//   /api/logging/widget/*  — dashboard widget endpoints (own auth)
+//   /api/logging/...       — admin api (auth.requireRole("admin"))
+import widgetRoutes from "./widgets";
+
 const app = new Hono<AuthContext>()
+  .route("/widget", widgetRoutes)
   .use(rateLimit())
   .use(auth.requireRole("admin"))
 

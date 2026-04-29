@@ -2,7 +2,6 @@ import { app } from "./config";
 import { Hono } from "hono";
 import type { AppContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import { filesSettingsRouter } from "./api/settings";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
 import { filesService } from "./service";
@@ -14,9 +13,7 @@ export type FilesAppContext = AppContext<typeof app>;
 export default await app.start({
   capabilities: filesCapabilities,
   routes: {
-    api: new Hono()
-      .route("/app/files", apiRoutes)
-      .route("/admin/files/settings", filesSettingsRouter),
+    api: new Hono().route("/files", apiRoutes),
     pages: new Hono().route("/app/files", pageRoutes).route("/admin/files", adminPageRoutes),
   },
 });

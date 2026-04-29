@@ -185,7 +185,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   // Must be a directory
   if (info.type !== "directory") {
     // If it's a file, redirect to download
-    return c.redirect(`/api/app/files/${baseType}/${baseId}/content?path=${encodeURIComponent(path)}`, 302);
+    return c.redirect(`/api/files/${baseType}/${baseId}/content?path=${encodeURIComponent(path)}`, 302);
   }
 
   const listing = info as DirectoryListing;

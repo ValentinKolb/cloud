@@ -15,6 +15,10 @@ export const app = defineApp({
     { label: "Privacy", href: "/legal/privacy", icon: "ti ti-shield-lock" },
     { label: "Terms", href: "/legal/terms", icon: "ti ti-file-text" },
   ],
+  // Owns admin UI + 3 legally-required top-level pages. No `/app/settings`,
+  // no `/api/settings` (settings live behind /api/admin/core/settings, owned
+  // by core).
+  routes: ["/admin/settings", "/legal/privacy", "/legal/terms", "/impressum", "/public/settings"],
 });
 
 export const { ssr, plugin } = app;

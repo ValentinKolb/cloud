@@ -9,14 +9,15 @@ export const app = defineApp({
   baseUrl: "http://app-faq:3000",
   adminHref: "/admin/faq",
   nav: {
-    // Hidden from nav rail but gives gateway a routing prefix so /faq goes
-    // to app-faq instead of falling through to core's 404 catch-all.
+    // Hidden from nav rail; the public link is in the legal-links footer.
     href: "/faq",
     section: "hidden",
   },
   legalLinks: [
     { label: "FAQ", href: "/faq", icon: "ti ti-help-circle" },
   ],
+  // Top-level `/faq` for the public help page (linked from login footer).
+  routes: ["/faq", "/api/faq", "/admin/faq", "/public/faq"],
 });
 
 export const { ssr, plugin } = app;

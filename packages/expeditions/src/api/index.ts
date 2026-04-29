@@ -35,7 +35,7 @@ import {
 /**
  * HTTP API for the expeditions app.
  *
- * Mounted at `/api/app/expeditions` by `index.ts`. Every route is wrapped
+ * Mounted at `/api/expeditions` by `index.ts`. Every route is wrapped
  * by `auth.requireRole("user")` (sets up `c.get("user")`) and uses the
  * platform's `respond()` helper to convert `Result<T>` and `MutationResult<T>`
  * into HTTP responses (200 / 4xx with a structured error body).
@@ -124,8 +124,19 @@ const requireWaypointInExpedition = async (expeditionId: string, waypointId: str
 };
 
 // ── Routes ──────────────────────────────────────────────────────────────────
+//
+// Layout follows the platform's four-prefix scheme: this Hono is mounted at
+// `/api/expeditions`, so its sub-routes become:
+//   /api/expeditions/widget/*  — dashboard widget endpoints (own auth)
+//   /api/expeditions/...       — CRUD endpoints (auth.requireRole("user"))
+//
+// Widget routes are mounted *before* the auth middleware so they keep their
+// own permission gating (200/403) instead of inheriting a 401.
+
+import widgetRoutes from "./widgets";
 
 const app = new Hono<AuthContext>()
+  .route("/widget", widgetRoutes)
   .use(rateLimit())
   .use(auth.requireRole("user"))
 

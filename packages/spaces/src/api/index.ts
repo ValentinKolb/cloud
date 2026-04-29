@@ -113,7 +113,12 @@ const requireItemInSpace = async (spaceId: string, itemId: string) => {
   return ok(item);
 };
 
+// Widgets mount BEFORE the auth middleware so they keep their own
+// `auth.requireRole("*")` gating instead of inheriting `requireRole("user")`.
+import widgetRoutes from "./widgets";
+
 const app = new Hono<AuthContext>()
+  .route("/widget", widgetRoutes)
   .use(auth.requireRole("user"))
 
   // ==========================

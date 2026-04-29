@@ -81,6 +81,7 @@ export const app = defineApp({
       placeholder: "e.g. 660",
     },
   },
+  routes: ["/api/files", "/app/files", "/admin/files", "/public/files"],
 });
 
 export const { ssr, plugin } = app;

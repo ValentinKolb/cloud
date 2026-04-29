@@ -7,7 +7,7 @@ import { migrate } from "./migrate";
 
 export default await app.start({
   routes: {
-    api: new Hono().route("/admin/oauth/clients", apiRoutes),
+    api: new Hono().route("/oauth/admin/clients", apiRoutes),
     pages: new Hono().route("/", pageRoutes),
   },
   lifecycle: {

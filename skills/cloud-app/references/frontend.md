@@ -771,10 +771,10 @@ const deleteItem = mutation.create({
 import { api } from "@valentinkolb/cloud/browser";
 import type { ApiType } from ".";
 
-export const apiClient = api.create<ApiType>({ baseUrl: "/api/app/my-app" });
+export const apiClient = api.create<ApiType>({ baseUrl: "/api/my-app" });
 ```
 
-The base URL must match how routes are mounted: `app.start()` mounts API routes at `/api`, and the app mounts sub-routes at `/app/my-app`, so the full path is `/api/app/my-app`.
+The base URL must match how routes are mounted: `app.start()` mounts API routes at `/api`, and the app mounts its sub-Hono at `/my-app`, so the full path is `/api/my-app`. Sub-routes inside `apiRoutes` (`/widget/...`, `/admin/...`, root for CRUD) are picked up by the typed client automatically — `apiClient.widget.today.$get()` resolves to `/api/my-app/widget/today`.
 
 **Usage in islands** (always inside `mutation.create()`):
 

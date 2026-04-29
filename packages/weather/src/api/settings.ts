@@ -1,8 +1,8 @@
 /**
  * app-weather's own settings HTTP API. Owns reads/writes for weather.* keys.
  *
- *   PUT    /api/admin/weather/settings           — bulk update, atomic
- *   DELETE /api/admin/weather/settings/:key{.+}  — reset to default
+ *   PUT    /api/weather/admin/settings           — bulk update, atomic
+ *   DELETE /api/weather/admin/settings/:key{.+}  — reset to default
  *
  * No special side-effect on save — weather queries on demand and picks up
  * fresh values via the per-request snapshot or async coreSettings reads.

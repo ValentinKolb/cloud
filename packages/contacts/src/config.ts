@@ -14,6 +14,7 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],
   },
+  routes: ["/api/contacts", "/app/contacts", "/public/contacts"],
 });
 
 export const { ssr, plugin } = app;

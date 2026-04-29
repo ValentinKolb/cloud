@@ -8,9 +8,9 @@ export const app = defineApp({
   basePath: "/app/dashboard",
   baseUrl: "http://app-dashboard:3000",
   // `section: "hidden"` keeps the dashboard out of the rail (users land here
-  // via `/` → `/app/dashboard`) while still registering the route prefix in
-  // the gateway's route table.
+  // via `/` → `/app/dashboard`).
   nav: { href: "/app/dashboard", match: "/app/dashboard", section: "hidden" },
+  routes: ["/app/dashboard", "/public/dashboard"],
 });
 
 export const { ssr, plugin } = app;

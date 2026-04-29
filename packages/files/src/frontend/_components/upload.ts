@@ -138,7 +138,7 @@ export function createUploadManager() {
         fn: async ({ index, data }) => {
           if (signal.aborted) throw new Error("Upload cancelled");
 
-          const chunkRes = await fetch(`/api/app/files/${baseType}/${baseId}/upload/${uploadId}?index=${index}`, {
+          const chunkRes = await fetch(`/api/files/${baseType}/${baseId}/upload/${uploadId}?index=${index}`, {
             method: "PUT",
             headers: { "x-chunk-checksum": await upload.hash({ data }) },
             body: data,

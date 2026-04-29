@@ -47,7 +47,7 @@ export const openNoteSearchPrompt = async (notebookId: string, notebookName: str
         per_page: String(PER_PAGE),
       });
 
-      const response = await fetch(`/api/app/notebooks/${encodeURIComponent(notebookId)}/search?${params.toString()}`, {
+      const response = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/search?${params.toString()}`, {
         signal: abortSignal,
       });
       if (!response.ok) return [];

@@ -40,7 +40,7 @@ const buildFileHref = (baseType: "home" | "group", baseId: string, path: string)
 const toPattern = (query: string): string => (query.includes("*") || query.includes("?") ? query : `**/*${query}*`);
 const isImage = (mimeType?: string) => typeof mimeType === "string" && mimeType.startsWith("image/");
 const buildPreviewUrl = (baseType: "home" | "group", baseId: string, path: string) =>
-  `/api/app/files/${baseType}/${encodeURIComponent(baseId)}/thumbnail?path=${encodeURIComponent(path)}`;
+  `/api/files/${baseType}/${encodeURIComponent(baseId)}/thumbnail?path=${encodeURIComponent(path)}`;
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = input.ctx.get("user");

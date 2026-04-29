@@ -179,8 +179,21 @@ const requireNoteInNotebook = async (notebookId: string, noteId: string) => {
 // ==========================
 // Routes
 // ==========================
+//
+// This Hono is mounted at `/api/notebooks`, so its sub-routes become:
+//   /api/notebooks/widget/*  — dashboard widget endpoints (own auth)
+//   /api/notebooks/ws/*      — Yjs realtime collab WebSocket (own auth)
+//   /api/notebooks/...       — CRUD endpoints (auth.requireRole("authenticated"))
+//
+// Widget + WS mount BEFORE the auth middleware so they keep their own
+// permission gating instead of inheriting `requireRole("authenticated")`.
+
+import widgetRoutes from "./widgets";
+import wsRoutes from "../ws";
 
 const app = new Hono<AuthContext>()
+  .route("/widget", widgetRoutes)
+  .route("/ws", wsRoutes)
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
 

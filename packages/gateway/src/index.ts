@@ -23,7 +23,7 @@ import type { AppRegistryEntry } from "@valentinkolb/cloud/contracts";
 import { logger, loadCache as loadSettingsCache } from "@valentinkolb/cloud/services";
 import { auth, type AuthContext } from "@valentinkolb/cloud/server";
 import { buildRouteTable } from "./trie";
-import { buildRoutesWithFallback } from "./routes";
+import { buildAppRoutes } from "./routes";
 import { proxyRequest } from "./proxy";
 import { tryUpgradeWebSocket, websocketHandlers } from "./ws-proxy";
 import { getRouteTable, setRouteTable, stats } from "./stats";
@@ -41,7 +41,7 @@ let lastRouteHash = "";
 const refreshRoutes = async () => {
   try {
     const apps = await listApps();
-    const appRoutes = buildRoutesWithFallback(apps);
+    const appRoutes = buildAppRoutes(apps);
 
     // Only rebuild trie if routes actually changed
     const routeHash = JSON.stringify(
@@ -75,6 +75,7 @@ const registryEntry: AppRegistryEntry = {
   icon: app.meta.icon,
   description: app.meta.description,
   baseUrl: app.baseUrl,
+  routes: app.meta.routes,
   nav: {
     href: "",
     section: "hidden",
@@ -107,7 +108,7 @@ const gatewayApp = new Hono<AuthContext>()
     auth.requireRole("admin", auth.redirectToLogin),
     ...adminPage,
   )
-  .route("/api/gateway/widgets", widgetRoutes);
+  .route("/api/gateway/widget", widgetRoutes);
 
 // ── Startup ─────────────────────────────────────────────────────────────────
 
