@@ -167,12 +167,12 @@ Note: `skipSetup` (skip migrations) is an `app.start()` option, not an environme
 
 ### CSS/Asset Building
 
-CSS is built at **runtime** via a Bun preload script (`packages/cloud/scripts/preload.ts`):
+Two paths, same Tailwind oxide scanner config:
 
-1. Registers `bun-plugin-tailwind` which scans the entire workspace for Tailwind classes
-2. The `core` app builds `global.css` at `/public/global.css` (shared across all apps)
-3. Each app builds its own `app.css` at `/public/{appId}/app.css`
-4. Cache busting via timestamp-based version: `?v={Date.now()}`
+- **Dev** — `packages/cloud/scripts/preload.ts` runs at process start, builds CSS into `<workspace>/public/`. Bun-plugin-tailwind scans the whole workspace.
+- **Prod (docker)** — `packages/cloud/scripts/build.ts` runs at image-build time, emits everything into `dist/`. Generic over `APP_ID`. Apps that need extra build-time artefacts ship `packages/<id>/scripts/build-extras.ts` (only `core` does — global.css, logo.svg, katex.css served at `/public/<plain-name>`). The post-build pass walks `packages/cloud + packages/<APP_ID>` for `*.{island,client}.tsx` and removes any island chunks the SSR plugin emitted from other apps.
+
+Each app's app.css ships at `/public/<id>/app.css`; shared assets at `/public/<plain-name>` are served from `core`.
 
 ### TypeScript Checking
 
@@ -196,33 +196,46 @@ bun run format       # Format only
 
 ## CI/CD
 
-**File:** `.github/workflows/docker.yml`
+Two workflows, separate tag namespaces so they don't collide.
 
-**Triggers:** Push to `main`, version tags (`v*`), PRs to `main`, manual dispatch.
+### `.github/workflows/docker.yml` — per-app docker images
 
-**Pipeline:**
-1. Checkout
-2. Setup Docker Buildx
-3. Login to `ghcr.io` (skipped on PR)
-4. Generate Docker metadata (SHA tags, version tags)
-5. Build and push to `ghcr.io/valentinkolb/cloud`
+One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). 18 apps produce images: `gateway`, `core`, plus `app-<id>` for the rest. `ui-lab` and `expeditions` are dev-only and intentionally skipped.
 
-**Tags:**
-- Branch pushes: `sha-{commit}` 
-- Version tags: `v1.2.3` → `1.2.3` + `latest`
-- PRs: build only (no push)
+| Trigger | What's built | Image tags |
+|---|---|---|
+| push to `main` | only apps with changed source. Changes to `packages/cloud`, `Dockerfile`, `.dockerignore`, `bun.lock`, `package.json`, `styles.css` or this workflow file fan out to ALL 18 | `:sha-<short>`, `:main` |
+| tag `cloud-<image>-v<X.Y.Z>` (e.g. `cloud-app-notebooks-v0.1.2`, `cloud-gateway-v0.1.2`) | only that one image, validated against the 18-app allowlist | `:v<X.Y.Z>`, `:latest` |
+| `workflow_dispatch` | all 18 on demand | `:sha-<short>` |
+
+Pushed to `ghcr.io/valentinkolb/cloud-<image>`. **Bulk-tag-push gotcha:** GitHub Actions silently drops events past the first 3 tags in a single `git push --tags`. For multi-app releases, push tags **one at a time** with a small delay (`for tag in ...; do git push origin "$tag"; sleep 3; done`).
+
+### `.github/workflows/npm.yml` — `@valentinkolb/cloud` to npm
+
+OIDC trusted publisher (no `NPM_TOKEN` secret). The trusted publisher is configured once on npmjs.org for the package — Repository: `ValentinKolb/cloud`, Workflow: `npm.yml`.
+
+| Trigger | Behaviour |
+|---|---|
+| tag `npm-cloud-v<X.Y.Z>` | publishes that version with `--provenance --access public` |
+| `workflow_dispatch` (input: version) | manual emergency publish |
+
+**Bump procedure:**
+1. Edit `packages/cloud/package.json` → bump `version`
+2. Commit + push to `main`
+3. `git tag npm-cloud-vX.Y.Z && git push origin npm-cloud-vX.Y.Z`
+4. CI publishes with provenance
+
+**Why `npm pkg set` and not `npm version`:** `npm version` triggers an internal install/lockfile update that walks workspace siblings and chokes on their `workspace:*` deps. `npm pkg set version=X.Y.Z` is a pure JSON edit — same result, no resolve.
 
 ## Production Deployment
 
-> **TBD** — Production deployment setup is planned but not yet implemented.
+`compose.prod.yml` at the repo root pulls all 18 images from ghcr. Companion `.env.prod.example`.
 
-The CI/CD pipeline references `packages/containers/Dockerfile` for the production image, which needs to be created. Key considerations for the production Dockerfile:
-
-- Multi-stage build (deps → build → runtime)
-- Pre-built CSS assets (not runtime building)
-- Minimal image size
-- Health checks
-- Non-root user
+Shape:
+- One YAML anchor `x-shared-env` declares `DATABASE_URL`/`REDIS_URL`/`APP_SECRET`; merged into every service's `environment` via `x-app-defaults`.
+- Two networks: `cloud-internal` (apps talk to each other) and `traefik` (external, only the gateway joins it with routing labels).
+- `postgres`, `valkey`, `filegate` are deliberately **not** defined in the file — deployments often run them on a separate host or VM. Add the services you need alongside.
+- `APP_ID`, `FILEGATE_URL`, `FILEGATE_TOKEN` are not set: container entrypoint already pins the app, and filegate config moved into runtime settings.
 
 ## Infrastructure Details
 
