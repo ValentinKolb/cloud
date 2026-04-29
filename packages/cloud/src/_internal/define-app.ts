@@ -9,8 +9,6 @@ import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import type { SsrConfig } from "@valentinkolb/ssr";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   AppMeta,
   AppLifecycle,
@@ -111,6 +109,12 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    * prefix-trie from these strings.
    */
   routes: readonly string[];
+  /**
+   * Project root used by the SSR plugin to discover island/client files.
+   * Defaults to `process.cwd()`. Override only if you run the entrypoint
+   * from a directory other than the project root.
+   */
+  appRoot?: string;
 };
 
 export type StartOptions = {
@@ -200,7 +204,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
   const { config, plugin, html } = createSsrConfig<PageOptions>({
     dev: process.env.NODE_ENV !== "production",
     verbose: true,
-    rootDir: resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
+    rootDir: opts.appRoot ?? process.cwd(),
     basePath: opts.basePath,
     template: ({ body, scripts, title, description, theme }) => {
       const themeFixed = theme !== undefined;
