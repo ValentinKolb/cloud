@@ -25,7 +25,8 @@ const getFilegate = async (): Promise<Filegate> => {
     get<string>("files.filegate_url"),
     get<string>("files.filegate_token"),
   ]);
-  return (_filegate = new Filegate({ url, token }));
+  _filegate = new Filegate({ url, token });
+  return _filegate;
 };
 
 /**
