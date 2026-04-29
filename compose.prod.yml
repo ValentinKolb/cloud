@@ -1,0 +1,107 @@
+# Production deployment template — single host, behind an existing Traefik.
+#
+# This file does NOT define `postgres`, `valkey`, or `filegate`. Add them
+# yourself (the apps reference `postgres:5432` and `valkey:6379` and depend
+# on a `postgres` service with a healthcheck). See README for an example.
+#
+# Configure via .env (see .env.example).
+
+x-shared-env: &shared-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://valkey:6379
+  APP_SECRET: ${APP_SECRET}
+
+x-app-defaults: &app-defaults
+  restart: unless-stopped
+  networks: [cloud-internal]
+  environment: *shared-env
+
+networks:
+  cloud-internal:
+    driver: bridge
+  traefik:
+    external: true
+
+services:
+  # Gateway — the only service exposed to Traefik.
+  gateway:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-gateway:latest
+    networks: [cloud-internal, traefik]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cloud.rule=Host(`${CLOUD_HOST}`)"
+      - "traefik.http.routers.cloud.entrypoints=websecure"
+      - "traefik.http.routers.cloud.tls.certresolver=le"
+      - "traefik.http.services.cloud.loadbalancer.server.port=3000"
+      - "traefik.docker.network=traefik"
+
+  # Apps — internal only, reached through the gateway.
+  app-core:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-core:latest
+
+  app-accounts:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-accounts:latest
+
+  app-contacts:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-contacts:latest
+
+  app-dashboard:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-dashboard:latest
+
+  app-faq:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-faq:latest
+
+  app-files:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-files:latest
+
+  app-ipa-hosts:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-ipa-hosts:latest
+
+  app-logging:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-logging:latest
+
+  app-notebooks:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-notebooks:latest
+
+  app-notifications:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-notifications:latest
+
+  app-oauth:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-oauth:latest
+
+  app-proxy-auth:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-proxy-auth:latest
+
+  app-quotes:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-quotes:latest
+
+  app-settings:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-settings:latest
+
+  app-spaces:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-spaces:latest
+
+  app-tools:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-tools:latest
+
+  app-weather:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-weather:latest

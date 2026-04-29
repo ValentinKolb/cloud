@@ -1,14 +1,22 @@
-name: Docker Image
+name: Docker Images
+
+# Three trigger paths:
+#
+#   push to main            → build only apps with changed source (changes to
+#                             packages/cloud/**, Dockerfile, bun.lock, styles.css
+#                             or this workflow file fan out to ALL apps).
+#                             Pushes :sha-<short> and :main.
+#   tag cloud-<image>-v*    → build only that image (e.g. cloud-app-notebooks-v0.1.2).
+#                             Pushes :v0.1.2 and :latest.
+#   workflow_dispatch       → build everything on demand.
+#
+# Apps ui-lab and expeditions are dev-only and intentionally skipped.
 
 on:
   push:
-    branches:
-      - "main"
+    branches: [main]
     tags:
-      - "v*"
-  pull_request:
-    branches:
-      - "main"
+      - "cloud-*-v*"
   workflow_dispatch:
 
 concurrency:
@@ -16,44 +24,112 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.set.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: set
+        env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          # Single source of truth for which apps produce a docker image.
+          ALL='["gateway","core","accounts","contacts","dashboard","faq","files","ipa-hosts","logging","notebooks","notifications","oauth","proxy-auth","quotes","settings","spaces","tools","weather"]'
+
+          if [[ "$REF" == refs/tags/cloud-*-v* ]]; then
+            # Tag form: cloud-<image>-v<version>. Strip prefix + version to
+            # get the image, then drop optional "app-" to get the APP_ID.
+            # Reject tags that don't map to one of the buildable apps.
+            tag="${REF#refs/tags/}"
+            image="${tag%-v*}"        # cloud-app-notebooks
+            image="${image#cloud-}"   # app-notebooks
+            id="${image#app-}"        # notebooks
+            if ! jq -e --arg id "$id" 'index($id)' <<<"$ALL" >/dev/null; then
+              echo "Tag $tag references unknown or skipped app: $id" >&2
+              exit 1
+            fi
+            apps="[\"$id\"]"
+          elif [[ "$EVENT" == "workflow_dispatch" ]]; then
+            apps="$ALL"
+          else
+            # Push to main: detect what changed since the previous push.
+            base="$BEFORE"
+            if [[ -z "$base" || "$base" == "0000000000000000000000000000000000000000" ]]; then
+              base="HEAD~1"
+            fi
+            changed=$(git diff --name-only "$base" HEAD || git diff --name-only HEAD~1 HEAD)
+
+            if echo "$changed" | grep -qE '^(packages/cloud/|Dockerfile|\.dockerignore|bun\.lock|package\.json|styles\.css|\.github/workflows/docker\.yml)'; then
+              apps="$ALL"
+            else
+              # Match packages/<id>/, intersect with ALL (drops ui-lab, expeditions).
+              touched=$(echo "$changed" | sed -nE 's|^packages/([^/]+)/.*|\1|p' | sort -u)
+              apps=$(jq -nc --argjson all "$ALL" --arg list "$touched" \
+                '[$list | split("\n")[] | select(length > 0)] as $t | $all | map(select(. as $a | $t | index($a)))')
+            fi
+          fi
+
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $apps"
+
   build:
+    needs: matrix
+    if: ${{ needs.matrix.outputs.apps != '[]' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.matrix.outputs.apps) }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata
+      - name: Resolve image name
+        id: img
+        run: |
+          case "${{ matrix.app }}" in
+            gateway|core) name="cloud-${{ matrix.app }}" ;;
+            *)            name="cloud-app-${{ matrix.app }}" ;;
+          esac
+          echo "name=ghcr.io/${{ github.repository_owner }}/$name" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/metadata-action@v5
         id: meta
-        uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/valentinkolb/cloud
+          images: ${{ steps.img.outputs.name }}
           tags: |
             type=sha,prefix=sha-,enable=${{ github.ref_type != 'tag' }}
-            type=match,pattern=v(.*),group=1,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=match,pattern=cloud-.+-(v.+),group=1,enable=${{ startsWith(github.ref, 'refs/tags/cloud-') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/cloud-') }}
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
-          file: packages/containers/Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          file: Dockerfile
+          build-args: |
+            APP_ID=${{ matrix.app }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}

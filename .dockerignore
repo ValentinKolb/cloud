@@ -1,41 +1,31 @@
-# VCS / metadata
 .git
 .gitignore
 .DS_Store
 
-# Environment / local config
+# Local secrets
 .env
 .env.*
 
-# Local dependencies and build artifacts
+# Build outputs / caches
 node_modules
 **/node_modules
 dist
 **/dist
-build
-**/build
 _ssr
 **/_ssr
-
-# Generated assets (rebuilt at runtime by preload)
-public
-_ssr
-**/public/build.css
-
-# Old packages (source moved to packages/cloud)
-packages/lib/src
-packages/core/src
-packages/app-runtime/src
-packages/contracts/src
-packages/standalone
-
-# Logs / caches
+public                          # workspace-root public/ is a dev runtime artefact
 *.log
 .cache
 **/.cache
 
-# Files not required in docker build context
+# Repo metadata not needed in the image
 LICENSE
 README.md
 Dockerfile
+Dockerfile.dev
 compose*.yml
+.github
+.claude
+.dex
+skills
+APPS.md
