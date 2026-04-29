@@ -367,7 +367,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       stopping = true;
       log.info(`Stopping: ${meta.id}`);
       try { if (startOpts.lifecycle?.stop) await startOpts.lifecycle.stop(cloudCtx); } catch {}
-      stopRuntimeWatcher();
+      await stopRuntimeWatcher();
       await heartbeat.stop();
     };
 
