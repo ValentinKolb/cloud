@@ -9,14 +9,14 @@ export type GroupQueryKeys = QueryKeys & {
   scope: string;
 };
 
-export const USERS_QUERY_KEYS: QueryKeys = {
+const USERS_QUERY_KEYS: QueryKeys = {
   search: "search",
   page: "page",
   provider: "provider",
   profile: "profile",
 };
 
-export const GROUPS_QUERY_KEYS: GroupQueryKeys = {
+const GROUPS_QUERY_KEYS: GroupQueryKeys = {
   search: "search",
   page: "page",
   provider: "provider",
@@ -87,7 +87,7 @@ export const parseUsersListState = (input: {
   profile: input.profile === "user" || input.profile === "guest" ? input.profile : "",
 });
 
-export const parseUsersListStateFromParams = (params: URLSearchParams, keys: QueryKeys = USERS_QUERY_KEYS): UsersListState =>
+const parseUsersListStateFromParams = (params: URLSearchParams, keys: QueryKeys = USERS_QUERY_KEYS): UsersListState =>
   parseUsersListState({
     search: params.get(keys.search),
     page: params.get(keys.page),
@@ -95,7 +95,7 @@ export const parseUsersListStateFromParams = (params: URLSearchParams, keys: Que
     profile: keys.profile ? params.get(keys.profile) : null,
   });
 
-export const writeUsersListState = (params: URLSearchParams, state: UsersListState, keys: QueryKeys = USERS_QUERY_KEYS): void => {
+const writeUsersListState = (params: URLSearchParams, state: UsersListState, keys: QueryKeys = USERS_QUERY_KEYS): void => {
   writeIfNonDefault(params, keys.search, state.search, "");
   writeIfNonDefault(params, keys.page, String(state.page), "1");
   if (keys.provider) writeIfNonDefault(params, keys.provider, state.provider, "");
@@ -165,7 +165,7 @@ export const parseGroupsListState = (
   };
 };
 
-export const parseGroupsListStateFromParams = (params: URLSearchParams, options: GroupsStateOptions = {}): GroupsListState => {
+const parseGroupsListStateFromParams = (params: URLSearchParams, options: GroupsStateOptions = {}): GroupsListState => {
   const keys = options.keys ?? GROUPS_QUERY_KEYS;
 
   return parseGroupsListState(
@@ -179,7 +179,7 @@ export const parseGroupsListStateFromParams = (params: URLSearchParams, options:
   );
 };
 
-export const writeGroupsListState = (params: URLSearchParams, state: GroupsListState, options: GroupsStateOptions = {}): void => {
+const writeGroupsListState = (params: URLSearchParams, state: GroupsListState, options: GroupsStateOptions = {}): void => {
   const keys = options.keys ?? GROUPS_QUERY_KEYS;
   const defaultScope = options.defaultScope ?? "member";
 
