@@ -6,7 +6,7 @@
  */
 import { app } from "./config";
 import { Hono } from "hono";
-import type { AppContext } from "@valentinkolb/cloud/server";
+import { middleware, type AppContext, type AuthContext } from "@valentinkolb/cloud/server";
 import { createCoreApiRouter } from "@valentinkolb/cloud/api";
 import { createPagesRouter } from "./pages/create";
 import { runCoreSetup, startCoreServices, stopCoreServices } from "./runtime-helpers";
@@ -26,10 +26,14 @@ const coreApi = new Hono()
   .route("/", api)
   .get("/llms.txt", (c) => c.text(llmsTxt));
 
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/api", coreApi)
+  .route("/", pages);
+
 export default await app.start({
-  router: new Hono()
-    .route("/api", coreApi)
-    .route("/", pages),
+  fetch: router.fetch,
   lifecycle: {
     setup: async () => {
       await runCoreSetup();

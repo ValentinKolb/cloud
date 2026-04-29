@@ -1,6 +1,7 @@
 import { app } from "./config";
 import { Hono } from "hono";
 import { websocket } from "hono/bun";
+import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
@@ -8,12 +9,16 @@ import { notebooksService, yjsSnapshotWorker } from "./service";
 import { migrate } from "./migrate";
 import { notebooksCapabilities } from "./capabilities";
 
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/api/notebooks", apiRoutes)
+  .route("/app/notebooks", pageRoutes)
+  .route("/admin/notebooks", adminPageRoutes);
+
 const result = await app.start({
   capabilities: notebooksCapabilities,
-  router: new Hono()
-    .route("/api/notebooks", apiRoutes)
-    .route("/app/notebooks", pageRoutes)
-    .route("/admin/notebooks", adminPageRoutes),
+  fetch: router.fetch,
   lifecycle: {
     setup: async () => {
       await migrate();

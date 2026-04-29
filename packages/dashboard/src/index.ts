@@ -1,6 +1,6 @@
 import { app } from "./config";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import dashboardPage from "./frontend/page";
 
 const pageRoutes = new Hono<AuthContext>().get(
@@ -9,6 +9,9 @@ const pageRoutes = new Hono<AuthContext>().get(
   ...dashboardPage,
 );
 
-export default await app.start({
-  router: new Hono<AuthContext>().route("/app/dashboard", pageRoutes),
-});
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/app/dashboard", pageRoutes);
+
+export default await app.start({ fetch: router.fetch });

@@ -20,14 +20,12 @@ import type { AppRegistryEntry } from "../contracts/registry";
 import type { Role } from "../contracts/shared";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
 import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
-import { loadSnapshot } from "../services/settings/snapshot";
 import { registerSettings, type SettingDef } from "../services/settings/defaults";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
 import { get, set, loadCache as loadSettingsCache } from "../services/settings";
-import { appRegistry, listApps } from "./registry";
 import { createHeartbeat } from "./heartbeat";
-import { buildRuntimeFromRegistry } from "./runtime-context";
+import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 
 /** Cache-busting version stamp — changes on every server start / rebuild. */
 const v = Date.now();
@@ -119,16 +117,23 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
 
 export type StartOptions = {
   /**
-   * Single Hono instance mounted at `/` of the app's container. The app owns
-   * its full URL space — routes are written with their absolute paths
-   * (`/api/<id>`, `/app/<id>`, `/admin/<id>`, …), matching what the app
-   * declared in `defineApp({ routes: [...] })`.
+   * Web-standard fetch handler. Mounted at `/` of the app's container.
+   * Typically you pass a Hono instance's `.fetch`:
    *
-   * Framework-owned mounts (`/_ssr/*`, `/public/*`, `/api/_internal/search`)
-   * register before this router so they take precedence — apps can ignore
-   * those paths.
+   *   const router = new Hono<AuthContext>()
+   *     .use("*", middleware.runtime())
+   *     .use("*", middleware.settings())
+   *     .route("/api/<id>", apiRoutes)
+   *     .route("/app/<id>", pageRoutes);
+   *
+   *   app.start({ fetch: router.fetch });
+   *
+   * The framework owns `/_ssr/*`, `/public/*`, and `/api/_internal/search`
+   * (the last only when `capabilities.search` is set) and registers them
+   * before this fetch — they take precedence over any catch-all the app
+   * might register.
    */
-  router: Hono<any>;
+  fetch: (req: Request) => Response | Promise<Response>;
   lifecycle?: AppLifecycle;
   capabilities?: AppCapabilities;
   port?: number;
@@ -296,47 +301,19 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     await heartbeat.start();
     log.info(`Registered "${meta.id}"`, { baseUrl });
 
-    // Runtime context (navigation, app discovery)
-    const ac = new AbortController();
-    let currentRuntime = buildRuntimeFromRegistry(await listApps());
+    // Runtime context — start the registry watcher so middleware.runtime() and
+    // the lifecycle context below see populated cluster state. Idempotent: the
+    // watcher is a module-level singleton, only one runs per process.
+    await ensureRuntimeWatcher();
 
-    const refreshRuntime = async () => {
-      currentRuntime = buildRuntimeFromRegistry(await listApps());
-    };
-
-    (async () => {
-      try {
-        const snap = await appRegistry.snapshot({ prefix: "apps/" });
-        for await (const ev of appRegistry.reader({ prefix: "apps/", after: snap.cursor }).stream({ signal: ac.signal })) {
-          if (ev.type === "overflow") {
-            await refreshRuntime();
-            continue;
-          }
-          await refreshRuntime();
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        log.error("Registry watcher failed", { error: err instanceof Error ? err.message : String(err) });
-      }
-    })();
-
-    // Build Hono server
+    // Build Hono server. Framework owns three mounts (registered first so
+    // they take precedence over any catch-all in the user's fetch):
+    //   /_ssr/*                 island chunks (SSR adapter)
+    //   /public/*               serveStatic + terminal 404
+    //   /api/_internal/search   only when capabilities.search is declared
     const ssrMountPath = config.basePath ? `${config.basePath}/_ssr` : "/_ssr";
 
-    // Per-request settings snapshot: skip static-asset paths so each /public,
-    // /branding, /favicon, /_ssr request isn't paying the snapshot cost.
-    const SNAPSHOT_SKIP_PREFIXES = ["/public/", "/_ssr/", "/branding/", "/favicon"];
-
     const server = new Hono()
-      .use("*", async (c, next) => {
-        (c as any).set("runtime", currentRuntime);
-        const path = c.req.path;
-        const skip = SNAPSHOT_SKIP_PREFIXES.some((p) => path.startsWith(p));
-        if (!skip) {
-          (c as any).set("settings", await loadSnapshot());
-        }
-        await next();
-      })
       .route(ssrMountPath, routes(config))
       .use("/public/*", serveStatic({
         root: "./",
@@ -346,11 +323,9 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       }))
       // serveStatic calls next() on miss — terminate /public/* here so a
       // missing asset is a clean 404 instead of falling through to the app
-      // router (which might render an HTML page for the missing path).
+      // fetch (which might render an HTML page for the missing path).
       .all("/public/*", (c) => c.notFound());
 
-    // Framework-internal endpoints register BEFORE the app router so they
-    // take precedence over any catch-all the app might mount.
     if (startOpts.capabilities?.search) {
       const searchRun = startOpts.capabilities.search.run;
       server.post("/api/_internal/search", auth.requireRole("authenticated"), async (c) => {
@@ -361,13 +336,16 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       });
     }
 
-    server.route("/", startOpts.router);
+    // User's fetch handles everything else. The framework doesn't inject any
+    // context vars here — the user's router is expected to register the
+    // middlewares it needs (middleware.runtime, middleware.settings, …).
+    server.all("*", (c) => Promise.resolve(startOpts.fetch(c.req.raw)));
 
     // Lifecycle
     const cloudCtx: CloudContext = {
       logger,
       settings: { get, set },
-      runtime: currentRuntime,
+      runtime: getCurrentRuntime(),
     };
 
     if (!startOpts.skipSetup && startOpts.lifecycle?.setup) {
@@ -389,7 +367,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       stopping = true;
       log.info(`Stopping: ${meta.id}`);
       try { if (startOpts.lifecycle?.stop) await startOpts.lifecycle.stop(cloudCtx); } catch {}
-      ac.abort();
+      stopRuntimeWatcher();
       await heartbeat.stop();
     };
 

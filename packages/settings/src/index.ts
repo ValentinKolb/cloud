@@ -1,6 +1,6 @@
 import { app } from "./config";
 import { Hono } from "hono";
-import { auth, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import settingsAdminPages from "./frontend";
 import { makeLegalPage } from "./legal/page-handler";
 
@@ -17,10 +17,12 @@ const termsPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"),
 const privacyPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"), ...makeLegalPage("privacy"));
 const imprintPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"), ...makeLegalPage("imprint"));
 
-export default await app.start({
-  router: new Hono()
-    .route("/admin/settings", settingsAdminPages)
-    .route("/legal/terms", termsPublicPages)
-    .route("/legal/privacy", privacyPublicPages)
-    .route("/impressum", imprintPublicPages),
-});
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/admin/settings", settingsAdminPages)
+  .route("/legal/terms", termsPublicPages)
+  .route("/legal/privacy", privacyPublicPages)
+  .route("/impressum", imprintPublicPages);
+
+export default await app.start({ fetch: router.fetch });

@@ -1,15 +1,20 @@
 import { app } from "./config";
 import { Hono } from "hono";
+import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import { publicRoutes, adminRoutes } from "./frontend";
 import { faqService } from "./service";
 import { migrate } from "./migrate";
 
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/api/faq", apiRoutes)
+  .route("/faq", publicRoutes)
+  .route("/admin/faq", adminRoutes);
+
 export default await app.start({
-  router: new Hono()
-    .route("/api/faq", apiRoutes)
-    .route("/faq", publicRoutes)
-    .route("/admin/faq", adminRoutes),
+  fetch: router.fetch,
   lifecycle: {
     setup: async () => {
       await migrate();
