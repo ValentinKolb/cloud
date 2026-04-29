@@ -29,7 +29,7 @@ The existing `accounts` app (`packages/accounts/`) is **pure admin UI** backed b
 
 ## App Directory Structure
 
-Every app follows this skeleton. Reference apps: `expeditions` (canonical template — tenancy + items + permissions + admin + widget + email), `weather` (simple), `faq` (CRUD/admin), `contacts` (permissions/detail panels).
+Every app follows this skeleton. Reference apps: [cloud-template](https://github.com/ValentinKolb/cloud-template) (canonical standalone reference — tenancy + items + permissions + admin + widget + email), `weather` (simple), `faq` (CRUD/admin), `contacts` (permissions/detail panels).
 
 ```
 packages/my-app/
@@ -842,4 +842,4 @@ See the `notebooks` app for a complete WebSocket implementation.
 4. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
 5. `bun install` to refresh the lockfile, then `bun run dev:app my-app` (or `bun run dev:full`). Migrations run on first startup; the gateway picks up the new app from Redis within ~5 s.
 
-The reference implementation is `packages/expeditions/` — copy it as a starting point for any tenancy-with-items app.
+The standalone reference implementation lives at [github.com/ValentinKolb/cloud-template](https://github.com/ValentinKolb/cloud-template) — clone it as a starting point. Inside the monorepo, `packages/weather` (simple) or `packages/contacts` (permissions/detail panels) are the closest analogues.

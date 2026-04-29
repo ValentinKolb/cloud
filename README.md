@@ -27,14 +27,23 @@ Cloud bundles a set of apps that cover the common operational needs of an organi
 | **Operations** | [`settings`](packages/settings) — system + per-app settings, legal docs &nbsp;•&nbsp; [`logging`](packages/logging) — structured logs with admin viewer &nbsp;•&nbsp; [`notifications`](packages/notifications) — transactional email |
 | **Productivity** | [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
 | **Content & misc** | [`faq`](packages/faq) &nbsp;•&nbsp; [`weather`](packages/weather) &nbsp;•&nbsp; [`quotes`](packages/quotes) &nbsp;•&nbsp; [`tools`](packages/tools) |
-| **Development** | [`ui-lab`](packages/ui-lab) — component showcase &nbsp;•&nbsp; [`expeditions`](packages/expeditions) — reference / template app, see [APPS.md](./APPS.md) |
+| **Development** | [`ui-lab`](packages/ui-lab) — component showcase |
 
 ## Build your own app
 
-The whole platform is structured around custom apps. Adding one means writing a small config file with `defineApp({...})` and a thin Dockerfile. The new app inherits the shared `Layout`, `AdminLayout`, session middleware, services, search hooks, and the full UI kit, and it shows up in the platform within seconds of starting its container.
+The whole platform is structured around custom apps. The starter repo **[github.com/ValentinKolb/cloud-template](https://github.com/ValentinKolb/cloud-template)** has everything to run the platform plus your own app side-by-side: a single `docker compose up` pulls the prebuilt platform images from ghcr and builds your custom app locally. Your app depends on `@valentinkolb/cloud` from npm — no monorepo, no workspace, no platform code in your repo.
+
+```bash
+git clone https://github.com/ValentinKolb/cloud-template my-cloud
+cd my-cloud
+cp .env.example .env
+docker compose up -d
+```
+
+The template ships with a working reference app (`expeditions`) you can edit, fork, or replace — it exercises every platform primitive (tenancy, permissions, admin pages, dashboard widget, transactional email, structured logging) in one small app. Its README is the full app-authoring walkthrough.
 
 ```ts
-// packages/my-app/src/config.ts
+// src/config.ts in cloud-template
 import { defineApp } from "@valentinkolb/cloud";
 
 export const app = defineApp({
@@ -44,14 +53,13 @@ export const app = defineApp({
   basePath: "/app/my-app",
   baseUrl: "http://app-my-app:3000",
   nav: { href: "/app/my-app", section: "more" },
+  routes: ["/api/my-app", "/app/my-app", "/admin/my-app", "/public/my-app"],
 });
 
 export const { ssr, plugin } = app;
 ```
 
-That example uses Bun + SolidJS because the shared helpers (UI, auth, services) are TypeScript. Other languages work of course too — any HTTP service that talks Redis and Postgres can register with the gateway.
-
-**[APPS.md](./APPS.md)** is the end-to-end walkthrough — prerequisites, the file-by-file anatomy, the platform primitives (auth, logging, settings, email, widgets, search, websockets), and a pattern → reference-app map. The matching reference implementation is [`packages/expeditions/`](./packages/expeditions): tenancy entity, child items, permissions, admin page, widget, completion email — all in one small app.
+That example uses Bun + SolidJS because the shared helpers (UI, auth, services) are TypeScript. Other languages work too — any HTTP service that talks Redis and Postgres can register with the gateway.
 
 ## How it works
 

@@ -241,7 +241,7 @@ Built-in apps serve as reference implementations. The most instructive ones:
 
 | App | Good example of... |
 |-----|-------------------|
-| `expeditions` | Reference / template app — tenancy, child items, permissions, admin, widget, email, logging |
+| [cloud-template](https://github.com/ValentinKolb/cloud-template) | Standalone reference app (separate repo) — tenancy, child items, permissions, admin, widget, email, logging |
 | `logging` | Admin table layout, filters, pagination |
 | `files` | Sidebar layout, file operations, Filegate integration |
 | `spaces` | Card grid layout, CRUD with forms, permissions |

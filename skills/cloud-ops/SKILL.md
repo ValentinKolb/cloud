@@ -92,7 +92,7 @@ Every app container:
 
 **Core set (7, no profile — started by `bun run dev`):** `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications`.
 
-**Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:app`):** `app-notebooks`, `app-contacts`, `app-expeditions`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
+**Extras (12, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:app`):** `app-notebooks`, `app-contacts`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
 
 ### Volume Mounts (Dev)
 
@@ -200,7 +200,7 @@ Two workflows, separate tag namespaces so they don't collide.
 
 ### `.github/workflows/docker.yml` — per-app docker images
 
-One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). 18 apps produce images: `gateway`, `core`, plus `app-<id>` for the rest. `ui-lab` and `expeditions` are dev-only and intentionally skipped.
+One single parametrised `Dockerfile` (3 stages: deps → build → runtime, `oven/bun:1-alpine`, `--build-arg APP_ID=<id>`). Multi-arch (linux/amd64 + linux/arm64). 18 apps produce images: `gateway`, `core`, plus `app-<id>` for the rest. `ui-lab` is dev-only and intentionally skipped. The standalone reference app lives in [cloud-template](https://github.com/ValentinKolb/cloud-template).
 
 | Trigger | What's built | Image tags |
 |---|---|---|

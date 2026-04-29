@@ -68,10 +68,10 @@ A standard app declares four prefixes (`/api/<id>`, `/app/<id>`, `/admin/<id>`, 
 
 ## Documentation
 
-Full walkthroughs, the per-app anatomy, deployment templates, and a reference app live in the repo:
+Full walkthroughs, the per-app anatomy, deployment templates, and a reference app:
 
-- **[APPS.md](https://github.com/ValentinKolb/cloud/blob/main/APPS.md)** — end-to-end app authoring guide
-- **[github.com/ValentinKolb/cloud](https://github.com/ValentinKolb/cloud)** — monorepo, docker images, prod compose template
+- **[github.com/ValentinKolb/cloud-template](https://github.com/ValentinKolb/cloud-template)** — starter repo with a working reference app + the complete app-authoring guide
+- **[github.com/ValentinKolb/cloud](https://github.com/ValentinKolb/cloud)** — the platform monorepo (gateway, core, all platform apps)
 
 ## License
 
