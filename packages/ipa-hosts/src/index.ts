@@ -7,10 +7,9 @@ import { migrate } from "./migrate";
 import { ipaHosts } from "./backend";
 
 export default await app.start({
-  routes: {
-    api: new Hono().route("/ipa-hosts", apiRoutes),
-    pages: new Hono().route("/admin/ipa-hosts", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/ipa-hosts", apiRoutes)
+    .route("/admin/ipa-hosts", adminPageRoutes),
   lifecycle: {
     setup: async () => {
       await migrate();

@@ -8,10 +8,9 @@ import { contactsCapabilities } from "./capabilities";
 
 export default await app.start({
   capabilities: contactsCapabilities,
-  routes: {
-    api: new Hono().route("/contacts", apiRoutes),
-    pages: new Hono().route("/app/contacts", pageRoutes),
-  },
+  router: new Hono()
+    .route("/api/contacts", apiRoutes)
+    .route("/app/contacts", pageRoutes),
   lifecycle: {
     setup: async () => {
       await migrate();

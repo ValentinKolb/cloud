@@ -5,8 +5,6 @@ import pageRoutes from "./frontend";
 const uiLabService = {};
 
 export default await app.start({
-  routes: {
-    pages: new Hono().route("/app/ui-lab", pageRoutes),
-  },
+  router: new Hono().route("/app/ui-lab", pageRoutes),
 });
 export { uiLabService as service };

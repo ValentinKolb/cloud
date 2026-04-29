@@ -6,10 +6,9 @@ import { oauthService } from "./service";
 import { migrate } from "./migrate";
 
 export default await app.start({
-  routes: {
-    api: new Hono().route("/oauth/admin/clients", apiRoutes),
-    pages: new Hono().route("/", pageRoutes),
-  },
+  router: new Hono()
+    .route("/api/oauth/admin/clients", apiRoutes)
+    .route("/", pageRoutes),
   lifecycle: {
     setup: async () => {
       await migrate();

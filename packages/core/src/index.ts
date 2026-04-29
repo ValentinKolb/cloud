@@ -27,10 +27,9 @@ const coreApi = new Hono()
   .get("/llms.txt", (c) => c.text(llmsTxt));
 
 export default await app.start({
-  routes: {
-    api: coreApi,
-    pages,
-  },
+  router: new Hono()
+    .route("/api", coreApi)
+    .route("/", pages),
   lifecycle: {
     setup: async () => {
       await runCoreSetup();

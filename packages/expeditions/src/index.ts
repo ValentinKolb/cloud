@@ -18,15 +18,13 @@ import { expeditionsService } from "./service";
  *   /api/expeditions/*    — widget + CRUD endpoints (api/index.ts handles split)
  *   /app/expeditions/*    — SSR pages
  *   /admin/expeditions/*  — admin SSR pages (admin-gated)
- *   /public/expeditions/* — built CSS, served automatically
+ *   /public/expeditions/* — built CSS, served automatically by the framework
  */
 export default await app.start({
-  routes: {
-    api: new Hono().route("/expeditions", apiRoutes),
-    pages: new Hono()
-      .route("/app/expeditions", pageRoutes)
-      .route("/admin/expeditions", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/expeditions", apiRoutes)
+    .route("/app/expeditions", pageRoutes)
+    .route("/admin/expeditions", adminPageRoutes),
   lifecycle: {
     // Runs once per container boot. Idempotent — safe to re-run on every
     // restart. Never destructive.

@@ -10,10 +10,10 @@ import { notebooksCapabilities } from "./capabilities";
 
 const result = await app.start({
   capabilities: notebooksCapabilities,
-  routes: {
-    api: new Hono().route("/notebooks", apiRoutes),
-    pages: new Hono().route("/app/notebooks", pageRoutes).route("/admin/notebooks", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/notebooks", apiRoutes)
+    .route("/app/notebooks", pageRoutes)
+    .route("/admin/notebooks", adminPageRoutes),
   lifecycle: {
     setup: async () => {
       await migrate();

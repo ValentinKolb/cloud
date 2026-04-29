@@ -6,10 +6,10 @@ import { faqService } from "./service";
 import { migrate } from "./migrate";
 
 export default await app.start({
-  routes: {
-    api: new Hono().route("/faq", apiRoutes),
-    pages: new Hono().route("/faq", publicRoutes).route("/admin/faq", adminRoutes),
-  },
+  router: new Hono()
+    .route("/api/faq", apiRoutes)
+    .route("/faq", publicRoutes)
+    .route("/admin/faq", adminRoutes),
   lifecycle: {
     setup: async () => {
       await migrate();

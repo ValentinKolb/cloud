@@ -18,11 +18,9 @@ const privacyPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"
 const imprintPublicPages = new Hono<AuthContext>().get("/", auth.requireRole("*"), ...makeLegalPage("imprint"));
 
 export default await app.start({
-  routes: {
-    pages: new Hono()
-      .route("/admin/settings", settingsAdminPages)
-      .route("/legal/terms", termsPublicPages)
-      .route("/legal/privacy", privacyPublicPages)
-      .route("/impressum", imprintPublicPages),
-  },
+  router: new Hono()
+    .route("/admin/settings", settingsAdminPages)
+    .route("/legal/terms", termsPublicPages)
+    .route("/legal/privacy", privacyPublicPages)
+    .route("/impressum", imprintPublicPages),
 });

@@ -15,9 +15,9 @@ export type WeatherAppContext = AppContext<typeof app>;
 // this app is now just routes + UI + admin.
 export default await app.start({
   capabilities: weatherCapabilities,
-  routes: {
-    api: new Hono().route("/weather", apiRoutes),
-    pages: new Hono().route("/app/weather", pageRoutes).route("/admin/weather", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/weather", apiRoutes)
+    .route("/app/weather", pageRoutes)
+    .route("/admin/weather", adminPageRoutes),
 });
 export type { ApiType } from "./api";

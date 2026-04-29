@@ -114,10 +114,17 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
 };
 
 export type StartOptions = {
-  routes: {
-    api?: Hono<any>;
-    pages?: Hono<any>;
-  };
+  /**
+   * Single Hono instance mounted at `/` of the app's container. The app owns
+   * its full URL space — routes are written with their absolute paths
+   * (`/api/<id>`, `/app/<id>`, `/admin/<id>`, …), matching what the app
+   * declared in `defineApp({ routes: [...] })`.
+   *
+   * Framework-owned mounts (`/_ssr/*`, `/public/*`, `/api/_internal/search`)
+   * register before this router so they take precedence — apps can ignore
+   * those paths.
+   */
+  router: Hono<any>;
   lifecycle?: AppLifecycle;
   capabilities?: AppCapabilities;
   port?: number;
@@ -332,13 +339,14 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
         onFound: (_path, c) => {
           c.header("Cache-Control", "public, max-age=31536000, immutable");
         },
-      }));
+      }))
+      // serveStatic calls next() on miss — terminate /public/* here so a
+      // missing asset is a clean 404 instead of falling through to the app
+      // router (which might render an HTML page for the missing path).
+      .all("/public/*", (c) => c.notFound());
 
-    // Mount app routes
-    if (startOpts.routes.api) server.route("/api", startOpts.routes.api);
-    if (startOpts.routes.pages) server.route("/", startOpts.routes.pages);
-
-    // Internal search endpoint
+    // Framework-internal endpoints register BEFORE the app router so they
+    // take precedence over any catch-all the app might mount.
     if (startOpts.capabilities?.search) {
       const searchRun = startOpts.capabilities.search.run;
       server.post("/api/_internal/search", auth.requireRole("authenticated"), async (c) => {
@@ -348,6 +356,8 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
         return c.json(results);
       });
     }
+
+    server.route("/", startOpts.router);
 
     // Lifecycle
     const cloudCtx: CloudContext = {

@@ -12,10 +12,10 @@ export type FilesAppContext = AppContext<typeof app>;
 
 export default await app.start({
   capabilities: filesCapabilities,
-  routes: {
-    api: new Hono().route("/files", apiRoutes),
-    pages: new Hono().route("/app/files", pageRoutes).route("/admin/files", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/files", apiRoutes)
+    .route("/app/files", pageRoutes)
+    .route("/admin/files", adminPageRoutes),
 });
 export { filesService as service };
 export type { ApiType } from "./api";

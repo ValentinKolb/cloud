@@ -9,10 +9,10 @@ import { spacesCapabilities } from "./capabilities";
 
 export default await app.start({
   capabilities: spacesCapabilities,
-  routes: {
-    api: new Hono().route("/spaces", apiRoutes),
-    pages: new Hono().route("/app/spaces", pageRoutes).route("/admin/spaces", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/spaces", apiRoutes)
+    .route("/app/spaces", pageRoutes)
+    .route("/admin/spaces", adminPageRoutes),
   lifecycle: {
     setup: async () => {
       await migrate();

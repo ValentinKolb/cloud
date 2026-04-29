@@ -5,10 +5,9 @@ import adminPageRoutes from "./frontend";
 import { notificationsService } from "./service";
 
 export default await app.start({
-  routes: {
-    api: new Hono().route("/notifications", apiRoutes),
-    pages: new Hono().route("/admin/notifications", adminPageRoutes),
-  },
+  router: new Hono()
+    .route("/api/notifications", apiRoutes)
+    .route("/admin/notifications", adminPageRoutes),
 });
 export { notificationsService as service };
 export type { ApiType } from "./api";

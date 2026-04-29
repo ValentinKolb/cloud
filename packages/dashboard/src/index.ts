@@ -10,7 +10,5 @@ const pageRoutes = new Hono<AuthContext>().get(
 );
 
 export default await app.start({
-  routes: {
-    pages: new Hono<AuthContext>().route("/app/dashboard", pageRoutes),
-  },
+  router: new Hono<AuthContext>().route("/app/dashboard", pageRoutes),
 });

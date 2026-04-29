@@ -6,10 +6,9 @@ import pageRoutes from "./frontend";
 const service = {};
 
 export default await app.start({
-  routes: {
-    api: new Hono().route("/accounts", apiRoutes),
-    pages: new Hono().route("/app/accounts", pageRoutes),
-  },
+  router: new Hono()
+    .route("/api/accounts", apiRoutes)
+    .route("/app/accounts", pageRoutes),
 });
 export { service };
 export type { ApiType } from "./api";
