@@ -1,8 +1,21 @@
 {
   "name": "@valentinkolb/cloud",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.1",
+  "description": "Modular Hono+SolidJS framework for building per-app docker services behind a dynamic gateway. Powers cloud.stuve-ulm.de.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ValentinKolb/cloud.git",
+    "directory": "packages/cloud"
+  },
+  "homepage": "https://github.com/ValentinKolb/cloud",
+  "bugs": "https://github.com/ValentinKolb/cloud/issues",
   "type": "module",
+  "files": [
+    "src",
+    "scripts",
+    "public"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./ui": "./src/ui/index.ts",

@@ -1,0 +1,65 @@
+name: npm publish
+
+# Publish @valentinkolb/cloud to npm via OIDC trusted publisher.
+#
+# Trigger: tag matching `npm-cloud-v*` (e.g. npm-cloud-v0.2.0).
+# Avoids the `cloud-*-v*` pattern owned by docker.yml.
+#
+# First publish was done manually from a workstation. From there on,
+# bumping the version means: bump packages/cloud/package.json, commit,
+# tag, push.
+#
+# Trusted publisher must be configured on npmjs.org for the package
+# (Repository: ValentinKolb/cloud, Workflow: npm.yml). No NPM_TOKEN.
+
+on:
+  push:
+    tags:
+      - "npm-cloud-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0)"
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: packages/cloud
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies (workspace root)
+        working-directory: .
+        run: bun install --frozen-lockfile --registry=https://registry.npmjs.org
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Use npm 11.5.1+
+        run: npm install -g npm@11.5.1
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            v="${{ inputs.version }}"
+          else
+            v="${GITHUB_REF#refs/tags/npm-cloud-v}"
+          fi
+          echo "value=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Set version in package.json
+        run: npm version ${{ steps.ver.outputs.value }} --no-git-tag-version --allow-same-version
+
+      - name: Publish
+        run: npm publish --provenance --access public
