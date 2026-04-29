@@ -15,16 +15,14 @@ import { coreSettingsRouter } from "./api/settings";
 /** Per-app Hono context: AuthContext + typed core settings snapshot. */
 export type CoreAppContext = AppContext<typeof app>;
 
-// Async init because OpenAPI spec generation walks the whole route tree.
-const { api, llmsTxt } = await createCoreApiRouter();
+const { api } = createCoreApiRouter();
 const pages = createPagesRouter();
 
 // Order matters: more specific routes (coreSettingsRouter) must mount BEFORE
 // the api router which registers a catch-all "/*" 404 handler.
 const coreApi = new Hono()
   .route("/admin/core/settings", coreSettingsRouter)
-  .route("/", api)
-  .get("/llms.txt", (c) => c.text(llmsTxt));
+  .route("/", api);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
@@ -34,6 +32,7 @@ const router = new Hono<AuthContext>()
 
 export default await app.start({
   fetch: router.fetch,
+  openapi: coreApi,
   lifecycle: {
     setup: async () => {
       await runCoreSetup();

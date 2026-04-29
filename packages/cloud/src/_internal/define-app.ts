@@ -8,6 +8,7 @@ import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
 import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { generateSpecs } from "hono-openapi";
 import type { SsrConfig } from "@valentinkolb/ssr";
 import type {
   AppMeta,
@@ -108,6 +109,23 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    */
   routes: readonly string[];
   /**
+   * Gateway-relative URL at which this app's OpenAPI 3.x JSON spec is
+   * served, e.g. `"/api/notebooks/openapi.json"`. Opt-in: only set this
+   * for apps whose api router is documented with `middleware.openapi()`
+   * (i.e. `describeRoute()`) and worth surfacing in the api-docs aggregator.
+   *
+   * Pair this with `app.start({ openapi: <api router> })` — `defineApp`
+   * generates the spec from that router at boot, mounts it on the
+   * framework server (before the user's fetch, so it bypasses any
+   * auth/rate-limit middleware), and advertises the URL via the registry
+   * so `app-api-docs` picks it up automatically.
+   *
+   * The path must be reachable through the gateway — usually that means
+   * the standard form `"/api/<id>/openapi.json"` (covered by the
+   * `/api/<id>` entry in `routes`).
+   */
+  openapi?: string;
+  /**
    * Project root used by the SSR plugin to discover island/client files.
    * Defaults to `process.cwd()`. Override only if you run the entrypoint
    * from a directory other than the project root.
@@ -134,6 +152,18 @@ export type StartOptions = {
    * might register.
    */
   fetch: (req: Request) => Response | Promise<Response>;
+  /**
+   * Hono router to scan for OpenAPI route metadata. When set together with
+   * `defineApp({ openapi: "..." })`, the framework generates an OpenAPI
+   * spec from this router and mounts it at the configured URL on the
+   * framework server (before the user's fetch, so the spec stays public).
+   *
+   * Pass the BARE api router — the one with `describeRoute()` annotations.
+   * `generateSpecs` walks the route tree without executing middleware, so
+   * the inner auth/rate-limit `.use(...)` calls don't matter for spec
+   * generation; they only run if the router is hit by an actual request.
+   */
+  openapi?: Hono<any>;
   lifecycle?: AppLifecycle;
   capabilities?: AppCapabilities;
   port?: number;
@@ -258,6 +288,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     nav: opts.nav,
     legalLinks: opts.legalLinks ? [...opts.legalLinks] : undefined,
     widgets: opts.widgets ? opts.widgets.map((w) => ({ ...w })) : undefined,
+    openapi: opts.openapi,
   };
 
   // ── 3. start() — builds and boots the Hono server ────────────────────
@@ -265,6 +296,11 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     const port = startOpts.port ?? 3000;
     const baseUrl = opts.baseUrl;
     const log = logger("app");
+
+    // OpenAPI advertised in the registry only when there's a router to
+    // derive the spec from. The mount block lower down uses the same
+    // flag so the registry never points at a URL that 404s.
+    const advertiseOpenapi = !!(opts.openapi && startOpts.openapi);
 
     // Registry entry
     const entry: AppRegistryEntry = {
@@ -294,6 +330,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
         : undefined,
       legalLinks: meta.legalLinks ? meta.legalLinks.map((l) => ({ ...l })) : undefined,
       widgets: meta.widgets ? meta.widgets.map((w) => ({ ...w })) : undefined,
+      openapi: advertiseOpenapi ? opts.openapi : undefined,
     };
 
     // Heartbeat
@@ -306,11 +343,13 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     // watcher is a module-level singleton, only one runs per process.
     await ensureRuntimeWatcher();
 
-    // Build Hono server. Framework owns three mounts (registered first so
+    // Build Hono server. Framework owns these mounts (registered first so
     // they take precedence over any catch-all in the user's fetch):
     //   /_ssr/*                 island chunks (SSR adapter)
     //   /public/*               serveStatic + terminal 404
     //   /api/_internal/search   only when capabilities.search is declared
+    //   <opts.openapi>          OpenAPI JSON spec, when both opts.openapi
+    //                            and startOpts.openapi are set
     const ssrMountPath = config.basePath ? `${config.basePath}/_ssr` : "/_ssr";
 
     const server = new Hono()
@@ -334,6 +373,32 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
         const results = await searchRun({ query: body.query, tags: body.tags, limit: body.limit, ctx });
         return c.json(results);
       });
+    }
+
+    // OpenAPI spec mount. Registered on the framework server (before the
+    // user-fetch catch-all below) so it bypasses any auth / rate-limit
+    // middleware on the api router — the spec must stay reachable without
+    // a session for `app-api-docs` to render it.
+    //
+    // The `servers` override is load-bearing: hono-openapi walks the
+    // BARE api router and emits paths relative to its own root (e.g.
+    // `/{id}`, `/{id}/notes`), without the `/api/<id>` prefix it ends
+    // up under in the user's outer router. We derive that prefix from
+    // `opts.openapi` (everything before the trailing `/openapi.json`)
+    // so combined Scalar URLs resolve to the real public paths.
+    if (advertiseOpenapi) {
+      const apiPrefix = opts.openapi!.replace(/\/openapi\.json$/, "") || "/";
+      const spec = await generateSpecs(startOpts.openapi!, {
+        documentation: {
+          info: {
+            title: meta.name,
+            version: "0.0.1",
+            description: meta.description,
+          },
+          servers: [{ url: apiPrefix }],
+        },
+      });
+      server.get(opts.openapi!, (c) => c.json(spec));
     }
 
     // User's fetch handles everything else. The framework doesn't inject any

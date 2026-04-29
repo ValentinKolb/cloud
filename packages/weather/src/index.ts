@@ -23,5 +23,6 @@ const router = new Hono<AuthContext>()
 export default await app.start({
   capabilities: weatherCapabilities,
   fetch: router.fetch,
+  openapi: apiRoutes,
 });
 export type { ApiType } from "./api";

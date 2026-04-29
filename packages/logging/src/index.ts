@@ -11,7 +11,7 @@ const router = new Hono<AuthContext>()
   .route("/api/logging", apiRoutes)
   .route("/admin/logging", adminPageRoutes);
 
-export default await app.start({ fetch: router.fetch });
+export default await app.start({ fetch: router.fetch, openapi: apiRoutes });
 export { loggingService as service };
 export type { ApiType } from "./api";
 export type { LoggingService } from "./service";

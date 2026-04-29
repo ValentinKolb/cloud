@@ -43,6 +43,8 @@ export type AppMeta = {
    * silently skip rendering for the current user.
    */
   widgets?: WidgetEndpoint[];
+  /** Gateway-relative URL where this app's OpenAPI JSON is served, or undefined. */
+  openapi?: string;
 };
 
 export type WidgetEndpoint = {

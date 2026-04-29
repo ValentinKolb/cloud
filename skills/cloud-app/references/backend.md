@@ -361,7 +361,8 @@ const create = async (data: Input): Promise<Result<Item>> => {
 
 ### OpenAPI Documentation
 
-Every route should have `describeRoute()`:
+Every API route should have `describeRoute()` (re-exported as
+`middleware.openapi()`) so the spec stays accurate:
 
 ```typescript
 import { describeRoute } from "hono-openapi";
@@ -381,6 +382,39 @@ import { jsonResponse } from "@valentinkolb/cloud/server";
   async (c) => respond(c, () => service.get(c.req.valid("param").id)),
 )
 ```
+
+Apps don't ship a per-app docs UI. Instead, opt in to the platform
+aggregator via two paired options:
+
+```typescript
+// config.ts
+defineApp({
+  openapi: "/api/my-app/openapi.json",  // URL where the spec is served
+  ...
+});
+
+// index.ts
+import apiRoutes from "./api";
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  ...
+  .route("/api/my-app", apiRoutes);
+
+await app.start({
+  fetch: router.fetch,
+  openapi: apiRoutes,                   // bare api router for spec generation
+});
+```
+
+`defineApp` generates the spec from the passed router at boot, mounts
+it on the framework server before any auth middleware (so it's public),
+and advertises the URL through the Redis registry. The api-docs app at
+`/app/api-docs` aggregates every advertised spec into one Scalar UI;
+new apps appear in the source switcher within ~5 s of their first
+heartbeat — no api-docs restart, no manual registration.
+
+Skip both `openapi` fields for apps without a public API surface
+(pages-only apps like `tools`, `dashboard`, `ui-lab`).
 
 ### Rate Limiting
 

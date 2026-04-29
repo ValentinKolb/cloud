@@ -18,6 +18,7 @@ const router = new Hono<AuthContext>()
 export default await app.start({
   capabilities: spacesCapabilities,
   fetch: router.fetch,
+  openapi: apiRoutes,
   lifecycle: {
     setup: async () => {
       await migrate();

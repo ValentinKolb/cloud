@@ -9,6 +9,6 @@ const router = new Hono<AuthContext>()
   .use("*", middleware.settings())
   .route("/api/quotes", apiRoutes);
 
-export default await app.start({ fetch: router.fetch });
+export default await app.start({ fetch: router.fetch, openapi: apiRoutes });
 export { quotesService as service };
 export type { ApiType } from "./api";

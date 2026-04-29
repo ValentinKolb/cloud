@@ -47,4 +47,6 @@ export type AppRegistryEntry = {
   search?: AppRegistrySearch;
   legalLinks?: AppRegistryLegalLink[];
   widgets?: AppRegistryWidget[];
+  /** Gateway-relative URL where this app serves its OpenAPI JSON spec. */
+  openapi?: string;
 };

@@ -98,6 +98,13 @@ export const app = defineApp({
       description: "Whether feature X is active.",
     },
   },
+  // Opt in to the platform-wide API docs aggregator (the api-docs app at
+  // /app/api-docs). Pair this with `app.start({ openapi: <api router> })`
+  // — defineApp generates an OpenAPI 3.x spec from that router at boot,
+  // mounts it on the framework server before the user fetch (so it's
+  // public), and advertises the URL via the registry. Apps without an
+  // API surface (pages-only) omit this field.
+  openapi: "/api/my-app/openapi.json",
   // Top-level URL prefixes the gateway routes to this container. Standard
   // four-prefix scheme; specials list whatever they actually own.
   routes: ["/api/my-app", "/app/my-app", "/admin/my-app", "/public/my-app"],
@@ -113,16 +120,28 @@ export const { ssr, plugin } = app;
 ```typescript
 import { app } from "./config";
 import { Hono } from "hono";
+import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import pageRoutes, { adminPages } from "./frontend";
 import { myService } from "./service";
 import { migrate } from "./migrate";
 
+// Compose your own router — the framework no longer injects middleware
+// implicitly. Register what you need from `middleware.*` and pass the
+// resulting Hono instance's `.fetch` to `app.start()`.
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())     // c.get("runtime") — required by Layout/Sidebar
+  .use("*", middleware.settings())    // c.get("settings") — typed snapshot
+  .route("/api/my-app", apiRoutes)
+  .route("/app/my-app", pageRoutes)
+  .route("/admin/my-app", adminPages);
+
 export default await app.start({
-  routes: {
-    api: new Hono().route("/my-app", apiRoutes),
-    pages: new Hono().route("/app/my-app", pageRoutes).route("/admin/my-app", adminPages),
-  },
+  fetch: router.fetch,
+  // Pair with defineApp's `openapi: "/api/my-app/openapi.json"`. The
+  // framework generates the spec from this router at boot and serves it
+  // at the configured URL (public, before any auth middleware).
+  openapi: apiRoutes,
   lifecycle: {
     setup: async () => { await migrate(); },
     start: async (ctx) => { /* start background jobs */ },

@@ -16,6 +16,7 @@ export const app = defineApp({
     requiresRoles: ["user"],
   },
   widgets: [{ id: "today", path: "/api/spaces/widget/today" }],
+  openapi: "/api/spaces/openapi.json",
   routes: ["/api/spaces", "/app/spaces", "/admin/spaces", "/public/spaces"],
 });
 

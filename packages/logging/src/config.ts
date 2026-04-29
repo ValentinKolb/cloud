@@ -9,6 +9,7 @@ export const app = defineApp({
   baseUrl: "http://app-logging:3000",
   adminHref: "/admin/logging",
   widgets: [{ id: "errors", path: "/api/logging/widget/errors" }],
+  openapi: "/api/logging/openapi.json",
   routes: ["/api/logging", "/admin/logging", "/public/logging"],
 });
 

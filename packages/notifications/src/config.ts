@@ -8,6 +8,7 @@ export const app = defineApp({
   basePath: "/admin/notifications",
   baseUrl: "http://app-notifications:3000",
   adminHref: "/admin/notifications",
+  openapi: "/api/notifications/openapi.json",
   routes: ["/api/notifications", "/admin/notifications", "/public/notifications"],
 });
 

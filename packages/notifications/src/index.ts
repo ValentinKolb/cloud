@@ -11,7 +11,7 @@ const router = new Hono<AuthContext>()
   .route("/api/notifications", apiRoutes)
   .route("/admin/notifications", adminPageRoutes);
 
-export default await app.start({ fetch: router.fetch });
+export default await app.start({ fetch: router.fetch, openapi: apiRoutes });
 export { notificationsService as service };
 export type { ApiType } from "./api";
 export type { NotificationsService } from "./service";

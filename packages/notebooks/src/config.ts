@@ -15,6 +15,7 @@ export const app = defineApp({
     requiresAuth: true,
   },
   widgets: [{ id: "recent", path: "/api/notebooks/widget/recent" }],
+  openapi: "/api/notebooks/openapi.json",
   routes: ["/api/notebooks", "/app/notebooks", "/admin/notebooks", "/public/notebooks"],
 });
 

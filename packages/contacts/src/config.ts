@@ -14,6 +14,7 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],
   },
+  openapi: "/api/contacts/openapi.json",
   routes: ["/api/contacts", "/app/contacts", "/public/contacts"],
 });
 

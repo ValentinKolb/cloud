@@ -12,6 +12,6 @@ const router = new Hono<AuthContext>()
   .route("/api/accounts", apiRoutes)
   .route("/app/accounts", pageRoutes);
 
-export default await app.start({ fetch: router.fetch });
+export default await app.start({ fetch: router.fetch, openapi: apiRoutes });
 export { service };
 export type { ApiType } from "./api";

@@ -20,6 +20,7 @@ const router = new Hono<AuthContext>()
 export default await app.start({
   capabilities: filesCapabilities,
   fetch: router.fetch,
+  openapi: apiRoutes,
 });
 export { filesService as service };
 export type { ApiType } from "./api";

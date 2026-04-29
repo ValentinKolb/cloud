@@ -9,6 +9,7 @@ export const app = defineApp({
   baseUrl: "http://app-ipa-hosts:3000",
   adminHref: "/admin/ipa-hosts",
   widgets: [{ id: "sync", path: "/api/ipa-hosts/widget/sync" }],
+  openapi: "/api/ipa-hosts/openapi.json",
   routes: ["/api/ipa-hosts", "/admin/ipa-hosts", "/public/ipa-hosts"],
 });
 

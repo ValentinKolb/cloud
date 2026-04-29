@@ -81,6 +81,7 @@ export const app = defineApp({
       placeholder: "e.g. 660",
     },
   },
+  openapi: "/api/files/openapi.json",
   routes: ["/api/files", "/app/files", "/admin/files", "/public/files"],
 });
 

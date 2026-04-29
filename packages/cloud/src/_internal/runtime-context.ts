@@ -33,6 +33,7 @@ export const buildRuntimeFromRegistry = (entries: AppRegistryEntry[]): CloudRunt
       searchHelp: e.search?.help,
       searchTagHelp: e.search?.tagHelp,
       legalLinks: e.legalLinks ? e.legalLinks.map((l) => ({ ...l })) : undefined,
+      openapi: e.openapi,
     }),
   ),
 });

@@ -15,6 +15,7 @@ export const app = defineApp({
     requiresRoles: ["user"],
   },
   widgets: [{ id: "admin-queue", path: "/api/accounts/widget/admin-queue" }],
+  openapi: "/api/accounts/openapi.json",
   routes: ["/api/accounts", "/app/accounts", "/public/accounts"],
 });
 

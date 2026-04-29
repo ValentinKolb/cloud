@@ -8,6 +8,7 @@ export const app = defineApp({
   basePath: "/app/quotes",
   baseUrl: "http://app-quotes:3000",
   widgets: [{ id: "quote", path: "/api/quotes/widget/quote" }],
+  openapi: "/api/quotes/openapi.json",
   // API-only app — no SSR pages. Just exposes /api/quotes for the widget +
   // public quote-of-the-hour endpoint.
   routes: ["/api/quotes", "/public/quotes"],

@@ -254,3 +254,15 @@ services:
       - ./packages/weather/src:/app/packages/weather/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/weather/src/index.ts
+
+  app-api-docs:
+    <<: *app
+    container_name: app-api-docs
+    environment: { <<: *env, APP_ID: api-docs }
+    profiles: [extra]
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
+      - ./packages/api-docs/src:/app/packages/api-docs/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/api-docs/src/index.ts
