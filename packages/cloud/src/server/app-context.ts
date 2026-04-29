@@ -24,9 +24,9 @@
  *   });
  *   ```
  *
- * Note: the `settings` variable is populated by the per-request snapshot
- * middleware (phase A2). Until phase A2 lands, reading it returns `undefined`
- * and `c.get("settings")` is type-safe but runtime-uninitialised.
+ * The `settings` variable is populated by the per-request snapshot middleware
+ * registered by `app.start()`; the snapshot is frozen for the duration of the
+ * request.
  */
 import type { AppDefinition } from "../_internal/define-app";
 import type { AppSettings } from "../contracts/settings-types";

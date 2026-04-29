@@ -1,12 +1,10 @@
 /**
- * Core-owned settings, declared in the new defineApp({ settings: ... }) shape.
+ * Core-owned settings, declared in the `defineApp({ settings: ... })` shape.
  *
- * Until phase H lands, the canonical runtime registry is still the legacy
- * `SETTINGS` array in `cloud/services/settings/defaults.ts`. This object
- * mirrors that data so core's `defineApp.settings` gets full TypeScript
- * literal-type inference for `app.settings.get/set` and `c.get("settings")`.
- *
- * When phase H removes the legacy array, this becomes the only source of truth.
+ * `defineApp()` registers these into the runtime registry (`SETTINGS_MAP` in
+ * `cloud/services/settings/defaults.ts`) automatically, and the typed object
+ * shape here drives literal-type inference for `app.settings.get/set` and
+ * `c.get("settings")`.
  *
  * Conventions:
  *   - omit `key` (it's the object key)

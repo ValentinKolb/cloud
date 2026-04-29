@@ -1,6 +1,5 @@
 import { Filegate } from "@valentinkolb/filegate/client";
 import { get } from "@valentinkolb/cloud/services";
-// Settings declarations moved to files/src/config.ts:defineApp.settings — phase D
 import type {
   FileBase,
   FileInfo,

@@ -76,9 +76,9 @@ export type AppOptions<S extends AppSettingsMap = {}> = {
    *
    * These keys are exposed as a typed nested snapshot on `c.get("settings")`
    * for any Hono route using `Hono<AppContext<typeof app>>`. Writes go through
-   * `app.settings.set(key, value)` (also typed).
-   *
-   * Wired into runtime registry by phase B (currently type-only).
+   * `app.settings.set(key, value)` (also typed). The runtime registry
+   * (`SETTINGS_MAP` in `services/settings/defaults.ts`) is populated from
+   * this map automatically on `defineApp()` call.
    */
   settings?: S;
   /**

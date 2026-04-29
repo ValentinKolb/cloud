@@ -9,8 +9,7 @@
  * Mounted by core's index.ts under `/admin/core/settings`. Other apps that
  * declare their own settings (files, weather) follow the same pattern with
  * `/admin/{app}/settings` paths and validate ownership against their own
- * keys (replacing the central /api/admin/settings router that's removed in
- * phase H).
+ * keys.
  */
 import { Hono } from "hono";
 import { sql } from "bun";

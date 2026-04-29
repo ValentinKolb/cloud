@@ -1,8 +1,6 @@
 # OS / metadata
 .DS_Store
 .claude
-./reviews
-**/moodboard
 
 # Pre-modularization reference material, kept on disk but not versioned
 _old/
@@ -16,9 +14,6 @@ todo/
 
 # Per-developer seed scripts (hardcoded user UUIDs etc.)
 scripts/seed-dashboard-demo.ts
-
-# Widgets parked while the runtime widget-fetch mechanism is being designed
-_disabled-widgets/
 
 # Environment / local config
 .env

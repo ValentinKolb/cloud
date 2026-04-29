@@ -10,8 +10,7 @@
  *  2. `coreSettings` — for cloud-lib internal services that don't have an
  *     `app` reference (e.g. `services/notifications/email.ts`,
  *     `services/weather/forecast.ts`, OpenAPI middleware, cron callbacks).
- *     Loosely typed for now; will be sharpened in phase B once core's settings
- *     move into `core/src/config.ts:defineApp.settings`.
+ *     Loosely typed (caller provides the value type via the `T` generic).
  *
  * Backend: cache-aside via `store.ts` (Redis 5min TTL + DB fallback). All
  * functions are async — sync render-time access uses the per-request snapshot
