@@ -19,6 +19,28 @@ const getIssuer = async (): Promise<string> => {
 const OAUTH_SCOPES: OAuthScope[] = ["openid", "profile", "email", "groups"];
 const isOAuthScope = (value: string): value is OAuthScope => OAUTH_SCOPES.includes(value as OAuthScope);
 
+/**
+ * Decode `Authorization: Basic base64(client_id:client_secret)` into its parts.
+ * This is the OAuth `client_secret_basic` method (RFC 6749 §2.3.1). The
+ * discovery document advertises it alongside `client_secret_post`, so the
+ * token endpoint accepts credentials from either source.
+ */
+const parseBasicAuth = (header: string | undefined): { clientId: string; clientSecret: string } | null => {
+  if (!header?.startsWith("Basic ")) return null;
+  let decoded: string;
+  try {
+    decoded = atob(header.slice("Basic ".length));
+  } catch {
+    return null;
+  }
+  const colon = decoded.indexOf(":");
+  if (colon === -1) return null;
+  return {
+    clientId: decoded.slice(0, colon),
+    clientSecret: decoded.slice(colon + 1),
+  };
+};
+
 const AuthorizeQuerySchema = z.object({
   client_id: z.string().min(1),
   redirect_uri: z.url(),
@@ -33,7 +55,10 @@ const TokenBodySchema = z.object({
   grant_type: z.literal("authorization_code"),
   code: z.string().min(1),
   redirect_uri: z.url(),
-  client_id: z.string().min(1),
+  // Optional in the schema: client_id may also arrive via
+  // `Authorization: Basic` (RFC 6749 §2.3.1). The handler enforces that one
+  // source provides it and 400s otherwise.
+  client_id: z.string().min(1).optional(),
   client_secret: z.string().optional(),
   code_verifier: z.string().optional(),
 });
@@ -166,7 +191,13 @@ const app = new Hono<AuthContext>()
     v("form", TokenBodySchema),
     async (c) => {
       const body = c.req.valid("form");
-      const { code, redirect_uri, client_id, client_secret, code_verifier } = body;
+      const basic = parseBasicAuth(c.req.header("Authorization"));
+      const client_id = body.client_id ?? basic?.clientId;
+      const client_secret = body.client_secret ?? basic?.clientSecret;
+      if (!client_id) {
+        return c.json({ message: "Missing client_id" }, 400);
+      }
+      const { code, redirect_uri, code_verifier } = body;
 
       const client = await oauth.clients.validateCredentials({
         clientId: client_id,
