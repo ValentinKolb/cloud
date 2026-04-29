@@ -59,7 +59,10 @@ jobs:
           echo "value=$v" >> "$GITHUB_OUTPUT"
 
       - name: Set version in package.json
-        run: npm version ${{ steps.ver.outputs.value }} --no-git-tag-version --allow-same-version
+        # `npm version` triggers an internal install that chokes on
+        # `workspace:*` deps in sibling packages. `npm pkg set` is a
+        # pure JSON edit — no resolve, no lockfile.
+        run: npm pkg set version=${{ steps.ver.outputs.value }}
 
       - name: Publish
         run: npm publish --provenance --access public
