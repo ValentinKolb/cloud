@@ -17,7 +17,6 @@ COPY packages/cloud/package.json         packages/cloud/
 COPY packages/contacts/package.json      packages/contacts/
 COPY packages/core/package.json          packages/core/
 COPY packages/dashboard/package.json     packages/dashboard/
-COPY packages/expeditions/package.json   packages/expeditions/
 COPY packages/faq/package.json           packages/faq/
 COPY packages/files/package.json         packages/files/
 COPY packages/gateway/package.json       packages/gateway/
