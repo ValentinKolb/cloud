@@ -46,6 +46,10 @@ services:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-accounts:latest
 
+  app-api-docs:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-api-docs:latest
+
   app-contacts:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-contacts:latest
