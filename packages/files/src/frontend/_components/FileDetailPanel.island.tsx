@@ -136,18 +136,6 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
     return `${baseName}${path.startsWith("/") ? "" : "/"}${path}`;
   };
 
-  const detailFacts = () => {
-    const currentFile = file();
-    if (!currentFile) return [];
-    return [
-      { label: "Filename", value: currentFile.name, mono: false },
-      { label: "Kind", value: isDirectory() ? "Folder" : CATEGORY_LABELS[category()] || "File" },
-      { label: "Updated", value: dates.formatDateTime(currentFile.mtime) },
-      { label: "Size", value: isDirectory() ? "Folder" : text.pprintBytes(currentFile.size) },
-      { label: "Path", value: fullPath(), mono: true },
-    ];
-  };
-
   const actionItems = createMemo<FileActionEntry[]>(() => {
     const currentFile = file();
     if (!currentFile) return [];
@@ -168,73 +156,90 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       when={file()}
       fallback={
         props.showEmpty === false ? null : (
-          <div class="p-8 flex items-center justify-center text-dimmed text-xs gap-2">
-            <i class="ti ti-file-info text-sm" />
-            Select a file to view details
+          <div class="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-3 py-6 text-xs text-dimmed">
+            <p class="flex items-center justify-center gap-1.5 text-center">
+              <i class="ti ti-file-info" /> Select a file to view details
+            </p>
           </div>
         )
       }
     >
       {(currentFile) => (
         <div class="flex h-full min-h-0 flex-col overflow-y-auto">
-          <div class="flex items-start justify-end gap-2">
-            <button type="button" onClick={handleClose} class="p-1 text-dimmed hover:text-primary transition-colors" aria-label="Close">
-              <i class="ti ti-x" />
-            </button>
-          </div>
-
-          <div class="flex flex-col gap-2 pb-0">
-            <div class="flex justify-center">
-              {category() === "image" && !isDirectory() ? (
-                <img src={`${contentUrl()}&inline=true`} alt={currentFile().name} class="max-h-36 max-w-full rounded-xl object-contain" />
-              ) : (
-                <div class="flex h-18 w-18 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
-                  <i class={`ti ${icon()} text-3xl`} />
+          <section class="detail-section" style="view-transition-name: files-detail-panel">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0 flex-1 flex flex-col items-center gap-3">
+                {category() === "image" && !isDirectory() ? (
+                  <img src={`${contentUrl()}&inline=true`} alt={currentFile().name} class="max-h-36 max-w-full rounded-xl object-contain" />
+                ) : (
+                  <div class="flex h-18 w-18 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800">
+                    <i class={`ti ${icon()} text-3xl`} />
+                  </div>
+                )}
+                <div class="min-w-0 text-center">
+                  <h2 class="break-all text-base font-semibold leading-tight text-primary">{currentFile().name}</h2>
+                  <p class="mt-1 text-[11px] text-dimmed">
+                    {isDirectory()
+                      ? "Folder"
+                      : `${CATEGORY_LABELS[category()] ?? "File"} · ${text.pprintBytes(currentFile().size)} · ${dates.formatDateTimeRelative(currentFile().mtime)}`}
+                  </p>
                 </div>
-              )}
+              </div>
+              <button
+                type="button"
+                onClick={handleClose}
+                class="btn-simple btn-sm shrink-0 text-dimmed hover:text-primary"
+                aria-label="Close file detail panel"
+              >
+                <i class="ti ti-x" />
+              </button>
             </div>
+          </section>
 
-            <div class="h-2" />
+          <section class="detail-section">
+            <h3 class="detail-section-label">Details</h3>
+            <dl class="detail-facts">
+              <dt class="detail-fact-key">Path</dt>
+              <dd class="break-all font-mono">{fullPath()}</dd>
+              <dt class="detail-fact-key">Kind</dt>
+              <dd>{isDirectory() ? "Folder" : (CATEGORY_LABELS[category()] ?? "File")}</dd>
+              <dt class="detail-fact-key">Modified</dt>
+              <dd>{dates.formatDateTime(currentFile().mtime)}</dd>
+              <Show when={!isDirectory()}>
+                <dt class="detail-fact-key">Size</dt>
+                <dd>{text.pprintBytes(currentFile().size)}</dd>
+              </Show>
+            </dl>
+          </section>
 
-            <div class="paper overflow-hidden">
-              <div class="grid grid-cols-1 divide-y divide-zinc-200 dark:divide-zinc-800">
-                <For each={detailFacts()}>
-                  {(fact) => (
-                    <div class="px-3 py-2.5">
-                      <div class="text-[11px] uppercase tracking-wider text-dimmed">{fact.label}</div>
-                      <div classList={{ "font-mono break-all": fact.mono }} class="mt-1 text-xs text-primary">
-                        {fact.value}
-                      </div>
-                    </div>
+          <Show when={actionItems().length > 0}>
+            <section class="detail-section">
+              <h3 class="detail-section-label">Actions</h3>
+              <div class="flex flex-col gap-0.5">
+                <For each={actionItems()}>
+                  {(entry) => (
+                    <button
+                      type="button"
+                      class={entry.variant === "danger" ? dangerActionButtonClass : actionButtonClass}
+                      title={entry.label}
+                      onClick={() => {
+                        if ("action" in entry && entry.action) {
+                          void entry.action();
+                          return;
+                        }
+                        if ("href" in entry && entry.href) {
+                          window.open(entry.href, entry.external ? "_blank" : "_self");
+                        }
+                      }}
+                    >
+                      {entry.icon && <i class={entry.icon} />}
+                      <span>{entry.label === "Open" && canOpenFileInline(currentFile()) ? "Preview" : entry.label}</span>
+                    </button>
                   )}
                 </For>
               </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-0.5">
-              <For each={actionItems()}>
-                {(entry) => (
-                  <button
-                    type="button"
-                    class={entry.variant === "danger" ? dangerActionButtonClass : actionButtonClass}
-                    title={entry.label}
-                    onClick={() => {
-                      if ("action" in entry && entry.action) {
-                        void entry.action();
-                        return;
-                      }
-                      if ("href" in entry && entry.href) {
-                        window.open(entry.href, entry.external ? "_blank" : "_self");
-                      }
-                    }}
-                  >
-                    {entry.icon && <i class={entry.icon} />}
-                    <span>{entry.label === "Open" && canOpenFileInline(currentFile()) ? "Preview" : entry.label}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
+            </section>
+          </Show>
         </div>
       )}
     </Show>
