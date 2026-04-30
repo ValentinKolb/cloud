@@ -98,7 +98,6 @@ const initialAddressRows = (contact: Contact | null): EditableAddress[] => {
 };
 
 const detailHref = (bookId: string, contactId: string) => `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`;
-const sectionTitleClass = "text-sm font-semibold text-primary";
 
 /**
  * Shared contact upsert form (create + edit) for manual books.
@@ -289,141 +288,136 @@ export default function ContactUpsertForm(props: Props) {
   };
 
   return (
-    <div class="space-y-6">
-      <section class="space-y-3">
-        <h2 class={sectionTitleClass}>General</h2>
-
-        <div class="paper p-4 space-y-5">
-          <div class="space-y-3">
-            <h3 class="text-xs text-dimmed">Identity</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <TextInput
-                label="Label"
-                placeholder="Optional label"
-                icon="ti ti-user"
-                value={label}
-                onInput={setLabel}
-              />
-              <TextInput label="Website" placeholder="https://example.com" icon="ti ti-world" value={website} onInput={setWebsite} />
-              <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={firstName} onInput={setFirstName} />
-              <TextInput label="Last Name" placeholder="Mustermann" icon="ti ti-user" value={lastName} onInput={setLastName} />
-            </div>
-          </div>
-
-          <div class="space-y-3">
-            <h3 class="text-xs text-dimmed">Business</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <TextInput label="Company" placeholder="Example GmbH" icon="ti ti-building" value={companyName} onInput={setCompanyName} />
-              <TextInput label="VAT ID" placeholder="DE123456789" icon="ti ti-receipt-2" value={vatId} onInput={setVatId} />
-              <TextInput label="Department" placeholder="Sales" icon="ti ti-hierarchy" value={department} onInput={setDepartment} />
-              <TextInput label="Job Title" placeholder="Account Manager" icon="ti ti-briefcase" value={jobTitle} onInput={setJobTitle} />
-            </div>
-          </div>
-
-          <div class="space-y-3">
-            <h3 class="text-xs text-dimmed">Additional</h3>
-            <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
+    <div class="space-y-8">
+      <section>
+        <h3 class="detail-section-label">Identity</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={firstName} onInput={setFirstName} />
+          <TextInput label="Last Name" placeholder="Mustermann" icon="ti ti-user" value={lastName} onInput={setLastName} />
+          <div class="md:col-span-2">
+            <TextInput
+              label="Nickname"
+              placeholder="e.g. Alex"
+              description="Shown as the primary name in lists and the detail header. Falls back to first + last name when empty."
+              icon="ti ti-user"
+              value={label}
+              onInput={setLabel}
+            />
           </div>
         </div>
       </section>
 
-      <section class="space-y-3">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class={sectionTitleClass}>Emails</h2>
-          <button type="button" class="btn-secondary btn-sm" onClick={() => setEmails([...emails(), { ...EMPTY_EMAIL }])}>
-            <i class="ti ti-plus" />
-            Add
-          </button>
+      <section>
+        <h3 class="detail-section-label">Work</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <TextInput
+            label="Company"
+            placeholder="Example GmbH"
+            description="Shown as a chip in the contact header."
+            icon="ti ti-building"
+            value={companyName}
+            onInput={setCompanyName}
+          />
+          <TextInput
+            label="VAT ID"
+            placeholder="DE123456789"
+            description="Country prefix + ID, e.g. DE123456789."
+            icon="ti ti-receipt-2"
+            value={vatId}
+            onInput={setVatId}
+          />
+          <TextInput label="Department" placeholder="Sales" icon="ti ti-hierarchy" value={department} onInput={setDepartment} />
+          <TextInput label="Job Title" placeholder="Account Manager" icon="ti ti-briefcase" value={jobTitle} onInput={setJobTitle} />
         </div>
+      </section>
 
-        <div class="paper p-4 space-y-3">
-          <Show when={emails().length > 0} fallback={<p class="text-xs text-dimmed">No emails configured.</p>}>
+      <section>
+        <h3 class="detail-section-label">Reach</h3>
+        <div class="space-y-5">
+          <div class="space-y-2">
             <Index each={emails()}>
               {(email, index) => (
-              <div class="grid grid-cols-1 md:grid-cols-[190px_1fr_auto] gap-2 items-center">
-                <TextInput
-                  ariaLabel="Email label"
-                  placeholder="Label (optional)"
-                  icon="ti ti-tag"
-                  value={() => email().label}
-                  onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                />
-                <TextInput
-                  ariaLabel="Email address"
-                  placeholder="name@company.com"
-                  icon="ti ti-mail"
-                  value={() => email().email}
-                  onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, email: value } : row)))}
-                />
-                <div class="flex items-center justify-end">
-                  <RemoveBtn ariaLabel="Remove email" onClick={() => setEmails((current) => current.filter((_, i) => i !== index))} />
+                <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                  <TextInput
+                    ariaLabel="Email label"
+                    placeholder="work, private…"
+                    value={() => email().label}
+                    onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
+                  />
+                  <TextInput
+                    ariaLabel="Email address"
+                    placeholder="name@company.com"
+                    icon="ti ti-mail text-blue-500 dark:text-blue-400"
+                    value={() => email().email}
+                    onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, email: value } : row)))}
+                  />
+                  <div class="flex items-center justify-end">
+                    <RemoveBtn ariaLabel="Remove email" onClick={() => setEmails((current) => current.filter((_, i) => i !== index))} />
+                  </div>
                 </div>
-              </div>
               )}
             </Index>
-          </Show>
-        </div>
-      </section>
+            <button
+              type="button"
+              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+              onClick={() => setEmails([...emails(), { ...EMPTY_EMAIL }])}
+            >
+              <i class="ti ti-plus" /> Add email
+            </button>
+          </div>
 
-      <section class="space-y-3">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class={sectionTitleClass}>Telephones</h2>
-          <button type="button" class="btn-secondary btn-sm" onClick={() => setPhones([...phones(), { ...EMPTY_PHONE }])}>
-            <i class="ti ti-plus" />
-            Add
-          </button>
-        </div>
-
-        <div class="paper p-4 space-y-3">
-          <Show when={phones().length > 0} fallback={<p class="text-xs text-dimmed">No phone numbers configured.</p>}>
+          <div class="space-y-2">
             <Index each={phones()}>
               {(phone, index) => (
-              <div class="grid grid-cols-1 md:grid-cols-[190px_1fr_auto] gap-2 items-center">
-                <TextInput
-                  ariaLabel="Telephone label"
-                  placeholder="Label (optional)"
-                  icon="ti ti-tag"
-                  value={() => phone().label}
-                  onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                />
-                <TextInput
-                  ariaLabel="Telephone number"
-                  placeholder="+49 151 12345678"
-                  icon="ti ti-phone"
-                  value={() => phone().phone}
-                  onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
-                />
-                <div class="flex items-center justify-end">
-                  <RemoveBtn
-                    ariaLabel="Remove phone number"
-                    onClick={() => setPhones((current) => current.filter((_, i) => i !== index))}
+                <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                  <TextInput
+                    ariaLabel="Telephone label"
+                    placeholder="mobile, work…"
+                    value={() => phone().label}
+                    onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
                   />
+                  <TextInput
+                    ariaLabel="Telephone number"
+                    placeholder="+49 151 12345678"
+                    icon="ti ti-phone text-green-600 dark:text-green-400"
+                    value={() => phone().phone}
+                    onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
+                  />
+                  <div class="flex items-center justify-end">
+                    <RemoveBtn ariaLabel="Remove phone number" onClick={() => setPhones((current) => current.filter((_, i) => i !== index))} />
+                  </div>
                 </div>
-              </div>
               )}
             </Index>
-          </Show>
+            <button
+              type="button"
+              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+              onClick={() => setPhones([...phones(), { ...EMPTY_PHONE }])}
+            >
+              <i class="ti ti-plus" /> Add phone
+            </button>
+          </div>
+
+          <TextInput
+            ariaLabel="Website"
+            placeholder="https://example.com"
+            icon="ti ti-world text-purple-600 dark:text-purple-400"
+            value={website}
+            onInput={setWebsite}
+          />
         </div>
       </section>
 
-      <section class="space-y-3">
-        <div class="flex items-center justify-between gap-3">
-          <h2 class={sectionTitleClass}>Addresses</h2>
-          <button type="button" class="btn-secondary btn-sm" onClick={() => setAddresses([...addresses(), { ...EMPTY_ADDRESS }])}>
-            <i class="ti ti-plus" />
-            Add
-          </button>
-        </div>
-
-        <Show when={addresses().length > 0} fallback={<p class="text-xs text-dimmed">No addresses configured.</p>}>
-          <div class="space-y-3">
-            <Index each={addresses()}>
-              {(address, index) => (
-              <article class="paper p-4 space-y-3">
+      <section>
+        <h3 class="detail-section-label">Addresses</h3>
+        <div class="space-y-3">
+          <Index each={addresses()}>
+            {(address, index) => (
+              <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <TextInput
                     label="Label"
-                    placeholder="Address (optional)"
+                    placeholder="e.g. office, home"
                     icon="ti ti-tag"
                     value={() => address().label}
                     onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
@@ -433,9 +427,7 @@ export default function ContactUpsertForm(props: Props) {
                     placeholder="Max Mustermann"
                     icon="ti ti-user"
                     value={() => address().recipientName}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))
-                    }
+                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))}
                   />
                   <div class="md:col-span-2">
                     <TextInput
@@ -443,9 +435,7 @@ export default function ContactUpsertForm(props: Props) {
                       placeholder="Example GmbH"
                       icon="ti ti-building"
                       value={() => address().companyName}
-                      onInput={(value) =>
-                        setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))
-                      }
+                      onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))}
                     />
                   </div>
                   <TextInput
@@ -469,9 +459,7 @@ export default function ContactUpsertForm(props: Props) {
                     icon="ti ti-map-pin"
                     required
                     value={() => address().postalCode}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))
-                    }
+                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))}
                   />
                   <TextInput
                     label="City"
@@ -484,43 +472,50 @@ export default function ContactUpsertForm(props: Props) {
                   <TextInput
                     label="State / Region"
                     placeholder="Baden-Württemberg"
+                    description="Optional. US state or other region."
                     icon="ti ti-map-2"
                     value={() => address().stateRegion}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))
-                    }
+                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))}
                   />
                   <TextInput
                     label="Country Code"
                     placeholder="DE"
+                    description="ISO 2-letter, e.g. DE, AT, CH."
                     icon="ti ti-flag"
                     value={() => address().countryCode}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))
-                    }
+                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))}
                   />
                 </div>
-
-                <div class="pt-1">
+                <div class="mt-4 flex justify-end">
                   <button
                     type="button"
-                    class="btn-danger btn-sm"
+                    class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
                     onClick={() => setAddresses((current) => current.filter((_, i) => i !== index))}
                   >
-                    <i class="ti ti-trash" />
-                    Delete Address
+                    <i class="ti ti-trash" /> Remove address
                   </button>
                 </div>
-              </article>
-              )}
-            </Index>
-          </div>
-        </Show>
+              </div>
+            )}
+          </Index>
+          <button
+            type="button"
+            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+            onClick={() => setAddresses([...addresses(), { ...EMPTY_ADDRESS }])}
+          >
+            <i class="ti ti-plus" /> Add address
+          </button>
+        </div>
       </section>
 
-      <section class="space-y-3">
-        <h2 class={sectionTitleClass}>Note</h2>
-        <TextInput icon="ti ti-notes" multiline placeholder="Optional internal notes for this contact..." value={note} onInput={setNote} />
+      <section>
+        <h3 class="detail-section-label">Personal</h3>
+        <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
+      </section>
+
+      <section>
+        <h3 class="detail-section-label">Note</h3>
+        <TextInput ariaLabel="Note" multiline placeholder="Optional internal notes for this contact…" value={note} onInput={setNote} />
       </section>
 
       <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
