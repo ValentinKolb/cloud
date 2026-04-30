@@ -1,0 +1,63 @@
+/* Detail panels — flow layout for info-dense detail surfaces.
+
+   Convention: the outer panel is a SINGLE `paper p-4` (or equivalent surface).
+   Inside, every logical group is a `detail-section`. Sections auto-separate
+   with a hairline divider — no nested `paper` boxes, no manual <hr/>.
+   Empty sections must not render at all (use Show / conditional rendering)
+   so sparse records do not produce empty shells. */
+
+@utility detail-section {
+  /* Each section is its own surface card. The first content child of a
+     section sits flush below the label so the gap is exactly the label's
+     bottom margin, regardless of which content type follows. */
+  @apply paper p-4 mt-2 first:mt-0;
+  & > .detail-section-label + * {
+    @apply pt-0 mt-0;
+  }
+}
+
+@utility detail-section-label {
+  /* Mini-header that anchors a section visually, e.g. "REACH", "WORK".
+     Stronger than `section-label` because there is no horizontal rule between
+     sections — the label has to do the delineation work on its own. */
+  @apply mb-3 text-xs font-semibold uppercase tracking-wider text-secondary select-none;
+}
+
+@utility detail-row {
+  /* Single-line row for emails, phones, websites, simple facts. Compose with
+     `detail-row-icon` on the leading icon and `detail-row-label` on the
+     optional small label slot. */
+  @apply flex items-baseline gap-1.5 py-1.5 text-xs text-primary;
+}
+
+@utility detail-row-icon {
+  /* Fixed-width icon slot for `detail-row` — keeps values aligned across rows.
+     Add a color utility (`text-blue-500`, `text-amber-500`, …) to colorize
+     per data type. */
+  @apply shrink-0 w-4 text-sm text-center self-center;
+}
+
+@utility detail-row-label {
+  /* Optional small label between icon and value, e.g. "work", "private". */
+  @apply shrink-0 w-24 truncate text-dimmed;
+}
+
+@utility detail-facts {
+  /* Compact key/value grid for facts without per-row icons (e.g. PERSONAL,
+     WORK groups). Children pair up: `detail-fact-key` then value. Each row is
+     separated by a hairline so the eye can follow key → value across the gap. */
+  @apply grid grid-cols-[8rem_1fr] gap-x-4 text-xs text-primary;
+  & > * {
+    @apply py-1.5 border-b border-zinc-100 dark:border-zinc-900;
+  }
+  & > *:nth-last-child(-n+2) {
+    @apply border-b-0 pb-0;
+  }
+  & > *:nth-child(-n+2) {
+    @apply pt-0;
+  }
+}
+
+@utility detail-fact-key {
+  @apply text-dimmed;
+}

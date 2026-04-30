@@ -15,8 +15,8 @@ const trimOrNull = (value: string | null | undefined): string | null => {
 export const resolveContactName = (contact: NameLike): string => {
   const fullName = [trimOrNull(contact.firstName), trimOrNull(contact.lastName)].filter(Boolean).join(" ");
   return (
-    trimOrNull(fullName) ??
     trimOrNull(contact.label) ??
+    trimOrNull(fullName) ??
     trimOrNull(contact.companyName) ??
     trimOrNull(contact.emails?.[0]?.email) ??
     trimOrNull(contact.phones?.[0]?.phone) ??

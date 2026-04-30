@@ -113,7 +113,7 @@ export default ssr<AuthContext>(async (c) => {
             <SearchBar value={search} />
           </div>
           <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
-            <div class="pt-1" style="view-transition-name: contacts-list-container">
+            <div class="pt-2" style="view-transition-name: contacts-list-container">
               <ContactsList
                 contacts={contacts}
                 initialSelectedContactId={initialSelectedContactId}
