@@ -106,15 +106,26 @@ export const { ssr, plugin } = app;
 ```typescript
 // index.ts
 import { app } from "./config";
+import { Hono } from "hono";
+import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
+import apiRoutes from "./api";
+import pageRoutes from "./frontend";
+
+const router = new Hono<AuthContext>()
+  .use("*", middleware.runtime())
+  .use("*", middleware.settings())
+  .route("/api/my-app", apiRoutes)
+  .route("/app/my-app", pageRoutes);
 
 export default await app.start({
-  routes: { api: apiRoutes, pages: pageRoutes },
+  fetch: router.fetch,
+  openapi: apiRoutes,                              // optional, opt-in to /app/api-docs
   lifecycle: { setup, start, stop },
   capabilities: { search: { run: searchHandler } },
 });
 ```
 
-`defineApp()` creates the SSR config, plugin, and page handler. `app.start()` handles: Redis registration, Hono server, static file serving, runtime context injection, graceful shutdown. See the `cloud-app` skill for the full app-building guide.
+`defineApp()` creates the SSR config, plugin, and page handler. The framework owns `/_ssr/*`, `/public/*`, `/api/_internal/search` (when `capabilities.search` is set) and the OpenAPI mount (when `defineApp({ openapi })` + `app.start({ openapi })` are paired) — these register before the user fetch. Apps compose their own router with the middleware they need (`middleware.runtime`, `middleware.settings`, `middleware.logger`, `middleware.ratelimit`) and pass the resulting `.fetch` in. `app.start()` also handles Redis heartbeat, static file serving, and graceful shutdown. See the `cloud-app` skill for the full app-building guide.
 
 ## Auth Model
 
@@ -171,7 +182,7 @@ These are provided by the `@valentinkolb/cloud` package. Import paths:
 | `@valentinkolb/cloud` | `defineApp`, app registry, `createHeartbeat`, `buildRuntimeFromRegistry` |
 | `@valentinkolb/cloud/server` | `auth`, `v`, `respond`, `ok`, `fail`, `err`, `rateLimit`, `jsonResponse`, access helpers |
 | `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, postgres helpers |
-| `@valentinkolb/cloud/services/settings` | `getSync`, `set`, `get`, `loadCache` (settings access) |
+| `@valentinkolb/cloud/services/settings` | `get`, `set`, `remove`, `getAll`, `loadCache` — all reads are async (cache-aside through Redis) |
 | `@valentinkolb/cloud/ui` | All UI components, `prompts`, `DialogHeader`, `FilterChip`, `Pagination`, etc. |
 | `@valentinkolb/cloud/browser` | `api.create()` (typed Hono client), `copyToClipboard` |
 | `@valentinkolb/cloud/ssr` | `Layout`, `AdminLayout`, `getRuntimeContext` |
@@ -206,14 +217,16 @@ await notifications.send({
 
 ### Settings
 
-Runtime-configurable key-value store, encrypted at rest, cached in memory:
+Runtime-configurable key-value store, encrypted at rest, cached in Redis (cache-aside, 5-minute TTL):
 
 ```typescript
 import * as settings from "@valentinkolb/cloud/services/settings";
 
-const value = settings.getSync<number>("logs.retention_days"); // sync, from cache
-await settings.set("logs.retention_days", 60);                 // async, updates DB + cache
+const value = await settings.get<number>("logs.retention_days"); // async, Redis-cached
+await settings.set("logs.retention_days", 60);                   // async, updates DB + cache
 ```
+
+Inside an HTTP handler prefer the per-request snapshot on `c.get("settings")` (sync, frozen for the request) — it's populated by `middleware.settings()` and avoids the Redis round-trip on every read. Fall back to `await settings.get(...)` outside the request lifecycle (background jobs, lifecycle hooks).
 
 App-owned settings are declared inside `defineApp({ settings: { ... } })` as a typed map (see the `cloud-app` skill). The platform registers them automatically and they appear in the admin settings UI grouped by the dotted-key prefix. They support env-var fallbacks; resolution order: DB value → env fallback → code default.
 

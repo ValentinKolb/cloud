@@ -27,7 +27,7 @@ Cloud bundles a set of apps that cover the common operational needs of an organi
 | **Operations** | [`settings`](packages/settings) — system + per-app settings, legal docs &nbsp;•&nbsp; [`logging`](packages/logging) — structured logs with admin viewer &nbsp;•&nbsp; [`notifications`](packages/notifications) — transactional email |
 | **Productivity** | [`notebooks`](packages/notebooks) — collaborative notes (Yjs) &nbsp;•&nbsp; [`spaces`](packages/spaces) — kanban / list / calendar with iCal &nbsp;•&nbsp; [`files`](packages/files) — shared storage &nbsp;•&nbsp; [`contacts`](packages/contacts) — directory views |
 | **Content & misc** | [`faq`](packages/faq) &nbsp;•&nbsp; [`weather`](packages/weather) &nbsp;•&nbsp; [`quotes`](packages/quotes) &nbsp;•&nbsp; [`tools`](packages/tools) |
-| **Development** | [`ui-lab`](packages/ui-lab) — component showcase |
+| **Development** | [`api-docs`](packages/api-docs) — Scalar UI aggregating every running app's OpenAPI spec &nbsp;•&nbsp; [`ui-lab`](packages/ui-lab) — component showcase |
 
 ## Build your own app
 

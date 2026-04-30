@@ -808,10 +808,10 @@ export const app = defineApp({
 // In a service or any non-request context:
 import * as settings from "@valentinkolb/cloud/services/settings";
 
-const enabled = settings.getSync<boolean>("my-app.feature_enabled");
+const enabled = await settings.get<boolean>("my-app.feature_enabled");
 ```
 
-Settings automatically appear in the admin settings UI, grouped by the dotted-key prefix.
+All `settings.*` reads are async — they go through the Redis cache-aside layer (5-minute TTL). Inside an HTTP handler prefer the sync per-request snapshot on `c.get("settings")` populated by `middleware.settings()`. Settings automatically appear in the admin settings UI, grouped by the dotted-key prefix.
 
 ### Universal Search Integration
 
@@ -841,13 +841,13 @@ capabilities: {
 
 ### WebSockets
 
-Hono v4+ supports WebSockets natively via Bun. Import the WebSocket adapter from `hono/bun`, mount WS routes on the API router, and spread the `app.start()` result with the websocket handler:
+Hono v4+ supports WebSockets natively via Bun. Import the WebSocket adapter from `hono/bun`, register WS routes on your composed router, and spread the `app.start()` result with the websocket handler so Bun picks it up:
 
 ```typescript
 // In index.ts
 import { websocket } from "hono/bun";
 
-const result = await app.start({ routes: { api, pages }, ... });
+const result = await app.start({ fetch: router.fetch, openapi: apiRoutes });
 export default { ...result, websocket };
 ```
 
