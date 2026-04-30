@@ -31,11 +31,9 @@ type DragMeta = {
   itemId: string;
 };
 
-type DropMeta = {
-  bucketKey: string;
-  index: number;
-  kind: "item" | "end";
-};
+type DropMeta =
+  | { kind: "item"; bucketKey: string; index: number }
+  | { kind: "column"; bucketKey: string };
 
 type DropIntent = {
   bucketKey: string;
@@ -208,8 +206,25 @@ export default function KanbanBoard(props: Props) {
 
   const buildDropIntent = (ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>) => {
     if (!ctx.over) return null;
-    const rawIndex =
-      ctx.over.meta.kind === "item" ? (ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2 ? ctx.over.meta.index : ctx.over.meta.index + 1) : ctx.over.meta.index;
+
+    let rawIndex: number;
+    if (ctx.over.meta.kind === "item") {
+      rawIndex =
+        ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2
+          ? ctx.over.meta.index
+          : ctx.over.meta.index + 1;
+    } else {
+      // Pointer is somewhere in the column body; locate insert index from card rects.
+      const cards = ctx.over.element.querySelectorAll<HTMLElement>("[data-card-index]");
+      rawIndex = cards.length;
+      for (let i = 0; i < cards.length; i++) {
+        const r = cards[i]!.getBoundingClientRect();
+        if (ctx.pointer.y < r.top + r.height / 2) {
+          rawIndex = i;
+          break;
+        }
+      }
+    }
 
     const resolved = resolveMoveTargets({
       itemId: ctx.active.meta.itemId,
@@ -459,7 +474,20 @@ export default function KanbanBoard(props: Props) {
                   <span class="text-[11px] text-dimmed">{bucket.total}</span>
                 </header>
 
-                <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-1.5 py-1">
+                <div
+                  ref={(element) => {
+                    boardDnd.droppable(element, () => ({
+                      id: `drop:column:${bucket.key}`,
+                      disabled: !canDropInBucket || moveMutation.loading(),
+                      meta: { kind: "column", bucketKey: bucket.key },
+                    }));
+                  }}
+                  class={`flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-md p-1.5 transition-colors ${
+                    boardDnd.isDragging() && boardDnd.intent()?.bucketKey === bucket.key
+                      ? "bg-blue-500/5 ring-1 ring-inset ring-blue-500/30 dark:bg-blue-400/5 dark:ring-blue-400/25"
+                      : ""
+                  }`}
+                >
                   <Show when={bucket.items.length > 0} fallback={<p class="px-2 py-6 text-center text-[11px] text-dimmed">No items</p>}>
                     <For each={bucket.items}>
                       {(item, itemIndex) => {
@@ -498,6 +526,7 @@ export default function KanbanBoard(props: Props) {
                                 }));
                               }}
                               data-dnd-card-handle
+                              data-card-index={itemIndex()}
                               class={`group/card relative rounded-md p-2.5 transition-colors ${
                                 isSelected()
                                   ? "bg-blue-50/80 ring-2 ring-inset ring-blue-500/65 dark:bg-blue-900/30 dark:ring-blue-400/60"
@@ -559,21 +588,6 @@ export default function KanbanBoard(props: Props) {
                       <div class="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-md border border-blue-500/80 bg-blue-500/25 dark:border-blue-400/80 dark:bg-blue-400/25" />
                     </div>
                   </Show>
-
-                  <div
-                    ref={(element) => {
-                      boardDnd.droppable(element, () => ({
-                        id: `drop:end:${bucket.key}`,
-                        disabled: !canDropInBucket || moveMutation.loading(),
-                        meta: {
-                          bucketKey: bucket.key,
-                          index: bucket.items.length,
-                          kind: "end",
-                        },
-                      }));
-                    }}
-                    class="h-4 rounded-md"
-                  />
 
                   <Show when={hasMore(bucket)}>
                     <button
