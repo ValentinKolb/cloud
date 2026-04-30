@@ -151,7 +151,7 @@ export type StartOptions = {
    * before this fetch — they take precedence over any catch-all the app
    * might register.
    */
-  fetch: (req: Request) => Response | Promise<Response>;
+  fetch: (req: Request, env?: unknown) => Response | Promise<Response>;
   /**
    * Hono router to scan for OpenAPI route metadata. When set together with
    * `defineApp({ openapi: "..." })`, the framework generates an OpenAPI
@@ -404,7 +404,11 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     // User's fetch handles everything else. The framework doesn't inject any
     // context vars here — the user's router is expected to register the
     // middlewares it needs (middleware.runtime, middleware.settings, …).
-    server.all("*", (c) => Promise.resolve(startOpts.fetch(c.req.raw)));
+    //
+    // env is threaded through so Bun-specific helpers inside the user's
+    // router still work — most importantly `upgradeWebSocket` from hono/bun,
+    // which reads the Bun server off `c.env`.
+    server.all("*", (c) => Promise.resolve(startOpts.fetch(c.req.raw, c.env)));
 
     // Lifecycle
     const cloudCtx: CloudContext = {
