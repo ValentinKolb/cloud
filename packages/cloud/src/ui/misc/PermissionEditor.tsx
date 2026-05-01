@@ -4,7 +4,11 @@ import { prompts } from "../prompts";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import SegmentedControl from "../input/SegmentedControl";
 import EntitySearch, { type EntitySearchResult } from "./EntitySearch";
-import type { AccessEntry, PermissionLevel, Principal } from "../../contracts/shared";
+import type {
+  AccessEntry,
+  PermissionLevel,
+  Principal,
+} from "../../contracts/shared";
 
 const PERMISSION_OPTIONS: {
   value: PermissionLevel;
@@ -24,9 +28,17 @@ type PermissionEditorProps = {
   /** Whether the current user can edit permissions */
   canEdit?: boolean;
   /** Grant access for this resource */
-  grantAccess: (resourceId: string, principal: Principal, permission: PermissionLevel) => Promise<AccessEntry>;
+  grantAccess: (
+    resourceId: string,
+    principal: Principal,
+    permission: PermissionLevel
+  ) => Promise<AccessEntry>;
   /** Update access permission for this resource */
-  updateAccess: (resourceId: string, accessId: string, permission: PermissionLevel) => Promise<void>;
+  updateAccess: (
+    resourceId: string,
+    accessId: string,
+    permission: PermissionLevel
+  ) => Promise<void>;
   /** Revoke access for this resource */
   revokeAccess: (resourceId: string, accessId: string) => Promise<void>;
   /** Allow creating public access entries from this editor */
@@ -38,7 +50,9 @@ type PermissionEditorProps = {
  * Can be used in dialogs or pages to manage who has access to a resource.
  */
 export default function PermissionEditor(props: PermissionEditorProps) {
-  const [entries, setEntries] = createSignal<AccessEntry[]>([...props.initialEntries]);
+  const [entries, setEntries] = createSignal<AccessEntry[]>([
+    ...props.initialEntries,
+  ]);
   const [showAddForm, setShowAddForm] = createSignal(false);
   const canEdit = () => props.canEdit !== false;
   const allowPublic = () => props.allowPublic === true;
@@ -54,13 +68,22 @@ export default function PermissionEditor(props: PermissionEditorProps) {
       .filter((e) => e.principal.type === "group")
       .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
 
-  const hasAuthenticatedEntry = () => entries().some((entry) => entry.principal.type === "authenticated");
-  const hasPublicEntry = () => entries().some((entry) => entry.principal.type === "public");
+  const hasAuthenticatedEntry = () =>
+    entries().some((entry) => entry.principal.type === "authenticated");
+  const hasPublicEntry = () =>
+    entries().some((entry) => entry.principal.type === "public");
 
   // Grant access mutation
   const grantMut = mutation.create({
-    mutation: async (data: { principal: Principal; permission: PermissionLevel }) => {
-      return props.grantAccess(props.resourceId, data.principal, data.permission);
+    mutation: async (data: {
+      principal: Principal;
+      permission: PermissionLevel;
+    }) => {
+      return props.grantAccess(
+        props.resourceId,
+        data.principal,
+        data.permission
+      );
     },
     onSuccess: (newEntry) => {
       setEntries([...entries(), newEntry as AccessEntry]);
@@ -70,15 +93,28 @@ export default function PermissionEditor(props: PermissionEditorProps) {
   });
 
   // Update permission mutation
-  const updateMut = mutation.create<{ accessId: string; permission: PermissionLevel }, { accessId: string; permission: PermissionLevel }>({
+  const updateMut = mutation.create<
+    { accessId: string; permission: PermissionLevel },
+    { accessId: string; permission: PermissionLevel }
+  >({
     mutation: async (data) => {
-      await props.updateAccess(props.resourceId, data.accessId, data.permission);
+      await props.updateAccess(
+        props.resourceId,
+        data.accessId,
+        data.permission
+      );
       // Return the data so we can use it in onSuccess
       return data;
     },
     onSuccess: (result) => {
       if (result) {
-        setEntries(entries().map((e) => (e.id === result.accessId ? { ...e, permission: result.permission } : e)));
+        setEntries(
+          entries().map((e) =>
+            e.id === result.accessId
+              ? { ...e, permission: result.permission }
+              : e
+          )
+        );
       }
     },
     onError: (err) => prompts.error(err.message),
@@ -99,15 +135,24 @@ export default function PermissionEditor(props: PermissionEditorProps) {
     }
 
     const displayName = getEntryDisplayName(entry);
-    const confirmed = await prompts.confirm(`Remove access for ${displayName}?`, { title: "Remove Access", variant: "danger" });
+    const confirmed = await prompts.confirm(
+      `Remove access for ${displayName}?`,
+      { title: "Remove Access", variant: "danger" }
+    );
     if (confirmed) {
       revokeMut.mutate(entry.id);
       setEntries(entries().filter((e) => e.id !== entry.id));
     }
   };
 
-  const handleEntitySelect = (result: EntitySearchResult, permission: PermissionLevel) => {
-    const principal: Principal = result.type === "user" ? { type: "user", userId: result.id } : { type: "group", groupId: result.id };
+  const handleEntitySelect = (
+    result: EntitySearchResult,
+    permission: PermissionLevel
+  ) => {
+    const principal: Principal =
+      result.type === "user"
+        ? { type: "user", userId: result.id }
+        : { type: "group", groupId: result.id };
 
     grantMut.mutate({ principal, permission });
   };
@@ -122,7 +167,9 @@ export default function PermissionEditor(props: PermissionEditorProps) {
               entry={entry}
               canEdit={canEdit()}
               canDelete={entries().length > 1}
-              onUpdatePermission={(permission) => updateMut.mutate({ accessId: entry.id, permission })}
+              onUpdatePermission={(permission) =>
+                updateMut.mutate({ accessId: entry.id, permission })
+              }
               onRevoke={() => handleRevoke(entry)}
               updating={updateMut.loading()}
             />
@@ -149,7 +196,9 @@ export default function PermissionEditor(props: PermissionEditorProps) {
             existingUserIds={existingUserIds()}
             existingGroupIds={existingGroupIds()}
             onSelectEntity={handleEntitySelect}
-            onSelectPrincipal={(principal, permission) => grantMut.mutate({ principal, permission })}
+            onSelectPrincipal={(principal, permission) =>
+              grantMut.mutate({ principal, permission })
+            }
             onCancel={() => setShowAddForm(false)}
             loading={grantMut.loading()}
             showAuthenticated={!hasAuthenticatedEntry()}
@@ -167,7 +216,8 @@ export default function PermissionEditor(props: PermissionEditorProps) {
 
 function getEntryDisplayName(entry: AccessEntry): string {
   if (entry.displayName) return entry.displayName;
-  if (entry.principal.type === "authenticated") return "All users (incl. guests)";
+  if (entry.principal.type === "authenticated")
+    return "All users (incl. guests)";
   if (entry.principal.type === "public") return "Public";
   if (entry.principal.type === "user") return entry.principal.userId;
   return entry.principal.groupId;
@@ -232,18 +282,32 @@ function AccessEntryRow(props: {
       <div class="relative">
         <button
           type="button"
-          onClick={() => props.canEdit && setShowPermissionMenu(!showPermissionMenu())}
+          onClick={() =>
+            props.canEdit && setShowPermissionMenu(!showPermissionMenu())
+          }
           disabled={!props.canEdit}
           class={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border transition-colors ${getPermissionColor(
-            props.entry.permission,
-          )} ${props.canEdit ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800" : "cursor-default"}`}
+            props.entry.permission
+          )} ${
+            props.canEdit
+              ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              : "cursor-default"
+          }`}
           classList={{
-            "border-blue-200 dark:border-blue-900": props.entry.permission === "read",
-            "border-amber-200 dark:border-amber-900": props.entry.permission === "write",
-            "border-purple-200 dark:border-purple-900": props.entry.permission === "admin",
+            "border-blue-200 dark:border-blue-900":
+              props.entry.permission === "read",
+            "border-amber-200 dark:border-amber-900":
+              props.entry.permission === "write",
+            "border-purple-200 dark:border-purple-900":
+              props.entry.permission === "admin",
           }}
         >
-          <i class={`ti ${PERMISSION_OPTIONS.find((o) => o.value === props.entry.permission)?.icon}`} />
+          <i
+            class={`ti ${
+              PERMISSION_OPTIONS.find((o) => o.value === props.entry.permission)
+                ?.icon
+            }`}
+          />
           <span class="capitalize">{props.entry.permission}</span>
           <Show when={props.canEdit}>
             <i class="ti ti-chevron-down text-[10px]" />
@@ -252,7 +316,7 @@ function AccessEntryRow(props: {
 
         {/* Permission dropdown */}
         <Show when={showPermissionMenu()}>
-          <div class="absolute right-0 top-full mt-1 z-10 popup py-1 min-w-30">
+          <div class="absolute right-0 top-full mt-1 z-10 popup min-w-30">
             <For each={PERMISSION_OPTIONS}>
               {(option) => (
                 <button
@@ -265,10 +329,15 @@ function AccessEntryRow(props: {
                   }}
                   class="w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 flex items-center gap-2"
                   classList={{
-                    "bg-zinc-50 dark:bg-zinc-700/50": option.value === props.entry.permission,
+                    "bg-zinc-50 dark:bg-zinc-700/50":
+                      option.value === props.entry.permission,
                   }}
                 >
-                  <i class={`ti ${option.icon} ${getPermissionColor(option.value)}`} />
+                  <i
+                    class={`ti ${option.icon} ${getPermissionColor(
+                      option.value
+                    )}`}
+                  />
                   <span>{option.label}</span>
                   <Show when={option.value === props.entry.permission}>
                     <i class="ti ti-check ml-auto text-green-500" />
@@ -301,15 +370,22 @@ function AccessEntryRow(props: {
 function AddAccessForm(props: {
   existingUserIds: string[];
   existingGroupIds: string[];
-  onSelectEntity: (result: EntitySearchResult, permission: PermissionLevel) => void;
-  onSelectPrincipal: (principal: Principal, permission: PermissionLevel) => void;
+  onSelectEntity: (
+    result: EntitySearchResult,
+    permission: PermissionLevel
+  ) => void;
+  onSelectPrincipal: (
+    principal: Principal,
+    permission: PermissionLevel
+  ) => void;
   onCancel: () => void;
   loading: boolean;
   showAuthenticated: boolean;
   showPublic: boolean;
 }) {
   const [permission, setPermission] = createSignal<PermissionLevel>("read");
-  const hasTwoPrincipalButtons = () => props.showAuthenticated && props.showPublic;
+  const hasTwoPrincipalButtons = () =>
+    props.showAuthenticated && props.showPublic;
   const permissionOptions = PERMISSION_OPTIONS.map((option) => ({
     value: option.value,
     label: option.label,
@@ -321,7 +397,12 @@ function AddAccessForm(props: {
       {/* Permission level selector */}
       <div class="flex flex-col gap-1">
         <p class="text-xs text-secondary">Permission Level</p>
-        <SegmentedControl options={permissionOptions} value={permission} onChange={setPermission} disabled={props.loading} />
+        <SegmentedControl
+          options={permissionOptions}
+          value={permission}
+          onChange={setPermission}
+          disabled={props.loading}
+        />
       </div>
 
       {/* User/Group search */}
@@ -348,7 +429,9 @@ function AddAccessForm(props: {
           <Show when={props.showAuthenticated}>
             <button
               type="button"
-              onClick={() => props.onSelectPrincipal({ type: "authenticated" }, permission())}
+              onClick={() =>
+                props.onSelectPrincipal({ type: "authenticated" }, permission())
+              }
               disabled={props.loading}
               class="btn-simple btn-sm w-full justify-center"
             >
@@ -359,7 +442,9 @@ function AddAccessForm(props: {
           <Show when={props.showPublic}>
             <button
               type="button"
-              onClick={() => props.onSelectPrincipal({ type: "public" }, permission())}
+              onClick={() =>
+                props.onSelectPrincipal({ type: "public" }, permission())
+              }
               disabled={props.loading}
               class="btn-secondary btn-sm w-full justify-center"
             >
@@ -371,7 +456,11 @@ function AddAccessForm(props: {
       </Show>
 
       {/* Cancel button */}
-      <button type="button" onClick={props.onCancel} class="text-xs text-dimmed hover:text-primary self-end">
+      <button
+        type="button"
+        onClick={props.onCancel}
+        class="text-xs text-dimmed hover:text-primary self-end"
+      >
         Cancel
       </button>
     </div>
