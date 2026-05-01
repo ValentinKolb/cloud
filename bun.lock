@@ -45,7 +45,7 @@
     },
     "packages/cloud": {
       "name": "@valentinkolb/cloud",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "dependencies": {
         "@fontsource-variable/jetbrains-mono": "^5.2.8",
         "@tabler/icons-webfont": "^3.36.1",
@@ -160,6 +160,22 @@
         "@valentinkolb/ssr": "0.9.0",
         "hono": "^4.11.1",
         "solid-js": "^1.9.10",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.9",
+        "typescript": "^5.9.3",
+      },
+    },
+    "packages/grids": {
+      "name": "@valentinkolb/cloud-app-grids",
+      "version": "0.0.0",
+      "dependencies": {
+        "@valentinkolb/cloud": "workspace:*",
+        "@valentinkolb/stdlib": "0.3.0",
+        "decimal.js": "^10.6.0",
+        "hono": "^4.11.1",
+        "hono-openapi": "^1.1.2",
+        "zod": "^4.3.4",
       },
       "devDependencies": {
         "@types/bun": "1.3.9",
@@ -1045,6 +1061,8 @@
 
     "@valentinkolb/cloud-app-gateway": ["@valentinkolb/cloud-app-gateway@workspace:packages/gateway"],
 
+    "@valentinkolb/cloud-app-grids": ["@valentinkolb/cloud-app-grids@workspace:packages/grids"],
+
     "@valentinkolb/cloud-app-ipa-hosts": ["@valentinkolb/cloud-app-ipa-hosts@workspace:packages/ipa-hosts"],
 
     "@valentinkolb/cloud-app-logging": ["@valentinkolb/cloud-app-logging@workspace:packages/logging"],
@@ -1322,6 +1340,8 @@
     "dayjs": ["dayjs@1.11.19", "", {}, "sha512-t5EcLVS6QPBNqM2z8fakk/NKel+Xzshgt8FFKAn+qwlD1pzZWxh0nVCrvFK7ZDb6XucZeF9z8C7CBWTRIVApAw=="],
 
     "debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
+
+    "decimal.js": ["decimal.js@10.6.0", "", {}, "sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg=="],
 
     "decode-named-character-reference": ["decode-named-character-reference@1.3.0", "", { "dependencies": { "character-entities": "^2.0.0" } }, "sha512-GtpQYB283KrPp6nRw50q3U9/VfOutZOe103qlN7BPP6Ad27xYnOIWv4lPzo8HCAL+mMZofJ9KEy30fq6MfaK6Q=="],
 

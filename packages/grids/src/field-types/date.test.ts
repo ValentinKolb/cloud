@@ -1,0 +1,37 @@
+import { test, expect } from "bun:test";
+import { dateHandler } from "./date";
+
+test("date: accepts YYYY-MM-DD as-is", () => {
+  expect(dateHandler.validate("2026-05-02", {}, false)).toEqual({ ok: true, value: "2026-05-02" });
+});
+
+test("date: truncates ISO datetime to date when includeTime=false", () => {
+  expect(dateHandler.validate("2026-05-02T10:00:00Z", {}, false)).toEqual({
+    ok: true,
+    value: "2026-05-02",
+  });
+});
+
+test("datetime: canonicalizes to UTC ISO", () => {
+  const result = dateHandler.validate("2026-05-02T12:00:00+02:00", { includeTime: true }, false);
+  expect(result).toEqual({ ok: true, value: "2026-05-02T10:00:00.000Z" });
+});
+
+test("date: rejects garbage strings", () => {
+  expect(dateHandler.validate("not a date", {}, false).ok).toBe(false);
+  expect(dateHandler.validate("2026-13-99", {}, false).ok).toBe(false);
+});
+
+test("date: required rejects null/empty", () => {
+  expect(dateHandler.validate(null, {}, true).ok).toBe(false);
+  expect(dateHandler.validate("", {}, true).ok).toBe(false);
+});
+
+test("date: enforces min/max", () => {
+  expect(dateHandler.validate("2025-01-01", { min: "2026-01-01" }, false).ok).toBe(false);
+  expect(dateHandler.validate("2027-01-01", { max: "2026-12-31" }, false).ok).toBe(false);
+  expect(dateHandler.validate("2026-06-15", { min: "2026-01-01", max: "2026-12-31" }, false)).toEqual({
+    ok: true,
+    value: "2026-06-15",
+  });
+});
