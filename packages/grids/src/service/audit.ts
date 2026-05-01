@@ -43,25 +43,42 @@ export const logAudit = async (input: LogAuditInput): Promise<void> => {
   `;
 };
 
+/**
+ * Audit-log IDs are gen_random_uuid() — not time-ordered — so pagination
+ * uses (created_at DESC, id DESC) tuple cursor: rows with the same instant
+ * get a deterministic id tiebreaker so we never skip or reorder history.
+ * Cursor format: "<ISO timestamp>|<uuid>".
+ */
 export const listAudit = async (params: {
   tableId?: string;
   recordId?: string;
   limit?: number;
   cursor?: string | null;
-}): Promise<AuditEntry[]> => {
+}): Promise<{ items: AuditEntry[]; nextCursor: string | null }> => {
   const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
   const conditions: any[] = [sql`TRUE`];
   if (params.tableId) conditions.push(sql`table_id = ${params.tableId}::uuid`);
   if (params.recordId) conditions.push(sql`record_id = ${params.recordId}::uuid`);
-  if (params.cursor) conditions.push(sql`id < ${params.cursor}::uuid`);
+  if (params.cursor) {
+    const sep = params.cursor.indexOf("|");
+    if (sep > 0) {
+      const ts = params.cursor.slice(0, sep);
+      const id = params.cursor.slice(sep + 1);
+      conditions.push(sql`(created_at, id) < (${ts}::timestamptz, ${id}::uuid)`);
+    }
+  }
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
   const rows = await sql<DbRow[]>`
     SELECT id, base_id, table_id, record_id, user_id, action, diff, ip, user_agent, created_at
     FROM grids.audit_log
     WHERE ${where}
-    ORDER BY id DESC
-    LIMIT ${limit}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${limit + 1}
   `;
-  return rows.map(mapRow);
+  const hasMore = rows.length > limit;
+  const items = rows.slice(0, limit).map(mapRow);
+  const last = items[items.length - 1];
+  const nextCursor = hasMore && last ? `${last.createdAt}|${last.id}` : null;
+  return { items, nextCursor };
 };

@@ -20,26 +20,31 @@ const mapRow = (row: DbRow): GridRecord => ({
 });
 
 /**
- * Validates and normalizes a payload of `{ fieldId: rawValue }` against the
- * table's active fields. Unknown field IDs are rejected. Missing fields fall
- * back to their default value (if any). System fields are skipped.
+ * Create-path validation: every user-writable field is materialized using
+ * either the provided value or the field's default. Required-checks apply.
+ * Autonumber fields receive a sequence value derived from the existing rows.
  */
-const validatePayload = async (
+const validateForCreate = async (
   tableId: string,
   payload: Record<string, unknown>,
 ): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(tableId);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
-  // Reject keys that don't match a known active field.
   for (const key of Object.keys(payload)) {
-    if (!fieldsById.has(key)) {
-      return fail(err.badInput(`unknown field "${key}"`));
-    }
+    if (!fieldsById.has(key)) return fail(err.badInput(`unknown field "${key}"`));
   }
 
   const out: Record<string, unknown> = {};
   for (const field of fields) {
+    if (field.type === "autonumber") {
+      const [row] = await sql<DbRow[]>`
+        SELECT COALESCE(MAX((data->>${field.id})::bigint), 0) + 1 AS next
+        FROM grids.records WHERE table_id = ${tableId}::uuid
+      `;
+      out[field.id] = Number(row?.next ?? 1);
+      continue;
+    }
     const handler = getHandler(field.type);
     if (!handler || !handler.userInput) continue;
 
@@ -50,6 +55,36 @@ const validatePayload = async (
     if (result.value !== null && result.value !== undefined) {
       out[field.id] = result.value;
     }
+  }
+  return ok(out);
+};
+
+/**
+ * Update-path validation: ONLY the fields present in the payload are validated.
+ * Omitted fields are left to the merge step in `update()` to preserve existing
+ * values. Explicit `null` is a clear-the-field intent and must round-trip.
+ */
+const validateForUpdate = async (
+  tableId: string,
+  payload: Record<string, unknown>,
+): Promise<Result<Record<string, unknown>>> => {
+  const fields = await listFields(tableId);
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+
+  for (const key of Object.keys(payload)) {
+    if (!fieldsById.has(key)) return fail(err.badInput(`unknown field "${key}"`));
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [fieldId, raw] of Object.entries(payload)) {
+    const field = fieldsById.get(fieldId)!;
+    const handler = getHandler(field.type);
+    if (!handler || !handler.userInput) {
+      return fail(err.badInput(`field "${field.name}" is not user-writable`));
+    }
+    const result = handler.validate(raw, field.config, field.required);
+    if (!result.ok) return fail(err.badInput(`field "${field.name}": ${result.error}`));
+    out[fieldId] = result.value;
   }
   return ok(out);
 };
@@ -89,7 +124,7 @@ export const create = async (
   payload: Record<string, unknown>,
   actorId: string | null,
 ): Promise<Result<GridRecord>> => {
-  const validated = await validatePayload(tableId, payload);
+  const validated = await validateForCreate(tableId, payload);
   if (!validated.ok) return validated;
 
   const id = Bun.randomUUIDv7();
@@ -132,12 +167,16 @@ export const update = async (
     return fail(err.conflict("Record version mismatch"));
   }
 
-  const validated = await validatePayload(tableId, payload);
+  const validated = await validateForUpdate(tableId, payload);
   if (!validated.ok) return validated;
 
-  // Compose the new data: merge validated fields onto the existing data so
-  // partial updates work.
+  // Merge: existing data + only the validated fields. Explicit-null in payload
+  // means "clear this field" — preserved through the merge as null.
   const merged = { ...existing.data, ...validated.data };
+  // Strip nulls so JSONB doesn't carry zombie keys for cleared fields.
+  for (const [k, v] of Object.entries(merged)) {
+    if (v === null) delete merged[k];
+  }
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.records

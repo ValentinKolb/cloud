@@ -44,8 +44,9 @@ export const decimalHandler: FieldTypeHandler = {
     // point. `precision(true)` only counts significant digits, so 1000 reports
     // 4 — that fits in p=5 by the abstract count, but laid out with scale=2
     // it becomes "1000.00" which needs 6 total digits and would be rejected
-    // by Postgres. Check the integer side explicitly.
-    const integerDigits = Math.max(0, dec.precision(true) - dec.decimalPlaces());
+    // by Postgres. Check the integer side explicitly. Zero is a special case:
+    // `0` reports precision=1 but represents 0 integer digits.
+    const integerDigits = dec.isZero() ? 0 : Math.max(0, dec.precision(true) - dec.decimalPlaces());
     const maxIntegerDigits = config.precision - config.scale;
     if (integerDigits > maxIntegerDigits) {
       return fail(`exceeds precision ${config.precision} (max ${maxIntegerDigits} integer digits)`);

@@ -3,6 +3,8 @@ import * as tables from "./tables";
 import * as fields from "./fields";
 import * as records from "./records";
 import * as audit from "./audit";
+import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
+import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast } from "./permission-resolver";
 
 export const gridsService = {
   base: {
@@ -38,7 +40,18 @@ export const gridsService = {
     log: audit.logAudit,
     list: audit.listAudit,
   },
+  permission: {
+    resolve: resolveEffectivePermission,
+    loadGrants: loadGrantsForUser,
+    hasAtLeast,
+  },
+  fieldDependents: {
+    get: getFieldDependents,
+    hasBlocking: hasBlockingDependents,
+  },
 };
 
 export { bases, tables, fields, records, audit };
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
+export type { FieldDependent } from "./field-dependents";
+export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";

@@ -24,6 +24,13 @@ test("decimal: rejects integer side exceeding precision-scale", () => {
   expect(decimalHandler.validate("999", { precision: 5, scale: 2 }, false)).toEqual({ ok: true, value: "999.00" });
 });
 
+test("decimal: zero is valid for fully-fractional precision (e.g. NUMERIC(2,2))", () => {
+  // NUMERIC(2,2) holds 0.00 to 0.99 — zero must round-trip.
+  expect(decimalHandler.validate("0", { precision: 2, scale: 2 }, false)).toEqual({ ok: true, value: "0.00" });
+  expect(decimalHandler.validate("0.50", { precision: 2, scale: 2 }, false)).toEqual({ ok: true, value: "0.50" });
+  expect(decimalHandler.validate("1", { precision: 2, scale: 2 }, false).ok).toBe(false);
+});
+
 test("decimal: enforces min/max as strings", () => {
   expect(decimalHandler.validate("5.00", { ...cfg2, min: "10" }, false).ok).toBe(false);
   expect(decimalHandler.validate("20.00", { ...cfg2, max: "10" }, false).ok).toBe(false);
