@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { resolveContactName } from "../../shared";
 import type { Contact } from "../../service";
 import { CONTACT_DETAIL_EVENT, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
@@ -97,17 +97,30 @@ export default function ContactsList(props: Props) {
                     <td class="px-3 py-1.5 font-medium text-primary">
                       <div class="flex flex-col gap-0.5">
                         <span class="truncate group-hover:underline">{resolveContactName(contact)}</span>
-                        <Show when={contact.parent}>
-                          {(parent) => (
-                            <span
-                              class="inline-flex w-fit items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                              title={`Belongs to ${resolveContactName(parent())}`}
-                            >
-                              <i class="ti ti-corner-down-right text-[9px]" />
-                              {resolveContactName(parent())}
-                            </span>
-                          )}
-                        </Show>
+                        <div class="flex flex-wrap items-center gap-1">
+                          <Show when={contact.parent}>
+                            {(parent) => (
+                              <span
+                                class="inline-flex w-fit items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                                title={`Belongs to ${resolveContactName(parent())}`}
+                              >
+                                <i class="ti ti-corner-down-right text-[9px]" />
+                                {resolveContactName(parent())}
+                              </span>
+                            )}
+                          </Show>
+                          <For each={contact.tags}>
+                            {(tag) => (
+                              <span
+                                class="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-normal"
+                                style={`background-color: ${tag.color}1f; color: ${tag.color}`}
+                              >
+                                <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+                                {tag.name}
+                              </span>
+                            )}
+                          </For>
+                        </div>
                       </div>
                     </td>
                     <td class="hidden md:table-cell px-3 py-1.5 text-dimmed">

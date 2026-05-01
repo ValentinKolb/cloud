@@ -3,8 +3,21 @@ import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import * as books from "./books";
 import * as contacts from "./contacts";
+import * as notes from "./notes";
+import * as tags from "./tags";
 import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
-import type { Contact, ContactBook, CreateBookInput, CreateContactInput, UpdateBookInput, UpdateContactInput } from "./types";
+import type {
+  Contact,
+  ContactBook,
+  CreateBookInput,
+  CreateContactInput,
+  CreateContactNoteInput,
+  CreateContactTagInput,
+  UpdateBookInput,
+  UpdateContactInput,
+  UpdateContactNoteInput,
+  UpdateContactTagInput,
+} from "./types";
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
   if (!pagination) {
@@ -101,8 +114,14 @@ export const contactsService = {
       guard: (config: { bookId: string; accessId: string }) => books.access.guard(config),
     },
   },
+  tag: {
+    list: (config: { bookId: string }) => tags.list(config),
+    create: (config: { bookId: string; data: CreateContactTagInput }) => tags.create(config),
+    update: (config: { bookId: string; id: string; data: UpdateContactTagInput }) => tags.update(config),
+    remove: (config: { bookId: string; id: string }) => tags.remove(config),
+  },
   contact: {
-    list: (config: { bookId: string; pagination?: PageParams; filter?: { query?: string } }) => contacts.list(config),
+    list: (config: { bookId: string; pagination?: PageParams; filter?: { query?: string; tagIds?: string[] } }) => contacts.list(config),
     get: (config: { bookId: string; id: string }) => contacts.get(config),
     create: (config: { bookId: string; data: CreateContactInput }) => contacts.create(config),
     update: (config: { bookId: string; id: string; data: UpdateContactInput }) => contacts.update(config),
@@ -110,6 +129,30 @@ export const contactsService = {
     remove: (config: { bookId: string; id: string }) => contacts.remove(config),
     search: (config: { userId: string; groups: string[]; pagination?: PageParams; filter?: { query?: string; includeSystem?: boolean } }) =>
       contacts.search(config),
+    notes: {
+      list: (config: { bookId: string; contactId: string }) => notes.list(config),
+      create: (config: {
+        bookId: string;
+        contactId: string;
+        authorUserId: string;
+        authorDisplayName: string;
+        data: CreateContactNoteInput;
+      }) => notes.create(config),
+      update: (config: {
+        bookId: string;
+        contactId: string;
+        noteId: string;
+        authorUserId: string;
+        data: UpdateContactNoteInput;
+      }) => notes.update(config),
+      remove: (config: {
+        bookId: string;
+        contactId: string;
+        noteId: string;
+        authorUserId: string;
+        isBookAdmin: boolean;
+      }) => notes.remove(config),
+    },
   },
   system: {
     bookId: SYSTEM_BOOK_ID,
@@ -121,8 +164,15 @@ export type {
   ContactBook,
   Contact,
   ContactRef,
+  ContactNote,
+  ContactTag,
+  ContactWebsite,
   CreateBookInput,
   UpdateBookInput,
   CreateContactInput,
   UpdateContactInput,
+  CreateContactNoteInput,
+  UpdateContactNoteInput,
+  CreateContactTagInput,
+  UpdateContactTagInput,
 } from "./types";

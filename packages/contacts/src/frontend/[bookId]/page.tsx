@@ -26,6 +26,7 @@ export default ssr<AuthContext>(async (c) => {
   const page = parsePage(c.req.query("page"));
   const perPage = 100;
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
+  const activeTagId = c.req.query("tag_id") ?? null;
   const [book, booksResult] = await Promise.all([
     contactsService.book.get({ id: bookId }),
     contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
@@ -78,11 +79,17 @@ export default ssr<AuthContext>(async (c) => {
   const adminBookIds = permissionEntries.filter((entry) => entry.permission === "admin").map((entry) => entry.book.id);
   const currentPermission = permissionEntries.find((entry) => entry.book.id === book.id)?.permission ?? "read";
   const canWrite = currentPermission === "write" || currentPermission === "admin";
-  const contactsResult = await contactsService.contact.list({
-    bookId,
-    pagination: { page, perPage },
-    filter: { query: search.trim() || undefined },
-  });
+  const [contactsResult, bookTags] = await Promise.all([
+    contactsService.contact.list({
+      bookId,
+      pagination: { page, perPage },
+      filter: {
+        query: search.trim() || undefined,
+        tagIds: activeTagId ? [activeTagId] : undefined,
+      },
+    }),
+    contactsService.tag.list({ bookId }),
+  ]);
   const contacts = contactsResult.items;
   let selectedContact =
     selectedContactIdFromUrl && contacts.find((contact) => contact.id === selectedContactIdFromUrl)
@@ -91,6 +98,9 @@ export default ssr<AuthContext>(async (c) => {
   if (!selectedContact && selectedContactIdFromUrl) {
     selectedContact = await contactsService.contact.get({ bookId, id: selectedContactIdFromUrl });
   }
+  const initialNotes = selectedContact
+    ? await contactsService.contact.notes.list({ bookId, contactId: selectedContact.id })
+    : [];
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const paginationBaseUrl = buildPaginationBaseUrl(`/app/contacts/${bookId}`, search);
@@ -112,6 +122,41 @@ export default ssr<AuthContext>(async (c) => {
           <div style="view-transition-name: contacts-page-header">
             <SearchBar value={search} />
           </div>
+          {bookTags.length > 0 && (
+            <div class="flex flex-wrap items-center gap-1.5 pt-2">
+              <a
+                href={
+                  search.trim()
+                    ? `/app/contacts/${bookId}?search=${encodeURIComponent(search.trim())}`
+                    : `/app/contacts/${bookId}`
+                }
+                class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                  activeTagId
+                    ? "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-primary dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
+                    : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                }`}
+              >
+                All
+              </a>
+              {bookTags.map((tag) => {
+                const active = activeTagId === tag.id;
+                const params = new URLSearchParams();
+                if (search.trim()) params.set("search", search.trim());
+                params.set("tag_id", tag.id);
+                const href = `/app/contacts/${bookId}?${params.toString()}`;
+                return (
+                  <a
+                    href={href}
+                    class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-opacity"
+                    style={`background-color: ${tag.color}${active ? "33" : "1f"}; color: ${tag.color}${active ? "" : "cc"}; ${active ? "outline: 1.5px solid " + tag.color + ";" : ""}`}
+                  >
+                    <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+                    {tag.name}
+                  </a>
+                );
+              })}
+            </div>
+          )}
           <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
             <div class="pt-2" style="view-transition-name: contacts-list-container">
               <ContactsList
@@ -135,9 +180,12 @@ export default ssr<AuthContext>(async (c) => {
             initialContact={selectedContact}
             initialContactId={initialSelectedContactId}
             initialBookId={initialSelectedBookId}
+            initialNotes={initialNotes}
             contacts={contacts}
             bookNames={bookNames}
             writableBooks={writableBooks}
+            adminBookIds={adminBookIds}
+            currentUserId={user.id}
             showEmpty={false}
           />
         </div>

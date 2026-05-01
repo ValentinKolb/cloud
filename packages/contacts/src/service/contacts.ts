@@ -3,6 +3,7 @@ import { err, fail, ok, paginate, type PageParams, type Paginated, type Result }
 import { resolveStoredContactLabel } from "../shared";
 import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
 import { emptyToNull, isUuid, toDateOnly, toPgTextArray, toPgUuidArray } from "./shared";
+import * as tags from "./tags";
 import type {
   Contact,
   ContactAddress,
@@ -12,6 +13,9 @@ import type {
   ContactPhone,
   ContactPhoneInput,
   ContactRef,
+  ContactTag,
+  ContactWebsite,
+  ContactWebsiteInput,
   CreateContactInput,
   UpdateContactInput,
 } from "./types";
@@ -26,9 +30,7 @@ type DbContact = {
   department: string | null;
   job_title: string | null;
   vat_id: string | null;
-  website: string | null;
   birthday: Date | string | null;
-  note: string | null;
   source: string | null;
   parent_contact_id: string | null;
   created_at: Date;
@@ -43,6 +45,7 @@ type DbContact = {
 type DbContactWithRelations = DbContact & {
   parent_data: ContactRef | null;
   members_data: ContactRef[];
+  tags_data: ContactTag[];
 };
 
 type DbEmail = {
@@ -82,6 +85,16 @@ type DbAddress = {
   updated_at: Date;
 };
 
+type DbWebsite = {
+  id: string;
+  contact_id: string;
+  label: string | null;
+  url: string;
+  position: number;
+  created_at: Date;
+  updated_at: Date;
+};
+
 type SearchRow = {
   contact_id: string;
   book_id: string;
@@ -97,6 +110,7 @@ const mapContact = (config: {
   emails: ContactEmail[];
   phones: ContactPhone[];
   addresses: ContactAddress[];
+  websites: ContactWebsite[];
 }): Contact => ({
   id: config.row.id,
   bookId: config.row.book_id,
@@ -107,18 +121,18 @@ const mapContact = (config: {
   department: config.row.department,
   jobTitle: config.row.job_title,
   vatId: config.row.vat_id,
-  website: config.row.website,
   birthday: toDateOnly(config.row.birthday),
-  note: config.row.note,
   source: config.row.source,
   createdAt: config.row.created_at.toISOString(),
   updatedAt: config.row.updated_at.toISOString(),
   emails: config.emails,
   phones: config.phones,
   addresses: config.addresses,
+  websites: config.websites,
   parentContactId: config.row.parent_contact_id,
   parent: config.row.parent_data,
   members: config.row.members_data,
+  tags: config.row.tags_data,
 });
 
 const mapEmail = (row: DbEmail): ContactEmail => ({
@@ -153,6 +167,16 @@ const mapAddress = (row: DbAddress): ContactAddress => ({
   city: row.city,
   stateRegion: row.state_region,
   countryCode: row.country_code,
+  position: row.position,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+});
+
+const mapWebsite = (row: DbWebsite): ContactWebsite => ({
+  id: row.id,
+  contactId: row.contact_id,
+  label: row.label,
+  url: row.url,
   position: row.position,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -232,6 +256,24 @@ const loadAddresses = async (contactIds: string[]): Promise<Map<string, ContactA
   return grouped;
 };
 
+const loadWebsites = async (contactIds: string[]): Promise<Map<string, ContactWebsite[]>> => {
+  const validIds = contactIds.filter(isUuid);
+  if (validIds.length === 0) return new Map();
+
+  const rows = await sql<DbWebsite[]>`
+    SELECT id, contact_id, label, url, position, created_at, updated_at
+    FROM contacts.contact_websites
+    WHERE contact_id = ANY(${toPgUuidArray(validIds)}::uuid[])
+    ORDER BY position ASC, created_at ASC
+  `;
+
+  const grouped = new Map<string, ContactWebsite[]>();
+  for (const row of rows) {
+    grouped.set(row.contact_id, [...(grouped.get(row.contact_id) ?? []), mapWebsite(row)]);
+  }
+  return grouped;
+};
+
 /**
  * Loads manual contacts by IDs and hydrates all child subtables.
  */
@@ -261,9 +303,7 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
       c.department,
       c.job_title,
       c.vat_id,
-      c.website,
       c.birthday,
-      c.note,
       c.source,
       c.parent_contact_id,
       c.created_at,
@@ -299,16 +339,36 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
             AND m.book_id = c.book_id
         ),
         '[]'::jsonb
-      ) AS members_data
+      ) AS members_data,
+      COALESCE(
+        (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'id', t.id,
+              'bookId', t.book_id,
+              'name', t.name,
+              'color', t.color,
+              'createdAt', to_char(t.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+              'updatedAt', to_char(t.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+            )
+            ORDER BY LOWER(t.name)
+          )
+          FROM contacts.tags t
+          JOIN contacts.contact_tag_assignments cta ON cta.tag_id = t.id
+          WHERE cta.contact_id = c.id
+        ),
+        '[]'::jsonb
+      ) AS tags_data
     FROM contacts.contacts c
     WHERE c.id = ANY(${toPgUuidArray(validIds)}::uuid[])
   `;
 
   const contactIds = rows.map((row) => row.id);
-  const [emailsByContact, phonesByContact, addressesByContact] = await Promise.all([
+  const [emailsByContact, phonesByContact, addressesByContact, websitesByContact] = await Promise.all([
     loadEmails(contactIds),
     loadPhones(contactIds),
     loadAddresses(contactIds),
+    loadWebsites(contactIds),
   ]);
 
   const mapped = new Map<string, Contact>();
@@ -320,6 +380,7 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
         emails: emailsByContact.get(row.id) ?? [],
         phones: phonesByContact.get(row.id) ?? [],
         addresses: addressesByContact.get(row.id) ?? [],
+        websites: websitesByContact.get(row.id) ?? [],
       }),
     );
   }
@@ -410,6 +471,25 @@ const replaceAddresses = async (contactId: string, addresses: ContactAddressInpu
   }
 };
 
+const replaceWebsites = async (contactId: string, websites: ContactWebsiteInput[]): Promise<void> => {
+  await sql`
+    DELETE FROM contacts.contact_websites
+    WHERE contact_id = ${contactId}::uuid
+  `;
+
+  for (const [index, website] of websites.entries()) {
+    await sql`
+      INSERT INTO contacts.contact_websites (contact_id, label, url, position)
+      VALUES (
+        ${contactId}::uuid,
+        ${emptyToNull(website.label) ?? null},
+        ${website.url.trim()},
+        ${index}
+      )
+    `;
+  }
+};
+
 const mapManualSearchCondition = (searchPattern: string | null) => sql`
   (
     ${searchPattern}::text IS NULL
@@ -489,7 +569,7 @@ const resolveParentContactId = async (config: {
 export const list = async (config: {
   bookId: string;
   pagination?: PageParams;
-  filter?: { query?: string };
+  filter?: { query?: string; tagIds?: string[] };
 }): Promise<Paginated<Contact>> => {
   if (isSystemBookId(config.bookId)) {
     return listSystemContacts({
@@ -510,6 +590,8 @@ export const list = async (config: {
 
   const searchPattern = buildSearchPattern(config.filter?.query);
   const { page, perPage, offset } = paginate(config.pagination);
+  const filterTagIds = (config.filter?.tagIds ?? []).filter(isUuid);
+  const tagIdsArray = filterTagIds.length > 0 ? toPgUuidArray(filterTagIds) : null;
 
   const [countRow] = await sql<{ count: number }[]>`
     SELECT COUNT(DISTINCT c.id)::int AS count
@@ -519,6 +601,10 @@ export const list = async (config: {
     LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
     WHERE c.book_id = ${config.bookId}::uuid
       AND ${mapManualSearchCondition(searchPattern)}
+      AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_tag_assignments cta
+        WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
+      ))
   `;
 
   // The list query only needs IDs (in sorted order) — full contact rows are
@@ -542,6 +628,10 @@ export const list = async (config: {
     LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
     WHERE c.book_id = ${config.bookId}::uuid
       AND ${mapManualSearchCondition(searchPattern)}
+      AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_tag_assignments cta
+        WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
+      ))
     ORDER BY sort_name ASC, c.created_at ASC
     LIMIT ${perPage}
     OFFSET ${offset}
@@ -595,8 +685,9 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
     phones: config.data.phones,
   });
 
-  // Validate parent before insert. New contact does not exist yet, so no
-  // cycle is possible — we only verify the parent exists in the same book.
+  // Validate parent + tags BEFORE inserting the contact row. Anything that
+  // can fail because of bad input must be caught here so we never persist a
+  // contact that ends up half-set-up.
   const parentResult = await resolveParentContactId({
     contactId: null,
     bookId: config.bookId,
@@ -604,6 +695,13 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
   });
   if (!parentResult.ok) return parentResult;
   const parentContactId = parentResult.data;
+
+  let validatedTagIds: string[] | null = null;
+  if (config.data.tagIds !== undefined) {
+    const tagResult = await tags.validateTagsInBook({ bookId: config.bookId, tagIds: config.data.tagIds });
+    if (!tagResult.ok) return tagResult;
+    validatedTagIds = tagResult.data;
+  }
 
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO contacts.contacts (
@@ -615,9 +713,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       department,
       job_title,
       vat_id,
-      website,
       birthday,
-      note,
       source,
       parent_contact_id
     ) VALUES (
@@ -629,9 +725,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       ${emptyToNull(config.data.department) ?? null},
       ${emptyToNull(config.data.jobTitle) ?? null},
       ${emptyToNull(config.data.vatId) ?? null},
-      ${emptyToNull(config.data.website) ?? null},
       ${config.data.birthday ?? null},
-      ${emptyToNull(config.data.note) ?? null},
       ${emptyToNull(config.data.source) ?? "manual"},
       ${parentContactId}
     )
@@ -643,6 +737,10 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
   await replaceEmails(row.id, config.data.emails ?? []);
   await replacePhones(row.id, config.data.phones ?? []);
   await replaceAddresses(row.id, config.data.addresses ?? []);
+  await replaceWebsites(row.id, config.data.websites ?? []);
+  if (validatedTagIds !== null) {
+    await tags.replaceAssignments({ contactId: row.id, tagIds: validatedTagIds });
+  }
 
   const created = await get({ bookId: config.bookId, id: row.id });
   if (!created) return fail(err.internal("Failed to load created contact"));
@@ -673,9 +771,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
       department,
       job_title,
       vat_id,
-      website,
       birthday,
-      note,
       source,
       parent_contact_id,
       created_at,
@@ -707,6 +803,15 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
     nextParentContactId = parentResult.data;
   }
 
+  // Validate tag assignments BEFORE writing anything so a bad tag list does
+  // not leave the contact partly updated.
+  let validatedTagIds: string[] | null = null;
+  if (config.data.tagIds !== undefined) {
+    const tagResult = await tags.validateTagsInBook({ bookId: config.bookId, tagIds: config.data.tagIds });
+    if (!tagResult.ok) return tagResult;
+    validatedTagIds = tagResult.data;
+  }
+
   const [row] = await sql<{ id: string }[]>`
     UPDATE contacts.contacts
     SET
@@ -717,9 +822,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
       department = ${config.data.department === undefined ? existing.department : emptyToNull(config.data.department)},
       job_title = ${config.data.jobTitle === undefined ? existing.job_title : emptyToNull(config.data.jobTitle)},
       vat_id = ${config.data.vatId === undefined ? existing.vat_id : emptyToNull(config.data.vatId)},
-      website = ${config.data.website === undefined ? existing.website : emptyToNull(config.data.website)},
-      birthday = ${config.data.birthday === undefined ? existing.birthday : config.data.birthday},
-      note = ${config.data.note === undefined ? existing.note : emptyToNull(config.data.note)},
+      birthday = ${config.data.birthday === undefined ? toDateOnly(existing.birthday) : config.data.birthday},
       source = ${config.data.source === undefined ? existing.source : emptyToNull(config.data.source)},
       parent_contact_id = ${nextParentContactId},
       updated_at = now()
@@ -738,6 +841,12 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
   }
   if (config.data.addresses !== undefined) {
     await replaceAddresses(row.id, config.data.addresses);
+  }
+  if (config.data.websites !== undefined) {
+    await replaceWebsites(row.id, config.data.websites);
+  }
+  if (validatedTagIds !== null) {
+    await tags.replaceAssignments({ contactId: row.id, tagIds: validatedTagIds });
   }
 
   const updated = await get({ bookId: config.bookId, id: row.id });
@@ -758,17 +867,21 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
     return fail(err.notFound("Contact"));
   }
 
-  // Move + sever hierarchy links in one transaction. Cross-book hierarchies
-  // are forbidden, so children of the moved contact (which stay in the source
-  // book) and the moved contact's own parent reference (which would now point
-  // across books) are nulled. The user is warned about this in the UI before
-  // confirming the move.
+  // Move + sever cross-book references in one transaction:
+  //   * children's parent_contact_id → NULL (would otherwise span books)
+  //   * own parent_contact_id → NULL (same reason)
+  //   * own tag assignments → DELETE (tags are book-scoped vocabulary)
+  // The user sees a warning in the UI before confirming.
   const [row] = await sql.begin(async (tx) => {
     await tx`
       UPDATE contacts.contacts
       SET parent_contact_id = NULL,
           updated_at = now()
       WHERE parent_contact_id = ${config.id}::uuid
+    `;
+    await tx`
+      DELETE FROM contacts.contact_tag_assignments
+      WHERE contact_id = ${config.id}::uuid
     `;
     return await tx<{ id: string }[]>`
       UPDATE contacts.contacts

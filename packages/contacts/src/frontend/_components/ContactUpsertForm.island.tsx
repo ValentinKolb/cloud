@@ -8,6 +8,7 @@ import { resolveContactName } from "../../shared";
 import type { Contact, ContactRef } from "../../service";
 import { navigateTo } from "@valentinkolb/cloud/ui";
 import ContactSearchPicker from "./ContactSearchPicker.island";
+import ContactTagsPicker from "./ContactTagsPicker.island";
 
 type ContactUpsertMode = "create" | "edit";
 
@@ -28,6 +29,7 @@ type Props = {
 
 type EditableEmail = { label: string; email: string };
 type EditablePhone = { label: string; phone: string };
+type EditableWebsite = { label: string; url: string };
 type EditableAddress = {
   label: string;
   recipientName: string;
@@ -42,6 +44,7 @@ type EditableAddress = {
 
 const DEFAULT_EMAIL_LABEL = "Email";
 const DEFAULT_PHONE_LABEL = "Telephone";
+const DEFAULT_WEBSITE_LABEL = "Website";
 const DEFAULT_ADDRESS_LABEL = "Address";
 
 const EMPTY_EMAIL: EditableEmail = {
@@ -52,6 +55,11 @@ const EMPTY_EMAIL: EditableEmail = {
 const EMPTY_PHONE: EditablePhone = {
   label: DEFAULT_PHONE_LABEL,
   phone: "",
+};
+
+const EMPTY_WEBSITE: EditableWebsite = {
+  label: DEFAULT_WEBSITE_LABEL,
+  url: "",
 };
 
 const EMPTY_ADDRESS: EditableAddress = {
@@ -86,6 +94,16 @@ const initialPhoneRows = (contact: Contact | null): EditablePhone[] => {
     : [{ ...EMPTY_PHONE }];
 };
 
+const initialWebsiteRows = (contact: Contact | null): EditableWebsite[] => {
+  if (!contact) return [{ ...EMPTY_WEBSITE }];
+  return contact.websites.length > 0
+    ? contact.websites.map((website) => ({
+        label: website.label?.trim() || DEFAULT_WEBSITE_LABEL,
+        url: website.url,
+      }))
+    : [{ ...EMPTY_WEBSITE }];
+};
+
 const initialAddressRows = (contact: Contact | null): EditableAddress[] => {
   if (!contact) return [{ ...EMPTY_ADDRESS }];
   return contact.addresses.length > 0
@@ -118,13 +136,13 @@ export default function ContactUpsertForm(props: Props) {
   const [department, setDepartment] = createSignal(initialContact?.department ?? "");
   const [jobTitle, setJobTitle] = createSignal(initialContact?.jobTitle ?? "");
   const [vatId, setVatId] = createSignal(initialContact?.vatId ?? "");
-  const [website, setWebsite] = createSignal(initialContact?.website ?? "");
+  const [websites, setWebsites] = createSignal<EditableWebsite[]>(initialWebsiteRows(initialContact));
   const [birthday, setBirthday] = createSignal(initialContact?.birthday ?? "");
-  const [note, setNote] = createSignal(initialContact?.note ?? "");
   // Parent ref drives both the UI chip and the parentContactId payload field.
   // Edit mode seeds it from the loaded contact's parent; create flows can
   // pre-seed via `defaultParent` (used by the "Add member" dialog).
   const [parentRef, setParentRef] = createSignal<ContactRef | null>(initialContact?.parent ?? props.defaultParent ?? null);
+  const [tagIds, setTagIds] = createSignal<string[]>(initialContact?.tags?.map((t) => t.id) ?? []);
 
   const [emails, setEmails] = createSignal<EditableEmail[]>(initialEmailRows(initialContact));
   const [phones, setPhones] = createSignal<EditablePhone[]>(initialPhoneRows(initialContact));
@@ -147,6 +165,14 @@ export default function ContactUpsertForm(props: Props) {
         }))
         .filter((phone) => phone.phone.length > 0)
         .map((phone) => ({ label: phone.label, phone: phone.phone }));
+
+      const normalizedWebsites = websites()
+        .map((website) => ({
+          label: website.label.trim() || null,
+          url: website.url.trim(),
+        }))
+        .filter((website) => website.url.length > 0)
+        .map((website) => ({ label: website.label, url: website.url }));
 
       const normalizedAddresses = addresses()
         .map((address) => ({
@@ -192,13 +218,13 @@ export default function ContactUpsertForm(props: Props) {
         department: department().trim() || null,
         jobTitle: jobTitle().trim() || null,
         vatId: vatId().trim() || null,
-        website: website().trim() || null,
         birthday: birthdayValue || null,
-        note: note().trim() || null,
         parentContactId: parentRef()?.id ?? null,
+        tagIds: tagIds(),
         emails: normalizedEmails,
         phones: normalizedPhones,
         addresses: normalizedAddresses,
+        websites: normalizedWebsites,
       };
 
       if (props.mode === "create") {
@@ -381,6 +407,21 @@ export default function ContactUpsertForm(props: Props) {
               )}
             </Show>
           </div>
+          <div class="md:col-span-2">
+            <label class="text-label mb-1.5 block text-xs">
+              Tags <span class="font-normal text-dimmed">(optional)</span>
+            </label>
+            <p class="mb-2 text-[11px] text-dimmed">
+              Categorize the contact (e.g. „VIP", „Lead", „Supplier"). Tags are scoped to this book.
+            </p>
+            <ContactTagsPicker
+              bookId={props.bookId}
+              selectedIds={tagIds()}
+              onChange={setTagIds}
+              manageUrl={`/app/contacts/${props.bookId}/settings`}
+              compact
+            />
+          </div>
         </div>
       </section>
 
@@ -475,13 +516,37 @@ export default function ContactUpsertForm(props: Props) {
             </button>
           </div>
 
-          <TextInput
-            ariaLabel="Website"
-            placeholder="https://example.com"
-            icon="ti ti-world text-purple-600 dark:text-purple-400"
-            value={website}
-            onInput={setWebsite}
-          />
+          <div class="space-y-2">
+            <Index each={websites()}>
+              {(website, index) => (
+                <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                  <TextInput
+                    ariaLabel="Website label"
+                    placeholder="work, personal…"
+                    value={() => website().label}
+                    onInput={(value) => setWebsites((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
+                  />
+                  <TextInput
+                    ariaLabel="Website URL"
+                    placeholder="https://example.com"
+                    icon="ti ti-world text-purple-600 dark:text-purple-400"
+                    value={() => website().url}
+                    onInput={(value) => setWebsites((current) => current.map((row, i) => (i === index ? { ...row, url: value } : row)))}
+                  />
+                  <div class="flex items-center justify-end">
+                    <RemoveBtn ariaLabel="Remove website" onClick={() => setWebsites((current) => current.filter((_, i) => i !== index))} />
+                  </div>
+                </div>
+              )}
+            </Index>
+            <button
+              type="button"
+              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+              onClick={() => setWebsites([...websites(), { ...EMPTY_WEBSITE }])}
+            >
+              <i class="ti ti-plus" /> Add website
+            </button>
+          </div>
         </div>
       </section>
 
@@ -588,11 +653,6 @@ export default function ContactUpsertForm(props: Props) {
       <section>
         <h3 class="detail-section-label">Personal</h3>
         <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
-      </section>
-
-      <section>
-        <h3 class="detail-section-label">Note</h3>
-        <TextInput ariaLabel="Note" multiline placeholder="Optional internal notes for this contact…" value={note} onInput={setNote} />
       </section>
 
       <div class="flex flex-wrap items-center justify-between gap-2 pt-1">

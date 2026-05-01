@@ -64,6 +64,9 @@ export default ssr<AuthContext>(async (c) => {
   const writableBooks = permissionEntries
     .filter((entry) => entry.permission === "write" || entry.permission === "admin")
     .map((entry) => ({ id: entry.book.id, name: entry.book.name }));
+  const initialNotes = selectedContact
+    ? await contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
+    : [];
   const bookNames = Object.fromEntries(books.map((book) => [book.id, book.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const paginationBaseUrl = buildPaginationBaseUrl({ basePath: "/app/contacts", search });
@@ -108,9 +111,12 @@ export default ssr<AuthContext>(async (c) => {
             initialContact={selectedContact}
             initialContactId={initialSelectedContactId}
             initialBookId={initialSelectedBookId}
+            initialNotes={initialNotes}
             contacts={contacts}
             bookNames={bookNames}
             writableBooks={writableBooks}
+            adminBookIds={adminBookIds}
+            currentUserId={user.id}
             showEmpty={false}
           />
         </div>

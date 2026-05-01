@@ -141,4 +141,76 @@ export const migrate = async (): Promise<void> => {
     WHERE parent_contact_id IS NOT NULL
   `.simple();
   console.log("  ✓ contacts.contacts.parent_contact_id column + index");
+
+  // Notes timeline replaces the legacy single `note` column. The column is
+  // dropped here — no data migration since the feature was unused in production.
+  await sql`ALTER TABLE contacts.contacts DROP COLUMN IF EXISTS note`.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.contact_notes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      contact_id UUID NOT NULL REFERENCES contacts.contacts(id) ON DELETE CASCADE,
+      author_user_id UUID NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+      author_display_name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_notes_contact_created
+    ON contacts.contact_notes(contact_id, created_at DESC)
+  `.simple();
+  console.log("  ✓ contacts.contact_notes table");
+
+  // Tags scoped per book — vocabulary stays separated between e.g. customers
+  // and suppliers. Junction is composite PK (one row per tag per contact).
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.tags (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      book_id UUID NOT NULL REFERENCES contacts.books(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      color TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (book_id, name)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_tags_book
+    ON contacts.tags(book_id)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.contact_tag_assignments (
+      contact_id UUID NOT NULL REFERENCES contacts.contacts(id) ON DELETE CASCADE,
+      tag_id UUID NOT NULL REFERENCES contacts.tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (contact_id, tag_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_tag_assignments_tag
+    ON contacts.contact_tag_assignments(tag_id)
+  `.simple();
+  console.log("  ✓ contacts.tags + contact_tag_assignments tables");
+
+  // Multiple websites per contact (label + url) replace the legacy single
+  // `website` column. Schema break — no data carried over since the feature
+  // was not in production use.
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.contact_websites (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      contact_id UUID NOT NULL REFERENCES contacts.contacts(id) ON DELETE CASCADE,
+      label TEXT,
+      url TEXT NOT NULL,
+      position INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (contact_id, position)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_websites_contact
+    ON contacts.contact_websites(contact_id)
+  `.simple();
+  await sql`ALTER TABLE contacts.contacts DROP COLUMN IF EXISTS website`.simple();
+  console.log("  ✓ contacts.contact_websites table");
 };

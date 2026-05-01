@@ -3,19 +3,24 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { resolveContactName } from "../../shared";
-import type { Contact, ContactRef } from "../../service";
+import type { Contact, ContactNote, ContactRef } from "../../service";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { CONTACT_DETAIL_EVENT, clearSelectedContactInUrl, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
 import ContactUpsertForm from "./ContactUpsertForm.island";
 import AddMemberDialog from "./AddMemberDialog.island";
+import ContactNotesSection from "./ContactNotesSection.island";
 
 type Props = {
   initialContact: Contact | null;
   initialContactId: string | null;
   initialBookId: string | null;
+  initialNotes: ContactNote[];
   contacts: Contact[];
   bookNames: Record<string, string>;
   writableBooks: Array<{ id: string; name: string }>;
+  /** Books where the current user is an admin (controls e.g. note deletion). */
+  adminBookIds: string[];
+  currentUserId: string;
   showEmpty?: boolean;
 };
 
@@ -226,7 +231,7 @@ export default function ContactDetailPanel(props: Props) {
     >
       {(selectedContact) => {
         const c = selectedContact;
-        const hasReach = () => c().emails.length > 0 || c().phones.length > 0 || !!c().website;
+        const hasReach = () => c().emails.length > 0 || c().phones.length > 0 || c().websites.length > 0;
         const hasWork = () => !!(c().companyName || c().department || c().jobTitle || c().vatId);
         const hasFormalName = () => !!(c().label && (c().firstName || c().lastName));
         const hasPersonal = () => hasFormalName() || !!c().birthday;
@@ -264,6 +269,17 @@ export default function ContactDetailPanel(props: Props) {
                           </button>
                         )}
                       </Show>
+                      <For each={c().tags}>
+                        {(tag) => (
+                          <span
+                            class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-medium"
+                            style={`background-color: ${tag.color}1f; color: ${tag.color}`}
+                          >
+                            <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+                            {tag.name}
+                          </span>
+                        )}
+                      </For>
                     </div>
                   </div>
                   <div class="flex shrink-0 items-center gap-1">
@@ -277,6 +293,17 @@ export default function ContactDetailPanel(props: Props) {
                         <i class="ti ti-pencil" />
                       </button>
                     </Show>
+                    <Show when={canMove()}>
+                      <button
+                        type="button"
+                        class="btn-simple btn-sm text-dimmed hover:text-primary"
+                        aria-label="Move contact to another book"
+                        title="Move to another book"
+                        onClick={() => moveToBook(c())}
+                      >
+                        <i class="ti ti-folder-symlink" />
+                      </button>
+                    </Show>
                     <button
                       type="button"
                       class="btn-simple btn-sm text-dimmed hover:text-primary"
@@ -287,18 +314,6 @@ export default function ContactDetailPanel(props: Props) {
                     </button>
                   </div>
                 </div>
-                <Show when={canMove()}>
-                  <div class="mt-3 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      class="btn-secondary btn-sm"
-                      aria-label="Move contact to another book"
-                      onClick={() => moveToBook(c())}
-                    >
-                      <i class="ti ti-arrows-transfer-up-down" /> Move
-                    </button>
-                  </div>
-                </Show>
               </section>
 
               <Show when={hasReach()}>
@@ -326,12 +341,17 @@ export default function ContactDetailPanel(props: Props) {
                       </a>
                     )}
                   </For>
-                  <Show when={c().website}>
-                    <a href={c().website!} target="_blank" rel="noreferrer" class="detail-row hover:text-purple-600">
-                      <i class="ti ti-world detail-row-icon text-purple-600 dark:text-purple-400" />
-                      <span class="break-all">{c().website}</span>
-                    </a>
-                  </Show>
+                  <For each={c().websites}>
+                    {(website) => (
+                      <a href={website.url} target="_blank" rel="noreferrer" class="detail-row hover:text-purple-600">
+                        <i class="ti ti-world detail-row-icon text-purple-600 dark:text-purple-400" />
+                        <Show when={website.label}>
+                          <span class="detail-row-label">{website.label}</span>
+                        </Show>
+                        <span class="break-all">{website.url}</span>
+                      </a>
+                    )}
+                  </For>
                 </section>
               </Show>
 
@@ -455,12 +475,16 @@ export default function ContactDetailPanel(props: Props) {
                 </section>
               </Show>
 
-              <Show when={c().note}>
-                <section class="detail-section">
-                  <h3 class="detail-section-label">Note</h3>
-                  <p class="whitespace-pre-wrap text-xs text-secondary">{c().note}</p>
-                </section>
-              </Show>
+              <section class="detail-section">
+                <ContactNotesSection
+                  bookId={c().bookId}
+                  contactId={c().id}
+                  currentUserId={props.currentUserId}
+                  initialNotes={c().id === props.initialContactId ? props.initialNotes : []}
+                  canWrite={canEdit()}
+                  isBookAdmin={props.adminBookIds.includes(c().bookId)}
+                />
+              </section>
 
             </div>
           </div>

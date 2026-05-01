@@ -27,6 +27,16 @@ export type ContactPhone = {
   updatedAt: string;
 };
 
+export type ContactWebsite = {
+  id: string;
+  contactId: string;
+  label: string | null;
+  url: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ContactAddress = {
   id: string;
   contactId: string;
@@ -68,20 +78,64 @@ export type Contact = {
   department: string | null;
   jobTitle: string | null;
   vatId: string | null;
-  website: string | null;
   birthday: string | null;
-  note: string | null;
   source: string | null;
   createdAt: string;
   updatedAt: string;
   emails: ContactEmail[];
   phones: ContactPhone[];
   addresses: ContactAddress[];
+  websites: ContactWebsite[];
   /** Direct parent in the hierarchy, null if this contact is at the root. */
   parentContactId: string | null;
   parent: ContactRef | null;
   /** Direct children only — UI does not load grandchildren in one go. */
   members: ContactRef[];
+  /** Tags assigned to this contact (loaded inline). */
+  tags: ContactTag[];
+};
+
+/**
+ * One entry in a contact's notes timeline. Author is snapshotted at write
+ * time so the note remains readable even if the user account is later
+ * deleted. The user-id link is preserved for permission checks (and goes
+ * NULL on user deletion via FK SET NULL).
+ */
+export type ContactNote = {
+  id: string;
+  contactId: string;
+  authorUserId: string | null;
+  authorDisplayName: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateContactNoteInput = {
+  content: string;
+};
+
+export type UpdateContactNoteInput = {
+  content: string;
+};
+
+export type ContactTag = {
+  id: string;
+  bookId: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateContactTagInput = {
+  name: string;
+  color: string;
+};
+
+export type UpdateContactTagInput = {
+  name?: string;
+  color?: string;
 };
 
 export type CreateBookInput = {
@@ -104,6 +158,11 @@ export type ContactPhoneInput = {
   phone: string;
 };
 
+export type ContactWebsiteInput = {
+  label?: string | null;
+  url: string;
+};
+
 export type ContactAddressInput = {
   label?: string | null;
   recipientName?: string | null;
@@ -124,14 +183,15 @@ export type CreateContactInput = {
   department?: string | null;
   jobTitle?: string | null;
   vatId?: string | null;
-  website?: string | null;
   birthday?: string | null;
-  note?: string | null;
   source?: string | null;
   parentContactId?: string | null;
+  /** Replace all tag assignments. Pass undefined to leave unchanged, [] to clear all. */
+  tagIds?: string[];
   emails?: ContactEmailInput[];
   phones?: ContactPhoneInput[];
   addresses?: ContactAddressInput[];
+  websites?: ContactWebsiteInput[];
 };
 
 export type UpdateContactInput = {
@@ -142,12 +202,13 @@ export type UpdateContactInput = {
   department?: string | null;
   jobTitle?: string | null;
   vatId?: string | null;
-  website?: string | null;
   birthday?: string | null;
-  note?: string | null;
   source?: string | null;
   parentContactId?: string | null;
+  /** Replace all tag assignments. Pass undefined to leave unchanged, [] to clear all. */
+  tagIds?: string[];
   emails?: ContactEmailInput[];
   phones?: ContactPhoneInput[];
   addresses?: ContactAddressInput[];
+  websites?: ContactWebsiteInput[];
 };

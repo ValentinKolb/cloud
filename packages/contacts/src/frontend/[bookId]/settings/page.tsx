@@ -56,11 +56,11 @@ export default ssr<AuthContext>(async (c) => {
     return c.redirect(`/app/contacts/${bookId}`, 302);
   }
 
-  const accessEntries = (
-    await contactsService.book.access.list({
-      bookId,
-    })
-  ).items;
+  const [accessEntriesResult, bookTags] = await Promise.all([
+    contactsService.book.access.list({ bookId }),
+    contactsService.tag.list({ bookId }),
+  ]);
+  const accessEntries = accessEntriesResult.items;
 
   return () => (
     <Layout
@@ -80,7 +80,13 @@ export default ssr<AuthContext>(async (c) => {
           <h1 class="text-lg font-semibold text-primary">Contact Book Settings</h1>
         </div>
 
-        <BookSettingsForm bookId={book.id} initialName={book.name} initialDescription={book.description} accessEntries={accessEntries} />
+        <BookSettingsForm
+          bookId={book.id}
+          initialName={book.name}
+          initialDescription={book.description}
+          accessEntries={accessEntries}
+          initialTags={bookTags}
+        />
       </div>
     </Layout>
   );

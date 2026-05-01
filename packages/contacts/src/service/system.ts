@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import { paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
 import { emptyToNull, isUuid, toPgUuidArray } from "./shared";
-import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactPhone } from "./types";
+import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactPhone, ContactWebsite } from "./types";
 
 export const SYSTEM_BOOK_ID = "system";
 
@@ -111,18 +111,18 @@ const mapSystemContact = (row: DbSystemUser): Contact => ({
   department: emptyToNull(row.employee_type),
   jobTitle: null,
   vatId: null,
-  website: null,
   birthday: null,
-  note: null,
   source: "ipa",
   createdAt: row.created_at.toISOString(),
   updatedAt: (row.synced_at ?? row.created_at).toISOString(),
   emails: mapSystemEmails(row),
   phones: mapSystemPhones(row),
   addresses: mapSystemAddresses(row),
+  websites: [] as ContactWebsite[],
   parentContactId: null,
   parent: null,
   members: [],
+  tags: [],
 });
 
 const buildSearchPattern = (query: string | undefined): string | null => {

@@ -7,12 +7,16 @@ import { apiClient } from "@/api/client";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import DeleteBookButton from "./DeleteBookButton";
+import BookTagsManager from "./BookTagsManager.island";
+import BookActions from "./BookActions.island";
+import type { ContactTag } from "../../service";
 
 type Props = {
   bookId: string;
   initialName: string;
   initialDescription: string | null;
   accessEntries: AccessEntry[];
+  initialTags: ContactTag[];
 };
 
 /**
@@ -96,6 +100,20 @@ export default function BookSettingsForm(props: Props) {
 
       <hr class="border-zinc-200 dark:border-zinc-700" />
 
+      <section class="space-y-3">
+        <h2 class="section-label mb-0 flex items-center gap-2">
+          <i class="ti ti-tags text-dimmed" />
+          Tags
+        </h2>
+        <p class="text-xs text-dimmed">
+          Tags categorize contacts in this book (e.g. „VIP", „Lead", „Supplier"). Manage the vocabulary
+          here; assign tags from the contact editor.
+        </p>
+        <BookTagsManager bookId={props.bookId} initialTags={props.initialTags} />
+      </section>
+
+      <hr class="border-zinc-200 dark:border-zinc-700" />
+
       <section class="space-y-4">
         <h2 class="section-label mb-0 flex items-center gap-2">
           <i class="ti ti-shield text-dimmed" />
@@ -146,6 +164,20 @@ export default function BookSettingsForm(props: Props) {
             }
           }}
         />
+      </section>
+
+      <hr class="border-zinc-200 dark:border-zinc-700" />
+
+      <section class="space-y-3">
+        <h2 class="section-label mb-0 flex items-center gap-2">
+          <i class="ti ti-arrows-exchange text-dimmed" />
+          Import &amp; Export
+        </h2>
+        <p class="text-xs text-dimmed">
+          Bulk-import contacts from a vCard file or export the entire book as vCard / CSV. Restricted to
+          book admins to prevent accidental data extraction.
+        </p>
+        <BookActions bookId={props.bookId} canWrite />
       </section>
 
       <hr class="border-zinc-200 dark:border-zinc-700" />

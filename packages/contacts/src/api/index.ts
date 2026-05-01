@@ -14,6 +14,8 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { createPagination, parsePagination, type PermissionLevel } from "@valentinkolb/cloud/contracts";
 import { contactsService } from "../service";
+import * as vcard from "../service/vcard";
+import { sql } from "bun";
 
 const ContactBookSchema = z.object({
   id: z.string(),
@@ -42,6 +44,21 @@ const ContactPhoneSchema = z.object({
   position: z.number().int().nonnegative(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+const ContactWebsiteSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  label: z.string().nullable(),
+  url: z.string(),
+  position: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const ContactWebsiteInputSchema = z.object({
+  label: z.string().max(100).nullable().optional(),
+  url: z.string().min(1).max(500),
 });
 
 const ContactAddressSchema = z.object({
@@ -80,18 +97,60 @@ const ContactSchema = z.object({
   department: z.string().nullable(),
   jobTitle: z.string().nullable(),
   vatId: z.string().nullable(),
-  website: z.string().nullable(),
   birthday: z.string().nullable(),
-  note: z.string().nullable(),
   source: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
   emails: z.array(ContactEmailSchema),
   phones: z.array(ContactPhoneSchema),
   addresses: z.array(ContactAddressSchema),
+  websites: z.array(ContactWebsiteSchema),
   parentContactId: z.string().nullable(),
   parent: ContactRefSchema.nullable(),
   members: z.array(ContactRefSchema),
+  tags: z.array(
+    z.object({
+      id: z.string(),
+      bookId: z.string(),
+      name: z.string(),
+      color: z.string(),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    }),
+  ),
+});
+
+const ContactNoteSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  authorUserId: z.string().nullable(),
+  authorDisplayName: z.string(),
+  content: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const ContactNoteInputSchema = z.object({
+  content: z.string().min(1).max(10_000),
+});
+
+const ContactTagSchema = z.object({
+  id: z.string(),
+  bookId: z.string(),
+  name: z.string(),
+  color: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const ContactTagCreateInputSchema = z.object({
+  name: z.string().min(1).max(50),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value"),
+});
+
+const ContactTagUpdateInputSchema = z.object({
+  name: z.string().min(1).max(50).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 
 const ContactEmailInputSchema = z.object({
@@ -132,6 +191,8 @@ const ListBooksQuerySchema = PaginationQuerySchema.extend({
 
 const ListContactsQuerySchema = PaginationQuerySchema.extend({
   q: z.string().optional(),
+  /** Repeat `tag_id` to filter by multiple tags (OR-mode). */
+  tag_id: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 const SearchContactsQuerySchema = PaginationQuerySchema.extend({
@@ -147,14 +208,14 @@ const CreateContactSchema = z.object({
   department: z.string().max(200).nullable().optional(),
   jobTitle: z.string().max(200).nullable().optional(),
   vatId: z.string().max(64).nullable().optional(),
-  website: z.string().max(500).nullable().optional(),
   birthday: z.iso.date().nullable().optional(),
-  note: z.string().max(10_000).nullable().optional(),
   source: z.string().max(50).nullable().optional(),
   parentContactId: z.uuid().nullable().optional(),
+  tagIds: z.array(z.uuid()).optional(),
   emails: z.array(ContactEmailInputSchema).optional(),
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),
+  websites: z.array(ContactWebsiteInputSchema).optional(),
 });
 
 const UpdateContactSchema = z.object({
@@ -165,14 +226,14 @@ const UpdateContactSchema = z.object({
   department: z.string().max(200).nullable().optional(),
   jobTitle: z.string().max(200).nullable().optional(),
   vatId: z.string().max(64).nullable().optional(),
-  website: z.string().max(500).nullable().optional(),
   birthday: z.iso.date().nullable().optional(),
-  note: z.string().max(10_000).nullable().optional(),
   source: z.string().max(50).nullable().optional(),
   parentContactId: z.uuid().nullable().optional(),
+  tagIds: z.array(z.uuid()).optional(),
   emails: z.array(ContactEmailInputSchema).optional(),
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),
+  websites: z.array(ContactWebsiteInputSchema).optional(),
 });
 
 const MoveContactSchema = z.object({
@@ -538,10 +599,16 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAccess(c, bookId, "read");
       if (error) return error;
 
+      const tagIds = Array.isArray(query.tag_id)
+        ? query.tag_id
+        : query.tag_id
+          ? [query.tag_id]
+          : undefined;
+
       const result = await contactsService.contact.list({
         bookId,
         pagination,
-        filter: { query: query.q },
+        filter: { query: query.q, tagIds },
       });
 
       return respond(
@@ -691,6 +758,384 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       return respondMessage(c, contactsService.contact.remove({ bookId, id: contactId }), "Contact deleted");
+    },
+  )
+
+  // ----------------------------------------------------------------
+  // CONTACT NOTES (timeline)
+  // ----------------------------------------------------------------
+  .get(
+    "/books/:bookId/contacts/:contactId/notes",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "List contact notes",
+      description: "Returns the timeline of notes attached to one contact, newest first.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(ContactNoteSchema), "Notes timeline"),
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const contactId = c.req.param("contactId");
+
+      const { error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+
+      const notes = await contactsService.contact.notes.list({ bookId, contactId });
+      return c.json(notes);
+    },
+  )
+  .post(
+    "/books/:bookId/contacts/:contactId/notes",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Add a note to a contact",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactNoteSchema, "Created note"),
+        400: jsonResponse(ErrorResponseSchema, "Validation error"),
+      },
+    }),
+    v("json", ContactNoteInputSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const contactId = c.req.param("contactId");
+      const data = c.req.valid("json");
+      const user = c.get("user");
+
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+
+      return respond(
+        c,
+        contactsService.contact.notes.create({
+          bookId,
+          contactId,
+          authorUserId: user.id,
+          authorDisplayName: user.displayName ?? user.uid,
+          data,
+        }),
+      );
+    },
+  )
+  .patch(
+    "/books/:bookId/contacts/:contactId/notes/:noteId",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Update one note",
+      description: "Only the original author may edit their own note.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactNoteSchema, "Updated note"),
+        403: jsonResponse(ErrorResponseSchema, "Not the author"),
+      },
+    }),
+    v("json", ContactNoteInputSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const contactId = c.req.param("contactId");
+      const noteId = c.req.param("noteId");
+      const data = c.req.valid("json");
+      const user = c.get("user");
+
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+
+      return respond(
+        c,
+        contactsService.contact.notes.update({
+          bookId,
+          contactId,
+          noteId,
+          authorUserId: user.id,
+          data,
+        }),
+      );
+    },
+  )
+  .delete(
+    "/books/:bookId/contacts/:contactId/notes/:noteId",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Delete one note",
+      description: "Author or book admin may delete.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Note deleted"),
+        403: jsonResponse(ErrorResponseSchema, "Not authorized"),
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const contactId = c.req.param("contactId");
+      const noteId = c.req.param("noteId");
+      const user = c.get("user");
+
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+
+      const permission = await contactsService.book.permission.get({
+        bookId,
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+      });
+
+      return respondMessage(
+        c,
+        contactsService.contact.notes.remove({
+          bookId,
+          contactId,
+          noteId,
+          authorUserId: user.id,
+          isBookAdmin: permission === "admin",
+        }),
+        "Note deleted",
+      );
+    },
+  )
+
+  // ----------------------------------------------------------------
+  // TAGS (per book)
+  // ----------------------------------------------------------------
+  .get(
+    "/books/:bookId/tags",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "List tags for a book",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(ContactTagSchema), "Tags"),
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const { error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+      const items = await contactsService.tag.list({ bookId });
+      return c.json(items);
+    },
+  )
+  .post(
+    "/books/:bookId/tags",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Create a tag",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactTagSchema, "Created tag"),
+        409: jsonResponse(ErrorResponseSchema, "Name already exists"),
+      },
+    }),
+    v("json", ContactTagCreateInputSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const data = c.req.valid("json");
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      return respond(c, contactsService.tag.create({ bookId, data }));
+    },
+  )
+  .patch(
+    "/books/:bookId/tags/:tagId",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Update a tag",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactTagSchema, "Updated tag"),
+      },
+    }),
+    v("json", ContactTagUpdateInputSchema),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const tagId = c.req.param("tagId");
+      const data = c.req.valid("json");
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      return respond(c, contactsService.tag.update({ bookId, id: tagId, data }));
+    },
+  )
+  .delete(
+    "/books/:bookId/tags/:tagId",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Delete a tag",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Tag deleted"),
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const tagId = c.req.param("tagId");
+      const { error } = await requireBookAccess(c, bookId, "write");
+      if (error) return error;
+      return respondMessage(c, contactsService.tag.remove({ bookId, id: tagId }), "Tag deleted");
+    },
+  )
+
+  // ----------------------------------------------------------------
+  // IMPORT / EXPORT
+  // ----------------------------------------------------------------
+  .get(
+    "/books/:bookId/export.vcf",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Export book as vCard",
+      ...requiresAuth,
+      responses: {
+        200: { description: "vCard file" },
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const { book, error } = await requireBookAccess(c, bookId, "admin");
+      if (error) return error;
+      // Pull all manual contacts in one go. The current list endpoint paginates,
+      // but for export we need every contact regardless of search/tag filters.
+      const result = await contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
+      const body = vcard.serializeBook(result.items);
+      return c.body(body, 200, {
+        "Content-Type": "text/vcard; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${(book?.name ?? "contacts").replace(/[^a-z0-9-_]+/gi, "_")}.vcf"`,
+      });
+    },
+  )
+  .get(
+    "/books/:bookId/export.csv",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Export book as CSV (flat — first email/phone/address only)",
+      ...requiresAuth,
+      responses: {
+        200: { description: "CSV file" },
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const { book, error } = await requireBookAccess(c, bookId, "admin");
+      if (error) return error;
+      const result = await contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
+      const body = vcard.serializeBookCsv(result.items);
+      return c.body(body, 200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${(book?.name ?? "contacts").replace(/[^a-z0-9-_]+/gi, "_")}.csv"`,
+      });
+    },
+  )
+  .post(
+    "/books/:bookId/import/preview",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Parse a vCard payload and preview matches against existing contacts",
+      description:
+        "Returns the parsed candidates plus a match indicator (by email or by first+last name) so the client can present a checkbox list before commit.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ candidates: z.array(z.unknown()) }), "Preview"),
+      },
+    }),
+    v(
+      "json",
+      z.object({
+        format: z.enum(["vcard"]),
+        content: z.string().min(1).max(10_000_000),
+      }),
+    ),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const { error } = await requireBookAccess(c, bookId, "admin");
+      if (error) return error;
+      const body = c.req.valid("json");
+      const candidates = vcard.parse(body.content);
+
+      // Match heuristic — one DB hop, then in-memory set lookups. Returns
+      // existingId + display name when a candidate likely duplicates an
+      // existing contact (by any of its emails OR exact first+last name).
+      const matchRows = await sql<{ id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]>`
+        SELECT
+          c.id,
+          c.first_name,
+          c.last_name,
+          c.label,
+          COALESCE(
+            (SELECT array_agg(LOWER(ce.email)) FROM contacts.contact_emails ce WHERE ce.contact_id = c.id),
+            '{}'::text[]
+          ) AS emails
+        FROM contacts.contacts c
+        WHERE c.book_id = ${bookId}::uuid
+      `;
+      const emailIndex = new Map<string, { id: string; name: string }>();
+      const nameIndex = new Map<string, { id: string; name: string }>();
+      for (const row of matchRows) {
+        const display =
+          [row.first_name, row.last_name].filter(Boolean).join(" ") || row.label || row.id;
+        for (const email of row.emails) {
+          if (email) emailIndex.set(email, { id: row.id, name: display });
+        }
+        const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim().toLowerCase();
+        if (fullName) nameIndex.set(fullName, { id: row.id, name: display });
+      }
+
+      const enriched = candidates.map((candidate) => {
+        let match: { existingId: string; existingName: string } | null = null;
+        for (const email of candidate.emails ?? []) {
+          const hit = emailIndex.get(email.email.toLowerCase());
+          if (hit) {
+            match = { existingId: hit.id, existingName: hit.name };
+            break;
+          }
+        }
+        if (!match) {
+          const fullName = [candidate.firstName, candidate.lastName].filter(Boolean).join(" ").trim().toLowerCase();
+          if (fullName) {
+            const hit = nameIndex.get(fullName);
+            if (hit) match = { existingId: hit.id, existingName: hit.name };
+          }
+        }
+        return { candidate, match };
+      });
+
+      return c.json({ candidates: enriched });
+    },
+  )
+  .post(
+    "/books/:bookId/import/commit",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Bulk create contacts from a previously previewed candidate list",
+      description: "Caller passes back the candidates that should be created. The server creates them in order and returns the created ids.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ created: z.number() }), "Created count"),
+      },
+    }),
+    v(
+      "json",
+      z.object({
+        contacts: z.array(z.unknown()),
+      }),
+    ),
+    async (c) => {
+      const bookId = c.req.param("bookId");
+      const { error } = await requireBookAccess(c, bookId, "admin");
+      if (error) return error;
+      const body = c.req.valid("json");
+      let created = 0;
+      const failures: string[] = [];
+      for (const raw of body.contacts) {
+        // Validate via the same schema we use for the manual create endpoint.
+        const parsed = CreateContactSchema.safeParse(raw);
+        if (!parsed.success) {
+          failures.push(parsed.error.message);
+          continue;
+        }
+        const result = await contactsService.contact.create({ bookId, data: parsed.data });
+        if (result.ok) created++;
+        else failures.push(result.error.message);
+      }
+      return c.json({ created, failures });
     },
   )
 
