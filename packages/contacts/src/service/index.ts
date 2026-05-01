@@ -120,6 +120,7 @@ export const contactsService = {
 export type {
   ContactBook,
   Contact,
+  ContactRef,
   CreateBookInput,
   UpdateBookInput,
   CreateContactInput,

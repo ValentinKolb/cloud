@@ -95,7 +95,20 @@ export default function ContactsList(props: Props) {
                     onKeyDown={(event) => handleRowKeyDown(event, contact)}
                   >
                     <td class="px-3 py-1.5 font-medium text-primary">
-                      <span class="truncate group-hover:underline">{resolveContactName(contact)}</span>
+                      <div class="flex flex-col gap-0.5">
+                        <span class="truncate group-hover:underline">{resolveContactName(contact)}</span>
+                        <Show when={contact.parent}>
+                          {(parent) => (
+                            <span
+                              class="inline-flex w-fit items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                              title={`Belongs to ${resolveContactName(parent())}`}
+                            >
+                              <i class="ti ti-corner-down-right text-[9px]" />
+                              {resolveContactName(parent())}
+                            </span>
+                          )}
+                        </Show>
+                      </div>
                     </td>
                     <td class="hidden md:table-cell px-3 py-1.5 text-dimmed">
                       <Show when={contact.companyName} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>

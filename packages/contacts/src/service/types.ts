@@ -44,6 +44,20 @@ export type ContactAddress = {
   updatedAt: string;
 };
 
+/**
+ * Minimal contact fields used to render parent chips and member lists in the
+ * UI without dragging full contact rows around. Always loaded inline in the
+ * main contact query so a single round-trip resolves the hierarchy view.
+ */
+export type ContactRef = {
+  id: string;
+  label: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+  jobTitle: string | null;
+};
+
 export type Contact = {
   id: string;
   bookId: string;
@@ -63,6 +77,11 @@ export type Contact = {
   emails: ContactEmail[];
   phones: ContactPhone[];
   addresses: ContactAddress[];
+  /** Direct parent in the hierarchy, null if this contact is at the root. */
+  parentContactId: string | null;
+  parent: ContactRef | null;
+  /** Direct children only — UI does not load grandchildren in one go. */
+  members: ContactRef[];
 };
 
 export type CreateBookInput = {
@@ -109,6 +128,7 @@ export type CreateContactInput = {
   birthday?: string | null;
   note?: string | null;
   source?: string | null;
+  parentContactId?: string | null;
   emails?: ContactEmailInput[];
   phones?: ContactPhoneInput[];
   addresses?: ContactAddressInput[];
@@ -126,6 +146,7 @@ export type UpdateContactInput = {
   birthday?: string | null;
   note?: string | null;
   source?: string | null;
+  parentContactId?: string | null;
   emails?: ContactEmailInput[];
   phones?: ContactPhoneInput[];
   addresses?: ContactAddressInput[];

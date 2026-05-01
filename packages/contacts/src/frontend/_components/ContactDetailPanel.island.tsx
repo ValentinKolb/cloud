@@ -3,10 +3,11 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { resolveContactName } from "../../shared";
-import type { Contact } from "../../service";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import type { Contact, ContactRef } from "../../service";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { CONTACT_DETAIL_EVENT, clearSelectedContactInUrl, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
 import ContactUpsertForm from "./ContactUpsertForm.island";
+import AddMemberDialog from "./AddMemberDialog.island";
 
 type Props = {
   initialContact: Contact | null;
@@ -116,6 +117,42 @@ export default function ContactDetailPanel(props: Props) {
     },
   });
 
+  const openAddMemberDialog = async (parent: Contact) => {
+    const member = await prompts.dialog<Contact | null>(
+      (close) => <AddMemberDialog parent={parent} close={close} />,
+      {
+        title: `Add member to ${resolveContactName(parent)}`,
+        icon: "ti ti-users-plus",
+        size: "large",
+      },
+    );
+    if (!member) return;
+    refreshCurrentPath();
+  };
+
+  const unlinkMember = async (member: ContactRef, parent: Contact) => {
+    const confirmed = await prompts.confirm(
+      `Remove "${resolveContactName(member)}" from members of "${resolveContactName(parent)}"? The contact stays — only the link is removed.`,
+      {
+        title: "Remove member",
+        icon: "ti ti-unlink",
+        confirmText: "Remove",
+        cancelText: "Cancel",
+      },
+    );
+    if (!confirmed) return;
+    const res = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
+      param: { bookId: parent.bookId, contactId: member.id },
+      json: { parentContactId: null },
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      prompts.error(data.message ?? "Failed to remove member");
+      return;
+    }
+    refreshCurrentPath();
+  };
+
   const openEditDialog = async (selectedContact: Contact) => {
     const updated = await prompts.dialog<Contact | undefined>(
       (close) => (
@@ -211,6 +248,21 @@ export default function ContactDetailPanel(props: Props) {
                           <i class="ti ti-building text-[10px]" />
                           {c().companyName}
                         </span>
+                      </Show>
+                      <Show when={c().parent}>
+                        {(parent) => (
+                          <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-primary dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                            onClick={() =>
+                              setSelectedContactInUrl({ contactId: parent().id, bookId: c().bookId, contact: null })
+                            }
+                            title={`Open ${resolveContactName(parent())}`}
+                          >
+                            <i class="ti ti-corner-down-right text-[10px]" />
+                            part of {resolveContactName(parent())}
+                          </button>
+                        )}
                       </Show>
                     </div>
                   </div>
@@ -323,6 +375,63 @@ export default function ContactDetailPanel(props: Props) {
                       <dd class="font-mono break-all">{c().vatId}</dd>
                     </Show>
                   </dl>
+                </section>
+              </Show>
+
+              <Show when={c().members.length > 0 || canEdit()}>
+                <section class="detail-section">
+                  <h3 class="detail-section-label">Members</h3>
+                  <div class="flex flex-col gap-2">
+                    <Show when={c().members.length > 0}>
+                      <ul class="flex flex-col gap-1">
+                        <For each={c().members}>
+                          {(member) => (
+                            <li class="group flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedContactInUrl({ contactId: member.id, bookId: c().bookId, contact: null })
+                                }
+                                class="flex flex-1 items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                              >
+                                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium dark:bg-zinc-700">
+                                  {(resolveContactName(member as ContactRef) || "?").charAt(0).toUpperCase()}
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                  <div class="truncate text-sm text-primary">{resolveContactName(member as ContactRef)}</div>
+                                  <Show when={member.companyName || member.jobTitle}>
+                                    <div class="truncate text-xs text-dimmed">
+                                      {[member.companyName, member.jobTitle].filter(Boolean).join(" · ")}
+                                    </div>
+                                  </Show>
+                                </div>
+                              </button>
+                              <Show when={canEdit()}>
+                                <button
+                                  type="button"
+                                  onClick={() => unlinkMember(member, c())}
+                                  class="shrink-0 p-1 text-dimmed opacity-0 transition-all hover:text-red-500 group-hover:opacity-100"
+                                  aria-label={`Remove ${resolveContactName(member as ContactRef)} from members`}
+                                  title="Remove from members"
+                                >
+                                  <i class="ti ti-unlink text-sm" />
+                                </button>
+                              </Show>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </Show>
+                    <Show when={canEdit()}>
+                      <button
+                        type="button"
+                        class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary"
+                        onClick={() => openAddMemberDialog(c())}
+                      >
+                        <i class="ti ti-plus" /> Add member
+                      </button>
+                    </Show>
+                  </div>
                 </section>
               </Show>
 

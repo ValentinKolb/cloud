@@ -5,8 +5,9 @@ import { TextInput } from "@valentinkolb/cloud/ui";
 import { RemoveBtn } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { resolveContactName } from "../../shared";
-import type { Contact } from "../../service";
+import type { Contact, ContactRef } from "../../service";
 import { navigateTo } from "@valentinkolb/cloud/ui";
+import ContactSearchPicker from "./ContactSearchPicker.island";
 
 type ContactUpsertMode = "create" | "edit";
 
@@ -14,6 +15,11 @@ type Props = {
   mode: ContactUpsertMode;
   bookId: string;
   initialContact?: Contact | null;
+  /**
+   * Pre-fills the "Belongs to" field for create mode (e.g. the "Add member"
+   * flow opens this form with the host contact already selected as parent).
+   */
+  defaultParent?: ContactRef | null;
   backHref?: string;
   onCancel?: () => void;
   onSaved?: (contact: Contact) => void;
@@ -115,6 +121,10 @@ export default function ContactUpsertForm(props: Props) {
   const [website, setWebsite] = createSignal(initialContact?.website ?? "");
   const [birthday, setBirthday] = createSignal(initialContact?.birthday ?? "");
   const [note, setNote] = createSignal(initialContact?.note ?? "");
+  // Parent ref drives both the UI chip and the parentContactId payload field.
+  // Edit mode seeds it from the loaded contact's parent; create flows can
+  // pre-seed via `defaultParent` (used by the "Add member" dialog).
+  const [parentRef, setParentRef] = createSignal<ContactRef | null>(initialContact?.parent ?? props.defaultParent ?? null);
 
   const [emails, setEmails] = createSignal<EditableEmail[]>(initialEmailRows(initialContact));
   const [phones, setPhones] = createSignal<EditablePhone[]>(initialPhoneRows(initialContact));
@@ -185,6 +195,7 @@ export default function ContactUpsertForm(props: Props) {
         website: website().trim() || null,
         birthday: birthdayValue || null,
         note: note().trim() || null,
+        parentContactId: parentRef()?.id ?? null,
         emails: normalizedEmails,
         phones: normalizedPhones,
         addresses: normalizedAddresses,
@@ -287,6 +298,28 @@ export default function ContactUpsertForm(props: Props) {
     removeMutation.mutate(undefined);
   };
 
+  const openParentPicker = async () => {
+    const picked = await prompts.dialog<Contact | null>(
+      (close) => (
+        <ContactSearchPicker
+          bookId={props.bookId}
+          excludeIds={initialContact?.id ? [initialContact.id] : []}
+          onSelect={(contact) => close(contact)}
+        />
+      ),
+      { title: "Pick a parent contact", icon: "ti ti-corner-down-right", size: "medium" },
+    );
+    if (!picked) return;
+    setParentRef({
+      id: picked.id,
+      label: picked.label,
+      firstName: picked.firstName,
+      lastName: picked.lastName,
+      companyName: picked.companyName,
+      jobTitle: picked.jobTitle,
+    });
+  };
+
   return (
     <div class="space-y-8">
       <section>
@@ -303,6 +336,50 @@ export default function ContactUpsertForm(props: Props) {
               value={label}
               onInput={setLabel}
             />
+          </div>
+          <div class="md:col-span-2">
+            <label class="text-label mb-1.5 block text-xs">
+              Belongs to <span class="font-normal text-dimmed">(optional)</span>
+            </label>
+            <p class="mb-2 text-[11px] text-dimmed">
+              Link this contact under a parent (e.g. an employee under their company). Cycles are blocked
+              by the server.
+            </p>
+            <Show
+              when={parentRef()}
+              fallback={
+                <button
+                  type="button"
+                  class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary"
+                  onClick={openParentPicker}
+                >
+                  <i class="ti ti-corner-down-right" /> Pick a parent contact
+                </button>
+              }
+            >
+              {(parent) => (
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                    <i class="ti ti-corner-down-right text-[10px]" />
+                    {resolveContactName(parent())}
+                  </span>
+                  <button
+                    type="button"
+                    class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                    onClick={openParentPicker}
+                  >
+                    Change
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
+                    onClick={() => setParentRef(null)}
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </Show>
           </div>
         </div>
       </section>

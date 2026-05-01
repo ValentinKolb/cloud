@@ -126,4 +126,19 @@ export const migrate = async (): Promise<void> => {
     ON contacts.contact_addresses(postal_code, city)
   `.simple();
   console.log("  ✓ contacts.contact_addresses table");
+
+  // Hierarchy: parent_contact_id introduced after initial release. ON DELETE SET NULL
+  // keeps children intact when a parent is deleted; cycles are prevented at the
+  // service layer via a recursive CTE check, not in the schema.
+  await sql`
+    ALTER TABLE contacts.contacts
+    ADD COLUMN IF NOT EXISTS parent_contact_id UUID NULL
+    REFERENCES contacts.contacts(id) ON DELETE SET NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contacts_parent
+    ON contacts.contacts(parent_contact_id)
+    WHERE parent_contact_id IS NOT NULL
+  `.simple();
+  console.log("  ✓ contacts.contacts.parent_contact_id column + index");
 };

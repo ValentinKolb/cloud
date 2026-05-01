@@ -120,6 +120,9 @@ const mapSystemContact = (row: DbSystemUser): Contact => ({
   emails: mapSystemEmails(row),
   phones: mapSystemPhones(row),
   addresses: mapSystemAddresses(row),
+  parentContactId: null,
+  parent: null,
+  members: [],
 });
 
 const buildSearchPattern = (query: string | undefined): string | null => {

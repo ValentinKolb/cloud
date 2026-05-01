@@ -61,6 +61,15 @@ const ContactAddressSchema = z.object({
   updatedAt: z.string(),
 });
 
+const ContactRefSchema = z.object({
+  id: z.string(),
+  label: z.string().nullable(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  companyName: z.string().nullable(),
+  jobTitle: z.string().nullable(),
+});
+
 const ContactSchema = z.object({
   id: z.string(),
   bookId: z.string(),
@@ -80,6 +89,9 @@ const ContactSchema = z.object({
   emails: z.array(ContactEmailSchema),
   phones: z.array(ContactPhoneSchema),
   addresses: z.array(ContactAddressSchema),
+  parentContactId: z.string().nullable(),
+  parent: ContactRefSchema.nullable(),
+  members: z.array(ContactRefSchema),
 });
 
 const ContactEmailInputSchema = z.object({
@@ -139,6 +151,7 @@ const CreateContactSchema = z.object({
   birthday: z.iso.date().nullable().optional(),
   note: z.string().max(10_000).nullable().optional(),
   source: z.string().max(50).nullable().optional(),
+  parentContactId: z.uuid().nullable().optional(),
   emails: z.array(ContactEmailInputSchema).optional(),
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),
@@ -156,6 +169,7 @@ const UpdateContactSchema = z.object({
   birthday: z.iso.date().nullable().optional(),
   note: z.string().max(10_000).nullable().optional(),
   source: z.string().max(50).nullable().optional(),
+  parentContactId: z.uuid().nullable().optional(),
   emails: z.array(ContactEmailInputSchema).optional(),
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),

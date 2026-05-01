@@ -11,6 +11,7 @@ import type {
   ContactEmailInput,
   ContactPhone,
   ContactPhoneInput,
+  ContactRef,
   CreateContactInput,
   UpdateContactInput,
 } from "./types";
@@ -29,8 +30,19 @@ type DbContact = {
   birthday: Date | string | null;
   note: string | null;
   source: string | null;
+  parent_contact_id: string | null;
   created_at: Date;
   updated_at: Date;
+};
+
+/**
+ * Postgres returns jsonb_build_object/jsonb_agg directly as JS values via the
+ * Bun sql client, so DbContact rows enriched with parent_data + members_data
+ * already have ContactRef-shaped objects (no row-mapping pass needed).
+ */
+type DbContactWithRelations = DbContact & {
+  parent_data: ContactRef | null;
+  members_data: ContactRef[];
 };
 
 type DbEmail = {
@@ -78,8 +90,14 @@ type SearchRow = {
 
 /**
  * Converts one manual contact row into API shape with supplied child rows.
+ * Parent + members are resolved on the DB side (single query) and passed in.
  */
-const mapContact = (config: { row: DbContact; emails: ContactEmail[]; phones: ContactPhone[]; addresses: ContactAddress[] }): Contact => ({
+const mapContact = (config: {
+  row: DbContactWithRelations;
+  emails: ContactEmail[];
+  phones: ContactPhone[];
+  addresses: ContactAddress[];
+}): Contact => ({
   id: config.row.id,
   bookId: config.row.book_id,
   label: config.row.label,
@@ -98,6 +116,9 @@ const mapContact = (config: { row: DbContact; emails: ContactEmail[]; phones: Co
   emails: config.emails,
   phones: config.phones,
   addresses: config.addresses,
+  parentContactId: config.row.parent_contact_id,
+  parent: config.row.parent_data,
+  members: config.row.members_data,
 });
 
 const mapEmail = (row: DbEmail): ContactEmail => ({
@@ -214,29 +235,73 @@ const loadAddresses = async (contactIds: string[]): Promise<Map<string, ContactA
 /**
  * Loads manual contacts by IDs and hydrates all child subtables.
  */
+/**
+ * Loads a set of contacts with hierarchy and child collections fully resolved.
+ *
+ * Hierarchy (parent + members) is loaded inline via JSON aggregation in the
+ * main query — one round-trip regardless of how many contacts are requested.
+ * The UI consumes only one hop up and one hop down; deeper traversal happens
+ * by navigating into the relevant contact.
+ *
+ * Emails / phones / addresses keep their batched loaders because they live in
+ * separate child tables and are already efficient.
+ */
 export const getManualContactsByIds = async (ids: string[]): Promise<Map<string, Contact>> => {
   const validIds = ids.filter(isUuid);
   if (validIds.length === 0) return new Map();
 
-  const rows = await sql<DbContact[]>`
+  const rows = await sql<DbContactWithRelations[]>`
     SELECT
-      id,
-      book_id,
-      label,
-      first_name,
-      last_name,
-      company_name,
-      department,
-      job_title,
-      vat_id,
-      website,
-      birthday,
-      note,
-      source,
-      created_at,
-      updated_at
-    FROM contacts.contacts
-    WHERE id = ANY(${toPgUuidArray(validIds)}::uuid[])
+      c.id,
+      c.book_id,
+      c.label,
+      c.first_name,
+      c.last_name,
+      c.company_name,
+      c.department,
+      c.job_title,
+      c.vat_id,
+      c.website,
+      c.birthday,
+      c.note,
+      c.source,
+      c.parent_contact_id,
+      c.created_at,
+      c.updated_at,
+      (
+        SELECT jsonb_build_object(
+          'id', p.id,
+          'label', p.label,
+          'firstName', p.first_name,
+          'lastName', p.last_name,
+          'companyName', p.company_name,
+          'jobTitle', p.job_title
+        )
+        FROM contacts.contacts p
+        WHERE p.id = c.parent_contact_id
+          AND p.book_id = c.book_id
+      ) AS parent_data,
+      COALESCE(
+        (
+          SELECT jsonb_agg(
+            jsonb_build_object(
+              'id', m.id,
+              'label', m.label,
+              'firstName', m.first_name,
+              'lastName', m.last_name,
+              'companyName', m.company_name,
+              'jobTitle', m.job_title
+            )
+            ORDER BY COALESCE(m.label, m.first_name, m.last_name, m.company_name, m.id::text)
+          )
+          FROM contacts.contacts m
+          WHERE m.parent_contact_id = c.id
+            AND m.book_id = c.book_id
+        ),
+        '[]'::jsonb
+      ) AS members_data
+    FROM contacts.contacts c
+    WHERE c.id = ANY(${toPgUuidArray(validIds)}::uuid[])
   `;
 
   const contactIds = rows.map((row) => row.id);
@@ -364,6 +429,61 @@ const mapManualSearchCondition = (searchPattern: string | null) => sql`
 `;
 
 /**
+ * Resolves a desired `parentContactId` against book + cycle rules.
+ *
+ * Returns:
+ *  - `ok(null)` when the caller wants to clear the parent (input is null/empty)
+ *  - `ok(uuid)` when the parent is valid and may be persisted
+ *  - `fail(err.invalid…)` for self-reference / cross-book / cycle / missing
+ *
+ * `contactId` is the contact whose parent is being set. Pass `null` for
+ * create flows where the contact does not yet exist (no cycle is possible).
+ */
+const resolveParentContactId = async (config: {
+  contactId: string | null;
+  bookId: string;
+  desiredParentId: string | null | undefined;
+}): Promise<Result<string | null>> => {
+  const desired = emptyToNull(config.desiredParentId ?? null);
+  if (desired === null) return ok(null);
+
+  if (!isUuid(desired)) return fail(err.badInput("Parent contact id must be a UUID"));
+  if (config.contactId !== null && desired === config.contactId) {
+    return fail(err.badInput("A contact cannot be its own parent"));
+  }
+
+  const [parentRow] = await sql<{ book_id: string }[]>`
+    SELECT book_id FROM contacts.contacts WHERE id = ${desired}::uuid
+  `;
+  if (!parentRow) return fail(err.badInput("Parent contact does not exist"));
+  if (parentRow.book_id !== config.bookId) {
+    return fail(err.badInput("Parent must live in the same book"));
+  }
+
+  if (config.contactId !== null) {
+    // Walk the desired parent's ancestor chain. If we hit `contactId`, accepting
+    // would create a cycle (contactId is already an ancestor of desired).
+    const [cycle] = await sql<{ exists: boolean }[]>`
+      WITH RECURSIVE up AS (
+        SELECT id, parent_contact_id
+        FROM contacts.contacts
+        WHERE id = ${desired}::uuid
+        UNION ALL
+        SELECT c.id, c.parent_contact_id
+        FROM contacts.contacts c
+        JOIN up ON c.id = up.parent_contact_id
+      )
+      SELECT EXISTS (SELECT 1 FROM up WHERE id = ${config.contactId}::uuid) AS "exists"
+    `;
+    if (cycle?.exists) {
+      return fail(err.badInput("Cannot create a hierarchy cycle"));
+    }
+  }
+
+  return ok(desired);
+};
+
+/**
  * Lists contacts for one book. System and manual books are resolved transparently.
  */
 export const list = async (config: {
@@ -401,11 +521,12 @@ export const list = async (config: {
       AND ${mapManualSearchCondition(searchPattern)}
   `;
 
-  const rows = await sql<DbContact[]>`
+  // The list query only needs IDs (in sorted order) — full contact rows are
+  // hydrated by getManualContactsByIds, which loads parent + members + child
+  // collections in one batched pass.
+  const rows = await sql<{ id: string }[]>`
     SELECT DISTINCT
       c.id,
-      c.book_id,
-      c.label,
       LOWER(
         COALESCE(
           NULLIF(TRIM(CONCAT_WS(' ', COALESCE(c.first_name, ''), COALESCE(c.last_name, ''))), ''),
@@ -414,18 +535,7 @@ export const list = async (config: {
           ''
         )
       ) AS sort_name,
-      c.first_name,
-      c.last_name,
-      c.company_name,
-      c.department,
-      c.job_title,
-      c.vat_id,
-      c.website,
-      c.birthday,
-      c.note,
-      c.source,
-      c.created_at,
-      c.updated_at
+      c.created_at
     FROM contacts.contacts c
     LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
     LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
@@ -460,32 +570,10 @@ export const get = async (config: { bookId: string; id: string }): Promise<Conta
 
   if (!isUuid(config.bookId) || !isUuid(config.id)) return null;
 
-  const [row] = await sql<DbContact[]>`
-    SELECT
-      id,
-      book_id,
-      label,
-      first_name,
-      last_name,
-      company_name,
-      department,
-      job_title,
-      vat_id,
-      website,
-      birthday,
-      note,
-      source,
-      created_at,
-      updated_at
-    FROM contacts.contacts
-    WHERE id = ${config.id}::uuid
-      AND book_id = ${config.bookId}::uuid
-  `;
-
-  if (!row) return null;
-
-  const mapped = await getManualContactsByIds([row.id]);
-  return mapped.get(row.id) ?? null;
+  const mapped = await getManualContactsByIds([config.id]);
+  const contact = mapped.get(config.id);
+  if (!contact || contact.bookId !== config.bookId) return null;
+  return contact;
 };
 
 /**
@@ -507,7 +595,17 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
     phones: config.data.phones,
   });
 
-  const [row] = await sql<DbContact[]>`
+  // Validate parent before insert. New contact does not exist yet, so no
+  // cycle is possible — we only verify the parent exists in the same book.
+  const parentResult = await resolveParentContactId({
+    contactId: null,
+    bookId: config.bookId,
+    desiredParentId: config.data.parentContactId,
+  });
+  if (!parentResult.ok) return parentResult;
+  const parentContactId = parentResult.data;
+
+  const [row] = await sql<{ id: string }[]>`
     INSERT INTO contacts.contacts (
       book_id,
       label,
@@ -520,7 +618,8 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       website,
       birthday,
       note,
-      source
+      source,
+      parent_contact_id
     ) VALUES (
       ${config.bookId}::uuid,
       ${label},
@@ -533,24 +632,10 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       ${emptyToNull(config.data.website) ?? null},
       ${config.data.birthday ?? null},
       ${emptyToNull(config.data.note) ?? null},
-      ${emptyToNull(config.data.source) ?? "manual"}
+      ${emptyToNull(config.data.source) ?? "manual"},
+      ${parentContactId}
     )
-    RETURNING
-      id,
-      book_id,
-      label,
-      first_name,
-      last_name,
-      company_name,
-      department,
-      job_title,
-      vat_id,
-      website,
-      birthday,
-      note,
-      source,
-      created_at,
-      updated_at
+    RETURNING id
   `;
 
   if (!row) return fail(err.internal("Failed to create contact"));
@@ -559,7 +644,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
   await replacePhones(row.id, config.data.phones ?? []);
   await replaceAddresses(row.id, config.data.addresses ?? []);
 
-  const created = await get({ bookId: row.book_id, id: row.id });
+  const created = await get({ bookId: config.bookId, id: row.id });
   if (!created) return fail(err.internal("Failed to load created contact"));
 
   return ok(created);
@@ -592,6 +677,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
       birthday,
       note,
       source,
+      parent_contact_id,
       created_at,
       updated_at
     FROM contacts.contacts
@@ -608,7 +694,20 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
     companyName: config.data.companyName === undefined ? existing.company_name : config.data.companyName,
   });
 
-  const [row] = await sql<DbContact[]>`
+  // Resolve the new parent only when the caller actually passed the field.
+  // `undefined` means "leave unchanged"; explicit `null` means "clear parent".
+  let nextParentContactId: string | null = existing.parent_contact_id;
+  if (config.data.parentContactId !== undefined) {
+    const parentResult = await resolveParentContactId({
+      contactId: config.id,
+      bookId: config.bookId,
+      desiredParentId: config.data.parentContactId,
+    });
+    if (!parentResult.ok) return parentResult;
+    nextParentContactId = parentResult.data;
+  }
+
+  const [row] = await sql<{ id: string }[]>`
     UPDATE contacts.contacts
     SET
       label = ${nextLabel},
@@ -622,25 +721,11 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
       birthday = ${config.data.birthday === undefined ? existing.birthday : config.data.birthday},
       note = ${config.data.note === undefined ? existing.note : emptyToNull(config.data.note)},
       source = ${config.data.source === undefined ? existing.source : emptyToNull(config.data.source)},
+      parent_contact_id = ${nextParentContactId},
       updated_at = now()
     WHERE id = ${config.id}::uuid
       AND book_id = ${config.bookId}::uuid
-    RETURNING
-      id,
-      book_id,
-      label,
-      first_name,
-      last_name,
-      company_name,
-      department,
-      job_title,
-      vat_id,
-      website,
-      birthday,
-      note,
-      source,
-      created_at,
-      updated_at
+    RETURNING id
   `;
 
   if (!row) return fail(err.internal("Failed to update contact"));
@@ -655,7 +740,7 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
     await replaceAddresses(row.id, config.data.addresses);
   }
 
-  const updated = await get({ bookId: row.book_id, id: row.id });
+  const updated = await get({ bookId: config.bookId, id: row.id });
   if (!updated) return fail(err.internal("Failed to load updated contact"));
 
   return ok(updated);
@@ -673,34 +758,33 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
     return fail(err.notFound("Contact"));
   }
 
-  const [row] = await sql<DbContact[]>`
-    UPDATE contacts.contacts
-    SET
-      book_id = ${config.targetBookId}::uuid,
-      updated_at = now()
-    WHERE id = ${config.id}::uuid
-      AND book_id = ${config.sourceBookId}::uuid
-    RETURNING
-      id,
-      book_id,
-      label,
-      first_name,
-      last_name,
-      company_name,
-      department,
-      job_title,
-      vat_id,
-      website,
-      birthday,
-      note,
-      source,
-      created_at,
-      updated_at
-  `;
+  // Move + sever hierarchy links in one transaction. Cross-book hierarchies
+  // are forbidden, so children of the moved contact (which stay in the source
+  // book) and the moved contact's own parent reference (which would now point
+  // across books) are nulled. The user is warned about this in the UI before
+  // confirming the move.
+  const [row] = await sql.begin(async (tx) => {
+    await tx`
+      UPDATE contacts.contacts
+      SET parent_contact_id = NULL,
+          updated_at = now()
+      WHERE parent_contact_id = ${config.id}::uuid
+    `;
+    return await tx<{ id: string }[]>`
+      UPDATE contacts.contacts
+      SET
+        book_id = ${config.targetBookId}::uuid,
+        parent_contact_id = NULL,
+        updated_at = now()
+      WHERE id = ${config.id}::uuid
+        AND book_id = ${config.sourceBookId}::uuid
+      RETURNING id
+    `;
+  });
 
   if (!row) return fail(err.notFound("Contact"));
 
-  const moved = await get({ bookId: row.book_id, id: row.id });
+  const moved = await get({ bookId: config.targetBookId, id: row.id });
   if (!moved) return fail(err.internal("Failed to load moved contact"));
 
   return ok(moved);
