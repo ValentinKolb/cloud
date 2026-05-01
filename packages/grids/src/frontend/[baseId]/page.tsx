@@ -5,6 +5,7 @@ import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsTable from "../_components/RecordsTable";
 import FieldsManager from "../_components/FieldsManager.island";
+import QuickAdd from "../_components/QuickAdd.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
 import { BaseSettingsButton } from "../_components/BaseActions.island";
 
@@ -81,6 +82,7 @@ export default ssr<AuthContext>(async (c) => {
   const canManageTable = gridsService.permission.hasAtLeast(activeTableLevel, "admin");
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
+  const canWriteRecords = gridsService.permission.hasAtLeast(activeTableLevel, "write");
 
   return () => (
     <Layout
@@ -138,9 +140,12 @@ export default ssr<AuthContext>(async (c) => {
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto p-4">
           {activeTable ? (
             <div class="flex flex-col gap-3">
-              <header class="flex items-baseline gap-3">
-                <h2 class="text-lg font-semibold text-primary">{activeTable.name}</h2>
-                <span class="text-xs text-dimmed">{records.items.length} record(s)</span>
+              <header class="flex items-center justify-between gap-3">
+                <div class="flex items-baseline gap-3">
+                  <h2 class="text-lg font-semibold text-primary">{activeTable.name}</h2>
+                  <span class="text-xs text-dimmed">{records.items.length} record(s)</span>
+                </div>
+                <QuickAdd tableId={activeTable.id} fields={fields} canWrite={canWriteRecords} />
               </header>
               <RecordsTable fields={fields} records={records.items} />
             </div>
