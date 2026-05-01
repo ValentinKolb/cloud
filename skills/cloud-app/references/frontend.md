@@ -240,7 +240,7 @@ const result = await prompts.form({
   size: "medium",            // "small" | "medium" | "large"
   fields: {
     title: { type: "text", label: "Title", required: true, placeholder: "Enter title..." },
-    description: { type: "text", label: "Description", multiline: true },
+    description: { type: "text", label: "Description", multiline: true, lines: 12 },  // `lines` sets approx visible rows
     priority: { type: "number", label: "Priority", default: 0, min: 0, max: 10 },
     category: {
       type: "select",
@@ -265,7 +265,7 @@ const result = await prompts.form({
 
 | Type | Key props | Returns |
 |------|-----------|---------|
-| `text` | `multiline`, `password`, `placeholder`, `icon`, `activeIcon` | `string` |
+| `text` | `multiline`, `lines`, `password`, `placeholder`, `icon`, `activeIcon` | `string` |
 | `number` | `min`, `max`, `step` | `number` |
 | `select` | `options: string[] \| { id, label?, icon?, description? }[]`, `clearable` | `string` |
 | `tags` | `placeholder`, `maxTags`, `minTags` | `string[]` |
@@ -543,6 +543,84 @@ import { MarkdownView } from "@valentinkolb/cloud/ui";
 <div class="info-block-warning"><i class="ti ti-alert-triangle" /> Warning</div>
 <div class="info-block-danger"><i class="ti ti-alert-circle" /> Error</div>
 ```
+
+### Detail panels (read view)
+
+Info-dense detail surfaces (right side of a list/detail layout, non-modal)
+use the `detail-*` utility family. The pattern is **flow of per-section
+paper cards** on a page-bg canvas — never nested papers, never the
+old `paper`-around-`divide-y` stat-card pattern.
+
+Live reference: `packages/contacts/src/frontend/_components/ContactDetailPanel.island.tsx`.
+
+```html
+<div class="flex flex-col">
+
+  <section class="detail-section">
+    <!-- Header section: title + chips + close. No detail-section-label here. -->
+    <div class="flex items-start justify-between gap-2">
+      <div class="min-w-0 flex-1">
+        <h2 class="text-lg font-semibold leading-tight text-primary">…name…</h2>
+        <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span class="…book chip…">…</span>
+        </div>
+      </div>
+      <button class="btn-simple btn-sm">…close icon…</button>
+    </div>
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-label">Reach</h3>
+    <a href="mailto:…" class="detail-row hover:text-blue-500">
+      <i class="ti ti-mail detail-row-icon text-blue-500 dark:text-blue-400" />
+      <span class="detail-row-label">work</span>
+      <span class="break-all">foo@example.com</span>
+    </a>
+    <!-- repeat per row -->
+  </section>
+
+  <section class="detail-section">
+    <h3 class="detail-section-label">Work</h3>
+    <dl class="detail-facts">
+      <dt class="detail-fact-key">Company</dt>
+      <dd>Acme GmbH</dd>
+      <dt class="detail-fact-key">VAT ID</dt>
+      <dd class="font-mono break-all">DE123456789</dd>
+    </dl>
+  </section>
+
+</div>
+```
+
+| Class | Purpose |
+|---|---|
+| `detail-section` | Section card. Auto-applies `paper p-4 mt-2 first:mt-0`. The first content child sitting flush below the label gets `pt-0 mt-0` so the gap to the label is exactly the label's `mb-3`, regardless of which content type follows. |
+| `detail-section-label` | Section heading: `mb-3 text-xs font-semibold uppercase tracking-wider text-secondary`. Use for "REACH", "WORK", "PERSONAL", … |
+| `detail-row` | Single-line row for emails / phones / websites / simple facts. Layout: leading icon column + optional small label slot + value. Composes with `detail-row-icon` and `detail-row-label`. |
+| `detail-row-icon` | Fixed-width icon slot for `detail-row` (keeps values aligned). Add a color utility (`text-blue-500`, `text-amber-500`, …) to colorize per data type. |
+| `detail-row-label` | Optional small label between icon and value, e.g. "work", "private". Truncates if overlong. |
+| `detail-facts` | Compact key/value grid for facts without per-row icons (e.g. PERSONAL group). Children pair up: `detail-fact-key`, then value. |
+| `detail-fact-key` | Dimmed key in `detail-facts`. |
+
+**Rules:**
+- Outer panel container has **no** `paper` — just structural classes (flex,
+  height, scroll). The page bg becomes the canvas, sections are the cards.
+- Empty sections must not render (`<Show when={hasReach()}>`). Sparse records
+  show fewer cards, never empty shells.
+- The panel's wrapper provides no horizontal padding; sections fill the panel
+  edge-to-edge.
+
+### Editor / form panels (write view)
+
+Editors that live **inside a modal** flip the rule: the modal frame IS the
+single surface, so sections inside are FLAT — `detail-section-label` for the
+heading, generous `mt-8` between sections, no inner papers. Live reference:
+`packages/contacts/src/frontend/_components/ContactUpsertForm.island.tsx`.
+
+For paired side-by-side `TextInput` fields, **either both have a `description`
+or neither** — mismatched description heights create vertical asymmetry that
+reads as a layout bug. Use `<div class="md:col-span-2">` to push a field with
+a long description onto its own row.
 
 ### Stats
 
