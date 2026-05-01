@@ -1,6 +1,13 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
-import { createAccess, type Principal, type PermissionLevel } from "@valentinkolb/cloud/server";
+import {
+  createAccess,
+  deleteAccess as platformDeleteAccess,
+  updateAccess as platformUpdateAccess,
+  type Principal,
+  type PermissionLevel,
+  type AccessEntry,
+} from "@valentinkolb/cloud/server";
 
 const TABLE_BY_RESOURCE = {
   base: "grids.base_access",
@@ -8,11 +15,30 @@ const TABLE_BY_RESOURCE = {
   view: "grids.view_access",
 } as const;
 
-const COLUMN_BY_RESOURCE = {
-  base: "base_id",
-  table: "table_id",
-  view: "view_id",
-} as const;
+type DbAccessRow = {
+  access_id: string;
+  user_id: string | null;
+  group_id: string | null;
+  authenticated_only: boolean;
+  permission: PermissionLevel;
+  created_at: Date;
+  display_name: string | null;
+};
+
+const principalFromRow = (row: DbAccessRow): Principal => {
+  if (row.user_id) return { type: "user", userId: row.user_id };
+  if (row.group_id) return { type: "group", groupId: row.group_id };
+  if (row.authenticated_only) return { type: "authenticated" };
+  return { type: "public" };
+};
+
+const mapAccessRow = (row: DbAccessRow): AccessEntry => ({
+  id: row.access_id,
+  principal: principalFromRow(row),
+  permission: row.permission,
+  createdAt: row.created_at.toISOString(),
+  displayName: row.display_name ?? undefined,
+});
 
 /**
  * Creates an access entry on the platform `auth.access` table and binds it
@@ -40,4 +66,75 @@ export const grantAccess = async (params: {
   }
 
   return ok({ accessId });
+};
+
+const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resourceId: string): Promise<AccessEntry[]> => {
+  // SELECT joining the matching junction table to auth.access. We left-join
+  // auth.users / auth.groups to project a display name, falling back to the
+  // raw uid/group name for anonymous principals.
+  // Resource-type → junction column is hand-picked so SQL identifiers stay
+  // out of user input.
+  let rows: DbAccessRow[];
+  if (resourceType === "base") {
+    rows = await sql<DbAccessRow[]>`
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+             a.permission, a.created_at,
+             COALESCE(u.uid, g.name, NULL) AS display_name
+      FROM grids.base_access ba
+      JOIN auth.access a ON a.id = ba.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      WHERE ba.base_id = ${resourceId}::uuid
+      ORDER BY a.created_at
+    `;
+  } else if (resourceType === "table") {
+    rows = await sql<DbAccessRow[]>`
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+             a.permission, a.created_at,
+             COALESCE(u.uid, g.name, NULL) AS display_name
+      FROM grids.table_access ta
+      JOIN auth.access a ON a.id = ta.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      WHERE ta.table_id = ${resourceId}::uuid
+      ORDER BY a.created_at
+    `;
+  } else {
+    rows = await sql<DbAccessRow[]>`
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+             a.permission, a.created_at,
+             COALESCE(u.uid, g.name, NULL) AS display_name
+      FROM grids.view_access va
+      JOIN auth.access a ON a.id = va.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      WHERE va.view_id = ${resourceId}::uuid
+      ORDER BY a.created_at
+    `;
+  }
+  return rows.map(mapAccessRow);
+};
+
+export const listBaseAccess = (baseId: string) => listAccess("base", baseId);
+export const listTableAccess = (tableId: string) => listAccess("table", tableId);
+export const listViewAccess = (viewId: string) => listAccess("view", viewId);
+
+/**
+ * Updates an existing access entry's permission level. Wraps the platform
+ * service so callers don't need to know whether the entry came from base /
+ * table / view ACL — they all share the auth.access row.
+ */
+export const updateAccessLevel = (accessId: string, level: PermissionLevel) =>
+  platformUpdateAccess({ id: accessId, permission: level });
+
+/**
+ * Revokes an access binding. The auth.access row is also deleted: in this
+ * codebase a row exists per resource-grant (no shared entries between
+ * junctions), so removing the resource binding always means removing the
+ * underlying access row too. CASCADE on the junctions handles the cleanup
+ * automatically once the access row is gone.
+ */
+export const revokeAccess = async (accessId: string): Promise<Result<void>> => {
+  const r = await platformDeleteAccess({ id: accessId });
+  return r.ok ? ok() : fail(r.error);
 };

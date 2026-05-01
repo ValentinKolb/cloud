@@ -3,7 +3,7 @@ import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Field, GridRecord } from "../../service";
-import { fieldToPromptSchema, isUserEditable, sanitizePayload } from "./field-prompt-schema";
+import { fieldToPromptSchema, isUserEditable, sanitizeEditPayload } from "./field-prompt-schema";
 
 type Props = {
   tableId: string;
@@ -108,7 +108,11 @@ export default function RecordsGrid(props: Props) {
       confirmText: "Save",
     });
     if (!result) return;
-    updateMutation.mutate({ record, payload: sanitizePayload(result) });
+    // Edit semantic: every form-rendered field must round-trip; empty
+    // values become explicit null so they actually clear server-side
+    // (omitted keys are preserved by the update service).
+    const formFieldIds = usableFields.map((f) => f.id);
+    updateMutation.mutate({ record, payload: sanitizeEditPayload(result, formFieldIds) });
   };
 
   const handleDelete = async (record: GridRecord) => {

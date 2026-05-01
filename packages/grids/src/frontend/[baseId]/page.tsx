@@ -6,6 +6,7 @@ import { gridsService } from "../../service";
 import RecordsGrid from "../_components/RecordsGrid.island";
 import FieldsManager from "../_components/FieldsManager.island";
 import QuickAdd from "../_components/QuickAdd.island";
+import BasePermissions from "../_components/BasePermissions.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
 import { BaseSettingsButton } from "../_components/BaseActions.island";
 
@@ -93,6 +94,9 @@ export default ssr<AuthContext>(async (c) => {
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
   const canWriteRecords = gridsService.permission.hasAtLeast(activeTableLevel, "write");
 
+  // Initial ACL entries — only fetched when the user can actually manage them.
+  const initialAccess = canManageBase ? await gridsService.access.listForBase(baseId) : [];
+
   return () => (
     <Layout
       c={c}
@@ -107,7 +111,10 @@ export default ssr<AuthContext>(async (c) => {
               <div class="text-sm font-medium text-primary truncate">{base.name}</div>
               {base.description && <div class="text-xs text-dimmed truncate">{base.description}</div>}
             </div>
-            <BaseSettingsButton base={base} canManage={canManageBase} />
+            <div class="flex items-center gap-1">
+              <BasePermissions baseId={baseId} initialEntries={initialAccess} canManage={canManageBase} />
+              <BaseSettingsButton base={base} canManage={canManageBase} />
+            </div>
           </div>
 
           <div>

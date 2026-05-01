@@ -40,7 +40,12 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
       return { type: "number", label, required, min: 0, max: scale, default: defaultVal };
     }
     case "boolean":
-      return { type: "boolean", label, default: defaultVal === true };
+      // Only seed a default when there's an actual prior value; defaulting
+      // to `false` would overwrite a server-side null/default with false
+      // when the user submits without touching this field.
+      return defaultVal === undefined
+        ? { type: "boolean", label }
+        : { type: "boolean", label, default: defaultVal === true };
     case "date": {
       const includeTime = (field.config as { includeTime?: boolean }).includeTime ?? false;
       return { type: "datetime", label, required, dateOnly: !includeTime, default: defaultVal };
@@ -59,9 +64,8 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
 };
 
 /**
- * Strips empty / undefined / empty-array values from a prompts.form result
- * so the API layer applies defaults or leaves the field cleared.
- * Preserves `false` and `0` since they're meaningful for boolean / number.
+ * CREATE path: drop empty / undefined / empty-array values so server-side
+ * defaults / nulls apply for un-touched fields. Keep `false` and `0`.
  */
 export const sanitizePayload = (result: Record<string, unknown>): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
@@ -69,6 +73,32 @@ export const sanitizePayload = (result: Record<string, unknown>): Record<string,
     if (v === "" || v === undefined) continue;
     if (Array.isArray(v) && v.length === 0) continue;
     out[k] = v;
+  }
+  return out;
+};
+
+/**
+ * EDIT path: clearing a field in the dialog must round-trip as an explicit
+ * null so the records-update service treats it as "set to null" rather than
+ * "leave unchanged" (omitted keys are preserved). Every form-rendered field
+ * is included; empty values become null.
+ */
+export const sanitizeEditPayload = (
+  result: Record<string, unknown>,
+  formFieldIds: string[],
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const fieldId of formFieldIds) {
+    const v = result[fieldId];
+    if (v === undefined || v === "") {
+      out[fieldId] = null;
+      continue;
+    }
+    if (Array.isArray(v) && v.length === 0) {
+      out[fieldId] = null;
+      continue;
+    }
+    out[fieldId] = v;
   }
   return out;
 };
