@@ -26,6 +26,7 @@ export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const baseId = c.req.param("baseId");
   const activeTableId = c.req.query("table") ?? null;
+  const trashMode = c.req.query("trash") === "1";
 
   const base = await gridsService.base.get(baseId);
   if (!base) {
@@ -72,11 +73,19 @@ export default ssr<AuthContext>(async (c) => {
   if (activeTable) {
     const [f, listResult, lvl] = await Promise.all([
       gridsService.field.listByTable(activeTable.id),
-      gridsService.record.list({ tableId: activeTable.id, limit: 100 }),
+      gridsService.record.list({
+        tableId: activeTable.id,
+        limit: 100,
+        includeDeleted: trashMode,
+      }),
       resolveLevel(user, baseId, activeTable.id),
     ]);
     fields = f;
-    if (listResult.ok) records = listResult.data;
+    if (listResult.ok) {
+      records = trashMode
+        ? { ...listResult.data, items: listResult.data.items.filter((r) => r.deletedAt !== null) }
+        : listResult.data;
+    }
     activeTableLevel = lvl;
   }
   const canManageTable = gridsService.permission.hasAtLeast(activeTableLevel, "admin");
@@ -142,16 +151,34 @@ export default ssr<AuthContext>(async (c) => {
             <div class="flex flex-col gap-3">
               <header class="flex items-center justify-between gap-3">
                 <div class="flex items-baseline gap-3">
-                  <h2 class="text-lg font-semibold text-primary">{activeTable.name}</h2>
+                  <h2 class="text-lg font-semibold text-primary">
+                    {activeTable.name}
+                    {trashMode && <span class="ml-2 text-sm font-normal text-amber-600 dark:text-amber-400">(trash)</span>}
+                  </h2>
                   <span class="text-xs text-dimmed">{records.items.length} record(s)</span>
                 </div>
-                <QuickAdd tableId={activeTable.id} fields={fields} canWrite={canWriteRecords} />
+                <div class="flex items-center gap-2">
+                  <a
+                    href={
+                      trashMode
+                        ? `/app/grids/${baseId}?table=${activeTable.id}`
+                        : `/app/grids/${baseId}?table=${activeTable.id}&trash=1`
+                    }
+                    class="btn-secondary btn-sm"
+                    title={trashMode ? "Back to live records" : "Show deleted records"}
+                  >
+                    <i class={trashMode ? "ti ti-arrow-back" : "ti ti-trash"} />
+                    {trashMode ? "Back" : "Trash"}
+                  </a>
+                  {!trashMode && <QuickAdd tableId={activeTable.id} fields={fields} canWrite={canWriteRecords} />}
+                </div>
               </header>
               <RecordsGrid
                 tableId={activeTable.id}
                 fields={fields}
                 records={records.items}
                 canWrite={canWriteRecords}
+                mode={trashMode ? "trash" : "live"}
               />
             </div>
           ) : (

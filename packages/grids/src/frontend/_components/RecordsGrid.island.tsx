@@ -10,6 +10,8 @@ type Props = {
   fields: Field[];
   records: GridRecord[];
   canWrite: boolean;
+  /** "live" = edit/delete actions; "trash" = restore action. Default "live". */
+  mode?: "live" | "trash";
 };
 
 const errorMessage = async (res: Response, fallback: string): Promise<string> => {
@@ -66,6 +68,20 @@ export default function RecordsGrid(props: Props) {
         param: { tableId: props.tableId, recordId },
       });
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete record"));
+      return recordId;
+    },
+    onSuccess: (recordId) => {
+      setRecords(records().filter((r) => r.id !== recordId));
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const restoreMutation = mutations.create<string, string>({
+    mutation: async (recordId) => {
+      const res = await apiClient.records[":tableId"][":recordId"].restore.$post({
+        param: { tableId: props.tableId, recordId },
+      });
+      if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to restore record"));
       return recordId;
     },
     onSuccess: (recordId) => {
@@ -158,22 +174,39 @@ export default function RecordsGrid(props: Props) {
                     <Show when={props.canWrite}>
                       <td class="px-2 py-1 w-10">
                         <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                            onClick={() => handleEdit(rec)}
-                            title="Edit"
+                          <Show
+                            when={props.mode === "trash"}
+                            fallback={
+                              <>
+                                <button
+                                  type="button"
+                                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                                  onClick={() => handleEdit(rec)}
+                                  title="Edit"
+                                >
+                                  <i class="ti ti-edit" />
+                                </button>
+                                <button
+                                  type="button"
+                                  class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
+                                  onClick={() => handleDelete(rec)}
+                                  title="Delete"
+                                >
+                                  <i class="ti ti-trash" />
+                                </button>
+                              </>
+                            }
                           >
-                            <i class="ti ti-edit" />
-                          </button>
-                          <button
-                            type="button"
-                            class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
-                            onClick={() => handleDelete(rec)}
-                            title="Delete"
-                          >
-                            <i class="ti ti-trash" />
-                          </button>
+                            <button
+                              type="button"
+                              class="btn-simple btn-sm text-xs text-dimmed hover:text-emerald-600"
+                              onClick={() => restoreMutation.mutate(rec.id)}
+                              title="Restore"
+                              disabled={restoreMutation.loading()}
+                            >
+                              <i class="ti ti-arrow-back-up" />
+                            </button>
+                          </Show>
                         </div>
                       </td>
                     </Show>
