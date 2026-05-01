@@ -96,7 +96,7 @@ export const loadGrantsForUser = async (params: {
       AND (
         a.user_id = ${userId}::uuid
         OR a.group_id = ANY(${groups}::uuid[])
-        OR a.authenticated_only = TRUE
+        OR (a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL)
         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
       )
 
@@ -109,7 +109,7 @@ export const loadGrantsForUser = async (params: {
       AND (
         a.user_id = ${userId}::uuid
         OR a.group_id = ANY(${groups}::uuid[])
-        OR a.authenticated_only = TRUE
+        OR (a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL)
         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
       )
 
@@ -122,7 +122,7 @@ export const loadGrantsForUser = async (params: {
       AND (
         a.user_id = ${userId}::uuid
         OR a.group_id = ANY(${groups}::uuid[])
-        OR a.authenticated_only = TRUE
+        OR (a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL)
         OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
       )
   `;

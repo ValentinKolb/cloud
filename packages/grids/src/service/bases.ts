@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { grantAccess } from "./access";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -42,6 +43,20 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
   `;
   if (!row) return fail(err.internal("insert failed"));
   const base = mapRow(row);
+
+  // Auto-grant admin to the creator so they can immediately use the new base.
+  // Without this, no ACL row exists and the resolver returns "none" — the
+  // creator would lock themselves out at the moment of creation.
+  if (actorId) {
+    const granted = await grantAccess({
+      resourceType: "base",
+      resourceId: base.id,
+      principal: { type: "user", userId: actorId },
+      permission: "admin",
+    });
+    if (!granted.ok) return fail(granted.error);
+  }
+
   await logAudit({ baseId: base.id, userId: actorId, action: "created" });
   return ok(base);
 };

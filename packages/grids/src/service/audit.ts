@@ -69,8 +69,12 @@ export const listAudit = async (params: {
   }
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
-  const rows = await sql<DbRow[]>`
-    SELECT id, base_id, table_id, record_id, user_id, action, diff, ip, user_agent, created_at
+  // The cursor token is built in Postgres so it carries the same full
+  // timestamp precision the WHERE clause compares against — JS Date
+  // millisecond-truncation would otherwise let rows slip between pages.
+  const rows = await sql<(DbRow & { cursor_token: string })[]>`
+    SELECT id, base_id, table_id, record_id, user_id, action, diff, ip, user_agent, created_at,
+           (created_at::text || '|' || id::text) AS cursor_token
     FROM grids.audit_log
     WHERE ${where}
     ORDER BY created_at DESC, id DESC
@@ -78,7 +82,7 @@ export const listAudit = async (params: {
   `;
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRow);
-  const last = items[items.length - 1];
-  const nextCursor = hasMore && last ? `${last.createdAt}|${last.id}` : null;
+  const lastRow = rows[items.length - 1];
+  const nextCursor = hasMore && lastRow ? lastRow.cursor_token : null;
   return { items, nextCursor };
 };
