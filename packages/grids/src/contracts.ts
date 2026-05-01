@@ -115,15 +115,80 @@ const StringBoolSchema = z.preprocess(
   z.boolean(),
 );
 
+// Filter and sort arrive as URL-encoded JSON strings; the schema parses
+// the JSON before validating its shape.
+const JsonStringSchema = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess(
+    (v) => {
+      if (typeof v !== "string") return v;
+      try {
+        return JSON.parse(v);
+      } catch {
+        return v;
+      }
+    },
+    inner,
+  );
+
+const FilterLeafSchema = z.object({
+  fieldId: z.string(),
+  op: z.string(),
+  value: z.unknown().optional(),
+  caseInsensitive: z.boolean().optional(),
+});
+
+export type FilterTree =
+  | z.infer<typeof FilterLeafSchema>
+  | { op: "AND" | "OR"; filters: FilterTree[] };
+
+export const FilterTreeSchema: z.ZodType<FilterTree> = z.lazy(() =>
+  z.union([
+    FilterLeafSchema,
+    z.object({
+      op: z.enum(["AND", "OR"]),
+      filters: z.array(FilterTreeSchema),
+    }),
+  ]),
+);
+
+export const SortSpecSchema = z.object({
+  fieldId: z.string(),
+  direction: z.enum(["asc", "desc"]),
+  nullsFirst: z.boolean().optional(),
+});
+
 export const RecordListQuerySchema = z.object({
-  cursor: z.string().uuid().optional(),
+  cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   includeDeleted: StringBoolSchema.optional(),
+  filter: JsonStringSchema(FilterTreeSchema).optional(),
+  sort: JsonStringSchema(z.array(SortSpecSchema)).optional(),
+});
+
+export const AggregateKindSchema = z.enum([
+  "count", "countEmpty", "countUnique",
+  "sum", "avg", "min", "max", "median",
+  "earliest", "latest",
+]);
+
+export const AggregateRequestSchema = z.object({
+  fieldId: z.string(),
+  agg: AggregateKindSchema,
+});
+
+export const AggregateBodySchema = z.object({
+  filter: FilterTreeSchema.optional(),
+  requests: z.array(AggregateRequestSchema).min(1).max(50),
+});
+
+export const AggregateResponseSchema = z.object({
+  results: z.record(z.string(), z.unknown()),
 });
 
 export const RecordListResponseSchema = z.object({
   items: z.array(GridRecordSchema),
-  nextCursor: z.string().uuid().nullable(),
+  // Cursor is now a JSON-encoded {sortValues, id} token, not a bare uuid.
+  nextCursor: z.string().nullable(),
 });
 
 // ── Audit ─────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ export const gridsService = {
     update: records.update,
     softDelete: records.softDelete,
     restore: records.restore,
+    aggregate: records.aggregate,
   },
   audit: {
     log: audit.logAudit,
@@ -55,3 +56,6 @@ export { bases, tables, fields, records, audit };
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
 export type { FieldDependent } from "./field-dependents";
 export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";
+export type { FilterTree, FilterLeaf, FilterGroup } from "./filter-compiler";
+export type { SortSpec } from "./sort-compiler";
+export type { AggregateRequest, AggKind } from "./aggregate-compiler";

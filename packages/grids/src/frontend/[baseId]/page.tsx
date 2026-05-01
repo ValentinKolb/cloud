@@ -61,13 +61,16 @@ export default ssr<AuthContext>(async (c) => {
 
   const activeTable = activeTableId ? tables.find((t) => t.id === activeTableId) ?? null : tables[0] ?? null;
 
+  type RecordsPage = { items: import("../../service").GridRecord[]; nextCursor: string | null };
   let fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> = [];
-  let records: Awaited<ReturnType<typeof gridsService.record.list>> = { items: [], nextCursor: null };
+  let records: RecordsPage = { items: [], nextCursor: null };
   if (activeTable) {
-    [fields, records] = await Promise.all([
+    const [f, listResult] = await Promise.all([
       gridsService.field.listByTable(activeTable.id),
       gridsService.record.list({ tableId: activeTable.id, limit: 100 }),
     ]);
+    fields = f;
+    if (listResult.ok) records = listResult.data;
   }
 
   return () => (

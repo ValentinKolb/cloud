@@ -8,6 +8,8 @@ import {
   RecordPayloadSchema,
   RecordListQuerySchema,
   RecordListResponseSchema,
+  AggregateBodySchema,
+  AggregateResponseSchema,
 } from "../contracts";
 import { gateAt } from "./permissions";
 
@@ -32,13 +34,16 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const query = c.req.valid("query");
-      const result = await gridsService.record.list({
-        tableId,
-        cursor: query.cursor ?? null,
-        limit: query.limit,
-        includeDeleted: query.includeDeleted,
-      });
-      return c.json(result);
+      return respond(c, () =>
+        gridsService.record.list({
+          tableId,
+          cursor: query.cursor ?? null,
+          limit: query.limit,
+          includeDeleted: query.includeDeleted,
+          filter: query.filter ?? null,
+          sort: query.sort,
+        }),
+      );
     },
   )
 
@@ -132,6 +137,34 @@ const app = new Hono<AuthContext>()
       const result = await gridsService.record.softDelete(tableId, recordId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
+    },
+  )
+
+  .post(
+    "/aggregate/:tableId",
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Compute footer aggregates over a (filtered) table",
+      responses: {
+        200: jsonResponse(AggregateResponseSchema, "Aggregate values keyed by <fieldId>__<agg>"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+      },
+    }),
+    v("json", AggregateBodySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId");
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const body = c.req.valid("json");
+      const result = await gridsService.record.aggregate({
+        tableId,
+        filter: body.filter ?? null,
+        requests: body.requests,
+      });
+      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+      return c.json({ results: result.data });
     },
   )
 

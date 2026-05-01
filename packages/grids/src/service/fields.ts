@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { ensureFieldIndex, dropFieldIndex } from "./field-indexes";
 import { getHandler, isKnownFieldType } from "../field-types";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
@@ -91,6 +92,13 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     action: "created",
     diff: { field: { old: null, new: { id: field.id, name: field.name, type: field.type } } },
   });
+
+  // CONCURRENTLY-built index fires after the row commits. Failures don't
+  // block create — they're logged so the user can re-toggle.
+  if (field.indexed) {
+    void ensureFieldIndex(field.id, field.type);
+  }
+
   return ok(field);
 };
 
@@ -145,6 +153,13 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   if (Object.keys(diff).length > 0) {
     await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff });
   }
+
+  // Toggle indexed state outside the row commit. Both calls are idempotent.
+  if (existing.indexed !== field.indexed) {
+    if (field.indexed) void ensureFieldIndex(field.id, field.type);
+    else void dropFieldIndex(field.id);
+  }
+
   return ok(field);
 };
 
@@ -153,5 +168,7 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
   await sql`UPDATE grids.fields SET deleted_at = now() WHERE id = ${id}::uuid`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" });
+  // Drop any expression index since the field is gone.
+  if (existing.indexed) void dropFieldIndex(id);
   return ok();
 };

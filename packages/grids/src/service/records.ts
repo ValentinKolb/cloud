@@ -3,6 +3,14 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { getHandler } from "../field-types";
+import { compileFilter, renderClause, type FilterTree } from "./filter-compiler";
+import {
+  compileSort,
+  encodeCursor,
+  decodeCursor,
+  type SortSpec,
+} from "./sort-compiler";
+import { compileAggregates, type AggregateRequest } from "./aggregate-compiler";
 import type { GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -94,21 +102,80 @@ export const list = async (params: {
   cursor?: string | null;
   limit?: number;
   includeDeleted?: boolean;
-}): Promise<{ items: GridRecord[]; nextCursor: string | null }> => {
+  filter?: FilterTree | null;
+  sort?: SortSpec[];
+}): Promise<Result<{ items: GridRecord[]; nextCursor: string | null }>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
+  const fields = await listFields(params.tableId);
+
+  // Filter compilation
+  const filterCompiled = compileFilter(params.filter ?? null, fields);
+  if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
+  const filterClause = renderClause(filterCompiled.clause);
+
+  // Sort compilation (with cursor decoding when present)
+  const decodedCursor = params.cursor ? decodeCursor(params.cursor) : null;
+  if (params.cursor && !decodedCursor) {
+    return fail(err.badInput("invalid cursor"));
+  }
+  const sortCompiled = compileSort(params.sort ?? [], fields, decodedCursor);
+  if (!sortCompiled.ok) return fail(err.badInput(`sort: ${sortCompiled.error}`));
+  const { orderBy, cursorWhere, projections } = sortCompiled.result;
+
   const conditions: any[] = [sql`table_id = ${params.tableId}::uuid`];
   if (!params.includeDeleted) conditions.push(sql`deleted_at IS NULL`);
-  if (params.cursor) conditions.push(sql`id > ${params.cursor}::uuid`);
+  conditions.push(filterClause);
+  if (cursorWhere) conditions.push(cursorWhere);
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
   const rows = await sql<DbRow[]>`
     SELECT * FROM grids.records WHERE ${where}
-    ORDER BY id ASC LIMIT ${limit + 1}
+    ORDER BY ${orderBy} LIMIT ${limit + 1}
   `;
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRow);
-  const nextCursor = hasMore ? items[items.length - 1]!.id : null;
-  return { items, nextCursor };
+
+  let nextCursor: string | null = null;
+  if (hasMore) {
+    const last = items[items.length - 1]!;
+    const sortValues = projections.map((p) => last.data[p.fieldId] ?? null);
+    nextCursor = encodeCursor({ sortValues, id: last.id });
+  }
+  return ok({ items, nextCursor });
+};
+
+export const aggregate = async (params: {
+  tableId: string;
+  filter?: FilterTree | null;
+  requests: AggregateRequest[];
+}): Promise<Result<Record<string, unknown>>> => {
+  const fields = await listFields(params.tableId);
+
+  const filterCompiled = compileFilter(params.filter ?? null, fields);
+  if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
+  const filterClause = renderClause(filterCompiled.clause);
+
+  const aggCompiled = compileAggregates(params.requests, fields);
+  if (!aggCompiled.ok) return fail(err.badInput(`aggregate: ${aggCompiled.error}`));
+
+  if (aggCompiled.columns.length === 0) return ok({});
+
+  // Aggregate query: a single SELECT with all expressions side-by-side.
+  // We assemble the SELECT list as a comma-separated reduce, then alias by
+  // pushing each expr into a separate sub-fragment that names the column
+  // via JSON construction (sidestepping bun.sql's missing identifier helper).
+  const jsonPairs = aggCompiled.columns
+    .map((col) => sql`${col.key}, ${col.expr}`)
+    .reduce((acc, cur) => sql`${acc}, ${cur}`);
+
+  const rows = await sql<{ result: Record<string, unknown> }[]>`
+    SELECT jsonb_build_object(${jsonPairs}) AS result
+    FROM grids.records
+    WHERE table_id = ${params.tableId}::uuid
+      AND deleted_at IS NULL
+      AND ${filterClause}
+  `;
+  return ok((rows[0]?.result as Record<string, unknown>) ?? {});
 };
 
 export const get = async (tableId: string, recordId: string): Promise<GridRecord | null> => {
