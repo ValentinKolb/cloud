@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { sql } from "bun";
 import { z } from "zod";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
@@ -105,16 +106,19 @@ const app = new Hono<AuthContext>()
   )
 
   // ── View ACL ────────────────────────────────────────────────────────
-  // View ACL only allows read at write-time (enforced here): write/admin
-  // authority lives at table+ in the design.
+  // View ACL only grants read at write-time (enforced here). Caller must be
+  // admin on the view's parent table/base — without this gate, any user
+  // could plant `none` grants that shadow table/base permissions on views
+  // they don't own.
   .post(
     "/by-view/:viewId",
     describeRoute({
       tags: ["Grids:Access"],
-      summary: "Grant read access on a view (only level 'read' is accepted)",
+      summary: "Grant read access on a view (only 'read' / 'none' accepted)",
       responses: {
         201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
-        400: jsonResponse(ErrorResponseSchema, "View only accepts level 'read'"),
+        400: jsonResponse(ErrorResponseSchema, "View only accepts level 'read' or 'none'"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     v("json", GrantAccessSchema),
@@ -124,8 +128,16 @@ const app = new Hono<AuthContext>()
       if (body.permission !== "read" && body.permission !== "none") {
         return c.json({ message: "View ACL only accepts 'read' or 'none'" }, 400);
       }
-      // Note: full view-permission gating is deferred to when views are part
-      // of Phase 2; for now the route exists so the contract is settled.
+      // Resolve view → table → base for the gate.
+      const [viewRow] = await sql<{ table_id: string; base_id: string }[]>`
+        SELECT v.table_id, t.base_id
+        FROM grids.views v
+        JOIN grids.tables t ON t.id = v.table_id
+        WHERE v.id = ${viewId}::uuid
+      `;
+      if (!viewRow) return c.json({ message: "View not found" }, 404);
+      const gate = await gateAt(c, { baseId: viewRow.base_id, tableId: viewRow.table_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
         () => gridsService.access.grant({
@@ -139,21 +151,43 @@ const app = new Hono<AuthContext>()
   )
 
   // ── Modify / revoke a single grant by accessId ──────────────────────
+  // Both routes resolve the access-id to its bound grids resource first,
+  // then gate at admin on the parent. Without this lookup any authenticated
+  // user with a known UUID could mutate another resource's ACL.
   .patch(
     "/:accessId",
     describeRoute({
       tags: ["Grids:Access"],
       summary: "Update a grant's permission level",
-      responses: { 200: { description: "OK" } },
+      responses: {
+        204: { description: "OK" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     v("json", UpdateLevelSchema),
     async (c) => {
       const accessId = c.req.param("accessId");
-      // Revoking would need to know which resource the grant is bound to;
-      // this route is intentionally minimal — caller supplies accessId
-      // returned from a prior list/grant call. Trust + audit on update is
-      // covered by the underlying services.
-      const result = await gridsService.access.updateLevel(accessId, c.req.valid("json").permission);
+      const binding = await gridsService.access.resolveBinding(accessId);
+      if (!binding) return c.json({ message: "Access entry not found" }, 404);
+
+      const target =
+        binding.resourceType === "base"
+          ? { baseId: binding.baseId }
+          : binding.resourceType === "table"
+            ? { baseId: binding.baseId, tableId: binding.tableId }
+            : { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId };
+      const gate = await gateAt(c, target, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const { permission } = c.req.valid("json");
+      // View grants stay capped at read/none even on update — the resolver
+      // never re-caps so we have to enforce on every write to the row.
+      if (binding.resourceType === "view" && permission !== "read" && permission !== "none") {
+        return c.json({ message: "View grants only accept 'read' or 'none'" }, 400);
+      }
+
+      const result = await gridsService.access.updateLevel(accessId, permission);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -163,10 +197,26 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Grids:Access"],
       summary: "Revoke a grant",
-      responses: { 204: { description: "Revoked" } },
+      responses: {
+        204: { description: "Revoked" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
     }),
     async (c) => {
       const accessId = c.req.param("accessId");
+      const binding = await gridsService.access.resolveBinding(accessId);
+      if (!binding) return c.json({ message: "Access entry not found" }, 404);
+
+      const target =
+        binding.resourceType === "base"
+          ? { baseId: binding.baseId }
+          : binding.resourceType === "table"
+            ? { baseId: binding.baseId, tableId: binding.tableId }
+            : { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId };
+      const gate = await gateAt(c, target, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
       const result = await gridsService.access.revoke(accessId);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);

@@ -58,6 +58,7 @@ export const gridsService = {
     listForView: access.listViewAccess,
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
+    resolveBinding: access.resolveAccessBinding,
   },
 };
 

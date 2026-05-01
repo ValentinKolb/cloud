@@ -138,3 +138,49 @@ export const revokeAccess = async (accessId: string): Promise<Result<void>> => {
   const r = await platformDeleteAccess({ id: accessId });
   return r.ok ? ok() : fail(r.error);
 };
+
+/**
+ * Resolves which grids resource an access id is bound to. Routes that
+ * mutate an access row (PATCH / DELETE) call this first so they can gate
+ * at admin on the parent resource — without this lookup, any authenticated
+ * user with a known access-id could alter another resource's ACL.
+ */
+export type AccessBinding =
+  | { resourceType: "base"; baseId: string }
+  | { resourceType: "table"; baseId: string; tableId: string }
+  | { resourceType: "view"; baseId: string; tableId: string; viewId: string };
+
+export const resolveAccessBinding = async (accessId: string): Promise<AccessBinding | null> => {
+  const [baseRow] = await sql<{ base_id: string }[]>`
+    SELECT base_id FROM grids.base_access WHERE access_id = ${accessId}::uuid
+  `;
+  if (baseRow) return { resourceType: "base", baseId: baseRow.base_id };
+
+  const [tableRow] = await sql<{ table_id: string; base_id: string }[]>`
+    SELECT ta.table_id, t.base_id
+    FROM grids.table_access ta
+    JOIN grids.tables t ON t.id = ta.table_id
+    WHERE ta.access_id = ${accessId}::uuid
+  `;
+  if (tableRow) {
+    return { resourceType: "table", baseId: tableRow.base_id, tableId: tableRow.table_id };
+  }
+
+  const [viewRow] = await sql<{ view_id: string; table_id: string; base_id: string }[]>`
+    SELECT va.view_id, v.table_id, t.base_id
+    FROM grids.view_access va
+    JOIN grids.views v ON v.id = va.view_id
+    JOIN grids.tables t ON t.id = v.table_id
+    WHERE va.access_id = ${accessId}::uuid
+  `;
+  if (viewRow) {
+    return {
+      resourceType: "view",
+      baseId: viewRow.base_id,
+      tableId: viewRow.table_id,
+      viewId: viewRow.view_id,
+    };
+  }
+
+  return null;
+};
