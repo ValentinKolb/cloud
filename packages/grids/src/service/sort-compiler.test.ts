@@ -29,7 +29,7 @@ describe("compileSort — validation", () => {
     if (!r.ok) expect(r.error).toMatch(/deleted/);
   });
 
-  test("rejects mixed asc/desc directions", () => {
+  test("rejects mixed asc/desc directions (with cursor)", () => {
     const r = compileSort(
       [
         { fieldId: "fld_a", direction: "asc" },
@@ -37,6 +37,21 @@ describe("compileSort — validation", () => {
       ],
       fields,
       { values: ["x", 5], id: "00000000-0000-0000-0000-000000000001" },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/mixed/);
+  });
+
+  test("rejects mixed asc/desc directions on FIRST page (no cursor) too", () => {
+    // Codex chunk-1B regression: mixed-direction validation must run before
+    // the response so the API doesn't emit a cursor it can't follow.
+    const r = compileSort(
+      [
+        { fieldId: "fld_a", direction: "asc" },
+        { fieldId: "fld_b", direction: "desc" },
+      ],
+      fields,
+      null,
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/mixed/);
@@ -79,6 +94,18 @@ describe("compileSort — validation", () => {
       expect(r.result.fieldIds).toEqual(["fld_c", "fld_b"]);
       expect(r.result.projections.map((p) => p.sqlCast)).toEqual(["date", "numeric"]);
     }
+  });
+
+  test("handles null in cursor sort values (was P2 — would skip rows)", () => {
+    // Codex chunk-1B regression: null in cursor sort value caused tuple
+    // comparison to evaluate to UNKNOWN and skip rows.
+    const r = compileSort(
+      [{ fieldId: "fld_b", direction: "asc" }],
+      fields,
+      { values: [null], id: "00000000-0000-0000-0000-000000000001" },
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.result.cursorWhere).not.toBeNull();
   });
 });
 

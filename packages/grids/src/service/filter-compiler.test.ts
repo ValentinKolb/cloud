@@ -110,6 +110,19 @@ describe("compileFilter — structural compilation", () => {
     if (!r.ok) expect(r.error).toMatch(/not supported/);
   });
 
+  test("isGroup checks filters-array shape, not just op", () => {
+    // A leaf with op "AND" but no `filters` array must be treated as a leaf,
+    // not silently misclassified as a malformed group.
+    const r = compileFilter(
+      { fieldId: "fld_name", op: "AND", value: "x" } as never,
+      fields,
+    );
+    // It's a leaf (a real one would never have op "AND", so we get an op-check failure
+    // — which is the correct path: validation, not a runtime crash).
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/not supported/);
+  });
+
   test("multi-select containsAll passes through", () => {
     const r = compileFilter({ fieldId: "fld_tags", op: "containsAll", value: ["a", "b"] }, fields);
     expect(r.ok).toBe(true);

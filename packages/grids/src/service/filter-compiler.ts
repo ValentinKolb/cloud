@@ -72,8 +72,13 @@ export type CompileResult =
   | { ok: true; clause: CompiledClause }
   | { ok: false; error: string };
 
-const isGroup = (t: FilterTree): t is FilterGroup =>
-  (t as FilterGroup).op === "AND" || (t as FilterGroup).op === "OR";
+// Distinguishes group vs leaf by SHAPE, not just `op`. A leaf with op
+// "AND"/"OR" would otherwise be misclassified as a group with undefined
+// `filters` and crash the walker. Both predicates must hold for a group.
+const isGroup = (t: FilterTree): t is FilterGroup => {
+  const g = t as Partial<FilterGroup>;
+  return (g.op === "AND" || g.op === "OR") && Array.isArray(g.filters);
+};
 
 export const compileFilter = (
   tree: FilterTree | null | undefined,

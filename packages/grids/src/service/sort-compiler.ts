@@ -18,7 +18,9 @@ export type CompiledSort = {
   projections: Array<{ fieldId: string; sqlCast: string }>;
 };
 
-const projectionForType = (fieldId: string, type: string) => {
+type CastKind = "numeric" | "date" | "boolean" | "text";
+
+const projectionForType = (fieldId: string, type: string): { sql: any; cast: CastKind } => {
   switch (type) {
     case "number": case "decimal": case "rating": case "autonumber":
       return { sql: sql`(data->>${fieldId})::numeric`, cast: "numeric" };
@@ -31,12 +33,78 @@ const projectionForType = (fieldId: string, type: string) => {
   }
 };
 
+const castedValue = (cast: CastKind, value: unknown): any => {
+  if (value === null || value === undefined) {
+    switch (cast) {
+      case "numeric": return sql`NULL::numeric`;
+      case "date": return sql`NULL::date`;
+      case "boolean": return sql`NULL::boolean`;
+      case "text": return sql`NULL::text`;
+    }
+  }
+  switch (cast) {
+    case "numeric": return sql`${value}::numeric`;
+    case "date": return sql`${value}::date`;
+    case "boolean": return sql`${value}::boolean`;
+    case "text": return sql`${value}::text`;
+  }
+};
+
 /**
- * Compiles a multi-column sort spec to an ORDER BY fragment plus a tuple
- * cursor predicate. The cursor encodes the previous page's last-row sort
- * values + id; pagination is `(sortVal_1, ..., sortVal_n, id) < (...cursor)`
- * (or `>` for ascending). Always appends `id` as a final tiebreaker so the
- * order is total even if sort keys collide.
+ * Null-safe equality: TRUE when both NULL or both equal. Postgres' regular
+ * `=` returns NULL when either side is NULL, which would break the cascading
+ * tuple comparison (rows with same null sort value would be skipped).
+ */
+const nullSafeEq = (proj: any, cast: CastKind, value: unknown): any => {
+  return sql`${proj} IS NOT DISTINCT FROM ${castedValue(cast, value)}`;
+};
+
+/**
+ * "Comes after" comparator per column, accounting for direction + nulls
+ * placement. Returns a SQL fragment that's TRUE when `proj` belongs after
+ * `value` in the sort order.
+ */
+const orderGt = (
+  proj: any,
+  cast: CastKind,
+  direction: "asc" | "desc",
+  nullsFirst: boolean,
+  value: unknown,
+): any => {
+  const cursorIsNull = value === null || value === undefined;
+
+  if (direction === "asc" && nullsFirst) {
+    // Order: NULL, NULL, ..., 1, 2, 3.
+    if (cursorIsNull) return sql`${proj} IS NOT NULL`;
+    return sql`${proj} > ${castedValue(cast, value)}`;
+  }
+  if (direction === "asc" && !nullsFirst) {
+    // Order: 1, 2, 3, ..., NULL, NULL.
+    if (cursorIsNull) return sql`FALSE`; // already at the trailing null tier
+    return sql`(${proj} > ${castedValue(cast, value)}) OR (${proj} IS NULL)`;
+  }
+  if (direction === "desc" && nullsFirst) {
+    // Order: NULL, NULL, ..., 9, 8, 1.
+    if (cursorIsNull) return sql`FALSE`; // null tier was first, already past
+    return sql`${proj} < ${castedValue(cast, value)}`;
+  }
+  // direction === "desc" && !nullsFirst
+  // Order: 9, 8, ..., 1, NULL, NULL.
+  if (cursorIsNull) return sql`FALSE`;
+  return sql`(${proj} < ${castedValue(cast, value)}) OR (${proj} IS NULL)`;
+};
+
+/**
+ * Compiles a multi-column sort spec to an ORDER BY fragment plus a
+ * null-aware tuple cursor predicate. The cursor encodes the previous page's
+ * sort values + id; pagination is built as a cascading lexicographic
+ * comparison (see `orderGt` for per-column semantics). Always appends `id`
+ * as a final tiebreaker so the order is total even when sort keys collide.
+ *
+ * Mixed asc/desc directions are not supported in Phase-1B: even though the
+ * per-column operators handle directions individually, the `id` tiebreaker
+ * needs a single direction to match the page. Reject up-front so the caller
+ * can't get a cursor it can't follow.
  */
 export const compileSort = (
   specs: SortSpec[],
@@ -44,8 +112,6 @@ export const compileSort = (
   cursor: { values: unknown[]; id: string } | null,
 ): { ok: true; result: CompiledSort } | { ok: false; error: string } => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-
-  // Default sort if none specified: id ASC (matches Phase-1A behavior).
   const effective = specs.length > 0 ? specs : [];
 
   // Validate fields exist + not deleted.
@@ -55,67 +121,84 @@ export const compileSort = (
     if (f.deletedAt) return { ok: false, error: `sort field "${f.name}" is deleted` };
   }
 
+  // Reject mixed asc/desc up-front so the caller can't end up with a cursor
+  // it can't paginate. (Previous behavior only validated when a cursor was
+  // present, which meant the first page would succeed and emit a cursor
+  // that the next request would reject with 400.)
+  if (effective.length > 1) {
+    const direction = effective[0]!.direction;
+    const allUniform = effective.every((s) => s.direction === direction);
+    if (!allUniform) {
+      return {
+        ok: false,
+        error: "mixed asc/desc sort directions are not supported in Phase-1B; use uniform direction",
+      };
+    }
+  }
+
+  // Resolve effective nullsFirst per column (default = nulls-first asc, last desc).
+  const resolved = effective.map((s) => ({
+    spec: s,
+    field: fieldsById.get(s.fieldId)!,
+    nullsFirst: s.nullsFirst ?? s.direction === "asc",
+  }));
+
   // Build ORDER BY parts.
-  const orderParts = effective.map((s) => {
-    const field = fieldsById.get(s.fieldId)!;
-    const proj = projectionForType(s.fieldId, field.type);
-    const dir = s.direction === "desc" ? sql`DESC` : sql`ASC`;
-    const nulls = s.nullsFirst ? sql`NULLS FIRST` : s.direction === "desc" ? sql`NULLS LAST` : sql`NULLS FIRST`;
+  const orderParts = resolved.map(({ spec, field, nullsFirst }) => {
+    const proj = projectionForType(spec.fieldId, field.type);
+    const dir = spec.direction === "desc" ? sql`DESC` : sql`ASC`;
+    const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
     return sql`${proj.sql} ${dir} ${nulls}`;
   });
-  // Tiebreaker on id matches the page direction of the FIRST sort spec
-  // (or ASC if no sort spec at all).
-  const idDir = effective[0]?.direction === "desc" ? sql`DESC` : sql`ASC`;
-  const tiebreak = sql`id ${idDir}`;
-  const orderBy = (orderParts.length > 0 ? [...orderParts, tiebreak] : [tiebreak]).reduce(
-    (acc, cur) => sql`${acc}, ${cur}`,
-  );
 
-  // Tuple cursor predicate. Postgres supports row-comparison directly:
-  // `(a, b, c) < (1, 2, 3)`. We mix ASC/DESC by using the appropriate
-  // operator per the page direction. To keep it simple we require all
-  // sort columns to share a direction; mixed-direction sorts fall back to
-  // a per-column nested OR. Phase-1B uses uniform direction.
+  // Tiebreaker on id matches the page direction (uniform across all sort cols).
+  const pageDirection: "asc" | "desc" = effective[0]?.direction ?? "asc";
+  const idDirSql = pageDirection === "desc" ? sql`DESC` : sql`ASC`;
+  const orderBy = (orderParts.length > 0 ? [...orderParts, sql`id ${idDirSql}`] : [sql`id ${idDirSql}`])
+    .reduce((acc, cur) => sql`${acc}, ${cur}`);
+
+  // Build cursor where clause if a cursor is present.
   let cursorWhere: any | null = null;
   if (cursor) {
-    if (effective.length === 0) {
+    if (resolved.length === 0) {
       // ID-only paging.
-      cursorWhere = idDir.toString().includes("DESC") ? sql`id < ${cursor.id}::uuid` : sql`id > ${cursor.id}::uuid`;
+      cursorWhere = pageDirection === "desc"
+        ? sql`id < ${cursor.id}::uuid`
+        : sql`id > ${cursor.id}::uuid`;
     } else {
-      // Row constructor cursor: identical direction across all sort cols.
-      const direction = effective[0]!.direction;
-      const allUniform = effective.every((s) => s.direction === direction);
-      if (!allUniform) {
-        return {
-          ok: false,
-          error: "mixed asc/desc sort directions are not supported in Phase-1B; use uniform direction",
-        };
+      // Lexicographic null-aware comparison:
+      //   gt(c1, v1)
+      //   OR (eq(c1, v1) AND gt(c2, v2))
+      //   OR ...
+      //   OR (eq(...) AND id (>|<) cursor_id)
+      const idCompare = pageDirection === "desc"
+        ? sql`id < ${cursor.id}::uuid`
+        : sql`id > ${cursor.id}::uuid`;
+
+      const branches: any[] = [];
+      for (let i = 0; i < resolved.length; i++) {
+        const proj = projectionForType(resolved[i]!.spec.fieldId, resolved[i]!.field.type);
+        const value = cursor.values[i];
+        const gt = orderGt(proj.sql, proj.cast, resolved[i]!.spec.direction, resolved[i]!.nullsFirst, value);
+        // Equality prefix: all earlier columns equal.
+        let prefix: any = sql`TRUE`;
+        for (let j = 0; j < i; j++) {
+          const pj = projectionForType(resolved[j]!.spec.fieldId, resolved[j]!.field.type);
+          const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
+          prefix = sql`${prefix} AND ${eq}`;
+        }
+        branches.push(sql`(${prefix} AND (${gt}))`);
       }
-      const op = direction === "desc" ? sql`<` : sql`>`;
-      const lhs = effective
-        .map((s) => projectionForType(s.fieldId, fieldsById.get(s.fieldId)!.type).sql)
-        .reduce((acc, cur) => sql`${acc}, ${cur}`);
-      // Cast cursor values per field to the right Postgres type so the
-      // row-compare doesn't trip over implicit casts.
-      const rhs = effective
-        .map((s, i) => {
-          const proj = projectionForType(s.fieldId, fieldsById.get(s.fieldId)!.type);
-          const v = cursor.values[i];
-          // Hand-pick the cast token from a closed set — never interpolate
-          // user data as a SQL identifier.
-          switch (proj.cast) {
-            case "numeric":
-              return v === null || v === undefined ? sql`NULL::numeric` : sql`${v}::numeric`;
-            case "date":
-              return v === null || v === undefined ? sql`NULL::date` : sql`${v}::date`;
-            case "boolean":
-              return v === null || v === undefined ? sql`NULL::boolean` : sql`${v}::boolean`;
-            default:
-              return v === null || v === undefined ? sql`NULL::text` : sql`${v}::text`;
-          }
-        })
-        .reduce((acc, cur) => sql`${acc}, ${cur}`);
-      cursorWhere = sql`(${lhs}, id) ${op} (${rhs}, ${cursor.id}::uuid)`;
+      // Final branch: all sort cols equal AND id past cursor_id.
+      let allEqPrefix: any = sql`TRUE`;
+      for (let j = 0; j < resolved.length; j++) {
+        const pj = projectionForType(resolved[j]!.spec.fieldId, resolved[j]!.field.type);
+        const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
+        allEqPrefix = sql`${allEqPrefix} AND ${eq}`;
+      }
+      branches.push(sql`(${allEqPrefix} AND ${idCompare})`);
+
+      cursorWhere = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
     }
   }
 
@@ -125,9 +208,9 @@ export const compileSort = (
       orderBy,
       cursorWhere,
       fieldIds: effective.map((s) => s.fieldId),
-      projections: effective.map((s) => ({
-        fieldId: s.fieldId,
-        sqlCast: projectionForType(s.fieldId, fieldsById.get(s.fieldId)!.type).cast,
+      projections: resolved.map(({ spec, field }) => ({
+        fieldId: spec.fieldId,
+        sqlCast: projectionForType(spec.fieldId, field.type).cast,
       })),
     },
   };
