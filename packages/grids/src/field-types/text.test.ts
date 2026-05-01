@@ -43,3 +43,11 @@ test("longtext: preserves leading/trailing whitespace", () => {
 test("longtext: empty string still rejected as null when not required", () => {
   expect(longtextHandler.validate("", {}, false)).toEqual({ ok: true, value: null });
 });
+
+test("longtext: rejects invalid config (negative minLength)", () => {
+  expect(longtextHandler.validate("abc", { minLength: -1 }, false).ok).toBe(false);
+});
+
+test("longtext: rejects invalid config (zero maxLength)", () => {
+  expect(longtextHandler.validate("abc", { maxLength: 0 }, false).ok).toBe(false);
+});

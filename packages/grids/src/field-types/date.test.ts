@@ -35,3 +35,8 @@ test("date: enforces min/max", () => {
     value: "2026-06-15",
   });
 });
+
+test("date: rejects invalid min/max in field config (don't silently skip)", () => {
+  expect(dateHandler.validate("2026-01-01", { min: "not a date" }, false).ok).toBe(false);
+  expect(dateHandler.validate("2026-01-01", { max: "garbage" }, false).ok).toBe(false);
+});

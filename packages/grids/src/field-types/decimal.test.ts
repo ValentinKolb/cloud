@@ -17,6 +17,13 @@ test("decimal: rejects exceeding precision", () => {
   expect(decimalHandler.validate("12345678901.23", cfg2, false).ok).toBe(false);
 });
 
+test("decimal: rejects integer side exceeding precision-scale", () => {
+  // precision=5, scale=2 → max 3 integer digits. 1000 has 4 → reject.
+  expect(decimalHandler.validate("1000", { precision: 5, scale: 2 }, false).ok).toBe(false);
+  // 999 fits.
+  expect(decimalHandler.validate("999", { precision: 5, scale: 2 }, false)).toEqual({ ok: true, value: "999.00" });
+});
+
 test("decimal: enforces min/max as strings", () => {
   expect(decimalHandler.validate("5.00", { ...cfg2, min: "10" }, false).ok).toBe(false);
   expect(decimalHandler.validate("20.00", { ...cfg2, max: "10" }, false).ok).toBe(false);

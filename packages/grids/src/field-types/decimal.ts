@@ -36,13 +36,19 @@ export const decimalHandler: FieldTypeHandler = {
 
     if (!dec.isFinite()) return fail("must be a finite decimal");
 
-    // Check digits: total significant digits must fit in precision.
-    // decimal.js' `precision()` returns the count of significant digits.
-    const totalDigits = dec.precision(true);
-    if (totalDigits > config.precision) return fail(`exceeds precision ${config.precision}`);
-
     if (dec.decimalPlaces() > config.scale) {
       return fail(`max ${config.scale} decimal places`);
+    }
+
+    // Postgres NUMERIC(p,s) stores at most (p - s) digits before the decimal
+    // point. `precision(true)` only counts significant digits, so 1000 reports
+    // 4 — that fits in p=5 by the abstract count, but laid out with scale=2
+    // it becomes "1000.00" which needs 6 total digits and would be rejected
+    // by Postgres. Check the integer side explicitly.
+    const integerDigits = Math.max(0, dec.precision(true) - dec.decimalPlaces());
+    const maxIntegerDigits = config.precision - config.scale;
+    if (integerDigits > maxIntegerDigits) {
+      return fail(`exceeds precision ${config.precision} (max ${maxIntegerDigits} integer digits)`);
     }
 
     if (config.min !== undefined) {

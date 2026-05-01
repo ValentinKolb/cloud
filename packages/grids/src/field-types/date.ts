@@ -48,11 +48,13 @@ export const dateHandler: FieldTypeHandler = {
 
     if (config.min !== undefined) {
       const cMin = parseAndCanonicalize(config.min, config.includeTime ?? false);
-      if (cMin && canonical < cMin) return fail(`min ${config.min}`);
+      if (cMin === null) return fail("invalid min in field config");
+      if (canonical < cMin) return fail(`min ${config.min}`);
     }
     if (config.max !== undefined) {
       const cMax = parseAndCanonicalize(config.max, config.includeTime ?? false);
-      if (cMax && canonical > cMax) return fail(`max ${config.max}`);
+      if (cMax === null) return fail("invalid max in field config");
+      if (canonical > cMax) return fail(`max ${config.max}`);
     }
 
     return ok(canonical);

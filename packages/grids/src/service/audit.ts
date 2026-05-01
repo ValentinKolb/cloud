@@ -1,0 +1,67 @@
+import { sql } from "bun";
+import type { AuditAction, AuditEntry } from "./types";
+
+type DbRow = Record<string, unknown>;
+
+const mapRow = (row: DbRow): AuditEntry => ({
+  id: row.id as string,
+  baseId: (row.base_id as string | null) ?? null,
+  tableId: (row.table_id as string | null) ?? null,
+  recordId: (row.record_id as string | null) ?? null,
+  userId: (row.user_id as string | null) ?? null,
+  action: row.action as AuditAction,
+  diff: (row.diff as AuditEntry["diff"]) ?? null,
+  ip: (row.ip as string | null) ?? null,
+  userAgent: (row.user_agent as string | null) ?? null,
+  createdAt: (row.created_at as Date).toISOString(),
+});
+
+export type LogAuditInput = {
+  baseId?: string | null;
+  tableId?: string | null;
+  recordId?: string | null;
+  userId?: string | null;
+  action: AuditAction;
+  diff?: AuditEntry["diff"];
+  ip?: string | null;
+  userAgent?: string | null;
+};
+
+export const logAudit = async (input: LogAuditInput): Promise<void> => {
+  await sql`
+    INSERT INTO grids.audit_log (base_id, table_id, record_id, user_id, action, diff, ip, user_agent)
+    VALUES (
+      ${input.baseId ?? null}::uuid,
+      ${input.tableId ?? null}::uuid,
+      ${input.recordId ?? null}::uuid,
+      ${input.userId ?? null}::uuid,
+      ${input.action},
+      ${input.diff ? JSON.stringify(input.diff) : null}::jsonb,
+      ${input.ip ?? null},
+      ${input.userAgent ?? null}
+    )
+  `;
+};
+
+export const listAudit = async (params: {
+  tableId?: string;
+  recordId?: string;
+  limit?: number;
+  cursor?: string | null;
+}): Promise<AuditEntry[]> => {
+  const limit = Math.min(Math.max(params.limit ?? 50, 1), 200);
+  const conditions: any[] = [sql`TRUE`];
+  if (params.tableId) conditions.push(sql`table_id = ${params.tableId}::uuid`);
+  if (params.recordId) conditions.push(sql`record_id = ${params.recordId}::uuid`);
+  if (params.cursor) conditions.push(sql`id < ${params.cursor}::uuid`);
+  const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
+
+  const rows = await sql<DbRow[]>`
+    SELECT id, base_id, table_id, record_id, user_id, action, diff, ip, user_agent, created_at
+    FROM grids.audit_log
+    WHERE ${where}
+    ORDER BY id DESC
+    LIMIT ${limit}
+  `;
+  return rows.map(mapRow);
+};

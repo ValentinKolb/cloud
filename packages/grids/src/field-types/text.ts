@@ -53,8 +53,8 @@ export const longtextHandler: FieldTypeHandler = {
   configSchema: TextConfigSchema,
   userInput: true,
   validate: (raw, configRaw, required) => {
-    const config = TextConfigSchema.safeParse(configRaw ?? {});
-    const merged = config.success ? { ...config.data, multiline: true } : { multiline: true };
-    return validateText(raw, merged, required);
+    const parsed = TextConfigSchema.safeParse(configRaw ?? {});
+    if (!parsed.success) return fail("invalid field config");
+    return validateText(raw, { ...parsed.data, multiline: true }, required);
   },
 };
