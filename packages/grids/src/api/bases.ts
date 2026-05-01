@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import {
   BaseSchema,
@@ -24,7 +24,10 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const all = await gridsService.base.list();
-      // Filter to those the user has at least read on.
+      // Platform admins see every base. Non-admins see only those they have
+      // at least read on. Without this admin bypass, ops staff couldn't list
+      // bases for recovery / troubleshooting.
+      if (hasRole(user, "admin")) return c.json(all);
       const visible = await Promise.all(
         all.map(async (b) => {
           const grants = await gridsService.permission.loadGrants({

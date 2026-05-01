@@ -66,6 +66,10 @@ services:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-files:latest
 
+  app-grids:
+    <<: *app-defaults
+    image: ghcr.io/valentinkolb/cloud-app-grids:latest
+
   app-ipa-hosts:
     <<: *app-defaults
     image: ghcr.io/valentinkolb/cloud-app-ipa-hosts:latest

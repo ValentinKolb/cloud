@@ -107,10 +107,18 @@ export type GridRecord = z.infer<typeof GridRecordSchema>;
 
 export const RecordPayloadSchema = z.record(z.string(), z.unknown());
 
+// `z.coerce.boolean()` treats any non-empty string as true (so "false"
+// parses to true). Use an explicit string-to-boolean map to honor the
+// expected REST query semantics: ?includeDeleted=true vs =false.
+const StringBoolSchema = z.preprocess(
+  (v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v),
+  z.boolean(),
+);
+
 export const RecordListQuerySchema = z.object({
   cursor: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
-  includeDeleted: z.coerce.boolean().optional(),
+  includeDeleted: StringBoolSchema.optional(),
 });
 
 export const RecordListResponseSchema = z.object({

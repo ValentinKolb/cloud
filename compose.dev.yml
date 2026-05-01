@@ -147,6 +147,18 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/faq/src/index.ts
 
+  app-grids:
+    <<: *app
+    container_name: app-grids
+    environment: { <<: *env, APP_ID: grids }
+    profiles: [extra]
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
+      - ./packages/grids/src:/app/packages/grids/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/grids/src/index.ts
+
   app-files:
     <<: *app
     container_name: app-files

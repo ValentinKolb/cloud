@@ -1,7 +1,6 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
-import { createAccess } from "@valentinkolb/cloud/server/services/access";
-import type { Principal, PermissionLevel } from "@valentinkolb/cloud/server";
+import { createAccess, type Principal, type PermissionLevel } from "@valentinkolb/cloud/server";
 
 const TABLE_BY_RESOURCE = {
   base: "grids.base_access",
