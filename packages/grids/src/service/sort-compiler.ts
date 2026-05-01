@@ -85,7 +85,8 @@ const orderGt = (
   }
   if (direction === "desc" && nullsFirst) {
     // Order: NULL, NULL, ..., 9, 8, 1.
-    if (cursorIsNull) return sql`FALSE`; // null tier was first, already past
+    // Cursor at null tier (first): after means the entire non-null tier.
+    if (cursorIsNull) return sql`${proj} IS NOT NULL`;
     return sql`${proj} < ${castedValue(cast, value)}`;
   }
   // direction === "desc" && !nullsFirst
@@ -198,7 +199,12 @@ export const compileSort = (
       }
       branches.push(sql`(${allEqPrefix} AND ${idCompare})`);
 
-      cursorWhere = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+      // Wrap the OR-reduction in an outer parenthesis. Without this, the
+      // caller's `... AND ${cursorWhere}` parses as `... AND A OR B OR C`,
+      // i.e. `(... AND A) OR B OR C` — letting later branches escape the
+      // table/deleted/filter predicates and return wrong rows.
+      const orChain = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+      cursorWhere = sql`(${orChain})`;
     }
   }
 

@@ -3,6 +3,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
+import { CreateBaseButton } from "./_components/BaseActions.island";
 
 /**
  * Bases index page — lists all bases the current user can access.
@@ -33,9 +34,12 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Grids" }]}>
       <div class="max-w-4xl mx-auto flex flex-col gap-4">
-        <h1 class="text-xl font-bold text-primary" style="view-transition-name: page-header">
-          <i class="ti ti-table" /> Bases
-        </h1>
+        <header class="flex items-center justify-between gap-3">
+          <h1 class="text-xl font-bold text-primary" style="view-transition-name: page-header">
+            <i class="ti ti-table" /> Bases
+          </h1>
+          <CreateBaseButton />
+        </header>
 
         {visible.length > 0 ? (
           <div class="flex flex-col gap-2">
@@ -56,7 +60,7 @@ export default ssr<AuthContext>(async (c) => {
           </div>
         ) : (
           <div class="paper p-6 text-center text-sm text-dimmed">
-            No bases yet. Create one via the API — UI flow lands in the 1C polish phase.
+            No bases yet. Click <strong>New base</strong> above to get started.
           </div>
         )}
       </div>

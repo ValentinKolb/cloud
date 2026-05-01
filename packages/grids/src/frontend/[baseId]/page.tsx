@@ -4,6 +4,9 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsTable from "../_components/RecordsTable";
+import FieldsManager from "../_components/FieldsManager.island";
+import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
+import { BaseSettingsButton } from "../_components/BaseActions.island";
 
 type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };
 
@@ -64,14 +67,20 @@ export default ssr<AuthContext>(async (c) => {
   type RecordsPage = { items: import("../../service").GridRecord[]; nextCursor: string | null };
   let fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> = [];
   let records: RecordsPage = { items: [], nextCursor: null };
+  let activeTableLevel = level;
   if (activeTable) {
-    const [f, listResult] = await Promise.all([
+    const [f, listResult, lvl] = await Promise.all([
       gridsService.field.listByTable(activeTable.id),
       gridsService.record.list({ tableId: activeTable.id, limit: 100 }),
+      resolveLevel(user, baseId, activeTable.id),
     ]);
     fields = f;
     if (listResult.ok) records = listResult.data;
+    activeTableLevel = lvl;
   }
+  const canManageTable = gridsService.permission.hasAtLeast(activeTableLevel, "admin");
+  const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
+  const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
 
   return () => (
     <Layout
@@ -80,28 +89,48 @@ export default ssr<AuthContext>(async (c) => {
       title={[{ title: "Start", href: "/" }, { title: "Grids", href: "/app/grids" }, { title: base.name }]}
     >
       <div class="app-cols h-full">
-        {/* Sidebar: tables list */}
-        <aside class="order-1 lg:order-1 w-full lg:w-64 shrink-0 lg:h-full overflow-y-auto p-3 border-r border-zinc-200 dark:border-zinc-800">
-          <div class="text-xs uppercase tracking-wide text-dimmed mb-2 px-1">Tables</div>
-          {tables.length === 0 ? (
-            <div class="text-xs text-dimmed px-2 py-3">No tables yet.</div>
-          ) : (
-            <ul class="flex flex-col gap-1">
-              {tables.map((t) => (
-                <li>
-                  <a
-                    href={`/app/grids/${baseId}?table=${t.id}`}
-                    class={`block px-2 py-1.5 rounded-md text-sm transition-colors ${
-                      activeTable?.id === t.id
-                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                        : "text-secondary hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    <i class="ti ti-table text-xs" /> {t.name}
-                  </a>
-                </li>
-              ))}
-            </ul>
+        {/* Sidebar: base header + tables list + (admin) fields manager */}
+        <aside class="order-1 lg:order-1 w-full lg:w-64 shrink-0 lg:h-full overflow-y-auto p-3 border-r border-zinc-200 dark:border-zinc-800 flex flex-col gap-4">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-primary truncate">{base.name}</div>
+              {base.description && <div class="text-xs text-dimmed truncate">{base.description}</div>}
+            </div>
+            <BaseSettingsButton base={base} canManage={canManageBase} />
+          </div>
+
+          <div>
+            <div class="text-xs uppercase tracking-wide text-dimmed mb-2 px-1">Tables</div>
+            {tables.length === 0 ? (
+              <div class="text-xs text-dimmed px-2 py-3">No tables yet.</div>
+            ) : (
+              <ul class="flex flex-col gap-1">
+                {tables.map((t) => (
+                  <li class="flex items-center gap-1">
+                    <a
+                      href={`/app/grids/${baseId}?table=${t.id}`}
+                      class={`flex-1 block px-2 py-1.5 rounded-md text-sm transition-colors ${
+                        activeTable?.id === t.id
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                          : "text-secondary hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      }`}
+                    >
+                      <i class="ti ti-table text-xs" /> {t.name}
+                    </a>
+                    {activeTable?.id === t.id && <TableActionsMenu table={t} canManage={canManageTable} />}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canCreateTables && <CreateTableButton baseId={baseId} />}
+          </div>
+
+          {activeTable && (
+            <FieldsManager
+              tableId={activeTable.id}
+              initialFields={fields}
+              canManage={canManageTable}
+            />
           )}
         </aside>
 
@@ -117,7 +146,9 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           ) : (
             <div class="paper p-8 text-center text-sm text-dimmed">
-              No tables. Create one via the API — UI lands in 1C.
+              {canCreateTables
+                ? "No tables yet. Click “New table” in the sidebar."
+                : "No tables. You don’t have write access to create one."}
             </div>
           )}
         </main>

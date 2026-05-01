@@ -107,6 +107,18 @@ describe("compileSort — validation", () => {
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.result.cursorWhere).not.toBeNull();
   });
+
+  test("DESC NULLS FIRST with null cursor still emits a cursor predicate", () => {
+    // Codex follow-up: this case used to return FALSE for orderGt and stop
+    // pagination at the null tier instead of advancing into non-null rows.
+    const r = compileSort(
+      [{ fieldId: "fld_b", direction: "desc", nullsFirst: true }],
+      fields,
+      { values: [null], id: "00000000-0000-0000-0000-000000000001" },
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.result.cursorWhere).not.toBeNull();
+  });
 });
 
 describe("cursor encode/decode", () => {
