@@ -83,12 +83,12 @@ export function BaseSettingsButton(props: BaseSettingsProps) {
       title: "Edit base",
       icon: "ti ti-edit",
       fields: {
-        name: { type: "text", label: "Name", required: true, value: props.base.name },
+        name: { type: "text", label: "Name", required: true, default: props.base.name },
         description: {
           type: "text",
           label: "Description",
           multiline: true,
-          value: props.base.description ?? "",
+          default: props.base.description ?? "",
         },
       },
       confirmText: "Save",

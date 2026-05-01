@@ -80,7 +80,7 @@ export function TableActionsMenu(props: {
     const result = await prompts.form({
       title: "Rename table",
       icon: "ti ti-edit",
-      fields: { name: { type: "text", label: "Name", required: true, value: props.table.name } },
+      fields: { name: { type: "text", label: "Name", required: true, default: props.table.name } },
       confirmText: "Save",
     });
     if (!result) return;

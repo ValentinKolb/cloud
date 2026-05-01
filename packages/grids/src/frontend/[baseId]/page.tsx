@@ -3,7 +3,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
-import RecordsTable from "../_components/RecordsTable";
+import RecordsGrid from "../_components/RecordsGrid.island";
 import FieldsManager from "../_components/FieldsManager.island";
 import QuickAdd from "../_components/QuickAdd.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
@@ -147,7 +147,12 @@ export default ssr<AuthContext>(async (c) => {
                 </div>
                 <QuickAdd tableId={activeTable.id} fields={fields} canWrite={canWriteRecords} />
               </header>
-              <RecordsTable fields={fields} records={records.items} />
+              <RecordsGrid
+                tableId={activeTable.id}
+                fields={fields}
+                records={records.items}
+                canWrite={canWriteRecords}
+              />
             </div>
           ) : (
             <div class="paper p-8 text-center text-sm text-dimmed">

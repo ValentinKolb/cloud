@@ -11,21 +11,41 @@ type Props = {
   canManage: boolean;
 };
 
+// Only types whose default config is already valid are surfaced in the
+// quick "+ Add field" UI. decimal needs precision/scale; single-select and
+// multi-select need options; these go through a dedicated config modal in
+// Phase 2 (or via the API today). Keeping them out of this dropdown
+// prevents users from picking a type and getting a 400 they can't fix.
 const TYPE_OPTIONS = [
   { value: "text", label: "Text" },
   { value: "longtext", label: "Long text" },
   { value: "number", label: "Number" },
-  { value: "decimal", label: "Decimal (money-safe)" },
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
-  { value: "single-select", label: "Single select" },
-  { value: "multi-select", label: "Multi select" },
   { value: "rating", label: "Rating" },
   { value: "autonumber", label: "Auto-number" },
 ];
 
-const niceTypeLabel = (t: string): string =>
-  TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
+// Nice labels for ALL Tier-1 types — including the ones we don't surface
+// in the create dropdown but that may exist via API (decimal, selects).
+const TYPE_LABELS: Record<string, string> = {
+  text: "Text",
+  longtext: "Long text",
+  number: "Number",
+  decimal: "Decimal",
+  boolean: "Boolean",
+  date: "Date",
+  "single-select": "Single select",
+  "multi-select": "Multi select",
+  rating: "Rating",
+  autonumber: "Auto-number",
+  created_at: "Created at",
+  updated_at: "Updated at",
+  created_by: "Created by",
+  updated_by: "Updated by",
+};
+
+const niceTypeLabel = (t: string): string => TYPE_LABELS[t] ?? t;
 
 const errorMessage = async (res: Response, fallback: string): Promise<string> => {
   try {
