@@ -45,7 +45,20 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const tables = await gridsService.table.listByBase(baseId);
+  // Filter tables to those the user can read at the table level. Without
+  // this, a base-read user could navigate to ?table=<deniedTableId> and read
+  // denied data — the API routes already gate at table level, the SSR page
+  // must do the same.
+  const allTables = await gridsService.table.listByBase(baseId);
+  const tables = (
+    await Promise.all(
+      allTables.map(async (t) => {
+        const tableLevel = await resolveLevel(user, baseId, t.id);
+        return gridsService.permission.hasAtLeast(tableLevel, "read") ? t : null;
+      }),
+    )
+  ).filter((t): t is NonNullable<typeof t> => t !== null);
+
   const activeTable = activeTableId ? tables.find((t) => t.id === activeTableId) ?? null : tables[0] ?? null;
 
   let fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> = [];
