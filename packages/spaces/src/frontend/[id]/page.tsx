@@ -11,11 +11,19 @@ import SpaceSidebar from "./_components/sidebar/SpaceSidebar";
 import type { SpaceContext } from "./_components/sidebar/types";
 
 // Settings store
-import { parseSpaceSettings, isValidView, isValidPanelWidth } from "./_components/settings/SpaceSettingsStore";
+import {
+  parseSpaceSettings,
+  isValidView,
+  isValidPanelWidth,
+} from "./_components/settings/SpaceSettingsStore";
 
 // Filter components
 import FilterBar from "./_components/filter/FilterBar.island";
-import { parseFilterFromUrl, buildFilterUrl, defaultFilter } from "./_components/filter/types";
+import {
+  parseFilterFromUrl,
+  buildFilterUrl,
+  defaultFilter,
+} from "./_components/filter/types";
 
 // Detail components
 import ItemDetailHost from "./_components/detail/ItemDetailHost.island";
@@ -83,11 +91,16 @@ export default ssr<AuthContext>(async (c) => {
   const hasOverride = hasViewOverride || hasPanelWidthOverride;
 
   const currentView = hasViewOverride ? viewParam : settings.view;
-  const currentPanelWidth = hasPanelWidthOverride ? panelWidthParam : settings.detailPanelWidth;
+  const currentPanelWidth = hasPanelWidthOverride
+    ? panelWidthParam
+    : settings.detailPanelWidth;
 
   // Parse filter from URL
   const url = new URL(c.req.url);
-  const filter = currentView === "list" || currentView === "table" ? parseFilterFromUrl(url) : defaultFilter;
+  const filter =
+    currentView === "list" || currentView === "table"
+      ? parseFilterFromUrl(url)
+      : defaultFilter;
 
   // Get space details
   const space = await spacesService.space.getDetail({ id: spaceId });
@@ -139,7 +152,10 @@ export default ssr<AuthContext>(async (c) => {
   const isAdmin = userPermission === "admin";
 
   // Load access entries only for admins (in settings mode)
-  const accessEntries = isAdmin && isSettingsMode ? (await spacesService.access.list({ spaceId })).items : [];
+  const accessEntries =
+    isAdmin && isSettingsMode
+      ? (await spacesService.access.list({ spaceId })).items
+      : [];
 
   const KANBAN_PAGE_SIZE = 30;
   const listPageSize = 50;
@@ -175,7 +191,10 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   let kanbanBuckets: KanbanBucketInitial[] = [];
-  const completedColumnId = space.columns.find((column) => column.isDone)?.id ?? space.columns[0]?.id ?? null;
+  const completedColumnId =
+    space.columns.find((column) => column.isDone)?.id ??
+    space.columns[0]?.id ??
+    null;
 
   if (currentView === "kanban") {
     const loadBucket = async (config: {
@@ -193,7 +212,10 @@ export default ssr<AuthContext>(async (c) => {
           status: config.kind === "completed" ? "completed" : "active",
           priority: undefined,
           tagIds: undefined,
-          columnIds: config.columnIds && config.columnIds.length > 0 ? config.columnIds : undefined,
+          columnIds:
+            config.columnIds && config.columnIds.length > 0
+              ? config.columnIds
+              : undefined,
           assignedTo: "all",
           deadlineFilter: "all",
           search: undefined,
@@ -228,7 +250,7 @@ export default ssr<AuthContext>(async (c) => {
           kind: "column",
           columnId: column.id,
           columnIds: [column.id],
-        }),
+        })
       );
     }
 
@@ -239,15 +261,19 @@ export default ssr<AuthContext>(async (c) => {
         color: "#10b981",
         kind: "completed",
         columnId: null,
-      }),
+      })
     );
   }
 
   // Calendar data (only fetch when calendar view is active)
   const calendarView: CalendarView =
-    calendarViewParam && ["month", "week"].includes(calendarViewParam) ? (calendarViewParam as CalendarView) : "month";
+    calendarViewParam && ["month", "week"].includes(calendarViewParam)
+      ? (calendarViewParam as CalendarView)
+      : "month";
   const calendarDate = calendar.parseCalendarDate(calendarDateParam);
-  let calendarItems: Awaited<ReturnType<typeof spacesService.item.calendar.list>> = [];
+  let calendarItems: Awaited<
+    ReturnType<typeof spacesService.item.calendar.list>
+  > = [];
 
   // Weather data for calendar (indexed by date string)
   let calendarWeather: Record<string, DayWeather> = {};
@@ -284,9 +310,12 @@ export default ssr<AuthContext>(async (c) => {
   // Find selected item if any (only when not in settings mode)
   // Need to fetch it separately if not in current result set
   let selectedItem = null;
-  let selectedItemComments: Awaited<ReturnType<typeof spacesService.comment.list>>["items"] = [];
+  let selectedItemComments: Awaited<
+    ReturnType<typeof spacesService.comment.list>
+  >["items"] = [];
   if (!isSettingsMode && selectedItemId) {
-    selectedItem = itemsResult.items.find((i) => i.id === selectedItemId) ?? null;
+    selectedItem =
+      itemsResult.items.find((i) => i.id === selectedItemId) ?? null;
     if (!selectedItem) {
       // Item might be filtered out, fetch it directly
       selectedItem = await spacesService.item.get({ id: selectedItemId });
@@ -297,7 +326,12 @@ export default ssr<AuthContext>(async (c) => {
     }
     // Fetch comments for selected item
     if (selectedItem) {
-      selectedItemComments = (await spacesService.comment.list({ itemId: selectedItemId, viewerUserId: user.id })).items;
+      selectedItemComments = (
+        await spacesService.comment.list({
+          itemId: selectedItemId,
+          viewerUserId: user.id,
+        })
+      ).items;
     }
   }
 
@@ -317,10 +351,10 @@ export default ssr<AuthContext>(async (c) => {
     currentPanelWidth === "narrow"
       ? "w-full lg:w-80"
       : currentPanelWidth === "medium"
-        ? "w-full lg:w-[28rem]"
-        : currentPanelWidth === "wide"
-          ? "w-full lg:w-[36rem]"
-          : "w-full lg:w-[44rem]";
+      ? "w-full lg:w-[28rem]"
+      : currentPanelWidth === "wide"
+      ? "w-full lg:w-[36rem]"
+      : "w-full lg:w-[44rem]";
 
   // Get base URL for iCal links
   const icalBaseUrl = `${url.protocol}//${url.host}`;
@@ -339,7 +373,10 @@ export default ssr<AuthContext>(async (c) => {
 
   // Build item link base URL (preserves list filters only in list mode)
   const itemLinkBaseUrl = withViewOverrides({
-    baseUrl: currentView === "list" || currentView === "table" ? buildFilterUrl(baseSpaceUrl, {}, filter) : baseSpaceUrl,
+    baseUrl:
+      currentView === "list" || currentView === "table"
+        ? buildFilterUrl(baseSpaceUrl, {}, filter)
+        : baseSpaceUrl,
     hasViewOverride,
     currentView,
     hasPanelWidthOverride,
@@ -347,7 +384,13 @@ export default ssr<AuthContext>(async (c) => {
   });
 
   const settingsPanel = (
-    <SpaceEditPanel space={space} baseUrl={icalBaseUrl} initialSettings={settings} accessEntries={accessEntries} isAdmin={isAdmin} />
+    <SpaceEditPanel
+      space={space}
+      baseUrl={icalBaseUrl}
+      initialSettings={settings}
+      accessEntries={accessEntries}
+      isAdmin={isAdmin}
+    />
   );
 
   const itemDetailPanel = (
@@ -362,7 +405,15 @@ export default ssr<AuthContext>(async (c) => {
   );
 
   return () => (
-    <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Spaces", href: "/app/spaces" }, { title: space.name }]}>
+    <Layout
+      c={c}
+      fullWidth
+      title={[
+        { title: "Start", href: "/" },
+        { title: "Spaces", href: "/app/spaces" },
+        { title: space.name },
+      ]}
+    >
       <div class="app-cols flex-1 min-h-0">
         {/* Sidebar */}
         <SpaceSidebar ctx={ctx} />
@@ -371,12 +422,9 @@ export default ssr<AuthContext>(async (c) => {
         <div class="order-3 lg:order-2 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Description */}
           {space.description && (
-            <>
-              <div class="px-3 py-2 info-block-info">
-                <p class="text-sm">{space.description}</p>
-              </div>
-              <div class="divider" />
-            </>
+            <div class="px-3 py-2 info-block-info mb-2">
+              <p class="text-sm">{space.description}</p>
+            </div>
           )}
 
           {/* Filter Bar (list view only) */}
@@ -402,7 +450,9 @@ export default ssr<AuthContext>(async (c) => {
                 {itemsResult.items.length === 0 ? (
                   <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
                     <i class="ti ti-checkbox text-sm" />
-                    {itemsResult.total === 0 && filter.search === "" && filter.status === "active"
+                    {itemsResult.total === 0 &&
+                    filter.search === "" &&
+                    filter.status === "active"
                       ? "No items yet. Create your first item!"
                       : "No items match your filters."}
                   </p>
@@ -428,7 +478,11 @@ export default ssr<AuthContext>(async (c) => {
 
                 {/* Pagination */}
                 <div class="px-3 py-2">
-                  <Pagination currentPage={itemsResult.page} totalPages={itemsResult.totalPages} baseUrl={paginationBaseUrl} />
+                  <Pagination
+                    currentPage={itemsResult.page}
+                    totalPages={itemsResult.totalPages}
+                    baseUrl={paginationBaseUrl}
+                  />
                 </div>
               </>
             )}
@@ -463,8 +517,14 @@ export default ssr<AuthContext>(async (c) => {
 
         <div
           id="space-detail-panel"
-          class={`${isSettingsMode || selectedItemId ? "flex" : "hidden"} order-2 lg:order-3 flex-col ${detailPanelResponsiveWidthClass} shrink-0 overflow-y-auto`}
-          style={`view-transition-name: ${isSettingsMode ? "space-settings-panel" : "space-detail-panel-shell"}`}
+          class={`${
+            isSettingsMode || selectedItemId ? "flex" : "hidden"
+          } order-2 lg:order-3 flex-col ${detailPanelResponsiveWidthClass} shrink-0 overflow-y-auto ${
+            isSettingsMode ? "paper p-4" : ""
+          }`}
+          style={`view-transition-name: ${
+            isSettingsMode ? "space-settings-panel" : "space-detail-panel-shell"
+          }`}
         >
           {isSettingsMode ? (
             settingsPanel
@@ -479,7 +539,10 @@ export default ssr<AuthContext>(async (c) => {
             />
           )}
         </div>
-        <SpaceDetailLayoutSync detailContainerId="space-detail-panel" forceOpen={isSettingsMode} />
+        <SpaceDetailLayoutSync
+          detailContainerId="space-detail-panel"
+          forceOpen={isSettingsMode}
+        />
       </div>
     </Layout>
   );

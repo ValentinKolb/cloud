@@ -101,9 +101,9 @@ export default function CommentsSection(props: Props) {
 
   return (
     <div class="flex flex-col gap-3">
-      <div class="flex items-center justify-between gap-2">
-        <h3 class="section-label mb-0">Comments</h3>
-        <span class="inline-flex items-center rounded-md border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <h3 class="detail-section-label">Comments</h3>
+        <span class="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
           {props.comments.length} {props.comments.length === 1 ? "comment" : "comments"}
         </span>
       </div>

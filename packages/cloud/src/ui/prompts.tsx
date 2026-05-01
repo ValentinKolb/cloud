@@ -77,6 +77,8 @@ export type FieldSchema =
   | (BaseField<string> & {
       type: "text";
       multiline?: boolean;
+      /** Approximate visible lines for multiline mode. Overrides default height. */
+      lines?: number;
       maxLength?: number;
       minLength?: number;
       icon?: string;
@@ -715,7 +717,14 @@ export const prompts = {
       // Field renderer map
       const fieldRenderers: Record<string, (props: any, field: any) => JSX.Element> = {
         text: (props, field) => (
-          <TextInput {...props} multiline={field.multiline} icon={field.icon} activeIcon={field.activeIcon} password={field.password} />
+          <TextInput
+            {...props}
+            multiline={field.multiline}
+            lines={field.lines}
+            icon={field.icon}
+            activeIcon={field.activeIcon}
+            password={field.password}
+          />
         ),
         number: (props, field) => <NumberInput {...props} min={field.min} max={field.max} step={field.step} />,
         image: (props, field) => <ImageInput {...props} round={field.round} ariaLabel={field.ariaLabel} />,
