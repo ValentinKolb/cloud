@@ -74,15 +74,30 @@ const MULTI_SELECT_OPS: FilterOp[] = [
 export const opsForType = (type: string): FilterOp[] => {
   switch (type) {
     case "text":
-    case "longtext": return TEXT_OPS;
+    case "longtext":
+    case "email":
+    case "url":
+    case "phone":
+    case "slug":
+    case "barcode":
+    case "isbn":
+    case "color":
+    case "rich-text":
+      return TEXT_OPS;
     case "number":
     case "decimal":
     case "rating":
-    case "autonumber": return NUMBER_OPS;
+    case "autonumber":
+    case "percent":
+    case "duration":
+      return NUMBER_OPS;
     case "date": return DATE_OPS;
     case "boolean": return BOOL_OPS;
     case "single-select": return SINGLE_SELECT_OPS;
     case "multi-select": return MULTI_SELECT_OPS;
+    // currency stores as an object; no filter UI yet (would need a
+    // sub-path like data->'fld'->>'amount').
+    // location, json, signature: opaque to filter — no ops surfaced.
     default: return [];
   }
 };

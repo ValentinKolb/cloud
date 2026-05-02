@@ -14,6 +14,7 @@ type Props = {
 };
 
 const TYPE_OPTIONS = [
+  // Tier 1
   { value: "text", label: "Text" },
   { value: "longtext", label: "Long text" },
   { value: "number", label: "Number" },
@@ -24,11 +25,27 @@ const TYPE_OPTIONS = [
   { value: "multi-select", label: "Multi select" },
   { value: "rating", label: "Rating" },
   { value: "autonumber", label: "Auto-number" },
+  // Tier 2 — text/number subtypes with built-in validation
+  { value: "email", label: "Email" },
+  { value: "url", label: "URL" },
+  { value: "phone", label: "Phone" },
+  { value: "currency", label: "Currency" },
+  { value: "percent", label: "Percent" },
+  { value: "duration", label: "Duration" },
+  { value: "slug", label: "Slug" },
+  // Tier 3 — specialised
+  { value: "barcode", label: "Barcode / QR" },
+  { value: "isbn", label: "ISBN" },
+  { value: "color", label: "Color" },
+  { value: "rich-text", label: "Rich text (markdown)" },
+  { value: "json", label: "JSON" },
+  { value: "signature", label: "Signature" },
+  { value: "location", label: "Location" },
 ];
 
-// Nice labels for ALL Tier-1 types — including the ones we don't surface
-// in the create dropdown but that may exist via API (decimal, selects).
+// Nice labels for every type currently supported on the platform.
 const TYPE_LABELS: Record<string, string> = {
+  // Tier 1
   text: "Text",
   longtext: "Long text",
   number: "Number",
@@ -43,6 +60,22 @@ const TYPE_LABELS: Record<string, string> = {
   updated_at: "Updated at",
   created_by: "Created by",
   updated_by: "Updated by",
+  // Tier 2
+  email: "Email",
+  url: "URL",
+  phone: "Phone",
+  currency: "Currency",
+  percent: "Percent",
+  duration: "Duration",
+  slug: "Slug",
+  // Tier 3
+  barcode: "Barcode",
+  isbn: "ISBN",
+  location: "Location",
+  color: "Color",
+  "rich-text": "Rich text",
+  json: "JSON",
+  signature: "Signature",
 };
 
 const niceTypeLabel = (t: string): string => TYPE_LABELS[t] ?? t;

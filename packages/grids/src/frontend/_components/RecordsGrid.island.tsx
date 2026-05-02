@@ -34,6 +34,25 @@ const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, u
     const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
     return options.find((o) => o.id === value)?.label ?? String(value);
   }
+  if (type === "currency" && typeof value === "object") {
+    const obj = value as { amount?: string; currency?: string };
+    if (obj.amount !== undefined) return `${obj.amount} ${obj.currency ?? ""}`.trim();
+  }
+  if (type === "percent" && typeof value === "number") return `${value}%`;
+  if (type === "duration" && typeof value === "number") {
+    const h = Math.floor(value / 3600);
+    const m = Math.floor((value % 3600) / 60);
+    const s = value % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  if (type === "location" && typeof value === "object") {
+    const obj = value as { lat?: number; lng?: number; label?: string };
+    if (obj.label) return obj.label;
+    if (obj.lat !== undefined && obj.lng !== undefined) return `${obj.lat}, ${obj.lng}`;
+  }
+  if (type === "signature" && typeof value === "string" && value.startsWith("data:image/")) {
+    return "✍ signature";
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 };

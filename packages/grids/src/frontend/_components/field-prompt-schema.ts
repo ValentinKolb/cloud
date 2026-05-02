@@ -7,8 +7,13 @@ import type { Field } from "../../service";
  */
 export const isUserEditable = (type: string): boolean => {
   return [
+    // Tier 1
     "text", "longtext", "number", "decimal", "rating",
     "boolean", "date", "single-select", "multi-select",
+    // Tier 2
+    "email", "url", "phone", "currency", "percent", "duration", "slug",
+    // Tier 3 (text-input or json fallback)
+    "barcode", "isbn", "color", "rich-text", "json",
   ].includes(type);
 };
 
@@ -58,6 +63,50 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
     }
     case "multi-select":
       return { type: "tags", label, default: Array.isArray(defaultVal) ? defaultVal : [] };
+    // Tier 2 — text-shaped with format hint via placeholder
+    case "email":
+      return { type: "text", label, required, placeholder: "name@example.com", default: defaultVal };
+    case "url":
+      return { type: "text", label, required, placeholder: "https://…", default: defaultVal };
+    case "phone":
+      return { type: "text", label, required, placeholder: "+49 151 …", default: defaultVal };
+    case "slug":
+      return { type: "text", label, required, placeholder: "my-slug", default: defaultVal };
+    case "percent":
+      return { type: "number", label, required, min: 0, max: 100, default: defaultVal };
+    case "duration":
+      return { type: "text", label, required, placeholder: "HH:MM:SS or seconds", default: defaultVal };
+    case "currency":
+      // Currency uses an object value; UI captures the amount as a number
+      // and the field's defaultCurrency wraps it server-side.
+      return {
+        type: "number",
+        label,
+        required,
+        default: typeof defaultVal === "object" && defaultVal && "amount" in defaultVal
+          ? Number((defaultVal as { amount?: string }).amount)
+          : defaultVal,
+      };
+    // Tier 3
+    case "barcode":
+    case "isbn":
+      return { type: "text", label, required, default: defaultVal };
+    case "color":
+      return { type: "text", label, required, placeholder: "#3b82f6", default: defaultVal };
+    case "rich-text":
+      return { type: "text", label, required, multiline: true, lines: 8, default: defaultVal };
+    case "json":
+      // Free-form JSON via multiline; server parses + validates.
+      return {
+        type: "text",
+        label,
+        required,
+        multiline: true,
+        lines: 6,
+        default: defaultVal !== undefined ? JSON.stringify(defaultVal, null, 2) : undefined,
+      };
+    // Location / signature: not yet exposed in the inline form (need
+    // dedicated capture UIs). Set via API for now.
     default:
       return null;
   }

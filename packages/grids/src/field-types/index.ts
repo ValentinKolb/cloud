@@ -13,8 +13,27 @@ import {
   updatedAtHandler,
   updatedByHandler,
 } from "./system";
+import {
+  emailHandler,
+  urlHandler,
+  phoneHandler,
+  currencyHandler,
+  percentHandler,
+  durationHandler,
+  slugHandler,
+} from "./tier2";
+import {
+  barcodeHandler,
+  isbnHandler,
+  locationHandler,
+  colorHandler,
+  richTextHandler,
+  jsonHandler,
+  signatureHandler,
+} from "./tier3";
 
 const handlers: FieldTypeHandler[] = [
+  // Tier 1
   textHandler,
   longtextHandler,
   numberHandler,
@@ -29,6 +48,22 @@ const handlers: FieldTypeHandler[] = [
   createdByHandler,
   updatedAtHandler,
   updatedByHandler,
+  // Tier 2
+  emailHandler,
+  urlHandler,
+  phoneHandler,
+  currencyHandler,
+  percentHandler,
+  durationHandler,
+  slugHandler,
+  // Tier 3
+  barcodeHandler,
+  isbnHandler,
+  locationHandler,
+  colorHandler,
+  richTextHandler,
+  jsonHandler,
+  signatureHandler,
 ];
 
 export const fieldTypeRegistry: Record<string, FieldTypeHandler> = Object.fromEntries(
