@@ -51,6 +51,7 @@ export default ssr<AuthContext>(async (c) => {
   const activeTableId = c.req.query("table") ?? null;
   const trashMode = c.req.query("trash") === "1";
   const activeViewId = c.req.query("view") ?? null;
+  const rawCursor = c.req.query("cursor") ?? null;
 
   // Parse the filter query — bad input is treated as empty rather than a
   // hard error so a stale URL doesn't lock the user out of their data.
@@ -141,6 +142,7 @@ export default ssr<AuthContext>(async (c) => {
         includeDeleted: trashMode,
         filter: parsedFilter,
         sort: parsedSort,
+        cursor: rawCursor,
       }),
       resolveLevel(user, baseId, activeTable.id),
     ]);
@@ -316,6 +318,24 @@ export default ssr<AuthContext>(async (c) => {
                 mode={trashMode ? "trash" : "live"}
                 aggregates={trashMode ? {} : aggregates}
               />
+              {records.nextCursor && (
+                <div class="flex items-center justify-end gap-2 text-xs">
+                  <a
+                    href={(() => {
+                      const url = new URL(`/app/grids/${baseId}`, "http://x");
+                      url.searchParams.set("table", activeTable.id);
+                      if (rawFilter) url.searchParams.set("filter", rawFilter);
+                      if (rawSort) url.searchParams.set("sort", rawSort);
+                      url.searchParams.set("cursor", records.nextCursor);
+                      if (trashMode) url.searchParams.set("trash", "1");
+                      return `${url.pathname}${url.search}`;
+                    })()}
+                    class="btn-secondary btn-sm"
+                  >
+                    Next page <i class="ti ti-arrow-right" />
+                  </a>
+                </div>
+              )}
             </div>
           ) : (
             <div class="paper p-8 text-center text-sm text-dimmed">
