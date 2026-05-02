@@ -11,8 +11,9 @@ import FilterPanel from "../_components/FilterPanel.island";
 import SortPanel from "../_components/SortPanel.island";
 import ViewsBar from "../_components/ViewsBar.island";
 import FormsManager from "../_components/FormsManager.island";
-import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
-import { BaseSettingsButton } from "../_components/BaseActions.island";
+import CreateTableButton from "../_components/CreateTableButton.island";
+import TableActionsMenu from "../_components/TableActionsMenu.island";
+import BaseSettingsButton from "../_components/BaseSettingsButton.island";
 import type { FilterTree, SortSpec } from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };

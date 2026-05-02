@@ -4,50 +4,12 @@ import { apiClient } from "@/api/client";
 import type { Base } from "../../service";
 import { errorMessage } from "./api-helpers";
 
-
-export function CreateBaseButton() {
-  const createMutation = mutations.create<Base, { name: string; description: string }>({
-    mutation: async (input) => {
-      const res = await apiClient.bases.$post({
-        json: { name: input.name, description: input.description || null },
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create base"));
-      return (await res.json()) as Base;
-    },
-    onSuccess: (base) => navigateTo(`/app/grids/${base.id}`),
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const handleClick = async () => {
-    const result = await prompts.form({
-      title: "New base",
-      icon: "ti ti-database-plus",
-      fields: {
-        name: { type: "text", label: "Name", required: true, placeholder: "e.g. CRM, Inventory" },
-        description: { type: "text", label: "Description", multiline: true, placeholder: "Optional" },
-      },
-      confirmText: "Create",
-    });
-    if (!result) return;
-    createMutation.mutate({
-      name: String(result.name).trim(),
-      description: String(result.description ?? "").trim(),
-    });
-  };
-
-  return (
-    <button type="button" class="btn-primary btn-sm" onClick={handleClick} disabled={createMutation.loading()}>
-      <i class="ti ti-plus" /> New base
-    </button>
-  );
-}
-
-type BaseSettingsProps = {
+type Props = {
   base: { id: string; name: string; description: string | null };
   canManage: boolean;
 };
 
-export function BaseSettingsButton(props: BaseSettingsProps) {
+export default function BaseSettingsButton(props: Props) {
   const updateMutation = mutations.create<Base, { name: string; description: string }>({
     mutation: async (input) => {
       const res = await apiClient.bases[":baseId"].$patch({

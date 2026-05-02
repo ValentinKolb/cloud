@@ -3,7 +3,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
-import { CreateBaseButton } from "./_components/BaseActions.island";
+import CreateBaseButton from "./_components/CreateBaseButton.island";
 
 /**
  * Bases index page — lists all bases the current user can access.
