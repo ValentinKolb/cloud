@@ -49,11 +49,12 @@ export default function RecordsGrid(props: Props) {
 
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
 
+  // Mutations refresh the page so the SSR-rendered footer aggregates and
+  // any other derived state (next-cursor, audit log, etc) stay consistent
+  // with what the user actually edited. We update the local signal first
+  // for an instant feel — refreshCurrentPath comes after.
   const updateMutation = mutations.create<GridRecord, { record: GridRecord; payload: Record<string, unknown> }>({
     mutation: async ({ record, payload }) => {
-      // Raw fetch — the typed Hono client doesn't expose the second-arg
-      // init bag in this codebase's binding, but we need If-Match for the
-      // optimistic-lock contract. Server returns 409 on version mismatch.
       const res = await fetch(`/api/grids/records/${props.tableId}/${record.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "If-Match": String(record.version) },
@@ -64,6 +65,7 @@ export default function RecordsGrid(props: Props) {
     },
     onSuccess: (updated) => {
       setRecords(records().map((r) => (r.id === updated.id ? updated : r)));
+      refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
   });
@@ -78,6 +80,7 @@ export default function RecordsGrid(props: Props) {
     },
     onSuccess: (recordId) => {
       setRecords(records().filter((r) => r.id !== recordId));
+      refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
   });
@@ -92,6 +95,7 @@ export default function RecordsGrid(props: Props) {
     },
     onSuccess: (recordId) => {
       setRecords(records().filter((r) => r.id !== recordId));
+      refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
   });

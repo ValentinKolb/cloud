@@ -9,11 +9,30 @@ import QuickAdd from "../_components/QuickAdd.island";
 import BasePermissions from "../_components/BasePermissions.island";
 import FilterPanel from "../_components/FilterPanel.island";
 import SortPanel from "../_components/SortPanel.island";
+import ViewsBar from "../_components/ViewsBar.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
 import { BaseSettingsButton } from "../_components/BaseActions.island";
 import type { FilterTree, SortSpec } from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };
+
+/**
+ * URL the filter/sort panels submit to. Carries both the current filter
+ * and sort params so applying one doesn't wipe the other (the panels'
+ * URL builders only mutate their own param).
+ */
+const panelBaseUrl = (
+  baseId: string,
+  tableId: string,
+  rawFilter: string | undefined,
+  rawSort: string | undefined,
+): string => {
+  const params = new URLSearchParams();
+  params.set("table", tableId);
+  if (rawFilter) params.set("filter", rawFilter);
+  if (rawSort) params.set("sort", rawSort);
+  return `/app/grids/${baseId}?${params.toString()}`;
+};
 
 const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) => {
   if (hasRole(user, "admin")) return "admin" as const;
@@ -31,6 +50,7 @@ export default ssr<AuthContext>(async (c) => {
   const baseId = c.req.param("baseId");
   const activeTableId = c.req.query("table") ?? null;
   const trashMode = c.req.query("trash") === "1";
+  const activeViewId = c.req.query("view") ?? null;
 
   // Parse the filter query — bad input is treated as empty rather than a
   // hard error so a stale URL doesn't lock the user out of their data.
@@ -110,6 +130,7 @@ export default ssr<AuthContext>(async (c) => {
   let fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> = [];
   let records: RecordsPage = { items: [], nextCursor: null };
   let aggregates: Record<string, unknown> = {};
+  let viewsForTable: Awaited<ReturnType<typeof gridsService.view.listForTable>> = [];
   let activeTableLevel = level;
   if (activeTable) {
     const [f, listResult, lvl] = await Promise.all([
@@ -135,6 +156,8 @@ export default ssr<AuthContext>(async (c) => {
     // sum for numeric/decimal/rating. Power users can pick per-column
     // aggregates in a later phase; this gives a useful default footer row
     // without any UI to configure.
+    viewsForTable = await gridsService.view.listForTable({ tableId: activeTable.id, userId: user.id });
+
     if (!trashMode && fields.length > 0) {
       const requests = fields
         .filter((field) => !field.deletedAt)
@@ -254,15 +277,30 @@ export default ssr<AuthContext>(async (c) => {
               </header>
               {!trashMode && (
                 <div class="flex flex-col gap-2">
+                  <ViewsBar
+                    tableId={activeTable.id}
+                    baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
+                    initialViews={viewsForTable}
+                    canShare={canWriteRecords}
+                    currentUserId={user.id}
+                    currentConfig={{ filter: parsedFilter ?? undefined, sort: parsedSort.length > 0 ? parsedSort : undefined }}
+                    activeViewId={activeViewId}
+                  />
+                  {/*
+                    Pass a baseUrl that already contains the current filter
+                    + sort params. Each panel only mutates its own param via
+                    its URL builder, so they don't wipe each other out the
+                    way they would if baseUrl carried only `?table=...`.
+                  */}
                   <FilterPanel
                     fields={fields}
                     initial={filterLeaves}
-                    baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
+                    baseUrl={panelBaseUrl(baseId, activeTable.id, rawFilter, rawSort)}
                   />
                   <SortPanel
                     fields={fields}
                     initial={parsedSort}
-                    baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
+                    baseUrl={panelBaseUrl(baseId, activeTable.id, rawFilter, rawSort)}
                   />
                 </div>
               )}
