@@ -63,12 +63,11 @@ export const listForTable = async (params: {
   const groups = userGroups.length > 0 ? `{${userGroups.join(",")}}` : "{}";
 
   // Most-specific-wins per principal tier (user > group > authenticated >
-  // public). Within a tier we take the highest matching rank — that lets
-  // "block public, allow user-X" work: public_rank=0 (deny), user_rank=1
-  // (read) → user_rank wins because user is more specific. Within a tier
-  // a deny still wins over a read because rank 0 < 1, but that's fine for
-  // "you have multiple direct-user rows that disagree" which shouldn't
-  // happen in practice (the create path checks for duplicates).
+  // public). Within a tier: any deny wins over any read — needed because
+  // (a) `grantAccess` inserts a fresh auth.access row per POST so duplicate
+  // principal rows are possible, and (b) a user can be in multiple groups
+  // that disagree. Per-tier rule: NULL if no rows, 0 if any deny, else
+  // MAX(positive rank).
   const rows = await sql<(DbRow & {
     user_rank: number | null;
     group_rank: number | null;
@@ -77,24 +76,40 @@ export const listForTable = async (params: {
   })[]>`
     SELECT v.id, v.table_id, v.name, v.config, v.owner_user_id, v.position, v.created_at, v.updated_at,
       (
-        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        SELECT CASE
+          WHEN COUNT(*) = 0 THEN NULL
+          WHEN bool_or(a.permission = 'none') THEN 0
+          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        END
         FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
         WHERE va.view_id = v.id AND a.user_id = ${params.userId}::uuid
       ) AS user_rank,
       (
-        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        SELECT CASE
+          WHEN COUNT(*) = 0 THEN NULL
+          WHEN bool_or(a.permission = 'none') THEN 0
+          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        END
         FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
         WHERE va.view_id = v.id AND a.group_id = ANY(${groups}::uuid[])
       ) AS group_rank,
       (
-        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        SELECT CASE
+          WHEN COUNT(*) = 0 THEN NULL
+          WHEN bool_or(a.permission = 'none') THEN 0
+          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        END
         FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
         WHERE va.view_id = v.id
           AND a.authenticated_only = TRUE
           AND ${params.userId}::uuid IS NOT NULL
       ) AS auth_rank,
       (
-        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        SELECT CASE
+          WHEN COUNT(*) = 0 THEN NULL
+          WHEN bool_or(a.permission = 'none') THEN 0
+          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        END
         FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
         WHERE va.view_id = v.id
           AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
@@ -105,15 +120,42 @@ export const listForTable = async (params: {
   `;
 
   return rows
-    .filter((row) => {
-      // Walk specificity tiers top-down; first non-null tier decides.
-      const winning = row.user_rank ?? row.group_rank ?? row.auth_rank ?? row.public_rank;
-      if (winning !== null && winning !== undefined) return winning >= 1;
-      // No matching ACL row at all → default visibility.
-      const ownerId = row.owner_user_id as string | null;
-      return ownerId === null || ownerId === params.userId;
-    })
+    .filter((row) =>
+      isVisibleByAclTiers(
+        { userRank: row.user_rank, groupRank: row.group_rank, authRank: row.auth_rank, publicRank: row.public_rank },
+        { ownerUserId: row.owner_user_id as string | null, viewerUserId: params.userId },
+      ),
+    )
     .map(mapRow);
+};
+
+// ──────────────────────────────────────────────────────────────────
+// Pure ACL tier resolution (testable)
+// ──────────────────────────────────────────────────────────────────
+
+export type TierRanks = {
+  /** Highest matching rank from direct user grants, or 0 if any user-deny exists, or null when no user rows match. */
+  userRank: number | null;
+  groupRank: number | null;
+  authRank: number | null;
+  publicRank: number | null;
+};
+
+/**
+ * Walks ACL specificity tiers top-down (user > group > authenticated >
+ * public). The first tier with any matching grant decides. If that tier's
+ * rank is >= 1 (read/write/admin), the view is visible; rank 0 (deny)
+ * hides it. If no tier matched, falls back to default visibility (shared
+ * view or own personal view). Pure logic — no DB.
+ */
+export const isVisibleByAclTiers = (
+  ranks: TierRanks,
+  defaults: { ownerUserId: string | null; viewerUserId: string | null },
+): boolean => {
+  const winning =
+    ranks.userRank ?? ranks.groupRank ?? ranks.authRank ?? ranks.publicRank;
+  if (winning !== null && winning !== undefined) return winning >= 1;
+  return defaults.ownerUserId === null || defaults.ownerUserId === defaults.viewerUserId;
 };
 
 export const get = async (id: string): Promise<View | null> => {
