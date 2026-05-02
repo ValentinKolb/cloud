@@ -1,11 +1,13 @@
 import { For, Show, createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
+  PermissionEditor,
   TextInput,
   prompts,
   navigateTo,
   refreshCurrentPath,
 } from "@valentinkolb/cloud/ui";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import {
   dnd,
   mutation as mutations,
@@ -18,6 +20,7 @@ import {
   FieldConfigEditor,
   TYPE_OPTIONS,
   TYPE_LABELS,
+  FIELD_TYPE_DESCRIPTIONS,
   type FieldConfigState,
   defaultConfigForType,
 } from "./field-config-editor";
@@ -33,6 +36,7 @@ type Props = {
   table: TableHeader;
   initialFields: Field[];
   initialForms: Form[];
+  initialAccessEntries: AccessEntry[];
   /** Other tables in the same base — needed for the relation type's
    *  targetTableId picker. */
   otherTables: Array<{ id: string; name: string }>;
@@ -151,6 +155,27 @@ export default function TableEditPage(props: Props) {
 
   onCleanup(() => fieldDnd.destroy());
 
+  // True when an indicator should appear BEFORE the `index`-th card. We
+  // suppress no-op positions (right before / right after the dragged
+  // card itself) so the user only sees the indicator at meaningful
+  // landing slots. The active drag id is `drag:field:<fieldId>`; we
+  // parse it back out to locate the source row.
+  const sourceIndex = () => {
+    const id = fieldDnd.activeId();
+    if (!id) return -1;
+    const fid = id.startsWith("drag:field:") ? id.slice("drag:field:".length) : null;
+    return fid ? fields().findIndex((f) => f.id === fid) : -1;
+  };
+
+  const isDropIndicatorVisible = (index: number) => {
+    if (!fieldDnd.isDragging()) return false;
+    const intent = fieldDnd.intent();
+    if (!intent || intent.insertIndex !== index) return false;
+    const src = sourceIndex();
+    if (src < 0) return true;
+    return src !== index && src !== index - 1;
+  };
+
   // -------------------------------------------------------------------
   // Field add / update / delete
   // -------------------------------------------------------------------
@@ -248,7 +273,8 @@ export default function TableEditPage(props: Props) {
   // Layout
   // -------------------------------------------------------------------
   return (
-    <div class="flex flex-col gap-8 p-6 max-w-5xl">
+    // Full-bleed: the editor wants the whole main column. No max-width.
+    <div class="flex flex-col gap-8 p-6">
       {/* Page header */}
       <header class="flex items-start justify-between gap-3">
         <div>
@@ -317,6 +343,15 @@ export default function TableEditPage(props: Props) {
                 const isDragging = () => fieldDnd.activeId() === dragId;
                 const isExpanded = () => expandedId() === field.id;
                 return (
+                  <>
+                    {/* Drop indicator BEFORE this card. Only visible when
+                        the drag's intent points to this slot AND landing
+                        here wouldn't be a no-op. */}
+                    <Show when={isDropIndicatorVisible(index())}>
+                      <div class="relative h-2">
+                        <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-md bg-blue-500/80 dark:bg-blue-400/80" />
+                      </div>
+                    </Show>
                   <li
                     ref={(el) => {
                       fieldDnd.draggable(el, () => ({
@@ -389,9 +424,17 @@ export default function TableEditPage(props: Props) {
                       />
                     </Show>
                   </li>
+                  </>
                 );
               }}
             </For>
+            {/* Indicator AFTER the last card — landing point when the user
+                drags below the bottom card. */}
+            <Show when={isDropIndicatorVisible(fields().length)}>
+              <div class="relative h-2">
+                <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-md bg-blue-500/80 dark:bg-blue-400/80" />
+              </div>
+            </Show>
           </ul>
         </Show>
 
@@ -402,6 +445,26 @@ export default function TableEditPage(props: Props) {
         >
           <i class="ti ti-plus" /> Add field
         </button>
+      </section>
+
+      <hr class="border-zinc-200 dark:border-zinc-700" />
+
+      {/* Permissions — table-level grants. */}
+      <section class="flex flex-col gap-3">
+        <h2 class="section-label">Permissions</h2>
+        <div class="info-block-info text-xs flex items-start gap-2">
+          <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
+          <span>
+            Grants resolve most-specific-first: table grants override base
+            grants, user grants override group grants. Within the same tier,
+            "no access" wins over a positive grant. Set base-level grants
+            for the team default; tighten or loosen per table here.
+          </span>
+        </div>
+        <TablePermissions
+          tableId={props.table.id}
+          initialEntries={props.initialAccessEntries}
+        />
       </section>
 
       <hr class="border-zinc-200 dark:border-zinc-700" />
@@ -494,8 +557,21 @@ function FieldEditor(props: {
     updateMut.mutate(undefined);
   };
 
+  const typeLabel = TYPE_LABELS[props.field.type] ?? props.field.type;
+  const typeDescription = FIELD_TYPE_DESCRIPTIONS[props.field.type];
+
   return (
     <div class="border-t border-zinc-100 dark:border-zinc-800 px-4 py-4 flex flex-col gap-4">
+      {/* Type primer — short, type-specific blurb so the constraint
+          inputs further down ("precision", "scale", "regex" etc.) make
+          immediate sense to non-power users. */}
+      <Show when={typeDescription}>
+        <div class="info-block-info text-xs flex items-start gap-2">
+          <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
+          <span>{typeDescription}</span>
+        </div>
+      </Show>
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <TextInput
           label="Name"
@@ -504,13 +580,14 @@ function FieldEditor(props: {
           icon="ti ti-typography"
           required
         />
-        <div class="flex flex-col gap-1">
-          <span class="text-xs text-secondary">Type</span>
-          <span class="px-3 py-1.5 text-sm text-dimmed bg-zinc-50 dark:bg-zinc-800/40 rounded-md border border-zinc-200 dark:border-zinc-700">
-            {TYPE_LABELS[props.field.type] ?? props.field.type}{" "}
-            <span class="text-[10px]">(immutable)</span>
-          </span>
-        </div>
+        {/* Type display — uses the same TextInput visual the Name input
+            uses (with disabled styling) so heights line up. */}
+        <TextInput
+          label="Type (immutable)"
+          icon="ti ti-category"
+          value={() => typeLabel}
+          disabled
+        />
       </div>
 
       <TextInput
@@ -566,5 +643,51 @@ function FieldEditor(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// TablePermissions — wraps the platform PermissionEditor with table-API wires
+// =============================================================================
+
+function TablePermissions(props: {
+  tableId: string;
+  initialEntries: AccessEntry[];
+}) {
+  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
+  return (
+    <PermissionEditor
+      resourceId={props.tableId}
+      initialEntries={entries()}
+      canEdit
+      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+        const res = await apiClient.access["by-table"][":tableId"].$post({
+          param: { tableId: resourceId },
+          json: { principal, permission },
+        });
+        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
+        const created = (await res.json()) as { accessId: string };
+        // Re-fetch the canonical list so the new entry has its displayName etc.
+        const listRes = await apiClient.access["by-table"][":tableId"].$get({
+          param: { tableId: resourceId },
+        });
+        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        setEntries(list);
+        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
+      }}
+      updateAccess={async (_resourceId, accessId, permission) => {
+        const res = await apiClient.access[":accessId"].$patch({
+          param: { accessId },
+          json: { permission },
+        });
+        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
+        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
+      }}
+      revokeAccess={async (_resourceId, accessId) => {
+        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
+        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
+        setEntries(entries().filter((e) => e.id !== accessId));
+      }}
+    />
   );
 }

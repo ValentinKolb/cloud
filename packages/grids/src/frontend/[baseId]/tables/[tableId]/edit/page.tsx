@@ -74,6 +74,9 @@ export default ssr<AuthContext>(async (c) => {
 
   const fields = await gridsService.field.listByTable(tableId);
   const forms = await gridsService.form.listForTable(tableId);
+  // Per-table ACL entries — only the table-level grants. Base-level
+  // grants are managed on the base settings page.
+  const accessEntries = await gridsService.access.listForTable(tableId);
   // Pre-fetch fields for sibling tables — relation editor needs targets.
   const fieldsByTable: Record<string, Field[]> = { [tableId]: fields };
   for (const t of tables) {
@@ -152,6 +155,7 @@ export default ssr<AuthContext>(async (c) => {
             }}
             initialFields={fields}
             initialForms={forms}
+            initialAccessEntries={accessEntries}
             otherTables={tables.filter((t) => t.id !== tableId).map((t) => ({
               id: t.id,
               name: t.name,

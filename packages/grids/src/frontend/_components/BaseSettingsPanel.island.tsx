@@ -46,6 +46,17 @@ export default function BaseSettingsPanel(props: Props) {
 
       <section class="flex flex-col gap-2">
         <h3 class="section-label">Permissions</h3>
+        <div class="info-block-info text-xs flex items-start gap-2">
+          <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
+          <span>
+            Base-level grants apply to every table by default. Override per
+            table from that table's editor: a group with{" "}
+            <code class="font-mono">read</code> on the base and{" "}
+            <code class="font-mono">write</code> on a single table can edit
+            that table but only read others. Within the same tier, "no
+            access" wins; user grants override group grants.
+          </span>
+        </div>
         <PermissionsSection baseId={props.base.id} initialEntries={props.accessEntries} />
       </section>
 

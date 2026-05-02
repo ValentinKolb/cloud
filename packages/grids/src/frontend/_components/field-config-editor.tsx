@@ -54,6 +54,57 @@ TYPE_LABELS["updated_at"] = "Updated at";
 TYPE_LABELS["created_by"] = "Created by";
 TYPE_LABELS["updated_by"] = "Updated by";
 
+/**
+ * Short, plain-language primer per field type. Renders as the info-box
+ * above each field's editor so non-power users can read once and know
+ * what the constraint inputs ("precision", "regex", "cardinality") refer
+ * to. Keep entries to one or two sentences.
+ */
+export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
+  text: "Single-line plain string. Bound it with min/max length, or pin a regex pattern the value must match end-to-end.",
+  longtext:
+    "Multi-line plain string. Bound the same way as text but designed for paragraphs of input.",
+  number:
+    "Floating-point number. Bound with min/max; toggle integer-only to reject decimals at write time.",
+  decimal:
+    "Money-safe fixed-point number. Precision = total digit count (max 38); Scale = digits after the decimal (must be ≤ precision).",
+  rating:
+    "Whole-number rating from 1 to Scale (e.g. Scale 5 = 1–5 stars). 0 means \"not rated yet\".",
+  boolean: "True / false toggle. No constraints.",
+  date: "Calendar date, optionally with a time-of-day. Bound with a min and/or max date.",
+  "single-select":
+    "Pick exactly one option from a fixed list. Each option has an id (stored), a label (shown), and a colour (chip background).",
+  "multi-select":
+    "Pick zero or more options from a fixed list. minSelected / maxSelected enforce the count at write time.",
+  autonumber:
+    "Auto-incremented integer per record, optionally prefixed (\"INV-\") and zero-padded.",
+  email: "Plain string validated as an email address (RFC-5321 lite).",
+  url: "Plain string validated as a URL with a scheme (http(s), mailto, tel, …).",
+  phone: "Plain string in E.164 / national notation. No strict format check — store what your users type.",
+  currency:
+    "{ amount: decimal, currency: ISO-4217 code }. The default currency seeds new rows; users can override per record.",
+  percent: "Number 0–100 representing a percentage. Stored as the literal value (e.g. 15 for 15%).",
+  duration:
+    "Whole seconds. Display formats it as HH:MM:SS; input accepts either seconds or HH:MM:SS.",
+  slug: "URL-safe identifier (lowercase, hyphens). Useful for human-readable foreign keys.",
+  barcode: "Free-form barcode string (EAN-13, Code-128, …). No format check.",
+  isbn: "ISBN-10 or ISBN-13 with checksum verification at write time.",
+  color: "CSS hex colour (#rgb or #rrggbb). Renders as a swatch in the table.",
+  "rich-text": "Markdown body. Same constraints as longtext.",
+  json: "Free-form JSON value. Server validates that the input parses; structure is up to you.",
+  signature: "Image dataURL captured from a signature pad. Stored verbatim.",
+  location:
+    "{ lat, lng, label }. Use the lat/lng for maps, the label for human display.",
+  relation:
+    "Link to records in another table. Pick the target table + a display field; cardinality decides single- vs many-link.",
+  lookup:
+    "Project a value through a relation. Reads the target field of every linked record and surfaces it on this row.",
+  rollup:
+    "Aggregate over a relation. Like lookup, but reduces the linked values to one (count, sum, avg, min, max).",
+  formula:
+    "Computed expression that runs at read time. Reference fields by their UUID inside { … }; supports IF, AND/OR, math, text and date helpers.",
+};
+
 /** Default config blob for a brand-new field of `type`. */
 export const defaultConfigForType = (type: string): FieldConfigState => {
   switch (type) {
