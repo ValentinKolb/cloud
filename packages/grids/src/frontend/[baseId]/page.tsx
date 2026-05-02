@@ -4,38 +4,12 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsGrid from "../_components/RecordsGrid.island";
-import FieldsManager from "../_components/FieldsManager.island";
-import QuickAdd from "../_components/QuickAdd.island";
-import BasePermissions from "../_components/BasePermissions.island";
-import FilterPanel from "../_components/FilterPanel.island";
-import SortPanel from "../_components/SortPanel.island";
-import ViewsBar from "../_components/ViewsBar.island";
-import FormsManager from "../_components/FormsManager.island";
-import ExportButton from "../_components/ExportButton.island";
+import GridToolbar from "../_components/GridToolbar.island";
+import TableEditor from "../_components/TableEditor.island";
 import CreateTableButton from "../_components/CreateTableButton.island";
-import TableActionsMenu from "../_components/TableActionsMenu.island";
-import BaseSettingsButton from "../_components/BaseSettingsButton.island";
-import type { FilterTree, SortSpec } from "../../service";
+import type { FilterTree, SortSpec, Field } from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };
-
-/**
- * URL the filter/sort panels submit to. Carries both the current filter
- * and sort params so applying one doesn't wipe the other (the panels'
- * URL builders only mutate their own param).
- */
-const panelBaseUrl = (
-  baseId: string,
-  tableId: string,
-  rawFilter: string | undefined,
-  rawSort: string | undefined,
-): string => {
-  const params = new URLSearchParams();
-  params.set("table", tableId);
-  if (rawFilter) params.set("filter", rawFilter);
-  if (rawSort) params.set("sort", rawSort);
-  return `/app/grids/${baseId}?${params.toString()}`;
-};
 
 const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) => {
   if (hasRole(user, "admin")) return "admin" as const;
@@ -65,9 +39,6 @@ export default ssr<AuthContext>(async (c) => {
     try {
       const parsed = JSON.parse(rawFilter);
       parsedFilter = parsed;
-      // The Phase-1B-and-later UI only writes flat-AND filters; if the user
-      // pasted a complex tree by hand we still send it to the compiler but
-      // can't reflect it in the row UI.
       if (parsed && parsed.op === "AND" && Array.isArray(parsed.filters)) {
         filterLeaves = parsed.filters.filter(
           (f: unknown): f is { fieldId: string; op: string; value?: unknown } =>
@@ -77,7 +48,6 @@ export default ssr<AuthContext>(async (c) => {
     } catch {}
   }
 
-  // Same defensive JSON-parse for the sort query.
   let parsedSort: SortSpec[] = [];
   const rawSort = c.req.query("sort");
   if (rawSort) {
@@ -128,15 +98,22 @@ export default ssr<AuthContext>(async (c) => {
     )
   ).filter((t): t is NonNullable<typeof t> => t !== null);
 
-  const activeTable = activeTableId ? tables.find((t) => t.id === activeTableId) ?? null : tables[0] ?? null;
+  const activeTable = activeTableId
+    ? tables.find((t) => t.id === activeTableId) ?? null
+    : tables[0] ?? null;
 
   type RecordsPage = { items: import("../../service").GridRecord[]; nextCursor: string | null };
-  let fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> = [];
+  let fields: Field[] = [];
   let records: RecordsPage = { items: [], nextCursor: null };
   let aggregates: Record<string, unknown> = {};
   let viewsForTable: Awaited<ReturnType<typeof gridsService.view.listForTable>> = [];
   let formsForTable: Awaited<ReturnType<typeof gridsService.form.listForTable>> = [];
   let activeTableLevel = level;
+  // Pre-fetched fields for every table in this base — TableEditor's relation
+  // picker needs this so the user can pick a target table + display field
+  // without an extra API round-trip from the modal.
+  const fieldsByTable: Record<string, Field[]> = {};
+
   if (activeTable) {
     const [f, listResult, lvl] = await Promise.all([
       gridsService.field.listByTable(activeTable.id),
@@ -151,6 +128,7 @@ export default ssr<AuthContext>(async (c) => {
       resolveLevel(user, baseId, activeTable.id),
     ]);
     fields = f;
+    fieldsByTable[activeTable.id] = f;
     if (listResult.ok) {
       records = trashMode
         ? { ...listResult.data, items: listResult.data.items.filter((r) => r.deletedAt !== null) }
@@ -158,10 +136,6 @@ export default ssr<AuthContext>(async (c) => {
     }
     activeTableLevel = lvl;
 
-    // Auto-aggregates for the visible columns: count for every field plus
-    // sum for numeric/decimal/rating. Power users can pick per-column
-    // aggregates in a later phase; this gives a useful default footer row
-    // without any UI to configure.
     viewsForTable = await gridsService.view.listForTable({
       tableId: activeTable.id,
       userId: user.id,
@@ -169,6 +143,10 @@ export default ssr<AuthContext>(async (c) => {
     });
     formsForTable = await gridsService.form.listForTable(activeTable.id);
 
+    // Auto-aggregates for the visible columns: count for every field plus
+    // sum for numeric/decimal/rating. Power users can pick per-column
+    // aggregates in a later phase; this gives a useful default footer row
+    // without any UI to configure.
     if (!trashMode && fields.length > 0) {
       const requests = fields
         .filter((field) => !field.deletedAt)
@@ -176,11 +154,7 @@ export default ssr<AuthContext>(async (c) => {
           const reqs: Array<{ fieldId: string; agg: "count" | "sum" }> = [
             { fieldId: field.id, agg: "count" },
           ];
-          if (
-            field.type === "number" ||
-            field.type === "decimal" ||
-            field.type === "rating"
-          ) {
+          if (field.type === "number" || field.type === "decimal" || field.type === "rating") {
             reqs.push({ fieldId: field.id, agg: "sum" });
           }
           return reqs;
@@ -195,141 +169,181 @@ export default ssr<AuthContext>(async (c) => {
       }
     }
   }
+
+  // Fetch fields for every other table too (for relation picker in the
+  // table editor). Cheap: bases stay small in the v1 product.
+  for (const t of tables) {
+    if (!fieldsByTable[t.id]) {
+      fieldsByTable[t.id] = await gridsService.field.listByTable(t.id);
+    }
+  }
+
   const canManageTable = gridsService.permission.hasAtLeast(activeTableLevel, "admin");
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
   const canWriteRecords = gridsService.permission.hasAtLeast(activeTableLevel, "write");
 
-  // Initial ACL entries — only fetched when the user can actually manage them.
-  const initialAccess = canManageBase ? await gridsService.access.listForBase(baseId) : [];
+  const hasFilter = filterLeaves.length > 0;
+  const hasSort = parsedSort.length > 0;
+  const hasFilterOrSort = hasFilter || hasSort;
 
   return () => (
     <Layout
       c={c}
       fullWidth
-      title={[{ title: "Start", href: "/" }, { title: "Grids", href: "/app/grids" }, { title: base.name }]}
+      title={[
+        { title: "Start", href: "/" },
+        { title: "Grids", href: "/app/grids" },
+        { title: base.name },
+      ]}
     >
-      <div class="app-cols h-full">
-        {/* Sidebar: base header + tables list + (admin) fields manager */}
-        <aside class="order-1 lg:order-1 w-full lg:w-64 shrink-0 lg:h-full overflow-y-auto p-3 border-r border-zinc-200 dark:border-zinc-800 flex flex-col gap-4">
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0">
-              <div class="text-sm font-medium text-primary truncate">{base.name}</div>
-              {base.description && <div class="text-xs text-dimmed truncate">{base.description}</div>}
+      <div class="app-cols flex-1 min-h-0">
+        <aside class="sidebar-container">
+          <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+            {/* Base header — name + single gear for settings. */}
+            <div class="relative flex items-center gap-3 pr-7">
+              <div class="sidebar-header-icon" style="background-color:#3b82f6">
+                <i class="ti ti-table text-xs" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="sidebar-header-title">{base.name}</p>
+                {base.description && <p class="sidebar-header-subtitle">{base.description}</p>}
+              </div>
+              {canManageBase && (
+                <a
+                  href={`/app/grids/${baseId}/settings`}
+                  class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
+                  title="Settings"
+                >
+                  <i class="ti ti-settings text-xs" />
+                </a>
+              )}
             </div>
-            <div class="flex items-center gap-1">
-              <BasePermissions baseId={baseId} initialEntries={initialAccess} canManage={canManageBase} />
-              <BaseSettingsButton base={base} canManage={canManageBase} />
+
+            <div class="flex flex-col gap-3">
+              <section class="sidebar-group">
+                <p class="sidebar-section-title">Actions</p>
+                <a href="/app/grids" class="sidebar-item text-xs">
+                  <i class="ti ti-layout-grid text-sm" />
+                  <span>All Grids</span>
+                </a>
+              </section>
+            </div>
+
+            <div class="sidebar-body">
+              {/* Tables */}
+              <section class="sidebar-group">
+                <p class="sidebar-section-title">Tables</p>
+                {tables.length === 0 ? (
+                  <p class="text-xs text-dimmed px-2 py-1">No tables yet.</p>
+                ) : (
+                  tables.map((t) => {
+                    const isActive = activeTable?.id === t.id;
+                    return (
+                      <div class="group relative flex items-center">
+                        <a
+                          href={`/app/grids/${baseId}?table=${t.id}`}
+                          class={`sidebar-item flex-1 text-xs ${isActive ? "sidebar-item-active" : ""}`}
+                        >
+                          <i class="ti ti-table text-sm" />
+                          <span class="truncate">{t.name}</span>
+                        </a>
+                        {canManageTable && isActive && (
+                          <TableEditor
+                            table={{
+                              id: t.id,
+                              name: t.name,
+                              description: t.description ?? null,
+                              baseId,
+                            }}
+                            initialFields={fieldsByTable[t.id] ?? []}
+                            initialForms={formsForTable}
+                            otherTables={tables.filter((x) => x.id !== t.id).map((x) => ({
+                              id: x.id,
+                              name: x.name,
+                            }))}
+                            fieldsByTable={fieldsByTable}
+                            canManage
+                          />
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+                {canCreateTables && <CreateTableButton baseId={baseId} />}
+              </section>
+
+              {/* Views (only for the active table) */}
+              {activeTable && (
+                <section class="sidebar-group">
+                  <p class="sidebar-section-title">Views</p>
+                  <a
+                    href={`/app/grids/${baseId}?table=${activeTable.id}`}
+                    class={`sidebar-item text-xs ${activeViewId === null && !hasFilterOrSort ? "sidebar-item-active" : ""}`}
+                  >
+                    <i class="ti ti-list text-sm" />
+                    <span>All records</span>
+                  </a>
+                  {viewsForTable.map((view) => {
+                    const url = (() => {
+                      const u = new URL(`/app/grids/${baseId}`, "http://x");
+                      u.searchParams.set("table", activeTable.id);
+                      u.searchParams.set("view", view.id);
+                      const cfg = view.config as { filter?: unknown; sort?: unknown };
+                      if (cfg.filter) u.searchParams.set("filter", JSON.stringify(cfg.filter));
+                      if (cfg.sort) u.searchParams.set("sort", JSON.stringify(cfg.sort));
+                      return `${u.pathname}${u.search}`;
+                    })();
+                    return (
+                      <a
+                        href={url}
+                        class={`sidebar-item text-xs ${activeViewId === view.id ? "sidebar-item-active" : ""}`}
+                      >
+                        <i class="ti ti-table-spark text-sm" />
+                        <span class="truncate">{view.name}</span>
+                      </a>
+                    );
+                  })}
+                </section>
+              )}
             </div>
           </div>
-
-          <div>
-            <div class="text-xs uppercase tracking-wide text-dimmed mb-2 px-1">Tables</div>
-            {tables.length === 0 ? (
-              <div class="text-xs text-dimmed px-2 py-3">No tables yet.</div>
-            ) : (
-              <ul class="flex flex-col gap-1">
-                {tables.map((t) => (
-                  <li class="flex items-center gap-1">
-                    <a
-                      href={`/app/grids/${baseId}?table=${t.id}`}
-                      class={`flex-1 block px-2 py-1.5 rounded-md text-sm transition-colors ${
-                        activeTable?.id === t.id
-                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
-                          : "text-secondary hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                      }`}
-                    >
-                      <i class="ti ti-table text-xs" /> {t.name}
-                    </a>
-                    {activeTable?.id === t.id && <TableActionsMenu table={t} canManage={canManageTable} />}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {canCreateTables && <CreateTableButton baseId={baseId} />}
-          </div>
-
-          {activeTable && (
-            <FieldsManager
-              tableId={activeTable.id}
-              initialFields={fields}
-              canManage={canManageTable}
-            />
-          )}
-          {activeTable && (
-            <FormsManager
-              tableId={activeTable.id}
-              fields={fields}
-              initialForms={formsForTable}
-              canManage={canManageTable}
-            />
-          )}
         </aside>
 
-        {/* Main: records table for the active table */}
+        {/* Main: records table */}
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto p-4">
           {activeTable ? (
             <div class="flex flex-col gap-3">
-              <header class="flex items-center justify-between gap-3">
-                <div class="flex items-baseline gap-3">
-                  <h2 class="text-lg font-semibold text-primary">
-                    {activeTable.name}
-                    {trashMode && <span class="ml-2 text-sm font-normal text-amber-600 dark:text-amber-400">(trash)</span>}
-                  </h2>
-                  <span class="text-xs text-dimmed">{records.items.length} record(s)</span>
-                </div>
-                <div class="flex items-center gap-2">
-                  {!trashMode && (
-                    <ExportButton
-                      tableId={activeTable.id}
-                      filter={rawFilter ?? undefined}
-                      sort={rawSort ?? undefined}
-                    />
+              <div class="flex items-baseline gap-3">
+                <h2 class="text-lg font-semibold text-primary">
+                  {activeTable.name}
+                  {trashMode && (
+                    <span class="ml-2 text-sm font-normal text-amber-600 dark:text-amber-400">
+                      (deleted)
+                    </span>
                   )}
-                  <a
-                    href={
-                      trashMode
-                        ? `/app/grids/${baseId}?table=${activeTable.id}`
-                        : `/app/grids/${baseId}?table=${activeTable.id}&trash=1`
-                    }
-                    class="btn-secondary btn-sm"
-                    title={trashMode ? "Back to live records" : "Show deleted records"}
-                  >
-                    <i class={trashMode ? "ti ti-arrow-back" : "ti ti-trash"} />
-                    {trashMode ? "Back" : "Trash"}
-                  </a>
-                  {!trashMode && <QuickAdd tableId={activeTable.id} fields={fields} canWrite={canWriteRecords} />}
-                </div>
-              </header>
-              {!trashMode && (
-                <div class="flex flex-col gap-2">
-                  <ViewsBar
-                    tableId={activeTable.id}
-                    baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
-                    initialViews={viewsForTable}
-                    canShare={canWriteRecords}
-                    currentUserId={user.id}
-                    currentConfig={{ filter: parsedFilter ?? undefined, sort: parsedSort.length > 0 ? parsedSort : undefined }}
-                    activeViewId={activeViewId}
-                  />
-                  {/*
-                    Pass a baseUrl that already contains the current filter
-                    + sort params. Each panel only mutates its own param via
-                    its URL builder, so they don't wipe each other out the
-                    way they would if baseUrl carried only `?table=...`.
-                  */}
-                  <FilterPanel
-                    fields={fields}
-                    initial={filterLeaves}
-                    baseUrl={panelBaseUrl(baseId, activeTable.id, rawFilter, rawSort)}
-                  />
-                  <SortPanel
-                    fields={fields}
-                    initial={parsedSort}
-                    baseUrl={panelBaseUrl(baseId, activeTable.id, rawFilter, rawSort)}
-                  />
-                </div>
-              )}
+                </h2>
+                {activeTable.description && (
+                  <span class="text-xs text-dimmed truncate">{activeTable.description}</span>
+                )}
+              </div>
+
+              <GridToolbar
+                baseId={baseId}
+                tableId={activeTable.id}
+                fields={fields}
+                initialFilter={filterLeaves}
+                initialSort={parsedSort.map((s) => ({ fieldId: s.fieldId, direction: s.direction }))}
+                hasFilter={hasFilter}
+                hasSort={hasSort}
+                hasFilterOrSort={hasFilterOrSort}
+                rawFilter={rawFilter}
+                rawSort={rawSort}
+                trashMode={trashMode}
+                recordCount={records.items.length}
+                canWrite={canWriteRecords}
+              />
+
               <RecordsGrid
                 tableId={activeTable.id}
                 fields={fields}
@@ -338,6 +352,7 @@ export default ssr<AuthContext>(async (c) => {
                 mode={trashMode ? "trash" : "live"}
                 aggregates={trashMode ? {} : aggregates}
               />
+
               {records.nextCursor && (
                 <div class="flex items-center justify-end gap-2 text-xs">
                   <a
@@ -360,8 +375,8 @@ export default ssr<AuthContext>(async (c) => {
           ) : (
             <div class="paper p-8 text-center text-sm text-dimmed">
               {canCreateTables
-                ? "No tables yet. Click “New table” in the sidebar."
-                : "No tables. You don’t have write access to create one."}
+                ? 'No tables yet. Click "New table" in the sidebar.'
+                : "No tables. You don't have write access to create one."}
             </div>
           )}
         </main>

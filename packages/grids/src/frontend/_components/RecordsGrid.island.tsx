@@ -157,8 +157,14 @@ export default function RecordsGrid(props: Props) {
         </div>
       }
     >
+      {/*
+        Two-layer wrapper so wide tables (lots of fields, long values)
+        scroll horizontally inside the paper border without forcing the
+        whole page wider. Mirrors the spaces ItemsTable pattern.
+      */}
       <div class="paper overflow-hidden">
-        <table class="w-full text-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
           <thead class="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-700">
             <tr>
               <For each={visibleFields()}>
@@ -273,7 +279,8 @@ export default function RecordsGrid(props: Props) {
               </For>
             </Show>
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
     </Show>
   );

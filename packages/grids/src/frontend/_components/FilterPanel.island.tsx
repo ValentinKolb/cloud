@@ -1,5 +1,5 @@
-import { Index, Show, createSignal, createMemo, For } from "solid-js";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { Index, Show, createSignal, createMemo } from "solid-js";
+import { navigateTo, Select } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
 
@@ -38,10 +38,7 @@ const blankLeaf = (fields: Field[]): FilterLeaf => {
   return { fieldId: first.id, op: ops[0]?.id ?? "", value: "" };
 };
 
-const isComplete = (
-  leaf: FilterLeaf,
-  fields: Field[],
-): boolean => {
+const isComplete = (leaf: FilterLeaf, fields: Field[]): boolean => {
   const field = fields.find((f) => f.id === leaf.fieldId);
   if (!field) return false;
   const op = opsForType(field.type).find((o) => o.id === leaf.op);
@@ -102,11 +99,9 @@ export default function FilterPanel(props: Props) {
       <Show
         when={leaves().length > 0}
         fallback={
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm text-xs text-dimmed" onClick={addLeaf}>
-              <i class="ti ti-filter-plus" /> Filter
-            </button>
-          </div>
+          <button type="button" class="btn-simple btn-sm text-xs text-dimmed" onClick={addLeaf}>
+            <i class="ti ti-filter-plus" /> Add filter
+          </button>
         }
       >
         <div class="flex flex-col gap-1.5">
@@ -126,24 +121,22 @@ export default function FilterPanel(props: Props) {
               return (
                 <div class="flex flex-wrap items-center gap-1.5 text-xs">
                   <span class="text-dimmed">{index === 0 ? "where" : "and"}</span>
-                  <select
-                    class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs"
-                    value={leaf().fieldId}
-                    onChange={(e) => updateLeaf(index, { fieldId: e.currentTarget.value })}
-                  >
-                    <For each={fields()}>
-                      {(f) => <option value={f.id}>{f.name}</option>}
-                    </For>
-                  </select>
-                  <select
-                    class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs"
-                    value={leaf().op}
-                    onChange={(e) => updateLeaf(index, { op: e.currentTarget.value, value: "" })}
-                  >
-                    <For each={ops()}>
-                      {(o) => <option value={o.id}>{o.label}</option>}
-                    </For>
-                  </select>
+                  <div class="min-w-[10rem]">
+                    <Select
+                      value={() => leaf().fieldId}
+                      onChange={(v) => updateLeaf(index, { fieldId: v })}
+                      options={fields().map((f) => ({ id: f.id, label: f.name }))}
+                      placeholder="Field"
+                    />
+                  </div>
+                  <div class="min-w-[8rem]">
+                    <Select
+                      value={() => leaf().op}
+                      onChange={(v) => updateLeaf(index, { op: v, value: "" })}
+                      options={ops().map((o) => ({ id: o.id, label: o.label }))}
+                      placeholder="Operator"
+                    />
+                  </div>
 
                   <FilterValueInput
                     field={field()}
@@ -234,24 +227,31 @@ function FilterValueInput(props: {
     );
   }
 
-  // Single-select / multi-select: dropdown built from field.config.options.
+  // Single-select / multi-select: cloud Select built from field.config.options.
   if (field.type === "single-select" && (op.id === "is" || op.id === "isNot")) {
-    const options = ((field.config as { options?: Array<{ id: string; label: string }> }).options ?? []);
+    const options = (field.config as { options?: Array<{ id: string; label: string }> }).options ?? [];
+    const value = typeof props.value === "string" ? props.value : "";
     return (
-      <select
-        class={inputClass}
-        value={typeof props.value === "string" ? props.value : ""}
-        onChange={(e) => props.onChange(e.currentTarget.value)}
-      >
-        <option value="">—</option>
-        <For each={options}>{(o) => <option value={o.id}>{o.label}</option>}</For>
-      </select>
+      <div class="min-w-[10rem]">
+        <Select
+          value={() => value}
+          onChange={(v) => props.onChange(v)}
+          options={options.map((o) => ({ id: o.id, label: o.label }))}
+          placeholder="—"
+        />
+      </div>
     );
   }
 
   // Multi-value ops (isAnyOf / isNoneOf / containsAll / containsAny / doesNotContain):
   // accept a comma-separated list — the API expects an array of strings.
-  if (op.id === "isAnyOf" || op.id === "isNoneOf" || op.id === "containsAll" || op.id === "containsAny" || op.id === "doesNotContain") {
+  if (
+    op.id === "isAnyOf" ||
+    op.id === "isNoneOf" ||
+    op.id === "containsAll" ||
+    op.id === "containsAny" ||
+    op.id === "doesNotContain"
+  ) {
     const display = Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? "");
     return (
       <input
@@ -260,7 +260,10 @@ function FilterValueInput(props: {
         placeholder="comma-separated"
         value={display}
         onInput={(e) => {
-          const parts = e.currentTarget.value.split(",").map((s) => s.trim()).filter(Boolean);
+          const parts = e.currentTarget.value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
           props.onChange(parts);
         }}
       />
@@ -268,22 +271,22 @@ function FilterValueInput(props: {
   }
 
   if (field.type === "boolean") {
-    // Include an "—" placeholder so a fresh row with no value doesn't
-    // visually claim "true" while state is still empty (Apply would drop
-    // such filters silently).
+    // Use the cloud Select with explicit "—" / "true" / "false" options so
+    // unset state is visible (Apply otherwise drops the row silently).
+    const value = props.value === true ? "true" : props.value === false ? "false" : "";
     return (
-      <select
-        class={inputClass}
-        value={props.value === true ? "true" : props.value === false ? "false" : ""}
-        onChange={(e) => {
-          const v = e.currentTarget.value;
-          props.onChange(v === "" ? "" : v === "true");
-        }}
-      >
-        <option value="">—</option>
-        <option value="true">true</option>
-        <option value="false">false</option>
-      </select>
+      <div class="min-w-[7rem]">
+        <Select
+          value={() => value}
+          onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
+          options={[
+            { id: "true", label: "true" },
+            { id: "false", label: "false" },
+          ]}
+          placeholder="—"
+          clearable
+        />
+      </div>
     );
   }
 
@@ -315,7 +318,12 @@ function FilterValueInput(props: {
     );
   }
 
-  if (field.type === "number" || field.type === "decimal" || field.type === "rating" || field.type === "autonumber") {
+  if (
+    field.type === "number" ||
+    field.type === "decimal" ||
+    field.type === "rating" ||
+    field.type === "autonumber"
+  ) {
     return (
       <input
         type="number"

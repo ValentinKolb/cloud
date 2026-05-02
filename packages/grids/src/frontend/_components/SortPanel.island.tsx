@@ -1,5 +1,5 @@
-import { For, Index, Show, createSignal, createMemo } from "solid-js";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { Index, Show, createSignal, createMemo } from "solid-js";
+import { navigateTo, Select } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 
 export type SortRow = { fieldId: string; direction: "asc" | "desc" };
@@ -11,9 +11,14 @@ type Props = {
 };
 
 const SORTABLE_TYPES = new Set([
-  "text", "longtext",
-  "number", "decimal", "rating", "autonumber",
-  "date", "boolean",
+  "text",
+  "longtext",
+  "number",
+  "decimal",
+  "rating",
+  "autonumber",
+  "date",
+  "boolean",
   "single-select",
 ]);
 
@@ -86,7 +91,7 @@ export default function SortPanel(props: Props) {
       when={rows().length > 0}
       fallback={
         <button type="button" class="btn-simple btn-sm text-xs text-dimmed" onClick={addRow}>
-          <i class="ti ti-arrows-sort" /> Sort
+          <i class="ti ti-arrows-sort" /> Add sort
         </button>
       }
     >
@@ -96,21 +101,24 @@ export default function SortPanel(props: Props) {
           {(rowSignal, index) => (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
               <span class="text-dimmed">{index === 0 ? "sort by" : "then"}</span>
-              <select
-                class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs"
-                value={rowSignal().fieldId}
-                onChange={(e) => updateRow(index, { fieldId: e.currentTarget.value })}
-              >
-                <For each={fields()}>{(f) => <option value={f.id}>{f.name}</option>}</For>
-              </select>
-              <select
-                class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs"
-                value={rowSignal().direction}
-                onChange={(e) => updateRow(index, { direction: e.currentTarget.value as "asc" | "desc" })}
-              >
-                <option value="asc">A → Z</option>
-                <option value="desc">Z → A</option>
-              </select>
+              <div class="min-w-[10rem]">
+                <Select
+                  value={() => rowSignal().fieldId}
+                  onChange={(v) => updateRow(index, { fieldId: v })}
+                  options={fields().map((f) => ({ id: f.id, label: f.name }))}
+                  placeholder="Field"
+                />
+              </div>
+              <div class="min-w-[8rem]">
+                <Select
+                  value={() => rowSignal().direction}
+                  onChange={(v) => updateRow(index, { direction: v as "asc" | "desc" })}
+                  options={[
+                    { id: "asc", label: "A → Z" },
+                    { id: "desc", label: "Z → A" },
+                  ]}
+                />
+              </div>
               <button
                 type="button"
                 class="text-dimmed hover:text-red-500 px-1"

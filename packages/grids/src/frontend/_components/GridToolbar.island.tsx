@@ -1,0 +1,326 @@
+import { Show, createSignal } from "solid-js";
+import { apiClient } from "@/api/client";
+import {
+  Dropdown,
+  navigateTo,
+  prompts,
+  refreshCurrentPath,
+} from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { Field, GridRecord, View } from "../../service";
+import { fieldToPromptSchema, isUserEditable, sanitizePayload } from "./field-prompt-schema";
+import { errorMessage } from "./api-helpers";
+import FilterPanel, { type FilterLeaf } from "./FilterPanel.island";
+import SortPanel, { type SortRow } from "./SortPanel.island";
+
+type Props = {
+  baseId: string;
+  tableId: string;
+  fields: Field[];
+  /** Initial filter leaves parsed by the SSR. */
+  initialFilter: FilterLeaf[];
+  /** Initial sort rows parsed by the SSR. */
+  initialSort: SortRow[];
+  /** True when filter or sort is currently active (i.e. URL has them). */
+  hasFilter: boolean;
+  hasSort: boolean;
+  /** Show "Save as view" / "Clear" only when one of them is set. */
+  hasFilterOrSort: boolean;
+  /** Raw URL query strings — passed straight to the export endpoint. */
+  rawFilter: string | undefined;
+  rawSort: string | undefined;
+  /** Are we currently looking at deleted records? */
+  trashMode: boolean;
+  /** Live record count (already filtered SSR-side). */
+  recordCount: number;
+  /** Permissions: can the user create rows / share views / etc.? */
+  canWrite: boolean;
+};
+
+/**
+ * Compact, chip-based toolbar over the records table. Mirrors the spaces
+ * FilterBar visual language (small buttons, hover-grey, dropdown arrows)
+ * but the panels themselves stay as separate FilterPanel/SortPanel islands
+ * — this island just owns their open/closed state and the chip wrappers.
+ */
+export default function GridToolbar(props: Props) {
+  const [filterOpen, setFilterOpen] = createSignal(props.hasFilter);
+  const [sortOpen, setSortOpen] = createSignal(props.hasSort);
+
+  const baseUrl = () => {
+    const params = new URLSearchParams();
+    params.set("table", props.tableId);
+    if (props.rawFilter) params.set("filter", props.rawFilter);
+    if (props.rawSort) params.set("sort", props.rawSort);
+    return `/app/grids/${props.baseId}?${params.toString()}`;
+  };
+
+  // ---- Add row -----------------------------------------------------------
+  const addMut = mutations.create<GridRecord, Record<string, unknown>>({
+    mutation: async (payload) => {
+      const res = await apiClient.records["by-table"][":tableId"].$post({
+        param: { tableId: props.tableId },
+        json: payload,
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create record"));
+      return (await res.json()) as GridRecord;
+    },
+    onSuccess: () => refreshCurrentPath(),
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleAddRow = async () => {
+    const usableFields = props.fields.filter((f) => !f.deletedAt && isUserEditable(f.type));
+    if (usableFields.length === 0) {
+      prompts.error("This table has no editable fields. Add one first.");
+      return;
+    }
+    const formFields: Record<string, any> = {};
+    for (const field of usableFields) {
+      const schema = fieldToPromptSchema(field);
+      if (schema) formFields[field.id] = schema;
+    }
+    const result = await prompts.form({
+      title: "New record",
+      icon: "ti ti-row-insert-bottom",
+      fields: formFields,
+      confirmText: "Create",
+    });
+    if (!result) return;
+    addMut.mutate(sanitizePayload(result));
+  };
+
+  // ---- Save as view ------------------------------------------------------
+  const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
+    mutation: async (input) => {
+      // Pluck the active filter/sort straight off the URL — single source
+      // of truth, no need to re-parse from props.
+      const filterRaw = props.rawFilter;
+      const sortRaw = props.rawSort;
+      const config = {
+        filter: filterRaw ? JSON.parse(filterRaw) : undefined,
+        sort: sortRaw ? JSON.parse(sortRaw) : undefined,
+      };
+      const res = await apiClient.views["by-table"][":tableId"].$post({
+        param: { tableId: props.tableId },
+        json: { name: input.name, config, shared: input.shared },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view"));
+      return (await res.json()) as View;
+    },
+    onSuccess: () => refreshCurrentPath(),
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleSaveView = async () => {
+    const result = await prompts.form({
+      title: "Save view",
+      icon: "ti ti-bookmark-plus",
+      fields: {
+        name: { type: "text", label: "Name", required: true, placeholder: "e.g. Open tasks" },
+        shared: {
+          type: "boolean",
+          label: props.canWrite
+            ? "Share with everyone who can read this table"
+            : "Share (requires table-write)",
+          default: false,
+        },
+      },
+      confirmText: "Save",
+    });
+    if (!result) return;
+    if (result.shared && !props.canWrite) {
+      prompts.error("You don't have permission to share views on this table.");
+      return;
+    }
+    saveViewMut.mutate({ name: String(result.name).trim(), shared: Boolean(result.shared) });
+  };
+
+  // ---- Clear filter+sort -------------------------------------------------
+  const clearAll = () => {
+    const url = new URL(`/app/grids/${props.baseId}`, "http://x");
+    url.searchParams.set("table", props.tableId);
+    if (props.trashMode) url.searchParams.set("trash", "1");
+    navigateTo(`${url.pathname}${url.search}`);
+  };
+
+  // ---- Show-deleted toggle URL ------------------------------------------
+  const trashToggleUrl = () => {
+    const url = new URL(`/app/grids/${props.baseId}`, "http://x");
+    url.searchParams.set("table", props.tableId);
+    if (props.rawFilter) url.searchParams.set("filter", props.rawFilter);
+    if (props.rawSort) url.searchParams.set("sort", props.rawSort);
+    if (!props.trashMode) url.searchParams.set("trash", "1");
+    return `${url.pathname}${url.search}`;
+  };
+
+  // ---- Export URL --------------------------------------------------------
+  const exportUrl = (format: "csv" | "json") => {
+    const url = new URL(
+      `/api/grids/records/by-table/${props.tableId}/export`,
+      typeof window !== "undefined" ? window.location.origin : "http://x",
+    );
+    url.searchParams.set("format", format);
+    if (props.rawFilter) url.searchParams.set("filter", props.rawFilter);
+    if (props.rawSort) url.searchParams.set("sort", props.rawSort);
+    return url.pathname + url.search;
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <div class="flex flex-wrap items-center gap-2">
+        {/* Add row — leftmost, primary */}
+        <Show when={props.canWrite && !props.trashMode}>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            onClick={handleAddRow}
+            disabled={addMut.loading()}
+          >
+            <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
+              <i class="ti ti-loader-2 animate-spin" />
+            </Show>
+            Add row
+          </button>
+        </Show>
+
+        {/* Filter chip (expands the panel below) */}
+        <Show when={!props.trashMode}>
+          <ToolbarChip
+            icon="ti ti-filter"
+            label="Filter"
+            active={props.hasFilter || filterOpen()}
+            onClick={() => setFilterOpen(!filterOpen())}
+          />
+
+          {/* Sort chip */}
+          <ToolbarChip
+            icon="ti ti-arrows-sort"
+            label="Sort"
+            active={props.hasSort || sortOpen()}
+            onClick={() => setSortOpen(!sortOpen())}
+          />
+
+          {/* Actions: Export + Show deleted */}
+          <Dropdown
+            trigger={
+              <span class={chipClass(false)}>
+                <i class="ti ti-dots-vertical" />
+                Actions
+                <i class="ti ti-chevron-down text-[10px] opacity-60" />
+              </span>
+            }
+            elements={[
+              {
+                icon: "ti ti-file-type-csv",
+                label: "Export CSV",
+                href: exportUrl("csv"),
+              },
+              {
+                icon: "ti ti-braces",
+                label: "Export JSON",
+                href: exportUrl("json"),
+              },
+              {
+                icon: "ti ti-archive",
+                label: "Show deleted",
+                href: trashToggleUrl(),
+              },
+            ]}
+          />
+
+          {/* Save as view (only when filter/sort active) */}
+          <Show when={props.hasFilterOrSort}>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 transition-colors dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+              onClick={handleSaveView}
+              disabled={saveViewMut.loading()}
+              title="Save current filter/sort as a view"
+            >
+              <i class="ti ti-bookmark-plus" />
+              Save as view
+            </button>
+          </Show>
+
+          {/* Clear filters/sort */}
+          <Show when={props.hasFilterOrSort}>
+            <button
+              type="button"
+              class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              onClick={clearAll}
+              aria-label="Clear all filters and sort"
+              title="Clear filters & sort"
+            >
+              <i class="ti ti-filter-off" />
+              Clear
+            </button>
+          </Show>
+        </Show>
+
+        {/* Back-from-trash chip — only in trash mode */}
+        <Show when={props.trashMode}>
+          <a
+            href={`/app/grids/${props.baseId}?table=${props.tableId}`}
+            class={chipClass(false)}
+          >
+            <i class="ti ti-arrow-back" />
+            Back to live records
+          </a>
+        </Show>
+
+        {/* Record count */}
+        <span class="ml-auto text-xs text-dimmed whitespace-nowrap">
+          {props.trashMode && "Deleted: "}
+          {props.recordCount === 0
+            ? "No records"
+            : props.recordCount === 1
+            ? "1 record"
+            : `${props.recordCount} records`}
+        </span>
+      </div>
+
+      {/* Expanded panels (filter / sort) */}
+      <Show when={!props.trashMode && filterOpen()}>
+        <div class="paper p-3">
+          <FilterPanel
+            fields={props.fields}
+            initial={props.initialFilter}
+            baseUrl={baseUrl()}
+          />
+        </div>
+      </Show>
+      <Show when={!props.trashMode && sortOpen()}>
+        <div class="paper p-3">
+          <SortPanel
+            fields={props.fields}
+            initial={props.initialSort}
+            baseUrl={baseUrl()}
+          />
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+function chipClass(active: boolean): string {
+  const base =
+    "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer transition-colors";
+  return active
+    ? `${base} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300`
+    : `${base} border-zinc-200 bg-white text-secondary hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800`;
+}
+
+function ToolbarChip(props: { icon: string; label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button type="button" class={chipClass(props.active)} onClick={props.onClick}>
+      <i class={props.icon} />
+      {props.label}
+      <i class="ti ti-chevron-down text-[10px] opacity-60" />
+    </button>
+  );
+}
