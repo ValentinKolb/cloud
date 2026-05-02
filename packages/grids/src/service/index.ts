@@ -15,6 +15,10 @@ export const gridsService = {
     create: bases.create,
     update: bases.update,
     remove: bases.remove,
+    admin: {
+      list: bases.adminList,
+      summary: bases.adminSummary,
+    },
   },
   table: {
     listByBase: tables.listByBase,

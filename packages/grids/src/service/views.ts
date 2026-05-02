@@ -41,22 +41,61 @@ const mapRow = (row: DbRow): View => ({
 });
 
 /**
- * Lists views visible to a user on a table: shared views (owner_user_id
- * NULL) plus the user's personal views. Same-table read-permission is
- * checked at the route layer.
+ * Lists views visible to a user on a table. Visibility rules:
+ *   1. Shared views (owner_user_id NULL) and the user's own personal
+ *      views are visible by default.
+ *   2. View-level ACL grants OVERRIDE that default — an explicit
+ *      level=read on someone else's personal view makes it visible to
+ *      the grantee, and an explicit level=none on a shared view hides
+ *      it from the denied user.
+ *
+ * Most-specific-wins: a view-level grant for this user (or any of their
+ *   groups) supersedes the default-visibility check. If the highest
+ *   matching grant is `none`, the view is hidden even if it would
+ *   otherwise be a default-shared view.
  */
 export const listForTable = async (params: {
   tableId: string;
   userId: string | null;
+  userGroups?: string[];
 }): Promise<View[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT id, table_id, name, config, owner_user_id, position, created_at, updated_at
-    FROM grids.views
-    WHERE table_id = ${params.tableId}::uuid
-      AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid)
-    ORDER BY position, created_at
+  const userGroups = params.userGroups ?? [];
+  const groups = userGroups.length > 0 ? `{${userGroups.join(",")}}` : "{}";
+
+  // Pull views + each view's effective view-level grant for this user via
+  // one query. The subquery returns the highest matching grant rank
+  // (none=0, read=1, write=2, admin=3) or NULL when no grant exists.
+  const rows = await sql<(DbRow & { effective_rank: number | null })[]>`
+    SELECT v.id, v.table_id, v.name, v.config, v.owner_user_id, v.position, v.created_at, v.updated_at,
+      (
+        SELECT MAX(CASE a.permission
+          WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3
+        END)
+        FROM grids.view_access va
+        JOIN auth.access a ON a.id = va.access_id
+        WHERE va.view_id = v.id
+          AND (
+            a.user_id = ${params.userId}::uuid
+            OR a.group_id = ANY(${groups}::uuid[])
+            OR (a.authenticated_only = TRUE AND ${params.userId}::uuid IS NOT NULL)
+            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
+          )
+      ) AS effective_rank
+    FROM grids.views v
+    WHERE v.table_id = ${params.tableId}::uuid
+    ORDER BY v.position, v.created_at
   `;
-  return rows.map(mapRow);
+
+  return rows
+    .filter((row) => {
+      const rank = row.effective_rank;
+      // Explicit grant present: include iff >= read (rank 1).
+      if (rank !== null) return rank >= 1;
+      // No view-level grant: fall back to default visibility.
+      const ownerId = row.owner_user_id as string | null;
+      return ownerId === null || ownerId === params.userId;
+    })
+    .map(mapRow);
 };
 
 export const get = async (id: string): Promise<View | null> => {

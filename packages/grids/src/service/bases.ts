@@ -100,3 +100,86 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   await logAudit({ baseId: id, userId: actorId, action: "deleted" });
   return ok();
 };
+
+// ──────────────────────────────────────────────────────────────────
+// Admin views (platform-admin only — bypasses per-base ACLs)
+// ──────────────────────────────────────────────────────────────────
+
+export type AdminListItem = Base & {
+  tableCount: number;
+  recordCount: number;
+  accessCount: number;
+};
+
+const escapeLikePattern = (s: string): string => s.replace(/([\\%_])/g, "\\$1");
+
+export const adminList = async (params: {
+  pagination?: { perPage?: number; offset?: number };
+  filter?: { query?: string };
+}): Promise<{ items: AdminListItem[]; total: number; page: number; perPage: number }> => {
+  const perPage = Math.min(Math.max(params.pagination?.perPage ?? 100, 1), 500);
+  const offset = Math.max(params.pagination?.offset ?? 0, 0);
+  const page = Math.floor(offset / perPage) + 1;
+  const query = params.filter?.query?.trim().toLowerCase();
+
+  const conditions: any[] = [sql`TRUE`];
+  if (query) {
+    const pattern = `%${escapeLikePattern(query)}%`;
+    conditions.push(sql`(LOWER(b.name) LIKE ${pattern} ESCAPE '\\' OR LOWER(COALESCE(b.description, '')) LIKE ${pattern} ESCAPE '\\')`);
+  }
+  const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
+
+  const [countRow] = await sql<{ total: number }[]>`
+    SELECT COUNT(*)::int AS total FROM grids.bases b WHERE ${where}
+  `;
+
+  const rows = await sql<DbRow[]>`
+    SELECT
+      b.id, b.name, b.description, b.created_by, b.created_at, b.updated_at,
+      (SELECT COUNT(*)::int FROM grids.tables WHERE base_id = b.id) AS table_count,
+      (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = b.id AND r.deleted_at IS NULL) AS record_count,
+      (SELECT COUNT(*)::int FROM grids.base_access WHERE base_id = b.id) AS access_count
+    FROM grids.bases b
+    WHERE ${where}
+    ORDER BY b.created_at DESC
+    LIMIT ${perPage} OFFSET ${offset}
+  `;
+
+  return {
+    items: rows.map((row) => ({
+      ...mapRow(row),
+      tableCount: row.table_count as number,
+      recordCount: row.record_count as number,
+      accessCount: row.access_count as number,
+    })),
+    total: countRow?.total ?? 0,
+    page,
+    perPage,
+  };
+};
+
+export const adminSummary = async (params: {
+  filter?: { query?: string };
+}): Promise<{ totalBases: number; totalTables: number; totalRecords: number; orphanedBases: number }> => {
+  const query = params.filter?.query?.trim().toLowerCase();
+  const conditions: any[] = [sql`TRUE`];
+  if (query) {
+    const pattern = `%${escapeLikePattern(query)}%`;
+    conditions.push(sql`(LOWER(b.name) LIKE ${pattern} ESCAPE '\\' OR LOWER(COALESCE(b.description, '')) LIKE ${pattern} ESCAPE '\\')`);
+  }
+  const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
+
+  const [row] = await sql<DbRow[]>`
+    SELECT
+      (SELECT COUNT(*)::int FROM grids.bases b WHERE ${where}) AS total_bases,
+      (SELECT COUNT(*)::int FROM grids.tables t JOIN grids.bases b ON b.id = t.base_id WHERE ${where}) AS total_tables,
+      (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id JOIN grids.bases b ON b.id = t.base_id WHERE r.deleted_at IS NULL AND ${where}) AS total_records,
+      (SELECT COUNT(*)::int FROM grids.bases b WHERE NOT EXISTS (SELECT 1 FROM grids.base_access WHERE base_id = b.id) AND ${where}) AS orphaned_bases
+  `;
+  return {
+    totalBases: (row?.total_bases as number) ?? 0,
+    totalTables: (row?.total_tables as number) ?? 0,
+    totalRecords: (row?.total_records as number) ?? 0,
+    orphanedBases: (row?.orphaned_bases as number) ?? 0,
+  };
+};

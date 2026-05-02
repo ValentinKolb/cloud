@@ -156,7 +156,11 @@ export default ssr<AuthContext>(async (c) => {
     // sum for numeric/decimal/rating. Power users can pick per-column
     // aggregates in a later phase; this gives a useful default footer row
     // without any UI to configure.
-    viewsForTable = await gridsService.view.listForTable({ tableId: activeTable.id, userId: user.id });
+    viewsForTable = await gridsService.view.listForTable({
+      tableId: activeTable.id,
+      userId: user.id,
+      userGroups: user.memberofGroupIds,
+    });
 
     if (!trashMode && fields.length > 0) {
       const requests = fields

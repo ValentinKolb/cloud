@@ -49,7 +49,11 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
-      const list = await gridsService.view.listForTable({ tableId, userId: user.id });
+      const list = await gridsService.view.listForTable({
+        tableId,
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+      });
       return c.json(list);
     },
   )
