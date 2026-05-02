@@ -167,13 +167,19 @@ export default function RecordsGrid(props: Props) {
           <table class="w-full text-xs">
           <thead>
             <tr class="border-b border-zinc-100 dark:border-zinc-800">
+              {/* Two-line headers — explicitly breaking the platform's
+                  single-line table convention because grids tables are far
+                  more dynamic (any field type, user-defined names) than
+                  the static-schema tables elsewhere in the cloud. Top
+                  line = column name (primary, semibold); bottom line =
+                  data type (small, dimmed). */}
               <For each={visibleFields()}>
                 {(f) => (
-                  <th class="px-3 py-2 text-left font-medium text-dimmed">
-                    <span class="inline-flex items-center gap-1.5">
-                      {f.name}
+                  <th class="px-3 py-2 text-left">
+                    <div class="flex flex-col gap-0.5 leading-tight">
+                      <span class="text-primary font-semibold">{f.name}</span>
                       <span class="text-[10px] text-dimmed font-normal">{f.type}</span>
-                    </span>
+                    </div>
                   </th>
                 )}
               </For>

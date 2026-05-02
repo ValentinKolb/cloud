@@ -1,5 +1,5 @@
 import { Index, Show, createMemo } from "solid-js";
-import { navigateTo, Select } from "@valentinkolb/cloud/ui";
+import { navigateTo, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
 
@@ -116,8 +116,13 @@ export default function FilterPanel(props: Props) {
 
           return (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
-              <span class="text-dimmed">{index === 0 ? "where" : "and"}</span>
-              <div class="min-w-[10rem]">
+              {/* Fixed-width label so all rows align: "where" (5 chars)
+                  and "and" (3 chars) sit in the same column → the field
+                  Select below stays vertically aligned across rows. */}
+              <span class="w-12 shrink-0 text-dimmed">
+                {index === 0 ? "where" : "and"}
+              </span>
+              <div class="w-40 shrink-0">
                 <Select
                   value={() => leaf().fieldId}
                   onChange={(v) => updateLeaf(index, { fieldId: v })}
@@ -125,7 +130,7 @@ export default function FilterPanel(props: Props) {
                   placeholder="Field"
                 />
               </div>
-              <div class="min-w-[8rem]">
+              <div class="w-32 shrink-0">
                 <Select
                   value={() => leaf().op}
                   onChange={(v) => updateLeaf(index, { op: v, value: "" })}
@@ -154,16 +159,21 @@ export default function FilterPanel(props: Props) {
         }}
       </Index>
 
-      <div class="flex items-center gap-2">
-        <button type="button" class="btn-input btn-input-sm" onClick={addLeaf}>
-          <i class="ti ti-plus" /> Add filter
+      <div class="flex items-center gap-1">
+        {/* Cancel = remove every row + drop the URL filter (was "Clear all"). */}
+        <button
+          type="button"
+          class="btn-simple btn-sm text-orange-500 hover:text-orange-600"
+          onClick={clearAll}
+        >
+          <i class="ti ti-x" /> Cancel
         </button>
         <button
           type="button"
-          class="btn-input btn-input-sm text-red-500"
-          onClick={clearAll}
+          class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"
+          onClick={addLeaf}
         >
-          <i class="ti ti-x" /> Clear all
+          <i class="ti ti-plus" /> Add
         </button>
         <Show when={dirty()}>
           <button
@@ -181,9 +191,16 @@ export default function FilterPanel(props: Props) {
 }
 
 /**
- * Renders the right-hand value input for a filter row, type-aware. For
- * "between" we render two inputs side by side; for ops with no value we
- * render nothing.
+ * Renders the right-hand value input for a filter row, type-aware:
+ *  - ops with `needsValue=false` (isEmpty, isNotEmpty, today, …): NOTHING
+ *  - ops with `needsRange=true` (between): TWO inputs side-by-side
+ *  - boolean fields: cloud Select
+ *  - single-select fields (is / isNot): cloud Select over field options
+ *  - any multi-value op (any-of / none-of / contains-* / not-contains): TextInput
+ *    (comma-separated → parsed to a string[] on input)
+ *  - dates: native `<input type=date>` (or number for lastNDays)
+ *  - numbers: native `<input type=number>` (keeps spinner widget)
+ *  - text-shaped fallback: cloud TextInput (no icon, w-44 to match the rest)
  */
 function FilterValueInput(props: {
   field: Field | null;
@@ -193,10 +210,12 @@ function FilterValueInput(props: {
 }) {
   const field = props.field;
   const op = props.op;
+  // No-input ops (isEmpty / isNotEmpty / today / thisWeek / thisMonth) bail
+  // out here — the user explicitly flagged this earlier.
   if (!field || !op || !op.needsValue) return null;
 
-  const inputClass =
-    "rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs min-w-[8rem]";
+  const nativeClass =
+    "rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1.5 text-xs w-44";
 
   if (op.needsRange) {
     const range = Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""];
@@ -205,14 +224,14 @@ function FilterValueInput(props: {
       <span class="flex items-center gap-1">
         <input
           type={inputType}
-          class={inputClass}
+          class={nativeClass}
           value={range[0] != null ? String(range[0]) : ""}
           onInput={(e) => props.onChange([e.currentTarget.value, range[1]])}
         />
         <span class="text-dimmed">to</span>
         <input
           type={inputType}
-          class={inputClass}
+          class={nativeClass}
           value={range[1] != null ? String(range[1]) : ""}
           onInput={(e) => props.onChange([range[0], e.currentTarget.value])}
         />
@@ -224,7 +243,7 @@ function FilterValueInput(props: {
     const options = (field.config as { options?: Array<{ id: string; label: string }> }).options ?? [];
     const value = typeof props.value === "string" ? props.value : "";
     return (
-      <div class="min-w-[10rem]">
+      <div class="w-44">
         <Select
           value={() => value}
           onChange={(v) => props.onChange(v)}
@@ -235,6 +254,7 @@ function FilterValueInput(props: {
     );
   }
 
+  // Multi-value ops accept a comma-separated string → parse to string[].
   if (
     op.id === "isAnyOf" ||
     op.id === "isNoneOf" ||
@@ -244,26 +264,27 @@ function FilterValueInput(props: {
   ) {
     const display = Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? "");
     return (
-      <input
-        type="text"
-        class={inputClass}
-        placeholder="comma-separated"
-        value={display}
-        onInput={(e) => {
-          const parts = e.currentTarget.value
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
-          props.onChange(parts);
-        }}
-      />
+      <div class="w-44">
+        <TextInput
+          icon="ti ti-list"
+          placeholder="comma-separated"
+          value={() => display}
+          onInput={(v) => {
+            const parts = v
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            props.onChange(parts);
+          }}
+        />
+      </div>
     );
   }
 
   if (field.type === "boolean") {
     const value = props.value === true ? "true" : props.value === false ? "false" : "";
     return (
-      <div class="min-w-[7rem]">
+      <div class="w-32">
         <Select
           value={() => value}
           onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
@@ -284,7 +305,7 @@ function FilterValueInput(props: {
         <input
           type="number"
           min="1"
-          class={inputClass}
+          class={nativeClass}
           placeholder="days"
           value={typeof props.value === "number" || typeof props.value === "string" ? String(props.value) : ""}
           onInput={(e) => {
@@ -297,7 +318,7 @@ function FilterValueInput(props: {
     return (
       <input
         type="date"
-        class={inputClass}
+        class={nativeClass}
         value={typeof props.value === "string" ? props.value : ""}
         onInput={(e) => props.onChange(e.currentTarget.value)}
       />
@@ -313,7 +334,7 @@ function FilterValueInput(props: {
     return (
       <input
         type="number"
-        class={inputClass}
+        class={nativeClass}
         value={typeof props.value === "number" || typeof props.value === "string" ? String(props.value) : ""}
         onInput={(e) => {
           const n = e.currentTarget.valueAsNumber;
@@ -323,12 +344,15 @@ function FilterValueInput(props: {
     );
   }
 
+  // Default text-shaped (text / longtext / email / url / phone / slug / …).
+  // Wrapped in a fixed-width container so it lines up with the rest of the
+  // row regardless of TextInput's full-width default.
   return (
-    <input
-      type="text"
-      class={inputClass}
-      value={typeof props.value === "string" ? props.value : ""}
-      onInput={(e) => props.onChange(e.currentTarget.value)}
-    />
+    <div class="w-44">
+      <TextInput
+        value={() => (typeof props.value === "string" ? props.value : "")}
+        onInput={(v) => props.onChange(v)}
+      />
+    </div>
   );
 }

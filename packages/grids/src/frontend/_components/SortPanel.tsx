@@ -97,8 +97,11 @@ export default function SortPanel(props: Props) {
       <Index each={props.rows()}>
         {(rowSignal, index) => (
           <div class="flex flex-wrap items-center gap-1.5 text-xs">
-            <span class="text-dimmed">{index === 0 ? "sort by" : "then"}</span>
-            <div class="min-w-[10rem]">
+            {/* Fixed-width label keeps "sort by" / "then" in the same column. */}
+            <span class="w-12 shrink-0 text-dimmed">
+              {index === 0 ? "sort by" : "then"}
+            </span>
+            <div class="w-40 shrink-0">
               <Select
                 value={() => rowSignal().fieldId}
                 onChange={(v) => updateRow(index, { fieldId: v })}
@@ -106,7 +109,7 @@ export default function SortPanel(props: Props) {
                 placeholder="Field"
               />
             </div>
-            <div class="min-w-[8rem]">
+            <div class="w-32 shrink-0">
               <Select
                 value={() => rowSignal().direction}
                 onChange={(v) => updateRow(index, { direction: v as "asc" | "desc" })}
@@ -128,16 +131,21 @@ export default function SortPanel(props: Props) {
         )}
       </Index>
 
-      <div class="flex items-center gap-2">
-        <button type="button" class="btn-input btn-input-sm" onClick={addRow}>
-          <i class="ti ti-plus" /> Add sort
+      <div class="flex items-center gap-1">
+        {/* Cancel = clear all rows + drop URL sort. */}
+        <button
+          type="button"
+          class="btn-simple btn-sm text-orange-500 hover:text-orange-600"
+          onClick={clearAll}
+        >
+          <i class="ti ti-x" /> Cancel
         </button>
         <button
           type="button"
-          class="btn-input btn-input-sm text-red-500"
-          onClick={clearAll}
+          class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"
+          onClick={addRow}
         >
-          <i class="ti ti-x" /> Clear
+          <i class="ti ti-plus" /> Add
         </button>
         <Show when={dirty()}>
           <button

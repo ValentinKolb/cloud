@@ -11,16 +11,19 @@ export type FilterOp = {
   needsRange?: boolean;
 };
 
+// Op labels are tightened (no "is " prefix, "doesn't contain" → "not contains")
+// because the filter row already reads "where {field} {op} {value}", so the
+// implicit "is" is obvious from context. Backend op `id`s stay the same.
 const TEXT_OPS: FilterOp[] = [
   { id: "equals", label: "is", needsValue: true },
   { id: "notEquals", label: "is not", needsValue: true },
   { id: "contains", label: "contains", needsValue: true },
-  { id: "notContains", label: "doesn't contain", needsValue: true },
+  { id: "notContains", label: "not contains", needsValue: true },
   { id: "startsWith", label: "starts with", needsValue: true },
   { id: "endsWith", label: "ends with", needsValue: true },
   { id: "regex", label: "regex", needsValue: true },
-  { id: "isEmpty", label: "is empty", needsValue: false },
-  { id: "isNotEmpty", label: "is not empty", needsValue: false },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
 const NUMBER_OPS: FilterOp[] = [
@@ -31,44 +34,44 @@ const NUMBER_OPS: FilterOp[] = [
   { id: ">", label: ">", needsValue: true },
   { id: ">=", label: "≥", needsValue: true },
   { id: "between", label: "between", needsValue: true, needsRange: true },
-  { id: "isEmpty", label: "is empty", needsValue: false },
-  { id: "isNotEmpty", label: "is not empty", needsValue: false },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
 const DATE_OPS: FilterOp[] = [
   { id: "=", label: "is", needsValue: true },
-  { id: "before", label: "is before", needsValue: true },
-  { id: "after", label: "is after", needsValue: true },
+  { id: "before", label: "before", needsValue: true },
+  { id: "after", label: "after", needsValue: true },
   { id: "between", label: "between", needsValue: true, needsRange: true },
-  { id: "today", label: "is today", needsValue: false },
-  { id: "thisWeek", label: "is this week", needsValue: false },
-  { id: "thisMonth", label: "is this month", needsValue: false },
+  { id: "today", label: "today", needsValue: false },
+  { id: "thisWeek", label: "this week", needsValue: false },
+  { id: "thisMonth", label: "this month", needsValue: false },
   { id: "lastNDays", label: "last N days", needsValue: true },
-  { id: "isEmpty", label: "is empty", needsValue: false },
-  { id: "isNotEmpty", label: "is not empty", needsValue: false },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
 const BOOL_OPS: FilterOp[] = [
   { id: "=", label: "is", needsValue: true },
-  { id: "isEmpty", label: "is empty", needsValue: false },
-  { id: "isNotEmpty", label: "is not empty", needsValue: false },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
 const SINGLE_SELECT_OPS: FilterOp[] = [
   { id: "is", label: "is", needsValue: true },
   { id: "isNot", label: "is not", needsValue: true },
-  { id: "isAnyOf", label: "is any of", needsValue: true },
-  { id: "isNoneOf", label: "is none of", needsValue: true },
-  { id: "isEmpty", label: "is empty", needsValue: false },
-  { id: "isNotEmpty", label: "is not empty", needsValue: false },
+  { id: "isAnyOf", label: "any of", needsValue: true },
+  { id: "isNoneOf", label: "none of", needsValue: true },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
 const MULTI_SELECT_OPS: FilterOp[] = [
-  { id: "containsAll", label: "contains all", needsValue: true },
-  { id: "containsAny", label: "contains any", needsValue: true },
-  { id: "doesNotContain", label: "doesn't contain", needsValue: true },
-  { id: "isEmpty", label: "is empty", needsValue: false },
-  { id: "isNotEmpty", label: "is not empty", needsValue: false },
+  { id: "containsAll", label: "all of", needsValue: true },
+  { id: "containsAny", label: "any of", needsValue: true },
+  { id: "doesNotContain", label: "not contains", needsValue: true },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
 export const opsForType = (type: string): FilterOp[] => {

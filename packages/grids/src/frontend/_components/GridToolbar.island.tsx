@@ -2,7 +2,6 @@ import { Show, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
   Dropdown,
-  navigateTo,
   prompts,
   refreshCurrentPath,
 } from "@valentinkolb/cloud/ui";
@@ -154,18 +153,6 @@ export default function GridToolbar(props: Props) {
     saveViewMut.mutate({ name: String(result.name).trim(), shared: Boolean(result.shared) });
   };
 
-  // ---- Clear filter+sort -------------------------------------------------
-  const clearAll = () => {
-    // Clear local state FIRST so the panels disappear immediately, then
-    // navigate so the URL drops the filter/sort query params.
-    setFilterRows([]);
-    setSortRows([]);
-    const url = new URL(`/app/grids/${props.baseId}`, "http://x");
-    url.searchParams.set("table", props.tableId);
-    if (props.trashMode) url.searchParams.set("trash", "1");
-    navigateTo(`${url.pathname}${url.search}`);
-  };
-
   // ---- Show-deleted toggle URL ------------------------------------------
   const trashToggleUrl = () => {
     const url = new URL(`/app/grids/${props.baseId}`, "http://x");
@@ -243,7 +230,8 @@ export default function GridToolbar(props: Props) {
             ]}
           />
 
-          {/* Save as view — only when filter or sort is set */}
+          {/* Save as view — only when filter or sort is set. Toolbar-level
+              Clear was removed; the per-panel Cancel button covers that. */}
           <Show when={hasFilterOrSort()}>
             <button
               type="button"
@@ -254,20 +242,6 @@ export default function GridToolbar(props: Props) {
             >
               <i class="ti ti-bookmark-plus" />
               Save as view
-            </button>
-          </Show>
-
-          {/* Clear filter & sort */}
-          <Show when={hasFilterOrSort()}>
-            <button
-              type="button"
-              class="btn-input btn-input-sm text-red-500"
-              onClick={clearAll}
-              aria-label="Clear all filters and sort"
-              title="Clear filters & sort"
-            >
-              <i class="ti ti-filter-off" />
-              Clear
             </button>
           </Show>
         </Show>
