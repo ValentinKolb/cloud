@@ -1,4 +1,4 @@
-import { For, Show, createSignal, createMemo } from "solid-js";
+import { Index, Show, createSignal, createMemo, For } from "solid-js";
 import { navigateTo } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
@@ -110,19 +110,26 @@ export default function FilterPanel(props: Props) {
         }
       >
         <div class="flex flex-col gap-1.5">
-          <For each={leaves()}>
-            {(leaf, index) => {
-              const field = createMemo(() => props.fields.find((f) => f.id === leaf.fieldId) ?? null);
+          {/*
+            Index (not For) so editing a row's value doesn't replace the
+            outer row object → For would unmount the input mid-keystroke.
+            Index keys by position, the DOM stays stable; per-row data
+            comes through a signal that tracks the array slot.
+          */}
+          <Index each={leaves()}>
+            {(leafSignal, index) => {
+              const leaf = leafSignal;
+              const field = createMemo(() => props.fields.find((f) => f.id === leaf().fieldId) ?? null);
               const ops = createMemo<FilterOp[]>(() => (field() ? opsForType(field()!.type) : []));
-              const op = createMemo<FilterOp | null>(() => ops().find((o) => o.id === leaf.op) ?? null);
+              const op = createMemo<FilterOp | null>(() => ops().find((o) => o.id === leaf().op) ?? null);
 
               return (
                 <div class="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span class="text-dimmed">{index() === 0 ? "where" : "and"}</span>
+                  <span class="text-dimmed">{index === 0 ? "where" : "and"}</span>
                   <select
                     class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs"
-                    value={leaf.fieldId}
-                    onChange={(e) => updateLeaf(index(), { fieldId: e.currentTarget.value })}
+                    value={leaf().fieldId}
+                    onChange={(e) => updateLeaf(index, { fieldId: e.currentTarget.value })}
                   >
                     <For each={fields()}>
                       {(f) => <option value={f.id}>{f.name}</option>}
@@ -130,8 +137,8 @@ export default function FilterPanel(props: Props) {
                   </select>
                   <select
                     class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs"
-                    value={leaf.op}
-                    onChange={(e) => updateLeaf(index(), { op: e.currentTarget.value, value: "" })}
+                    value={leaf().op}
+                    onChange={(e) => updateLeaf(index, { op: e.currentTarget.value, value: "" })}
                   >
                     <For each={ops()}>
                       {(o) => <option value={o.id}>{o.label}</option>}
@@ -141,14 +148,14 @@ export default function FilterPanel(props: Props) {
                   <FilterValueInput
                     field={field()}
                     op={op()}
-                    value={leaf.value}
-                    onChange={(v) => updateLeaf(index(), { value: v })}
+                    value={leaf().value}
+                    onChange={(v) => updateLeaf(index, { value: v })}
                   />
 
                   <button
                     type="button"
                     class="text-dimmed hover:text-red-500 px-1"
-                    onClick={() => removeLeaf(index())}
+                    onClick={() => removeLeaf(index)}
                     title="Remove filter"
                   >
                     <i class="ti ti-x" />
@@ -156,7 +163,7 @@ export default function FilterPanel(props: Props) {
                 </div>
               );
             }}
-          </For>
+          </Index>
 
           <div class="flex items-center gap-2">
             <button type="button" class="btn-simple btn-sm text-xs text-dimmed" onClick={addLeaf}>
@@ -261,12 +268,19 @@ function FilterValueInput(props: {
   }
 
   if (field.type === "boolean") {
+    // Include an "—" placeholder so a fresh row with no value doesn't
+    // visually claim "true" while state is still empty (Apply would drop
+    // such filters silently).
     return (
       <select
         class={inputClass}
         value={props.value === true ? "true" : props.value === false ? "false" : ""}
-        onChange={(e) => props.onChange(e.currentTarget.value === "true")}
+        onChange={(e) => {
+          const v = e.currentTarget.value;
+          props.onChange(v === "" ? "" : v === "true");
+        }}
       >
+        <option value="">—</option>
         <option value="true">true</option>
         <option value="false">false</option>
       </select>
@@ -274,6 +288,23 @@ function FilterValueInput(props: {
   }
 
   if (field.type === "date") {
+    // `lastNDays` takes a numeric day-count, not a date — the API casts
+    // the value to ::int. Render the right input for that op specifically.
+    if (op.id === "lastNDays") {
+      return (
+        <input
+          type="number"
+          min="1"
+          class={inputClass}
+          placeholder="days"
+          value={typeof props.value === "number" || typeof props.value === "string" ? String(props.value) : ""}
+          onInput={(e) => {
+            const n = e.currentTarget.valueAsNumber;
+            props.onChange(Number.isFinite(n) ? n : e.currentTarget.value);
+          }}
+        />
+      );
+    }
     return (
       <input
         type="date"

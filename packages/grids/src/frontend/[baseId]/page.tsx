@@ -8,9 +8,10 @@ import FieldsManager from "../_components/FieldsManager.island";
 import QuickAdd from "../_components/QuickAdd.island";
 import BasePermissions from "../_components/BasePermissions.island";
 import FilterPanel from "../_components/FilterPanel.island";
+import SortPanel from "../_components/SortPanel.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
 import { BaseSettingsButton } from "../_components/BaseActions.island";
-import type { FilterTree } from "../../service";
+import type { FilterTree, SortSpec } from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };
 
@@ -47,6 +48,21 @@ export default ssr<AuthContext>(async (c) => {
         filterLeaves = parsed.filters.filter(
           (f: unknown): f is { fieldId: string; op: string; value?: unknown } =>
             typeof f === "object" && f !== null && "fieldId" in f && "op" in f,
+        );
+      }
+    } catch {}
+  }
+
+  // Same defensive JSON-parse for the sort query.
+  let parsedSort: SortSpec[] = [];
+  const rawSort = c.req.query("sort");
+  if (rawSort) {
+    try {
+      const parsed = JSON.parse(rawSort);
+      if (Array.isArray(parsed)) {
+        parsedSort = parsed.filter(
+          (s: unknown): s is SortSpec =>
+            typeof s === "object" && s !== null && "fieldId" in s && "direction" in s,
         );
       }
     } catch {}
@@ -93,6 +109,7 @@ export default ssr<AuthContext>(async (c) => {
   type RecordsPage = { items: import("../../service").GridRecord[]; nextCursor: string | null };
   let fields: Awaited<ReturnType<typeof gridsService.field.listByTable>> = [];
   let records: RecordsPage = { items: [], nextCursor: null };
+  let aggregates: Record<string, unknown> = {};
   let activeTableLevel = level;
   if (activeTable) {
     const [f, listResult, lvl] = await Promise.all([
@@ -102,6 +119,7 @@ export default ssr<AuthContext>(async (c) => {
         limit: 100,
         includeDeleted: trashMode,
         filter: parsedFilter,
+        sort: parsedSort,
       }),
       resolveLevel(user, baseId, activeTable.id),
     ]);
@@ -112,6 +130,36 @@ export default ssr<AuthContext>(async (c) => {
         : listResult.data;
     }
     activeTableLevel = lvl;
+
+    // Auto-aggregates for the visible columns: count for every field plus
+    // sum for numeric/decimal/rating. Power users can pick per-column
+    // aggregates in a later phase; this gives a useful default footer row
+    // without any UI to configure.
+    if (!trashMode && fields.length > 0) {
+      const requests = fields
+        .filter((field) => !field.deletedAt)
+        .flatMap((field) => {
+          const reqs: Array<{ fieldId: string; agg: "count" | "sum" }> = [
+            { fieldId: field.id, agg: "count" },
+          ];
+          if (
+            field.type === "number" ||
+            field.type === "decimal" ||
+            field.type === "rating"
+          ) {
+            reqs.push({ fieldId: field.id, agg: "sum" });
+          }
+          return reqs;
+        });
+      if (requests.length > 0) {
+        const aggResult = await gridsService.record.aggregate({
+          tableId: activeTable.id,
+          filter: parsedFilter,
+          requests,
+        });
+        if (aggResult.ok) aggregates = aggResult.data;
+      }
+    }
   }
   const canManageTable = gridsService.permission.hasAtLeast(activeTableLevel, "admin");
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
@@ -205,11 +253,18 @@ export default ssr<AuthContext>(async (c) => {
                 </div>
               </header>
               {!trashMode && (
-                <FilterPanel
-                  fields={fields}
-                  initial={filterLeaves}
-                  baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
-                />
+                <div class="flex flex-col gap-2">
+                  <FilterPanel
+                    fields={fields}
+                    initial={filterLeaves}
+                    baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
+                  />
+                  <SortPanel
+                    fields={fields}
+                    initial={parsedSort}
+                    baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
+                  />
+                </div>
               )}
               <RecordsGrid
                 tableId={activeTable.id}
@@ -217,6 +272,7 @@ export default ssr<AuthContext>(async (c) => {
                 records={records.items}
                 canWrite={canWriteRecords}
                 mode={trashMode ? "trash" : "live"}
+                aggregates={trashMode ? {} : aggregates}
               />
             </div>
           ) : (

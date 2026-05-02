@@ -12,6 +12,12 @@ type Props = {
   canWrite: boolean;
   /** "live" = edit/delete actions; "trash" = restore action. Default "live". */
   mode?: "live" | "trash";
+  /**
+   * Aggregate values keyed `<fieldId>__<agg>` (matches the API's keying).
+   * Rendered as a footer row: count for every field + sum for numerics.
+   * Empty object = footer row hidden (trash mode, empty table, etc).
+   */
+  aggregates?: Record<string, unknown>;
 };
 
 const errorMessage = async (res: Response, fallback: string): Promise<string> => {
@@ -153,6 +159,37 @@ export default function RecordsGrid(props: Props) {
               </Show>
             </tr>
           </thead>
+          <Show when={props.aggregates && Object.keys(props.aggregates).length > 0}>
+            <tfoot class="bg-zinc-50/50 dark:bg-zinc-800/30 border-t border-zinc-200 dark:border-zinc-700">
+              <tr>
+                <For each={visibleFields()}>
+                  {(f) => {
+                    const agg = props.aggregates ?? {};
+                    const count = agg[`${f.id}__count`];
+                    const sum = agg[`${f.id}__sum`];
+                    return (
+                      <td class="px-3 py-1.5 text-[11px] text-dimmed">
+                        <Show when={count !== undefined && count !== null}>
+                          <span title="non-empty count">
+                            {String(count)}
+                            {Number(count) === 1 ? " value" : " values"}
+                          </span>
+                        </Show>
+                        <Show when={sum !== undefined && sum !== null}>
+                          <span class="ml-2" title="sum">
+                            Σ {String(sum)}
+                          </span>
+                        </Show>
+                      </td>
+                    );
+                  }}
+                </For>
+                <Show when={props.canWrite}>
+                  <td />
+                </Show>
+              </tr>
+            </tfoot>
+          </Show>
           <tbody>
             <Show
               when={records().length > 0}
