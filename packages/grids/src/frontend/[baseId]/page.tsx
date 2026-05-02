@@ -7,8 +7,10 @@ import RecordsGrid from "../_components/RecordsGrid.island";
 import FieldsManager from "../_components/FieldsManager.island";
 import QuickAdd from "../_components/QuickAdd.island";
 import BasePermissions from "../_components/BasePermissions.island";
+import FilterPanel from "../_components/FilterPanel.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
 import { BaseSettingsButton } from "../_components/BaseActions.island";
+import type { FilterTree } from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };
 
@@ -28,6 +30,27 @@ export default ssr<AuthContext>(async (c) => {
   const baseId = c.req.param("baseId");
   const activeTableId = c.req.query("table") ?? null;
   const trashMode = c.req.query("trash") === "1";
+
+  // Parse the filter query — bad input is treated as empty rather than a
+  // hard error so a stale URL doesn't lock the user out of their data.
+  let parsedFilter: FilterTree | null = null;
+  let filterLeaves: Array<{ fieldId: string; op: string; value?: unknown }> = [];
+  const rawFilter = c.req.query("filter");
+  if (rawFilter) {
+    try {
+      const parsed = JSON.parse(rawFilter);
+      parsedFilter = parsed;
+      // The Phase-1B-and-later UI only writes flat-AND filters; if the user
+      // pasted a complex tree by hand we still send it to the compiler but
+      // can't reflect it in the row UI.
+      if (parsed && parsed.op === "AND" && Array.isArray(parsed.filters)) {
+        filterLeaves = parsed.filters.filter(
+          (f: unknown): f is { fieldId: string; op: string; value?: unknown } =>
+            typeof f === "object" && f !== null && "fieldId" in f && "op" in f,
+        );
+      }
+    } catch {}
+  }
 
   const base = await gridsService.base.get(baseId);
   if (!base) {
@@ -78,6 +101,7 @@ export default ssr<AuthContext>(async (c) => {
         tableId: activeTable.id,
         limit: 100,
         includeDeleted: trashMode,
+        filter: parsedFilter,
       }),
       resolveLevel(user, baseId, activeTable.id),
     ]);
@@ -180,6 +204,13 @@ export default ssr<AuthContext>(async (c) => {
                   {!trashMode && <QuickAdd tableId={activeTable.id} fields={fields} canWrite={canWriteRecords} />}
                 </div>
               </header>
+              {!trashMode && (
+                <FilterPanel
+                  fields={fields}
+                  initial={filterLeaves}
+                  baseUrl={`/app/grids/${baseId}?table=${activeTable.id}`}
+                />
+              )}
               <RecordsGrid
                 tableId={activeTable.id}
                 fields={fields}

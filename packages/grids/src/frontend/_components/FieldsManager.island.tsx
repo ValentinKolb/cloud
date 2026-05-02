@@ -94,6 +94,35 @@ export default function FieldsManager(props: Props) {
     createMutation.mutate({ name: String(result.name).trim(), type: String(result.type) });
   };
 
+  const renameMutation = mutations.create<Field, { id: string; name: string }>({
+    mutation: async (input) => {
+      const res = await apiClient.fields[":fieldId"].$patch({
+        param: { fieldId: input.id },
+        json: { name: input.name },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to rename field"));
+      return (await res.json()) as Field;
+    },
+    onSuccess: (updated) => {
+      setFields(fields().map((f) => (f.id === updated.id ? updated : f)));
+      refreshCurrentPath();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleRename = async (field: Field) => {
+    const result = await prompts.form({
+      title: "Rename field",
+      icon: "ti ti-edit",
+      fields: { name: { type: "text", label: "Name", required: true, default: field.name } },
+      confirmText: "Save",
+    });
+    if (!result) return;
+    const next = String(result.name).trim();
+    if (next === field.name) return;
+    renameMutation.mutate({ id: field.id, name: next });
+  };
+
   const handleDelete = async (field: Field) => {
     // Pre-flight: surface any blocking dependents.
     const depsRes = await apiClient.fields[":fieldId"].dependents.$get({
@@ -162,14 +191,24 @@ export default function FieldsManager(props: Props) {
                 <span class="text-[10px] text-dimmed">{niceTypeLabel(field.type)}</span>
               </span>
               <Show when={props.canManage}>
-                <button
-                  type="button"
-                  class="opacity-0 group-hover:opacity-100 text-xs text-dimmed hover:text-red-500 transition-opacity"
-                  onClick={() => handleDelete(field)}
-                  title="Delete field"
-                >
-                  <i class="ti ti-trash" />
-                </button>
+                <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    class="text-xs text-dimmed hover:text-primary"
+                    onClick={() => handleRename(field)}
+                    title="Rename field"
+                  >
+                    <i class="ti ti-edit" />
+                  </button>
+                  <button
+                    type="button"
+                    class="text-xs text-dimmed hover:text-red-500"
+                    onClick={() => handleDelete(field)}
+                    title="Delete field"
+                  >
+                    <i class="ti ti-trash" />
+                  </button>
+                </div>
               </Show>
             </li>
           )}
