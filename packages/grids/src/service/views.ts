@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 
@@ -60,8 +61,10 @@ export const listForTable = async (params: {
   userId: string | null;
   userGroups?: string[];
 }): Promise<View[]> => {
-  const userGroups = params.userGroups ?? [];
-  const groups = userGroups.length > 0 ? `{${userGroups.join(",")}}` : "{}";
+  // Defensive encoding: bun.sql may surface an empty uuid[] column as the
+  // string "{}" instead of [], and admin users with no group memberships
+  // hit exactly that path. toPgUuidArray normalizes both shapes.
+  const groups = toPgUuidArray(params.userGroups);
 
   // Most-specific-wins per principal tier (user > group > authenticated >
   // public). Within a tier: any deny wins over any read — needed because

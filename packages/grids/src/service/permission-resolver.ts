@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 
 const LEVEL_RANK: Record<PermissionLevel, number> = {
   none: 0,
@@ -83,8 +84,9 @@ export const loadGrantsForUser = async (params: {
   viewId?: string | null;
 }): Promise<Grant[]> => {
   const userId = params.userId;
-  // toPgUuidArray accepts empty arrays as `{}`; we encode here directly.
-  const groups = params.userGroups.length > 0 ? `{${params.userGroups.join(",")}}` : "{}";
+  // Use the shared helper — it tolerates non-array inputs (bun.sql surfaces
+  // empty uuid[] columns as "{}" string, and the admin user has no groups).
+  const groups = toPgUuidArray(params.userGroups);
   const tableId = params.tableId ?? null;
   const viewId = params.viewId ?? null;
 
