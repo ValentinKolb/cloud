@@ -146,6 +146,33 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids.view_access");
 
   // ──────────────────────────────────────────────────────────────────
+  // forms — record-entry surface for internal users + optional public URLs
+  // ──────────────────────────────────────────────────────────────────
+  // The "default form" per table is virtual (computed from active fields)
+  // and not stored here. Only user-customized forms live in grids.forms.
+  // Public forms have a non-null `public_token` that anonymous callers
+  // pass in the URL.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.forms (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      public_token TEXT,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      position INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_forms_table ON grids.forms(table_id, position)`.simple();
+  // Public-token lookup is the public form's hot path; partial index keeps
+  // it scoped to forms that are actually public.
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_public_token ON grids.forms(public_token) WHERE public_token IS NOT NULL`.simple();
+  console.log("  ✓ grids.forms");
+
+  // ──────────────────────────────────────────────────────────────────
   // audit log
   // ──────────────────────────────────────────────────────────────────
   // No FK on record_id: records are soft-deletable and may be hard-pruned

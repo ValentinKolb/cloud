@@ -6,6 +6,7 @@ import fieldsRoutes from "./fields";
 import recordsRoutes from "./records";
 import accessRoutes from "./access";
 import viewsRoutes from "./views";
+import formsRoutes from "./forms";
 
 const app = new Hono()
   .use(rateLimit())
@@ -14,7 +15,8 @@ const app = new Hono()
   .route("/fields", fieldsRoutes)
   .route("/records", recordsRoutes)
   .route("/access", accessRoutes)
-  .route("/views", viewsRoutes);
+  .route("/views", viewsRoutes)
+  .route("/forms", formsRoutes);
 
 export default app;
 export type ApiType = typeof app;

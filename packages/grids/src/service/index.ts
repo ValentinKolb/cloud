@@ -5,6 +5,7 @@ import * as records from "./records";
 import * as audit from "./audit";
 import * as access from "./access";
 import * as views from "./views";
+import * as forms from "./forms";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast } from "./permission-resolver";
 
@@ -72,10 +73,20 @@ export const gridsService = {
     update: views.update,
     remove: views.remove,
   },
+  form: {
+    listForTable: forms.listForTable,
+    get: forms.get,
+    getByPublicToken: forms.getByPublicToken,
+    create: forms.create,
+    update: forms.update,
+    remove: forms.remove,
+    buildDefault: forms.buildDefaultForm,
+  },
 };
 
-export { bases, tables, fields, records, audit, access, views };
+export { bases, tables, fields, records, audit, access, views, forms };
 export type { View, ViewConfig } from "./views";
+export type { Form, FormConfig, FormFieldEntry } from "./forms";
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
 export type { FieldDependent } from "./field-dependents";
 export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";
