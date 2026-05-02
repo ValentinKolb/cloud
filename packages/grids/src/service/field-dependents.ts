@@ -76,8 +76,31 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     }
   }
 
-  // Phase 3 will add a forms scan here. Phase 4/5 will add formula / lookup
-  // / rollup / relation_display scans (those produce blocking deps).
+  // ── forms ─────────────────────────────────────────────
+  // Forms persist field IDs inside their config.fields[]. Keep the scan
+  // here so deleting a field auto-cleans form references (UI promises it).
+  const formRows = await sql<DbRow[]>`
+    SELECT fo.id, fo.name, fo.config
+    FROM grids.forms fo
+    JOIN grids.fields f ON f.table_id = fo.table_id
+    WHERE f.id = ${fieldId}::uuid
+  `;
+  for (const row of formRows) {
+    const config = (row.config as { fields?: Array<{ fieldId?: string }> }) ?? {};
+    const refs = (config.fields ?? []).filter((f) => f.fieldId === fieldId);
+    if (refs.length > 0) {
+      dependents.push({
+        type: "form",
+        resourceId: row.id as string,
+        resourceName: row.name as string,
+        context: "fields",
+        blocking: false,
+      });
+    }
+  }
+
+  // Phase 4/5 will add formula / lookup / rollup / relation_display scans
+  // (those produce blocking deps).
 
   return dependents;
 };

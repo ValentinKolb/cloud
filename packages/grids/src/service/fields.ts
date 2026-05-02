@@ -168,6 +168,27 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
   await sql`UPDATE grids.fields SET deleted_at = now() WHERE id = ${id}::uuid`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" });
+  // Auto-cleanup: strip the soft-deleted field id from every form's
+  // config.fields[] in the same table. Views/forms see a stripped column
+  // immediately rather than rendering a stale reference. Phase-1A made
+  // the same promise for views — this catches up forms now that they exist.
+  await sql`
+    UPDATE grids.forms
+    SET config = jsonb_set(
+      config,
+      '{fields}',
+      COALESCE(
+        (
+          SELECT jsonb_agg(elem)
+          FROM jsonb_array_elements(config->'fields') AS elem
+          WHERE elem->>'fieldId' <> ${id}
+        ),
+        '[]'::jsonb
+      )
+    )
+    WHERE table_id = ${existing.tableId}::uuid
+      AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}))
+  `;
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
   return ok();

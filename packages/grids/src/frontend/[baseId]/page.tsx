@@ -10,6 +10,7 @@ import BasePermissions from "../_components/BasePermissions.island";
 import FilterPanel from "../_components/FilterPanel.island";
 import SortPanel from "../_components/SortPanel.island";
 import ViewsBar from "../_components/ViewsBar.island";
+import FormsManager from "../_components/FormsManager.island";
 import { CreateTableButton, TableActionsMenu } from "../_components/TableActions.island";
 import { BaseSettingsButton } from "../_components/BaseActions.island";
 import type { FilterTree, SortSpec } from "../../service";
@@ -132,6 +133,7 @@ export default ssr<AuthContext>(async (c) => {
   let records: RecordsPage = { items: [], nextCursor: null };
   let aggregates: Record<string, unknown> = {};
   let viewsForTable: Awaited<ReturnType<typeof gridsService.view.listForTable>> = [];
+  let formsForTable: Awaited<ReturnType<typeof gridsService.form.listForTable>> = [];
   let activeTableLevel = level;
   if (activeTable) {
     const [f, listResult, lvl] = await Promise.all([
@@ -163,6 +165,7 @@ export default ssr<AuthContext>(async (c) => {
       userId: user.id,
       userGroups: user.memberofGroupIds,
     });
+    formsForTable = await gridsService.form.listForTable(activeTable.id);
 
     if (!trashMode && fields.length > 0) {
       const requests = fields
@@ -248,6 +251,14 @@ export default ssr<AuthContext>(async (c) => {
             <FieldsManager
               tableId={activeTable.id}
               initialFields={fields}
+              canManage={canManageTable}
+            />
+          )}
+          {activeTable && (
+            <FormsManager
+              tableId={activeTable.id}
+              fields={fields}
+              initialForms={formsForTable}
               canManage={canManageTable}
             />
           )}

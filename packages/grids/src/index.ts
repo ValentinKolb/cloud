@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { app } from "./config";
 import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
-import pageRoutes, { adminRoutes } from "./frontend";
+import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
 import { gridsService } from "./service";
 import { migrate } from "./migrate";
 
@@ -11,7 +11,8 @@ const router = new Hono<AuthContext>()
   .use("*", middleware.settings())
   .route("/api/grids", apiRoutes)
   .route("/app/grids", pageRoutes)
-  .route("/admin/grids", adminRoutes);
+  .route("/admin/grids", adminRoutes)
+  .route("/public/grids", publicRoutes);
 
 export default await app.start({
   fetch: router.fetch,

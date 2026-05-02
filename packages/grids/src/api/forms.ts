@@ -92,9 +92,37 @@ const app = new Hono<AuthContext>()
       const token = c.req.param("token");
       const form = await gridsService.form.getByPublicToken(token);
       if (!form) return c.json({ message: "Form not found" }, 404);
+
+      const submitted = c.req.valid("json");
+      const formFields = form.config.fields ?? [];
+      const allowedIds = new Set(formFields.map((f) => f.fieldId));
+
+      // Reject any field the form doesn't expose. Public callers must NOT
+      // be able to set fields the form-author chose to hide; otherwise a
+      // form that asks for {name, email} could be abused to set
+      // {name, email, internal_status, billing_amount, …}.
+      for (const key of Object.keys(submitted)) {
+        if (!allowedIds.has(key)) {
+          return c.json({ message: `Field "${key}" is not part of this form` }, 400);
+        }
+      }
+
+      // Apply form-level defaults + required overrides on top of the
+      // submission. Defaults fill in for fields the user didn't touch;
+      // missing required fields produce a clear 400.
+      const payload: Record<string, unknown> = { ...submitted };
+      for (const f of formFields) {
+        if (payload[f.fieldId] === undefined && f.defaultValue !== undefined && f.defaultValue !== null) {
+          payload[f.fieldId] = f.defaultValue;
+        }
+        if (f.required && (payload[f.fieldId] === undefined || payload[f.fieldId] === null || payload[f.fieldId] === "")) {
+          return c.json({ message: `Field "${f.fieldId}" is required` }, 400);
+        }
+      }
+
       // Anonymous submissions: actorId is null. Record service stamps
       // created_by as null which is intentional.
-      const result = await gridsService.record.create(form.tableId, c.req.valid("json"), null);
+      const result = await gridsService.record.create(form.tableId, payload, null);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.json({ recordId: result.data.id }, 201);
     },
