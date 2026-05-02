@@ -68,15 +68,16 @@ export default function TableEditor(props: Props) {
   return (
     <button
       type="button"
-      class="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-dimmed hover:text-primary p-0.5"
+      class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
         open();
       }}
-      title="Edit table"
+      aria-label={`Open settings for ${props.table.name}`}
+      title="Table settings"
     >
-      <i class="ti ti-edit" />
+      <i class="ti ti-settings text-xs" />
     </button>
   );
 }

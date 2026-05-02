@@ -164,12 +164,12 @@ export default function RecordsGrid(props: Props) {
       */}
       <div class="paper overflow-hidden">
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-          <thead class="bg-zinc-50 dark:bg-zinc-800/50 border-b border-zinc-200 dark:border-zinc-700">
-            <tr>
+          <table class="w-full text-xs">
+          <thead>
+            <tr class="border-b border-zinc-100 dark:border-zinc-800">
               <For each={visibleFields()}>
                 {(f) => (
-                  <th class="text-left px-3 py-2 font-medium text-secondary">
+                  <th class="px-3 py-2 text-left font-medium text-dimmed">
                     <span class="inline-flex items-center gap-1.5">
                       {f.name}
                       <span class="text-[10px] text-dimmed font-normal">{f.type}</span>
@@ -183,8 +183,8 @@ export default function RecordsGrid(props: Props) {
             </tr>
           </thead>
           <Show when={props.aggregates && Object.keys(props.aggregates).length > 0}>
-            <tfoot class="bg-zinc-50/50 dark:bg-zinc-800/30 border-t border-zinc-200 dark:border-zinc-700">
-              <tr>
+            <tfoot>
+              <tr class="border-t border-zinc-100 dark:border-zinc-800">
                 <For each={visibleFields()}>
                   {(f) => {
                     const agg = props.aggregates ?? {};
@@ -222,14 +222,18 @@ export default function RecordsGrid(props: Props) {
                     colspan={visibleFields().length + (props.canWrite ? 1 : 0)}
                     class="px-3 py-8 text-center text-dimmed text-sm"
                   >
-                    No records. {props.canWrite ? "Click “Add row” above." : ""}
+                    {props.mode === "trash"
+                      ? "No deleted records yet."
+                      : props.canWrite
+                      ? "No records. Click “Add row” above."
+                      : "No records."}
                   </td>
                 </tr>
               }
             >
               <For each={records()}>
                 {(rec) => (
-                  <tr class="group border-b border-zinc-100 dark:border-zinc-800 last:border-0 hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
+                  <tr class="group border-b border-zinc-50 last:border-0 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
                     <For each={visibleFields()}>
                       {(f) => (
                         <td class="px-3 py-2 text-primary">{formatCell(rec.data[f.id], f.type, f.config)}</td>

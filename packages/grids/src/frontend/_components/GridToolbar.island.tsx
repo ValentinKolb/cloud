@@ -8,10 +8,14 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { Field, GridRecord, View } from "../../service";
-import { fieldToPromptSchema, isUserEditable, sanitizePayload } from "./field-prompt-schema";
+import {
+  fieldToPromptSchema,
+  isUserEditable,
+  sanitizePayload,
+} from "./field-prompt-schema";
 import { errorMessage } from "./api-helpers";
-import FilterPanel, { type FilterLeaf } from "./FilterPanel.island";
-import SortPanel, { type SortRow } from "./SortPanel.island";
+import FilterPanel, { type FilterLeaf, blankLeaf } from "./FilterPanel";
+import SortPanel, { type SortRow, blankSortRow } from "./SortPanel";
 
 type Props = {
   baseId: string;
@@ -21,11 +25,6 @@ type Props = {
   initialFilter: FilterLeaf[];
   /** Initial sort rows parsed by the SSR. */
   initialSort: SortRow[];
-  /** True when filter or sort is currently active (i.e. URL has them). */
-  hasFilter: boolean;
-  hasSort: boolean;
-  /** Show "Save as view" / "Clear" only when one of them is set. */
-  hasFilterOrSort: boolean;
   /** Raw URL query strings — passed straight to the export endpoint. */
   rawFilter: string | undefined;
   rawSort: string | undefined;
@@ -38,14 +37,17 @@ type Props = {
 };
 
 /**
- * Compact, chip-based toolbar over the records table. Mirrors the spaces
- * FilterBar visual language (small buttons, hover-grey, dropdown arrows)
- * but the panels themselves stay as separate FilterPanel/SortPanel islands
- * — this island just owns their open/closed state and the chip wrappers.
+ * Compact toolbar over the records table — uses the platform's
+ * `btn-input` / `btn-input-sm` / `btn-input-active` button pattern, so
+ * it visually matches every other dropdown trigger in the cloud.
+ *
+ * Filter and sort rows live up here so the panels below appear iff
+ * `rows.length > 0`. Clicking Filter / Sort directly appends a blank
+ * row — no separate "Add filter" click needed.
  */
 export default function GridToolbar(props: Props) {
-  const [filterOpen, setFilterOpen] = createSignal(props.hasFilter);
-  const [sortOpen, setSortOpen] = createSignal(props.hasSort);
+  const [filterRows, setFilterRows] = createSignal<FilterLeaf[]>(props.initialFilter);
+  const [sortRows, setSortRows] = createSignal<SortRow[]>(props.initialSort);
 
   const baseUrl = () => {
     const params = new URLSearchParams();
@@ -54,6 +56,10 @@ export default function GridToolbar(props: Props) {
     if (props.rawSort) params.set("sort", props.rawSort);
     return `/app/grids/${props.baseId}?${params.toString()}`;
   };
+
+  const hasFilter = () => filterRows().length > 0;
+  const hasSort = () => sortRows().length > 0;
+  const hasFilterOrSort = () => hasFilter() || hasSort();
 
   // ---- Add row -----------------------------------------------------------
   const addMut = mutations.create<GridRecord, Record<string, unknown>>({
@@ -90,11 +96,23 @@ export default function GridToolbar(props: Props) {
     addMut.mutate(sanitizePayload(result));
   };
 
+  // ---- Filter / Sort one-click toggles ----------------------------------
+  // Click Filter when empty → append a blank row. Panel appears
+  // automatically because we render iff filterRows().length > 0.
+  // Click Filter when non-empty → append another row (matches the user's
+  // mental model: "Filter button = add a filter").
+  const onFilterClick = () => {
+    const blank = blankLeaf(props.fields);
+    if (blank) setFilterRows([...filterRows(), blank]);
+  };
+  const onSortClick = () => {
+    const blank = blankSortRow(props.fields);
+    if (blank) setSortRows([...sortRows(), blank]);
+  };
+
   // ---- Save as view ------------------------------------------------------
   const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
     mutation: async (input) => {
-      // Pluck the active filter/sort straight off the URL — single source
-      // of truth, no need to re-parse from props.
       const filterRaw = props.rawFilter;
       const sortRaw = props.rawSort;
       const config = {
@@ -138,6 +156,10 @@ export default function GridToolbar(props: Props) {
 
   // ---- Clear filter+sort -------------------------------------------------
   const clearAll = () => {
+    // Clear local state FIRST so the panels disappear immediately, then
+    // navigate so the URL drops the filter/sort query params.
+    setFilterRows([]);
+    setSortRows([]);
     const url = new URL(`/app/grids/${props.baseId}`, "http://x");
     url.searchParams.set("table", props.tableId);
     if (props.trashMode) url.searchParams.set("trash", "1");
@@ -169,11 +191,11 @@ export default function GridToolbar(props: Props) {
   return (
     <div class="flex flex-col gap-2">
       <div class="flex flex-wrap items-center gap-2">
-        {/* Add row — leftmost, primary */}
+        {/* Add row — leftmost. Uses the same btn-input style as the rest. */}
         <Show when={props.canWrite && !props.trashMode}>
           <button
             type="button"
-            class="btn-primary btn-sm"
+            class="btn-input btn-input-sm"
             onClick={handleAddRow}
             disabled={addMut.loading()}
           >
@@ -184,56 +206,48 @@ export default function GridToolbar(props: Props) {
           </button>
         </Show>
 
-        {/* Filter chip (expands the panel below) */}
         <Show when={!props.trashMode}>
-          <ToolbarChip
-            icon="ti ti-filter"
-            label="Filter"
-            active={props.hasFilter || filterOpen()}
-            onClick={() => setFilterOpen(!filterOpen())}
-          />
+          {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
+          <button
+            type="button"
+            class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
+            onClick={onFilterClick}
+          >
+            <i class="ti ti-filter" />
+            Filter
+          </button>
 
-          {/* Sort chip */}
-          <ToolbarChip
-            icon="ti ti-arrows-sort"
-            label="Sort"
-            active={props.hasSort || sortOpen()}
-            onClick={() => setSortOpen(!sortOpen())}
-          />
+          {/* Sort — same pattern. */}
+          <button
+            type="button"
+            class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`}
+            onClick={onSortClick}
+          >
+            <i class="ti ti-arrows-sort" />
+            Sort
+          </button>
 
           {/* Actions: Export + Show deleted */}
           <Dropdown
             trigger={
-              <span class={chipClass(false)}>
-                <i class="ti ti-dots-vertical" />
+              <span class="btn-input btn-input-sm">
+                <i class="ti ti-dots" />
                 Actions
                 <i class="ti ti-chevron-down text-[10px] opacity-60" />
               </span>
             }
             elements={[
-              {
-                icon: "ti ti-file-type-csv",
-                label: "Export CSV",
-                href: exportUrl("csv"),
-              },
-              {
-                icon: "ti ti-braces",
-                label: "Export JSON",
-                href: exportUrl("json"),
-              },
-              {
-                icon: "ti ti-archive",
-                label: "Show deleted",
-                href: trashToggleUrl(),
-              },
+              { icon: "ti ti-file-type-csv", label: "Export CSV", href: exportUrl("csv") },
+              { icon: "ti ti-braces", label: "Export JSON", href: exportUrl("json") },
+              { icon: "ti ti-archive", label: "Show deleted", href: trashToggleUrl() },
             ]}
           />
 
-          {/* Save as view (only when filter/sort active) */}
-          <Show when={props.hasFilterOrSort}>
+          {/* Save as view — only when filter or sort is set */}
+          <Show when={hasFilterOrSort()}>
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 transition-colors dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+              class="btn-input btn-input-sm text-emerald-700 dark:text-emerald-300"
               onClick={handleSaveView}
               disabled={saveViewMut.loading()}
               title="Save current filter/sort as a view"
@@ -243,11 +257,11 @@ export default function GridToolbar(props: Props) {
             </button>
           </Show>
 
-          {/* Clear filters/sort */}
-          <Show when={props.hasFilterOrSort}>
+          {/* Clear filter & sort */}
+          <Show when={hasFilterOrSort()}>
             <button
               type="button"
-              class="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+              class="btn-input btn-input-sm text-red-500"
               onClick={clearAll}
               aria-label="Clear all filters and sort"
               title="Clear filters & sort"
@@ -262,7 +276,7 @@ export default function GridToolbar(props: Props) {
         <Show when={props.trashMode}>
           <a
             href={`/app/grids/${props.baseId}?table=${props.tableId}`}
-            class={chipClass(false)}
+            class="btn-input btn-input-sm"
           >
             <i class="ti ti-arrow-back" />
             Back to live records
@@ -280,47 +294,31 @@ export default function GridToolbar(props: Props) {
         </span>
       </div>
 
-      {/* Expanded panels (filter / sort) */}
-      <Show when={!props.trashMode && filterOpen()}>
+      {/* Filter panel — render iff there's at least one filter row */}
+      <Show when={!props.trashMode && hasFilter()}>
         <div class="paper p-3">
           <FilterPanel
             fields={props.fields}
-            initial={props.initialFilter}
+            rows={filterRows}
+            onRowsChange={setFilterRows}
+            initialFromUrl={props.initialFilter}
             baseUrl={baseUrl()}
           />
         </div>
       </Show>
-      <Show when={!props.trashMode && sortOpen()}>
+
+      {/* Sort panel */}
+      <Show when={!props.trashMode && hasSort()}>
         <div class="paper p-3">
           <SortPanel
             fields={props.fields}
-            initial={props.initialSort}
+            rows={sortRows}
+            onRowsChange={setSortRows}
+            initialFromUrl={props.initialSort}
             baseUrl={baseUrl()}
           />
         </div>
       </Show>
     </div>
-  );
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function chipClass(active: boolean): string {
-  const base =
-    "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs cursor-pointer transition-colors";
-  return active
-    ? `${base} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300`
-    : `${base} border-zinc-200 bg-white text-secondary hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800`;
-}
-
-function ToolbarChip(props: { icon: string; label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button type="button" class={chipClass(props.active)} onClick={props.onClick}>
-      <i class={props.icon} />
-      {props.label}
-      <i class="ti ti-chevron-down text-[10px] opacity-60" />
-    </button>
   );
 }

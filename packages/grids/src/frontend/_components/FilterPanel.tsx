@@ -1,4 +1,4 @@
-import { Index, Show, createSignal, createMemo } from "solid-js";
+import { Index, Show, createMemo } from "solid-js";
 import { navigateTo, Select } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
@@ -11,10 +11,15 @@ export type FilterLeaf = {
 
 type Props = {
   fields: Field[];
-  /** Initial filter rows, parsed from URL `?filter=<json>`. */
-  initial: FilterLeaf[];
-  /** Base URL without the filter param — clicking apply navigates to
-   *  `${baseUrl}{&|?}filter=<json>` (with `?` if no `?` already present). */
+  /** Controlled row state — owned by GridToolbar so the toolbar can derive
+   *  the panel's visibility from `rows.length > 0`. */
+  rows: () => FilterLeaf[];
+  onRowsChange: (next: FilterLeaf[]) => void;
+  /** Filter currently committed to the URL — used for the "dirty" check
+   *  that gates the Apply button. */
+  initialFromUrl: FilterLeaf[];
+  /** Base URL without the filter param. Apply navigates to it with the
+   *  serialized filter; Clear navigates to it without the filter param. */
   baseUrl: string;
 };
 
@@ -29,13 +34,6 @@ const buildFilterUrl = (baseUrl: string, leaves: FilterLeaf[]): string => {
     url.searchParams.delete("cursor");
   }
   return `${url.pathname}${url.search}`;
-};
-
-const blankLeaf = (fields: Field[]): FilterLeaf => {
-  const first = fields[0];
-  if (!first) return { fieldId: "", op: "", value: "" };
-  const ops = opsForType(first.type);
-  return { fieldId: first.id, op: ops[0]?.id ?? "", value: "" };
 };
 
 const isComplete = (leaf: FilterLeaf, fields: Field[]): boolean => {
@@ -55,19 +53,25 @@ const isComplete = (leaf: FilterLeaf, fields: Field[]): boolean => {
   return true;
 };
 
+/** Build a blank filter leaf for the first available field/op pair. */
+export const blankLeaf = (fields: Field[]): FilterLeaf | null => {
+  const usable = filterableFields(fields);
+  const first = usable[0];
+  if (!first) return null;
+  const ops = opsForType(first.type);
+  return { fieldId: first.id, op: ops[0]?.id ?? "", value: "" };
+};
+
 export default function FilterPanel(props: Props) {
-  // Local state so users can build a filter row without each keystroke
-  // bouncing through a full SSR round-trip. Apply commits to the URL.
-  const [leaves, setLeaves] = createSignal<FilterLeaf[]>(props.initial);
   const fields = createMemo(() => filterableFields(props.fields));
 
   const apply = () => {
-    const validated = leaves().filter((l) => isComplete(l, props.fields));
+    const validated = props.rows().filter((l) => isComplete(l, props.fields));
     navigateTo(buildFilterUrl(props.baseUrl, validated));
   };
 
   const updateLeaf = (index: number, patch: Partial<FilterLeaf>) => {
-    const next = leaves().map((l, i) => (i === index ? { ...l, ...patch } : l));
+    const next = props.rows().map((l, i) => (i === index ? { ...l, ...patch } : l));
     // Field change → reset op to first valid op for new type
     if (patch.fieldId !== undefined) {
       const field = props.fields.find((f) => f.id === patch.fieldId);
@@ -76,112 +80,102 @@ export default function FilterPanel(props: Props) {
         next[index] = { ...next[index]!, op: ops[0]?.id ?? "", value: "" };
       }
     }
-    setLeaves(next);
+    props.onRowsChange(next);
   };
 
-  const addLeaf = () => setLeaves([...leaves(), blankLeaf(fields())]);
-  const removeLeaf = (index: number) => setLeaves(leaves().filter((_, i) => i !== index));
+  const addLeaf = () => {
+    const blank = blankLeaf(props.fields);
+    if (blank) props.onRowsChange([...props.rows(), blank]);
+  };
+  const removeLeaf = (index: number) => props.onRowsChange(props.rows().filter((_, i) => i !== index));
   const clearAll = () => {
-    setLeaves([]);
+    props.onRowsChange([]);
     navigateTo(buildFilterUrl(props.baseUrl, []));
   };
 
   const dirty = createMemo(() => {
-    const a = JSON.stringify(props.initial);
-    const b = JSON.stringify(leaves().filter((l) => isComplete(l, props.fields)));
+    const a = JSON.stringify(props.initialFromUrl);
+    const b = JSON.stringify(props.rows().filter((l) => isComplete(l, props.fields)));
     return a !== b;
   });
 
   if (fields().length === 0) return null;
 
   return (
-    <div class="flex flex-col gap-2">
-      <Show
-        when={leaves().length > 0}
-        fallback={
-          <button type="button" class="btn-simple btn-sm text-xs text-dimmed" onClick={addLeaf}>
-            <i class="ti ti-filter-plus" /> Add filter
-          </button>
-        }
-      >
-        <div class="flex flex-col gap-1.5">
-          {/*
-            Index (not For) so editing a row's value doesn't replace the
-            outer row object → For would unmount the input mid-keystroke.
-            Index keys by position, the DOM stays stable; per-row data
-            comes through a signal that tracks the array slot.
-          */}
-          <Index each={leaves()}>
-            {(leafSignal, index) => {
-              const leaf = leafSignal;
-              const field = createMemo(() => props.fields.find((f) => f.id === leaf().fieldId) ?? null);
-              const ops = createMemo<FilterOp[]>(() => (field() ? opsForType(field()!.type) : []));
-              const op = createMemo<FilterOp | null>(() => ops().find((o) => o.id === leaf().op) ?? null);
+    <div class="flex flex-col gap-1.5">
+      {/*
+        Index (not For) so editing a row's value doesn't replace the
+        outer row object → For would unmount the input mid-keystroke.
+      */}
+      <Index each={props.rows()}>
+        {(leafSignal, index) => {
+          const leaf = leafSignal;
+          const field = createMemo(() => props.fields.find((f) => f.id === leaf().fieldId) ?? null);
+          const ops = createMemo<FilterOp[]>(() => (field() ? opsForType(field()!.type) : []));
+          const op = createMemo<FilterOp | null>(() => ops().find((o) => o.id === leaf().op) ?? null);
 
-              return (
-                <div class="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span class="text-dimmed">{index === 0 ? "where" : "and"}</span>
-                  <div class="min-w-[10rem]">
-                    <Select
-                      value={() => leaf().fieldId}
-                      onChange={(v) => updateLeaf(index, { fieldId: v })}
-                      options={fields().map((f) => ({ id: f.id, label: f.name }))}
-                      placeholder="Field"
-                    />
-                  </div>
-                  <div class="min-w-[8rem]">
-                    <Select
-                      value={() => leaf().op}
-                      onChange={(v) => updateLeaf(index, { op: v, value: "" })}
-                      options={ops().map((o) => ({ id: o.id, label: o.label }))}
-                      placeholder="Operator"
-                    />
-                  </div>
+          return (
+            <div class="flex flex-wrap items-center gap-1.5 text-xs">
+              <span class="text-dimmed">{index === 0 ? "where" : "and"}</span>
+              <div class="min-w-[10rem]">
+                <Select
+                  value={() => leaf().fieldId}
+                  onChange={(v) => updateLeaf(index, { fieldId: v })}
+                  options={fields().map((f) => ({ id: f.id, label: f.name }))}
+                  placeholder="Field"
+                />
+              </div>
+              <div class="min-w-[8rem]">
+                <Select
+                  value={() => leaf().op}
+                  onChange={(v) => updateLeaf(index, { op: v, value: "" })}
+                  options={ops().map((o) => ({ id: o.id, label: o.label }))}
+                  placeholder="Operator"
+                />
+              </div>
 
-                  <FilterValueInput
-                    field={field()}
-                    op={op()}
-                    value={leaf().value}
-                    onChange={(v) => updateLeaf(index, { value: v })}
-                  />
+              <FilterValueInput
+                field={field()}
+                op={op()}
+                value={leaf().value}
+                onChange={(v) => updateLeaf(index, { value: v })}
+              />
 
-                  <button
-                    type="button"
-                    class="text-dimmed hover:text-red-500 px-1"
-                    onClick={() => removeLeaf(index)}
-                    title="Remove filter"
-                  >
-                    <i class="ti ti-x" />
-                  </button>
-                </div>
-              );
-            }}
-          </Index>
-
-          <div class="flex items-center gap-2">
-            <button type="button" class="btn-simple btn-sm text-xs text-dimmed" onClick={addLeaf}>
-              <i class="ti ti-plus" /> Add filter
-            </button>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-xs text-red-500 hover:text-red-600"
-              onClick={clearAll}
-            >
-              <i class="ti ti-x" /> Clear all
-            </button>
-            <Show when={dirty()}>
               <button
                 type="button"
-                class="btn-primary btn-sm text-xs ml-auto"
-                onClick={apply}
-                title="Apply filter (Enter)"
+                class="text-dimmed hover:text-red-500 px-1"
+                onClick={() => removeLeaf(index)}
+                title="Remove filter"
               >
-                <i class="ti ti-check" /> Apply
+                <i class="ti ti-x" />
               </button>
-            </Show>
-          </div>
-        </div>
-      </Show>
+            </div>
+          );
+        }}
+      </Index>
+
+      <div class="flex items-center gap-2">
+        <button type="button" class="btn-input btn-input-sm" onClick={addLeaf}>
+          <i class="ti ti-plus" /> Add filter
+        </button>
+        <button
+          type="button"
+          class="btn-input btn-input-sm text-red-500"
+          onClick={clearAll}
+        >
+          <i class="ti ti-x" /> Clear all
+        </button>
+        <Show when={dirty()}>
+          <button
+            type="button"
+            class="btn-input btn-input-sm btn-input-active ml-auto"
+            onClick={apply}
+            title="Apply filter"
+          >
+            <i class="ti ti-check" /> Apply
+          </button>
+        </Show>
+      </div>
     </div>
   );
 }
@@ -204,7 +198,6 @@ function FilterValueInput(props: {
   const inputClass =
     "rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs min-w-[8rem]";
 
-  // Range (between): two inputs.
   if (op.needsRange) {
     const range = Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""];
     const inputType = field.type === "date" ? "date" : "number";
@@ -227,7 +220,6 @@ function FilterValueInput(props: {
     );
   }
 
-  // Single-select / multi-select: cloud Select built from field.config.options.
   if (field.type === "single-select" && (op.id === "is" || op.id === "isNot")) {
     const options = (field.config as { options?: Array<{ id: string; label: string }> }).options ?? [];
     const value = typeof props.value === "string" ? props.value : "";
@@ -243,8 +235,6 @@ function FilterValueInput(props: {
     );
   }
 
-  // Multi-value ops (isAnyOf / isNoneOf / containsAll / containsAny / doesNotContain):
-  // accept a comma-separated list — the API expects an array of strings.
   if (
     op.id === "isAnyOf" ||
     op.id === "isNoneOf" ||
@@ -271,8 +261,6 @@ function FilterValueInput(props: {
   }
 
   if (field.type === "boolean") {
-    // Use the cloud Select with explicit "—" / "true" / "false" options so
-    // unset state is visible (Apply otherwise drops the row silently).
     const value = props.value === true ? "true" : props.value === false ? "false" : "";
     return (
       <div class="min-w-[7rem]">
@@ -291,8 +279,6 @@ function FilterValueInput(props: {
   }
 
   if (field.type === "date") {
-    // `lastNDays` takes a numeric day-count, not a date — the API casts
-    // the value to ::int. Render the right input for that op specifically.
     if (op.id === "lastNDays") {
       return (
         <input
@@ -337,7 +323,6 @@ function FilterValueInput(props: {
     );
   }
 
-  // Default: text.
   return (
     <input
       type="text"

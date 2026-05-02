@@ -9,9 +9,16 @@ import TableEditor from "../_components/TableEditor.island";
 import CreateTableButton from "../_components/CreateTableButton.island";
 import type { FilterTree, SortSpec, Field } from "../../service";
 
-type AuthUser = Parameters<typeof hasRole>[0] & { id: string; memberofGroupIds: string[] };
+type AuthUser = Parameters<typeof hasRole>[0] & {
+  id: string;
+  memberofGroupIds: string[];
+};
 
-const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) => {
+const resolveLevel = async (
+  user: AuthUser,
+  baseId: string,
+  tableId?: string
+) => {
   if (hasRole(user, "admin")) return "admin" as const;
   const grants = await gridsService.permission.loadGrants({
     userId: user.id,
@@ -19,7 +26,10 @@ const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) =>
     baseId,
     tableId: tableId ?? null,
   });
-  return gridsService.permission.resolve(grants, tableId ? { baseId, tableId } : { baseId });
+  return gridsService.permission.resolve(
+    grants,
+    tableId ? { baseId, tableId } : { baseId }
+  );
 };
 
 export default ssr<AuthContext>(async (c) => {
@@ -33,7 +43,8 @@ export default ssr<AuthContext>(async (c) => {
   // Parse the filter query — bad input is treated as empty rather than a
   // hard error so a stale URL doesn't lock the user out of their data.
   let parsedFilter: FilterTree | null = null;
-  let filterLeaves: Array<{ fieldId: string; op: string; value?: unknown }> = [];
+  let filterLeaves: Array<{ fieldId: string; op: string; value?: unknown }> =
+    [];
   const rawFilter = c.req.query("filter");
   if (rawFilter) {
     try {
@@ -42,7 +53,7 @@ export default ssr<AuthContext>(async (c) => {
       if (parsed && parsed.op === "AND" && Array.isArray(parsed.filters)) {
         filterLeaves = parsed.filters.filter(
           (f: unknown): f is { fieldId: string; op: string; value?: unknown } =>
-            typeof f === "object" && f !== null && "fieldId" in f && "op" in f,
+            typeof f === "object" && f !== null && "fieldId" in f && "op" in f
         );
       }
     } catch {}
@@ -56,7 +67,10 @@ export default ssr<AuthContext>(async (c) => {
       if (Array.isArray(parsed)) {
         parsedSort = parsed.filter(
           (s: unknown): s is SortSpec =>
-            typeof s === "object" && s !== null && "fieldId" in s && "direction" in s,
+            typeof s === "object" &&
+            s !== null &&
+            "fieldId" in s &&
+            "direction" in s
         );
       }
     } catch {}
@@ -93,8 +107,10 @@ export default ssr<AuthContext>(async (c) => {
     await Promise.all(
       allTables.map(async (t) => {
         const tableLevel = await resolveLevel(user, baseId, t.id);
-        return gridsService.permission.hasAtLeast(tableLevel, "read") ? t : null;
-      }),
+        return gridsService.permission.hasAtLeast(tableLevel, "read")
+          ? t
+          : null;
+      })
     )
   ).filter((t): t is NonNullable<typeof t> => t !== null);
 
@@ -102,12 +118,19 @@ export default ssr<AuthContext>(async (c) => {
     ? tables.find((t) => t.id === activeTableId) ?? null
     : tables[0] ?? null;
 
-  type RecordsPage = { items: import("../../service").GridRecord[]; nextCursor: string | null };
+  type RecordsPage = {
+    items: import("../../service").GridRecord[];
+    nextCursor: string | null;
+  };
   let fields: Field[] = [];
   let records: RecordsPage = { items: [], nextCursor: null };
   let aggregates: Record<string, unknown> = {};
-  let viewsForTable: Awaited<ReturnType<typeof gridsService.view.listForTable>> = [];
-  let formsForTable: Awaited<ReturnType<typeof gridsService.form.listForTable>> = [];
+  let viewsForTable: Awaited<
+    ReturnType<typeof gridsService.view.listForTable>
+  > = [];
+  let formsForTable: Awaited<
+    ReturnType<typeof gridsService.form.listForTable>
+  > = [];
   let activeTableLevel = level;
   // Pre-fetched fields for every table in this base — TableEditor's relation
   // picker needs this so the user can pick a target table + display field
@@ -131,7 +154,10 @@ export default ssr<AuthContext>(async (c) => {
     fieldsByTable[activeTable.id] = f;
     if (listResult.ok) {
       records = trashMode
-        ? { ...listResult.data, items: listResult.data.items.filter((r) => r.deletedAt !== null) }
+        ? {
+            ...listResult.data,
+            items: listResult.data.items.filter((r) => r.deletedAt !== null),
+          }
         : listResult.data;
     }
     activeTableLevel = lvl;
@@ -154,7 +180,11 @@ export default ssr<AuthContext>(async (c) => {
           const reqs: Array<{ fieldId: string; agg: "count" | "sum" }> = [
             { fieldId: field.id, agg: "count" },
           ];
-          if (field.type === "number" || field.type === "decimal" || field.type === "rating") {
+          if (
+            field.type === "number" ||
+            field.type === "decimal" ||
+            field.type === "rating"
+          ) {
             reqs.push({ fieldId: field.id, agg: "sum" });
           }
           return reqs;
@@ -178,14 +208,20 @@ export default ssr<AuthContext>(async (c) => {
     }
   }
 
-  const canManageTable = gridsService.permission.hasAtLeast(activeTableLevel, "admin");
+  const canManageTable = gridsService.permission.hasAtLeast(
+    activeTableLevel,
+    "admin"
+  );
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
-  const canWriteRecords = gridsService.permission.hasAtLeast(activeTableLevel, "write");
+  const canWriteRecords = gridsService.permission.hasAtLeast(
+    activeTableLevel,
+    "write"
+  );
 
-  const hasFilter = filterLeaves.length > 0;
-  const hasSort = parsedSort.length > 0;
-  const hasFilterOrSort = hasFilter || hasSort;
+  // Used by the sidebar to decide whether the "All records" pseudo-view
+  // is the active one (only when no filter/sort/view is set).
+  const hasFilterOrSort = filterLeaves.length > 0 || parsedSort.length > 0;
 
   return () => (
     <Layout
@@ -207,7 +243,6 @@ export default ssr<AuthContext>(async (c) => {
               </div>
               <div class="min-w-0 flex-1">
                 <p class="sidebar-header-title">{base.name}</p>
-                {base.description && <p class="sidebar-header-subtitle">{base.description}</p>}
               </div>
               {canManageBase && (
                 <a
@@ -239,11 +274,20 @@ export default ssr<AuthContext>(async (c) => {
                 ) : (
                   tables.map((t) => {
                     const isActive = activeTable?.id === t.id;
+                    // Contacts-style row: the whole div carries the
+                    // sidebar-item visual; the link fills the row, and
+                    // the per-row settings button lives inside as a
+                    // sidebar-item-action that fades in on hover.
                     return (
-                      <div class="group relative flex items-center">
+                      <div
+                        class={`sidebar-item group ${
+                          isActive ? "sidebar-item-active" : ""
+                        }`}
+                      >
                         <a
                           href={`/app/grids/${baseId}?table=${t.id}`}
-                          class={`sidebar-item flex-1 text-xs ${isActive ? "sidebar-item-active" : ""}`}
+                          class="flex min-w-0 flex-1 items-center gap-2"
+                          aria-current={isActive ? "page" : undefined}
                         >
                           <i class="ti ti-table text-sm" />
                           <span class="truncate">{t.name}</span>
@@ -258,10 +302,12 @@ export default ssr<AuthContext>(async (c) => {
                             }}
                             initialFields={fieldsByTable[t.id] ?? []}
                             initialForms={formsForTable}
-                            otherTables={tables.filter((x) => x.id !== t.id).map((x) => ({
-                              id: x.id,
-                              name: x.name,
-                            }))}
+                            otherTables={tables
+                              .filter((x) => x.id !== t.id)
+                              .map((x) => ({
+                                id: x.id,
+                                name: x.name,
+                              }))}
                             fieldsByTable={fieldsByTable}
                             canManage
                           />
@@ -279,7 +325,11 @@ export default ssr<AuthContext>(async (c) => {
                   <p class="sidebar-section-title">Views</p>
                   <a
                     href={`/app/grids/${baseId}?table=${activeTable.id}`}
-                    class={`sidebar-item text-xs ${activeViewId === null && !hasFilterOrSort ? "sidebar-item-active" : ""}`}
+                    class={`sidebar-item text-xs ${
+                      activeViewId === null && !hasFilterOrSort
+                        ? "sidebar-item-active"
+                        : ""
+                    }`}
                   >
                     <i class="ti ti-list text-sm" />
                     <span>All records</span>
@@ -289,15 +339,25 @@ export default ssr<AuthContext>(async (c) => {
                       const u = new URL(`/app/grids/${baseId}`, "http://x");
                       u.searchParams.set("table", activeTable.id);
                       u.searchParams.set("view", view.id);
-                      const cfg = view.config as { filter?: unknown; sort?: unknown };
-                      if (cfg.filter) u.searchParams.set("filter", JSON.stringify(cfg.filter));
-                      if (cfg.sort) u.searchParams.set("sort", JSON.stringify(cfg.sort));
+                      const cfg = view.config as {
+                        filter?: unknown;
+                        sort?: unknown;
+                      };
+                      if (cfg.filter)
+                        u.searchParams.set(
+                          "filter",
+                          JSON.stringify(cfg.filter)
+                        );
+                      if (cfg.sort)
+                        u.searchParams.set("sort", JSON.stringify(cfg.sort));
                       return `${u.pathname}${u.search}`;
                     })();
                     return (
                       <a
                         href={url}
-                        class={`sidebar-item text-xs ${activeViewId === view.id ? "sidebar-item-active" : ""}`}
+                        class={`sidebar-item text-xs ${
+                          activeViewId === view.id ? "sidebar-item-active" : ""
+                        }`}
                       >
                         <i class="ti ti-table-spark text-sm" />
                         <span class="truncate">{view.name}</span>
@@ -311,32 +371,18 @@ export default ssr<AuthContext>(async (c) => {
         </aside>
 
         {/* Main: records table */}
-        <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto p-4">
+        <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           {activeTable ? (
-            <div class="flex flex-col gap-3">
-              <div class="flex items-baseline gap-3">
-                <h2 class="text-lg font-semibold text-primary">
-                  {activeTable.name}
-                  {trashMode && (
-                    <span class="ml-2 text-sm font-normal text-amber-600 dark:text-amber-400">
-                      (deleted)
-                    </span>
-                  )}
-                </h2>
-                {activeTable.description && (
-                  <span class="text-xs text-dimmed truncate">{activeTable.description}</span>
-                )}
-              </div>
-
+            <div class="flex flex-col gap-2">
               <GridToolbar
                 baseId={baseId}
                 tableId={activeTable.id}
                 fields={fields}
                 initialFilter={filterLeaves}
-                initialSort={parsedSort.map((s) => ({ fieldId: s.fieldId, direction: s.direction }))}
-                hasFilter={hasFilter}
-                hasSort={hasSort}
-                hasFilterOrSort={hasFilterOrSort}
+                initialSort={parsedSort.map((s) => ({
+                  fieldId: s.fieldId,
+                  direction: s.direction,
+                }))}
                 rawFilter={rawFilter}
                 rawSort={rawSort}
                 trashMode={trashMode}
