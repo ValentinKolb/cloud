@@ -5,6 +5,7 @@ import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsGrid from "../_components/RecordsGrid.island";
 import RecordDetailPanel from "../_components/RecordDetailPanel.island";
+import RecordDetailLayoutSync from "../_components/RecordDetailLayoutSync.island";
 import GridToolbar from "../_components/GridToolbar.island";
 import SearchBar from "../_components/SearchBar.island";
 import TableEditor from "../_components/TableEditor.island";
@@ -553,11 +554,16 @@ export default ssr<AuthContext>(async (c) => {
         </main>
 
         {/* Detail panel — third column, hidden until a record is selected.
-            The panel is mounted as an island; when `?record=<id>` is set in
-            the URL we ship the SSR-fetched record so deep links land
-            populated. Mirrors the spaces / contacts third-column pattern. */}
+            SSR sets the initial class based on `?record=<id>`; after that,
+            RecordDetailLayoutSync flips `hidden` ⇄ `flex` on the same
+            selection event the panel itself listens to. Without the
+            sync, history.replaceState navigation would update the URL
+            without making the column appear/disappear, and the main
+            column wouldn't reclaim the freed width on close. Mirrors
+            the spaces SpaceDetailLayoutSync pattern. */}
         {activeTable && (
           <div
+            id="grids-detail-panel"
             class={`${
               selectedRecordId ? "flex" : "hidden"
             } order-2 lg:order-3 w-full lg:w-[28rem] shrink-0 flex-col min-h-0 overflow-hidden`}
@@ -572,6 +578,7 @@ export default ssr<AuthContext>(async (c) => {
             />
           </div>
         )}
+        <RecordDetailLayoutSync detailContainerId="grids-detail-panel" />
       </div>
     </Layout>
   );
