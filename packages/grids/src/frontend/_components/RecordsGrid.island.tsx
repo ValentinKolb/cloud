@@ -196,16 +196,19 @@ export default function RecordsGrid(props: Props) {
                     const agg = props.aggregates ?? {};
                     const count = agg[`${f.id}__count`];
                     const sum = agg[`${f.id}__sum`];
+                    // Each line is a `block` with `whitespace-nowrap` so a
+                    // narrow cell breaks BETWEEN the count and the sum
+                    // ("4 values" / "Σ 82.39") instead of inside either
+                    // phrase ("4 / values Σ / 82.39").
                     return (
                       <td class="px-3 py-1.5 text-[11px] text-dimmed">
                         <Show when={count !== undefined && count !== null}>
-                          <span title="non-empty count">
-                            {String(count)}
-                            {Number(count) === 1 ? " value" : " values"}
+                          <span class="block whitespace-nowrap" title="non-empty count">
+                            {String(count)} {Number(count) === 1 ? "value" : "values"}
                           </span>
                         </Show>
                         <Show when={sum !== undefined && sum !== null}>
-                          <span class="ml-2" title="sum">
+                          <span class="block whitespace-nowrap" title="sum">
                             Σ {String(sum)}
                           </span>
                         </Show>
@@ -226,13 +229,9 @@ export default function RecordsGrid(props: Props) {
                 <tr>
                   <td
                     colspan={visibleFields().length + (props.canWrite ? 1 : 0)}
-                    class="px-3 py-8 text-center text-dimmed text-sm"
+                    class="px-3 py-3 text-left text-dimmed text-xs"
                   >
-                    {props.mode === "trash"
-                      ? "No deleted records yet."
-                      : props.canWrite
-                      ? "No records. Click “Add row” above."
-                      : "No records."}
+                    {props.mode === "trash" ? "No deleted records." : "No records."}
                   </td>
                 </tr>
               }

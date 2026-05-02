@@ -88,10 +88,6 @@ export default function FilterPanel(props: Props) {
     if (blank) props.onRowsChange([...props.rows(), blank]);
   };
   const removeLeaf = (index: number) => props.onRowsChange(props.rows().filter((_, i) => i !== index));
-  const clearAll = () => {
-    props.onRowsChange([]);
-    navigateTo(buildFilterUrl(props.baseUrl, []));
-  };
 
   const dirty = createMemo(() => {
     const a = JSON.stringify(props.initialFromUrl);
@@ -130,7 +126,7 @@ export default function FilterPanel(props: Props) {
                   placeholder="Field"
                 />
               </div>
-              <div class="w-32 shrink-0">
+              <div class="w-40 shrink-0">
                 <Select
                   value={() => leaf().op}
                   onChange={(v) => updateLeaf(index, { op: v, value: "" })}
@@ -159,15 +155,10 @@ export default function FilterPanel(props: Props) {
         }}
       </Index>
 
+      {/* Bottom row — only Add + (conditional) Apply. The toolbar's
+          smart-Clear chip handles bulk-clear globally; per-panel Cancel
+          felt redundant. */}
       <div class="flex items-center gap-1">
-        {/* Cancel = remove every row + drop the URL filter (was "Clear all"). */}
-        <button
-          type="button"
-          class="btn-simple btn-sm text-orange-500 hover:text-orange-600"
-          onClick={clearAll}
-        >
-          <i class="ti ti-x" /> Cancel
-        </button>
         <button
           type="button"
           class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"

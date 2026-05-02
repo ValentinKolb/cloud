@@ -69,7 +69,9 @@ export default function SortPanel(props: Props) {
   };
 
   const updateRow = (index: number, patch: Partial<SortRow>) => {
-    props.onRowsChange(props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    props.onRowsChange(
+      props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r))
+    );
   };
 
   const addRow = () => {
@@ -77,16 +79,14 @@ export default function SortPanel(props: Props) {
     if (blank) props.onRowsChange([...props.rows(), blank]);
   };
 
-  const removeRow = (index: number) => props.onRowsChange(props.rows().filter((_, i) => i !== index));
-
-  const clearAll = () => {
-    props.onRowsChange([]);
-    navigateTo(buildSortUrl(props.baseUrl, []));
-  };
+  const removeRow = (index: number) =>
+    props.onRowsChange(props.rows().filter((_, i) => i !== index));
 
   const dirty = createMemo(() => {
     const a = JSON.stringify(props.initialFromUrl);
-    const b = JSON.stringify(props.rows().filter((r) => isComplete(r, props.fields)));
+    const b = JSON.stringify(
+      props.rows().filter((r) => isComplete(r, props.fields))
+    );
     return a !== b;
   });
 
@@ -99,7 +99,7 @@ export default function SortPanel(props: Props) {
           <div class="flex flex-wrap items-center gap-1.5 text-xs">
             {/* Fixed-width label keeps "sort by" / "then" in the same column. */}
             <span class="w-12 shrink-0 text-dimmed">
-              {index === 0 ? "sort by" : "then"}
+              {index === 0 ? "sort" : "then"}
             </span>
             <div class="w-40 shrink-0">
               <Select
@@ -112,7 +112,9 @@ export default function SortPanel(props: Props) {
             <div class="w-32 shrink-0">
               <Select
                 value={() => rowSignal().direction}
-                onChange={(v) => updateRow(index, { direction: v as "asc" | "desc" })}
+                onChange={(v) =>
+                  updateRow(index, { direction: v as "asc" | "desc" })
+                }
                 options={[
                   { id: "asc", label: "A → Z" },
                   { id: "desc", label: "Z → A" },
@@ -131,15 +133,9 @@ export default function SortPanel(props: Props) {
         )}
       </Index>
 
+      {/* Bottom row — only Add + (conditional) Apply. Toolbar's smart-Clear
+          chip handles bulk-clear globally. */}
       <div class="flex items-center gap-1">
-        {/* Cancel = clear all rows + drop URL sort. */}
-        <button
-          type="button"
-          class="btn-simple btn-sm text-orange-500 hover:text-orange-600"
-          onClick={clearAll}
-        >
-          <i class="ti ti-x" /> Cancel
-        </button>
         <button
           type="button"
           class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"

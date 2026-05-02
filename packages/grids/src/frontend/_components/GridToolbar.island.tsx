@@ -2,6 +2,7 @@ import { Show, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
   Dropdown,
+  navigateTo,
   prompts,
   refreshCurrentPath,
 } from "@valentinkolb/cloud/ui";
@@ -153,6 +154,24 @@ export default function GridToolbar(props: Props) {
     saveViewMut.mutate({ name: String(result.name).trim(), shared: Boolean(result.shared) });
   };
 
+  // ---- Clear filter and/or sort (smart label) ---------------------------
+  // Builds a label that names exactly what's currently active so the user
+  // sees "Clear filter", "Clear sort", or "Clear filter & sort" depending
+  // on which URL params are set.
+  const clearLabel = () => {
+    if (hasFilter() && hasSort()) return "Clear filter & sort";
+    if (hasFilter()) return "Clear filter";
+    return "Clear sort";
+  };
+  const clearAll = () => {
+    setFilterRows([]);
+    setSortRows([]);
+    const url = new URL(`/app/grids/${props.baseId}`, "http://x");
+    url.searchParams.set("table", props.tableId);
+    if (props.trashMode) url.searchParams.set("trash", "1");
+    navigateTo(`${url.pathname}${url.search}`);
+  };
+
   // ---- Show-deleted toggle URL ------------------------------------------
   const trashToggleUrl = () => {
     const url = new URL(`/app/grids/${props.baseId}`, "http://x");
@@ -194,6 +213,25 @@ export default function GridToolbar(props: Props) {
         </Show>
 
         <Show when={!props.trashMode}>
+          {/* Order: Add (left, primary) → Actions → Filter → Sort →
+              Clear (conditional) → Save as view (conditional). */}
+
+          {/* Actions: Export + Show deleted. No leading icon — chevron is
+              enough to signal a dropdown trigger. */}
+          <Dropdown
+            trigger={
+              <span class="btn-input btn-input-sm">
+                Actions
+                <i class="ti ti-chevron-down text-[10px] opacity-60" />
+              </span>
+            }
+            elements={[
+              { icon: "ti ti-file-type-csv", label: "Export CSV", href: exportUrl("csv") },
+              { icon: "ti ti-braces", label: "Export JSON", href: exportUrl("json") },
+              { icon: "ti ti-archive", label: "Show deleted", href: trashToggleUrl() },
+            ]}
+          />
+
           {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
           <button
             type="button"
@@ -214,24 +252,22 @@ export default function GridToolbar(props: Props) {
             Sort
           </button>
 
-          {/* Actions: Export + Show deleted */}
-          <Dropdown
-            trigger={
-              <span class="btn-input btn-input-sm">
-                <i class="ti ti-dots" />
-                Actions
-                <i class="ti ti-chevron-down text-[10px] opacity-60" />
-              </span>
-            }
-            elements={[
-              { icon: "ti ti-file-type-csv", label: "Export CSV", href: exportUrl("csv") },
-              { icon: "ti ti-braces", label: "Export JSON", href: exportUrl("json") },
-              { icon: "ti ti-archive", label: "Show deleted", href: trashToggleUrl() },
-            ]}
-          />
+          {/* Smart Clear — only when at least one of filter/sort is active.
+              Label adapts to "Clear filter", "Clear sort", or "Clear filter
+              & sort" so the user always knows what's about to be wiped. */}
+          <Show when={hasFilterOrSort()}>
+            <button
+              type="button"
+              class="btn-input btn-input-sm text-red-500"
+              onClick={clearAll}
+              title={clearLabel()}
+            >
+              <i class="ti ti-filter-off" />
+              {clearLabel()}
+            </button>
+          </Show>
 
-          {/* Save as view — only when filter or sort is set. Toolbar-level
-              Clear was removed; the per-panel Cancel button covers that. */}
+          {/* Save as view — only when filter or sort is set. */}
           <Show when={hasFilterOrSort()}>
             <button
               type="button"

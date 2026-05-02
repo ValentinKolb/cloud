@@ -60,6 +60,21 @@ export default function SearchBar(props: Props) {
 
   return (
     <div class="flex items-center gap-2">
+      {/* Search input — left, takes all available space. */}
+      <div class="flex-1 min-w-0">
+        <TextInput
+          icon="ti ti-search"
+          placeholder="Search records..."
+          value={q}
+          onInput={onInput}
+          clearable
+          onClear={() => {
+            setQ("");
+            navigateTo(buildUrl(props, "", qFields()));
+          }}
+        />
+      </div>
+      {/* Column-scope chip — right, narrow. */}
       <Show when={props.fields.length > 0}>
         <FilterChip
           label={allFieldsLabel()}
@@ -75,19 +90,6 @@ export default function SearchBar(props: Props) {
           isActive={qFields().length > 0}
         />
       </Show>
-      <div class="flex-1 max-w-md">
-        <TextInput
-          icon="ti ti-search"
-          placeholder="Search records..."
-          value={q}
-          onInput={onInput}
-          clearable
-          onClear={() => {
-            setQ("");
-            navigateTo(buildUrl(props, "", qFields()));
-          }}
-        />
-      </div>
     </div>
   );
 }

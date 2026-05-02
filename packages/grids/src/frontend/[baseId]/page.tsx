@@ -321,7 +321,10 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name },
+        { title: base.name, href: `/app/grids/${baseId}` },
+        // Mirror the notebooks pattern — the active table closes the
+        // breadcrumb so users see exactly where they are.
+        ...(activeTable ? [{ title: activeTable.name }] : []),
       ]}
     >
       <div class="app-cols flex-1 min-h-0">
