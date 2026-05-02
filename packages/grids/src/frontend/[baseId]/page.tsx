@@ -11,6 +11,7 @@ import FilterPanel from "../_components/FilterPanel.island";
 import SortPanel from "../_components/SortPanel.island";
 import ViewsBar from "../_components/ViewsBar.island";
 import FormsManager from "../_components/FormsManager.island";
+import ExportButton from "../_components/ExportButton.island";
 import CreateTableButton from "../_components/CreateTableButton.island";
 import TableActionsMenu from "../_components/TableActionsMenu.island";
 import BaseSettingsButton from "../_components/BaseSettingsButton.island";
@@ -278,6 +279,13 @@ export default ssr<AuthContext>(async (c) => {
                   <span class="text-xs text-dimmed">{records.items.length} record(s)</span>
                 </div>
                 <div class="flex items-center gap-2">
+                  {!trashMode && (
+                    <ExportButton
+                      tableId={activeTable.id}
+                      filter={rawFilter ?? undefined}
+                      sort={rawSort ?? undefined}
+                    />
+                  )}
                   <a
                     href={
                       trashMode

@@ -54,8 +54,30 @@ export const collectDecimalConfig = async (
     prompts.error("Scale must be 0..precision");
     return null;
   }
+  // Validate min/max so a typo doesn't slip into the field config and
+  // fail every record submission downstream with a confusing error.
   const config: Record<string, unknown> = { precision, scale };
-  if (typeof result.min === "string" && result.min.trim().length > 0) config.min = result.min.trim();
-  if (typeof result.max === "string" && result.max.trim().length > 0) config.max = result.max.trim();
+  const minStr = typeof result.min === "string" ? result.min.trim() : "";
+  const maxStr = typeof result.max === "string" ? result.max.trim() : "";
+
+  const looksLikeDecimal = (s: string): boolean => /^-?\d+(\.\d+)?$/.test(s);
+  if (minStr) {
+    if (!looksLikeDecimal(minStr)) {
+      prompts.error(`Min "${minStr}" is not a valid decimal`);
+      return null;
+    }
+    config.min = minStr;
+  }
+  if (maxStr) {
+    if (!looksLikeDecimal(maxStr)) {
+      prompts.error(`Max "${maxStr}" is not a valid decimal`);
+      return null;
+    }
+    config.max = maxStr;
+  }
+  if (minStr && maxStr && Number(minStr) > Number(maxStr)) {
+    prompts.error("Min must be less than or equal to max");
+    return null;
+  }
   return config;
 };

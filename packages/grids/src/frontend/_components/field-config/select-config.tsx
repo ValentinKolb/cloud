@@ -101,12 +101,15 @@ export const collectSelectConfig = async (
 
         const config: Record<string, unknown> = { options: opts };
         if (type === "multi-select") {
+          let min: number | null = null;
+          let max: number | null = null;
           if (minSelected().trim()) {
             const n = Number(minSelected());
             if (!Number.isInteger(n) || n < 0) {
               setError("minSelected must be a non-negative integer");
               return;
             }
+            min = n;
             config.minSelected = n;
           }
           if (maxSelected().trim()) {
@@ -115,7 +118,17 @@ export const collectSelectConfig = async (
               setError("maxSelected must be a positive integer");
               return;
             }
+            max = n;
             config.maxSelected = n;
+          }
+          // Catch impossible combos before they reach the records service.
+          if (min !== null && max !== null && min > max) {
+            setError("minSelected must be ≤ maxSelected");
+            return;
+          }
+          if (min !== null && min > opts.length) {
+            setError(`minSelected (${min}) exceeds the number of options (${opts.length})`);
+            return;
           }
         }
 

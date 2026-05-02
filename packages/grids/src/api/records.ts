@@ -140,6 +140,66 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  // Note: prefixed with `/by-table/` so the route doesn't clash with
+  // the catch-all `/:tableId/:recordId` GET handler above.
+  .get(
+    "/by-table/:tableId/export",
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Export records as CSV or JSON (view-aware)",
+      responses: {
+        200: { description: "Export body — Content-Type matches format" },
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId");
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const format = (c.req.query("format") ?? "csv").toLowerCase() === "json" ? "json" : "csv";
+      const rawFilter = c.req.query("filter");
+      const rawSort = c.req.query("sort");
+      let filter: any = null;
+      let sort: any[] = [];
+      try {
+        if (rawFilter) filter = JSON.parse(rawFilter);
+      } catch {
+        return c.json({ message: "Invalid filter JSON" }, 400);
+      }
+      try {
+        if (rawSort) {
+          const s = JSON.parse(rawSort);
+          if (Array.isArray(s)) sort = s;
+        }
+      } catch {
+        return c.json({ message: "Invalid sort JSON" }, 400);
+      }
+      const visibleFieldIds = c.req.query("fields")?.split(",").filter(Boolean);
+
+      const result = await gridsService.exporter.exportRecords({
+        tableId,
+        format,
+        filter,
+        sort,
+        visibleFieldIds,
+      });
+      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+
+      return new Response(result.data.body, {
+        status: 200,
+        headers: {
+          "Content-Type": result.data.contentType,
+          "Content-Disposition": `attachment; filename="${result.data.filename}"`,
+          // Tell the client we hit the cap so the UI can warn the user.
+          "X-Truncated": result.data.truncated ? "1" : "0",
+        },
+      });
+    },
+  )
+
   .post(
     "/aggregate/:tableId",
     describeRoute({

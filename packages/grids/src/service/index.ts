@@ -6,6 +6,7 @@ import * as audit from "./audit";
 import * as access from "./access";
 import * as views from "./views";
 import * as forms from "./forms";
+import * as exporter from "./export";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast } from "./permission-resolver";
 
@@ -82,9 +83,12 @@ export const gridsService = {
     remove: forms.remove,
     buildDefault: forms.buildDefaultForm,
   },
+  exporter: {
+    exportRecords: exporter.exportRecords,
+  },
 };
 
-export { bases, tables, fields, records, audit, access, views, forms };
+export { bases, tables, fields, records, audit, access, views, forms, exporter };
 export type { View, ViewConfig } from "./views";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
