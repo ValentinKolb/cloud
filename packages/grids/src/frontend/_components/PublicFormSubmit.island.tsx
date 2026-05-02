@@ -216,29 +216,33 @@ function FieldInput(props: {
     }
     case "multi-select": {
       const options = ((props.field.config as { options?: Array<{ id: string; label: string }> }).options ?? []);
-      const selected = Array.isArray(props.value) ? (props.value as string[]) : [];
+      // Derive the current selection inside reactive expressions so each
+      // click sees the latest state (the previous closure capture meant
+      // every click used the initial array, breaking add/remove on the
+      // second tag tap).
+      const selected = (): string[] => (Array.isArray(props.value) ? (props.value as string[]) : []);
       return wrap(
         <div class="flex flex-wrap gap-1.5">
           <For each={options}>
-            {(o) => {
-              const isOn = selected.includes(o.id);
-              return (
-                <button
-                  type="button"
-                  class={`rounded-md px-2 py-1 text-xs ${
-                    isOn
-                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                      : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                  }`}
-                  onClick={() => {
-                    const next = isOn ? selected.filter((s) => s !== o.id) : [...selected, o.id];
-                    props.onChange(next);
-                  }}
-                >
-                  {o.label}
-                </button>
-              );
-            }}
+            {(o) => (
+              <button
+                type="button"
+                class={`rounded-md px-2 py-1 text-xs ${
+                  selected().includes(o.id)
+                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                    : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                }`}
+                onClick={() => {
+                  const current = selected();
+                  const next = current.includes(o.id)
+                    ? current.filter((s) => s !== o.id)
+                    : [...current, o.id];
+                  props.onChange(next);
+                }}
+              >
+                {o.label}
+              </button>
+            )}
           </For>
         </div>,
       );

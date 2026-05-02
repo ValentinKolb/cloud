@@ -28,7 +28,14 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const fields = await gridsService.field.listByTable(form.tableId);
+  // Only ship field metadata for fields the form actually exposes.
+  // Without this filter, hidden / internal table-level field names, types,
+  // configs, and defaults would be serialized into the anonymous HTML
+  // even though the submit endpoint already rejects them — a real
+  // information leak via the hydration payload.
+  const allowedIds = new Set(form.config.fields.map((f) => f.fieldId));
+  const allFields = await gridsService.field.listByTable(form.tableId);
+  const fields = allFields.filter((f) => allowedIds.has(f.id));
 
   return () => (
     <Layout c={c} title={form.config.title ?? form.name}>
