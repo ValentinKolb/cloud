@@ -1,4 +1,4 @@
-import { Index, Show, createMemo } from "solid-js";
+import { Index, Match, Show, Switch, createMemo } from "solid-js";
 import { navigateTo, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
@@ -190,17 +190,34 @@ export default function FilterPanel(props: Props) {
   );
 }
 
+type ValueKind =
+  | "none"
+  | "range"
+  | "select"
+  | "multi"
+  | "boolean"
+  | "number-days"
+  | "date"
+  | "number"
+  | "text";
+
 /**
  * Renders the right-hand value input for a filter row, type-aware:
- *  - ops with `needsValue=false` (isEmpty, isNotEmpty, today, …): NOTHING
+ *  - ops with `needsValue=false` (empty, not empty, today, …): NOTHING
  *  - ops with `needsRange=true` (between): TWO inputs side-by-side
  *  - boolean fields: cloud Select
  *  - single-select fields (is / isNot): cloud Select over field options
- *  - any multi-value op (any-of / none-of / contains-* / not-contains): TextInput
+ *  - any multi-value op (any-of / none-of / all-of / not-contains): TextInput
  *    (comma-separated → parsed to a string[] on input)
  *  - dates: native `<input type=date>` (or number for lastNDays)
  *  - numbers: native `<input type=number>` (keeps spinner widget)
- *  - text-shaped fallback: cloud TextInput (no icon, w-44 to match the rest)
+ *  - text-shaped fallback: cloud TextInput
+ *
+ * IMPORTANT: this component is REACTIVE by way of Switch/Match — destructuring
+ * `props.op` at the function body level captures a stale value and the input
+ * fails to switch when the user picks a different operator (e.g. "empty" still
+ * shows a text box). Always read `props.op` / `props.field` from inside JSX
+ * or memos; never bind them to const at the top.
  */
 function FilterValueInput(props: {
   field: Field | null;
@@ -208,151 +225,171 @@ function FilterValueInput(props: {
   value: unknown;
   onChange: (v: unknown) => void;
 }) {
-  const field = props.field;
-  const op = props.op;
-  // No-input ops (isEmpty / isNotEmpty / today / thisWeek / thisMonth) bail
-  // out here — the user explicitly flagged this earlier.
-  if (!field || !op || !op.needsValue) return null;
+  const kind = createMemo<ValueKind>(() => {
+    const field = props.field;
+    const op = props.op;
+    if (!field || !op || !op.needsValue) return "none";
+    if (op.needsRange) return "range";
+    if (field.type === "single-select" && (op.id === "is" || op.id === "isNot")) {
+      return "select";
+    }
+    if (
+      op.id === "isAnyOf" ||
+      op.id === "isNoneOf" ||
+      op.id === "containsAll" ||
+      op.id === "containsAny" ||
+      op.id === "doesNotContain"
+    ) {
+      return "multi";
+    }
+    if (field.type === "boolean") return "boolean";
+    if (field.type === "date" && op.id === "lastNDays") return "number-days";
+    if (field.type === "date") return "date";
+    if (
+      field.type === "number" ||
+      field.type === "decimal" ||
+      field.type === "rating" ||
+      field.type === "autonumber"
+    ) {
+      return "number";
+    }
+    return "text";
+  });
 
   const nativeClass =
     "rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1.5 text-xs w-44";
 
-  if (op.needsRange) {
-    const range = Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""];
-    const inputType = field.type === "date" ? "date" : "number";
-    return (
-      <span class="flex items-center gap-1">
-        <input
-          type={inputType}
-          class={nativeClass}
-          value={range[0] != null ? String(range[0]) : ""}
-          onInput={(e) => props.onChange([e.currentTarget.value, range[1]])}
-        />
-        <span class="text-dimmed">to</span>
-        <input
-          type={inputType}
-          class={nativeClass}
-          value={range[1] != null ? String(range[1]) : ""}
-          onInput={(e) => props.onChange([range[0], e.currentTarget.value])}
-        />
-      </span>
-    );
-  }
+  return (
+    <Switch>
+      {/* "none" → render nothing; covered by Switch's no-match fallback. */}
 
-  if (field.type === "single-select" && (op.id === "is" || op.id === "isNot")) {
-    const options = (field.config as { options?: Array<{ id: string; label: string }> }).options ?? [];
-    const value = typeof props.value === "string" ? props.value : "";
-    return (
-      <div class="w-44">
-        <Select
-          value={() => value}
-          onChange={(v) => props.onChange(v)}
-          options={options.map((o) => ({ id: o.id, label: o.label }))}
-          placeholder="—"
-        />
-      </div>
-    );
-  }
+      <Match when={kind() === "range"}>
+        {(() => {
+          const range = () =>
+            Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""];
+          const inputType = () => (props.field?.type === "date" ? "date" : "number");
+          return (
+            <span class="flex items-center gap-1">
+              <input
+                type={inputType()}
+                class={nativeClass}
+                value={range()[0] != null ? String(range()[0]) : ""}
+                onInput={(e) => props.onChange([e.currentTarget.value, range()[1]])}
+              />
+              <span class="text-dimmed">to</span>
+              <input
+                type={inputType()}
+                class={nativeClass}
+                value={range()[1] != null ? String(range()[1]) : ""}
+                onInput={(e) => props.onChange([range()[0], e.currentTarget.value])}
+              />
+            </span>
+          );
+        })()}
+      </Match>
 
-  // Multi-value ops accept a comma-separated string → parse to string[].
-  if (
-    op.id === "isAnyOf" ||
-    op.id === "isNoneOf" ||
-    op.id === "containsAll" ||
-    op.id === "containsAny" ||
-    op.id === "doesNotContain"
-  ) {
-    const display = Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? "");
-    return (
-      <div class="w-44">
-        <TextInput
-          icon="ti ti-list"
-          placeholder="comma-separated"
-          value={() => display}
-          onInput={(v) => {
-            const parts = v
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean);
-            props.onChange(parts);
-          }}
-        />
-      </div>
-    );
-  }
+      <Match when={kind() === "select"}>
+        <div class="w-44">
+          <Select
+            value={() => (typeof props.value === "string" ? props.value : "")}
+            onChange={(v) => props.onChange(v)}
+            options={
+              ((props.field?.config as { options?: Array<{ id: string; label: string }> })
+                ?.options ?? []
+              ).map((o) => ({ id: o.id, label: o.label }))
+            }
+            placeholder="—"
+          />
+        </div>
+      </Match>
 
-  if (field.type === "boolean") {
-    const value = props.value === true ? "true" : props.value === false ? "false" : "";
-    return (
-      <div class="w-32">
-        <Select
-          value={() => value}
-          onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
-          options={[
-            { id: "true", label: "true" },
-            { id: "false", label: "false" },
-          ]}
-          placeholder="—"
-          clearable
-        />
-      </div>
-    );
-  }
+      <Match when={kind() === "multi"}>
+        <div class="w-44">
+          <TextInput
+            icon="ti ti-list"
+            placeholder="comma-separated"
+            value={() =>
+              Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? "")
+            }
+            onInput={(v) => {
+              const parts = v
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              props.onChange(parts);
+            }}
+          />
+        </div>
+      </Match>
 
-  if (field.type === "date") {
-    if (op.id === "lastNDays") {
-      return (
+      <Match when={kind() === "boolean"}>
+        <div class="w-32">
+          <Select
+            value={() =>
+              props.value === true ? "true" : props.value === false ? "false" : ""
+            }
+            onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
+            options={[
+              { id: "true", label: "true" },
+              { id: "false", label: "false" },
+            ]}
+            placeholder="—"
+            clearable
+          />
+        </div>
+      </Match>
+
+      <Match when={kind() === "number-days"}>
         <input
           type="number"
           min="1"
           class={nativeClass}
           placeholder="days"
-          value={typeof props.value === "number" || typeof props.value === "string" ? String(props.value) : ""}
+          value={
+            typeof props.value === "number" || typeof props.value === "string"
+              ? String(props.value)
+              : ""
+          }
           onInput={(e) => {
             const n = e.currentTarget.valueAsNumber;
             props.onChange(Number.isFinite(n) ? n : e.currentTarget.value);
           }}
         />
-      );
-    }
-    return (
-      <input
-        type="date"
-        class={nativeClass}
-        value={typeof props.value === "string" ? props.value : ""}
-        onInput={(e) => props.onChange(e.currentTarget.value)}
-      />
-    );
-  }
+      </Match>
 
-  if (
-    field.type === "number" ||
-    field.type === "decimal" ||
-    field.type === "rating" ||
-    field.type === "autonumber"
-  ) {
-    return (
-      <input
-        type="number"
-        class={nativeClass}
-        value={typeof props.value === "number" || typeof props.value === "string" ? String(props.value) : ""}
-        onInput={(e) => {
-          const n = e.currentTarget.valueAsNumber;
-          props.onChange(Number.isFinite(n) ? n : e.currentTarget.value);
-        }}
-      />
-    );
-  }
+      <Match when={kind() === "date"}>
+        <input
+          type="date"
+          class={nativeClass}
+          value={typeof props.value === "string" ? props.value : ""}
+          onInput={(e) => props.onChange(e.currentTarget.value)}
+        />
+      </Match>
 
-  // Default text-shaped (text / longtext / email / url / phone / slug / …).
-  // Wrapped in a fixed-width container so it lines up with the rest of the
-  // row regardless of TextInput's full-width default.
-  return (
-    <div class="w-44">
-      <TextInput
-        value={() => (typeof props.value === "string" ? props.value : "")}
-        onInput={(v) => props.onChange(v)}
-      />
-    </div>
+      <Match when={kind() === "number"}>
+        <input
+          type="number"
+          class={nativeClass}
+          value={
+            typeof props.value === "number" || typeof props.value === "string"
+              ? String(props.value)
+              : ""
+          }
+          onInput={(e) => {
+            const n = e.currentTarget.valueAsNumber;
+            props.onChange(Number.isFinite(n) ? n : e.currentTarget.value);
+          }}
+        />
+      </Match>
+
+      <Match when={kind() === "text"}>
+        <div class="w-44">
+          <TextInput
+            value={() => (typeof props.value === "string" ? props.value : "")}
+            onInput={(v) => props.onChange(v)}
+          />
+        </div>
+      </Match>
+    </Switch>
   );
 }
