@@ -22,60 +22,72 @@ export const isUserEditable = (type: string): boolean => {
  * preloaded with an existing value (for edit flows). Maps grids types to
  * their closest prompts.form input shape; per-type config flows through
  * (selects' options, dates' includeTime, rating's scale).
+ *
+ * Per-field descriptions live under `field.config.description` (Zod
+ * configSchemas are non-strict by default, so unknown keys round-trip
+ * through the DB unmodified). They appear under the input label in the
+ * prompts.form modal.
  */
 export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any => {
   const required = field.required;
   const label = field.name;
+  const description =
+    typeof (field.config as { description?: unknown })?.description === "string"
+      ? ((field.config as { description?: string }).description as string)
+      : undefined;
   // prompts.form seeds inputs from `default`, not `value`. Use undefined
   // (not null) so the input renders blank rather than the string "null".
   const defaultVal = currentValue === null ? undefined : currentValue;
 
+  // Common metadata for every input — label / required / description.
+  const base = { label, required, description } as const;
+
   switch (field.type) {
     case "text":
-      return { type: "text", label, required, default: defaultVal };
+      return { type: "text", ...base, default: defaultVal };
     case "longtext":
-      return { type: "text", label, required, multiline: true, lines: 4, default: defaultVal };
+      return { type: "text", ...base, multiline: true, lines: 4, default: defaultVal };
     case "number":
-      return { type: "number", label, required, default: defaultVal };
+      return { type: "number", ...base, default: defaultVal };
     case "decimal":
       // No native decimal input; use number — server validates precision.
-      return { type: "number", label, required, default: defaultVal };
+      return { type: "number", ...base, default: defaultVal };
     case "rating": {
       const scale = (field.config as { scale?: number }).scale ?? 5;
-      return { type: "number", label, required, min: 0, max: scale, default: defaultVal };
+      return { type: "number", ...base, min: 0, max: scale, default: defaultVal };
     }
     case "boolean":
       // Only seed a default when there's an actual prior value; defaulting
       // to `false` would overwrite a server-side null/default with false
       // when the user submits without touching this field.
       return defaultVal === undefined
-        ? { type: "boolean", label }
-        : { type: "boolean", label, default: defaultVal === true };
+        ? { type: "boolean", label, description }
+        : { type: "boolean", label, description, default: defaultVal === true };
     case "date": {
       const includeTime = (field.config as { includeTime?: boolean }).includeTime ?? false;
-      return { type: "datetime", label, required, dateOnly: !includeTime, default: defaultVal };
+      return { type: "datetime", ...base, dateOnly: !includeTime, default: defaultVal };
     }
     case "single-select": {
       const options = ((field.config as { options?: Array<{ id: string; label: string }> }).options ?? []).map(
         (o) => ({ id: o.id, label: o.label }),
       );
-      return { type: "select", label, required, options, clearable: !required, default: defaultVal };
+      return { type: "select", ...base, options, clearable: !required, default: defaultVal };
     }
     case "multi-select":
-      return { type: "tags", label, default: Array.isArray(defaultVal) ? defaultVal : [] };
+      return { type: "tags", label, description, default: Array.isArray(defaultVal) ? defaultVal : [] };
     // Tier 2 — text-shaped with format hint via placeholder
     case "email":
-      return { type: "text", label, required, placeholder: "name@example.com", default: defaultVal };
+      return { type: "text", ...base, placeholder: "name@example.com", default: defaultVal };
     case "url":
-      return { type: "text", label, required, placeholder: "https://…", default: defaultVal };
+      return { type: "text", ...base, placeholder: "https://…", default: defaultVal };
     case "phone":
-      return { type: "text", label, required, placeholder: "+49 151 …", default: defaultVal };
+      return { type: "text", ...base, placeholder: "+49 151 …", default: defaultVal };
     case "slug":
-      return { type: "text", label, required, placeholder: "my-slug", default: defaultVal };
+      return { type: "text", ...base, placeholder: "my-slug", default: defaultVal };
     case "percent":
-      return { type: "number", label, required, min: 0, max: 100, default: defaultVal };
+      return { type: "number", ...base, min: 0, max: 100, default: defaultVal };
     case "duration":
-      return { type: "text", label, required, placeholder: "HH:MM:SS or seconds", default: defaultVal };
+      return { type: "text", ...base, placeholder: "HH:MM:SS or seconds", default: defaultVal };
     case "currency":
       // Currency stores `{ amount, currency }` server-side. The UI input
       // is a plain number for the amount; on edit we have to round-trip
@@ -88,27 +100,25 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
         const obj = defaultVal as { amount?: string; currency?: string };
         return {
           type: "text",
-          label,
-          required,
+          ...base,
           placeholder: "12.34 EUR",
           default: obj.amount && obj.currency ? `${obj.amount} ${obj.currency}` : obj.amount,
         };
       }
-      return { type: "text", label, required, placeholder: "12.34 EUR", default: defaultVal };
+      return { type: "text", ...base, placeholder: "12.34 EUR", default: defaultVal };
     // Tier 3
     case "barcode":
     case "isbn":
-      return { type: "text", label, required, default: defaultVal };
+      return { type: "text", ...base, default: defaultVal };
     case "color":
-      return { type: "text", label, required, placeholder: "#3b82f6", default: defaultVal };
+      return { type: "text", ...base, placeholder: "#3b82f6", default: defaultVal };
     case "rich-text":
-      return { type: "text", label, required, multiline: true, lines: 8, default: defaultVal };
+      return { type: "text", ...base, multiline: true, lines: 8, default: defaultVal };
     case "json":
       // Free-form JSON via multiline; server parses + validates.
       return {
         type: "text",
-        label,
-        required,
+        ...base,
         multiline: true,
         lines: 6,
         default: defaultVal !== undefined ? JSON.stringify(defaultVal, null, 2) : undefined,

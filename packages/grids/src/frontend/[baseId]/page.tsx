@@ -4,6 +4,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsGrid from "../_components/RecordsGrid.island";
+import RecordDetailPanel from "../_components/RecordDetailPanel.island";
 import GridToolbar from "../_components/GridToolbar.island";
 import SearchBar from "../_components/SearchBar.island";
 import TableEditor from "../_components/TableEditor.island";
@@ -158,6 +159,11 @@ export default ssr<AuthContext>(async (c) => {
   const rawQFields = c.req.query("qFields") ?? "";
   const qFieldIds = rawQFields ? rawQFields.split(",").filter(Boolean) : [];
 
+  // Selected record for the detail panel — `?record=<id>` query param.
+  // We fetch the full record SSR-side so deep links land with the panel
+  // already populated (no client-side spinner on first paint).
+  const selectedRecordId = c.req.query("record") ?? null;
+
   const base = await gridsService.base.get(baseId);
   if (!base) {
     return () => (
@@ -214,6 +220,7 @@ export default ssr<AuthContext>(async (c) => {
     ReturnType<typeof gridsService.form.listForTable>
   > = [];
   let activeTableLevel = level;
+  let selectedRecord: import("../../service").GridRecord | null = null;
   // Pre-fetched fields for every table in this base — TableEditor's relation
   // picker needs this so the user can pick a target table + display field
   // without an extra API round-trip from the modal.
@@ -257,6 +264,15 @@ export default ssr<AuthContext>(async (c) => {
       userGroups: user.memberofGroupIds,
     });
     formsForTable = await gridsService.form.listForTable(activeTable.id);
+
+    // Resolve the selected record from the URL — prefer the row already in
+    // the visible page, fall back to a direct fetch (covers deep links to a
+    // record that's beyond the first 100-row page).
+    if (selectedRecordId) {
+      selectedRecord =
+        records.items.find((r) => r.id === selectedRecordId) ??
+        (await gridsService.record.get(activeTable.id, selectedRecordId));
+    }
 
     // Auto-aggregates for the visible columns: count for every field plus
     // sum for numeric/decimal/rating. Power users can pick per-column
@@ -504,6 +520,7 @@ export default ssr<AuthContext>(async (c) => {
                 records={records.items}
                 canWrite={canWriteRecords}
                 mode={trashMode ? "trash" : "live"}
+                initialSelectedId={selectedRecordId}
                 aggregates={trashMode ? {} : aggregates}
               />
 
@@ -534,6 +551,27 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           )}
         </main>
+
+        {/* Detail panel — third column, hidden until a record is selected.
+            The panel is mounted as an island; when `?record=<id>` is set in
+            the URL we ship the SSR-fetched record so deep links land
+            populated. Mirrors the spaces / contacts third-column pattern. */}
+        {activeTable && (
+          <div
+            class={`${
+              selectedRecordId ? "flex" : "hidden"
+            } order-2 lg:order-3 w-full lg:w-[28rem] shrink-0 flex-col min-h-0 overflow-hidden`}
+          >
+            <RecordDetailPanel
+              tableId={activeTable.id}
+              fields={fields}
+              initialRecord={selectedRecord}
+              initialRecordId={selectedRecordId}
+              trashMode={trashMode}
+              canWrite={canWriteRecords}
+            />
+          </div>
+        )}
       </div>
     </Layout>
   );

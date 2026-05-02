@@ -1,18 +1,22 @@
-import { For, Show, createSignal } from "solid-js";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { apiClient } from "@/api/client";
+import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import type { Field, GridRecord } from "../../service";
-import { fieldToPromptSchema, isUserEditable, sanitizeEditPayload } from "./field-prompt-schema";
-import { errorMessage } from "./api-helpers";
+import {
+  RECORD_DETAIL_EVENT,
+  setSelectedRecordInUrl,
+  getSelectedRecordIdFromUrl,
+  type RecordDetailMode,
+  type RecordDetailPayload,
+} from "./record-detail-context";
 
 type Props = {
   tableId: string;
   fields: Field[];
   records: GridRecord[];
   canWrite: boolean;
-  /** "live" = edit/delete actions; "trash" = restore action. Default "live". */
-  mode?: "live" | "trash";
+  /** "live" = edit/delete via the detail panel; "trash" = restore. */
+  mode?: RecordDetailMode;
+  /** Initial selected record id from `?record=<id>` (SSR). */
+  initialSelectedId?: string | null;
   /**
    * Aggregate values keyed `<fieldId>__<agg>` (matches the API's keying).
    * Rendered as a footer row: count for every field + sum for numerics.
@@ -57,95 +61,44 @@ const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, u
   return String(value);
 };
 
+/**
+ * Records table. Rows are clickable: clicking a row sets `?record=<id>` on
+ * the URL and dispatches the `grids-record-select` event so the
+ * RecordDetailPanel mounted in the third column updates without a full SSR
+ * round-trip. Edit / delete / restore actions live entirely in that panel
+ * — there are no inline row buttons here anymore.
+ */
 export default function RecordsGrid(props: Props) {
-  const [records, setRecords] = createSignal(props.records);
+  const [selectedId, setSelectedId] = createSignal<string | null>(props.initialSelectedId ?? null);
+  const mode: RecordDetailMode = props.mode ?? "live";
+
+  // Listen for the detail-panel selection event so the highlight stays in
+  // sync when the user closes the panel or navigates back/forward.
+  onMount(() => {
+    const onEvent = (e: Event) => {
+      const payload = (e as CustomEvent<RecordDetailPayload>).detail;
+      setSelectedId(payload.itemKey);
+    };
+    const onPop = () => setSelectedId(getSelectedRecordIdFromUrl());
+    window.addEventListener(RECORD_DETAIL_EVENT, onEvent);
+    window.addEventListener("popstate", onPop);
+    onCleanup(() => {
+      window.removeEventListener(RECORD_DETAIL_EVENT, onEvent);
+      window.removeEventListener("popstate", onPop);
+    });
+  });
 
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
 
-  // Mutations refresh the page so the SSR-rendered footer aggregates and
-  // any other derived state (next-cursor, audit log, etc) stay consistent
-  // with what the user actually edited. We update the local signal first
-  // for an instant feel — refreshCurrentPath comes after.
-  const updateMutation = mutations.create<GridRecord, { record: GridRecord; payload: Record<string, unknown> }>({
-    mutation: async ({ record, payload }) => {
-      const res = await fetch(`/api/grids/records/${props.tableId}/${record.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "If-Match": String(record.version) },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update record"));
-      return (await res.json()) as GridRecord;
-    },
-    onSuccess: (updated) => {
-      setRecords(records().map((r) => (r.id === updated.id ? updated : r)));
-      refreshCurrentPath();
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const deleteMutation = mutations.create<string, string>({
-    mutation: async (recordId) => {
-      const res = await apiClient.records[":tableId"][":recordId"].$delete({
-        param: { tableId: props.tableId, recordId },
-      });
-      if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete record"));
-      return recordId;
-    },
-    onSuccess: (recordId) => {
-      setRecords(records().filter((r) => r.id !== recordId));
-      refreshCurrentPath();
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const restoreMutation = mutations.create<string, string>({
-    mutation: async (recordId) => {
-      const res = await apiClient.records[":tableId"][":recordId"].restore.$post({
-        param: { tableId: props.tableId, recordId },
-      });
-      if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to restore record"));
-      return recordId;
-    },
-    onSuccess: (recordId) => {
-      setRecords(records().filter((r) => r.id !== recordId));
-      refreshCurrentPath();
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const handleEdit = async (record: GridRecord) => {
-    const usableFields = visibleFields().filter((f) => isUserEditable(f.type));
-    if (usableFields.length === 0) {
-      prompts.error("No editable fields. Add a field first.");
-      return;
-    }
-    const formFields: Record<string, any> = {};
-    for (const field of usableFields) {
-      const schema = fieldToPromptSchema(field, record.data[field.id]);
-      if (schema) formFields[field.id] = schema;
-    }
-    const result = await prompts.form({
-      title: "Edit record",
-      icon: "ti ti-edit",
-      fields: formFields,
-      confirmText: "Save",
-    });
-    if (!result) return;
-    // Edit semantic: every form-rendered field must round-trip; empty
-    // values become explicit null so they actually clear server-side
-    // (omitted keys are preserved by the update service).
-    const formFieldIds = usableFields.map((f) => f.id);
-    updateMutation.mutate({ record, payload: sanitizeEditPayload(result, formFieldIds) });
+  const onRowClick = (rec: GridRecord) => {
+    setSelectedId(rec.id);
+    setSelectedRecordInUrl({ recordId: rec.id, record: rec, mode });
   };
 
-  const handleDelete = async (record: GridRecord) => {
-    const confirmed = await prompts.confirm("Soft-delete this record? It can be restored from the trash.", {
-      title: "Delete record?",
-      variant: "danger",
-      confirmText: "Delete",
-    });
-    if (!confirmed) return;
-    deleteMutation.mutate(record.id);
+  const onRowKeyDown = (event: KeyboardEvent, rec: GridRecord) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onRowClick(rec);
   };
 
   return (
@@ -158,136 +111,105 @@ export default function RecordsGrid(props: Props) {
       }
     >
       {/*
-        Two-layer wrapper so wide tables (lots of fields, long values)
-        scroll horizontally inside the paper border without forcing the
-        whole page wider. Mirrors the spaces ItemsTable pattern.
+        Two-layer wrapper so wide tables (lots of fields, long values) scroll
+        horizontally inside the paper border without forcing the whole page
+        wider. Mirrors the spaces ItemsTable pattern.
       */}
       <div class="paper overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-          <thead>
-            <tr class="border-b border-zinc-100 dark:border-zinc-800">
-              {/* Two-line headers — explicitly breaking the platform's
-                  single-line table convention because grids tables are far
-                  more dynamic (any field type, user-defined names) than
-                  the static-schema tables elsewhere in the cloud. Top
-                  line = column name (primary, semibold); bottom line =
-                  data type (small, dimmed). */}
-              <For each={visibleFields()}>
-                {(f) => (
-                  <th class="px-3 py-2 text-left">
-                    <div class="flex flex-col gap-0.5 leading-tight">
-                      <span class="text-primary font-semibold">{f.name}</span>
-                      <span class="text-[10px] text-dimmed font-normal">{f.type}</span>
-                    </div>
-                  </th>
-                )}
-              </For>
-              <Show when={props.canWrite}>
-                <th class="w-10" />
-              </Show>
-            </tr>
-          </thead>
-          <Show when={props.aggregates && Object.keys(props.aggregates).length > 0}>
-            <tfoot>
-              <tr class="border-t border-zinc-100 dark:border-zinc-800">
+            <thead>
+              <tr class="border-b border-zinc-100 dark:border-zinc-800">
+                {/* Two-line headers — explicitly breaking the platform's
+                    single-line table convention because grids tables are far
+                    more dynamic (any field type, user-defined names) than
+                    the static-schema tables elsewhere in the cloud. Top
+                    line = column name (primary, semibold); bottom line =
+                    data type (small, dimmed). */}
                 <For each={visibleFields()}>
-                  {(f) => {
-                    const agg = props.aggregates ?? {};
-                    const count = agg[`${f.id}__count`];
-                    const sum = agg[`${f.id}__sum`];
-                    // Each line is a `block` with `whitespace-nowrap` so a
-                    // narrow cell breaks BETWEEN the count and the sum
-                    // ("4 values" / "Σ 82.39") instead of inside either
-                    // phrase ("4 / values Σ / 82.39").
+                  {(f) => (
+                    <th class="px-3 py-2 text-left">
+                      <div class="flex flex-col gap-0.5 leading-tight">
+                        <span class="text-primary font-semibold">{f.name}</span>
+                        <span class="text-[10px] text-dimmed font-normal">{f.type}</span>
+                      </div>
+                    </th>
+                  )}
+                </For>
+              </tr>
+            </thead>
+            <Show when={props.aggregates && Object.keys(props.aggregates).length > 0}>
+              <tfoot>
+                <tr class="border-t border-zinc-100 dark:border-zinc-800">
+                  <For each={visibleFields()}>
+                    {(f) => {
+                      const agg = props.aggregates ?? {};
+                      const count = agg[`${f.id}__count`];
+                      const sum = agg[`${f.id}__sum`];
+                      return (
+                        <td class="px-3 py-1.5 text-[11px] text-dimmed">
+                          <Show when={count !== undefined && count !== null}>
+                            <span class="block whitespace-nowrap" title="non-empty count">
+                              {String(count)} {Number(count) === 1 ? "value" : "values"}
+                            </span>
+                          </Show>
+                          <Show when={sum !== undefined && sum !== null}>
+                            <span class="block whitespace-nowrap" title="sum">
+                              Σ {String(sum)}
+                            </span>
+                          </Show>
+                        </td>
+                      );
+                    }}
+                  </For>
+                </tr>
+              </tfoot>
+            </Show>
+            <tbody>
+              <Show
+                when={props.records.length > 0}
+                fallback={
+                  <tr>
+                    <td
+                      colspan={visibleFields().length}
+                      class="px-3 py-3 text-left text-dimmed text-xs"
+                    >
+                      {mode === "trash" ? "No deleted records." : "No records."}
+                    </td>
+                  </tr>
+                }
+              >
+                <For each={props.records}>
+                  {(rec) => {
+                    const isSelected = () => selectedId() === rec.id;
                     return (
-                      <td class="px-3 py-1.5 text-[11px] text-dimmed">
-                        <Show when={count !== undefined && count !== null}>
-                          <span class="block whitespace-nowrap" title="non-empty count">
-                            {String(count)} {Number(count) === 1 ? "value" : "values"}
-                          </span>
-                        </Show>
-                        <Show when={sum !== undefined && sum !== null}>
-                          <span class="block whitespace-nowrap" title="sum">
-                            Σ {String(sum)}
-                          </span>
-                        </Show>
-                      </td>
+                      <tr
+                        // Row is the click target — opens the detail panel.
+                        // Tabindex + role + keydown make it keyboard-accessible.
+                        tabindex={0}
+                        role="button"
+                        aria-pressed={isSelected()}
+                        class={`cursor-pointer border-b border-zinc-50 last:border-0 dark:border-zinc-800/50 ${
+                          isSelected()
+                            ? "bg-blue-50 dark:bg-blue-950/30"
+                            : "hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
+                        }`}
+                        onClick={() => onRowClick(rec)}
+                        onKeyDown={(e) => onRowKeyDown(e, rec)}
+                      >
+                        <For each={visibleFields()}>
+                          {(f) => (
+                            <td class="px-3 py-2 text-primary">
+                              {formatCell(rec.data[f.id], f.type, f.config)}
+                            </td>
+                          )}
+                        </For>
+                      </tr>
                     );
                   }}
                 </For>
-                <Show when={props.canWrite}>
-                  <td />
-                </Show>
-              </tr>
-            </tfoot>
-          </Show>
-          <tbody>
-            <Show
-              when={records().length > 0}
-              fallback={
-                <tr>
-                  <td
-                    colspan={visibleFields().length + (props.canWrite ? 1 : 0)}
-                    class="px-3 py-3 text-left text-dimmed text-xs"
-                  >
-                    {props.mode === "trash" ? "No deleted records." : "No records."}
-                  </td>
-                </tr>
-              }
-            >
-              <For each={records()}>
-                {(rec) => (
-                  <tr class="group border-b border-zinc-50 last:border-0 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-800/30">
-                    <For each={visibleFields()}>
-                      {(f) => (
-                        <td class="px-3 py-2 text-primary">{formatCell(rec.data[f.id], f.type, f.config)}</td>
-                      )}
-                    </For>
-                    <Show when={props.canWrite}>
-                      <td class="px-2 py-1 w-10">
-                        <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Show
-                            when={props.mode === "trash"}
-                            fallback={
-                              <>
-                                <button
-                                  type="button"
-                                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                                  onClick={() => handleEdit(rec)}
-                                  title="Edit"
-                                >
-                                  <i class="ti ti-edit" />
-                                </button>
-                                <button
-                                  type="button"
-                                  class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
-                                  onClick={() => handleDelete(rec)}
-                                  title="Delete"
-                                >
-                                  <i class="ti ti-trash" />
-                                </button>
-                              </>
-                            }
-                          >
-                            <button
-                              type="button"
-                              class="btn-simple btn-sm text-xs text-dimmed hover:text-emerald-600"
-                              onClick={() => restoreMutation.mutate(rec.id)}
-                              title="Restore"
-                              disabled={restoreMutation.loading()}
-                            >
-                              <i class="ti ti-arrow-back-up" />
-                            </button>
-                          </Show>
-                        </div>
-                      </td>
-                    </Show>
-                  </tr>
-                )}
-              </For>
-            </Show>
-          </tbody>
+              </Show>
+            </tbody>
           </table>
         </div>
       </div>
