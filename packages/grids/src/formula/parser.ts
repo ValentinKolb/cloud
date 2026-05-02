@@ -102,7 +102,7 @@ const tokenize = (src: string): Token[] => {
         i += 2;
         continue;
       }
-      if (c === "!") throw new Error("'!' must be followed by '='");
+      // Bare `!` is unary NOT — the parser's prefix branch handles it.
       tokens.push({ kind: "op", value: c });
       i++;
       continue;

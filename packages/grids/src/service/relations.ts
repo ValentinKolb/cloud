@@ -1,8 +1,9 @@
 import { sql } from "bun";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
-import { parseFormula } from "../formula/parser";
+import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { evaluate, renderResult } from "../formula/evaluator";
+import { formulaError } from "../formula/types";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -145,27 +146,77 @@ export const enrichRecordsWithLookups = async (
 };
 
 /**
- * Evaluates every formula field for the visible records and writes the
- * rendered display value into each record's data. Formulas run AFTER
- * lookup/rollup so a formula can reference computed fields too.
+ * Topologically orders formula fields by their inter-formula references.
+ * A formula that depends on another formula's value evaluates AFTER its
+ * dependency. Cycles are detected and surfaced as a #CYCLE error written
+ * into every member's cell rather than crashing the read.
  */
-export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]): GridRecord[] => {
-  const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula");
-  if (formulaFields.length === 0) return records;
-
-  // Parse once per field, reuse across records.
+const orderFormulasByDeps = (
+  formulaFields: Field[],
+): { ordered: Array<{ field: Field; ast: ReturnType<typeof parseFormula> extends infer R ? R extends { ok: true; ast: infer A } ? A : never : never }>; cycle: Set<string> } => {
   const compiled = formulaFields
     .map((f) => {
       const expr = (f.config as { expression?: string }).expression;
       if (!expr) return null;
       const parsed = parseFormula(expr);
       if (!parsed.ok) return null;
-      return { field: f, ast: parsed.ast };
+      const refs = collectFieldRefs(parsed.ast);
+      return { field: f, ast: parsed.ast, refs };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
 
+  const idSet = new Set(compiled.map((c) => c.field.id));
+  const byId = new Map(compiled.map((c) => [c.field.id, c]));
+
+  // DFS-based topological sort with cycle detection.
+  const ordered: typeof compiled = [];
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const cycle = new Set<string>();
+
+  const visit = (id: string): boolean => {
+    if (visited.has(id)) return true;
+    if (inStack.has(id)) {
+      cycle.add(id);
+      return false;
+    }
+    const node = byId.get(id);
+    if (!node) return true;
+    inStack.add(id);
+    for (const ref of node.refs) {
+      if (idSet.has(ref) && !visit(ref)) cycle.add(id);
+    }
+    inStack.delete(id);
+    visited.add(id);
+    ordered.push(node);
+    return true;
+  };
+  for (const c of compiled) visit(c.field.id);
+
+  return { ordered, cycle };
+};
+
+/**
+ * Evaluates every formula field for the visible records and writes the
+ * rendered display value into each record's data. Formulas run AFTER
+ * lookup/rollup so a formula can reference computed fields too.
+ * Inter-formula references evaluate in dependency order; cycles surface
+ * as #CYCLE rather than silent wrong values.
+ */
+export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]): GridRecord[] => {
+  const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula");
+  if (formulaFields.length === 0) return records;
+
+  const { ordered, cycle } = orderFormulasByDeps(formulaFields);
+
   for (const rec of records) {
-    for (const { field, ast } of compiled) {
+    // Mark cycle members first so dependents see the error sentinel
+    // instead of the previous-iteration's value.
+    for (const id of cycle) {
+      rec.data[id] = renderResult(formulaError("CYCLE"));
+    }
+    for (const { field, ast } of ordered) {
+      if (cycle.has(field.id)) continue;
       const value = evaluate(ast, { fields: rec.data });
       rec.data[field.id] = renderResult(value);
     }

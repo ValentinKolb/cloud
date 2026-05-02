@@ -118,18 +118,16 @@ export const evaluate = (ast: Expr, ctx: EvalContext): unknown => {
       return null;
     }
     case "call": {
+      // IF short-circuits: only the selected branch evaluates. A guard
+      // like `IF({den}=0, null, {num}/{den})` would otherwise still hit
+      // DIV_ZERO from the unused branch.
+      if (ast.fn === "IF" && ast.args.length === 3) {
+        const cond = evaluate(ast.args[0]!, ctx);
+        if (isFormulaError(cond)) return cond;
+        return evaluate(ast.args[truthy(cond) ? 1 : 2]!, ctx);
+      }
       const fn = FN_LIBRARY[ast.fn];
       if (!fn) return formulaError(`UNKNOWN_FN:${ast.fn}`);
-      // Eager-evaluate args, with null-propagation EXCEPT for IF/AND/OR/NOT/
-      // ISBLANK which must see their args verbatim. Treat those as
-      // short-circuit-aware via a special path.
-      const lazyFns = new Set(["IF", "AND", "OR"]);
-      if (lazyFns.has(ast.fn)) {
-        // Lazy: evaluate as needed inside the fn — but to keep code simple
-        // we eagerly evaluate each arg here too. AND / OR rarely benefit
-        // from short-circuit in formula contexts; IF wastes one branch.
-        // KISS for now.
-      }
       const args: unknown[] = [];
       for (const a of ast.args) {
         const v = evaluate(a, ctx);
@@ -138,7 +136,7 @@ export const evaluate = (ast: Expr, ctx: EvalContext): unknown => {
       }
       try {
         return fn(args);
-      } catch (e) {
+      } catch {
         return formulaError(`FN_ERROR:${ast.fn}`);
       }
     }
