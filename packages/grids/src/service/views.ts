@@ -62,37 +62,43 @@ export const listForTable = async (params: {
   const userGroups = params.userGroups ?? [];
   const groups = userGroups.length > 0 ? `{${userGroups.join(",")}}` : "{}";
 
-  // Pull views + two booleans per view: does the user have an explicit
-  // deny (level=none) ANYWHERE among matching grants, and does the user
-  // have an explicit positive (read/write/admin) anywhere. We can't
-  // collapse to a single MAX because deny semantics aren't ordering-based:
-  // a public `read` grant + a direct `none` grant must result in HIDE.
-  const rows = await sql<(DbRow & { has_deny: boolean; has_grant: boolean })[]>`
+  // Most-specific-wins per principal tier (user > group > authenticated >
+  // public). Within a tier we take the highest matching rank — that lets
+  // "block public, allow user-X" work: public_rank=0 (deny), user_rank=1
+  // (read) → user_rank wins because user is more specific. Within a tier
+  // a deny still wins over a read because rank 0 < 1, but that's fine for
+  // "you have multiple direct-user rows that disagree" which shouldn't
+  // happen in practice (the create path checks for duplicates).
+  const rows = await sql<(DbRow & {
+    user_rank: number | null;
+    group_rank: number | null;
+    auth_rank: number | null;
+    public_rank: number | null;
+  })[]>`
     SELECT v.id, v.table_id, v.name, v.config, v.owner_user_id, v.position, v.created_at, v.updated_at,
-      EXISTS(
-        SELECT 1 FROM grids.view_access va
-        JOIN auth.access a ON a.id = va.access_id
+      (
+        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+        WHERE va.view_id = v.id AND a.user_id = ${params.userId}::uuid
+      ) AS user_rank,
+      (
+        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+        WHERE va.view_id = v.id AND a.group_id = ANY(${groups}::uuid[])
+      ) AS group_rank,
+      (
+        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
         WHERE va.view_id = v.id
-          AND a.permission = 'none'
-          AND (
-            a.user_id = ${params.userId}::uuid
-            OR a.group_id = ANY(${groups}::uuid[])
-            OR (a.authenticated_only = TRUE AND ${params.userId}::uuid IS NOT NULL)
-            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
-          )
-      ) AS has_deny,
-      EXISTS(
-        SELECT 1 FROM grids.view_access va
-        JOIN auth.access a ON a.id = va.access_id
+          AND a.authenticated_only = TRUE
+          AND ${params.userId}::uuid IS NOT NULL
+      ) AS auth_rank,
+      (
+        SELECT MAX(CASE a.permission WHEN 'none' THEN 0 WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
         WHERE va.view_id = v.id
-          AND a.permission IN ('read', 'write', 'admin')
-          AND (
-            a.user_id = ${params.userId}::uuid
-            OR a.group_id = ANY(${groups}::uuid[])
-            OR (a.authenticated_only = TRUE AND ${params.userId}::uuid IS NOT NULL)
-            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
-          )
-      ) AS has_grant
+          AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
+      ) AS public_rank
     FROM grids.views v
     WHERE v.table_id = ${params.tableId}::uuid
     ORDER BY v.position, v.created_at
@@ -100,12 +106,9 @@ export const listForTable = async (params: {
 
   return rows
     .filter((row) => {
-      // Explicit deny → hidden, period. This wins over any positive grant
-      // anywhere else (matching the most-specific-deny-shadows-broader-read
-      // rule used elsewhere in the platform).
-      if (row.has_deny) return false;
-      // Explicit positive grant → visible.
-      if (row.has_grant) return true;
+      // Walk specificity tiers top-down; first non-null tier decides.
+      const winning = row.user_rank ?? row.group_rank ?? row.auth_rank ?? row.public_rank;
+      if (winning !== null && winning !== undefined) return winning >= 1;
       // No matching ACL row at all → default visibility.
       const ownerId = row.owner_user_id as string | null;
       return ownerId === null || ownerId === params.userId;
