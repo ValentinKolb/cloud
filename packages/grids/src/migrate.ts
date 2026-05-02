@@ -79,6 +79,7 @@ export const migrate = async (): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
+      description TEXT,
       type TEXT NOT NULL,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
       position INT NOT NULL DEFAULT 0,
@@ -91,6 +92,9 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  // Description is a top-level field-level metadata, not a type-specific
+  // config knob. Idempotent ALTER for any DB that pre-dates this column.
+  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS description TEXT`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.fields");
 

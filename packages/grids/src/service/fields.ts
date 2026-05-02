@@ -12,6 +12,7 @@ const mapRow = (row: DbRow): Field => ({
   id: row.id as string,
   tableId: row.table_id as string,
   name: row.name as string,
+  description: (row.description as string | null) ?? null,
   type: row.type as string,
   config: parseJsonbRow<Record<string, unknown>>(row.config, {}),
   position: row.position as number,
@@ -69,11 +70,15 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     }
   }
 
+  const description = input.description?.trim() || null;
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.fields (table_id, name, type, config, position, required, default_value, indexed, unique_constraint)
+    INSERT INTO grids.fields (table_id, name, description, type, config, position, required, default_value, indexed, unique_constraint)
     VALUES (
       ${input.tableId}::uuid,
       ${name},
+      -- bun.sql can't infer the type of a literal NULL; cast keeps the
+      -- INSERT working when the user creates a field without a description.
+      ${description}::text,
       ${input.type},
       ${config}::jsonb,
       COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid)),
@@ -124,6 +129,11 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
 
   const next = {
     name: name ?? existing.name,
+    // Empty string in description input → store null (clears the helper).
+    description:
+      input.description !== undefined
+        ? input.description?.trim() || null
+        : existing.description,
     config,
     position: input.position ?? existing.position,
     required: input.required ?? existing.required,
@@ -135,6 +145,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const [row] = await sql<DbRow[]>`
     UPDATE grids.fields
     SET name = ${next.name},
+        description = ${next.description}::text,
         config = ${next.config}::jsonb,
         position = ${next.position},
         required = ${next.required},
@@ -164,6 +175,50 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   return ok(field);
 };
 
+/**
+ * Reorders the live fields of a table to match the given id sequence.
+ * Skips ids that don't belong to `tableId` (defensive — stops a malicious
+ * client from reshuffling another user's table by mixing ids). Writes
+ * positions in ONE round-trip via UNNEST + a CASE-driven UPDATE so the
+ * change is atomic and the wire cost is constant in the field count.
+ */
+export const reorder = async (
+  tableId: string,
+  fieldIds: string[],
+  actorId: string | null,
+): Promise<Result<void>> => {
+  if (fieldIds.length === 0) return ok();
+
+  // Filter to ids that actually belong to this table — protects against
+  // the client passing an id from another (e.g. recently-renamed) table.
+  const owned = await sql<{ id: string }[]>`
+    SELECT id::text AS id FROM grids.fields
+    WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
+  `;
+  const ownedIds = new Set(owned.map((r) => r.id));
+  const validOrdered = fieldIds.filter((id) => ownedIds.has(id));
+  if (validOrdered.length === 0) return ok();
+
+  // Single-statement reorder via VALUES (id, position).
+  const positions = `{${validOrdered.map((_, i) => i).join(",")}}`;
+  const ids = `{${validOrdered.join(",")}}`;
+  await sql`
+    UPDATE grids.fields AS f
+    SET position = u.position, updated_at = now()
+    FROM unnest(${ids}::uuid[], ${positions}::int[]) AS u(id, position)
+    WHERE f.id = u.id AND f.table_id = ${tableId}::uuid
+  `;
+
+  await logAudit({
+    tableId,
+    userId: actorId,
+    action: "updated",
+    diff: { fieldOrder: { old: null, new: validOrdered } },
+  });
+
+  return ok();
+};
+
 export const softDelete = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);
   if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
@@ -188,7 +243,7 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
       )
     )
     WHERE table_id = ${existing.tableId}::uuid
-      AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}))
+      AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}::text))
   `;
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);

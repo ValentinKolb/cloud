@@ -6,6 +6,7 @@ const mkField = (id: string, type: string): Field => ({
   id,
   tableId: "t1",
   name: id,
+  description: null,
   type,
   config: {},
   position: 0,

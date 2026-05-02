@@ -3,7 +3,7 @@ import { compileAggregates } from "./aggregate-compiler";
 import type { Field } from "./types";
 
 const mkField = (id: string, type: string): Field => ({
-  id, tableId: "t1", name: id, type, config: {},
+  id, tableId: "t1", name: id, description: null, type, config: {},
   position: 0, required: false, defaultValue: null,
   indexed: false, uniqueConstraint: false, deletedAt: null,
   createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",

@@ -122,34 +122,12 @@ const CONFIGURABLE = new Set([
  * fall through to a "nothing to configure" hint.
  */
 export function FieldConfigEditor(props: EditorProps) {
-  // Description is type-independent — every field can have a short helper
-  // text that appears under its input in the edit modal and below its name
-  // in the record detail panel. Stored under config.description so we don't
-  // need a DB migration; existing field-type configSchemas are non-strict
-  // and round-trip the unknown key through to disk.
-  const description = () =>
-    typeof props.config().description === "string" ? (props.config().description as string) : "";
-
+  // Description has been promoted to a top-level Field column; the new
+  // table editor renders its own input for it. This component now focuses
+  // purely on type-specific constraint forms.
   return (
-    <div class="flex flex-col gap-3">
-      {/* Optional description — sits ABOVE the type-specific config so the
-          user always sees this affordance regardless of whether the type
-          has any constraint inputs. */}
-      <TextInput
-        label="Description (optional)"
-        description="Shown under the input in the edit modal and beside the value in the detail panel."
-        icon="ti ti-info-circle"
-        value={description}
-        onInput={(v) =>
-          props.onChange({
-            ...props.config(),
-            description: v.trim() === "" ? undefined : v,
-          })
-        }
-        placeholder="e.g. Use the ISO-639-1 language code"
-      />
-      <div class="flex flex-col gap-3 p-3 rounded-md bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-700">
-        <span class="text-xs font-medium text-secondary">Type constraints</span>
+    <div class="flex flex-col gap-3 p-3 rounded-md bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-700">
+      <span class="text-xs font-medium text-secondary">Type constraints</span>
       <Show when={props.type === "text" || props.type === "longtext" || props.type === "rich-text"}>
         <TextConstraints config={props.config} onChange={props.onChange} />
       </Show>
@@ -199,7 +177,6 @@ export function FieldConfigEditor(props: EditorProps) {
       <Show when={!CONFIGURABLE.has(props.type)}>
         <p class="text-xs text-dimmed">This field type has no extra configuration.</p>
       </Show>
-      </div>
     </div>
   );
 }

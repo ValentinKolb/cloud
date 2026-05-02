@@ -34,6 +34,7 @@ export const gridsService = {
     get: fields.get,
     create: fields.create,
     update: fields.update,
+    reorder: fields.reorder,
     softDelete: fields.softDelete,
   },
   record: {

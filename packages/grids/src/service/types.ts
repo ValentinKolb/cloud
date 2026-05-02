@@ -22,6 +22,10 @@ export type Field = {
   id: string;
   tableId: string;
   name: string;
+  /** Optional helper text shown beside the field in the edit modal and
+   *  detail panel. Top-level (not in config) since it's metadata, not
+   *  type-specific configuration. */
+  description: string | null;
   type: string;
   config: Record<string, unknown>;
   position: number;
@@ -70,6 +74,7 @@ export type UpdateTableInput = { name?: string; description?: string | null; pri
 export type CreateFieldInput = {
   tableId: string;
   name: string;
+  description?: string | null;
   type: string;
   config?: Record<string, unknown>;
   position?: number;
@@ -81,6 +86,7 @@ export type CreateFieldInput = {
 
 export type UpdateFieldInput = {
   name?: string;
+  description?: string | null;
   config?: Record<string, unknown>;
   position?: number;
   required?: boolean;

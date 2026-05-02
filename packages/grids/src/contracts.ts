@@ -57,6 +57,7 @@ export const FieldSchema = z.object({
   id: z.string().uuid(),
   tableId: z.string().uuid(),
   name: z.string(),
+  description: z.string().nullable(),
   type: z.string(),
   config: z.record(z.string(), z.unknown()),
   position: z.number().int(),
@@ -72,6 +73,7 @@ export type Field = z.infer<typeof FieldSchema>;
 
 export const CreateFieldSchema = z.object({
   name: z.string().min(1).max(200),
+  description: z.string().max(2000).nullable().optional(),
   type: z.string().min(1),
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
@@ -83,12 +85,18 @@ export const CreateFieldSchema = z.object({
 
 export const UpdateFieldSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  description: z.string().max(2000).nullable().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
   required: z.boolean().optional(),
   defaultValue: z.unknown().optional(),
   indexed: z.boolean().optional(),
   uniqueConstraint: z.boolean().optional(),
+});
+
+/** Reorder payload — list of field ids in the new desired order. */
+export const ReorderFieldsSchema = z.object({
+  fieldIds: z.array(z.string().uuid()).min(1),
 });
 
 // ── Record ────────────────────────────────────────────────────────────────

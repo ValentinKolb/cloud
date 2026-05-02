@@ -303,10 +303,7 @@ export default function RecordDetailPanel(props: Props) {
             <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
               <For each={visibleFields()}>
                 {(f) => {
-                  const description =
-                    typeof (f.config as { description?: unknown })?.description === "string"
-                      ? ((f.config as { description?: string }).description as string)
-                      : null;
+                  const description = f.description;
                   return (
                     <div class="flex flex-col gap-0.5">
                       <div class="flex items-baseline gap-2">

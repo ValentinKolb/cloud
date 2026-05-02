@@ -8,7 +8,6 @@ import RecordDetailPanel from "../_components/RecordDetailPanel.island";
 import RecordDetailLayoutSync from "../_components/RecordDetailLayoutSync.island";
 import GridToolbar from "../_components/GridToolbar.island";
 import SearchBar from "../_components/SearchBar.island";
-import TableEditor from "../_components/TableEditor.island";
 import CreateTableButton from "../_components/CreateTableButton.island";
 import type { FilterTree, SortSpec, Field } from "../../service";
 
@@ -404,24 +403,14 @@ export default ssr<AuthContext>(async (c) => {
                           <span class="truncate">{t.name}</span>
                         </a>
                         {canManageTable && isActive && (
-                          <TableEditor
-                            table={{
-                              id: t.id,
-                              name: t.name,
-                              description: t.description ?? null,
-                              baseId,
-                            }}
-                            initialFields={fieldsByTable[t.id] ?? []}
-                            initialForms={formsForTable}
-                            otherTables={tables
-                              .filter((x) => x.id !== t.id)
-                              .map((x) => ({
-                                id: x.id,
-                                name: x.name,
-                              }))}
-                            fieldsByTable={fieldsByTable}
-                            canManage
-                          />
+                          <a
+                            href={`/app/grids/${baseId}/tables/${t.id}/edit`}
+                            class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                            aria-label={`Edit table ${t.name}`}
+                            title="Edit table"
+                          >
+                            <i class="ti ti-settings text-xs" />
+                          </a>
                         )}
                       </div>
                     );

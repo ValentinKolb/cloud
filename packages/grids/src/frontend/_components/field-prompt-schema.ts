@@ -31,10 +31,8 @@ export const isUserEditable = (type: string): boolean => {
 export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any => {
   const required = field.required;
   const label = field.name;
-  const description =
-    typeof (field.config as { description?: unknown })?.description === "string"
-      ? ((field.config as { description?: string }).description as string)
-      : undefined;
+  // Description is a top-level Field column now (string | null).
+  const description = field.description ?? undefined;
   // prompts.form seeds inputs from `default`, not `value`. Use undefined
   // (not null) so the input renders blank rather than the string "null".
   const defaultVal = currentValue === null ? undefined : currentValue;

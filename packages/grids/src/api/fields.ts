@@ -8,6 +8,7 @@ import {
   FieldListSchema,
   CreateFieldSchema,
   UpdateFieldSchema,
+  ReorderFieldsSchema,
   FieldDependentsResponseSchema,
 } from "../contracts";
 import { gateAt } from "./permissions";
@@ -30,6 +31,31 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const fields = await gridsService.field.listByTable(tableId);
       return c.json(fields);
+    },
+  )
+
+  .post(
+    "/by-table/:tableId/reorder",
+    describeRoute({
+      tags: ["Grids:Field"],
+      summary: "Reorder fields of a table",
+      description:
+        "Sets each field's `position` to its index in the supplied id list. " +
+        "Ids that don't belong to the table are silently skipped.",
+      responses: { 204: { description: "Reordered" } },
+    }),
+    v("json", ReorderFieldsSchema),
+    async (c) => {
+      const tableId = c.req.param("tableId");
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      const { fieldIds } = c.req.valid("json");
+      const result = await gridsService.field.reorder(tableId, fieldIds, user.id);
+      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+      return c.body(null, 204);
     },
   )
 
