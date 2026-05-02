@@ -5,6 +5,7 @@ import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsGrid from "../_components/RecordsGrid.island";
 import GridToolbar from "../_components/GridToolbar.island";
+import SearchBar from "../_components/SearchBar.island";
 import TableEditor from "../_components/TableEditor.island";
 import CreateTableButton from "../_components/CreateTableButton.island";
 import type { FilterTree, SortSpec, Field } from "../../service";
@@ -12,6 +13,80 @@ import type { FilterTree, SortSpec, Field } from "../../service";
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
   memberofGroupIds: string[];
+};
+
+// Field types the free-text search will apply `contains` against. Mirrors
+// the TEXT_OPS family in filter-ops.ts: anything that's a text-shaped
+// JSONB scalar. select / boolean / number etc. are intentionally excluded
+// — searching them as text would be misleading at best.
+const SEARCHABLE_TYPES = new Set([
+  "text",
+  "longtext",
+  "email",
+  "url",
+  "phone",
+  "slug",
+  "barcode",
+  "isbn",
+  "color",
+  "rich-text",
+]);
+
+const filterSearchableFields = (fields: Field[]): Field[] =>
+  fields.filter((f) => !f.deletedAt && SEARCHABLE_TYPES.has(f.type));
+
+/**
+ * Combines the user's filter (from the URL) with a free-text search
+ * predicate. The search becomes an OR across `contains q` for every
+ * scoped field; that group is then AND'd into the user's filter so
+ * `filter ∧ (any of the searchable cols matches q)` holds.
+ *
+ * - empty q → returns the original filter unchanged (no search applied)
+ * - empty qFieldIds → defaults to every searchable field on the table
+ * - a non-AND user filter is wrapped: `{op:AND, filters:[F, search]}`
+ */
+const mergeSearchIntoFilter = (
+  userFilter: FilterTree | null,
+  q: string,
+  qFieldIds: string[],
+  fields: Field[],
+): FilterTree | null => {
+  const query = q.trim();
+  if (!query) return userFilter;
+  const searchable = filterSearchableFields(fields);
+  if (searchable.length === 0) return userFilter;
+
+  // Honour an explicit column-scope (drop unknown ids); otherwise search every
+  // searchable column on the table.
+  const scopedIds =
+    qFieldIds.length > 0
+      ? qFieldIds.filter((id) => searchable.some((f) => f.id === id))
+      : searchable.map((f) => f.id);
+  if (scopedIds.length === 0) return userFilter;
+
+  const searchGroup: FilterTree = {
+    op: "OR",
+    filters: scopedIds.map((fid) => ({
+      fieldId: fid,
+      op: "contains",
+      value: query,
+      caseInsensitive: true,
+    })),
+  };
+
+  if (!userFilter) return searchGroup;
+  if (
+    typeof userFilter === "object" &&
+    "op" in userFilter &&
+    userFilter.op === "AND" &&
+    Array.isArray((userFilter as { filters: FilterTree[] }).filters)
+  ) {
+    return {
+      op: "AND",
+      filters: [...(userFilter as { filters: FilterTree[] }).filters, searchGroup],
+    };
+  }
+  return { op: "AND", filters: [userFilter, searchGroup] };
 };
 
 const resolveLevel = async (
@@ -76,6 +151,13 @@ export default ssr<AuthContext>(async (c) => {
     } catch {}
   }
 
+  // Free-text search params. `q` is the text; `qFields` (CSV) optionally
+  // narrows the search to a subset of text-shaped fields. Empty `qFields`
+  // means "search all searchable text fields".
+  const rawQ = (c.req.query("q") ?? "").trim();
+  const rawQFields = c.req.query("qFields") ?? "";
+  const qFieldIds = rawQFields ? rawQFields.split(",").filter(Boolean) : [];
+
   const base = await gridsService.base.get(baseId);
   if (!base) {
     return () => (
@@ -138,20 +220,27 @@ export default ssr<AuthContext>(async (c) => {
   const fieldsByTable: Record<string, Field[]> = {};
 
   if (activeTable) {
-    const [f, listResult, lvl] = await Promise.all([
-      gridsService.field.listByTable(activeTable.id),
+    // Fields first — we need them to figure out which columns the search
+    // applies to (default = "all searchable text fields"). The records/lvl
+    // queries can still parallelize after fields land.
+    fields = await gridsService.field.listByTable(activeTable.id);
+    fieldsByTable[activeTable.id] = fields;
+
+    // Build the effective filter: user's URL filter AND'd with the search
+    // OR-group across the (possibly user-narrowed) searchable fields.
+    const effectiveFilter = mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields);
+
+    const [listResult, lvl] = await Promise.all([
       gridsService.record.list({
         tableId: activeTable.id,
         limit: 100,
         includeDeleted: trashMode,
-        filter: parsedFilter,
+        filter: effectiveFilter,
         sort: parsedSort,
         cursor: rawCursor,
       }),
       resolveLevel(user, baseId, activeTable.id),
     ]);
-    fields = f;
-    fieldsByTable[activeTable.id] = f;
     if (listResult.ok) {
       records = trashMode
         ? {
@@ -192,7 +281,9 @@ export default ssr<AuthContext>(async (c) => {
       if (requests.length > 0) {
         const aggResult = await gridsService.record.aggregate({
           tableId: activeTable.id,
-          filter: parsedFilter,
+          // Aggregates honour the search too — otherwise the footer count
+          // wouldn't match the visible rows once a query is typed.
+          filter: mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields),
           requests,
         });
         if (aggResult.ok) aggregates = aggResult.data;
@@ -374,6 +465,20 @@ export default ssr<AuthContext>(async (c) => {
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           {activeTable ? (
             <div class="flex flex-col gap-2">
+              {/* Search row (above the toolbar) — debounced free-text search
+                  with an optional column-scope chip on the left. */}
+              {!trashMode && filterSearchableFields(fields).length > 0 && (
+                <SearchBar
+                  baseId={baseId}
+                  tableId={activeTable.id}
+                  fields={filterSearchableFields(fields)}
+                  initialQ={rawQ}
+                  initialQFields={qFieldIds}
+                  rawFilter={rawFilter}
+                  rawSort={rawSort}
+                  trashMode={trashMode}
+                />
+              )}
               <GridToolbar
                 baseId={baseId}
                 tableId={activeTable.id}
