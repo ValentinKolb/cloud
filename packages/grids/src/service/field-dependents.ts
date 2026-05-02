@@ -99,8 +99,41 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     }
   }
 
-  // Phase 4/5 will add formula / lookup / rollup / relation_display scans
-  // (those produce blocking deps).
+  // ── lookup / rollup / formula / relation-display field configs ─────
+  // Computed fields reference other fields by ID inside their config
+  // blob. Deleting a referenced field MUST block — silently leaving a
+  // stale fieldId would render the computed field permanently empty.
+  const fieldRows = await sql<DbRow[]>`
+    SELECT id, name, type, config
+    FROM grids.fields
+    WHERE table_id IN (SELECT table_id FROM grids.fields WHERE id = ${fieldId}::uuid)
+      AND deleted_at IS NULL
+      AND id <> ${fieldId}::uuid
+      AND type IN ('lookup', 'rollup', 'formula', 'relation')
+  `;
+  for (const row of fieldRows) {
+    const config = (row.config as Record<string, unknown>) ?? {};
+    const refs: string[] = [];
+    if (typeof config.relationFieldId === "string") refs.push(config.relationFieldId);
+    if (typeof config.targetFieldId === "string") refs.push(config.targetFieldId);
+    if (typeof config.displayFieldId === "string") refs.push(config.displayFieldId);
+    if (typeof config.expression === "string") {
+      for (const m of config.expression.matchAll(/\{([^}]+)\}/g)) refs.push(m[1]!.trim());
+    }
+    if (refs.includes(fieldId)) {
+      const type = row.type as string;
+      dependents.push({
+        type:
+          type === "formula" ? "formula" :
+          type === "lookup" ? "lookup" :
+          type === "rollup" ? "rollup" : "relation_display",
+        resourceId: row.id as string,
+        resourceName: row.name as string,
+        context: "field-config",
+        blocking: true,
+      });
+    }
+  }
 
   return dependents;
 };

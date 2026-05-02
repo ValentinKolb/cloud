@@ -1,6 +1,8 @@
 import { sql } from "bun";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
+import { parseFormula } from "../formula/parser";
+import { evaluate, renderResult } from "../formula/evaluator";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -31,12 +33,21 @@ export const fetchLinkedValuesBatched = async (params: {
     return new Map(params.records.map((r) => [r.id, []]));
   }
 
-  // Fetch the projected field from every target record in one go.
+  // Fetch the projected field from every target record in one go,
+  // constrained to the relation's configured target table. Without the
+  // table filter, a UUID from another table would silently leak its
+  // data into the lookup / rollup pipeline.
+  const targetTableId = (params.relationField.config as { targetTableId?: string }).targetTableId;
+  if (!targetTableId) {
+    return new Map(params.records.map((r) => [r.id, []]));
+  }
   const ids = `{${[...allTargetIds].join(",")}}`;
   const rows = await sql<DbRow[]>`
     SELECT id, data
     FROM grids.records
-    WHERE id = ANY(${ids}::uuid[]) AND deleted_at IS NULL
+    WHERE id = ANY(${ids}::uuid[])
+      AND table_id = ${targetTableId}::uuid
+      AND deleted_at IS NULL
   `;
   const valuesById = new Map<string, unknown>();
   for (const row of rows) {
@@ -134,12 +145,44 @@ export const enrichRecordsWithLookups = async (
 };
 
 /**
- * Convenience: looks up the active fields for a table, then enriches.
- * Used at the records.list boundary so callers don't need to know about
+ * Evaluates every formula field for the visible records and writes the
+ * rendered display value into each record's data. Formulas run AFTER
+ * lookup/rollup so a formula can reference computed fields too.
+ */
+export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]): GridRecord[] => {
+  const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula");
+  if (formulaFields.length === 0) return records;
+
+  // Parse once per field, reuse across records.
+  const compiled = formulaFields
+    .map((f) => {
+      const expr = (f.config as { expression?: string }).expression;
+      if (!expr) return null;
+      const parsed = parseFormula(expr);
+      if (!parsed.ok) return null;
+      return { field: f, ast: parsed.ast };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null);
+
+  for (const rec of records) {
+    for (const { field, ast } of compiled) {
+      const value = evaluate(ast, { fields: rec.data });
+      rec.data[field.id] = renderResult(value);
+    }
+  }
+  return records;
+};
+
+/**
+ * Convenience: looks up the active fields for a table, then enriches
+ * with both lookup/rollup values AND formula display strings. Used at
+ * the records.list boundary so callers don't need to know about the
  * computed-field plumbing.
  */
 export const enrichRecordsForTable = async (records: GridRecord[], tableId: string): Promise<GridRecord[]> => {
   if (records.length === 0) return records;
   const fields = await listFields(tableId);
-  return enrichRecordsWithLookups(records, fields);
+  await enrichRecordsWithLookups(records, fields);
+  enrichRecordsWithFormulas(records, fields);
+  return records;
 };

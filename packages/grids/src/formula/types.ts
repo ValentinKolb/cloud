@@ -1,0 +1,32 @@
+/**
+ * AST node types for the grids formula engine. Phase-5 scope: display
+ * formulas only — no relation aggregates, no filter/sort by formula.
+ */
+
+export type Literal = number | string | boolean | null;
+
+export type Expr =
+  | { kind: "literal"; value: Literal }
+  | { kind: "field"; fieldId: string }
+  | { kind: "binop"; op: BinOp; left: Expr; right: Expr }
+  | { kind: "unop"; op: UnOp; operand: Expr }
+  | { kind: "call"; fn: string; args: Expr[] };
+
+export type BinOp =
+  | "+" | "-" | "*" | "/" | "%"
+  | "=" | "!=" | "<" | "<=" | ">" | ">="
+  | "&&" | "||";
+
+export type UnOp = "-" | "!";
+
+export const isExpr = (v: unknown): v is Expr =>
+  typeof v === "object" && v !== null && typeof (v as Expr).kind === "string";
+
+/** Sentinel for runtime errors (division by zero, etc). Renderable as "#ERROR". */
+export const FORMULA_ERROR = Symbol.for("grids.formula.error");
+export type FormulaError = { [FORMULA_ERROR]: true; code: string };
+
+export const formulaError = (code: string): FormulaError => ({ [FORMULA_ERROR]: true, code });
+
+export const isFormulaError = (v: unknown): v is FormulaError =>
+  typeof v === "object" && v !== null && (v as { [k: symbol]: unknown })[FORMULA_ERROR] === true;
