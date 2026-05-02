@@ -12,6 +12,7 @@ import {
   type SortSpec,
 } from "./sort-compiler";
 import { compileAggregates, type AggregateRequest } from "./aggregate-compiler";
+import { enrichRecordsForTable } from "./relations";
 import type { GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -142,6 +143,11 @@ export const list = async (params: {
     const sortValues = projections.map((p) => last.data[p.fieldId] ?? null);
     nextCursor = encodeCursor({ sortValues, id: last.id });
   }
+  // Compute lookup + rollup display values for the visible page so the UI
+  // can render them inline. This is purely additive — the records table
+  // already has the raw data; computed fields just need their derived
+  // values plus a single batch-fetch for the linked records.
+  await enrichRecordsForTable(items, params.tableId);
   return ok({ items, nextCursor });
 };
 

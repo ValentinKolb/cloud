@@ -155,7 +155,7 @@ export const jsonHandler: FieldTypeHandler = {
   configSchema: Empty,
   userInput: true,
   validate(raw, _config, required) {
-    if (raw === null || raw === undefined) return required ? fail("required") : ok(null);
+    if (raw === null || raw === undefined || raw === "") return required ? fail("required") : ok(null);
     // Accept already-parsed values (object/array/scalar).
     if (typeof raw === "string") {
       try {

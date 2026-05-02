@@ -52,12 +52,22 @@ const MULTI_SELECT_OPS = new Set(["containsAll", "containsAny", "doesNotContain"
 
 const opsForType = (type: string): Set<string> => {
   switch (type) {
-    case "text": case "longtext": return TEXT_OPS;
-    case "number": case "decimal": case "rating": case "autonumber": return NUMBER_OPS;
+    // Tier 1
+    case "text": case "longtext":
+    // Tier 2 / 3 text-shaped subtypes — same set of text ops apply.
+    case "email": case "url": case "phone": case "slug":
+    case "barcode": case "isbn": case "color": case "rich-text":
+      return TEXT_OPS;
+    // Tier 1
+    case "number": case "decimal": case "rating": case "autonumber":
+    // Tier 2 number-shaped subtypes
+    case "percent": case "duration":
+      return NUMBER_OPS;
     case "date": return DATE_OPS;
     case "boolean": return BOOL_OPS;
     case "single-select": return SINGLE_SELECT_OPS;
     case "multi-select": return MULTI_SELECT_OPS;
+    // currency / location / json / signature stay unfilterable for now.
     default: return new Set();
   }
 };
@@ -174,7 +184,16 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
 
   switch (p.fieldType) {
     case "text":
-    case "longtext": {
+    case "longtext":
+    // Text-shaped Tier-2/3 subtypes share the same projections + ops.
+    case "email":
+    case "url":
+    case "phone":
+    case "slug":
+    case "barcode":
+    case "isbn":
+    case "color":
+    case "rich-text": {
       const v = ciVal(p.value);
       switch (p.op) {
         case "equals": return sql`${textProjection} = ${v}`;
@@ -193,6 +212,9 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
     case "decimal":
     case "rating":
     case "autonumber":
+    // Tier-2 number-shaped subtypes
+    case "percent":
+    case "duration":
       switch (p.op) {
         case "=": return sql`${numericProjection} = ${p.value}`;
         case "!=": return sql`${numericProjection} <> ${p.value}`;

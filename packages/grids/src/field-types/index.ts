@@ -31,6 +31,7 @@ import {
   jsonHandler,
   signatureHandler,
 } from "./tier3";
+import { relationHandler, lookupHandler, rollupHandler } from "./relations";
 
 const handlers: FieldTypeHandler[] = [
   // Tier 1
@@ -64,6 +65,10 @@ const handlers: FieldTypeHandler[] = [
   richTextHandler,
   jsonHandler,
   signatureHandler,
+  // Phase 4 — relations
+  relationHandler,
+  lookupHandler,
+  rollupHandler,
 ];
 
 export const fieldTypeRegistry: Record<string, FieldTypeHandler> = Object.fromEntries(

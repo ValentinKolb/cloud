@@ -100,8 +100,17 @@ export const currencyHandler: FieldTypeHandler = {
     let amountStr: string;
     let currency: string;
     if (typeof raw === "string" || typeof raw === "number") {
-      amountStr = String(raw).trim();
-      currency = defaultCurrency;
+      const s = String(raw).trim();
+      // Accept "12.34" (default-currency wraps) OR "12.34 EUR" (so the
+      // inline edit dialog can round-trip the per-row currency code).
+      const m = /^(-?\d+(?:\.\d+)?)\s+([A-Za-z]{3})$/.exec(s);
+      if (m) {
+        amountStr = m[1]!;
+        currency = m[2]!.toUpperCase();
+      } else {
+        amountStr = s;
+        currency = defaultCurrency;
+      }
     } else if (typeof raw === "object" && raw !== null) {
       const obj = raw as { amount?: unknown; currency?: unknown };
       amountStr = typeof obj.amount === "number" ? String(obj.amount) : String(obj.amount ?? "").trim();

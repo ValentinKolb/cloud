@@ -77,16 +77,24 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
     case "duration":
       return { type: "text", label, required, placeholder: "HH:MM:SS or seconds", default: defaultVal };
     case "currency":
-      // Currency uses an object value; UI captures the amount as a number
-      // and the field's defaultCurrency wraps it server-side.
-      return {
-        type: "number",
-        label,
-        required,
-        default: typeof defaultVal === "object" && defaultVal && "amount" in defaultVal
-          ? Number((defaultVal as { amount?: string }).amount)
-          : defaultVal,
-      };
+      // Currency stores `{ amount, currency }` server-side. The UI input
+      // is a plain number for the amount; on edit we have to round-trip
+      // the per-row currency code so saving without touching the field
+      // doesn't silently rewrite USD → EUR via the field's default code.
+      // Sentinel: pre-format the default with the existing currency code
+      // and let the server treat that string as `{amount, currency}`.
+      // Currency handler accepts either form.
+      if (typeof defaultVal === "object" && defaultVal && "amount" in defaultVal) {
+        const obj = defaultVal as { amount?: string; currency?: string };
+        return {
+          type: "text",
+          label,
+          required,
+          placeholder: "12.34 EUR",
+          default: obj.amount && obj.currency ? `${obj.amount} ${obj.currency}` : obj.amount,
+        };
+      }
+      return { type: "text", label, required, placeholder: "12.34 EUR", default: defaultVal };
     // Tier 3
     case "barcode":
     case "isbn":
