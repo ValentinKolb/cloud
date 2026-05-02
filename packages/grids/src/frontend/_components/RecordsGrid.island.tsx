@@ -4,6 +4,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Field, GridRecord } from "../../service";
 import { fieldToPromptSchema, isUserEditable, sanitizeEditPayload } from "./field-prompt-schema";
+import { errorMessage } from "./api-helpers";
 
 type Props = {
   tableId: string;
@@ -20,13 +21,6 @@ type Props = {
   aggregates?: Record<string, unknown>;
 };
 
-const errorMessage = async (res: Response, fallback: string): Promise<string> => {
-  try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
-  } catch {}
-  return fallback;
-};
 
 const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, unknown>): string => {
   if (value === null || value === undefined || value === "") return "";

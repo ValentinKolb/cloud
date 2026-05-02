@@ -3,6 +3,7 @@ import { prompts, navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui"
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { View, ViewConfig } from "../../service";
+import { errorMessage } from "./api-helpers";
 
 type Props = {
   tableId: string;
@@ -19,13 +20,6 @@ type Props = {
   activeViewId: string | null;
 };
 
-const errorMessage = async (res: Response, fallback: string): Promise<string> => {
-  try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
-  } catch {}
-  return fallback;
-};
 
 const buildViewUrl = (baseUrl: string, viewId: string | null, config: ViewConfig): string => {
   const url = new URL(baseUrl, "http://x");

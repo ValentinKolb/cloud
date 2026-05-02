@@ -2,14 +2,8 @@ import { prompts, navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui"
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Base } from "../../service";
+import { errorMessage } from "./api-helpers";
 
-const errorMessage = async (res: Response, fallback: string): Promise<string> => {
-  try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
-  } catch {}
-  return fallback;
-};
 
 export function CreateBaseButton() {
   const createMutation = mutations.create<Base, { name: string; description: string }>({

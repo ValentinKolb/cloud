@@ -3,6 +3,7 @@ import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../service";
+import { errorMessage } from "./api-helpers";
 
 type Props = {
   tableId: string;
@@ -47,13 +48,6 @@ const TYPE_LABELS: Record<string, string> = {
 
 const niceTypeLabel = (t: string): string => TYPE_LABELS[t] ?? t;
 
-const errorMessage = async (res: Response, fallback: string): Promise<string> => {
-  try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
-  } catch {}
-  return fallback;
-};
 
 export default function FieldsManager(props: Props) {
   const [fields, setFields] = createSignal(props.initialFields);

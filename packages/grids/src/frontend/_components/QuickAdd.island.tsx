@@ -4,6 +4,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Field, GridRecord } from "../../service";
 import { fieldToPromptSchema, isUserEditable, sanitizePayload } from "./field-prompt-schema";
+import { errorMessage } from "./api-helpers";
 
 type Props = {
   tableId: string;
@@ -11,13 +12,6 @@ type Props = {
   canWrite: boolean;
 };
 
-const errorMessage = async (res: Response, fallback: string): Promise<string> => {
-  try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
-  } catch {}
-  return fallback;
-};
 
 export default function QuickAdd(props: Props) {
   const createMutation = mutations.create<GridRecord, Record<string, unknown>>({

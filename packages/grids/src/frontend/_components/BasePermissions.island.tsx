@@ -6,6 +6,7 @@ import type {
   Principal,
 } from "@valentinkolb/cloud/contracts";
 import { apiClient } from "@/api/client";
+import { errorMessage } from "./api-helpers";
 
 type Props = {
   baseId: string;
@@ -13,13 +14,6 @@ type Props = {
   canManage: boolean;
 };
 
-const errorMessage = async (res: Response, fallback: string): Promise<string> => {
-  try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
-  } catch {}
-  return fallback;
-};
 
 /**
  * Opens the platform `PermissionEditor` inside a dialog, wired to grids'
