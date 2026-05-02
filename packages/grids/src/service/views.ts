@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { parseJsonbRow } from "./jsonb";
 
 type DbRow = Record<string, unknown>;
 
@@ -33,7 +34,7 @@ const mapRow = (row: DbRow): View => ({
   id: row.id as string,
   tableId: row.table_id as string,
   name: row.name as string,
-  config: (row.config as ViewConfig) ?? {},
+  config: parseJsonbRow<ViewConfig>(row.config, {}),
   ownerUserId: (row.owner_user_id as string | null) ?? null,
   position: row.position as number,
   createdAt: (row.created_at as Date).toISOString(),
@@ -182,7 +183,7 @@ export const create = async (input: CreateViewInput, actorId: string | null): Pr
     VALUES (
       ${input.tableId}::uuid,
       ${name},
-      ${JSON.stringify(input.config ?? {})}::jsonb,
+      ${input.config ?? {}}::jsonb,
       ${input.ownerUserId ?? null}::uuid,
       COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
     )
@@ -216,7 +217,7 @@ export const update = async (id: string, input: UpdateViewInput, actorId: string
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views
     SET name = ${next.name},
-        config = ${JSON.stringify(next.config)}::jsonb,
+        config = ${next.config}::jsonb,
         position = ${next.position},
         updated_at = now()
     WHERE id = ${id}::uuid

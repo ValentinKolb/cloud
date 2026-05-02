@@ -2,6 +2,7 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { ensureFieldIndex, dropFieldIndex } from "./field-indexes";
+import { parseJsonbRow } from "./jsonb";
 import { getHandler, isKnownFieldType } from "../field-types";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
@@ -12,10 +13,10 @@ const mapRow = (row: DbRow): Field => ({
   tableId: row.table_id as string,
   name: row.name as string,
   type: row.type as string,
-  config: (row.config as Record<string, unknown>) ?? {},
+  config: parseJsonbRow<Record<string, unknown>>(row.config, {}),
   position: row.position as number,
   required: row.required as boolean,
-  defaultValue: row.default_value ?? null,
+  defaultValue: parseJsonbRow<unknown>(row.default_value, null),
   indexed: row.indexed as boolean,
   uniqueConstraint: row.unique_constraint as boolean,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -74,10 +75,10 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
       ${input.tableId}::uuid,
       ${name},
       ${input.type},
-      ${JSON.stringify(config)}::jsonb,
+      ${config}::jsonb,
       COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid)),
       ${input.required ?? false},
-      ${input.defaultValue !== undefined ? JSON.stringify(input.defaultValue) : null}::jsonb,
+      ${input.defaultValue ?? null}::jsonb,
       ${input.indexed ?? false},
       ${input.uniqueConstraint ?? false}
     )
@@ -134,10 +135,10 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const [row] = await sql<DbRow[]>`
     UPDATE grids.fields
     SET name = ${next.name},
-        config = ${JSON.stringify(next.config)}::jsonb,
+        config = ${next.config}::jsonb,
         position = ${next.position},
         required = ${next.required},
-        default_value = ${next.defaultValue !== undefined && next.defaultValue !== null ? JSON.stringify(next.defaultValue) : null}::jsonb,
+        default_value = ${next.defaultValue ?? null}::jsonb,
         indexed = ${next.indexed},
         unique_constraint = ${next.uniqueConstraint},
         updated_at = now()

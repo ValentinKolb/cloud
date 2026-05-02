@@ -4,6 +4,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../service";
 import { errorMessage } from "./api-helpers";
+import { collectConfigForType, typeNeedsConfig } from "./field-config";
 
 type Props = {
   tableId: string;
@@ -12,17 +13,15 @@ type Props = {
   canManage: boolean;
 };
 
-// Only types whose default config is already valid are surfaced in the
-// quick "+ Add field" UI. decimal needs precision/scale; single-select and
-// multi-select need options; these go through a dedicated config modal in
-// Phase 2 (or via the API today). Keeping them out of this dropdown
-// prevents users from picking a type and getting a 400 they can't fix.
 const TYPE_OPTIONS = [
   { value: "text", label: "Text" },
   { value: "longtext", label: "Long text" },
   { value: "number", label: "Number" },
+  { value: "decimal", label: "Decimal (money-safe)" },
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
+  { value: "single-select", label: "Single select" },
+  { value: "multi-select", label: "Multi select" },
   { value: "rating", label: "Rating" },
   { value: "autonumber", label: "Auto-number" },
 ];
@@ -52,11 +51,14 @@ const niceTypeLabel = (t: string): string => TYPE_LABELS[t] ?? t;
 export default function FieldsManager(props: Props) {
   const [fields, setFields] = createSignal(props.initialFields);
 
-  const createMutation = mutations.create<Field, { name: string; type: string }>({
+  const createMutation = mutations.create<
+    Field,
+    { name: string; type: string; config: Record<string, unknown> }
+  >({
     mutation: async (input) => {
       const res = await apiClient.fields["by-table"][":tableId"].$post({
         param: { tableId: props.tableId },
-        json: { name: input.name, type: input.type },
+        json: { name: input.name, type: input.type, config: input.config },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create field"));
       return (await res.json()) as Field;
@@ -82,10 +84,41 @@ export default function FieldsManager(props: Props) {
           required: true,
         },
       },
-      confirmText: "Create",
+      confirmText: "Continue",
     });
     if (!result) return;
-    createMutation.mutate({ name: String(result.name).trim(), type: String(result.type) });
+    const name = String(result.name).trim();
+    const type = String(result.type);
+    // Two-step: types that need config open a per-type config dialog
+    // before we POST. Cancelling the config dialog cancels the create.
+    const config = await collectConfigForType(type);
+    if (config === null) return;
+    createMutation.mutate({ name, type, config });
+  };
+
+  const updateMutation = mutations.create<
+    Field,
+    { id: string; name?: string; config?: Record<string, unknown> }
+  >({
+    mutation: async (input) => {
+      const res = await apiClient.fields[":fieldId"].$patch({
+        param: { fieldId: input.id },
+        json: { name: input.name, config: input.config },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update field"));
+      return (await res.json()) as Field;
+    },
+    onSuccess: (updated) => {
+      setFields(fields().map((f) => (f.id === updated.id ? updated : f)));
+      refreshCurrentPath();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleEditConfig = async (field: Field) => {
+    const next = await collectConfigForType(field.type, field.config);
+    if (next === null) return;
+    updateMutation.mutate({ id: field.id, config: next });
   };
 
   const renameMutation = mutations.create<Field, { id: string; name: string }>({
@@ -186,6 +219,16 @@ export default function FieldsManager(props: Props) {
               </span>
               <Show when={props.canManage}>
                 <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Show when={typeNeedsConfig(field.type)}>
+                    <button
+                      type="button"
+                      class="text-xs text-dimmed hover:text-primary"
+                      onClick={() => handleEditConfig(field)}
+                      title="Edit config"
+                    >
+                      <i class="ti ti-settings" />
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     class="text-xs text-dimmed hover:text-primary"

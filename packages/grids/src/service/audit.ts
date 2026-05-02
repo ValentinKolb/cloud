@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { parseJsonbRow } from "./jsonb";
 import type { AuditAction, AuditEntry } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -10,7 +11,7 @@ const mapRow = (row: DbRow): AuditEntry => ({
   recordId: (row.record_id as string | null) ?? null,
   userId: (row.user_id as string | null) ?? null,
   action: row.action as AuditAction,
-  diff: (row.diff as AuditEntry["diff"]) ?? null,
+  diff: parseJsonbRow<AuditEntry["diff"]>(row.diff, null),
   ip: (row.ip as string | null) ?? null,
   userAgent: (row.user_agent as string | null) ?? null,
   createdAt: (row.created_at as Date).toISOString(),
@@ -36,7 +37,7 @@ export const logAudit = async (input: LogAuditInput): Promise<void> => {
       ${input.recordId ?? null}::uuid,
       ${input.userId ?? null}::uuid,
       ${input.action},
-      ${input.diff ? JSON.stringify(input.diff) : null}::jsonb,
+      ${input.diff ?? null}::jsonb,
       ${input.ip ?? null},
       ${input.userAgent ?? null}
     )

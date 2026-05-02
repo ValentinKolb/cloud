@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { parseJsonbRow } from "./jsonb";
 import { listByTable as listFields } from "./fields";
 import type { Field } from "./types";
 
@@ -51,7 +52,7 @@ const mapRow = (row: DbRow): Form => ({
   id: row.id as string,
   tableId: row.table_id as string,
   name: row.name as string,
-  config: (row.config as FormConfig) ?? { fields: [] },
+  config: parseJsonbRow<FormConfig>(row.config, { fields: [] }),
   publicToken: (row.public_token as string | null) ?? null,
   isActive: row.is_active as boolean,
   ownerUserId: (row.owner_user_id as string | null) ?? null,
@@ -169,7 +170,7 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
     VALUES (
       ${input.tableId}::uuid,
       ${name},
-      ${JSON.stringify(config)}::jsonb,
+      ${config}::jsonb,
       ${publicToken},
       ${actorId}::uuid,
       COALESCE((SELECT MAX(position) + 1 FROM grids.forms WHERE table_id = ${input.tableId}::uuid), 0)
@@ -213,7 +214,7 @@ export const update = async (id: string, input: UpdateFormInput, actorId: string
   const [row] = await sql<DbRow[]>`
     UPDATE grids.forms
     SET name = ${next.name},
-        config = ${JSON.stringify(next.config)}::jsonb,
+        config = ${next.config}::jsonb,
         public_token = ${next.publicToken},
         is_active = ${next.isActive},
         position = ${next.position},

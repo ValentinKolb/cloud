@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { parseJsonbRow } from "./jsonb";
 import { listByTable as listFields } from "./fields";
 import { getHandler } from "../field-types";
 import { compileFilter, renderClause, type FilterTree } from "./filter-compiler";
@@ -18,7 +19,7 @@ type DbRow = Record<string, unknown>;
 const mapRow = (row: DbRow): GridRecord => ({
   id: row.id as string,
   tableId: row.table_id as string,
-  data: (row.data as Record<string, unknown>) ?? {},
+  data: parseJsonbRow<Record<string, unknown>>(row.data, {}),
   version: row.version as number,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdBy: (row.created_by as string | null) ?? null,
@@ -160,12 +161,14 @@ export const aggregate = async (params: {
 
   if (aggCompiled.columns.length === 0) return ok({});
 
-  // Aggregate query: a single SELECT with all expressions side-by-side.
-  // We assemble the SELECT list as a comma-separated reduce, then alias by
-  // pushing each expr into a separate sub-fragment that names the column
-  // via JSON construction (sidestepping bun.sql's missing identifier helper).
+  // Aggregate query: a single SELECT with all expressions side-by-side,
+  // assembled into a JSON object so the result row has one column we can
+  // index by `<fieldId>__<agg>`. The `${col.key}::text` cast is what
+  // unblocks Postgres from "could not determine data type of parameter" —
+  // jsonb_build_object's variadic-any signature otherwise leaves the key
+  // parameter untyped at parse time.
   const jsonPairs = aggCompiled.columns
-    .map((col) => sql`${col.key}, ${col.expr}`)
+    .map((col) => sql`${col.key}::text, ${col.expr}`)
     .reduce((acc, cur) => sql`${acc}, ${cur}`);
 
   const rows = await sql<{ result: Record<string, unknown> }[]>`
@@ -175,7 +178,7 @@ export const aggregate = async (params: {
       AND deleted_at IS NULL
       AND ${filterClause}
   `;
-  return ok((rows[0]?.result as Record<string, unknown>) ?? {});
+  return ok(parseJsonbRow<Record<string, unknown>>(rows[0]?.result, {}));
 };
 
 export const get = async (tableId: string, recordId: string): Promise<GridRecord | null> => {
@@ -200,7 +203,7 @@ export const create = async (
     VALUES (
       ${id}::uuid,
       ${tableId}::uuid,
-      ${JSON.stringify(validated.data)}::jsonb,
+      ${validated.data}::jsonb,
       1,
       ${actorId}::uuid,
       ${actorId}::uuid
@@ -247,7 +250,7 @@ export const update = async (
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.records
-    SET data = ${JSON.stringify(merged)}::jsonb,
+    SET data = ${merged}::jsonb,
         version = version + 1,
         updated_by = ${actorId}::uuid,
         updated_at = now()

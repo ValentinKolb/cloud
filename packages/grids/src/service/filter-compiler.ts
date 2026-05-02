@@ -248,22 +248,22 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
     case "multi-select":
       switch (p.op) {
         case "containsAll": {
-          // jsonb ?& array form: every key in array must appear as element.
-          // For arrays of strings stored as JSONB array, use @> with array.
-          const arr = JSON.stringify(p.value ?? []);
+          // jsonb @> for "must contain all": works on the JSONB array stored
+          // for multi-select fields. Bun encodes the JS array as JSONB.
+          const arr = (p.value as unknown[]) ?? [];
           return sql`(data->${fieldId})::jsonb @> ${arr}::jsonb`;
         }
         case "containsAny": {
           const items = (p.value as string[]) ?? [];
           if (items.length === 0) return sql`FALSE`;
           // Match ANY of: rewrite as OR of @> singletons.
-          const parts = items.map((s) => sql`(data->${fieldId})::jsonb @> ${JSON.stringify([s])}::jsonb`);
+          const parts = items.map((s) => sql`(data->${fieldId})::jsonb @> ${[s]}::jsonb`);
           return parts.reduce((acc, cur) => sql`${acc} OR ${cur}`);
         }
         case "doesNotContain": {
           const items = (p.value as string[]) ?? [];
           if (items.length === 0) return sql`TRUE`;
-          const parts = items.map((s) => sql`NOT ((data->${fieldId})::jsonb @> ${JSON.stringify([s])}::jsonb)`);
+          const parts = items.map((s) => sql`NOT ((data->${fieldId})::jsonb @> ${[s]}::jsonb)`);
           return parts.reduce((acc, cur) => sql`${acc} AND ${cur}`);
         }
         case "isEmpty": return sql`(data->>${fieldId} IS NULL OR jsonb_array_length(COALESCE(data->${fieldId}, '[]'::jsonb)) = 0)`;

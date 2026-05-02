@@ -6,15 +6,15 @@ import { gridsService } from "../service";
 import CreateBaseButton from "./_components/CreateBaseButton.island";
 
 /**
- * Bases index page — lists all bases the current user can access.
- * Read-only in the first impl streak; create flow comes in 1C.
+ * Bases list page — shows every base the user has access to.
+ * Layout matches the spaces / notebooks index pages: hero + info-block
+ * with the create button + paper-card grid.
  */
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const isAdmin = hasRole(user, "admin");
 
   const all = await gridsService.base.list();
-  // Filter to those the user can read. Platform admins see everything.
   const visible = isAdmin
     ? all
     : (
@@ -33,34 +33,55 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Grids" }]}>
-      <div class="max-w-4xl mx-auto flex flex-col gap-4">
-        <header class="flex items-center justify-between gap-3">
-          <h1 class="text-xl font-bold text-primary" style="view-transition-name: page-header">
-            <i class="ti ti-table" /> Bases
-          </h1>
-          <CreateBaseButton />
-        </header>
+      <div class="max-w-4xl mx-auto">
+        {/* Hero */}
+        <div class="p-6 mb-4 text-center">
+          <div class="flex items-center justify-center gap-3 mb-2">
+            <div class="w-12 h-12 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+              <i class="ti ti-table text-2xl text-zinc-600 dark:text-zinc-400" />
+            </div>
+          </div>
+          <h1 class="text-xl font-semibold mb-1">Grids</h1>
+          <p class="text-sm text-dimmed">Flexible tables — bases, fields, records, views, forms</p>
+        </div>
 
-        {visible.length > 0 ? (
-          <div class="flex flex-col gap-2">
+        {/* Info block */}
+        <div class="info-block-info mb-6 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <i class="ti ti-database shrink-0" />
+            <span>
+              {visible.length === 0
+                ? "No bases yet. Create one to get started!"
+                : `${visible.length} base${visible.length !== 1 ? "s" : ""} available`}
+            </span>
+          </div>
+          <CreateBaseButton />
+        </div>
+
+        {/* Bases grid */}
+        {visible.length > 0 && (
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {visible.map((base) => (
               <a
                 href={`/app/grids/${base.id}`}
-                class="paper p-4 flex items-start gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
+                style={`view-transition-name: grids-base-card-${base.id}`}
               >
-                <i class="ti ti-database text-lg text-dimmed mt-0.5" />
-                <div class="min-w-0 flex-1">
-                  <div class="font-medium text-primary truncate">{base.name}</div>
-                  {base.description && (
-                    <div class="text-sm text-dimmed mt-1 line-clamp-2">{base.description}</div>
-                  )}
+                <div class="w-10 h-10 thumbnail bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+                  <i class="ti ti-database text-lg text-blue-600 dark:text-blue-400" />
                 </div>
+                <div class="flex-1 min-w-0">
+                  <span
+                    class="text-sm font-semibold text-primary block truncate"
+                    style={`view-transition-name: grids-base-name-${base.id}`}
+                  >
+                    {base.name}
+                  </span>
+                  <p class="text-xs text-dimmed truncate">{base.description || "No description"}</p>
+                </div>
+                <i class="ti ti-chevron-right text-dimmed" />
               </a>
             ))}
-          </div>
-        ) : (
-          <div class="paper p-6 text-center text-sm text-dimmed">
-            No bases yet. Click <strong>New base</strong> above to get started.
           </div>
         )}
       </div>
