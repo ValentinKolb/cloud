@@ -55,54 +55,60 @@ TYPE_LABELS["created_by"] = "Created by";
 TYPE_LABELS["updated_by"] = "Updated by";
 
 /**
- * Short, plain-language primer per field type. Renders as the info-box
- * above each field's editor so non-power users can read once and know
- * what the constraint inputs ("precision", "regex", "cardinality") refer
- * to. Keep entries to one or two sentences.
+ * Plain-language primer per field type. Aimed at someone who's never
+ * built a database — explain WHAT the field is for and WHEN to pick it,
+ * not how it's stored. The constraint inputs further down (precision,
+ * regex, cardinality) should make sense after reading these.
  */
 export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
-  text: "Single-line plain string. Bound it with min/max length, or pin a regex pattern the value must match end-to-end.",
+  text:
+    "A single line of text — names, titles, codes, anything short. Set min/max length if the value should be a certain size, or a regex pattern to enforce a format like a postcode.",
   longtext:
-    "Multi-line plain string. Bound the same way as text but designed for paragraphs of input.",
+    "Multi-line text — paragraphs, notes, instructions. Bound the size the same way as text if you need to.",
   number:
-    "Floating-point number. Bound with min/max; toggle integer-only to reject decimals at write time.",
+    "A number. Set min and max to bound the range; tick \"integer only\" to reject decimals.",
   decimal:
-    "Money-safe fixed-point number. Precision = total digit count (max 38); Scale = digits after the decimal (must be ≤ precision).",
+    "Use this for money or anything where rounding matters. Precision is how many digits the value can have in total; Scale is how many of those come after the decimal point.",
   rating:
-    "Whole-number rating from 1 to Scale (e.g. Scale 5 = 1–5 stars). 0 means \"not rated yet\".",
-  boolean: "True / false toggle. No constraints.",
-  date: "Calendar date, optionally with a time-of-day. Bound with a min and/or max date.",
+    "A star rating. Choose how many stars users can pick from (e.g. 5 = 1–5 stars).",
+  boolean: "A yes/no checkbox.",
+  date:
+    "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
   "single-select":
-    "Pick exactly one option from a fixed list. Each option has an id (stored), a label (shown), and a colour (chip background).",
+    "A drop-down where users pick one option from a list you define. Each option has a label and a colour.",
   "multi-select":
-    "Pick zero or more options from a fixed list. minSelected / maxSelected enforce the count at write time.",
+    "Like single-select, but users can pick more than one option. You can require a minimum or cap the maximum number of picks.",
   autonumber:
-    "Auto-incremented integer per record, optionally prefixed (\"INV-\") and zero-padded.",
-  email: "Plain string validated as an email address (RFC-5321 lite).",
-  url: "Plain string validated as a URL with a scheme (http(s), mailto, tel, …).",
-  phone: "Plain string in E.164 / national notation. No strict format check — store what your users type.",
+    "An auto-incrementing number that fills itself in on every new record. Add a prefix (e.g. \"INV-\") or zero-pad to a fixed width.",
+  email: "An email address. Format is validated on save.",
+  url: "A web link — must include the scheme (https://, http://).",
+  phone:
+    "A phone number. Stored as the user typed it; no strict format check.",
   currency:
-    "{ amount: decimal, currency: ISO-4217 code }. The default currency seeds new rows; users can override per record.",
-  percent: "Number 0–100 representing a percentage. Stored as the literal value (e.g. 15 for 15%).",
-  duration:
-    "Whole seconds. Display formats it as HH:MM:SS; input accepts either seconds or HH:MM:SS.",
-  slug: "URL-safe identifier (lowercase, hyphens). Useful for human-readable foreign keys.",
-  barcode: "Free-form barcode string (EAN-13, Code-128, …). No format check.",
-  isbn: "ISBN-10 or ISBN-13 with checksum verification at write time.",
-  color: "CSS hex colour (#rgb or #rrggbb). Renders as a swatch in the table.",
-  "rich-text": "Markdown body. Same constraints as longtext.",
-  json: "Free-form JSON value. Server validates that the input parses; structure is up to you.",
-  signature: "Image dataURL captured from a signature pad. Stored verbatim.",
+    "A money amount with a currency code. Set the default currency users see; they can override it per record.",
+  percent: "A percentage from 0 to 100.",
+  duration: "A length of time. Type as HH:MM:SS or seconds; displayed as HH:MM:SS.",
+  slug:
+    "A URL-safe identifier — lowercase letters, numbers, hyphens. Useful when the value will appear in a URL.",
+  barcode:
+    "Any barcode value. No format check, so EAN, Code-128, QR, anything works.",
+  isbn: "A 10- or 13-digit ISBN. The check digit is verified.",
+  color: "A colour picked from a palette or entered as a hex code.",
+  "rich-text":
+    "A formatted text body. Supports bold, italics, headings, lists, and links via Markdown.",
+  json: "A free-form JSON value. Use this when no other type fits.",
+  signature:
+    "A handwritten signature drawn on a touch screen or with a mouse.",
   location:
-    "{ lat, lng, label }. Use the lat/lng for maps, the label for human display.",
+    "A point on a map — coordinates with an optional human-readable label.",
   relation:
-    "Link to records in another table. Pick the target table + a display field; cardinality decides single- vs many-link.",
+    "A link to one or more records in another table. Pick the target table and which of its columns to show.",
   lookup:
-    "Project a value through a relation. Reads the target field of every linked record and surfaces it on this row.",
+    "Pulls a column from a linked record so you can see it on this row, without copying the data.",
   rollup:
-    "Aggregate over a relation. Like lookup, but reduces the linked values to one (count, sum, avg, min, max).",
+    "Summarises values from linked records — count them, add them up, average them, or take the smallest or largest.",
   formula:
-    "Computed expression that runs at read time. Reference fields by their UUID inside { … }; supports IF, AND/OR, math, text and date helpers.",
+    "A computed value, recalculated whenever the row is read. Reference other columns by id in {curly braces} and use functions like IF, CONCAT, ROUND, AVG.",
 };
 
 /** Default config blob for a brand-new field of `type`. */
