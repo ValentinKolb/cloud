@@ -4,6 +4,7 @@ import indexPage from "./page";
 import baseDetailPage from "./[baseId]/page";
 import baseSettingsPage from "./[baseId]/settings/page";
 import tableEditPage from "./[baseId]/tables/[tableId]/edit/page";
+import viewEditPage from "./[baseId]/tables/[tableId]/views/[viewId]/edit/page";
 import adminPage from "./admin";
 import publicFormPage from "./public/forms/[token]/page";
 
@@ -27,6 +28,13 @@ export default new Hono<AuthContext>()
   // Specific routes (settings, tables/:tableId/edit) MUST come before the
   // catch-all `:baseId` so Hono's matcher tries them first; otherwise
   // /<base>/settings would match `:baseId` and 404 on the unrouted suffix.
+  // View edit must come before the table-edit catch (otherwise
+  // /tables/:tid/views/... matches the wrong route).
+  .get(
+    "/:baseId/tables/:tableId/views/:viewId/edit",
+    auth.requireRole("user", auth.redirectToLogin),
+    ...viewEditPage,
+  )
   .get(
     "/:baseId/tables/:tableId/edit",
     auth.requireRole("user", auth.redirectToLogin),

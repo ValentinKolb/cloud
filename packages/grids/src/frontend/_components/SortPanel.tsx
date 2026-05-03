@@ -6,11 +6,15 @@ export type SortRow = { fieldId: string; direction: "asc" | "desc" };
 
 type Props = {
   fields: Field[];
-  /** Controlled rows — owned by GridToolbar. */
+  /** Controlled rows — owned by the parent. */
   rows: () => SortRow[];
   onRowsChange: (next: SortRow[]) => void;
   initialFromUrl: SortRow[];
-  baseUrl: string;
+  /** Used by the default Apply navigation. Required when `onApply` unset. */
+  baseUrl?: string;
+  /** When set, Apply calls this with the validated rows instead of
+   *  navigating to baseUrl. */
+  onApply?: (rows: SortRow[]) => void;
 };
 
 export const SORTABLE_TYPES = new Set([
@@ -65,7 +69,11 @@ export default function SortPanel(props: Props) {
         for (const r of validated) r.direction = first;
       }
     }
-    navigateTo(buildSortUrl(props.baseUrl, validated));
+    if (props.onApply) {
+      props.onApply(validated);
+      return;
+    }
+    if (props.baseUrl) navigateTo(buildSortUrl(props.baseUrl, validated));
   };
 
   const updateRow = (index: number, patch: Partial<SortRow>) => {

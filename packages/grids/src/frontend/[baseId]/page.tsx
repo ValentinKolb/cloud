@@ -538,16 +538,31 @@ export default ssr<AuthContext>(async (c) => {
                         u.searchParams.set("sort", JSON.stringify(cfg.sort));
                       return `${u.pathname}${u.search}`;
                     })();
+                    const canEdit =
+                      view.ownerUserId === user.id ||
+                      (view.ownerUserId === null && canWriteRecords);
                     return (
-                      <a
-                        href={url}
-                        class={`sidebar-item text-xs ${
-                          activeViewId === view.id ? "sidebar-item-active" : ""
-                        }`}
-                      >
-                        <i class="ti ti-table-spark text-sm" />
-                        <span class="truncate">{view.name}</span>
-                      </a>
+                      <div class="group relative flex items-center">
+                        <a
+                          href={url}
+                          class={`sidebar-item flex-1 text-xs ${
+                            activeViewId === view.id ? "sidebar-item-active" : ""
+                          }`}
+                        >
+                          <i class="ti ti-table-spark text-sm" />
+                          <span class="truncate">{view.name}</span>
+                        </a>
+                        {canEdit && (
+                          <a
+                            href={`/app/grids/${baseId}/tables/${activeTable.id}/views/${view.id}/edit`}
+                            class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                            aria-label={`Edit view ${view.name}`}
+                            title="Edit view"
+                          >
+                            <i class="ti ti-settings text-xs" />
+                          </a>
+                        )}
+                      </div>
                     );
                   })}
                 </section>

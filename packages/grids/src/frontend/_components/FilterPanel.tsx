@@ -11,16 +11,20 @@ export type FilterLeaf = {
 
 type Props = {
   fields: Field[];
-  /** Controlled row state — owned by GridToolbar so the toolbar can derive
-   *  the panel's visibility from `rows.length > 0`. */
+  /** Controlled row state — owned by the parent so it can derive the
+   *  panel's visibility from `rows.length > 0`. */
   rows: () => FilterLeaf[];
   onRowsChange: (next: FilterLeaf[]) => void;
-  /** Filter currently committed to the URL — used for the "dirty" check
-   *  that gates the Apply button. */
+  /** Filter currently committed (URL state OR persisted view config) —
+   *  used for the "dirty" check that gates the Apply button. */
   initialFromUrl: FilterLeaf[];
-  /** Base URL without the filter param. Apply navigates to it with the
-   *  serialized filter; Clear navigates to it without the filter param. */
-  baseUrl: string;
+  /** Base URL — used by the default Apply behavior to navigate with the
+   *  serialized filter. Required when `onApply` is not set. */
+  baseUrl?: string;
+  /** When set, Apply calls this with the validated leaves instead of
+   *  navigating. Use this to wire the panel into a settings page that
+   *  persists into a view's config rather than the URL. */
+  onApply?: (leaves: FilterLeaf[]) => void;
 };
 
 const buildFilterUrl = (baseUrl: string, leaves: FilterLeaf[]): string => {
@@ -67,7 +71,11 @@ export default function FilterPanel(props: Props) {
 
   const apply = () => {
     const validated = props.rows().filter((l) => isComplete(l, props.fields));
-    navigateTo(buildFilterUrl(props.baseUrl, validated));
+    if (props.onApply) {
+      props.onApply(validated);
+      return;
+    }
+    if (props.baseUrl) navigateTo(buildFilterUrl(props.baseUrl, validated));
   };
 
   const updateLeaf = (index: number, patch: Partial<FilterLeaf>) => {

@@ -30,6 +30,7 @@ const UpdateViewSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   config: ViewConfigSchema.optional(),
   position: z.number().int().optional(),
+  shared: z.boolean().optional(),
 });
 
 const app = new Hono<AuthContext>()
@@ -93,6 +94,33 @@ const app = new Hono<AuthContext>()
         ),
         201,
       );
+    },
+  )
+
+  .get(
+    "/:viewId",
+    describeRoute({
+      tags: ["Grids:View"],
+      summary: "Get a single view",
+      responses: {
+        200: jsonResponse(ViewSchema, "View"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const viewId = c.req.param("viewId");
+      const view = await gridsService.view.get(viewId);
+      if (!view) return c.json({ message: "View not found" }, 404);
+      const table = await gridsService.table.get(view.tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId: view.tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      // Personal views: only the owner can read
+      const user = c.get("user");
+      if (view.ownerUserId !== null && view.ownerUserId !== user.id) {
+        return c.json({ message: "View not found" }, 404);
+      }
+      return c.json(view);
     },
   )
 

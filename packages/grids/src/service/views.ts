@@ -252,6 +252,9 @@ export type UpdateViewInput = {
   name?: string;
   config?: ViewConfig;
   position?: number;
+  /** Shared toggle: true → ownerUserId becomes null (anyone can read);
+   *  false → ownerUserId becomes `actorId` (the editor takes ownership). */
+  shared?: boolean;
 };
 
 export const update = async (id: string, input: UpdateViewInput, actorId: string | null): Promise<Result<View>> => {
@@ -260,6 +263,13 @@ export const update = async (id: string, input: UpdateViewInput, actorId: string
 
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
+
+  const ownerUserId =
+    input.shared === undefined
+      ? existing.ownerUserId
+      : input.shared
+      ? null
+      : actorId;
 
   const next = {
     name: name ?? existing.name,
@@ -272,6 +282,7 @@ export const update = async (id: string, input: UpdateViewInput, actorId: string
     SET name = ${next.name},
         config = ${next.config}::jsonb,
         position = ${next.position},
+        owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid
     RETURNING id, table_id, name, config, owner_user_id, position, created_at, updated_at
