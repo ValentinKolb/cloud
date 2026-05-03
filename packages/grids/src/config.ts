@@ -16,7 +16,11 @@ export const app = defineApp({
     requiresRoles: ["user"],
   },
   openapi: "/api/grids/openapi.json",
-  routes: ["/api/grids", "/app/grids", "/admin/grids", "/public/grids"],
+  // `/share/grids` hosts anonymous-friendly pages (public forms etc).
+  // We don't use `/public/grids` because the SSR framework reserves
+  // `/public/*` for static-asset serving and 404s anything that doesn't
+  // match a real file on disk.
+  routes: ["/api/grids", "/app/grids", "/admin/grids", "/share/grids"],
 });
 
 export const { ssr, plugin } = app;

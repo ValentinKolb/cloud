@@ -330,6 +330,11 @@ export default ssr<AuthContext>(async (c) => {
   // is the active one (only when no filter/sort/view is set).
   const hasFilterOrSort = filterLeaves.length > 0 || parsedSort.length > 0;
 
+  // Public forms surface in the sidebar regardless of who's looking —
+  // anyone can click through to the submit page. Private forms stay in
+  // the table-edit page (they're a power-user surface).
+  const publicForms = formsForTable.filter((f) => f.publicToken && f.isActive);
+
   return () => (
     <Layout
       c={c}
@@ -344,6 +349,54 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="app-cols flex-1 min-h-0">
+        {/* Mobile-collapsed sidebar — opens on tap, lists tables, the
+            base settings link, and any saved views for the active table.
+            Mirrors the spaces SpaceSidebar mobile pattern. */}
+        <nav class="sidebar-container-mobile">
+          <details class="group">
+            <summary class="sidebar-mobile-toggle">
+              <div
+                class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0"
+                style="background-color:#3b82f6"
+              >
+                <i class="ti ti-table text-sm" />
+              </div>
+              <span class="font-semibold truncate flex-1">{base.name}</span>
+              <span class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed transition-transform group-open:rotate-180">
+                <i class="ti ti-chevron-down text-sm" />
+              </span>
+            </summary>
+            <div class="sidebar-mobile-actions">
+              {canManageBase && (
+                <a href={`/app/grids/${baseId}/settings`} class="sidebar-item-mobile">
+                  <i class="ti ti-settings" />
+                  Settings
+                </a>
+              )}
+              <a href="/app/grids" class="sidebar-item-mobile">
+                <i class="ti ti-layout-grid" />
+                All grids
+              </a>
+              {tables.map((t) => {
+                const isActive = activeTable?.id === t.id;
+                return (
+                  <a
+                    href={`/app/grids/${baseId}?table=${t.id}`}
+                    class={`sidebar-item-mobile ${
+                      isActive
+                        ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
+                        : ""
+                    }`}
+                  >
+                    <i class="ti ti-table" />
+                    {t.name}
+                  </a>
+                );
+              })}
+            </div>
+          </details>
+        </nav>
+
         <aside class="sidebar-container">
           <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
             {/* Base header — name + single gear for settings. */}
@@ -419,16 +472,18 @@ export default ssr<AuthContext>(async (c) => {
                 {canCreateTables && <CreateTableButton baseId={baseId} />}
               </section>
 
-              {/* Views (only for the active table) */}
+              {/* Views (only for the active table). "All records" is the
+                  no-view-selected state. We rely strictly on `activeViewId`
+                  here (not the filter/sort flags) — having a filter
+                  applied without picking a saved view is still the "All
+                  records" context, just narrowed. */}
               {activeTable && (
                 <section class="sidebar-group">
                   <p class="sidebar-section-title">Views</p>
                   <a
                     href={`/app/grids/${baseId}?table=${activeTable.id}`}
                     class={`sidebar-item text-xs ${
-                      activeViewId === null && !hasFilterOrSort
-                        ? "sidebar-item-active"
-                        : ""
+                      activeViewId === null ? "sidebar-item-active" : ""
                     }`}
                   >
                     <i class="ti ti-list text-sm" />
@@ -464,6 +519,29 @@ export default ssr<AuthContext>(async (c) => {
                       </a>
                     );
                   })}
+                </section>
+              )}
+
+              {/* Forms — only public forms are linkable here (private forms
+                  live in the table editor). Anyone reading the sidebar can
+                  click through to submit a public form without leaving the
+                  context of the table. */}
+              {activeTable && publicForms.length > 0 && (
+                <section class="sidebar-group">
+                  <p class="sidebar-section-title">Forms</p>
+                  {publicForms.map((form) => (
+                    <a
+                      href={`/share/grids/forms/${form.publicToken}`}
+                      class="sidebar-item text-xs"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Open public submit form for ${form.name}`}
+                    >
+                      <i class="ti ti-forms text-sm" />
+                      <span class="truncate">{form.name}</span>
+                      <i class="ti ti-external-link text-[10px] text-dimmed ml-auto" />
+                    </a>
+                  ))}
                 </section>
               )}
             </div>

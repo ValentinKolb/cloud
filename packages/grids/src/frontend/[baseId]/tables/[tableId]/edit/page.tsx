@@ -98,9 +98,49 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="app-cols flex-1 min-h-0">
-        {/* Sidebar — base header + sibling tables. Slimmer than the records
-            page sidebar (no Views section) since the editor doesn't operate
-            on records. */}
+        {/* Mobile-collapsed sidebar — sibling tables + back-to-records. */}
+        <nav class="sidebar-container-mobile">
+          <details class="group">
+            <summary class="sidebar-mobile-toggle">
+              <div
+                class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0"
+                style="background-color:#3b82f6"
+              >
+                <i class="ti ti-table text-sm" />
+              </div>
+              <span class="font-semibold truncate flex-1">Edit table</span>
+              <span class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed transition-transform group-open:rotate-180">
+                <i class="ti ti-chevron-down text-sm" />
+              </span>
+            </summary>
+            <div class="sidebar-mobile-actions">
+              <a href={`/app/grids/${baseId}?table=${tableId}`} class="sidebar-item-mobile">
+                <i class="ti ti-arrow-left" />
+                Back to records
+              </a>
+              {tables.map((t) => {
+                const isActive = t.id === tableId;
+                return (
+                  <a
+                    href={`/app/grids/${baseId}/tables/${t.id}/edit`}
+                    class={`sidebar-item-mobile ${
+                      isActive
+                        ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
+                        : ""
+                    }`}
+                  >
+                    <i class="ti ti-table" />
+                    {t.name}
+                  </a>
+                );
+              })}
+            </div>
+          </details>
+        </nav>
+
+        {/* Desktop sidebar — base header + sibling tables. Slimmer than
+            the records page sidebar (no Views section) since the editor
+            doesn't operate on records. */}
         <aside class="sidebar-container">
           <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
             <div class="relative flex items-center gap-3 pr-7">
@@ -108,8 +148,7 @@ export default ssr<AuthContext>(async (c) => {
                 <i class="ti ti-table text-xs" />
               </div>
               <div class="min-w-0 flex-1">
-                <p class="sidebar-header-title">{base.name}</p>
-                <p class="sidebar-header-subtitle">Editing table</p>
+                <p class="sidebar-header-title">Edit table</p>
               </div>
             </div>
 

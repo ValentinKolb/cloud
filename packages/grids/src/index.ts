@@ -12,7 +12,7 @@ const router = new Hono<AuthContext>()
   .route("/api/grids", apiRoutes)
   .route("/app/grids", pageRoutes)
   .route("/admin/grids", adminRoutes)
-  .route("/public/grids", publicRoutes);
+  .route("/share/grids", publicRoutes);
 
 export default await app.start({
   fetch: router.fetch,

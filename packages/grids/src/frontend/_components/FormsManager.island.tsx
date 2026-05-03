@@ -252,7 +252,7 @@ function FormEditor(props: {
 
   const handleCopyPublicUrl = async () => {
     if (!props.form.publicToken) return;
-    const url = `${window.location.origin}/public/grids/forms/${props.form.publicToken}`;
+    const url = `${window.location.origin}/share/grids/forms/${props.form.publicToken}`;
     try {
       await navigator.clipboard.writeText(url);
     } catch {
