@@ -9,8 +9,10 @@ import {
   type RecordDetailPayload,
 } from "./record-detail-context";
 import { formatCell } from "./format-cell";
+import { RecordLink } from "./RecordLink";
 
 type Props = {
+  baseId: string;
   tableId: string;
   fields: Field[];
   records: GridRecord[];
@@ -99,8 +101,16 @@ export default function RecordsGrid(props: Props) {
     return col && "format" in col ? col.format : undefined;
   };
 
-  /** Renders a relation cell using the SSR-resolved label cache. */
-  const formatRelationCell = (value: unknown): string => {
+  /**
+   * Renders a relation cell as a list of inline links — one per linked
+   * record. Each link navigates to the target table with the record-
+   * detail panel open, and the click is `stopPropagation`'d so it
+   * doesn't bubble to the row's "open detail panel" handler.
+   *
+   * Plain text colour with hover-underline only (no blue) — matches
+   * the user's request for unobtrusive cross-record navigation.
+   */
+  const renderRelationCell = (field: Field, value: unknown) => {
     const ids = Array.isArray(value)
       ? (value as string[])
       : typeof value === "string" && value.length > 0
@@ -108,9 +118,51 @@ export default function RecordsGrid(props: Props) {
       : [];
     if (ids.length === 0) return "";
     const cache = props.relationLabels ?? {};
-    return ids
-      .map((id) => cache[id] ?? id.slice(0, 8))
-      .join(", ");
+    const targetTableId = (field.config as { targetTableId?: string }).targetTableId;
+    return (
+      <span class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        {ids.map((id, i) => (
+          <RecordLink
+            label={cache[id] ?? id.slice(0, 8)}
+            targetTableId={targetTableId}
+            targetRecordId={id}
+            baseId={props.baseId}
+            comma={i < ids.length - 1}
+          />
+        ))}
+      </span>
+    );
+  };
+
+  /**
+   * Renders a lookup cell (the projected value plus a link back to the
+   * source-relation's first target record). Lookups are read-only
+   * projections, so the cell shows whatever value was extracted; the
+   * link points to the related record for context.
+   */
+  const renderLookupCell = (field: Field, rec: GridRecord) => {
+    const cfg = field.config as { relationFieldId?: string };
+    const relationField = cfg.relationFieldId
+      ? props.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation")
+      : undefined;
+    const value = formatCell(rec.data[field.id], field.type, field.config, columnFormat(field.id));
+    if (!value || !relationField) return value;
+    const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
+    const linked = rec.data[relationField.id];
+    const targetId = Array.isArray(linked)
+      ? (linked[0] as string | undefined)
+      : typeof linked === "string"
+      ? linked
+      : undefined;
+    if (!targetTableId || !targetId) return value;
+    return (
+      <RecordLink
+        label={value}
+        targetTableId={targetTableId}
+        targetRecordId={targetId}
+        baseId={props.baseId}
+      />
+    );
   };
 
   const onRowClick = (rec: GridRecord) => {
@@ -224,7 +276,9 @@ export default function RecordsGrid(props: Props) {
                           {(f) => (
                             <td class="px-3 py-2 text-primary">
                               {f.type === "relation"
-                                ? formatRelationCell(rec.data[f.id])
+                                ? renderRelationCell(f, rec.data[f.id])
+                                : f.type === "lookup"
+                                ? renderLookupCell(f, rec)
                                 : formatCell(
                                     rec.data[f.id],
                                     f.type,

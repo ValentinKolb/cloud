@@ -629,6 +629,7 @@ export default ssr<AuthContext>(async (c) => {
               />
 
               <RecordsGrid
+                baseId={baseId}
                 tableId={activeTable.id}
                 fields={fields}
                 records={records.items}
@@ -684,6 +685,7 @@ export default ssr<AuthContext>(async (c) => {
             } order-2 lg:order-3 w-full lg:w-[28rem] shrink-0 flex-col min-h-0 overflow-hidden`}
           >
             <RecordDetailPanel
+              baseId={baseId}
               tableId={activeTable.id}
               fields={fields}
               initialRecord={selectedRecord}
