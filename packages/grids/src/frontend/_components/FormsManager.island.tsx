@@ -255,10 +255,28 @@ function FormEditor(props: {
     const url = `${window.location.origin}/public/grids/forms/${props.form.publicToken}`;
     try {
       await navigator.clipboard.writeText(url);
-      prompts.alert(`Copied:\n${url}`, { title: "Public URL", icon: "ti ti-link" });
     } catch {
-      prompts.alert(url, { title: "Public URL", icon: "ti ti-link" });
+      // Clipboard API can fail in non-https / sandboxed iframes — fall through
+      // to the dialog so the user can copy by hand.
     }
+    // Custom dialog with a `break-all` URL block so long tokens wrap inside
+    // the dialog instead of overflowing past its border.
+    await prompts.dialog<void>(
+      (close) => (
+        <div class="flex flex-col gap-3">
+          <p class="text-xs text-secondary">Copied to clipboard:</p>
+          <code class="block break-all text-xs bg-zinc-100 dark:bg-zinc-800 rounded-md p-2 font-mono">
+            {url}
+          </code>
+          <div class="flex justify-end">
+            <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+              OK
+            </button>
+          </div>
+        </div>
+      ),
+      { title: "Public URL", icon: "ti ti-link" },
+    );
   };
 
   return (
@@ -276,11 +294,22 @@ function FormEditor(props: {
             />
             Public — anyone with the link can submit, no login required
           </label>
-          <Show when={props.form.publicToken}>
-            <button type="button" class="btn-simple btn-sm text-xs" onClick={handleCopyPublicUrl}>
-              <i class="ti ti-copy" /> Copy public URL
-            </button>
-          </Show>
+          {/* Icon-only with tooltip, ALWAYS in the DOM. Hidden via opacity
+              + pointer-events when there's no token yet — keeps the row's
+              width stable so toggling public on doesn't cause a shift. */}
+          <button
+            type="button"
+            class={`btn-simple btn-sm transition-opacity ${
+              props.form.publicToken
+                ? "opacity-100"
+                : "opacity-0 pointer-events-none"
+            }`}
+            onClick={handleCopyPublicUrl}
+            title="Copy public URL"
+            aria-label="Copy public URL"
+          >
+            <i class="ti ti-copy" />
+          </button>
         </div>
       </div>
 
