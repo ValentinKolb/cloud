@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { Select, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 
 // =============================================================================
@@ -484,7 +484,7 @@ function SelectConstraints(props: {
   };
 
   return (
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between">
         <span class="text-xs text-secondary">Options</span>
         <button type="button" class="btn-simple btn-sm text-xs" onClick={addOption}>
@@ -496,35 +496,45 @@ function SelectConstraints(props: {
         fallback={<p class="text-xs text-dimmed py-1">No options yet.</p>}
       >
         <div class="flex flex-col gap-2">
+          {/* Column headers — sit above the input cells. The leading w-7
+              spacer matches the colour swatch column so "Label" and
+              "Value" line up with the inputs below. */}
+          <div class="flex items-center gap-2 text-[11px] text-dimmed">
+            <span class="w-7 shrink-0" />
+            <span class="flex-1">Label</span>
+            <span class="w-40 shrink-0">Value</span>
+            <span class="w-5 shrink-0" />
+          </div>
           <For each={options()}>
             {(opt, i) => (
               <div class="flex items-center gap-2">
-                <input
-                  type="color"
-                  class="h-7 w-7 cursor-pointer rounded border border-zinc-200 dark:border-zinc-700"
-                  value={opt.color ?? "#3b82f6"}
-                  onInput={(e) => updateOption(i(), { color: e.currentTarget.value })}
-                  aria-label="Color"
+                <ColorInput
+                  compact
+                  value={() => opt.color ?? "#3b82f6"}
+                  onChange={(c) => updateOption(i(), { color: c })}
                 />
-                <input
-                  type="text"
-                  class="flex-1 rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-sm"
-                  placeholder="Label"
-                  value={opt.label}
-                  onInput={(e) => onLabelChange(i(), e.currentTarget.value)}
-                />
-                <input
-                  type="text"
-                  class="w-32 rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1 text-xs font-mono text-dimmed"
-                  placeholder="id"
-                  value={opt.id}
-                  onInput={(e) => updateOption(i(), { id: e.currentTarget.value })}
-                />
+                <div class="flex-1">
+                  <TextInput
+                    placeholder="Label"
+                    icon="ti ti-tag"
+                    value={() => opt.label}
+                    onInput={(v) => onLabelChange(i(), v)}
+                  />
+                </div>
+                <div class="w-40 shrink-0">
+                  <TextInput
+                    placeholder="value"
+                    icon="ti ti-id"
+                    value={() => opt.id}
+                    onInput={(v) => updateOption(i(), { id: v })}
+                  />
+                </div>
                 <button
                   type="button"
-                  class="text-dimmed hover:text-red-500"
+                  class="text-dimmed hover:text-red-500 p-1 shrink-0"
                   onClick={() => removeOption(i())}
                   title="Remove"
+                  aria-label="Remove option"
                 >
                   <i class="ti ti-x" />
                 </button>

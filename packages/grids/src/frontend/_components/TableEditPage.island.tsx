@@ -8,6 +8,7 @@ import {
   refreshCurrentPath,
 } from "@valentinkolb/cloud/ui";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+import { SectionCard } from "./SectionCard";
 import {
   dnd,
   mutation as mutations,
@@ -274,15 +275,10 @@ export default function TableEditPage(props: Props) {
   // -------------------------------------------------------------------
   return (
     // Full-bleed: the editor wants the whole main column. No max-width.
-    <div class="flex flex-col gap-8 p-6">
-      {/* Page header */}
-      <header class="flex items-start justify-between gap-3">
-        <div>
-          <h1 class="text-xl font-semibold text-primary">Edit table</h1>
-          <p class="text-xs text-dimmed mt-0.5">
-            Drag fields to reorder, click a field to edit its details.
-          </p>
-        </div>
+    <div class="flex flex-col gap-4 p-6">
+      {/* Page header — sits on the page background, no paper card. */}
+      <header class="flex items-center justify-between gap-3">
+        <h1 class="text-xl font-semibold text-primary">Edit table</h1>
         <a
           href={`/app/grids/${props.table.baseId}?table=${props.table.id}`}
           class="btn-input btn-input-sm"
@@ -291,9 +287,10 @@ export default function TableEditPage(props: Props) {
         </a>
       </header>
 
-      {/* General */}
-      <section class="flex flex-col gap-3">
-        <h2 class="section-label">General</h2>
+      <SectionCard
+        title="General"
+        subtitle="Table name and description shown to viewers."
+      >
         <form onSubmit={handleTableSave} class="flex flex-col gap-3">
           <TextInput
             label="Name"
@@ -311,26 +308,26 @@ export default function TableEditPage(props: Props) {
             multiline
           />
           <Show when={tDirty()}>
-            <button type="submit" class="btn-primary btn-sm self-start" disabled={updateTableMut.loading()}>
+            <button
+              type="submit"
+              class="btn-primary btn-sm self-start"
+              disabled={updateTableMut.loading()}
+            >
               {updateTableMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
             </button>
           </Show>
         </form>
-      </section>
+      </SectionCard>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Fields */}
-      <section class="flex flex-col gap-3">
-        <div class="flex items-center justify-between">
-          <h2 class="section-label">Fields</h2>
-          <span class="text-xs text-dimmed">{fields().length} field(s)</span>
-        </div>
-
+      <SectionCard
+        title="Fields"
+        subtitle="Drag to reorder. Click a field to edit its details."
+        meta={`${fields().length} field${fields().length === 1 ? "" : "s"}`}
+      >
         <Show
           when={fields().length > 0}
           fallback={
-            <p class="text-xs text-dimmed py-2">
+            <p class="text-xs text-dimmed">
               No fields yet. Click "Add field" below to create the first one.
             </p>
           }
@@ -352,84 +349,84 @@ export default function TableEditPage(props: Props) {
                         <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-md bg-blue-500/80 dark:bg-blue-400/80" />
                       </div>
                     </Show>
-                  <li
-                    ref={(el) => {
-                      fieldDnd.draggable(el, () => ({
-                        id: dragId,
-                        disabled: reorderMut.loading() || isExpanded(),
-                        focusable: false,
-                        keyboard: false,
-                        handleSelector: "[data-dnd-handle]",
-                        meta: { fieldId: field.id },
-                      }));
-                      fieldDnd.droppable(el, () => ({
-                        id: dropId,
-                        disabled: reorderMut.loading(),
-                        meta: { kind: "field", index: index() },
-                      }));
-                    }}
-                    data-card-index={index()}
-                    class={`paper transition-colors ${
-                      isDragging() ? "opacity-40" : ""
-                    } ${isExpanded() ? "ring-2 ring-blue-500/30 dark:ring-blue-400/30" : ""}`}
-                  >
-                    {/* Card header — visible in both states */}
-                    <button
-                      type="button"
-                      class="flex w-full items-center gap-2 px-3 py-2 text-left"
-                      onClick={() => setExpandedId(isExpanded() ? null : field.id)}
-                      aria-expanded={isExpanded()}
+                    <li
+                      ref={(el) => {
+                        fieldDnd.draggable(el, () => ({
+                          id: dragId,
+                          disabled: reorderMut.loading() || isExpanded(),
+                          focusable: false,
+                          keyboard: false,
+                          handleSelector: "[data-dnd-handle]",
+                          meta: { fieldId: field.id },
+                        }));
+                        fieldDnd.droppable(el, () => ({
+                          id: dropId,
+                          disabled: reorderMut.loading(),
+                          meta: { kind: "field", index: index() },
+                        }));
+                      }}
+                      data-card-index={index()}
+                      class={`rounded-lg border border-zinc-200 dark:border-zinc-700 transition-colors ${
+                        isDragging() ? "opacity-40" : ""
+                      } ${isExpanded() ? "ring-2 ring-blue-500/30 dark:ring-blue-400/30" : ""}`}
                     >
-                      {/* Drag handle */}
-                      <span
-                        data-dnd-handle
-                        class="cursor-grab active:cursor-grabbing text-dimmed hover:text-primary p-1 -ml-1"
-                        aria-label="Drag to reorder"
-                        title="Drag to reorder"
-                        onClick={(e) => e.stopPropagation()}
+                      {/* Card header — visible in both states */}
+                      <button
+                        type="button"
+                        class="flex w-full items-center gap-2 px-3 py-2 text-left"
+                        onClick={() => setExpandedId(isExpanded() ? null : field.id)}
+                        aria-expanded={isExpanded()}
                       >
-                        <i class="ti ti-grip-vertical" />
-                      </span>
-                      <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                        <span class="text-sm font-semibold text-primary truncate">{field.name}</span>
-                        <span class="text-[10px] text-dimmed">
-                          {TYPE_LABELS[field.type] ?? field.type}
+                        <span
+                          data-dnd-handle
+                          class="cursor-grab active:cursor-grabbing text-dimmed hover:text-primary p-1 -ml-1"
+                          aria-label="Drag to reorder"
+                          title="Drag to reorder"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <i class="ti ti-grip-vertical" />
                         </span>
-                        <Show when={field.required}>
-                          <span class="text-[10px] text-amber-600 dark:text-amber-400">required</span>
+                        <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                          <span class="text-sm font-semibold text-primary truncate">
+                            {field.name}
+                          </span>
+                          <span class="text-[10px] text-dimmed">
+                            {TYPE_LABELS[field.type] ?? field.type}
+                          </span>
+                          <Show when={field.required}>
+                            <span class="text-[10px] text-amber-600 dark:text-amber-400">
+                              required
+                            </span>
+                          </Show>
+                        </span>
+                        <Show when={field.description}>
+                          <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
+                            {field.description}
+                          </span>
                         </Show>
-                      </span>
-                      <Show when={field.description}>
-                        <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
-                          {field.description}
-                        </span>
-                      </Show>
-                      <i
-                        class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
-                          isExpanded() ? "rotate-180" : ""
-                        }`}
-                      />
-                    </button>
+                        <i
+                          class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
+                            isExpanded() ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
 
-                    {/* Expanded body */}
-                    <Show when={isExpanded()}>
-                      <FieldEditor
-                        field={field}
-                        otherTables={props.otherTables}
-                        fieldsByTable={props.fieldsByTable}
-                        onSaved={(updated) => {
-                          setFields(fields().map((f) => (f.id === updated.id ? updated : f)));
-                        }}
-                        onDeleted={() => handleDeleteField(field)}
-                      />
-                    </Show>
-                  </li>
+                      <Show when={isExpanded()}>
+                        <FieldEditor
+                          field={field}
+                          otherTables={props.otherTables}
+                          fieldsByTable={props.fieldsByTable}
+                          onSaved={(updated) => {
+                            setFields(fields().map((f) => (f.id === updated.id ? updated : f)));
+                          }}
+                          onDeleted={() => handleDeleteField(field)}
+                        />
+                      </Show>
+                    </li>
                   </>
                 );
               }}
             </For>
-            {/* Indicator AFTER the last card — landing point when the user
-                drags below the bottom card. */}
             <Show when={isDropIndicatorVisible(fields().length)}>
               <div class="relative h-2">
                 <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-md bg-blue-500/80 dark:bg-blue-400/80" />
@@ -445,49 +442,43 @@ export default function TableEditPage(props: Props) {
         >
           <i class="ti ti-plus" /> Add field
         </button>
-      </section>
+      </SectionCard>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Permissions — table-level grants. */}
-      <section class="flex flex-col gap-3">
-        <h2 class="section-label">Permissions</h2>
+      <SectionCard
+        title="Permissions"
+        subtitle="Grants resolve most-specific-first: table > base, user > group."
+      >
         <div class="info-block-info text-xs flex items-start gap-2">
           <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
           <span>
-            Grants resolve most-specific-first: table grants override base
-            grants, user grants override group grants. Within the same tier,
-            "no access" wins over a positive grant. Set base-level grants
-            for the team default; tighten or loosen per table here.
+            Within the same tier, "no access" wins over a positive grant. Set
+            base-level grants for the team default; tighten or loosen per table
+            here.
           </span>
         </div>
         <TablePermissions
           tableId={props.table.id}
           initialEntries={props.initialAccessEntries}
         />
-      </section>
+      </SectionCard>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Forms */}
-      <section class="flex flex-col gap-3">
-        <h2 class="section-label">Forms</h2>
+      <SectionCard
+        title="Forms"
+        subtitle="Public links to fill the table without a login."
+      >
         <FormsManager
           tableId={props.table.id}
           fields={fields()}
           initialForms={props.initialForms}
           canManage
         />
-      </section>
+      </SectionCard>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Danger zone */}
-      <section class="flex flex-col gap-2">
-        <h2 class="text-sm font-medium text-red-500">Danger Zone</h2>
-        <p class="text-xs text-dimmed">
-          Permanently delete this table and all of its data. This cannot be undone.
-        </p>
+      <SectionCard
+        title="Danger zone"
+        subtitle="Permanently delete this table and all of its data. This cannot be undone."
+        variant="danger"
+      >
         <button
           type="button"
           class="btn-danger btn-sm self-start"
@@ -496,7 +487,7 @@ export default function TableEditPage(props: Props) {
         >
           <i class="ti ti-trash" /> Delete table
         </button>
-      </section>
+      </SectionCard>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type { Base } from "../../service";
 import { errorMessage } from "./api-helpers";
+import { SectionCard } from "./SectionCard";
 
 type Props = {
   base: { id: string; name: string; description: string | null };
@@ -18,15 +19,14 @@ type Props = {
 };
 
 /**
- * Single-island settings page body. Sections stack vertically and are
- * separated by horizontal rules — same shape as spaces' SpaceEditPanel,
- * scaled to grids' simpler data model (just name/description + ACL +
- * delete).
+ * Settings page body. Each section is its own paper card; the page
+ * header sits on the page background. Mirrors the table-edit page so
+ * the two settings surfaces feel like one product.
  */
 export default function BaseSettingsPanel(props: Props) {
   return (
-    <div class="flex flex-col gap-8">
-      <div class="flex items-center gap-3">
+    <div class="flex flex-col gap-4">
+      <header class="flex items-center gap-3">
         <a
           href={`/app/grids/${props.base.id}`}
           class="p-1.5 text-dimmed hover:text-primary transition-colors"
@@ -34,23 +34,24 @@ export default function BaseSettingsPanel(props: Props) {
         >
           <i class="ti ti-arrow-left" />
         </a>
-        <h2 class="text-lg font-semibold">Base Settings</h2>
-      </div>
+        <h1 class="text-xl font-semibold text-primary">Base settings</h1>
+      </header>
 
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">General</h3>
+      <SectionCard
+        title="General"
+        subtitle="Base name and description shown on the grids overview."
+      >
         <GeneralForm base={props.base} />
-      </section>
+      </SectionCard>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">Permissions</h3>
+      <SectionCard
+        title="Permissions"
+        subtitle="Base-level grants apply to every table by default."
+      >
         <div class="info-block-info text-xs flex items-start gap-2">
           <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
           <span>
-            Base-level grants apply to every table by default. Override per
-            table from that table's editor: a group with{" "}
+            Override per table from that table's editor: a group with{" "}
             <code class="font-mono">read</code> on the base and{" "}
             <code class="font-mono">write</code> on a single table can edit
             that table but only read others. Within the same tier, "no
@@ -58,14 +59,15 @@ export default function BaseSettingsPanel(props: Props) {
           </span>
         </div>
         <PermissionsSection baseId={props.base.id} initialEntries={props.accessEntries} />
-      </section>
+      </SectionCard>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-medium text-red-500">Danger Zone</h3>
+      <SectionCard
+        title="Danger zone"
+        subtitle="Permanently delete this base and all of its contents. This cannot be undone."
+        variant="danger"
+      >
         <DangerZone baseId={props.base.id} baseName={props.base.name} />
-      </section>
+      </SectionCard>
     </div>
   );
 }
@@ -192,23 +194,20 @@ function DangerZone(props: { baseId: string; baseName: string }) {
   };
 
   return (
-    <div class="flex flex-col gap-2">
-      <p class="text-sm text-secondary">Permanently delete this base and all its contents.</p>
-      <button
-        type="button"
-        onClick={handleDelete}
-        disabled={deleteMut.loading()}
-        class="btn-danger btn-md self-start"
-      >
-        {deleteMut.loading() ? (
-          <i class="ti ti-loader-2 animate-spin" />
-        ) : (
-          <>
-            <i class="ti ti-trash mr-1" />
-            Delete Base
-          </>
-        )}
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={handleDelete}
+      disabled={deleteMut.loading()}
+      class="btn-danger btn-sm self-start"
+    >
+      {deleteMut.loading() ? (
+        <i class="ti ti-loader-2 animate-spin" />
+      ) : (
+        <>
+          <i class="ti ti-trash mr-1" />
+          Delete base
+        </>
+      )}
+    </button>
   );
 }
