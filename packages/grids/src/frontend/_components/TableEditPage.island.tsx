@@ -366,9 +366,13 @@ export default function TableEditPage(props: Props) {
                         }));
                       }}
                       data-card-index={index()}
-                      class={`rounded-lg border border-zinc-200 dark:border-zinc-700 transition-colors ${
+                      class={`rounded-lg border transition-colors ${
                         isDragging() ? "opacity-40" : ""
-                      } ${isExpanded() ? "ring-2 ring-blue-500/30 dark:ring-blue-400/30" : ""}`}
+                      } ${
+                        isExpanded()
+                          ? "border-blue-500 dark:border-blue-400"
+                          : "border-zinc-200 dark:border-zinc-700"
+                      }`}
                     >
                       {/* Card header — visible in both states */}
                       <button
@@ -465,6 +469,9 @@ export default function TableEditPage(props: Props) {
       <SectionCard
         title="Forms"
         subtitle="Public links to fill the table without a login."
+        meta={`${props.initialForms.filter((f) => !f.isDefault).length} form${
+          props.initialForms.filter((f) => !f.isDefault).length === 1 ? "" : "s"
+        }`}
       >
         <FormsManager
           tableId={props.table.id}
@@ -552,7 +559,7 @@ function FieldEditor(props: {
   const typeDescription = FIELD_TYPE_DESCRIPTIONS[props.field.type];
 
   return (
-    <div class="border-t border-zinc-100 dark:border-zinc-800 px-4 py-4 flex flex-col gap-4">
+    <div class="px-4 pb-4 pt-1 flex flex-col gap-4">
       {/* Type primer — short, type-specific blurb so the constraint
           inputs further down ("precision", "scale", "regex" etc.) make
           immediate sense to non-power users. */}
@@ -612,7 +619,7 @@ function FieldEditor(props: {
         fieldsByTable={props.fieldsByTable}
       />
 
-      <div class="flex items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+      <div class="flex items-center justify-between gap-2 pt-2">
         <button
           type="button"
           class="btn-simple btn-sm text-red-500 hover:text-red-600"

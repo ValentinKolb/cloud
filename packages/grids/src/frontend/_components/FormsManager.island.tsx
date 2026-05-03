@@ -95,7 +95,9 @@ export default function FormsManager(props: Props) {
               return (
                 <li
                   class={`paper transition-colors ${
-                    isExpanded() ? "ring-2 ring-blue-500/30 dark:ring-blue-400/30" : ""
+                    isExpanded()
+                      ? "border-blue-500! dark:border-blue-400!"
+                      : ""
                   }`}
                 >
                   <button
@@ -260,7 +262,7 @@ function FormEditor(props: {
   };
 
   return (
-    <div class="border-t border-zinc-100 dark:border-zinc-800 px-4 py-4 flex flex-col gap-5">
+    <div class="px-4 pb-4 pt-1 flex flex-col gap-5">
       {/* General */}
       <div class="flex flex-col gap-3">
         <span class="text-xs font-medium text-secondary">General</span>
@@ -419,7 +421,7 @@ function FormEditor(props: {
       </div>
 
       {/* Footer */}
-      <div class="flex items-center justify-between gap-2 pt-3 border-t border-zinc-100 dark:border-zinc-800">
+      <div class="flex items-center justify-between gap-2 pt-2">
         <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDelete}>
           <i class="ti ti-trash" /> Delete form
         </button>

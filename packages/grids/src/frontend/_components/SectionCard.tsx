@@ -23,7 +23,7 @@ type Props = {
 export function SectionCard(props: Props) {
   const titleClass = () => (props.variant === "danger" ? "text-red-500" : "text-primary");
   return (
-    <section class="paper p-5 flex flex-col gap-4">
+    <section class="paper p-5 flex flex-col gap-5">
       <header class="flex items-baseline gap-3">
         <div class="flex-1 min-w-0">
           <h2 class={`text-base font-semibold ${titleClass()}`}>{props.title}</h2>
@@ -38,9 +38,7 @@ export function SectionCard(props: Props) {
           <div class="shrink-0">{props.action}</div>
         </Show>
       </header>
-      <div class="border-t border-zinc-100 dark:border-zinc-800 pt-4 flex flex-col gap-3">
-        {props.children}
-      </div>
+      <div class="flex flex-col gap-3">{props.children}</div>
     </section>
   );
 }

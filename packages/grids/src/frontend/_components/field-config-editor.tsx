@@ -544,7 +544,7 @@ function SelectConstraints(props: {
         </div>
       </Show>
       <Show when={props.multi}>
-        <div class="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+        <div class="grid grid-cols-2 gap-3 pt-2">
           <NumberField
             label="Min selected (optional)"
             value={() => (typeof cfg().minSelected === "number" ? String(cfg().minSelected) : "")}
