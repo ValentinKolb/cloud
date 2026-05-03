@@ -221,6 +221,7 @@ export default ssr<AuthContext>(async (c) => {
   > = [];
   let activeTableLevel = level;
   let selectedRecord: import("../../service").GridRecord | null = null;
+  let relationLabels: Record<string, string> = {};
   // Pre-fetched fields for every table in this base — TableEditor's relation
   // picker needs this so the user can pick a target table + display field
   // without an extra API round-trip from the modal.
@@ -237,10 +238,23 @@ export default ssr<AuthContext>(async (c) => {
     // OR-group across the (possibly user-narrowed) searchable fields.
     const effectiveFilter = mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields);
 
+    // Views first — we need the active view's `limit` cap before
+    // calling record.list so top-N views actually return at most N rows.
+    viewsForTable = await gridsService.view.listForTable({
+      tableId: activeTable.id,
+      userId: user.id,
+      userGroups: user.memberofGroupIds,
+    });
+    const activeViewForLimit = activeViewId
+      ? viewsForTable.find((v) => v.id === activeViewId) ?? null
+      : null;
+    const viewLimit = activeViewForLimit?.config.limit;
+    const effectiveLimit = viewLimit !== undefined ? Math.min(100, viewLimit) : 100;
+
     const [listResult, lvl] = await Promise.all([
       gridsService.record.list({
         tableId: activeTable.id,
-        limit: 100,
+        limit: effectiveLimit,
         includeDeleted: trashMode,
         filter: effectiveFilter,
         sort: parsedSort,
@@ -249,21 +263,31 @@ export default ssr<AuthContext>(async (c) => {
       resolveLevel(user, baseId, activeTable.id),
     ]);
     if (listResult.ok) {
+      // Top-N views: drop nextCursor — pagination beyond the cap doesn't
+      // make sense for "show me the first N" queries.
+      const data =
+        viewLimit !== undefined
+          ? { ...listResult.data, nextCursor: null }
+          : listResult.data;
       records = trashMode
         ? {
-            ...listResult.data,
-            items: listResult.data.items.filter((r) => r.deletedAt !== null),
+            ...data,
+            items: data.items.filter((r) => r.deletedAt !== null),
           }
-        : listResult.data;
+        : data;
     }
     activeTableLevel = lvl;
 
-    viewsForTable = await gridsService.view.listForTable({
-      tableId: activeTable.id,
-      userId: user.id,
-      userGroups: user.memberofGroupIds,
-    });
     formsForTable = await gridsService.form.listForTable(activeTable.id);
+
+    // Resolve the labels for every linked record across the visible page.
+    // ONE round-trip per target table; passed to RecordsGrid +
+    // RecordDetailPanel so relation cells render presentable values
+    // instead of raw UUIDs.
+    relationLabels = await gridsService.relations.buildLabelCache(
+      records.items,
+      fields,
+    );
 
     // Resolve the selected record from the URL — prefer the row already in
     // the visible page, fall back to a direct fetch (covers deep links to a
@@ -329,6 +353,13 @@ export default ssr<AuthContext>(async (c) => {
   // Used by the sidebar to decide whether the "All records" pseudo-view
   // is the active one (only when no filter/sort/view is set).
   const hasFilterOrSort = filterLeaves.length > 0 || parsedSort.length > 0;
+
+  // Resolve the currently-applied view's column overrides. Undefined =
+  // table-default rendering (`!hideInTable` fields by `position`).
+  const activeView = activeViewId
+    ? viewsForTable.find((v) => v.id === activeViewId) ?? null
+    : null;
+  const activeViewColumns = activeView?.config.columns;
 
   // Public forms surface in the sidebar regardless of who's looking —
   // anyone can click through to the submit page. Private forms stay in
@@ -589,6 +620,8 @@ export default ssr<AuthContext>(async (c) => {
                 canWrite={canWriteRecords}
                 mode={trashMode ? "trash" : "live"}
                 initialSelectedId={selectedRecordId}
+                viewColumns={activeViewColumns}
+                relationLabels={relationLabels}
                 aggregates={trashMode ? {} : aggregates}
               />
 
@@ -642,6 +675,7 @@ export default ssr<AuthContext>(async (c) => {
               initialRecordId={selectedRecordId}
               trashMode={trashMode}
               canWrite={canWriteRecords}
+              relationLabels={relationLabels}
             />
           </div>
         )}

@@ -237,3 +237,91 @@ export const enrichRecordsForTable = async (records: GridRecord[], tableId: stri
   enrichRecordsWithFormulas(records, fields);
   return records;
 };
+
+/**
+ * SSR helper: walks every relation field on the visible records and
+ * builds `recordId → label` for every linked target record. Labels
+ * use the target table's `presentable` fields (joined with " · "),
+ * fall back to the relation's `displayFieldId`, then to an 8-char
+ * id prefix.
+ *
+ * Single SQL round-trip per target table — `WHERE id = ANY(uuid[])`.
+ * Empty input → empty map; non-relation fields are skipped.
+ */
+export const buildRelationLabelCache = async (
+  records: GridRecord[],
+  fields: Field[],
+): Promise<Record<string, string>> => {
+  const idsByTargetTable = new Map<string, Set<string>>();
+  const fieldsByTargetTable = new Map<string, { displayFieldId?: string }>();
+
+  const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
+  for (const rf of relationFields) {
+    const cfg = rf.config as { targetTableId?: string; displayFieldId?: string };
+    if (!cfg.targetTableId) continue;
+    fieldsByTargetTable.set(cfg.targetTableId, { displayFieldId: cfg.displayFieldId });
+    const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
+    for (const rec of records) {
+      const v = rec.data[rf.id];
+      if (Array.isArray(v)) {
+        for (const id of v) if (typeof id === "string") set.add(id);
+      } else if (typeof v === "string" && v.length > 0) {
+        set.add(v);
+      }
+    }
+    idsByTargetTable.set(cfg.targetTableId, set);
+  }
+
+  const cache: Record<string, string> = {};
+  if (idsByTargetTable.size === 0) return cache;
+
+  for (const [targetTableId, idSet] of idsByTargetTable) {
+    if (idSet.size === 0) continue;
+    const targetFields = await listFields(targetTableId);
+    const presentable = targetFields
+      .filter((f) => !f.deletedAt && f.presentable)
+      .sort((a, b) => a.position - b.position);
+    const displayFieldId = fieldsByTargetTable.get(targetTableId)?.displayFieldId;
+    const idArr = `{${[...idSet].join(",")}}`;
+    const rows = await sql<DbRow[]>`
+      SELECT id, data
+      FROM grids.records
+      WHERE id = ANY(${idArr}::uuid[])
+        AND table_id = ${targetTableId}::uuid
+        AND deleted_at IS NULL
+    `;
+    for (const row of rows) {
+      const id = row.id as string;
+      const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
+      let label: string;
+      if (presentable.length > 0) {
+        const parts = presentable
+          .map((f) => formatLabelPart(data[f.id]))
+          .filter((s) => s.length > 0);
+        label = parts.length > 0 ? parts.join(" · ") : id.slice(0, 8);
+      } else if (displayFieldId && data[displayFieldId] != null) {
+        label = formatLabelPart(data[displayFieldId]) || id.slice(0, 8);
+      } else {
+        label = id.slice(0, 8);
+      }
+      cache[id] = label;
+    }
+  }
+  return cache;
+};
+
+/** Tiny stringifier for relation-label parts. Coerces scalars and
+ *  picks a sensible value for objects (currency.amount, location.label). */
+const formatLabelPart = (v: unknown): string => {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map(formatLabelPart).filter(Boolean).join(", ");
+  if (typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    if (typeof obj.label === "string") return obj.label;
+    if (typeof obj.amount === "string") return obj.amount;
+    return "";
+  }
+  return String(v);
+};

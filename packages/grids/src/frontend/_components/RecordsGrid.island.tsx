@@ -1,5 +1,6 @@
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
 import type { Field, GridRecord } from "../../service";
+import type { ViewColumn } from "../../service/views";
 import {
   RECORD_DETAIL_EVENT,
   setSelectedRecordInUrl,
@@ -7,6 +8,7 @@ import {
   type RecordDetailMode,
   type RecordDetailPayload,
 } from "./record-detail-context";
+import { formatCell } from "./format-cell";
 
 type Props = {
   tableId: string;
@@ -18,47 +20,27 @@ type Props = {
   /** Initial selected record id from `?record=<id>` (SSR). */
   initialSelectedId?: string | null;
   /**
+   * Per-view rendered columns. Undefined = inherit table default
+   * (every field where `!hideInTable`, sorted by `position`). Set =
+   * render exactly these in this order. v1 only honours
+   * `kind: "field"` — `kind: "join"` columns are silently skipped
+   * until slice #5 wires the server-side traversal.
+   */
+  viewColumns?: ViewColumn[];
+  /**
+   * Pre-resolved labels for linked records, keyed by target record id.
+   * Built SSR-side from every relation field on the visible page —
+   * each entry is the joined-with-" · " values of the target table's
+   * `presentable` fields (or the relation's `displayFieldId` fallback,
+   * or an 8-char id prefix). Empty for tables with no relations.
+   */
+  relationLabels?: Record<string, string>;
+  /**
    * Aggregate values keyed `<fieldId>__<agg>` (matches the API's keying).
    * Rendered as a footer row: count for every field + sum for numerics.
    * Empty object = footer row hidden (trash mode, empty table, etc).
    */
   aggregates?: Record<string, unknown>;
-};
-
-
-const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, unknown>): string => {
-  if (value === null || value === undefined || value === "") return "";
-  if (type === "boolean") return value ? "Yes" : "No";
-  if (type === "multi-select" && Array.isArray(value)) {
-    const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
-    const labels = value.map((id) => options.find((o) => o.id === id)?.label ?? String(id));
-    return labels.join(", ");
-  }
-  if (type === "single-select") {
-    const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
-    return options.find((o) => o.id === value)?.label ?? String(value);
-  }
-  if (type === "currency" && typeof value === "object") {
-    const obj = value as { amount?: string; currency?: string };
-    if (obj.amount !== undefined) return `${obj.amount} ${obj.currency ?? ""}`.trim();
-  }
-  if (type === "percent" && typeof value === "number") return `${value}%`;
-  if (type === "duration" && typeof value === "number") {
-    const h = Math.floor(value / 3600);
-    const m = Math.floor((value % 3600) / 60);
-    const s = value % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-  if (type === "location" && typeof value === "object") {
-    const obj = value as { lat?: number; lng?: number; label?: string };
-    if (obj.label) return obj.label;
-    if (obj.lat !== undefined && obj.lng !== undefined) return `${obj.lat}, ${obj.lng}`;
-  }
-  if (type === "signature" && typeof value === "string" && value.startsWith("data:image/")) {
-    return "✍ signature";
-  }
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 };
 
 /**
@@ -88,7 +70,48 @@ export default function RecordsGrid(props: Props) {
     });
   });
 
-  const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
+  /**
+   * Resolves to the ordered list of `Field`s the table renders. When
+   * `viewColumns` is set, it dictates BOTH visibility and order; we
+   * filter to the field-kind columns and resolve each fieldId. When
+   * not set, we fall back to the table-level default: every field
+   * where `!hideInTable && !deletedAt`, in `position` order.
+   */
+  const visibleFields = (): Field[] => {
+    if (props.viewColumns) {
+      const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
+      return props.viewColumns
+        .filter((c): c is Extract<ViewColumn, { kind: "field" }> => c.kind === "field")
+        .map((c) => fieldsById.get(c.fieldId))
+        .filter((f): f is Field => !!f && !f.deletedAt);
+    }
+    return props.fields
+      .filter((f) => !f.deletedAt && !f.hideInTable)
+      .sort((a, b) => a.position - b.position);
+  };
+
+  /** Looks up a per-column FormatSpec from the active view (if any). */
+  const columnFormat = (fieldId: string) => {
+    if (!props.viewColumns) return undefined;
+    const col = props.viewColumns.find(
+      (c) => c.kind === "field" && c.fieldId === fieldId,
+    );
+    return col && "format" in col ? col.format : undefined;
+  };
+
+  /** Renders a relation cell using the SSR-resolved label cache. */
+  const formatRelationCell = (value: unknown): string => {
+    const ids = Array.isArray(value)
+      ? (value as string[])
+      : typeof value === "string" && value.length > 0
+      ? [value]
+      : [];
+    if (ids.length === 0) return "";
+    const cache = props.relationLabels ?? {};
+    return ids
+      .map((id) => cache[id] ?? id.slice(0, 8))
+      .join(", ");
+  };
 
   const onRowClick = (rec: GridRecord) => {
     setSelectedId(rec.id);
@@ -200,7 +223,14 @@ export default function RecordsGrid(props: Props) {
                         <For each={visibleFields()}>
                           {(f) => (
                             <td class="px-3 py-2 text-primary">
-                              {formatCell(rec.data[f.id], f.type, f.config)}
+                              {f.type === "relation"
+                                ? formatRelationCell(rec.data[f.id])
+                                : formatCell(
+                                    rec.data[f.id],
+                                    f.type,
+                                    f.config,
+                                    columnFormat(f.id),
+                                  )}
                             </td>
                           )}
                         </For>

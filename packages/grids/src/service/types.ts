@@ -30,6 +30,14 @@ export type Field = {
   config: Record<string, unknown>;
   position: number;
   required: boolean;
+  /** When true, the field appears in the auto-generated label whenever
+   *  this record is referenced elsewhere (relation cells, picker
+   *  labels). Multiple presentable fields are joined with " · ". */
+  presentable: boolean;
+  /** When true, the field is hidden from the default records grid by
+   *  default; still rendered in the record detail panel. Views can
+   *  override via `view.config.columns`. */
+  hideInTable: boolean;
   defaultValue: unknown;
   indexed: boolean;
   uniqueConstraint: boolean;
@@ -79,6 +87,8 @@ export type CreateFieldInput = {
   config?: Record<string, unknown>;
   position?: number;
   required?: boolean;
+  presentable?: boolean;
+  hideInTable?: boolean;
   defaultValue?: unknown;
   indexed?: boolean;
   uniqueConstraint?: boolean;
@@ -90,6 +100,8 @@ export type UpdateFieldInput = {
   config?: Record<string, unknown>;
   position?: number;
   required?: boolean;
+  presentable?: boolean;
+  hideInTable?: boolean;
   defaultValue?: unknown;
   indexed?: boolean;
   uniqueConstraint?: boolean;

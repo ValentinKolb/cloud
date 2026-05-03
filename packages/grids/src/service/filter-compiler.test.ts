@@ -11,6 +11,8 @@ const mkField = (id: string, type: string): Field => ({
   config: {},
   position: 0,
   required: false,
+  presentable: false,
+  hideInTable: false,
   defaultValue: null,
   indexed: false,
   uniqueConstraint: false,

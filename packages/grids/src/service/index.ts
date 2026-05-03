@@ -7,6 +7,7 @@ import * as access from "./access";
 import * as views from "./views";
 import * as forms from "./forms";
 import * as exporter from "./export";
+import * as relationsModule from "./relations";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast } from "./permission-resolver";
 
@@ -86,6 +87,9 @@ export const gridsService = {
   },
   exporter: {
     exportRecords: exporter.exportRecords,
+  },
+  relations: {
+    buildLabelCache: relationsModule.buildRelationLabelCache,
   },
 };
 

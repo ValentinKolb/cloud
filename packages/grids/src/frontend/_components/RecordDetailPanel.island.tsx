@@ -9,6 +9,7 @@ import {
   sanitizeEditPayload,
 } from "./field-prompt-schema";
 import { errorMessage } from "./api-helpers";
+import { formatCell } from "./format-cell";
 import {
   RECORD_DETAIL_EVENT,
   clearSelectedRecordInUrl,
@@ -27,6 +28,10 @@ type Props = {
   trashMode: boolean;
   /** True if the user can edit/delete records on this table. */
   canWrite: boolean;
+  /** Pre-resolved labels for linked records (target id → display label).
+   *  Built SSR-side; used by relation cells to render presentable
+   *  values instead of raw UUIDs. */
+  relationLabels?: Record<string, string>;
 };
 
 /**
@@ -174,40 +179,24 @@ export default function RecordDetailPanel(props: Props) {
 
   const handleRestore = (rec: GridRecord) => restoreMut.mutate(rec);
 
-  // ---- Field-value formatter (mirrors RecordsGrid's formatCell) ---------
-  const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, unknown>): string => {
+  /** Renders a relation cell using the SSR-resolved label cache. */
+  const formatRelationCell = (value: unknown): string => {
+    const ids = Array.isArray(value)
+      ? (value as string[])
+      : typeof value === "string" && value.length > 0
+      ? [value]
+      : [];
+    if (ids.length === 0) return "—";
+    const cache = props.relationLabels ?? {};
+    return ids.map((id) => cache[id] ?? id.slice(0, 8)).join(", ");
+  };
+
+  /** Type-aware field formatter. Falls back to "—" for null/undefined/
+   *  empty (the detail panel renders that as the visible empty state). */
+  const formatField = (value: unknown, type: string, fieldConfig?: Record<string, unknown>): string => {
     if (value === null || value === undefined || value === "") return "—";
-    if (type === "boolean") return value ? "Yes" : "No";
-    if (type === "multi-select" && Array.isArray(value)) {
-      const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
-      const labels = value.map((id) => options.find((o) => o.id === id)?.label ?? String(id));
-      return labels.join(", ");
-    }
-    if (type === "single-select") {
-      const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
-      return options.find((o) => o.id === value)?.label ?? String(value);
-    }
-    if (type === "currency" && typeof value === "object") {
-      const obj = value as { amount?: string; currency?: string };
-      if (obj.amount !== undefined) return `${obj.amount} ${obj.currency ?? ""}`.trim();
-    }
-    if (type === "percent" && typeof value === "number") return `${value}%`;
-    if (type === "duration" && typeof value === "number") {
-      const h = Math.floor(value / 3600);
-      const m = Math.floor((value % 3600) / 60);
-      const s = value % 60;
-      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    }
-    if (type === "location" && typeof value === "object") {
-      const obj = value as { lat?: number; lng?: number; label?: string };
-      if (obj.label) return obj.label;
-      if (obj.lat !== undefined && obj.lng !== undefined) return `${obj.lat}, ${obj.lng}`;
-    }
-    if (type === "signature" && typeof value === "string" && value.startsWith("data:image/")) {
-      return "✍ signature";
-    }
-    if (typeof value === "object") return JSON.stringify(value);
-    return String(value);
+    if (type === "relation") return formatRelationCell(value);
+    return formatCell(value, type, fieldConfig) || "—";
   };
 
   // ---- Pick the "title" of the record for the panel header --------------
@@ -314,7 +303,7 @@ export default function RecordDetailPanel(props: Props) {
                         <p class="text-[11px] text-dimmed leading-snug">{description}</p>
                       </Show>
                       <p class="text-sm text-secondary break-words">
-                        {formatCell(rec().data[f.id], f.type, f.config)}
+                        {formatField(rec().data[f.id], f.type, f.config)}
                       </p>
                     </div>
                   );

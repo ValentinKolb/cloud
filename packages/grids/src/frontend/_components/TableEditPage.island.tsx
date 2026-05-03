@@ -513,6 +513,8 @@ function FieldEditor(props: {
   const [name, setName] = createSignal(props.field.name);
   const [description, setDescription] = createSignal(props.field.description ?? "");
   const [required, setRequired] = createSignal(props.field.required);
+  const [presentable, setPresentable] = createSignal(props.field.presentable);
+  const [hideInTable, setHideInTable] = createSignal(props.field.hideInTable);
   const [config, setConfig] = createSignal<FieldConfigState>(
     (props.field.config as FieldConfigState) ?? {},
   );
@@ -534,6 +536,8 @@ function FieldEditor(props: {
           name: name().trim(),
           description: description().trim() || null,
           required: required(),
+          presentable: presentable(),
+          hideInTable: hideInTable(),
           config: config() as Record<string, unknown>,
         },
       });
@@ -599,14 +603,34 @@ function FieldEditor(props: {
         placeholder="e.g. Use the ISO-639-1 language code"
       />
 
-      <label class="inline-flex items-center gap-2 text-xs text-secondary">
-        <input
-          type="checkbox"
-          checked={required()}
-          onChange={(e) => wrap(setRequired)(e.currentTarget.checked)}
-        />
-        Required — every record must have a value for this field
-      </label>
+      <div class="flex flex-col gap-2">
+        <label class="inline-flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={required()}
+            onChange={(e) => wrap(setRequired)(e.currentTarget.checked)}
+          />
+          Required — every record must have a value for this field
+        </label>
+        <label class="inline-flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={presentable()}
+            onChange={(e) => wrap(setPresentable)(e.currentTarget.checked)}
+          />
+          Presentable — show this field whenever the record is referenced
+          elsewhere (relation cells, picker labels)
+        </label>
+        <label class="inline-flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={hideInTable()}
+            onChange={(e) => wrap(setHideInTable)(e.currentTarget.checked)}
+          />
+          Hide in table — only show this field in the detail panel by
+          default (views can still include it)
+        </label>
+      </div>
 
       <FieldConfigEditor
         type={props.field.type}

@@ -95,6 +95,12 @@ export const migrate = async (): Promise<void> => {
   // Description is a top-level field-level metadata, not a type-specific
   // config knob. Idempotent ALTER for any DB that pre-dates this column.
   await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS description TEXT`.simple();
+  // Presentable: include this field in the auto-generated label when
+  // the record is referenced elsewhere (relation cells, picker results).
+  // Hide-in-table: column hidden from the default records grid; still
+  // shown in the detail panel. Both default to false.
+  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS presentable BOOLEAN NOT NULL DEFAULT FALSE`.simple();
+  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS hide_in_table BOOLEAN NOT NULL DEFAULT FALSE`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.fields");
 

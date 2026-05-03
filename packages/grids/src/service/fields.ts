@@ -17,6 +17,8 @@ const mapRow = (row: DbRow): Field => ({
   config: parseJsonbRow<Record<string, unknown>>(row.config, {}),
   position: row.position as number,
   required: row.required as boolean,
+  presentable: (row.presentable as boolean | null) ?? false,
+  hideInTable: (row.hide_in_table as boolean | null) ?? false,
   defaultValue: parseJsonbRow<unknown>(row.default_value, null),
   indexed: row.indexed as boolean,
   uniqueConstraint: row.unique_constraint as boolean,
@@ -72,7 +74,10 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
 
   const description = input.description?.trim() || null;
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.fields (table_id, name, description, type, config, position, required, default_value, indexed, unique_constraint)
+    INSERT INTO grids.fields (
+      table_id, name, description, type, config, position, required,
+      presentable, hide_in_table, default_value, indexed, unique_constraint
+    )
     VALUES (
       ${input.tableId}::uuid,
       ${name},
@@ -83,6 +88,8 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
       ${config}::jsonb,
       COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid)),
       ${input.required ?? false},
+      ${input.presentable ?? false},
+      ${input.hideInTable ?? false},
       ${input.defaultValue ?? null}::jsonb,
       ${input.indexed ?? false},
       ${input.uniqueConstraint ?? false}
@@ -137,6 +144,8 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     config,
     position: input.position ?? existing.position,
     required: input.required ?? existing.required,
+    presentable: input.presentable ?? existing.presentable,
+    hideInTable: input.hideInTable ?? existing.hideInTable,
     defaultValue: input.defaultValue !== undefined ? input.defaultValue : existing.defaultValue,
     indexed: input.indexed ?? existing.indexed,
     uniqueConstraint: input.uniqueConstraint ?? existing.uniqueConstraint,
@@ -149,6 +158,8 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
         config = ${next.config}::jsonb,
         position = ${next.position},
         required = ${next.required},
+        presentable = ${next.presentable},
+        hide_in_table = ${next.hideInTable},
         default_value = ${next.defaultValue ?? null}::jsonb,
         indexed = ${next.indexed},
         unique_constraint = ${next.uniqueConstraint},

@@ -21,14 +21,64 @@ export type View = {
   updatedAt: string;
 };
 
+/**
+ * Per-column override for date/number formatting. Only the kind that
+ * matches the field's actual type takes effect; the renderer ignores
+ * mismatches (a `currency` format on a text field is a no-op).
+ */
+export type FormatSpec =
+  | { kind: "date"; format: "iso" | "short" | "long" | "relative"; includeTime?: boolean }
+  | { kind: "currency"; symbol?: string; precision?: number }
+  | { kind: "decimal"; precision?: number; thousandsSeparator?: boolean }
+  | { kind: "percent"; precision?: number };
+
+/**
+ * One rendered column in a view. Two kinds for v1:
+ *  - `field`: a plain table field (re-uses `field.type` for rendering).
+ *  - `join`:  a field on a related table reached via a relation-field
+ *             path. `path` is the chain of relation field ids; v1
+ *             enforces 1..2 hops in the UI. Server resolves the chain.
+ *
+ * Other kinds (`computed`, `aggregation`) come in later iterations.
+ */
+export type ViewColumn =
+  | {
+      kind: "field";
+      fieldId: string;
+      format?: FormatSpec;
+    }
+  | {
+      kind: "join";
+      path: string[];
+      fieldId: string;
+      label?: string;
+      format?: FormatSpec;
+    };
+
 export type ViewConfig = {
   filter?: unknown;
   sort?: Array<{ fieldId: string; direction: "asc" | "desc"; nullsFirst?: boolean }>;
-  visibleFields?: string[];
-  fieldOrder?: string[];
-  fieldWidths?: Record<string, number>;
-  groupBy?: string | null;
-  rowHeight?: "compact" | "default" | "tall";
+  /**
+   * Ordered list of rendered columns. Combines visibility, ordering,
+   * and per-column format in ONE structure.
+   *
+   *  - `undefined` (or missing): inherit table default — render every
+   *    field where `!hideInTable`, sorted by `field.position`.
+   *  - `[]`: render NO columns (intentional empty — useful as a
+   *    "selected only id" view).
+   *  - `[{kind:"field", fieldId}, …]`: render exactly these columns
+   *    in this order, including fields that would otherwise be
+   *    `hideInTable`.
+   */
+  columns?: ViewColumn[];
+  /**
+   * Hard cap on returned rows, applied AFTER filter+sort and BEFORE
+   * pagination. `undefined` = unlimited (subject to cursor pagination
+   * page size). When set, `record.list` returns at most `limit` rows
+   * total across all pages — `nextCursor` becomes null once the
+   * cursor would advance past the cap.
+   */
+  limit?: number;
 };
 
 const mapRow = (row: DbRow): View => ({
