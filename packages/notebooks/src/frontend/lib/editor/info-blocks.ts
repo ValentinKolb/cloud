@@ -122,31 +122,36 @@ class InfoBlockWidget extends WidgetType {
   }
 }
 
+const BLOCK_REGEX = /^:::(\w+)\s*\n([\s\S]*?)\n:::$/gm;
+
 const findInfoBlocks = (state: EditorState): Range<Decoration>[] => {
   const decorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
-
   const text = state.doc.toString();
-  const blockRegex = /^:::(\w+)\s*\n([\s\S]*?)\n:::$/gm;
-  let match: RegExpExecArray | null = blockRegex.exec(text);
 
-  while (match !== null) {
+  // `matchAll` yields an iterator that auto-advances per loop step, so a
+  // `continue` (used to skip rendering when the cursor sits inside a block)
+  // doesn't pin the regex on the same match — which is what an inline
+  // `regex.exec` loop would do, and exactly what produced the editor
+  // freeze when typing `/info` `/success` etc. via slash commands.
+  for (const match of text.matchAll(BLOCK_REGEX)) {
+    if (match.index === undefined) continue;
     const blockStart = match.index;
     const blockEnd = blockStart + match[0].length;
-
     const nextLine = state.doc.lineAt(Math.min(blockEnd + 1, state.doc.length));
+
+    // Cursor is inside the block → don't render the widget so the user
+    // can edit the raw `:::xxx` markers.
     if (cursor.from >= blockStart && cursor.to <= nextLine.to) continue;
 
     const blockData = parseInfoBlock(match[0]);
-    if (blockData) {
-      decorations.push(
-        Decoration.replace({
-          widget: new InfoBlockWidget(blockData),
-          block: true,
-        }).range(blockStart, blockEnd),
-      );
-    }
-    match = blockRegex.exec(text);
+    if (!blockData) continue;
+    decorations.push(
+      Decoration.replace({
+        widget: new InfoBlockWidget(blockData),
+        block: true,
+      }).range(blockStart, blockEnd),
+    );
   }
 
   return decorations;
