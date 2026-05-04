@@ -1,4 +1,5 @@
 import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud/contracts";
+import { encoding } from "@valentinkolb/stdlib";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
 import { notebooksYjs } from "../../../lib/yjs";
@@ -72,24 +73,6 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     INTERNAL_ERROR: "Internal websocket error",
   };
 
-  const toBase64 = (data: Uint8Array): string => {
-    let binary = "";
-    const chunkSize = 0x8000;
-    for (let i = 0; i < data.length; i += chunkSize) {
-      binary += String.fromCharCode(...data.subarray(i, i + chunkSize));
-    }
-    return btoa(binary);
-  };
-
-  const fromBase64 = (value: string): Uint8Array => {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes;
-  };
-
   const sendJson = (type: string, payload?: unknown): boolean => {
     if (isDisposed || isTerminated) return false;
     if (ws?.readyState === WebSocket.OPEN) {
@@ -99,9 +82,9 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     return false;
   };
 
-  const sendSyncPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.syncPublish, { noteId, payload: toBase64(data) });
+  const sendSyncPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.syncPublish, { noteId, payload: encoding.toBase64(data) });
 
-  const sendAwarenessPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.awarenessPublish, { noteId, payload: toBase64(data) });
+  const sendAwarenessPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.awarenessPublish, { noteId, payload: encoding.toBase64(data) });
 
   const sendReplayRequest = (fromCursor: string | null): boolean =>
     sendJson(WS_TYPE.replayRequest, {
@@ -267,9 +250,9 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       if (typeof update.payload !== "string") continue;
       try {
         if (msg.type === WS_TYPE.syncPush) {
-          Y.applyUpdate(doc, fromBase64(update.payload), "remote");
+          Y.applyUpdate(doc, encoding.fromBase64(update.payload), "remote");
         } else {
-          awarenessProtocol.applyAwarenessUpdate(awareness, fromBase64(update.payload), "remote");
+          awarenessProtocol.applyAwarenessUpdate(awareness, encoding.fromBase64(update.payload), "remote");
         }
       } catch {
         // Ignore malformed updates to keep collaboration resilient.
