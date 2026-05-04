@@ -2,12 +2,16 @@ import { ssr } from "../../config";
 import { get } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
+import { hasRole } from "@valentinkolb/cloud/contracts";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { notebooksService } from "@/service";
+import { transformNoteLinks } from "@/service/links";
+import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
+import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
-import { parseSettings } from "./_components/settings/NotebookSettingsStore";
+import { parseDetailPanelOpen, parseSettings } from "./_components/settings/NotebookSettingsStore";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import NotebookSidebar from "./_components/sidebar/NotebookSidebar";
 import type { NotebookContext } from "./_components/sidebar/types";
@@ -71,10 +75,12 @@ export default ssr<AuthContext>(async (c) => {
   // Determine selected note: query param > cookie > first note
   const cookieHeader = c.req.header("Cookie");
   const settings = parseSettings(cookieHeader, notebookId);
+  const detailPanelOpen = parseDetailPanelOpen(cookieHeader);
   const noteIdParam = c.req.query("note");
   const selectedNoteId = noteIdParam ?? settings.lastNoteId ?? tree[0]?.id ?? null;
 
-  // Load selected note content (Yjs snapshot) for SSR → editor
+  // Load selected note content (Yjs snapshot) for SSR → editor.
+  // Also pull metadata used by the detail panel's Info section.
   let selectedNote: {
     id: string;
     title: string;
@@ -82,10 +88,18 @@ export default ssr<AuthContext>(async (c) => {
     contentMd: string | null;
     renderedHtml: string | null;
     lockedAt: string | null;
+    createdAt: string;
+    updatedAt: string;
+    createdBy: string | null;
   } | null = null;
+
+  // TOC items shared by detail panel + read-mode anchor injection.
+  // Extracted from `content_md` once and reused.
+  let tocItems: ReturnType<typeof extractTocFromMarkdown> = [];
+
   if (selectedNoteId && !isSettingsMode) {
     if (isVersionsMode) {
-      // Only load metadata for version history (no Yjs content needed)
+      // Only metadata for version history (no Yjs content needed)
       const noteMeta = await notebooksService.note.get({ id: selectedNoteId });
       if (noteMeta) {
         selectedNote = {
@@ -95,7 +109,11 @@ export default ssr<AuthContext>(async (c) => {
           contentMd: noteMeta.contentMd,
           renderedHtml: null,
           lockedAt: noteMeta.lockedAt,
+          createdAt: noteMeta.createdAt,
+          updatedAt: noteMeta.updatedAt,
+          createdBy: noteMeta.createdBy,
         };
+        tocItems = extractTocFromMarkdown(noteMeta.contentMd);
       }
     } else {
       const noteWithContent = await notebooksService.note.getWithContent({
@@ -105,13 +123,25 @@ export default ssr<AuthContext>(async (c) => {
         // Force read mode for locked notes
         const isNoteLocked = !!noteWithContent.lockedAt;
         const shouldRenderHtml = isReadMode || isNoteLocked;
+
+        tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
+
+        // For read mode: rewrite note links + inject heading anchor ids so
+        // the TOC `#slug` clicks scroll to the right place natively.
+        const renderedHtml = shouldRenderHtml
+          ? injectHeadingIds(transformNoteLinks(markdown.render(noteWithContent.contentMd ?? "")), tocItems)
+          : null;
+
         selectedNote = {
           id: noteWithContent.id,
           title: noteWithContent.title,
           yjsSnapshot: noteWithContent.yjsSnapshot, // already base64
           contentMd: noteWithContent.contentMd,
-          renderedHtml: shouldRenderHtml ? markdown.render(noteWithContent.contentMd ?? "") : null,
+          renderedHtml,
           lockedAt: noteWithContent.lockedAt,
+          createdAt: noteWithContent.createdAt,
+          updatedAt: noteWithContent.updatedAt,
+          createdBy: noteWithContent.createdBy,
         };
       }
     }
@@ -119,6 +149,18 @@ export default ssr<AuthContext>(async (c) => {
 
   // Determine actual read mode (including locked notes)
   const actualReadMode = isReadMode || !!selectedNote?.lockedAt;
+
+  // Backlinks: only loaded for actual note views (skip settings + versions
+  // modes). Cheap query; rendered server-side via SSR — no client fetch.
+  const backlinks =
+    selectedNoteId && !isSettingsMode && !isVersionsMode
+      ? await notebooksService.note.backlinks.list({
+          noteId: selectedNoteId,
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+          bypassAccess: hasRole(user, "admin"),
+        })
+      : [];
 
   const ctx: NotebookContext = {
     notebook,
@@ -132,6 +174,10 @@ export default ssr<AuthContext>(async (c) => {
   // Read app.url once in the async handler and pass it through closure into the
   // sync render function. The render function MUST stay sync.
   const appUrl = await get<string>("app.url");
+
+  // Detail panel only renders for actual note views (not settings/versions
+  // modes — those have their own dedicated layouts).
+  const showDetailPanel = !!selectedNote && !isSettingsMode && !isVersionsMode;
 
   return () => (
     <Layout
@@ -181,6 +227,7 @@ export default ssr<AuthContext>(async (c) => {
                 userId={user.id}
                 displayName={user.displayName}
                 initialSnapshot={selectedNote.yjsSnapshot}
+                initialPanelOpen={detailPanelOpen}
               />
             )
           ) : (
@@ -192,6 +239,28 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           )}
         </div>
+
+        {/* Right-side detail panel — TOC, backlinks, online users, info */}
+        {showDetailPanel && selectedNote && (
+          <NotebookDetailPanel
+            mode={actualReadMode ? "read" : "edit"}
+            // Read mode has no footer / no in-content actions — the panel is
+            // the only UI surface for switching to Edit / opening Version
+            // history / etc. Force it open here regardless of cookie.
+            initiallyOpen={actualReadMode ? true : detailPanelOpen}
+            tocItems={tocItems}
+            backlinks={backlinks}
+            currentNotebookId={notebookId}
+            notebookId={notebookId}
+            noteId={selectedNote.id}
+            noteTitle={selectedNote.title}
+            contentMd={selectedNote.contentMd}
+            createdAt={selectedNote.createdAt}
+            updatedAt={selectedNote.updatedAt}
+            lockedAt={selectedNote.lockedAt}
+            isLocked={!!selectedNote.lockedAt}
+          />
+        )}
       </div>
     </Layout>
   );

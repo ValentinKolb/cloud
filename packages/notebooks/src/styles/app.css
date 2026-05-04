@@ -4,3 +4,96 @@
 @import "tailwindcss";
 @source "../**/*.{ts,tsx}";
 @custom-variant dark (&:where(.dark, .dark *));
+
+/* ── Slash-command autocomplete palette ─────────────────────────────────
+   The CodeMirror autocomplete tooltip is portaled outside the editor
+   surface AND its theme is injected as a runtime `<style>` after this file
+   loads. Equal-specificity rules lose to CM's defaults (filled `aria-selected`
+   background, hardcoded option padding, section dividers) — so the overrides
+   below use `!important` for the bits that fight CM directly.
+
+   Visual baseline = the platform `Select` component (see
+   `packages/cloud/src/ui/input/Select.tsx`): popup-style container, no
+   filled-background selected state — just `text-primary` + underline. */
+
+.cm-tooltip.cm-tooltip-autocomplete {
+  /* `popup` utility: rounded-lg, white/zinc-900 bg, zinc-200/800 border,
+     shadow-lg. Sized to feel like the platform Select dropdown — generous
+     min-width and per-item padding so it reads as a real palette, not a
+     code-completion hint. */
+  border-radius: 0.625rem !important;
+  background-color: white !important;
+  border: 1px solid rgb(228 228 231) !important;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
+  padding: 0.25rem !important;
+  min-width: 24rem;
+  font-family: inherit !important;
+  font-size: 0.8125rem !important;
+  overflow: hidden;
+}
+.dark .cm-tooltip.cm-tooltip-autocomplete {
+  background-color: rgb(24 24 27) !important;
+  border-color: rgb(39 39 42) !important;
+}
+
+.cm-tooltip-autocomplete > ul {
+  font-family: inherit !important;
+  max-height: 28rem;
+  padding: 0 !important;
+  margin: 0;
+  list-style: none;
+}
+
+.cm-tooltip-autocomplete > ul > li {
+  display: flex !important;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.375rem 0.75rem !important;
+  border-radius: 0.375rem;
+  /* Default: lighter (text-dimmed). Selected/hovered = blue accent —
+     contrast (not underline, not background fill) signals focus. */
+  color: rgb(113 113 122) !important;
+  cursor: pointer;
+  user-select: none;
+  border: 0 !important;
+  background: transparent !important;
+  text-decoration: none !important;
+}
+.dark .cm-tooltip-autocomplete > ul > li {
+  color: rgb(161 161 170) !important;
+}
+
+.cm-tooltip-autocomplete > ul > li:hover,
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  color: rgb(59 130 246) !important;    /* blue-500 */
+  background: transparent !important;
+  text-decoration: none !important;
+}
+.dark .cm-tooltip-autocomplete > ul > li:hover,
+.dark .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  color: rgb(96 165 250) !important;    /* blue-400 */
+}
+
+.cm-tooltip-autocomplete .cm-slash-icon {
+  flex-shrink: 0;
+  width: 1rem;
+  font-size: 0.9375rem;
+  color: inherit;                       /* picks up the row's color */
+}
+
+.cm-tooltip-autocomplete .cm-completionLabel {
+  flex: 0 0 auto;
+}
+
+/* Hide every "extra" element CM emits — descriptions, section dividers,
+   section headings. KISS palette: just `[icon] Label` rows, in registry
+   order. */
+.cm-tooltip-autocomplete .cm-completionDetail,
+.cm-tooltip-autocomplete .cm-completionSectionLabel,
+.cm-tooltip-autocomplete completion-section,
+.cm-tooltip-autocomplete .cm-completionListIncompleteTop,
+.cm-tooltip-autocomplete .cm-completionListIncompleteBottom {
+  display: none !important;
+}

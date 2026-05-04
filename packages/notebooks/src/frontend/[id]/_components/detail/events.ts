@@ -1,0 +1,24 @@
+/**
+ * Shared window event names for the detail-panel ↔ editor bridge.
+ *
+ * Kept in a plain `.ts` module so every consumer (server components, islands,
+ * editor logic) can import constants without crossing island boundaries via
+ * JSX.
+ */
+export const DETAIL_PANEL_TOGGLE_EVENT = "notebooks.detail-panel.toggle";
+/** Panel → toolbar: current open/closed state after every flip (and on mount). */
+export const DETAIL_PANEL_STATE_EVENT = "notebooks.detail-panel.stateChanged";
+export const TOGGLE_RICH_MODE_EVENT = "notebooks.editor.toggleRich";
+/** Editor → panel: current rich/raw mode after every flip (and on mount). */
+export const RICH_MODE_CHANGED_EVENT = "notebooks.editor.richModeChanged";
+export const TOC_UPDATE_EVENT = "notebooks.toc.updated";
+export const TOC_SCROLL_EVENT = "notebooks.editor.scrollToHeading";
+export const PRESENCE_EVENT = "notebooks.presence.changed";
+
+/**
+ * Dispatched by the panel's "Copy content" / "Download as .md" actions when
+ * the editor is mounted (edit mode) so the action operates on the editor's
+ * current `ytext` rather than the SSR-time `contentMd` snapshot.
+ */
+export const EDITOR_COPY_EVENT = "notebooks.editor.copy";
+export const EDITOR_DOWNLOAD_EVENT = "notebooks.editor.download";

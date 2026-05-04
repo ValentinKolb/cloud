@@ -15,6 +15,12 @@ export type NotebookSettings = {
 
 type AllNotebookSettings = {
   lastNotebookId: string | null;
+  /**
+   * Whether the right-side detail panel (TOC, backlinks, online users, info)
+   * is open. Stored globally — once a user opens the panel it stays open
+   * across notebooks and notes.
+   */
+  detailPanelOpen: boolean;
   notebooks: Record<string, NotebookSettings>;
 };
 
@@ -25,6 +31,7 @@ const DEFAULT_SETTINGS: NotebookSettings = {
 
 const DEFAULT_ALL: AllNotebookSettings = {
   lastNotebookId: null,
+  detailPanelOpen: false,
   notebooks: {},
 };
 
@@ -58,6 +65,15 @@ export const setLastNotebookId = (id: string) => {
   writeCookie(all);
 };
 
+/**
+ * Persists the open/closed state of the global right-side detail panel.
+ */
+export const setDetailPanelOpen = (open: boolean) => {
+  const all = readCookie();
+  all.detailPanelOpen = open;
+  writeCookie(all);
+};
+
 // --- Server-side ---
 
 /**
@@ -78,6 +94,24 @@ export const parseSettings = (cookieHeader: string | undefined, notebookId: stri
     /* ignore */
   }
   return DEFAULT_SETTINGS;
+};
+
+/**
+ * Parses the global detail-panel open state from a raw cookie header for SSR.
+ * Defaults to false — first-time users see the panel closed.
+ */
+export const parseDetailPanelOpen = (cookieHeader: string | undefined): boolean => {
+  if (!cookieHeader) return false;
+  try {
+    const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
+    if (match) {
+      const all: AllNotebookSettings = JSON.parse(decodeURIComponent(match[1]!));
+      return all.detailPanelOpen ?? false;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 };
 
 /**
