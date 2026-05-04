@@ -125,7 +125,8 @@ const app = new Hono<AuthContext>()
       const token = auth.session.getToken(c);
 
       const buildLoginRedirect = () => {
-        const returnUrl = c.req.url;
+        const reqUrl = new URL(c.req.url);
+        const returnUrl = reqUrl.pathname + reqUrl.search;
         const loginParams = new URLSearchParams();
         loginParams.set("redirectTo", returnUrl);
 
@@ -148,7 +149,7 @@ const app = new Hono<AuthContext>()
 
       const user = await accounts.users.get({ id: sessionData.userId });
       if (!user) {
-        return c.redirect(`/auth/login?next=${encodeURIComponent(c.req.url)}`);
+        return c.redirect(buildLoginRedirect());
       }
 
       if (!client.allowedProfiles.includes(user.profile)) {
