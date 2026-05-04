@@ -443,6 +443,34 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
             onChange={setSelectValue}
             clearable
           />
+          <Select
+            label="Searchable Select (fetchData)"
+            placeholder="Search a city..."
+            value={selectValue}
+            onChange={setSelectValue}
+            clearable
+            fetchData={async (q, signal) => {
+              // Demo: tiny in-memory list, simulated 250ms latency, abortable.
+              await new Promise((res, rej) => {
+                const t = setTimeout(res, 250);
+                signal.addEventListener("abort", () => {
+                  clearTimeout(t);
+                  rej(new DOMException("aborted", "AbortError"));
+                });
+              });
+              const all = [
+                { id: "ber", label: "Berlin", description: "Germany", icon: "ti ti-map-pin" },
+                { id: "ham", label: "Hamburg", description: "Germany", icon: "ti ti-map-pin" },
+                { id: "muc", label: "München", description: "Germany", icon: "ti ti-map-pin" },
+                { id: "vie", label: "Vienna", description: "Austria", icon: "ti ti-map-pin" },
+                { id: "zur", label: "Zürich", description: "Switzerland", icon: "ti ti-map-pin" },
+                { id: "par", label: "Paris", description: "France", icon: "ti ti-map-pin" },
+                { id: "lon", label: "London", description: "UK", icon: "ti ti-map-pin" },
+              ];
+              const term = q.toLowerCase();
+              return term ? all.filter((c) => c.label.toLowerCase().includes(term)) : all;
+            }}
+          />
           <TagsInput
             label="Tags Input"
             value={tagsValue}
