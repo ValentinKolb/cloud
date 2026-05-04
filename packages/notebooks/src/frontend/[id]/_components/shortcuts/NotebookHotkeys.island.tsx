@@ -35,9 +35,9 @@ export default function NotebookHotkeys(props: Props) {
   });
 
   const openSearch = async () => {
-    const noteId = await openNoteSearchPrompt(props.notebookId, props.notebookName);
-    if (noteId) {
-      navigateTo(buildNoteUrl(props.notebookId, noteId));
+    const picked = await openNoteSearchPrompt(props.notebookId, props.notebookName);
+    if (picked) {
+      navigateTo(buildNoteUrl(props.notebookId, picked.id));
     }
   };
 

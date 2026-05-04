@@ -4,9 +4,13 @@ import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
+/** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
+const NOTE_LINK_URL_REGEX = /^\/app\/notebooks\/[0-9a-fA-F-]{36}\?note=[0-9a-fA-F-]{36}$/;
+
 type LinkData = {
   label: string;
   url: string;
+  isNoteLink: boolean;
 };
 
 class LinkWidget extends WidgetType {
@@ -15,6 +19,40 @@ class LinkWidget extends WidgetType {
   }
 
   override toDOM() {
+    if (this.linkData.isNoteLink) {
+      // Pill-style note link: ti-connection icon + title, no [] brackets, the
+      // whole pill is clickable and navigates same-window.
+      const el = document.createElement("span");
+      el.className =
+        "cm-note-link inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-900/50";
+      el.title = this.linkData.url;
+
+      const icon = document.createElement("i");
+      icon.className = "ti ti-connection text-xs";
+
+      const label = document.createElement("span");
+      label.textContent = this.linkData.label;
+
+      el.appendChild(icon);
+      el.appendChild(label);
+
+      // Block CM's default cursor-positioning on widget click — our onclick
+      // handler navigates instead.
+      el.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      el.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.location.assign(this.linkData.url);
+      };
+
+      return el;
+    }
+
+    // External link: keep the established `[Label] ↗` rendering — only the
+    // icon opens (in a new tab); clicking the label positions the cursor.
     const container = document.createElement("span");
     container.className = "cm-link-widget";
 
@@ -40,11 +78,21 @@ class LinkWidget extends WidgetType {
   }
 
   override eq(other: WidgetType) {
-    return other instanceof LinkWidget && other.linkData.label === this.linkData.label && other.linkData.url === this.linkData.url;
+    return (
+      other instanceof LinkWidget &&
+      other.linkData.label === this.linkData.label &&
+      other.linkData.url === this.linkData.url &&
+      other.linkData.isNoteLink === this.linkData.isNoteLink
+    );
   }
 
   override ignoreEvent(event: Event) {
     const target = event.target as HTMLElement;
+    // Note-link pill swallows its own events — we navigate via onclick and
+    // CM should not try to position the cursor.
+    if (target.closest(".cm-note-link") !== null) return true;
+    // External link: only the icon click is "ours"; label click should pass
+    // through so CM positions the cursor for editing.
     return target.closest(".cm-link-icon") !== null;
   }
 }
@@ -52,7 +100,11 @@ class LinkWidget extends WidgetType {
 const parseLinkSyntax = (text: string): LinkData | null => {
   const match = text.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
   if (!match || !match[1] || !match[2]) return null;
-  return { label: match[1], url: match[2] };
+  return {
+    label: match[1],
+    url: match[2],
+    isNoteLink: NOTE_LINK_URL_REGEX.test(match[2]),
+  };
 };
 
 const findLinks = (state: EditorState): Range<Decoration>[] => {
@@ -111,11 +163,20 @@ export const linksExtension = (): Extension => {
     ".cm-link-widget:hover .cm-link-icon": {
       opacity: "1",
     },
+    ".cm-note-link": {
+      verticalAlign: "baseline",
+      transition: "background-color 0.15s",
+    },
   });
 
   const eventHandlers = EditorView.domEventHandlers({
     mousedown(event, view) {
       const target = event.target as HTMLElement;
+      // Note-link clicks are handled by the widget's own onclick (navigates
+      // same-window). Bail out so CM doesn't reposition the cursor.
+      if (target.closest(".cm-note-link")) {
+        return true;
+      }
       if (target.closest(".cm-link-label")) {
         const pos = view.posAtDOM(target);
         if (pos !== null) {

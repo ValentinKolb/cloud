@@ -78,4 +78,17 @@ export const migrate = async (): Promise<void> => {
     ON notebooks.note_versions(note_id, created_at DESC)
   `.simple();
   console.log("  ✓ notebooks.note_versions table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS notebooks.note_links (
+      source_note_id UUID NOT NULL REFERENCES notebooks.notes(id) ON DELETE CASCADE,
+      target_note_id UUID NOT NULL REFERENCES notebooks.notes(id) ON DELETE CASCADE,
+      PRIMARY KEY (source_note_id, target_note_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_note_links_target
+    ON notebooks.note_links(target_note_id)
+  `.simple();
+  console.log("  ✓ notebooks.note_links table");
 };

@@ -1,6 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import * as access from "./access";
+import * as links from "./links";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
 import * as presence from "./presence";
@@ -147,6 +148,9 @@ export const notebooksService = {
     copyToNotebook: notes.copyToNotebook,
     search: notes.search,
     recentForUser: notes.recentForUser,
+    backlinks: {
+      list: links.listBacklinks,
+    },
   },
   presence: {
     join: presence.join,
@@ -157,7 +161,7 @@ export const notebooksService = {
   },
 };
 
-export { notebooks, notes, access, presence, yjsSnapshotWorker };
+export { notebooks, notes, access, links, presence, yjsSnapshotWorker };
 
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";
@@ -169,3 +173,4 @@ export type {
   NoteWithContent,
   UpdateNote,
 } from "./notes";
+export type { Backlink, NoteLink } from "./links";

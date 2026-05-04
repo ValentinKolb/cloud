@@ -96,6 +96,14 @@ const NoteVersionSchema = z.object({
   createdAt: z.string(),
 });
 
+const BacklinkSchema = z.object({
+  noteId: z.uuid(),
+  title: z.string(),
+  notebookId: z.uuid(),
+  notebookName: z.string(),
+  updatedAt: z.string(),
+});
+
 const ListNotebooksQuerySchema = z.object({
   ...PaginationQuerySchema.shape,
   q: z.string().optional(),
@@ -871,6 +879,45 @@ const app = new Hono<AuthContext>()
           contentMd: version.contentMd,
         }),
       );
+    },
+  )
+
+  // ==========================
+  // BACKLINKS
+  // ==========================
+
+  // List Backlinks
+  .get(
+    "/:id/notes/:noteId/backlinks",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "List backlinks",
+      description: "List notes that link to this note. Filtered by access on the source notebook.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ data: z.array(BacklinkSchema) }), "Backlinks"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Note or notebook not found"),
+      },
+    }),
+    async (c) => {
+      const notebookId = c.req.param("id");
+      const noteId = c.req.param("noteId");
+
+      const { error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      const noteCheck = await requireNoteInNotebook(notebookId, noteId);
+      if (!noteCheck.ok) return respond(c, noteCheck);
+
+      const user = c.get("user");
+      const items = await notebooksService.note.backlinks.list({
+        noteId,
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+        bypassAccess: hasRole(user, "admin"),
+      });
+
+      return respond(c, ok({ data: items }));
     },
   )
 

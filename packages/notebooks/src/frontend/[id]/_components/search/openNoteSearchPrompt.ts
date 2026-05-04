@@ -35,8 +35,22 @@ const getSnippet = (content: string | null, query: string): string | undefined =
   return snippet;
 };
 
-export const openNoteSearchPrompt = async (notebookId: string, notebookName: string): Promise<string | undefined> => {
-  const selected = await prompts.search<string>(
+export type PickedNote = {
+  id: string;
+  title: string;
+};
+
+type PromptDressing = {
+  title: string;
+  icon: string;
+  placeholder: string;
+};
+
+const runNotePrompt = async (
+  notebookId: string,
+  dressing: PromptDressing,
+): Promise<PickedNote | undefined> => {
+  const selected = await prompts.search<PickedNote>(
     async ({ query, abortSignal }) => {
       const trimmed = query.trim();
       if (trimmed.length === 0) return [];
@@ -54,15 +68,15 @@ export const openNoteSearchPrompt = async (notebookId: string, notebookName: str
 
       const payload = (await response.json()) as SearchResponse;
       return payload.data.map((note) => ({
-        value: note.id,
+        value: { id: note.id, title: note.title },
         label: note.title,
         desc: getSnippet(note.contentMd, trimmed),
       }));
     },
     {
-      title: `Search in ${notebookName}`,
-      icon: "ti ti-notebook",
-      placeholder: "Search notes...",
+      title: dressing.title,
+      icon: dressing.icon,
+      placeholder: dressing.placeholder,
       minQueryLength: 1,
       noResultsText: "No notes found.",
       size: "small",
@@ -71,3 +85,30 @@ export const openNoteSearchPrompt = async (notebookId: string, notebookName: str
 
   return selected?.value;
 };
+
+/** Search prompt used by the global Cmd+Shift+K shortcut and the sidebar
+ *  search button — selecting a note navigates to it. */
+export const openNoteSearchPrompt = (notebookId: string, notebookName: string): Promise<PickedNote | undefined> =>
+  runNotePrompt(notebookId, {
+    title: `Search in ${notebookName}`,
+    icon: "ti ti-notebook",
+    placeholder: "Search notes...",
+  });
+
+/** Picker variant used by the editor's "Insert note link" action — wording
+ *  makes it clear the picked note will be inserted as a link, not navigated to. */
+export const openNoteLinkPrompt = (notebookId: string): Promise<PickedNote | undefined> =>
+  runNotePrompt(notebookId, {
+    title: "Insert link to note",
+    icon: "ti ti-connection",
+    placeholder: "Search note to link to...",
+  });
+
+/** Picker variant used by the `/switch` slash command — picks a note to
+ *  navigate to (within the current notebook). */
+export const openNoteSwitchPrompt = (notebookId: string): Promise<PickedNote | undefined> =>
+  runNotePrompt(notebookId, {
+    title: "Switch to note",
+    icon: "ti ti-arrows-right-left",
+    placeholder: "Search note to open...",
+  });
