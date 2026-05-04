@@ -40,11 +40,16 @@ export const migrate = async (): Promise<void> => {
       client_id TEXT NOT NULL REFERENCES oauth.clients(client_id) ON DELETE CASCADE,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       redirect_uri TEXT NOT NULL,
+      nonce TEXT,
       code_challenge TEXT,
       code_challenge_method TEXT CHECK (code_challenge_method IN ('S256', 'plain')),
       expires_at TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '5 minutes',
       used BOOLEAN NOT NULL DEFAULT false
     )
+  `.simple();
+  await sql`
+    ALTER TABLE oauth.codes
+    ADD COLUMN IF NOT EXISTS nonce TEXT
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires
