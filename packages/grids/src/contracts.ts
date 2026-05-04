@@ -14,6 +14,7 @@ export const BaseSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   createdBy: z.string().uuid().nullable(),
+  deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -36,6 +37,7 @@ export const TableSchema = z.object({
   description: z.string().nullable(),
   primaryFieldId: z.string().uuid().nullable(),
   position: z.number().int(),
+  deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -205,6 +207,230 @@ export const RecordListResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+// ── Group-by + aggregations endpoint (v3 Slice 8) ─────────────────────────
+// Request: same FilterTree shape as records.list, plus groupBy and
+// aggregations from ViewQuery. Response: an array of buckets where
+// each bucket has its key tuple and the aggregated values.
+
+export const GroupByRequestSchema = z.object({
+  fieldId: z.string().uuid(),
+  direction: z.enum(["asc", "desc"]).optional(),
+  granularity: z.enum(["day", "week", "month", "quarter", "year"]).optional(),
+});
+
+export const GroupAggregationRequestSchema = z.object({
+  fieldId: z.union([z.string().uuid(), z.literal("*")]),
+  agg: z.enum(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]),
+});
+
+export const GroupBodySchema = z.object({
+  filter: FilterTreeSchema.optional(),
+  groupBy: z.array(GroupByRequestSchema).min(1).max(3),
+  aggregations: z.array(GroupAggregationRequestSchema).max(20).optional(),
+  cursor: z.string().optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+  includeDeleted: z.boolean().optional(),
+});
+
+export const GroupBucketSchema = z.object({
+  keys: z.array(z.unknown()),
+  values: z.record(z.string(), z.unknown()),
+});
+
+export const GroupResponseSchema = z.object({
+  buckets: z.array(GroupBucketSchema),
+  nextCursor: z.string().nullable(),
+  /**
+   * Explode-mode flag. True when one or more `groupBy` dimensions is
+   * a relation field — a record with N links contributes to N buckets,
+   * so `*__count` counts (record × link) pairs, not records. UI should
+   * surface a "buckets may overlap" hint when this is set.
+   */
+  explode: z.boolean(),
+});
+
+// ── Unified /tables/:id/query endpoint (v3 Slice 5) ────────────────────────
+// The canonical "ask this table for data" endpoint. Body carries a
+// ViewQuery (filter/sort/columns/limit/groupBy/aggregations from the
+// canonical type defined below); response is a discriminated envelope
+// whose populated fields depend on what the query asked for:
+//
+//   groupBy non-empty                        → { buckets, nextCursor, explode }
+//   groupBy empty + aggregations non-empty   → { items, aggregates, nextCursor }
+//   groupBy empty + aggregations empty       → { items, nextCursor }
+//
+// Old per-action routes (/by-table/:id, /aggregate/:id, /group/:id) stay
+// alive during the transition but are deprecated — new consumers should
+// only target this one endpoint.
+
+// ── ViewQuery (canonical "how to query this table") ───────────────────────
+// One shape, used by views (saved presets), records list, export, and
+// future group/aggregate endpoints. Replaces the old loose `ViewConfig`
+// blob whose `filter: unknown` typing meant saved views were untyped
+// garbage bags and the speculative `kind:"join"` ViewColumn variant that
+// no renderer actually implemented.
+
+/**
+ * Per-column display override. `kind` distinguishes future format
+ * families (date / decimal / currency / percent). Renderer is lenient:
+ * if the format kind doesn't match the field's actual type, it's a
+ * no-op (a `currency` format on a text field renders as plain text).
+ */
+export const FormatSpecSchema: z.ZodType<
+  | { kind: "date"; format: "iso" | "short" | "long" | "relative"; includeTime?: boolean }
+  | { kind: "currency"; symbol?: string; precision?: number }
+  | { kind: "decimal"; precision?: number; thousandsSeparator?: boolean }
+  | { kind: "percent"; precision?: number }
+> = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("date"),
+    format: z.enum(["iso", "short", "long", "relative"]),
+    includeTime: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal("currency"),
+    symbol: z.string().optional(),
+    precision: z.number().int().min(0).max(10).optional(),
+  }),
+  z.object({
+    kind: z.literal("decimal"),
+    precision: z.number().int().min(0).max(10).optional(),
+    thousandsSeparator: z.boolean().optional(),
+  }),
+  z.object({
+    kind: z.literal("percent"),
+    precision: z.number().int().min(0).max(10).optional(),
+  }),
+]);
+export type FormatSpec = z.infer<typeof FormatSpecSchema>;
+
+/**
+ * One rendered column in a view. v3 has a single shape — just a
+ * fieldId with optional format. The previous `kind: "field"` /
+ * `kind: "join"` discriminator was speculative: only `field` was ever
+ * implemented and `join` was silently skipped by the renderer.
+ * Cross-table data is served by lookup/rollup field types instead
+ * (which become real SQL JOINs in Slice 4).
+ */
+export const ColumnSpecSchema = z.object({
+  fieldId: z.string().uuid(),
+  format: FormatSpecSchema.optional(),
+});
+export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
+
+/**
+ * Group-by dimension. Schema-level only in Slice 1 — the compiler
+ * support lands in Slice 8. Stored in ViewQuery so URL serialization
+ * + saved-view persistence work end-to-end before the feature lights up.
+ */
+export const GroupBySpecSchema = z.object({
+  fieldId: z.string().uuid(),
+  direction: z.enum(["asc", "desc"]).optional(),
+  /** date-field grouping bucket. Backend uses `date_trunc(<granularity>, …)`. */
+  granularity: z.enum(["day", "week", "month", "quarter", "year"]).optional(),
+});
+export type GroupBySpec = z.infer<typeof GroupBySpecSchema>;
+
+export const AggregationSpecSchema = z.object({
+  /** "*" is shorthand for COUNT(*) — count of records in the group. */
+  fieldId: z.union([z.string().uuid(), z.literal("*")]),
+  agg: AggregateKindSchema,
+  label: z.string().optional(),
+});
+export type AggregationSpec = z.infer<typeof AggregationSpecSchema>;
+
+/**
+ * Optional per-query free-text search. Server compiles it into the
+ * filter as an OR across the listed fieldIds (or a default set when
+ * fieldIds is empty/undefined). Kept separate from `filter` so users
+ * can layer search on top of view-defined filters in the URL.
+ */
+export const SearchSpecSchema = z.object({
+  q: z.string().min(1),
+  fieldIds: z.array(z.string().uuid()).optional(),
+});
+export type SearchSpec = z.infer<typeof SearchSpecSchema>;
+
+/**
+ * Canonical query for a table. Used by:
+ *  - saved Views (stored as `view.query`)
+ *  - `POST /tables/:id/query` (Slice 5)
+ *  - URL serialization on the records page (`?q=<base64-json>`)
+ *  - export endpoint (Slice 5)
+ *
+ * Any layer that asks "how do I query this table?" answers with
+ * exactly this object. No drift between layers.
+ */
+export const ViewQuerySchema = z.object({
+  filter: FilterTreeSchema.optional(),
+  search: SearchSpecSchema.optional(),
+  sort: z.array(SortSpecSchema).optional(),
+  groupBy: z.array(GroupBySpecSchema).max(3).optional(),
+  aggregations: z.array(AggregationSpecSchema).optional(),
+  columns: z.array(ColumnSpecSchema).optional(),
+  /** Hard cap on returned rows. Applied after filter+sort, before
+   *  pagination. nextCursor becomes null once it would advance past
+   *  the cap. */
+  limit: z.number().int().min(1).max(10_000).optional(),
+  /** When true, soft-deleted records are included in the result. */
+  includeDeleted: z.boolean().optional(),
+});
+export type ViewQuery = z.infer<typeof ViewQuerySchema>;
+
+/** Body for POST /tables/:id/query — a ViewQuery plus pagination state. */
+export const TableQueryBodySchema = z.object({
+  query: ViewQuerySchema,
+  cursor: z.string().optional(),
+});
+
+/**
+ * Discriminated response envelope. Fields are populated based on what
+ * the ViewQuery asked for (see comment block above).
+ */
+export const TableQueryResponseSchema = z.object({
+  items: z.array(GridRecordSchema).optional(),
+  aggregates: z.record(z.string(), z.unknown()).optional(),
+  buckets: z.array(GroupBucketSchema).optional(),
+  nextCursor: z.string().nullable(),
+  /** Group-mode flag (only set when groupBy is non-empty). */
+  explode: z.boolean().optional(),
+});
+export type TableQueryBody = z.infer<typeof TableQueryBodySchema>;
+export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
+
+// ── View entity ───────────────────────────────────────────────────────────
+export const ViewSchema = z.object({
+  id: z.string().uuid(),
+  tableId: z.string().uuid(),
+  name: z.string(),
+  /** Canonical query — replaces the old loose `config: unknown` blob. */
+  query: ViewQuerySchema,
+  /** null = shared (visible to all table-readers); else owner's user id. */
+  ownerUserId: z.string().uuid().nullable(),
+  position: z.number().int(),
+  deletedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type View = z.infer<typeof ViewSchema>;
+
+export const CreateViewSchema = z.object({
+  name: z.string().min(1).max(200),
+  query: ViewQuerySchema.optional(),
+  shared: z.boolean().optional(),
+});
+export type CreateViewInput = z.infer<typeof CreateViewSchema>;
+
+export const UpdateViewSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  query: ViewQuerySchema.optional(),
+  position: z.number().int().optional(),
+  shared: z.boolean().optional(),
+});
+export type UpdateViewInput = z.infer<typeof UpdateViewSchema>;
+
+export const ViewListSchema = z.array(ViewSchema);
+
 // ── Audit ─────────────────────────────────────────────────────────────────
 export const AuditEntrySchema = z.object({
   id: z.string().uuid(),
@@ -237,6 +463,21 @@ export const FieldDependentsResponseSchema = z.object({
   dependents: z.array(FieldDependentSchema),
   hasBlocking: z.boolean(),
 });
+
+// ── Relation lookup ───────────────────────────────────────────────────────
+// Backs `GET /api/grids/tables/:tableId/lookup` — the search endpoint
+// the RelationPicker uses to populate its dropdown. Each item is a
+// pre-formatted label so the client doesn't need to know about
+// `presentable` field rules.
+export const RelationLookupItemSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+});
+export const RelationLookupResponseSchema = z.object({
+  items: z.array(RelationLookupItemSchema),
+});
+export type RelationLookupItem = z.infer<typeof RelationLookupItemSchema>;
+export type RelationLookupResponse = z.infer<typeof RelationLookupResponseSchema>;
 
 // ── ACL ───────────────────────────────────────────────────────────────────
 export {

@@ -1,20 +1,18 @@
-import { Index, Show, createMemo } from "solid-js";
-import { navigateTo, Select } from "@valentinkolb/cloud/ui";
+import { Index, createMemo } from "solid-js";
+import { Select } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 
 export type SortRow = { fieldId: string; direction: "asc" | "desc" };
 
+/**
+ * Strict-controlled input — three props, no apply / dirty / URL logic.
+ * The surrounding GridToolbar handles "commit". Use `isSortRowComplete`
+ * to validate rows from the outside.
+ */
 type Props = {
   fields: Field[];
-  /** Controlled rows — owned by the parent. */
   rows: () => SortRow[];
   onRowsChange: (next: SortRow[]) => void;
-  initialFromUrl: SortRow[];
-  /** Used by the default Apply navigation. Required when `onApply` unset. */
-  baseUrl?: string;
-  /** When set, Apply calls this with the validated rows instead of
-   *  navigating to baseUrl. */
-  onApply?: (rows: SortRow[]) => void;
 };
 
 export const SORTABLE_TYPES = new Set([
@@ -32,18 +30,7 @@ export const SORTABLE_TYPES = new Set([
 export const sortableFields = (fields: Field[]): Field[] =>
   fields.filter((f) => !f.deletedAt && SORTABLE_TYPES.has(f.type));
 
-const buildSortUrl = (baseUrl: string, rows: SortRow[]): string => {
-  const url = new URL(baseUrl, "http://x");
-  if (rows.length === 0) {
-    url.searchParams.delete("sort");
-  } else {
-    url.searchParams.set("sort", JSON.stringify(rows));
-  }
-  url.searchParams.delete("cursor");
-  return `${url.pathname}${url.search}`;
-};
-
-const isComplete = (row: SortRow, fields: Field[]): boolean =>
+export const isSortRowComplete = (row: SortRow, fields: Field[]): boolean =>
   Boolean(row.fieldId && fields.some((f) => f.id === row.fieldId));
 
 /** Build a blank sort row for the first sortable field. */
@@ -56,25 +43,6 @@ export const blankSortRow = (fields: Field[]): SortRow | null => {
 
 export default function SortPanel(props: Props) {
   const fields = createMemo(() => sortableFields(props.fields));
-
-  const apply = () => {
-    const validated = props.rows().filter((r) => isComplete(r, props.fields));
-    // Mixed asc/desc are rejected by the compiler (Phase 1B); align everything
-    // to the first row's direction so the user gets a working query rather
-    // than a 400 on the next cursor request.
-    if (validated.length > 1) {
-      const first = validated[0]!.direction;
-      const allMatch = validated.every((r) => r.direction === first);
-      if (!allMatch) {
-        for (const r of validated) r.direction = first;
-      }
-    }
-    if (props.onApply) {
-      props.onApply(validated);
-      return;
-    }
-    if (props.baseUrl) navigateTo(buildSortUrl(props.baseUrl, validated));
-  };
 
   const updateRow = (index: number, patch: Partial<SortRow>) => {
     props.onRowsChange(
@@ -89,14 +57,6 @@ export default function SortPanel(props: Props) {
 
   const removeRow = (index: number) =>
     props.onRowsChange(props.rows().filter((_, i) => i !== index));
-
-  const dirty = createMemo(() => {
-    const a = JSON.stringify(props.initialFromUrl);
-    const b = JSON.stringify(
-      props.rows().filter((r) => isComplete(r, props.fields))
-    );
-    return a !== b;
-  });
 
   if (fields().length === 0) return null;
 
@@ -141,8 +101,6 @@ export default function SortPanel(props: Props) {
         )}
       </Index>
 
-      {/* Bottom row — only Add + (conditional) Apply. Toolbar's smart-Clear
-          chip handles bulk-clear globally. */}
       <div class="flex items-center gap-1">
         <button
           type="button"
@@ -151,16 +109,6 @@ export default function SortPanel(props: Props) {
         >
           <i class="ti ti-plus" /> Add
         </button>
-        <Show when={dirty()}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm btn-input-active ml-auto"
-            onClick={apply}
-            title="Apply sort"
-          >
-            <i class="ti ti-check" /> Apply
-          </button>
-        </Show>
       </div>
     </div>
   );

@@ -12,8 +12,10 @@ import { fail, ok, type FieldTypeHandler } from "./types";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const RelationConfigSchema = z.object({
-  /** Table whose records this relation links to. */
-  targetTableId: z.string().uuid(),
+  /** Table whose records this relation links to. Optional at create time
+   *  so a user can add the field first and pick the target table from the
+   *  per-field config editor afterwards — matches lookup/rollup. */
+  targetTableId: z.string().uuid().optional(),
   /** Field on the target table used as the display label (Phase 4a:
    *  callers project it themselves; Phase 4b's lookup uses this too). */
   displayFieldId: z.string().uuid().optional(),
@@ -27,8 +29,15 @@ export const relationHandler: FieldTypeHandler = {
   userInput: true,
   validate(raw, configRaw, required) {
     const parsed = RelationConfigSchema.safeParse(configRaw ?? {});
-    if (!parsed.success) return fail("invalid relation config (targetTableId required)");
+    if (!parsed.success) return fail("invalid relation config");
     const config = parsed.data;
+    // Field is configured but the user hasn't picked a target table yet:
+    // accept null/empty (treat as "not yet wired"), reject any actual link
+    // because we can't validate against a target without it.
+    if (!config.targetTableId) {
+      if (raw === null || raw === undefined) return required ? fail("required") : ok(null);
+      return fail("relation has no target table configured yet");
+    }
     const cardinality = config.cardinality ?? "multiple";
 
     if (raw === null || raw === undefined) return required ? fail("required") : ok(null);
@@ -66,10 +75,12 @@ export const relationHandler: FieldTypeHandler = {
 // userInput is false; the value gets populated by the records service
 // at read time via batch-fetching the linked records.
 const LookupConfigSchema = z.object({
-  /** ID of the relation field on this table to follow. */
-  relationFieldId: z.string().uuid(),
+  /** ID of the relation field on this table to follow. Optional so the
+   *  field can be created first and wired up via the config editor. The
+   *  enrichment pipeline already skips lookups whose config is incomplete. */
+  relationFieldId: z.string().uuid().optional(),
   /** ID of the field on the related table whose value we project. */
-  targetFieldId: z.string().uuid(),
+  targetFieldId: z.string().uuid().optional(),
 });
 
 export const lookupHandler: FieldTypeHandler = {
@@ -83,9 +94,12 @@ export const lookupHandler: FieldTypeHandler = {
 // Read-only aggregate over related records. agg is constrained to the
 // shapes that make sense for arbitrary related fields.
 const RollupConfigSchema = z.object({
-  relationFieldId: z.string().uuid(),
-  targetFieldId: z.string().uuid(),
-  agg: z.enum(["count", "sum", "avg", "min", "max"]),
+  /** All three are optional at create time — defaultConfigForType returns
+   *  `{}` and the user fills them in via the per-field config editor.
+   *  The enrichment pipeline skips rollups whose config is incomplete. */
+  relationFieldId: z.string().uuid().optional(),
+  targetFieldId: z.string().uuid().optional(),
+  agg: z.enum(["count", "sum", "avg", "min", "max"]).optional(),
 });
 
 export const rollupHandler: FieldTypeHandler = {

@@ -21,13 +21,16 @@ export type CompiledSort = {
 type CastKind = "numeric" | "date" | "boolean" | "text";
 
 const projectionForType = (fieldId: string, type: string): { sql: any; cast: CastKind } => {
+  // Safe-cast wrappers (Slice 7): NULL on parse failure instead of
+  // raising — a corrupt JSONB value used to crash the whole listing.
   switch (type) {
     case "number": case "decimal": case "rating": case "autonumber":
-      return { sql: sql`(data->>${fieldId})::numeric`, cast: "numeric" };
+    case "percent": case "duration":
+      return { sql: sql`grids.try_numeric(data->>${fieldId})`, cast: "numeric" };
     case "date":
-      return { sql: sql`(data->>${fieldId})::date`, cast: "date" };
+      return { sql: sql`grids.try_date(data->>${fieldId})`, cast: "date" };
     case "boolean":
-      return { sql: sql`(data->>${fieldId})::boolean`, cast: "boolean" };
+      return { sql: sql`grids.try_boolean(data->>${fieldId})`, cast: "boolean" };
     default:
       return { sql: sql`data->>${fieldId}`, cast: "text" };
   }
@@ -102,10 +105,11 @@ const orderGt = (
  * comparison (see `orderGt` for per-column semantics). Always appends `id`
  * as a final tiebreaker so the order is total even when sort keys collide.
  *
- * Mixed asc/desc directions are not supported in Phase-1B: even though the
- * per-column operators handle directions individually, the `id` tiebreaker
- * needs a single direction to match the page. Reject up-front so the caller
- * can't get a cursor it can't follow.
+ * v3 (Slice 7): mixed asc/desc directions are now supported. The
+ * per-column `orderGt` operators already handle direction individually;
+ * the only remaining concern was the `id` tiebreaker, which now uses
+ * the FIRST column's direction (any consistent choice gives a total
+ * order; first-column matches the user's primary intent visually).
  */
 export const compileSort = (
   specs: SortSpec[],
@@ -120,21 +124,6 @@ export const compileSort = (
     const f = fieldsById.get(s.fieldId);
     if (!f) return { ok: false, error: `unknown sort field "${s.fieldId}"` };
     if (f.deletedAt) return { ok: false, error: `sort field "${f.name}" is deleted` };
-  }
-
-  // Reject mixed asc/desc up-front so the caller can't end up with a cursor
-  // it can't paginate. (Previous behavior only validated when a cursor was
-  // present, which meant the first page would succeed and emit a cursor
-  // that the next request would reject with 400.)
-  if (effective.length > 1) {
-    const direction = effective[0]!.direction;
-    const allUniform = effective.every((s) => s.direction === direction);
-    if (!allUniform) {
-      return {
-        ok: false,
-        error: "mixed asc/desc sort directions are not supported in Phase-1B; use uniform direction",
-      };
-    }
   }
 
   // Resolve effective nullsFirst per column (default = nulls-first asc, last desc).
@@ -152,7 +141,9 @@ export const compileSort = (
     return sql`${proj.sql} ${dir} ${nulls}`;
   });
 
-  // Tiebreaker on id matches the page direction (uniform across all sort cols).
+  // Tiebreaker on id uses the first sort column's direction. Any
+  // consistent choice gives a total order; the first column matches
+  // the user's primary intent (newest/oldest reading direction).
   const pageDirection: "asc" | "desc" = effective[0]?.direction ?? "asc";
   const idDirSql = pageDirection === "desc" ? sql`DESC` : sql`ASC`;
   const orderBy = (orderParts.length > 0 ? [...orderParts, sql`id ${idDirSql}`] : [sql`id ${idDirSql}`])

@@ -1,7 +1,15 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
-import { ensureFieldIndex, dropFieldIndex } from "./field-indexes";
+import {
+  ensureFieldIndex,
+  dropFieldIndex,
+  ensureFieldUniqueIndex,
+  dropFieldUniqueIndex,
+  findUniqueConflicts,
+  isUniqueable,
+  dropAutonumberSequence,
+} from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
 import { getHandler, isKnownFieldType } from "../field-types";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
@@ -73,6 +81,14 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   }
 
   const description = input.description?.trim() || null;
+  // bun.sql passes primitive JS values (boolean / number / string) as
+  // their native PG types — Postgres can't cast `true` directly to
+  // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
+  // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
+  const defaultValueJsonb =
+    input.defaultValue === undefined || input.defaultValue === null
+      ? null
+      : JSON.stringify(input.defaultValue);
   const [row] = await sql<DbRow[]>`
     INSERT INTO grids.fields (
       table_id, name, description, type, config, position, required,
@@ -86,11 +102,11 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
       ${description}::text,
       ${input.type},
       ${config}::jsonb,
-      COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid)),
+      COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
       ${input.required ?? false},
       ${input.presentable ?? false},
       ${input.hideInTable ?? false},
-      ${input.defaultValue ?? null}::jsonb,
+      ${defaultValueJsonb}::jsonb,
       ${input.indexed ?? false},
       ${input.uniqueConstraint ?? false}
     )
@@ -106,10 +122,25 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     diff: { field: { old: null, new: { id: field.id, name: field.name, type: field.type } } },
   });
 
-  // CONCURRENTLY-built index fires after the row commits. Failures don't
-  // block create — they're logged so the user can re-toggle.
+  // CONCURRENTLY-built filterable index fires after the row commits.
+  // Failures don't block create — they're logged so the user can
+  // re-toggle (filterable indexes are nice-to-have for performance,
+  // not correctness — fields work without them).
   if (field.indexed) {
     void ensureFieldIndex(field.id, field.type);
+  }
+  // Unique-constraint indexes ARE correctness-critical: if the build
+  // fails, the row claiming `unique_constraint = true` would lie about
+  // enforcement. Await + roll back the metadata flag on failure.
+  if (field.uniqueConstraint && isUniqueable(field.type)) {
+    try {
+      await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
+    } catch (e) {
+      await sql`UPDATE grids.fields SET unique_constraint = FALSE WHERE id = ${field.id}::uuid`;
+      return fail(err.internal(
+        `field created but unique-constraint index build failed: ${(e as Error).message}`,
+      ));
+    }
   }
 
   return ok(field);
@@ -134,6 +165,23 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     }
   }
 
+  // unique_constraint OFF → ON: pre-flight conflict check so we can
+  // return a clean 409 BEFORE running the index build (which would
+  // otherwise fail with a generic Postgres duplicate-key error).
+  if (input.uniqueConstraint === true && !existing.uniqueConstraint) {
+    if (!isUniqueable(existing.type)) {
+      return fail(err.badInput(
+        `unique_constraint not supported for type "${existing.type}" (use a scalar type)`,
+      ));
+    }
+    const conflicts = await findUniqueConflicts(id, existing.tableId);
+    if (conflicts.length > 0) {
+      return fail(err.conflict(
+        `unique_constraint cannot be enabled — duplicate values: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? ` (+${conflicts.length - 5} more)` : ""}`,
+      ));
+    }
+  }
+
   const next = {
     name: name ?? existing.name,
     // Empty string in description input → store null (clears the helper).
@@ -151,6 +199,11 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     uniqueConstraint: input.uniqueConstraint ?? existing.uniqueConstraint,
   };
 
+  // Same primitive-to-JSONB stringify dance as create.
+  const nextDefaultValueJsonb =
+    next.defaultValue === undefined || next.defaultValue === null
+      ? null
+      : JSON.stringify(next.defaultValue);
   const [row] = await sql<DbRow[]>`
     UPDATE grids.fields
     SET name = ${next.name},
@@ -160,7 +213,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
         required = ${next.required},
         presentable = ${next.presentable},
         hide_in_table = ${next.hideInTable},
-        default_value = ${next.defaultValue ?? null}::jsonb,
+        default_value = ${nextDefaultValueJsonb}::jsonb,
         indexed = ${next.indexed},
         unique_constraint = ${next.uniqueConstraint},
         updated_at = now()
@@ -181,6 +234,24 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   if (existing.indexed !== field.indexed) {
     if (field.indexed) void ensureFieldIndex(field.id, field.type);
     else void dropFieldIndex(field.id);
+  }
+  // Unique-constraint enable: AWAIT the build and roll back the metadata
+  // flag if it fails. The pre-flight conflict check above already
+  // rejected the toggle when duplicates exist, but the CONCURRENTLY
+  // build can still fail on transient errors (locks, disk pressure).
+  if (existing.uniqueConstraint !== field.uniqueConstraint) {
+    if (field.uniqueConstraint) {
+      try {
+        await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
+      } catch (e) {
+        await sql`UPDATE grids.fields SET unique_constraint = FALSE WHERE id = ${field.id}::uuid`;
+        return fail(err.internal(
+          `unique-constraint index build failed: ${(e as Error).message}`,
+        ));
+      }
+    } else {
+      void dropFieldUniqueIndex(field.id);
+    }
   }
 
   return ok(field);

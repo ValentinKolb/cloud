@@ -42,21 +42,48 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  // Only ship field metadata for fields the form actually exposes.
-  // Without this filter, hidden / internal table-level field names, types,
-  // configs, and defaults would be serialized into the anonymous HTML
-  // even though the submit endpoint already rejects them — a real
-  // information leak via the hydration payload.
-  const allowedIds = new Set(form.config.fields.map((f) => f.fieldId));
-  const allFields = await gridsService.field.listByTable(form.tableId);
-  const fields = allFields.filter((f) => allowedIds.has(f.id));
+  // Only ship field metadata for fields the form actually exposes
+  // AND only for user_input entries. form_value entries' fieldIds are
+  // server-applied — the anonymous HTML must not contain their target
+  // field metadata (would leak schema details, even if values are
+  // applied server-side).
+  //
+  // Prefer the form's frozen fieldSnapshot when present (v3 Slice 6) —
+  // editing the live field after publishing the form must not mutate
+  // what the form renders. Fall back to live fields when the snapshot
+  // is empty (default form, or pre-Slice-6 forms).
+  const userInputIds = new Set(
+    form.config.fields
+      .filter((e) => e.kind === "user_input")
+      .map((e) => e.fieldId),
+  );
+  const sourceFields = form.fieldSnapshot.length > 0
+    ? form.fieldSnapshot
+    : await gridsService.field.listByTable(form.tableId);
+  const fields = sourceFields.filter((f) => userInputIds.has(f.id));
 
   c.get("page").title = form.config.title ?? form.name;
   c.get("page").description = form.config.description ?? undefined;
 
+  // Sanitize the form object before hydration: strip form_value entries
+  // (their `value` is server-only), drop fieldSnapshot / ownerUserId /
+  // publicToken / timestamps. Mirrors the public DTO returned from
+  // /api/grids/forms/public/:token. Without this, the hydration payload
+  // leaks server-managed values into anonymous HTML.
+  const safeForm = {
+    ...form,
+    config: {
+      ...form.config,
+      fields: form.config.fields.filter((e) => e.kind === "user_input"),
+    },
+    fieldSnapshot: [],
+    ownerUserId: null,
+    publicToken: null,
+  };
+
   return () => (
     <PublicShell legalLinks={legalLinks}>
-      <PublicFormSubmit publicToken={token} form={form} fields={fields} />
+      <PublicFormSubmit publicToken={token} form={safeForm} fields={fields} />
     </PublicShell>
   );
 });

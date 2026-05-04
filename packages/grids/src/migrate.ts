@@ -16,6 +16,43 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids schema");
 
   // ──────────────────────────────────────────────────────────────────
+  // Safe-cast helpers (Slice 7 bug fix)
+  // ──────────────────────────────────────────────────────────────────
+  // Pre-v3 the filter and sort compilers cast JSONB text values directly
+  // (e.g. `(data->>fid)::numeric`). A single corrupt record (typo,
+  // schema-drift, manual SQL fixup) crashed the entire query — every
+  // user of that table got 500s until somebody fixed the offending row.
+  //
+  // These wrappers return NULL on parse failure instead of raising.
+  // The compilers route every cast through them, so bad data simply
+  // doesn't match the filter / sorts to NULL instead of breaking the page.
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.try_numeric(t text) RETURNS numeric
+    LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+    BEGIN RETURN t::numeric; EXCEPTION WHEN others THEN RETURN NULL; END $$
+  `.simple();
+  // Date / timestamptz parsing depends on session DateStyle and TimeZone,
+  // so technically these are STABLE not IMMUTABLE — using IMMUTABLE could
+  // poison constant-folded prepared plans across sessions. STABLE is the
+  // honest annotation; cost is the same for per-row scans.
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.try_date(t text) RETURNS date
+    LANGUAGE plpgsql STABLE STRICT AS $$
+    BEGIN RETURN t::date; EXCEPTION WHEN others THEN RETURN NULL; END $$
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.try_timestamptz(t text) RETURNS timestamptz
+    LANGUAGE plpgsql STABLE STRICT AS $$
+    BEGIN RETURN t::timestamptz; EXCEPTION WHEN others THEN RETURN NULL; END $$
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.try_boolean(t text) RETURNS boolean
+    LANGUAGE plpgsql IMMUTABLE STRICT AS $$
+    BEGIN RETURN t::boolean; EXCEPTION WHEN others THEN RETURN NULL; END $$
+  `.simple();
+  console.log("  ✓ grids.try_* safe-cast helpers");
+
+  // ──────────────────────────────────────────────────────────────────
   // bases
   // ──────────────────────────────────────────────────────────────────
   await sql`
@@ -24,10 +61,13 @@ export const migrate = async (): Promise<void> => {
       name TEXT NOT NULL,
       description TEXT,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  // v3: soft-delete consistency. Idempotent for pre-existing DBs.
+  await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
   console.log("  ✓ grids.bases");
 
   await sql`
@@ -51,11 +91,17 @@ export const migrate = async (): Promise<void> => {
       description TEXT,
       primary_field_id UUID,
       position INT NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base ON grids.tables(base_id, position)`.simple();
+  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
+  // Hot-path index: list live tables of a base in order.
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
+  // Drop the old non-partial index if it exists (keeps the index name
+  // stable across migrations rather than letting both versions coexist).
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_tables_base`.simple();
   console.log("  ✓ grids.tables");
 
   await sql`
@@ -127,22 +173,81 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids.records");
 
   // ──────────────────────────────────────────────────────────────────
+  // record_links — junction table for relation fields
+  // ──────────────────────────────────────────────────────────────────
+  // v3 replaces the previous "JSONB-array of UUIDs in data->>fieldId"
+  // storage with a real junction table. Wins:
+  //  - real foreign keys + ON DELETE CASCADE (no zombie links to deleted records)
+  //  - reverse-lookup (`which records link to X?`) is an index scan, not a JSONB seq scan
+  //  - lookup/rollup become real SQL JOINs instead of read-time enrichment (Slice 4)
+  //  - group-by on relations works via standard GROUP BY (Slice 8)
+  //
+  // `position` preserves user-ordered cardinality:multiple — the order
+  // matters in the UI ("first link is the primary one") and we want it
+  // to round-trip through writes.
+  //
+  // No backwards-compat with the old JSONB storage: existing relation
+  // values in `records.data` are ignored on read once Slice 3 lands.
+  // Clear them out manually on the local DB if you need a clean slate.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_links (
+      from_record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
+      from_field_id  UUID NOT NULL REFERENCES grids.fields(id)  ON DELETE CASCADE,
+      to_record_id   UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
+      position       INT NOT NULL DEFAULT 0,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (from_record_id, from_field_id, to_record_id)
+    )
+  `.simple();
+  // Forward read: "all targets of (record, field)" — used on every record fetch.
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_forward ON grids.record_links(from_field_id, from_record_id, position)`.simple();
+  // Reverse read: "all records linking to X via field F" — used by
+  // back-references and future "incoming relations" UI.
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_reverse ON grids.record_links(to_record_id, from_field_id)`.simple();
+  console.log("  ✓ grids.record_links");
+
+  // ──────────────────────────────────────────────────────────────────
   // views
   // ──────────────────────────────────────────────────────────────────
   // owner_user_id NULL = shared (visible to anyone with table-read).
+  // `query` carries the canonical ViewQuery JSON (filter/sort/columns/
+  // groupBy/aggregations/limit). v3 renamed from `config` → `query` to
+  // match the canonical concept name in contracts.ts.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.views (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
-      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      query JSONB NOT NULL DEFAULT '{}'::jsonb,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
       position INT NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table ON grids.views(table_id, position)`.simple();
+  await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
+  // v3 rename: `config` → `query`. Idempotent — runs once on existing
+  // databases that still have the old column name. Drops the legacy
+  // column after copy because no code reads `config` anymore.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'grids' AND table_name = 'views'
+          AND column_name = 'config'
+      ) AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'grids' AND table_name = 'views'
+          AND column_name = 'query'
+      ) THEN
+        ALTER TABLE grids.views RENAME COLUMN config TO query;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table_live ON grids.views(table_id, position) WHERE deleted_at IS NULL`.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_views_table`.simple();
   console.log("  ✓ grids.views");
 
   await sql`
@@ -168,18 +273,27 @@ export const migrate = async (): Promise<void> => {
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      field_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
       public_token TEXT,
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       position INT NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_forms_table ON grids.forms(table_id, position)`.simple();
+  await sql`ALTER TABLE grids.forms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
+  // v3 Slice 6: frozen Field[] copy taken at form-create — submit
+  // validates against this rather than live `grids.fields`, so editing
+  // a field after publishing a form doesn't silently mutate behavior.
+  await sql`ALTER TABLE grids.forms ADD COLUMN IF NOT EXISTS field_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_forms_table_live ON grids.forms(table_id, position) WHERE deleted_at IS NULL`.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_forms_table`.simple();
   // Public-token lookup is the public form's hot path; partial index keeps
-  // it scoped to forms that are actually public.
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_public_token ON grids.forms(public_token) WHERE public_token IS NOT NULL`.simple();
+  // it scoped to forms that are actually public AND alive.
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_forms_public_token`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_public_token ON grids.forms(public_token) WHERE public_token IS NOT NULL AND deleted_at IS NULL`.simple();
   console.log("  ✓ grids.forms");
 
   // ──────────────────────────────────────────────────────────────────
@@ -204,4 +318,18 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_record ON grids.audit_log(record_id, created_at DESC) WHERE record_id IS NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_table ON grids.audit_log(table_id, created_at DESC) WHERE table_id IS NOT NULL`.simple();
   console.log("  ✓ grids.audit_log");
+
+  // ──────────────────────────────────────────────────────────────────
+  // deprecated-type cleanup
+  // ──────────────────────────────────────────────────────────────────
+  // 4 field types had no honest input UX — collapse them onto their
+  // closest surviving cousin so existing rows continue to render. The
+  // stored cell values stay as-is in `data` (text payload survives in a
+  // text column; signature data: URLs survive in longtext; locations
+  // become opaque json). UPDATE only flips the type label.
+  await sql`UPDATE grids.fields SET type = 'text', config = '{}'::jsonb WHERE type = 'color'`.simple();
+  await sql`UPDATE grids.fields SET type = 'longtext', config = '{}'::jsonb WHERE type = 'rich-text'`.simple();
+  await sql`UPDATE grids.fields SET type = 'longtext', config = '{}'::jsonb WHERE type = 'signature'`.simple();
+  await sql`UPDATE grids.fields SET type = 'json', config = '{}'::jsonb WHERE type = 'location'`.simple();
+  console.log("  ✓ deprecated field types collapsed");
 };

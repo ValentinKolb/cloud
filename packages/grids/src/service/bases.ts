@@ -11,24 +11,49 @@ const mapRow = (row: DbRow): Base => ({
   name: row.name as string,
   description: (row.description as string | null) ?? null,
   createdBy: (row.created_by as string | null) ?? null,
+  deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-export const list = async (): Promise<Base[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT id, name, description, created_by, created_at, updated_at
-    FROM grids.bases
-    ORDER BY created_at DESC
-  `;
+/**
+ * Lists active (non-soft-deleted) bases. Pass `includeDeleted: true`
+ * to include trashed entries — used by the trash/restore UI.
+ */
+export const list = async (opts: { includeDeleted?: boolean } = {}): Promise<Base[]> => {
+  const rows = opts.includeDeleted
+    ? await sql<DbRow[]>`
+        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        FROM grids.bases
+        ORDER BY created_at DESC
+      `
+    : await sql<DbRow[]>`
+        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        FROM grids.bases
+        WHERE deleted_at IS NULL
+        ORDER BY created_at DESC
+      `;
   return rows.map(mapRow);
 };
 
-export const get = async (id: string): Promise<Base | null> => {
-  const [row] = await sql<DbRow[]>`
-    SELECT id, name, description, created_by, created_at, updated_at
-    FROM grids.bases WHERE id = ${id}::uuid
-  `;
+/**
+ * Returns the base or null. Soft-deleted bases return null by default —
+ * callers that need to render the trash listing or perform restore must
+ * pass `includeDeleted: true`.
+ */
+export const get = async (
+  id: string,
+  opts: { includeDeleted?: boolean } = {},
+): Promise<Base | null> => {
+  const [row] = opts.includeDeleted
+    ? await sql<DbRow[]>`
+        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        FROM grids.bases WHERE id = ${id}::uuid
+      `
+    : await sql<DbRow[]>`
+        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        FROM grids.bases WHERE id = ${id}::uuid AND deleted_at IS NULL
+      `;
   return row ? mapRow(row) : null;
 };
 
@@ -39,7 +64,7 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
   const [row] = await sql<DbRow[]>`
     INSERT INTO grids.bases (name, description, created_by)
     VALUES (${name}, ${input.description ?? null}, ${actorId}::uuid)
-    RETURNING id, name, description, created_by, created_at, updated_at
+    RETURNING id, name, description, created_by, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("insert failed"));
   const base = mapRow(row);
@@ -76,8 +101,8 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   const [row] = await sql<DbRow[]>`
     UPDATE grids.bases
     SET name = ${next.name}, description = ${next.description}, updated_at = now()
-    WHERE id = ${id}::uuid
-    RETURNING id, name, description, created_by, created_at, updated_at
+    WHERE id = ${id}::uuid AND deleted_at IS NULL
+    RETURNING id, name, description, created_by, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const base = mapRow(row);
@@ -94,11 +119,39 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   return ok(base);
 };
 
+/**
+ * Soft-deletes the base. The row stays in the DB with `deleted_at` set,
+ * which makes it invisible to all default queries (list/get) while
+ * keeping its tables/fields/records/views/forms recoverable. Hard
+ * deletion happens via the maintenance purge job after the grace period
+ * (cf. `maintenance.purgeSoftDeleted`).
+ */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
-  const result = await sql`DELETE FROM grids.bases WHERE id = ${id}::uuid`;
+  const result = await sql`
+    UPDATE grids.bases SET deleted_at = now()
+    WHERE id = ${id}::uuid AND deleted_at IS NULL
+  `;
   if (result.count === 0) return fail(err.notFound("base"));
   await logAudit({ baseId: id, userId: actorId, action: "deleted" });
   return ok();
+};
+
+/**
+ * Restores a soft-deleted base. Children (tables/fields/records/views/forms)
+ * that were independently deleted stay deleted — restore is non-cascading
+ * by design, matching the user's mental model of "I deleted the base by
+ * accident; the table I trashed last week is unrelated".
+ */
+export const restore = async (id: string, actorId: string | null): Promise<Result<Base>> => {
+  const [row] = await sql<DbRow[]>`
+    UPDATE grids.bases SET deleted_at = NULL, updated_at = now()
+    WHERE id = ${id}::uuid AND deleted_at IS NOT NULL
+    RETURNING id, name, description, created_by, deleted_at, created_at, updated_at
+  `;
+  if (!row) return fail(err.notFound("base"));
+  const base = mapRow(row);
+  await logAudit({ baseId: id, userId: actorId, action: "restored" });
+  return ok(base);
 };
 
 // ──────────────────────────────────────────────────────────────────

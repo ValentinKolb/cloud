@@ -3,6 +3,8 @@ export type Base = {
   name: string;
   description: string | null;
   createdBy: string | null;
+  /** Soft-delete tombstone. null = alive, ISO timestamp = trashed. */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -14,6 +16,8 @@ export type Table = {
   description: string | null;
   primaryFieldId: string | null;
   position: number;
+  /** Soft-delete tombstone. */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -36,7 +40,7 @@ export type Field = {
   presentable: boolean;
   /** When true, the field is hidden from the default records grid by
    *  default; still rendered in the record detail panel. Views can
-   *  override via `view.config.columns`. */
+   *  override via `view.query.columns`. */
   hideInTable: boolean;
   defaultValue: unknown;
   indexed: boolean;

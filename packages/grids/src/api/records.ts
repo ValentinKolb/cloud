@@ -10,6 +10,8 @@ import {
   RecordListResponseSchema,
   AggregateBodySchema,
   AggregateResponseSchema,
+  GroupBodySchema,
+  GroupResponseSchema,
 } from "../contracts";
 import { gateAt } from "./permissions";
 
@@ -225,6 +227,39 @@ const app = new Hono<AuthContext>()
       });
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.json({ results: result.data });
+    },
+  )
+
+  .post(
+    "/group/:tableId",
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary:
+        "Group records by 1–3 keys and emit per-bucket aggregations (classic SQL GROUP BY)",
+      responses: {
+        200: jsonResponse(GroupResponseSchema, "Grouped buckets with cursor"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+      },
+    }),
+    v("json", GroupBodySchema),
+    async (c) => {
+      const tableId = c.req.param("tableId");
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const body = c.req.valid("json");
+      const result = await gridsService.record.group({
+        tableId,
+        filter: body.filter ?? null,
+        groupBy: body.groupBy,
+        aggregations: body.aggregations ?? [],
+        cursor: body.cursor ?? null,
+        limit: body.limit,
+        includeDeleted: body.includeDeleted,
+      });
+      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+      return c.json(result.data); // { buckets, nextCursor, explode }
     },
   )
 

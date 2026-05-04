@@ -21,8 +21,15 @@ const inputClass =
  */
 export default function PublicFormSubmit(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
+  // v3 Slice 6: filter to user_input entries only. form_value entries
+  // are server-applied — they don't render in the UI and the user can't
+  // override their value (the API rejects payload keys for them).
+  const userInputEntries = () =>
+    props.form.config.fields.filter(
+      (e): e is Extract<FormFieldEntry, { kind: "user_input" }> => e.kind === "user_input",
+    );
   const initialValues: Record<string, unknown> = {};
-  for (const entry of props.form.config.fields) {
+  for (const entry of userInputEntries()) {
     if (entry.defaultValue !== undefined && entry.defaultValue !== null) {
       initialValues[entry.fieldId] = entry.defaultValue;
     }
@@ -86,7 +93,7 @@ export default function PublicFormSubmit(props: Props) {
         }
       >
         <form class="flex flex-col gap-3" onSubmit={handleSubmit}>
-          <For each={props.form.config.fields}>
+          <For each={userInputEntries()}>
             {(entry) => {
               const field = fieldsById.get(entry.fieldId);
               if (!field || field.deletedAt) return null;
@@ -125,7 +132,8 @@ export default function PublicFormSubmit(props: Props) {
 
 function FieldInput(props: {
   field: Field;
-  entry: FormFieldEntry;
+  /** Always a user_input entry — form_value entries don't render. */
+  entry: Extract<FormFieldEntry, { kind: "user_input" }>;
   value: unknown;
   onChange: (v: unknown) => void;
 }) {

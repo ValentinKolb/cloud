@@ -7,6 +7,7 @@ import * as access from "./access";
 import * as views from "./views";
 import * as forms from "./forms";
 import * as exporter from "./export";
+import * as maintenance from "./maintenance";
 import * as relationsModule from "./relations";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast } from "./permission-resolver";
@@ -18,6 +19,7 @@ export const gridsService = {
     create: bases.create,
     update: bases.update,
     remove: bases.remove,
+    restore: bases.restore,
     admin: {
       list: bases.adminList,
       summary: bases.adminSummary,
@@ -29,6 +31,7 @@ export const gridsService = {
     create: tables.create,
     update: tables.update,
     remove: tables.remove,
+    restore: tables.restore,
   },
   field: {
     listByTable: fields.listByTable,
@@ -46,6 +49,7 @@ export const gridsService = {
     softDelete: records.softDelete,
     restore: records.restore,
     aggregate: records.aggregate,
+    group: records.group,
   },
   audit: {
     log: audit.logAudit,
@@ -75,6 +79,7 @@ export const gridsService = {
     create: views.create,
     update: views.update,
     remove: views.remove,
+    restore: views.restore,
   },
   form: {
     listForTable: forms.listForTable,
@@ -83,18 +88,24 @@ export const gridsService = {
     create: forms.create,
     update: forms.update,
     remove: forms.remove,
+    restore: forms.restore,
+    reSnapshot: forms.reSnapshot,
     buildDefault: forms.buildDefaultForm,
   },
   exporter: {
     exportRecords: exporter.exportRecords,
   },
+  maintenance: {
+    purgeSoftDeleted: maintenance.purgeSoftDeleted,
+  },
   relations: {
     buildLabelCache: relationsModule.buildRelationLabelCache,
+    lookup: relationsModule.lookupRecords,
   },
 };
 
-export { bases, tables, fields, records, audit, access, views, forms, exporter };
-export type { View, ViewConfig } from "./views";
+export { bases, tables, fields, records, audit, access, views, forms, exporter, maintenance };
+export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
 export type { FieldDependent } from "./field-dependents";

@@ -114,7 +114,7 @@ const app = new Hono<AuthContext>()
     "/:baseId",
     describeRoute({
       tags: ["Grids:Base"],
-      summary: "Delete a base",
+      summary: "Delete a base (soft-delete; restorable for 30 days)",
       responses: {
         204: { description: "Deleted" },
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
@@ -128,6 +128,25 @@ const app = new Hono<AuthContext>()
       const result = await gridsService.base.remove(baseId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
+    },
+  )
+
+  .post(
+    "/:baseId/restore",
+    describeRoute({
+      tags: ["Grids:Base"],
+      summary: "Restore a soft-deleted base",
+      responses: {
+        200: jsonResponse(BaseSchema, "Restored"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const baseId = c.req.param("baseId");
+      const gate = await gateAt(c, { baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(c, () => gridsService.base.restore(baseId, user.id));
     },
   );
 

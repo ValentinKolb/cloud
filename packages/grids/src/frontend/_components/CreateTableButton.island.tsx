@@ -34,11 +34,16 @@ export default function CreateTableButton(props: { baseId: string }) {
   return (
     <button
       type="button"
-      class="btn-simple btn-sm w-full text-left text-sm text-secondary hover:text-primary px-2 py-1.5"
+      // Match the rest of the sidebar — `sidebar-item` sets the right
+      // text-xs / text-dimmed / hover-bg defaults so this row sits
+      // visually alongside Tables. Same pattern as contacts'
+      // CreateBookButton.
+      class="sidebar-item w-full"
       onClick={handleClick}
       disabled={createMutation.loading()}
     >
-      <i class="ti ti-plus text-xs" /> New table
+      {createMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
+      New table
     </button>
   );
 }

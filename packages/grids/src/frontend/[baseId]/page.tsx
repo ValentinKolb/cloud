@@ -3,11 +3,8 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
-import RecordsGrid from "../_components/RecordsGrid.island";
-import RecordDetailPanel from "../_components/RecordDetailPanel.island";
-import RecordDetailLayoutSync from "../_components/RecordDetailLayoutSync.island";
-import GridToolbar from "../_components/GridToolbar.island";
-import SearchBar from "../_components/SearchBar.island";
+import RecordsView from "../_components/records-view/RecordsView.island";
+import type { GroupBucket } from "../_components/GroupedTable";
 import CreateTableButton from "../_components/CreateTableButton.island";
 import type { FilterTree, SortSpec, Field } from "../../service";
 
@@ -29,8 +26,6 @@ const SEARCHABLE_TYPES = new Set([
   "slug",
   "barcode",
   "isbn",
-  "color",
-  "rich-text",
 ]);
 
 const filterSearchableFields = (fields: Field[]): Field[] =>
@@ -152,6 +147,46 @@ export default ssr<AuthContext>(async (c) => {
     } catch {}
   }
 
+  // Group-by + aggregations URL params (Slice 8 inline UI). Same
+  // tolerant-parse strategy as filter / sort: bad JSON → empty so a
+  // stale URL doesn't 500 the page.
+  type GroupByRaw = {
+    fieldId: string;
+    direction?: "asc" | "desc";
+    granularity?: "day" | "week" | "month" | "quarter" | "year";
+  };
+  type AggregationRaw = {
+    fieldId: string | "*";
+    agg: "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
+    label?: string;
+  };
+  let parsedGroupBy: GroupByRaw[] = [];
+  const rawGroupBy = c.req.query("groupBy");
+  if (rawGroupBy) {
+    try {
+      const parsed = JSON.parse(rawGroupBy);
+      if (Array.isArray(parsed)) {
+        parsedGroupBy = parsed.filter(
+          (g: unknown): g is GroupByRaw =>
+            typeof g === "object" && g !== null && typeof (g as { fieldId?: unknown }).fieldId === "string",
+        );
+      }
+    } catch {}
+  }
+  let parsedAggregations: AggregationRaw[] = [];
+  const rawAggregations = c.req.query("aggregations");
+  if (rawAggregations) {
+    try {
+      const parsed = JSON.parse(rawAggregations);
+      if (Array.isArray(parsed)) {
+        parsedAggregations = parsed.filter(
+          (a: unknown): a is AggregationRaw =>
+            typeof a === "object" && a !== null && "fieldId" in a && "agg" in a,
+        );
+      }
+    } catch {}
+  }
+
   // Free-text search params. `q` is the text; `qFields` (CSV) optionally
   // narrows the search to a subset of text-shaped fields. Empty `qFields`
   // means "search all searchable text fields".
@@ -219,6 +254,19 @@ export default ssr<AuthContext>(async (c) => {
   let formsForTable: Awaited<
     ReturnType<typeof gridsService.form.listForTable>
   > = [];
+  // v3.1: sidebar shows views + forms across the WHOLE base, not just
+  // the active table — clicking a different-table view jumps to that
+  // table AND applies the view in one click.
+  type ViewLike = Awaited<ReturnType<typeof gridsService.view.listForTable>>[number];
+  type FormLike = Awaited<ReturnType<typeof gridsService.form.listForTable>>[number];
+  const viewsByTable: Record<string, ViewLike[]> = {};
+  const formsByTable: Record<string, FormLike[]> = {};
+  // Effective groupBy / aggregations get computed inside the
+  // `if (activeTable)` block — declared here so the footer-aggregate
+  // block (also inside that if) can read them, and the renderer below
+  // can read them after the block closes.
+  let effectiveGroupBy: GroupByRaw[] = [];
+  let effectiveAggregations: AggregationRaw[] = [];
   let activeTableLevel = level;
   let selectedRecord: import("../../service").GridRecord | null = null;
   let relationLabels: Record<string, string> = {};
@@ -248,8 +296,26 @@ export default ssr<AuthContext>(async (c) => {
     const activeViewForLimit = activeViewId
       ? viewsForTable.find((v) => v.id === activeViewId) ?? null
       : null;
-    const viewLimit = activeViewForLimit?.config.limit;
+    const viewLimit = activeViewForLimit?.query.limit;
     const effectiveLimit = viewLimit !== undefined ? Math.min(100, viewLimit) : 100;
+
+    // Effective groupBy / aggregations: URL wins over view (URL is the
+    // canonical "current state" — view-click serializes view.query into
+    // the URL; explicit URL changes by the user are tracked there).
+    // Computed HERE rather than at the bottom because the footer-aggregate
+    // block below references them — TDZ would crash the page otherwise.
+    effectiveGroupBy = parsedGroupBy.length > 0
+      ? parsedGroupBy
+      : (activeViewForLimit?.query.groupBy ?? []);
+    // The view's stored aggregations may include median/earliest/latest
+    // (wider contract type) — the SSR-side AggregationRaw narrows to the
+    // 7 kinds the UI / group compiler actually support, so we filter.
+    effectiveAggregations = parsedAggregations.length > 0
+      ? parsedAggregations
+      : (activeViewForLimit?.query.aggregations ?? []).filter(
+          (a): a is AggregationRaw =>
+            a.agg !== "median" && a.agg !== "earliest" && a.agg !== "latest",
+        );
 
     const [listResult, lvl] = await Promise.all([
       gridsService.record.list({
@@ -298,36 +364,25 @@ export default ssr<AuthContext>(async (c) => {
         (await gridsService.record.get(activeTable.id, selectedRecordId));
     }
 
-    // Auto-aggregates for the visible columns: count for every field plus
-    // sum for numeric/decimal/rating. Power users can pick per-column
-    // aggregates in a later phase; this gives a useful default footer row
-    // without any UI to configure.
-    if (!trashMode && fields.length > 0) {
-      const requests = fields
-        .filter((field) => !field.deletedAt)
-        .flatMap((field) => {
-          const reqs: Array<{ fieldId: string; agg: "count" | "sum" }> = [
-            { fieldId: field.id, agg: "count" },
-          ];
-          if (
-            field.type === "number" ||
-            field.type === "decimal" ||
-            field.type === "rating"
-          ) {
-            reqs.push({ fieldId: field.id, agg: "sum" });
-          }
-          return reqs;
-        });
-      if (requests.length > 0) {
-        const aggResult = await gridsService.record.aggregate({
-          tableId: activeTable.id,
-          // Aggregates honour the search too — otherwise the footer count
-          // wouldn't match the visible rows once a query is typed.
-          filter: mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields),
-          requests,
-        });
-        if (aggResult.ok) aggregates = aggResult.data;
-      }
+    // Footer aggregates: opt-in. The user's `aggregations` from the
+    // URL / view drive the footer row — empty list = no footer, full
+    // stop. The aggregate-compiler now handles "*" (COUNT(*)), so we
+    // pass requests through unchanged. Skipped entirely when groupBy
+    // is active (GroupedTable renders its own per-bucket aggregates).
+    if (
+      !trashMode &&
+      fields.length > 0 &&
+      effectiveGroupBy.length === 0 &&
+      effectiveAggregations.length > 0
+    ) {
+      const aggResult = await gridsService.record.aggregate({
+        tableId: activeTable.id,
+        // Aggregates honour the search too — otherwise the footer count
+        // wouldn't match the visible rows once a query is typed.
+        filter: mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields),
+        requests: effectiveAggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
+      });
+      if (aggResult.ok) aggregates = aggResult.data;
     }
   }
 
@@ -338,6 +393,25 @@ export default ssr<AuthContext>(async (c) => {
       fieldsByTable[t.id] = await gridsService.field.listByTable(t.id);
     }
   }
+
+  // Sidebar: fetch ALL views and forms across every table in this base
+  // so the user sees the whole catalog regardless of which table they're
+  // currently looking at. Per-base small-N — at typical sizes this is
+  // a few extra queries totalling < 50ms.
+  await Promise.all(
+    tables.map(async (t) => {
+      const [vs, fs] = await Promise.all([
+        gridsService.view.listForTable({
+          tableId: t.id,
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+        }),
+        gridsService.form.listForTable(t.id),
+      ]);
+      viewsByTable[t.id] = vs;
+      formsByTable[t.id] = fs;
+    }),
+  );
 
   const canManageTable = gridsService.permission.hasAtLeast(
     activeTableLevel,
@@ -359,12 +433,27 @@ export default ssr<AuthContext>(async (c) => {
   const activeView = activeViewId
     ? viewsForTable.find((v) => v.id === activeViewId) ?? null
     : null;
-  const activeViewColumns = activeView?.config.columns;
+  const activeViewColumns = activeView?.query.columns;
 
-  // Public forms surface in the sidebar regardless of who's looking —
-  // anyone can click through to the submit page. Private forms stay in
-  // the table-edit page (they're a power-user surface).
-  const publicForms = formsForTable.filter((f) => f.publicToken && f.isActive);
+  // Slice 8: when groupBy is non-empty (from URL or active view), the
+  // records area renders one row per bucket via GroupedTable. The
+  // effective values were computed inside the `if (activeTable)` block
+  // above so the footer-aggregate block could see them (TDZ guard).
+  let groupedBuckets: GroupBucket[] = [];
+  let groupedExplode = false;
+  if (activeTable && effectiveGroupBy.length > 0 && !trashMode) {
+    const groupResult = await gridsService.record.group({
+      tableId: activeTable.id,
+      groupBy: effectiveGroupBy,
+      aggregations: effectiveAggregations,
+      filter: parsedFilter,
+      limit: 1000,
+    });
+    if (groupResult.ok) {
+      groupedBuckets = groupResult.data.buckets as GroupBucket[];
+      groupedExplode = groupResult.data.explode;
+    }
+  }
 
   return () => (
     <Layout
@@ -374,9 +463,17 @@ export default ssr<AuthContext>(async (c) => {
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
         { title: base.name, href: `/app/grids/${baseId}` },
-        // Mirror the notebooks pattern — the active table closes the
-        // breadcrumb so users see exactly where they are.
-        ...(activeTable ? [{ title: activeTable.name }] : []),
+        // Active table is the second-to-last crumb when a view is open;
+        // becomes the leaf when no view. The view name (when set) takes
+        // the leaf so the user sees exactly which preset they're on.
+        ...(activeTable
+          ? activeView
+            ? [
+                { title: activeTable.name, href: `/app/grids/${baseId}?table=${activeTable.id}` },
+                { title: activeView.name },
+              ]
+            : [{ title: activeTable.name }]
+          : []),
       ]}
     >
       <div class="app-cols flex-1 min-h-0">
@@ -483,8 +580,14 @@ export default ssr<AuthContext>(async (c) => {
                           class="flex min-w-0 flex-1 items-center gap-2"
                           aria-current={isActive ? "page" : undefined}
                         >
-                          <i class="ti ti-table text-sm" />
-                          <span class="truncate">{t.name}</span>
+                          <i class="ti ti-table text-sm shrink-0" />
+                          {/* `min-w-0` on the truncating span is the
+                              load-bearing bit — without it, the flex
+                              child defaults to min-width: auto (its
+                              content's intrinsic size) and the row
+                              refuses to shrink, forcing the sidebar
+                              into horizontal scroll. */}
+                          <span class="truncate min-w-0">{t.name}</span>
                         </a>
                         {canManageTable && isActive && (
                           <a
@@ -503,93 +606,115 @@ export default ssr<AuthContext>(async (c) => {
                 {canCreateTables && <CreateTableButton baseId={baseId} />}
               </section>
 
-              {/* Views (only for the active table). "All records" is the
-                  no-view-selected state. We rely strictly on `activeViewId`
-                  here (not the filter/sort flags) — having a filter
-                  applied without picking a saved view is still the "All
-                  records" context, just narrowed. */}
-              {activeTable && (
-                <section class="sidebar-group">
-                  <p class="sidebar-section-title">Views</p>
-                  <a
-                    href={`/app/grids/${baseId}?table=${activeTable.id}`}
-                    class={`sidebar-item text-xs ${
-                      activeViewId === null ? "sidebar-item-active" : ""
-                    }`}
-                  >
-                    <i class="ti ti-list text-sm" />
-                    <span>All records</span>
-                  </a>
-                  {viewsForTable.map((view) => {
-                    const url = (() => {
-                      const u = new URL(`/app/grids/${baseId}`, "http://x");
-                      u.searchParams.set("table", activeTable.id);
-                      u.searchParams.set("view", view.id);
-                      const cfg = view.config as {
-                        filter?: unknown;
-                        sort?: unknown;
-                      };
-                      if (cfg.filter)
-                        u.searchParams.set(
-                          "filter",
-                          JSON.stringify(cfg.filter)
-                        );
-                      if (cfg.sort)
-                        u.searchParams.set("sort", JSON.stringify(cfg.sort));
-                      return `${u.pathname}${u.search}`;
-                    })();
-                    const canEdit =
-                      view.ownerUserId === user.id ||
-                      (view.ownerUserId === null && canWriteRecords);
-                    return (
-                      <div class="group relative flex items-center">
-                        <a
-                          href={url}
-                          class={`sidebar-item flex-1 text-xs ${
-                            activeViewId === view.id ? "sidebar-item-active" : ""
-                          }`}
+              {/* Views — flat alphabetical list across the whole base.
+                  Each row carries a dim "· table" suffix so the user
+                  still knows which table it belongs to without the
+                  per-table subheader noise. v3.1: a view-click jumps to
+                  the view's table AND applies the view in one go. */}
+              {(() => {
+                type ViewRow = { view: typeof tables[number] extends never ? never : NonNullable<(typeof viewsByTable)[string]>[number]; table: typeof tables[number] };
+                const allViews: ViewRow[] = [];
+                for (const t of tables) {
+                  for (const view of viewsByTable[t.id] ?? []) {
+                    allViews.push({ view, table: t });
+                  }
+                }
+                if (allViews.length === 0) return null;
+                allViews.sort((a, b) =>
+                  a.view.name.localeCompare(b.view.name, undefined, { sensitivity: "base" }),
+                );
+                return (
+                  <section class="sidebar-group">
+                    <p class="sidebar-section-title">Views</p>
+                    {allViews.map(({ view, table: t }) => {
+                      const url = (() => {
+                        const u = new URL(`/app/grids/${baseId}`, "http://x");
+                        u.searchParams.set("table", t.id);
+                        u.searchParams.set("view", view.id);
+                        if (view.query.filter)
+                          u.searchParams.set("filter", JSON.stringify(view.query.filter));
+                        if (view.query.sort)
+                          u.searchParams.set("sort", JSON.stringify(view.query.sort));
+                        if (view.query.groupBy && view.query.groupBy.length > 0)
+                          u.searchParams.set("groupBy", JSON.stringify(view.query.groupBy));
+                        if (view.query.aggregations && view.query.aggregations.length > 0)
+                          u.searchParams.set("aggregations", JSON.stringify(view.query.aggregations));
+                        return `${u.pathname}${u.search}`;
+                      })();
+                      const canEdit =
+                        view.ownerUserId === user.id ||
+                        (view.ownerUserId === null && canWriteRecords);
+                      const isActive =
+                        activeTable?.id === t.id && activeViewId === view.id;
+                      // Match the table-row pattern: outer div carries
+                      // the sidebar-item visual, link fills it (with
+                      // min-w-0 so truncate works), settings icon is an
+                      // inline sibling. Previously the icon sat outside
+                      // the box.
+                      return (
+                        <div
+                          class={`sidebar-item group ${isActive ? "sidebar-item-active" : ""}`}
                         >
-                          <i class="ti ti-table-spark text-sm" />
-                          <span class="truncate">{view.name}</span>
-                        </a>
-                        {canEdit && (
                           <a
-                            href={`/app/grids/${baseId}/tables/${activeTable.id}/views/${view.id}/edit`}
-                            class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                            aria-label={`Edit view ${view.name}`}
-                            title="Edit view"
+                            href={url}
+                            class="flex min-w-0 flex-1 items-center gap-2"
+                            aria-current={isActive ? "page" : undefined}
                           >
-                            <i class="ti ti-settings text-xs" />
+                            <i class="ti ti-table-spark text-sm shrink-0" />
+                            <span class="truncate min-w-0">{view.name}</span>
                           </a>
-                        )}
-                      </div>
-                    );
-                  })}
-                </section>
-              )}
+                          {canEdit && (
+                            <a
+                              href={`/app/grids/${baseId}/tables/${t.id}/views/${view.id}/edit`}
+                              class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                              aria-label={`Edit view ${view.name}`}
+                              title="View settings"
+                            >
+                              <i class="ti ti-settings text-xs" />
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </section>
+                );
+              })()}
 
-              {/* Forms — only public forms are linkable here (private forms
-                  live in the table editor). Anyone reading the sidebar can
-                  click through to submit a public form without leaving the
-                  context of the table. */}
-              {activeTable && publicForms.length > 0 && (
-                <section class="sidebar-group">
-                  <p class="sidebar-section-title">Forms</p>
-                  {publicForms.map((form) => (
-                    <a
-                      href={`/share/grids/forms/${form.publicToken}`}
-                      class="sidebar-item text-xs"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`Open public submit form for ${form.name}`}
-                    >
-                      <i class="ti ti-forms text-sm" />
-                      <span class="truncate">{form.name}</span>
-                      <i class="ti ti-external-link text-[10px] text-dimmed ml-auto" />
-                    </a>
-                  ))}
-                </section>
-              )}
+              {/* Forms — flat alphabetical, public-only. Each row carries
+                  the same dim "· table" suffix as views for context. */}
+              {(() => {
+                type FormRow = { form: NonNullable<(typeof formsByTable)[string]>[number]; table: typeof tables[number] };
+                const allForms: FormRow[] = [];
+                for (const t of tables) {
+                  for (const form of formsByTable[t.id] ?? []) {
+                    if (form.publicToken && form.isActive) {
+                      allForms.push({ form, table: t });
+                    }
+                  }
+                }
+                if (allForms.length === 0) return null;
+                allForms.sort((a, b) =>
+                  a.form.name.localeCompare(b.form.name, undefined, { sensitivity: "base" }),
+                );
+                return (
+                  <section class="sidebar-group">
+                    <p class="sidebar-section-title">Forms</p>
+                    {allForms.map(({ form }) => (
+                      <a
+                        href={`/share/grids/forms/${form.publicToken}`}
+                        class="sidebar-item"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`Open public submit form for ${form.name}`}
+                      >
+                        <i class="ti ti-forms text-sm shrink-0" />
+                        <span class="truncate min-w-0 flex-1">{form.name}</span>
+                        <i class="ti ti-external-link text-[10px] text-dimmed shrink-0" />
+                      </a>
+                    ))}
+                  </section>
+                );
+              })()}
             </div>
           </div>
         </aside>
@@ -598,67 +723,44 @@ export default ssr<AuthContext>(async (c) => {
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           {activeTable ? (
             <div class="flex flex-col gap-2">
-              {/* Search row (above the toolbar) — debounced free-text search
-                  with an optional column-scope chip on the left. */}
-              {!trashMode && filterSearchableFields(fields).length > 0 && (
-                <SearchBar
-                  baseId={baseId}
-                  tableId={activeTable.id}
-                  fields={filterSearchableFields(fields)}
-                  initialQ={rawQ}
-                  initialQFields={qFieldIds}
-                  rawFilter={rawFilter}
-                  rawSort={rawSort}
-                  trashMode={trashMode}
-                />
-              )}
-              <GridToolbar
+              {/* Records-area lives in a single client-side island
+                  (Phase 2 of the RecordsView refactor). It owns the
+                  query / cursor / selectedRecord state machine; this
+                  JSX just hands it the SSR-parsed initial state and
+                  the first /tables/:id/query response. */}
+              <RecordsView
                 baseId={baseId}
                 tableId={activeTable.id}
                 fields={fields}
-                initialFilter={filterLeaves}
-                initialSort={parsedSort.map((s) => ({
-                  fieldId: s.fieldId,
-                  direction: s.direction,
-                }))}
-                rawFilter={rawFilter}
-                rawSort={rawSort}
+                canWrite={canWriteRecords}
                 trashMode={trashMode}
-                recordCount={records.items.length}
-                canWrite={canWriteRecords}
-              />
-
-              <RecordsGrid
-                baseId={baseId}
-                tableId={activeTable.id}
-                fields={fields}
-                records={records.items}
-                canWrite={canWriteRecords}
-                mode={trashMode ? "trash" : "live"}
-                initialSelectedId={selectedRecordId}
-                viewColumns={activeViewColumns}
+                viewMode={activeViewId !== null}
+                initialState={{
+                  query: {
+                    filter: parsedFilter ?? undefined,
+                    sort: parsedSort,
+                    groupBy: effectiveGroupBy,
+                    aggregations: effectiveAggregations,
+                    includeDeleted: trashMode,
+                  },
+                  cursor: rawCursor,
+                  selectedRecordId,
+                  activeViewId,
+                  search: { q: rawQ, fieldIds: qFieldIds },
+                }}
+                initialData={{
+                  items: records.items,
+                  buckets: groupedBuckets,
+                  aggregates,
+                  nextCursor: records.nextCursor,
+                  explode: groupedExplode,
+                }}
+                initialSelectedRecord={selectedRecord}
                 relationLabels={relationLabels}
-                aggregates={trashMode ? {} : aggregates}
+                viewColumns={activeViewColumns}
+                searchableFields={filterSearchableFields(fields)}
+                groupedExplode={groupedExplode}
               />
-
-              {records.nextCursor && (
-                <div class="flex items-center justify-end gap-2 text-xs">
-                  <a
-                    href={(() => {
-                      const url = new URL(`/app/grids/${baseId}`, "http://x");
-                      url.searchParams.set("table", activeTable.id);
-                      if (rawFilter) url.searchParams.set("filter", rawFilter);
-                      if (rawSort) url.searchParams.set("sort", rawSort);
-                      url.searchParams.set("cursor", records.nextCursor);
-                      if (trashMode) url.searchParams.set("trash", "1");
-                      return `${url.pathname}${url.search}`;
-                    })()}
-                    class="btn-secondary btn-sm"
-                  >
-                    Next page <i class="ti ti-arrow-right" />
-                  </a>
-                </div>
-              )}
             </div>
           ) : (
             <div class="paper p-8 text-center text-sm text-dimmed">
@@ -669,34 +771,9 @@ export default ssr<AuthContext>(async (c) => {
           )}
         </main>
 
-        {/* Detail panel — third column, hidden until a record is selected.
-            SSR sets the initial class based on `?record=<id>`; after that,
-            RecordDetailLayoutSync flips `hidden` ⇄ `flex` on the same
-            selection event the panel itself listens to. Without the
-            sync, history.replaceState navigation would update the URL
-            without making the column appear/disappear, and the main
-            column wouldn't reclaim the freed width on close. Mirrors
-            the spaces SpaceDetailLayoutSync pattern. */}
-        {activeTable && (
-          <div
-            id="grids-detail-panel"
-            class={`${
-              selectedRecordId ? "flex" : "hidden"
-            } order-2 lg:order-3 w-full lg:w-[28rem] shrink-0 flex-col min-h-0 overflow-hidden`}
-          >
-            <RecordDetailPanel
-              baseId={baseId}
-              tableId={activeTable.id}
-              fields={fields}
-              initialRecord={selectedRecord}
-              initialRecordId={selectedRecordId}
-              trashMode={trashMode}
-              canWrite={canWriteRecords}
-              relationLabels={relationLabels}
-            />
-          </div>
-        )}
-        <RecordDetailLayoutSync detailContainerId="grids-detail-panel" />
+        {/* Detail panel column lives inside RecordsView now — it renders
+            conditionally based on the selectedRecordId signal so it
+            appears/disappears in-place without any DOM-class flipping. */}
       </div>
     </Layout>
   );

@@ -1,6 +1,6 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { Field, GridRecord } from "../../service";
 import {
@@ -11,87 +11,44 @@ import {
 import { errorMessage } from "./api-helpers";
 import { formatCell } from "./format-cell";
 import { RecordLink } from "./RecordLink";
-import {
-  RECORD_DETAIL_EVENT,
-  clearSelectedRecordInUrl,
-  getSelectedRecordIdFromUrl,
-  type RecordDetailPayload,
-  type RecordDetailMode,
-} from "./record-detail-context";
+import RelationPicker from "./RelationPicker";
 
 type Props = {
   baseId: string;
   tableId: string;
   fields: Field[];
-  /** Initial record from SSR — may be null if no `?record=<id>` was set. */
-  initialRecord: GridRecord | null;
-  initialRecordId: string | null;
-  /** When true, renders the row actions as "Restore" instead of edit/delete. */
-  trashMode: boolean;
+  /** Currently-displayed record. Controlled by RecordsView — when the
+   *  user clicks a different row in the grid, the parent passes a new
+   *  record here. null = panel renders nothing. */
+  record: () => GridRecord | null;
+  /** "live" = edit/delete; "trash" = restore. Driven by the URL state's
+   *  trash flag, lifted up to the parent. */
+  mode: () => "live" | "trash";
   /** True if the user can edit/delete records on this table. */
   canWrite: boolean;
   /** Pre-resolved labels for linked records (target id → display label).
    *  Built SSR-side; used by relation cells to render presentable
    *  values instead of raw UUIDs. */
   relationLabels?: Record<string, string>;
+  /** Close the panel (delegates URL writeback to RecordsView). */
+  onClose: () => void;
+  /** Emitted after a successful edit. RecordsView refetches the data
+   *  resource so the grid reflects the new value. */
+  onUpdated: (record: GridRecord) => void;
+  /** Emitted after a successful delete or restore. RecordsView closes
+   *  the panel + refetches. */
+  onRemoved: () => void;
 };
 
 /**
- * Detail panel for a single record. Mounted in the third column of the
- * app-cols layout, hidden until `?record=<id>` is set. Uses the platform's
- * detail-panel pattern: SSR-renders for the initial selection, then listens
- * for in-page selection events from RecordsGrid (no full reload on click).
- *
- * Header carries the small action row mirroring contacts' detail panel —
- * edit pencil + delete + close X (or restore + close in trash mode).
+ * Detail panel for a single record. Pure controlled component:
+ * RecordsView passes the record to display + close/update/remove
+ * callbacks; this island handles edit / delete / restore mutations
+ * and renders the form. No URL writes, no custom events.
  */
 export default function RecordDetailPanel(props: Props) {
-  const [record, setRecord] = createSignal<GridRecord | null>(props.initialRecord);
-  const [recordId, setRecordId] = createSignal<string | null>(props.initialRecordId);
-  const [mode, setMode] = createSignal<RecordDetailMode>(props.trashMode ? "trash" : "live");
-
-  // Refetch when the URL key changes but the SSR didn't ship the row (rare —
-  // happens when the list is paginated and the user clicks something we
-  // didn't include in `props.initialRecord`). The list dispatches the row,
-  // so this is mostly a fallback.
-  const fetchRecord = async (id: string) => {
-    const res = await apiClient.records[":tableId"][":recordId"].$get({
-      param: { tableId: props.tableId, recordId: id },
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as GridRecord;
-  };
-
-  onMount(() => {
-    const onEvent = (e: Event) => {
-      const payload = (e as CustomEvent<RecordDetailPayload>).detail;
-      setRecordId(payload.itemKey);
-      setMode(payload.mode);
-      if (payload.item) {
-        setRecord(() => payload.item);
-      } else if (payload.itemKey) {
-        // Event arrived without a payload — fetch lazily.
-        fetchRecord(payload.itemKey).then((r) => setRecord(() => r));
-      } else {
-        setRecord(null);
-      }
-    };
-    const onPop = () => {
-      const id = getSelectedRecordIdFromUrl();
-      setRecordId(id);
-      if (!id) {
-        setRecord(null);
-        return;
-      }
-      fetchRecord(id).then((r) => setRecord(() => r));
-    };
-    window.addEventListener(RECORD_DETAIL_EVENT, onEvent);
-    window.addEventListener("popstate", onPop);
-    onCleanup(() => {
-      window.removeEventListener(RECORD_DETAIL_EVENT, onEvent);
-      window.removeEventListener("popstate", onPop);
-    });
-  });
+  const record = () => props.record();
+  const mode = () => props.mode();
 
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
 
@@ -106,10 +63,7 @@ export default function RecordDetailPanel(props: Props) {
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to update record"));
       return (await res.json()) as GridRecord;
     },
-    onSuccess: (updated) => {
-      setRecord(() => updated);
-      refreshCurrentPath();
-    },
+    onSuccess: (updated) => props.onUpdated(updated),
     onError: (e) => prompts.error(e.message),
   });
 
@@ -121,10 +75,7 @@ export default function RecordDetailPanel(props: Props) {
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete record"));
       return rec.id;
     },
-    onSuccess: () => {
-      clearSelectedRecordInUrl(mode());
-      refreshCurrentPath();
-    },
+    onSuccess: () => props.onRemoved(),
     onError: (e) => prompts.error(e.message),
   });
 
@@ -136,10 +87,7 @@ export default function RecordDetailPanel(props: Props) {
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to restore record"));
       return rec.id;
     },
-    onSuccess: () => {
-      clearSelectedRecordInUrl(mode());
-      refreshCurrentPath();
-    },
+    onSuccess: () => props.onRemoved(),
     onError: (e) => prompts.error(e.message),
   });
 
@@ -182,10 +130,10 @@ export default function RecordDetailPanel(props: Props) {
   const handleRestore = (rec: GridRecord) => restoreMut.mutate(rec);
 
   /**
-   * Renders a relation cell as a list of inline links to the linked
-   * records. Plain-text style with hover-underline only.
+   * Read-only relation cell — list of inline links to the linked
+   * records. Used in trash mode and for users without write permission.
    */
-  const renderRelationCell = (field: Field, value: unknown) => {
+  const renderRelationCellReadOnly = (field: Field, value: unknown) => {
     const ids = Array.isArray(value)
       ? (value as string[])
       : typeof value === "string" && value.length > 0
@@ -206,6 +154,44 @@ export default function RecordDetailPanel(props: Props) {
           />
         ))}
       </span>
+    );
+  };
+
+  /**
+   * Editable relation cell — search-driven picker. Wired to the same
+   * `updateMut` the edit-modal uses; PATCH includes only the relation
+   * field so other cells stay untouched. RecordsView refetches via
+   * `props.onUpdated` so the chip labels reflect the new linkage on
+   * the next render.
+   */
+  const renderRelationCellEditable = (field: Field, rec: GridRecord) => {
+    const cfg = field.config as { targetTableId?: string; cardinality?: "single" | "multiple" };
+    const targetTableId = cfg.targetTableId;
+    if (!targetTableId) {
+      // Misconfigured relation — fall back to read-only so we don't
+      // crash. The field-config editor flags this in the table editor.
+      return renderRelationCellReadOnly(field, rec.data[field.id]);
+    }
+    const multi = cfg.cardinality !== "single";
+    const value = () => {
+      const v = rec.data[field.id];
+      if (Array.isArray(v)) return v as string[];
+      if (typeof v === "string" && v.length > 0) return [v];
+      return [];
+    };
+    const labels = () => props.relationLabels ?? {};
+    const onChange = (next: string[]) => {
+      updateMut.mutate({ rec, payload: { [field.id]: next } });
+    };
+    return (
+      <RelationPicker
+        targetTableId={targetTableId}
+        value={value}
+        labels={labels}
+        multi={multi}
+        onChange={onChange}
+        saving={() => updateMut.loading()}
+      />
     );
   };
 
@@ -239,11 +225,18 @@ export default function RecordDetailPanel(props: Props) {
   };
 
   /** Type-aware field renderer. Returns JSX for relation/lookup cells
-   *  (with cross-record links) and a string for everything else. */
+   *  (with cross-record links) and a string for everything else.
+   *  Relation cells become an inline picker when canWrite + live mode;
+   *  otherwise they render as read-only links. */
   const renderField = (field: Field, rec: GridRecord) => {
+    if (field.type === "relation") {
+      const editable = props.canWrite && mode() === "live";
+      return editable
+        ? renderRelationCellEditable(field, rec)
+        : renderRelationCellReadOnly(field, rec.data[field.id]);
+    }
     const value = rec.data[field.id];
     if (value === null || value === undefined || value === "") return "—";
-    if (field.type === "relation") return renderRelationCell(field, value);
     if (field.type === "lookup") return renderLookupCell(field, rec);
     return formatCell(value, field.type, field.config) || "—";
   };
@@ -261,17 +254,9 @@ export default function RecordDetailPanel(props: Props) {
 
   return (
     <Show
-      when={record() !== null || recordId() !== null}
+      when={record()}
       fallback={null}
     >
-      <Show
-        when={record()}
-        fallback={
-          <div class="paper p-4 flex items-center justify-center text-xs text-dimmed">
-            <i class="ti ti-loader-2 animate-spin mr-1.5" /> Loading record…
-          </div>
-        }
-      >
         {(rec) => (
           <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
             {/* Header — title + small action buttons (contacts pattern). */}
@@ -330,7 +315,7 @@ export default function RecordDetailPanel(props: Props) {
                   class="btn-simple btn-sm text-dimmed hover:text-primary"
                   aria-label="Close detail panel"
                   title="Close"
-                  onClick={() => clearSelectedRecordInUrl(mode())}
+                  onClick={() => props.onClose()}
                 >
                   <i class="ti ti-x" />
                 </button>
@@ -361,7 +346,6 @@ export default function RecordDetailPanel(props: Props) {
             </div>
           </div>
         )}
-      </Show>
     </Show>
   );
 }

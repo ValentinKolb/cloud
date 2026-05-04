@@ -3,94 +3,37 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
+import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type FormatSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
+// View / ViewQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
+// re-export so consumers can keep importing them from the service layer.
+export type { View, ViewQuery, ColumnSpec, FormatSpec };
+
 /**
- * A saved view = filter + sort + visible-fields config bound to a table.
- * Stored in grids.views with the JSONB blob driving the records-list URL.
+ * Reads a stored view row and validates the JSONB query blob against
+ * ViewQuerySchema. If the stored blob fails validation (e.g. references
+ * deleted fields, schema-drifted shape from before v3), we coerce to an
+ * empty query rather than throwing — better than the whole listing
+ * crashing because one corrupt view exists. The user can re-edit the
+ * view to fix it.
  */
-export type View = {
-  id: string;
-  tableId: string;
-  name: string;
-  config: ViewConfig;
-  ownerUserId: string | null;
-  position: number;
-  createdAt: string;
-  updatedAt: string;
+const mapRow = (row: DbRow): View => {
+  const rawQuery = parseJsonbRow<unknown>(row.query, {});
+  const parsed = ViewQuerySchema.safeParse(rawQuery);
+  return {
+    id: row.id as string,
+    tableId: row.table_id as string,
+    name: row.name as string,
+    query: parsed.success ? parsed.data : {},
+    ownerUserId: (row.owner_user_id as string | null) ?? null,
+    position: row.position as number,
+    deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
+    createdAt: (row.created_at as Date).toISOString(),
+    updatedAt: (row.updated_at as Date).toISOString(),
+  };
 };
-
-/**
- * Per-column override for date/number formatting. Only the kind that
- * matches the field's actual type takes effect; the renderer ignores
- * mismatches (a `currency` format on a text field is a no-op).
- */
-export type FormatSpec =
-  | { kind: "date"; format: "iso" | "short" | "long" | "relative"; includeTime?: boolean }
-  | { kind: "currency"; symbol?: string; precision?: number }
-  | { kind: "decimal"; precision?: number; thousandsSeparator?: boolean }
-  | { kind: "percent"; precision?: number };
-
-/**
- * One rendered column in a view. Two kinds for v1:
- *  - `field`: a plain table field (re-uses `field.type` for rendering).
- *  - `join`:  a field on a related table reached via a relation-field
- *             path. `path` is the chain of relation field ids; v1
- *             enforces 1..2 hops in the UI. Server resolves the chain.
- *
- * Other kinds (`computed`, `aggregation`) come in later iterations.
- */
-export type ViewColumn =
-  | {
-      kind: "field";
-      fieldId: string;
-      format?: FormatSpec;
-    }
-  | {
-      kind: "join";
-      path: string[];
-      fieldId: string;
-      label?: string;
-      format?: FormatSpec;
-    };
-
-export type ViewConfig = {
-  filter?: unknown;
-  sort?: Array<{ fieldId: string; direction: "asc" | "desc"; nullsFirst?: boolean }>;
-  /**
-   * Ordered list of rendered columns. Combines visibility, ordering,
-   * and per-column format in ONE structure.
-   *
-   *  - `undefined` (or missing): inherit table default — render every
-   *    field where `!hideInTable`, sorted by `field.position`.
-   *  - `[]`: render NO columns (intentional empty — useful as a
-   *    "selected only id" view).
-   *  - `[{kind:"field", fieldId}, …]`: render exactly these columns
-   *    in this order, including fields that would otherwise be
-   *    `hideInTable`.
-   */
-  columns?: ViewColumn[];
-  /**
-   * Hard cap on returned rows, applied AFTER filter+sort and BEFORE
-   * pagination. `undefined` = unlimited (subject to cursor pagination
-   * page size). When set, `record.list` returns at most `limit` rows
-   * total across all pages — `nextCursor` becomes null once the
-   * cursor would advance past the cap.
-   */
-  limit?: number;
-};
-
-const mapRow = (row: DbRow): View => ({
-  id: row.id as string,
-  tableId: row.table_id as string,
-  name: row.name as string,
-  config: parseJsonbRow<ViewConfig>(row.config, {}),
-  ownerUserId: (row.owner_user_id as string | null) ?? null,
-  position: row.position as number,
-  createdAt: (row.created_at as Date).toISOString(),
-  updatedAt: (row.updated_at as Date).toISOString(),
-});
 
 /**
  * Lists views visible to a user on a table. Visibility rules:
@@ -128,7 +71,7 @@ export const listForTable = async (params: {
     auth_rank: number | null;
     public_rank: number | null;
   })[]>`
-    SELECT v.id, v.table_id, v.name, v.config, v.owner_user_id, v.position, v.created_at, v.updated_at,
+    SELECT v.id, v.table_id, v.name, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
       (
         SELECT CASE
           WHEN COUNT(*) = 0 THEN NULL
@@ -169,7 +112,7 @@ export const listForTable = async (params: {
           AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
       ) AS public_rank
     FROM grids.views v
-    WHERE v.table_id = ${params.tableId}::uuid
+    WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
     ORDER BY v.position, v.created_at
   `;
 
@@ -212,35 +155,56 @@ export const isVisibleByAclTiers = (
   return defaults.ownerUserId === null || defaults.ownerUserId === defaults.viewerUserId;
 };
 
-export const get = async (id: string): Promise<View | null> => {
-  const [row] = await sql<DbRow[]>`
-    SELECT id, table_id, name, config, owner_user_id, position, created_at, updated_at
-    FROM grids.views WHERE id = ${id}::uuid
-  `;
+export const get = async (
+  id: string,
+  opts: { includeDeleted?: boolean } = {},
+): Promise<View | null> => {
+  const [row] = opts.includeDeleted
+    ? await sql<DbRow[]>`
+        SELECT id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+        FROM grids.views WHERE id = ${id}::uuid
+      `
+    : await sql<DbRow[]>`
+        SELECT id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+        FROM grids.views WHERE id = ${id}::uuid AND deleted_at IS NULL
+      `;
   return row ? mapRow(row) : null;
 };
 
-export type CreateViewInput = {
+export type CreateViewServiceInput = {
   tableId: string;
   name: string;
-  config?: ViewConfig;
+  /** Canonical query — undefined means "empty preset" (just a named view
+   *  with no filter/sort/etc, useful as a starting point in the UI). */
+  query?: ViewQuery;
   ownerUserId?: string | null;
 };
 
-export const create = async (input: CreateViewInput, actorId: string | null): Promise<Result<View>> => {
+export const create = async (
+  input: CreateViewServiceInput,
+  actorId: string | null,
+): Promise<Result<View>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
+  // Re-validate the query at the service boundary even though the API
+  // layer already did. Defensive: the service is also called by SSR and
+  // future imports — every entry path validates.
+  const queryParsed = ViewQuerySchema.safeParse(input.query ?? {});
+  if (!queryParsed.success) {
+    return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
+  }
+
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.views (table_id, name, config, owner_user_id, position)
+    INSERT INTO grids.views (table_id, name, query, owner_user_id, position)
     VALUES (
       ${input.tableId}::uuid,
       ${name},
-      ${input.config ?? {}}::jsonb,
+      ${queryParsed.data}::jsonb,
       ${input.ownerUserId ?? null}::uuid,
       COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
     )
-    RETURNING id, table_id, name, config, owner_user_id, position, created_at, updated_at
+    RETURNING id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("insert failed"));
   const view = mapRow(row);
@@ -248,16 +212,20 @@ export const create = async (input: CreateViewInput, actorId: string | null): Pr
   return ok(view);
 };
 
-export type UpdateViewInput = {
+export type UpdateViewServiceInput = {
   name?: string;
-  config?: ViewConfig;
+  query?: ViewQuery;
   position?: number;
   /** Shared toggle: true → ownerUserId becomes null (anyone can read);
    *  false → ownerUserId becomes `actorId` (the editor takes ownership). */
   shared?: boolean;
 };
 
-export const update = async (id: string, input: UpdateViewInput, actorId: string | null): Promise<Result<View>> => {
+export const update = async (
+  id: string,
+  input: UpdateViewServiceInput,
+  actorId: string | null,
+): Promise<Result<View>> => {
   const existing = await get(id);
   if (!existing) return fail(err.notFound("View"));
 
@@ -271,21 +239,30 @@ export const update = async (id: string, input: UpdateViewInput, actorId: string
       ? null
       : actorId;
 
+  let nextQuery: ViewQuery = existing.query;
+  if (input.query !== undefined) {
+    const queryParsed = ViewQuerySchema.safeParse(input.query);
+    if (!queryParsed.success) {
+      return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
+    }
+    nextQuery = queryParsed.data;
+  }
+
   const next = {
     name: name ?? existing.name,
-    config: input.config !== undefined ? input.config : existing.config,
+    query: nextQuery,
     position: input.position ?? existing.position,
   };
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views
     SET name = ${next.name},
-        config = ${next.config}::jsonb,
+        query = ${next.query}::jsonb,
         position = ${next.position},
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
-    WHERE id = ${id}::uuid
-    RETURNING id, table_id, name, config, owner_user_id, position, created_at, updated_at
+    WHERE id = ${id}::uuid AND deleted_at IS NULL
+    RETURNING id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
@@ -293,10 +270,29 @@ export const update = async (id: string, input: UpdateViewInput, actorId: string
   return ok(view);
 };
 
+/**
+ * Soft-deletes the view. Hard purge happens via maintenance job after
+ * the grace period; the row stays restorable until then.
+ */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);
   if (!existing) return fail(err.notFound("View"));
-  await sql`DELETE FROM grids.views WHERE id = ${id}::uuid`;
+  await sql`UPDATE grids.views SET deleted_at = now() WHERE id = ${id}::uuid AND deleted_at IS NULL`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" });
   return ok();
+};
+
+export const restore = async (id: string, actorId: string | null): Promise<Result<View>> => {
+  const existing = await get(id, { includeDeleted: true });
+  if (!existing) return fail(err.notFound("View"));
+  if (existing.deletedAt === null) return ok(existing);
+  const [row] = await sql<DbRow[]>`
+    UPDATE grids.views SET deleted_at = NULL, updated_at = now()
+    WHERE id = ${id}::uuid
+    RETURNING id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+  `;
+  if (!row) return fail(err.internal("restore failed"));
+  const view = mapRow(row);
+  await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
+  return ok(view);
 };

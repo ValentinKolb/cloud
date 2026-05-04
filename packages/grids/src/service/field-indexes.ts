@@ -14,6 +14,12 @@ const log = logger("grids:field-indexes");
 
 const indexName = (fieldId: string): string => `idx_grids_data_${fieldId.replace(/-/g, "")}`;
 const trgmIndexName = (fieldId: string): string => `idx_grids_trgm_${fieldId.replace(/-/g, "")}`;
+const uniqueIndexName = (fieldId: string): string => `uq_grids_data_${fieldId.replace(/-/g, "")}`;
+const autonumberSeqName = (fieldId: string): string => `grids_an_${fieldId.replace(/-/g, "")}`;
+
+/** Strict UUID-with-or-without-dashes validator. Used as the safety
+ *  gate before embedding fieldId in DDL identifiers. */
+const isSafeFieldId = (fieldId: string): boolean => /^[a-f0-9-]+$/i.test(fieldId);
 
 const indexExpressionForType = (fieldId: string, type: string): string | null => {
   switch (type) {
@@ -100,7 +106,7 @@ export const ensureFieldIndex = async (fieldId: string, type: string): Promise<v
  * Called when the user toggles `indexed: false` or deletes the field.
  */
 export const dropFieldIndex = async (fieldId: string): Promise<void> => {
-  if (!/^[a-f0-9-]+$/i.test(fieldId)) return;
+  if (!isSafeFieldId(fieldId)) return;
 
   for (const idx of [indexName(fieldId), trgmIndexName(fieldId)]) {
     try {
@@ -108,5 +114,142 @@ export const dropFieldIndex = async (fieldId: string): Promise<void> => {
     } catch (e) {
       log.error("Failed to drop index", { fieldId, idx, error: String(e) });
     }
+  }
+};
+
+// =============================================================================
+// Unique-constraint enforcement (Slice 7 bug fix)
+// =============================================================================
+// Pre-v3, `fields.unique_constraint` was stored on the row but never
+// enforced — toggling it had no effect. v3 backs the toggle with a
+// real partial unique index over the JSONB-projected value, scoped to
+// live records of the table.
+//
+// Multi-select / relation field types are explicitly rejected at the
+// API boundary because their value isn't a scalar — uniqueness over
+// a JSONB array doesn't have a well-defined semantic.
+
+const UNIQUE_SUPPORTED_TYPES = new Set([
+  "text", "longtext", "number", "decimal", "currency", "percent",
+  "rating", "date", "single-select", "boolean", "autonumber",
+  "email", "url", "phone", "slug", "barcode", "isbn",
+]);
+
+export const isUniqueable = (type: string): boolean => UNIQUE_SUPPORTED_TYPES.has(type);
+
+/**
+ * Creates a partial unique index on `(table_id, (data->>'<fieldId>'))`
+ * for live records. CONCURRENTLY because creation can take seconds on
+ * large tables and shouldn't block writes.
+ *
+ * Will FAIL (Postgres-side, surfaced via the catch + log) if existing
+ * data violates uniqueness — caller is expected to pre-check via
+ * `findUniqueConflicts` and surface a 409 to the user before toggling.
+ */
+export const ensureFieldUniqueIndex = async (
+  fieldId: string,
+  type: string,
+  tableId: string,
+): Promise<void> => {
+  if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) {
+    log.warn("Refusing to create unique index for invalid id", { fieldId, tableId });
+    return;
+  }
+  if (!isUniqueable(type)) {
+    log.warn("unique_constraint skipped: type not supported", { fieldId, type });
+    return;
+  }
+  const idx = uniqueIndexName(fieldId);
+  // Drop any pre-existing index by this name first. CONCURRENTLY+IF
+  // NOT EXISTS would otherwise see an INVALID index left from a
+  // previous failed build and skip re-creation, leaving the field
+  // toggle's enforcement permanently broken until manual cleanup.
+  try {
+    await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${idx}`);
+  } catch (e) {
+    log.warn("Pre-create DROP INDEX failed (continuing)", { fieldId, idx, error: String(e) });
+  }
+  try {
+    await sql.unsafe(
+      `CREATE UNIQUE INDEX CONCURRENTLY ${idx}
+       ON grids.records ((data->>'${fieldId}'))
+       WHERE table_id = '${tableId}'::uuid AND deleted_at IS NULL AND data ? '${fieldId}'`,
+    );
+    log.info("Created unique index", { fieldId, idx });
+  } catch (e) {
+    log.error("Failed to create unique index", { fieldId, idx, error: String(e) });
+    // Best-effort cleanup of the (now INVALID) partially-built index.
+    try {
+      await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${idx}`);
+    } catch {}
+    throw e;
+  }
+};
+
+export const dropFieldUniqueIndex = async (fieldId: string): Promise<void> => {
+  if (!isSafeFieldId(fieldId)) return;
+  try {
+    await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${uniqueIndexName(fieldId)}`);
+  } catch (e) {
+    log.error("Failed to drop unique index", { fieldId, error: String(e) });
+  }
+};
+
+/**
+ * Pre-flight: returns the list of values that would violate uniqueness
+ * if the constraint were turned on right now. Lets the API return a
+ * clean 409 with a list of offenders instead of letting Postgres throw
+ * a generic duplicate-key error during index build.
+ */
+export const findUniqueConflicts = async (
+  fieldId: string,
+  tableId: string,
+): Promise<string[]> => {
+  if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) return [];
+  const rows = await sql.unsafe(
+    `SELECT data->>'${fieldId}' AS v
+     FROM grids.records
+     WHERE table_id = '${tableId}'::uuid AND deleted_at IS NULL AND data ? '${fieldId}'
+     GROUP BY data->>'${fieldId}'
+     HAVING COUNT(*) > 1`,
+  );
+  return (rows as Array<{ v: string }>).map((r) => r.v);
+};
+
+// =============================================================================
+// Autonumber sequence (Slice 7 bug fix — race-free counter)
+// =============================================================================
+// Pre-v3 autonumber was `SELECT MAX(...) + 1` — two concurrent inserts
+// got the same number. v3 backs each autonumber field with a Postgres
+// sequence, lazily created on first use. nextval() is atomic.
+
+/**
+ * Lazy CREATE SEQUENCE IF NOT EXISTS on first use. Idempotent. Safe
+ * inside a regular transaction (sequences in Postgres survive rollback,
+ * which is the desired property: rolled-back inserts still consume a
+ * sequence value, ensuring monotonicity even under failures).
+ */
+export const ensureAutonumberSequence = async (fieldId: string): Promise<string | null> => {
+  if (!isSafeFieldId(fieldId)) return null;
+  const seq = autonumberSeqName(fieldId);
+  await sql.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${seq} AS BIGINT INCREMENT 1 MINVALUE 1`);
+  return seq;
+};
+
+/** Atomically returns the next value. Creates the sequence if missing. */
+export const nextAutonumberValue = async (fieldId: string): Promise<number> => {
+  const seq = await ensureAutonumberSequence(fieldId);
+  if (!seq) return 1;
+  const rows = await sql.unsafe(`SELECT nextval('grids.${seq}') AS next`);
+  const next = (rows as Array<{ next: bigint | string | number }>)[0]?.next;
+  return Number(next ?? 1);
+};
+
+export const dropAutonumberSequence = async (fieldId: string): Promise<void> => {
+  if (!isSafeFieldId(fieldId)) return;
+  try {
+    await sql.unsafe(`DROP SEQUENCE IF EXISTS grids.${autonumberSeqName(fieldId)}`);
+  } catch (e) {
+    log.error("Failed to drop autonumber sequence", { fieldId, error: String(e) });
   }
 };

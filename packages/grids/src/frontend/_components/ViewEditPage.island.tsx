@@ -14,14 +14,12 @@ import {
 } from "@valentinkolb/stdlib/solid";
 import type { Field } from "../../service";
 import type {
+  ColumnSpec,
   FormatSpec,
-  ViewColumn,
-  ViewConfig,
+  ViewQuery,
 } from "../../service/views";
 import type { View } from "../../service";
 import { errorMessage } from "./api-helpers";
-import FilterPanel, { type FilterLeaf } from "./FilterPanel";
-import SortPanel, { type SortRow } from "./SortPanel";
 import { SectionCard } from "./SectionCard";
 import { TYPE_LABELS } from "./field-config-editor";
 
@@ -39,9 +37,9 @@ type DropIntent = { insertIndex: number };
 /**
  * Full-screen view editor. Sections (one SectionCard each):
  *  - General (name + shared toggle)
- *  - Filter   (FilterPanel re-mounted, persists to view.config.filter)
+ *  - Filter   (FilterPanel re-mounted, persists to view.query.filter)
  *  - Sort     (SortPanel re-mounted)
- *  - Columns  (DnD-reorderable list of ViewColumns; toggle inherit-vs-
+ *  - Columns  (DnD-reorderable list of ColumnSpecs; toggle inherit-vs-
  *              custom; per-column format gear; pick from remaining
  *              fields to add)
  *  - Limit    (top-N number input)
@@ -52,10 +50,16 @@ type DropIntent = { insertIndex: number };
  * Mirrors the table-edit page's UX (and re-uses SectionCard).
  */
 export default function ViewEditPage(props: Props) {
+  // v3: views are FROZEN snapshots of a query — filter / sort / group /
+  // aggregations get captured at "Save view" time and aren't editable
+  // here. To change the query, the user clears + re-saves on the
+  // records page. Only renaming / sharing / column-visibility (when
+  // not grouped) / limit / deletion stay editable.
+  const isGrouped = (props.initialView.query.groupBy ?? []).length > 0;
   return (
     <div class="flex flex-col gap-4 p-6">
       <header class="flex items-center justify-between gap-3">
-        <h1 class="text-xl font-semibold text-primary">Edit view</h1>
+        <h1 class="text-xl font-semibold text-primary">View settings</h1>
         <a
           href={`/app/grids/${props.baseId}?table=${props.tableId}&view=${props.initialView.id}`}
           class="btn-input btn-input-sm"
@@ -64,25 +68,30 @@ export default function ViewEditPage(props: Props) {
         </a>
       </header>
 
+      <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/40 px-4 py-3 text-xs text-secondary">
+        <i class="ti ti-snowflake text-blue-500" /> The view's query (filter,
+        sort, group, aggregations) is frozen. To change it, go back to the
+        records page, adjust filter/sort/group/aggregate in the toolbar,
+        and save as a new view.
+      </div>
+
       <GeneralSection viewId={props.initialView.id} initial={props.initialView} />
-      <FilterSection
-        viewId={props.initialView.id}
-        fields={props.fields}
-        initialFilter={props.initialView.config.filter as unknown}
-      />
-      <SortSection
-        viewId={props.initialView.id}
-        fields={props.fields}
-        initialSort={(props.initialView.config.sort ?? []) as SortRow[]}
-      />
-      <ColumnsSection
-        viewId={props.initialView.id}
-        fields={props.fields}
-        initialColumns={props.initialView.config.columns}
-      />
+
+      {/* Columns editor — only when the view is in flat (non-grouped)
+          mode. In grouped mode, the displayed columns are derived
+          from groupBy + aggregations, so a separate column list would
+          be ignored anyway. */}
+      <Show when={!isGrouped}>
+        <ColumnsSection
+          viewId={props.initialView.id}
+          fields={props.fields}
+          initialColumns={props.initialView.query.columns}
+        />
+      </Show>
+
       <LimitSection
         viewId={props.initialView.id}
-        initial={props.initialView.config.limit}
+        initial={props.initialView.query.limit}
       />
       <SectionCard
         title="Danger zone"
@@ -101,27 +110,27 @@ export default function ViewEditPage(props: Props) {
 }
 
 // =============================================================================
-// Shared helper — patch the view's config (merging into existing)
+// Shared helper — patch the view's query (merging into existing)
 // =============================================================================
 
-const patchViewConfig = async (
+const patchViewQuery = async (
   viewId: string,
-  patch: Partial<ViewConfig>,
+  patch: Partial<ViewQuery>,
 ): Promise<View> => {
-  // Fetch current to merge — the API replaces config wholesale, so we
+  // Fetch current to merge — the API replaces query wholesale, so we
   // need to send everything together. (Tiny round-trip cost; this only
   // happens on Save clicks, not on every keystroke.)
   const cur = await apiClient.views[":viewId"].$get({ param: { viewId } });
   if (!cur.ok) throw new Error(await errorMessage(cur, "Failed to load view"));
   const current = (await cur.json()) as View;
-  const merged = { ...current.config, ...patch } as ViewConfig;
-  // Strip undefined keys so `delete view.config.foo` round-trips correctly.
-  for (const k of Object.keys(merged) as (keyof ViewConfig)[]) {
+  const merged = { ...current.query, ...patch } as ViewQuery;
+  // Strip undefined keys so `delete view.query.foo` round-trips correctly.
+  for (const k of Object.keys(merged) as (keyof ViewQuery)[]) {
     if (merged[k] === undefined) delete merged[k];
   }
   const res = await apiClient.views[":viewId"].$patch({
     param: { viewId },
-    json: { config: merged },
+    json: { query: merged },
   });
   if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
   return (await res.json()) as View;
@@ -193,143 +202,30 @@ function GeneralSection(props: { viewId: string; initial: View }) {
   );
 }
 
-// =============================================================================
-// Filter — re-mounted FilterPanel, persists to config.filter
-// =============================================================================
-
-function FilterSection(props: { viewId: string; fields: Field[]; initialFilter: unknown }) {
-  const initialLeaves = parseFilterTreeToLeaves(props.initialFilter);
-  const [rows, setRows] = createSignal<FilterLeaf[]>(initialLeaves);
-  const [savedAt, setSavedAt] = createSignal<number | null>(null);
-
-  const apply = async (leaves: FilterLeaf[]) => {
-    const filter = leaves.length === 0 ? undefined : { op: "AND" as const, filters: leaves };
-    try {
-      await patchViewConfig(props.viewId, { filter });
-      setSavedAt(Date.now());
-    } catch (e) {
-      prompts.error(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  return (
-    <SectionCard
-      title="Filter"
-      subtitle="Records that don't match are hidden in this view."
-      meta={savedAt() ? "Saved" : undefined}
-    >
-      <Show
-        when={rows().length > 0}
-        fallback={
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-dimmed">No filter — view shows every record.</span>
-            <button
-              type="button"
-              class="btn-input btn-input-sm text-emerald-600 hover:text-emerald-700"
-              onClick={() => {
-                const blank = blankFilterLeaf(props.fields);
-                if (blank) setRows([blank]);
-              }}
-            >
-              <i class="ti ti-filter-plus" /> Add filter
-            </button>
-          </div>
-        }
-      >
-        <FilterPanel
-          fields={props.fields}
-          rows={rows}
-          onRowsChange={setRows}
-          initialFromUrl={initialLeaves}
-          onApply={apply}
-        />
-      </Show>
-    </SectionCard>
-  );
-}
-
-// =============================================================================
-// Sort — re-mounted SortPanel
-// =============================================================================
-
-function SortSection(props: { viewId: string; fields: Field[]; initialSort: SortRow[] }) {
-  const [rows, setRows] = createSignal<SortRow[]>(props.initialSort);
-  const [savedAt, setSavedAt] = createSignal<number | null>(null);
-
-  const apply = async (next: SortRow[]) => {
-    const sort = next.length === 0 ? undefined : next;
-    try {
-      await patchViewConfig(props.viewId, { sort });
-      setSavedAt(Date.now());
-    } catch (e) {
-      prompts.error(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  return (
-    <SectionCard
-      title="Sort"
-      subtitle="Records appear in this order. Top to bottom = primary first."
-      meta={savedAt() ? "Saved" : undefined}
-    >
-      <Show
-        when={rows().length > 0}
-        fallback={
-          <div class="flex items-center gap-2 text-xs">
-            <span class="text-dimmed">No sort — records appear in insertion order.</span>
-            <button
-              type="button"
-              class="btn-input btn-input-sm text-emerald-600 hover:text-emerald-700"
-              onClick={() => {
-                const first = props.fields.find((f) => !f.deletedAt);
-                if (first) setRows([{ fieldId: first.id, direction: "asc" }]);
-              }}
-            >
-              <i class="ti ti-arrows-sort" /> Add sort
-            </button>
-          </div>
-        }
-      >
-        <SortPanel
-          fields={props.fields}
-          rows={rows}
-          onRowsChange={setRows}
-          initialFromUrl={props.initialSort}
-          onApply={apply}
-        />
-      </Show>
-    </SectionCard>
-  );
-}
-
-// =============================================================================
-// Columns — DnD reorder, toggle visibility, per-column format gear
-// =============================================================================
 
 function ColumnsSection(props: {
   viewId: string;
   fields: Field[];
-  initialColumns: ViewColumn[] | undefined;
+  initialColumns: ColumnSpec[] | undefined;
 }) {
-  const [columns, setColumns] = createSignal<ViewColumn[] | undefined>(props.initialColumns);
+  const [columns, setColumns] = createSignal<ColumnSpec[] | undefined>(props.initialColumns);
   const [savedAt, setSavedAt] = createSignal<number | null>(null);
   const fieldsById = createMemo(() => new Map(props.fields.map((f) => [f.id, f])));
 
-  const persist = async (next: ViewColumn[] | undefined) => {
+  const persist = async (next: ColumnSpec[] | undefined) => {
     setColumns(next);
     try {
-      await patchViewConfig(props.viewId, { columns: next });
+      await patchViewQuery(props.viewId, { columns: next });
       setSavedAt(Date.now());
     } catch (e) {
       prompts.error(e instanceof Error ? e.message : String(e));
     }
   };
 
-  // Computed lists
-  const visible = () =>
-    (columns() ?? []).filter(
-      (c): c is Extract<ViewColumn, { kind: "field" }> => c.kind === "field",
-    );
+  // Computed lists. v3 ColumnSpec has no `kind` discriminator — every
+  // entry is a field-column. Cross-table data is served by lookup/rollup
+  // field types, not view-level joins.
+  const visible = () => columns() ?? [];
   const usedIds = createMemo(() => new Set(visible().map((c) => c.fieldId)));
   const addable = createMemo(() =>
     props.fields.filter((f) => !f.deletedAt && !usedIds().has(f.id)),
@@ -381,10 +277,10 @@ function ColumnsSection(props: {
   const startCustomizing = () => {
     // Auto-populate from table-default (non-hideInTable, by position)
     // so the user has something to remove rather than starting empty.
-    const seed: ViewColumn[] = props.fields
+    const seed: ColumnSpec[] = props.fields
       .filter((f) => !f.deletedAt && !f.hideInTable)
       .sort((a, b) => a.position - b.position)
-      .map((f) => ({ kind: "field", fieldId: f.id }));
+      .map((f) => ({ fieldId: f.id }));
     void persist(seed);
   };
 
@@ -402,7 +298,7 @@ function ColumnsSection(props: {
   };
 
   const addColumn = (fieldId: string) => {
-    void persist([...visible(), { kind: "field", fieldId }]);
+    void persist([...visible(), { fieldId }]);
   };
 
   const editFormat = async (idx: number) => {
@@ -412,11 +308,11 @@ function ColumnsSection(props: {
     if (!f) return;
     const next = await pickFormatSpec(f, col.format);
     if (next === undefined) return; // cancelled
-    const updated: ViewColumn[] = visible().map((c, i) =>
+    const updated: ColumnSpec[] = visible().map((c, i) =>
       i === idx
         ? next === null
-          ? { kind: "field", fieldId: c.fieldId }
-          : { kind: "field", fieldId: c.fieldId, format: next }
+          ? { fieldId: c.fieldId }
+          : { fieldId: c.fieldId, format: next }
         : c,
     );
     void persist(updated);
@@ -584,7 +480,7 @@ function LimitSection(props: { viewId: string; initial: number | undefined }) {
       if (n !== undefined && (!Number.isInteger(n) || n < 1)) {
         throw new Error("Limit must be a positive integer or empty");
       }
-      return await patchViewConfig(props.viewId, { limit: n });
+      return await patchViewQuery(props.viewId, { limit: n });
     },
     onSuccess: () => setDirty(false),
     onError: (e) => prompts.error(e.message),
@@ -667,23 +563,6 @@ function DeleteButton(props: {
 // =============================================================================
 // Helpers
 // =============================================================================
-
-const parseFilterTreeToLeaves = (raw: unknown): FilterLeaf[] => {
-  if (!raw || typeof raw !== "object") return [];
-  const tree = raw as { op?: string; filters?: unknown };
-  if (tree.op !== "AND" || !Array.isArray(tree.filters)) return [];
-  return tree.filters.filter(
-    (f: unknown): f is FilterLeaf =>
-      typeof f === "object" && f !== null && "fieldId" in f && "op" in f,
-  );
-};
-
-const blankFilterLeaf = (fields: Field[]): FilterLeaf | null => {
-  const usable = fields.filter((f) => !f.deletedAt);
-  const first = usable[0];
-  if (!first) return null;
-  return { fieldId: first.id, op: "equals", value: "" };
-};
 
 /**
  * Opens a small dialog to pick a FormatSpec for the given field. The

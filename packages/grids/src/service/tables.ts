@@ -5,6 +5,8 @@ import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
+const COLS = sql`id, base_id, name, description, primary_field_id, position, deleted_at, created_at, updated_at`;
+
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
   baseId: row.base_id as string,
@@ -12,24 +14,44 @@ const mapRow = (row: DbRow): Table => ({
   description: (row.description as string | null) ?? null,
   primaryFieldId: (row.primary_field_id as string | null) ?? null,
   position: row.position as number,
+  deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-export const listByBase = async (baseId: string): Promise<Table[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT id, base_id, name, description, primary_field_id, position, created_at, updated_at
-    FROM grids.tables WHERE base_id = ${baseId}::uuid
-    ORDER BY position, created_at
-  `;
+/**
+ * Lists active tables of a base. Pass `includeDeleted` to include
+ * trashed tables (used by the trash UI).
+ */
+export const listByBase = async (
+  baseId: string,
+  opts: { includeDeleted?: boolean } = {},
+): Promise<Table[]> => {
+  const rows = opts.includeDeleted
+    ? await sql<DbRow[]>`
+        SELECT ${COLS}
+        FROM grids.tables WHERE base_id = ${baseId}::uuid
+        ORDER BY position, created_at
+      `
+    : await sql<DbRow[]>`
+        SELECT ${COLS}
+        FROM grids.tables WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
+        ORDER BY position, created_at
+      `;
   return rows.map(mapRow);
 };
 
-export const get = async (id: string): Promise<Table | null> => {
-  const [row] = await sql<DbRow[]>`
-    SELECT id, base_id, name, description, primary_field_id, position, created_at, updated_at
-    FROM grids.tables WHERE id = ${id}::uuid
-  `;
+export const get = async (
+  id: string,
+  opts: { includeDeleted?: boolean } = {},
+): Promise<Table | null> => {
+  const [row] = opts.includeDeleted
+    ? await sql<DbRow[]>`
+        SELECT ${COLS} FROM grids.tables WHERE id = ${id}::uuid
+      `
+    : await sql<DbRow[]>`
+        SELECT ${COLS} FROM grids.tables WHERE id = ${id}::uuid AND deleted_at IS NULL
+      `;
   return row ? mapRow(row) : null;
 };
 
@@ -43,9 +65,9 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
       ${input.baseId}::uuid,
       ${name},
       ${input.description ?? null},
-      COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid), 0)
+      COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
     )
-    RETURNING id, base_id, name, description, primary_field_id, position, created_at, updated_at
+    RETURNING ${COLS}
   `;
   if (!row) return fail(err.internal("insert failed"));
   const table = mapRow(row);
@@ -73,8 +95,8 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
         description = ${next.description},
         primary_field_id = ${next.primaryFieldId}::uuid,
         updated_at = now()
-    WHERE id = ${id}::uuid
-    RETURNING id, base_id, name, description, primary_field_id, position, created_at, updated_at
+    WHERE id = ${id}::uuid AND deleted_at IS NULL
+    RETURNING ${COLS}
   `;
   if (!row) return fail(err.internal("update failed"));
   const table = mapRow(row);
@@ -94,10 +116,32 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   return ok(table);
 };
 
+/**
+ * Soft-deletes the table. The row stays in the DB; child entities
+ * (fields/records/views/forms) are *not* automatically tombstoned —
+ * they simply become unreachable through the API while the parent
+ * table is hidden. Restore brings them all back. Hard purge happens
+ * after the grace period via the maintenance job.
+ */
 export const remove = async (id: string, actorId: string | null): Promise<Result<void>> => {
   const existing = await get(id);
   if (!existing) return fail(err.notFound("Table"));
-  await sql`DELETE FROM grids.tables WHERE id = ${id}::uuid`;
+  await sql`UPDATE grids.tables SET deleted_at = now() WHERE id = ${id}::uuid AND deleted_at IS NULL`;
   await logAudit({ baseId: existing.baseId, tableId: id, userId: actorId, action: "deleted" });
   return ok();
+};
+
+export const restore = async (id: string, actorId: string | null): Promise<Result<Table>> => {
+  const existing = await get(id, { includeDeleted: true });
+  if (!existing) return fail(err.notFound("Table"));
+  if (existing.deletedAt === null) return ok(existing);
+  const [row] = await sql<DbRow[]>`
+    UPDATE grids.tables SET deleted_at = NULL, updated_at = now()
+    WHERE id = ${id}::uuid
+    RETURNING ${COLS}
+  `;
+  if (!row) return fail(err.internal("restore failed"));
+  const table = mapRow(row);
+  await logAudit({ baseId: existing.baseId, tableId: id, userId: actorId, action: "restored" });
+  return ok(table);
 };

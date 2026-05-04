@@ -1,37 +1,15 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import {
+  ViewSchema,
+  ViewListSchema,
+  CreateViewSchema,
+  UpdateViewSchema,
+} from "../contracts";
 import { gridsService } from "../service";
 import { gateAt } from "./permissions";
-
-const ViewConfigSchema = z.object({}).catchall(z.unknown());
-
-const ViewSchema = z.object({
-  id: z.string().uuid(),
-  tableId: z.string().uuid(),
-  name: z.string(),
-  config: ViewConfigSchema,
-  ownerUserId: z.string().uuid().nullable(),
-  position: z.number().int(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-const ViewListSchema = z.array(ViewSchema);
-
-const CreateViewSchema = z.object({
-  name: z.string().min(1).max(200),
-  config: ViewConfigSchema.optional(),
-  shared: z.boolean().optional(),
-});
-
-const UpdateViewSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  config: ViewConfigSchema.optional(),
-  position: z.number().int().optional(),
-  shared: z.boolean().optional(),
-});
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -87,7 +65,7 @@ const app = new Hono<AuthContext>()
           {
             tableId,
             name: body.name,
-            config: body.config,
+            query: body.query,
             ownerUserId: body.shared ? null : user.id,
           },
           user.id,
@@ -182,6 +160,34 @@ const app = new Hono<AuthContext>()
       const result = await gridsService.view.remove(viewId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
+    },
+  )
+
+  .post(
+    "/:viewId/restore",
+    describeRoute({
+      tags: ["Grids:View"],
+      summary: "Restore a soft-deleted view",
+      responses: {
+        200: jsonResponse(ViewSchema, "Restored"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const viewId = c.req.param("viewId");
+      const view = await gridsService.view.get(viewId, { includeDeleted: true });
+      if (!view) return c.json({ message: "View not found" }, 404);
+      const table = await gridsService.table.get(view.tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const user = c.get("user");
+      const isOwner = view.ownerUserId === user.id;
+      const requiredLevel = view.ownerUserId === null ? "write" : "read";
+      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, requiredLevel);
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      if (view.ownerUserId !== null && !isOwner) {
+        return c.json({ message: "Only the owner can restore a personal view" }, 403);
+      }
+      return respond(c, () => gridsService.view.restore(viewId, user.id));
     },
   );
 

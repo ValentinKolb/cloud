@@ -1,15 +1,24 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show } from "solid-js";
 import type { Field, GridRecord } from "../../service";
-import type { ViewColumn } from "../../service/views";
-import {
-  RECORD_DETAIL_EVENT,
-  setSelectedRecordInUrl,
-  getSelectedRecordIdFromUrl,
-  type RecordDetailMode,
-  type RecordDetailPayload,
-} from "./record-detail-context";
+import type { AggregationSpec } from "../../contracts";
+import type { ColumnSpec } from "../../service/views";
 import { formatCell } from "./format-cell";
 import { RecordLink } from "./RecordLink";
+
+/** Friendly label for an aggregation kind — used as the fallback when
+ *  the user didn't set a custom label on the aggregation row. */
+const AGG_LABELS: Record<string, string> = {
+  count: "values",
+  countEmpty: "empty",
+  countUnique: "unique",
+  sum: "Σ",
+  avg: "avg",
+  min: "min",
+  max: "max",
+  median: "median",
+  earliest: "earliest",
+  latest: "latest",
+};
 
 type Props = {
   baseId: string;
@@ -18,17 +27,22 @@ type Props = {
   records: GridRecord[];
   canWrite: boolean;
   /** "live" = edit/delete via the detail panel; "trash" = restore. */
-  mode?: RecordDetailMode;
-  /** Initial selected record id from `?record=<id>` (SSR). */
-  initialSelectedId?: string | null;
+  mode?: "live" | "trash";
+  /**
+   * Currently-selected record id (controlled by RecordsView). Drives
+   * the row highlight; row clicks emit via `onSelectRecord` rather
+   * than mutating the URL directly.
+   */
+  selectedId?: string | null;
+  /** Row click + keyboard activate. RecordsView handles URL sync. */
+  onSelectRecord: (record: GridRecord) => void;
   /**
    * Per-view rendered columns. Undefined = inherit table default
    * (every field where `!hideInTable`, sorted by `position`). Set =
-   * render exactly these in this order. v1 only honours
-   * `kind: "field"` — `kind: "join"` columns are silently skipped
-   * until slice #5 wires the server-side traversal.
+   * render exactly these in this order. Cross-table data is served
+   * by lookup/rollup field types, not view-level joins.
    */
-  viewColumns?: ViewColumn[];
+  viewColumns?: ColumnSpec[];
   /**
    * Pre-resolved labels for linked records, keyed by target record id.
    * Built SSR-side from every relation field on the visible page —
@@ -39,43 +53,32 @@ type Props = {
   relationLabels?: Record<string, string>;
   /**
    * Aggregate values keyed `<fieldId>__<agg>` (matches the API's keying).
-   * Rendered as a footer row: count for every field + sum for numerics.
-   * Empty object = footer row hidden (trash mode, empty table, etc).
+   * Rendered as a footer row, opt-in via `aggregationSpecs` — if the user
+   * didn't pick aggregations in the toolbar this is empty and the footer
+   * row hides entirely.
    */
   aggregates?: Record<string, unknown>;
+  /**
+   * The user-defined aggregation rows that produced `aggregates`. Lets
+   * the footer render in declaration order and pick up custom labels
+   * (`spec.label`). `*__count` rows are rendered under the leftmost
+   * visible field (Airtable convention for "row total").
+   */
+  aggregationSpecs?: AggregationSpec[];
 };
 
 /**
- * Records table. Rows are clickable: clicking a row sets `?record=<id>` on
- * the URL and dispatches the `grids-record-select` event so the
- * RecordDetailPanel mounted in the third column updates without a full SSR
- * round-trip. Edit / delete / restore actions live entirely in that panel
- * — there are no inline row buttons here anymore.
+ * Records table. Rows are clickable: clicking a row calls onSelectRecord
+ * with the record. RecordsView (the parent island) handles URL sync and
+ * detail-panel mounting. No URL writes / custom events from here.
  */
 export default function RecordsGrid(props: Props) {
-  const [selectedId, setSelectedId] = createSignal<string | null>(props.initialSelectedId ?? null);
-  const mode: RecordDetailMode = props.mode ?? "live";
-
-  // Listen for the detail-panel selection event so the highlight stays in
-  // sync when the user closes the panel or navigates back/forward.
-  onMount(() => {
-    const onEvent = (e: Event) => {
-      const payload = (e as CustomEvent<RecordDetailPayload>).detail;
-      setSelectedId(payload.itemKey);
-    };
-    const onPop = () => setSelectedId(getSelectedRecordIdFromUrl());
-    window.addEventListener(RECORD_DETAIL_EVENT, onEvent);
-    window.addEventListener("popstate", onPop);
-    onCleanup(() => {
-      window.removeEventListener(RECORD_DETAIL_EVENT, onEvent);
-      window.removeEventListener("popstate", onPop);
-    });
-  });
+  const mode: "live" | "trash" = props.mode ?? "live";
+  const selectedId = () => props.selectedId ?? null;
 
   /**
    * Resolves to the ordered list of `Field`s the table renders. When
-   * `viewColumns` is set, it dictates BOTH visibility and order; we
-   * filter to the field-kind columns and resolve each fieldId. When
+   * `viewColumns` is set, it dictates BOTH visibility and order. When
    * not set, we fall back to the table-level default: every field
    * where `!hideInTable && !deletedAt`, in `position` order.
    */
@@ -83,7 +86,6 @@ export default function RecordsGrid(props: Props) {
     if (props.viewColumns) {
       const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
       return props.viewColumns
-        .filter((c): c is Extract<ViewColumn, { kind: "field" }> => c.kind === "field")
         .map((c) => fieldsById.get(c.fieldId))
         .filter((f): f is Field => !!f && !f.deletedAt);
     }
@@ -95,9 +97,7 @@ export default function RecordsGrid(props: Props) {
   /** Looks up a per-column FormatSpec from the active view (if any). */
   const columnFormat = (fieldId: string) => {
     if (!props.viewColumns) return undefined;
-    const col = props.viewColumns.find(
-      (c) => c.kind === "field" && c.fieldId === fieldId,
-    );
+    const col = props.viewColumns.find((c) => c.fieldId === fieldId);
     return col && "format" in col ? col.format : undefined;
   };
 
@@ -165,10 +165,7 @@ export default function RecordsGrid(props: Props) {
     );
   };
 
-  const onRowClick = (rec: GridRecord) => {
-    setSelectedId(rec.id);
-    setSelectedRecordInUrl({ recordId: rec.id, record: rec, mode });
-  };
+  const onRowClick = (rec: GridRecord) => props.onSelectRecord(rec);
 
   const onRowKeyDown = (event: KeyboardEvent, rec: GridRecord) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -213,29 +210,51 @@ export default function RecordsGrid(props: Props) {
                 </For>
               </tr>
             </thead>
-            <Show when={props.aggregates && Object.keys(props.aggregates).length > 0}>
+            {/* Footer aggregations — opt-in via the toolbar's
+                Aggregations panel. Each row of the panel maps to a
+                line in the cell under its target field. `*` rows
+                ("count of rows") land under the leftmost visible
+                field, Airtable-style.
+
+                Reactivity gotcha: `props.aggregationSpecs` and
+                `props.aggregates` MUST be read inside JSX expressions
+                (or memos) — destructuring them into local consts
+                inside the For render-fn freezes the values at the
+                row's first render, so live updates from the toolbar
+                wouldn't show until the next page reload. */}
+            <Show when={(props.aggregationSpecs ?? []).length > 0}>
               <tfoot>
                 <tr class="border-t border-zinc-100 dark:border-zinc-800">
                   <For each={visibleFields()}>
-                    {(f) => {
-                      const agg = props.aggregates ?? {};
-                      const count = agg[`${f.id}__count`];
-                      const sum = agg[`${f.id}__sum`];
-                      return (
-                        <td class="px-3 py-1.5 text-[11px] text-dimmed">
-                          <Show when={count !== undefined && count !== null}>
-                            <span class="block whitespace-nowrap" title="non-empty count">
-                              {String(count)} {Number(count) === 1 ? "value" : "values"}
-                            </span>
-                          </Show>
-                          <Show when={sum !== undefined && sum !== null}>
-                            <span class="block whitespace-nowrap" title="sum">
-                              Σ {String(sum)}
-                            </span>
-                          </Show>
-                        </td>
-                      );
-                    }}
+                    {(f, i) => (
+                      <td class="px-3 py-1.5 text-[11px] text-dimmed">
+                        <For
+                          each={(props.aggregationSpecs ?? []).filter((s) =>
+                            s.fieldId === "*" ? i() === 0 : s.fieldId === f.id,
+                          )}
+                        >
+                          {(spec) => {
+                            const value = () =>
+                              (props.aggregates ?? {})[`${spec.fieldId}__${spec.agg}`];
+                            const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
+                            const label = spec.label?.trim() || fallbackLabel;
+                            return (
+                              <Show when={value() !== undefined && value() !== null}>
+                                <span
+                                  class="block whitespace-nowrap"
+                                  title={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}
+                                >
+                                  <span class="font-medium text-secondary">
+                                    {String(value())}
+                                  </span>{" "}
+                                  <span>{label}</span>
+                                </span>
+                              </Show>
+                            );
+                          }}
+                        </For>
+                      </td>
+                    )}
                   </For>
                 </tr>
               </tfoot>

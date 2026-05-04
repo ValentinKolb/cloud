@@ -29,7 +29,11 @@ describe("compileSort — validation", () => {
     if (!r.ok) expect(r.error).toMatch(/deleted/);
   });
 
-  test("rejects mixed asc/desc directions (with cursor)", () => {
+  test("accepts mixed asc/desc directions (Slice 7 unblock)", () => {
+    // v3: mixed directions are supported. Per-column orderGt handles
+    // per-direction comparisons; the id tiebreaker uses the FIRST
+    // column's direction for consistency. A pre-existing rejection
+    // here was conservative; the underlying logic always worked.
     const r = compileSort(
       [
         { fieldId: "fld_a", direction: "asc" },
@@ -38,13 +42,11 @@ describe("compileSort — validation", () => {
       fields,
       { values: ["x", 5], id: "00000000-0000-0000-0000-000000000001" },
     );
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/mixed/);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.result.fieldIds).toEqual(["fld_a", "fld_b"]);
   });
 
-  test("rejects mixed asc/desc directions on FIRST page (no cursor) too", () => {
-    // Codex chunk-1B regression: mixed-direction validation must run before
-    // the response so the API doesn't emit a cursor it can't follow.
+  test("accepts mixed directions on first page (no cursor) too", () => {
     const r = compileSort(
       [
         { fieldId: "fld_a", direction: "asc" },
@@ -53,8 +55,7 @@ describe("compileSort — validation", () => {
       fields,
       null,
     );
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/mixed/);
+    expect(r.ok).toBe(true);
   });
 
   test("succeeds with empty sort spec (no cursor)", () => {

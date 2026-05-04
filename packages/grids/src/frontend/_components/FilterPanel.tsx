@@ -1,5 +1,5 @@
-import { Index, Match, Show, Switch, createMemo } from "solid-js";
-import { navigateTo, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { Index, Match, Switch, createMemo } from "solid-js";
+import { DateTimeInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
 
@@ -9,38 +9,24 @@ export type FilterLeaf = {
   value?: unknown;
 };
 
+/**
+ * Strict-controlled input. Three props, no apply / dirty / URL logic —
+ * the surrounding GridToolbar (or any other parent) handles "commit
+ * this state". The toolbar uses `isFilterLeafComplete` to filter out
+ * partial rows when serialising the combined URL.
+ */
 type Props = {
   fields: Field[];
-  /** Controlled row state — owned by the parent so it can derive the
-   *  panel's visibility from `rows.length > 0`. */
   rows: () => FilterLeaf[];
   onRowsChange: (next: FilterLeaf[]) => void;
-  /** Filter currently committed (URL state OR persisted view config) —
-   *  used for the "dirty" check that gates the Apply button. */
-  initialFromUrl: FilterLeaf[];
-  /** Base URL — used by the default Apply behavior to navigate with the
-   *  serialized filter. Required when `onApply` is not set. */
-  baseUrl?: string;
-  /** When set, Apply calls this with the validated leaves instead of
-   *  navigating. Use this to wire the panel into a settings page that
-   *  persists into a view's config rather than the URL. */
-  onApply?: (leaves: FilterLeaf[]) => void;
 };
 
-const buildFilterUrl = (baseUrl: string, leaves: FilterLeaf[]): string => {
-  const url = new URL(baseUrl, "http://x");
-  if (leaves.length === 0) {
-    url.searchParams.delete("filter");
-    url.searchParams.delete("cursor");
-  } else {
-    const tree = { op: "AND" as const, filters: leaves };
-    url.searchParams.set("filter", JSON.stringify(tree));
-    url.searchParams.delete("cursor");
-  }
-  return `${url.pathname}${url.search}`;
-};
-
-const isComplete = (leaf: FilterLeaf, fields: Field[]): boolean => {
+/**
+ * Predicate exported for callers that want to validate filter leaves
+ * outside the panel — e.g. the GridToolbar's "Apply all" chip needs to
+ * filter out incomplete rows before serialising the combined URL.
+ */
+export const isFilterLeafComplete = (leaf: FilterLeaf, fields: Field[]): boolean => {
   const field = fields.find((f) => f.id === leaf.fieldId);
   if (!field) return false;
   const op = opsForType(field.type).find((o) => o.id === leaf.op);
@@ -69,15 +55,6 @@ export const blankLeaf = (fields: Field[]): FilterLeaf | null => {
 export default function FilterPanel(props: Props) {
   const fields = createMemo(() => filterableFields(props.fields));
 
-  const apply = () => {
-    const validated = props.rows().filter((l) => isComplete(l, props.fields));
-    if (props.onApply) {
-      props.onApply(validated);
-      return;
-    }
-    if (props.baseUrl) navigateTo(buildFilterUrl(props.baseUrl, validated));
-  };
-
   const updateLeaf = (index: number, patch: Partial<FilterLeaf>) => {
     const next = props.rows().map((l, i) => (i === index ? { ...l, ...patch } : l));
     // Field change → reset op to first valid op for new type
@@ -96,12 +73,6 @@ export default function FilterPanel(props: Props) {
     if (blank) props.onRowsChange([...props.rows(), blank]);
   };
   const removeLeaf = (index: number) => props.onRowsChange(props.rows().filter((_, i) => i !== index));
-
-  const dirty = createMemo(() => {
-    const a = JSON.stringify(props.initialFromUrl);
-    const b = JSON.stringify(props.rows().filter((l) => isComplete(l, props.fields)));
-    return a !== b;
-  });
 
   if (fields().length === 0) return null;
 
@@ -163,9 +134,8 @@ export default function FilterPanel(props: Props) {
         }}
       </Index>
 
-      {/* Bottom row — only Add + (conditional) Apply. The toolbar's
-          smart-Clear chip handles bulk-clear globally; per-panel Cancel
-          felt redundant. */}
+      {/* Bottom row — Add only. Apply is owned by the GridToolbar's
+          floating Apply/Cancel chips (one for the whole query state). */}
       <div class="flex items-center gap-1">
         <button
           type="button"
@@ -174,16 +144,6 @@ export default function FilterPanel(props: Props) {
         >
           <i class="ti ti-plus" /> Add
         </button>
-        <Show when={dirty()}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm btn-input-active ml-auto"
-            onClick={apply}
-            title="Apply filter"
-          >
-            <i class="ti ti-check" /> Apply
-          </button>
-        </Show>
       </div>
     </div>
   );
@@ -208,8 +168,8 @@ type ValueKind =
  *  - single-select fields (is / isNot): cloud Select over field options
  *  - any multi-value op (any-of / none-of / all-of / not-contains): TextInput
  *    (comma-separated → parsed to a string[] on input)
- *  - dates: native `<input type=date>` (or number for lastNDays)
- *  - numbers: native `<input type=number>` (keeps spinner widget)
+ *  - dates: cloud DateTimeInput dateOnly (or NumberInput for lastNDays)
+ *  - numbers: cloud NumberInput
  *  - text-shaped fallback: cloud TextInput
  *
  * IMPORTANT: this component is REACTIVE by way of Switch/Match — destructuring
@@ -255,9 +215,6 @@ function FilterValueInput(props: {
     return "text";
   });
 
-  const nativeClass =
-    "rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1.5 text-xs w-44";
-
   return (
     <Switch>
       {/* "none" → render nothing; covered by Switch's no-match fallback. */}
@@ -266,22 +223,47 @@ function FilterValueInput(props: {
         {(() => {
           const range = () =>
             Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""];
-          const inputType = () => (props.field?.type === "date" ? "date" : "number");
+          const isDate = () => props.field?.type === "date";
+          const numAt = (i: 0 | 1) => {
+            const v = range()[i];
+            const n = typeof v === "number" ? v : Number(v);
+            return Number.isFinite(n) ? n : undefined;
+          };
+          const dateAt = (i: 0 | 1) => {
+            const v = range()[i];
+            return typeof v === "string" ? v : "";
+          };
           return (
             <span class="flex items-center gap-1">
-              <input
-                type={inputType()}
-                class={nativeClass}
-                value={range()[0] != null ? String(range()[0]) : ""}
-                onInput={(e) => props.onChange([e.currentTarget.value, range()[1]])}
-              />
+              <div class="w-44">
+                {isDate() ? (
+                  <DateTimeInput
+                    dateOnly
+                    value={() => dateAt(0)}
+                    onChange={(v) => props.onChange([v, range()[1]])}
+                  />
+                ) : (
+                  <NumberInput
+                    value={() => numAt(0)}
+                    onChange={(v) => props.onChange([v, range()[1]])}
+                  />
+                )}
+              </div>
               <span class="text-dimmed">to</span>
-              <input
-                type={inputType()}
-                class={nativeClass}
-                value={range()[1] != null ? String(range()[1]) : ""}
-                onInput={(e) => props.onChange([range()[0], e.currentTarget.value])}
-              />
+              <div class="w-44">
+                {isDate() ? (
+                  <DateTimeInput
+                    dateOnly
+                    value={() => dateAt(1)}
+                    onChange={(v) => props.onChange([range()[0], v])}
+                  />
+                ) : (
+                  <NumberInput
+                    value={() => numAt(1)}
+                    onChange={(v) => props.onChange([range()[0], v])}
+                  />
+                )}
+              </div>
             </span>
           );
         })()}
@@ -310,7 +292,7 @@ function FilterValueInput(props: {
             value={() =>
               Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? "")
             }
-            onInput={(v) => {
+            onChange={(v) => {
               const parts = v
                 .split(",")
                 .map((s) => s.trim())
@@ -339,53 +321,48 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "number-days"}>
-        <input
-          type="number"
-          min="1"
-          class={nativeClass}
-          placeholder="days"
-          value={
-            typeof props.value === "number" || typeof props.value === "string"
-              ? String(props.value)
-              : ""
-          }
-          onInput={(e) => {
-            const n = e.currentTarget.valueAsNumber;
-            props.onChange(Number.isFinite(n) ? n : e.currentTarget.value);
-          }}
-        />
+        <div class="w-44">
+          <NumberInput
+            min={1}
+            placeholder="days"
+            value={() => {
+              const v = props.value;
+              const n = typeof v === "number" ? v : Number(v);
+              return Number.isFinite(n) ? n : undefined;
+            }}
+            onChange={(v) => props.onChange(v)}
+          />
+        </div>
       </Match>
 
       <Match when={kind() === "date"}>
-        <input
-          type="date"
-          class={nativeClass}
-          value={typeof props.value === "string" ? props.value : ""}
-          onInput={(e) => props.onChange(e.currentTarget.value)}
-        />
+        <div class="w-44">
+          <DateTimeInput
+            dateOnly
+            value={() => (typeof props.value === "string" ? props.value : "")}
+            onChange={(v) => props.onChange(v)}
+          />
+        </div>
       </Match>
 
       <Match when={kind() === "number"}>
-        <input
-          type="number"
-          class={nativeClass}
-          value={
-            typeof props.value === "number" || typeof props.value === "string"
-              ? String(props.value)
-              : ""
-          }
-          onInput={(e) => {
-            const n = e.currentTarget.valueAsNumber;
-            props.onChange(Number.isFinite(n) ? n : e.currentTarget.value);
-          }}
-        />
+        <div class="w-44">
+          <NumberInput
+            value={() => {
+              const v = props.value;
+              const n = typeof v === "number" ? v : Number(v);
+              return Number.isFinite(n) ? n : undefined;
+            }}
+            onChange={(v) => props.onChange(v)}
+          />
+        </div>
       </Match>
 
       <Match when={kind() === "text"}>
         <div class="w-44">
           <TextInput
             value={() => (typeof props.value === "string" ? props.value : "")}
-            onInput={(v) => props.onChange(v)}
+            onChange={(v) => props.onChange(v)}
           />
         </div>
       </Match>

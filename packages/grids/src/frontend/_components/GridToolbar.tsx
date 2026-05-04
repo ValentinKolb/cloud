@@ -1,0 +1,403 @@
+import { Show, createEffect, createSignal, on } from "solid-js";
+import { apiClient } from "@/api/client";
+import {
+  prompts,
+  refreshCurrentPath,
+} from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { Field, GridRecord, View } from "../../service";
+import type { ViewQuery } from "../../contracts";
+import { isUserEditable } from "./field-prompt-schema";
+import { openCreateRecordDialog } from "./CreateRecordDialog";
+import { errorMessage } from "./api-helpers";
+import FilterPanel, {
+  type FilterLeaf,
+  blankLeaf,
+  isFilterLeafComplete,
+} from "./FilterPanel";
+import SortPanel, {
+  type SortRow,
+  blankSortRow,
+  isSortRowComplete,
+} from "./SortPanel";
+import GroupByPanel, {
+  type GroupByRow,
+  blankGroupByRow,
+  isGroupByRowComplete,
+} from "./GroupByPanel";
+import AggregationsPanel, {
+  type AggregationRow,
+  isAggregationRowComplete,
+} from "./AggregationsPanel";
+
+type Props = {
+  baseId: string;
+  tableId: string;
+  fields: Field[];
+  initialFilter: FilterLeaf[];
+  initialSort: SortRow[];
+  initialGroupBy: GroupByRow[];
+  initialAggregations: AggregationRow[];
+  canWrite: boolean;
+  /**
+   * Emit the toolbar's current filter / sort / group / aggregations
+   * shape to the parent (RecordsView). The parent owns the canonical
+   * ViewQuery + URL sync; the toolbar is a pure controlled component
+   * here. Patch keys are `undefined` when their panel is empty so the
+   * parent can drop them from the URL representation.
+   */
+  onCommit: (patch: {
+    filter?: ViewQuery["filter"];
+    sort?: ViewQuery["sort"];
+    groupBy?: ViewQuery["groupBy"];
+    aggregations?: ViewQuery["aggregations"];
+  }) => void;
+  /**
+   * Emitted after a successful row create. The parent (RecordsView)
+   * opens the detail panel for the new record so the user can finish
+   * setting up relation fields — those can't live in the prompt-form
+   * (no relation input type), so the picker in the detail panel is the
+   * second step of the create flow.
+   */
+  onRecordCreated?: (recordId: string) => void;
+};
+
+/**
+ * Compact toolbar over the records table — uses the platform's
+ * `btn-input` / `btn-input-sm` / `btn-input-active` button pattern, so
+ * it visually matches every other dropdown trigger in the cloud.
+ *
+ * Filter and sort rows live up here so the panels below appear iff
+ * `rows.length > 0`. Clicking Filter / Sort directly appends a blank
+ * row — no separate "Add filter" click needed.
+ */
+export default function GridToolbar(props: Props) {
+  const [filterRows, setFilterRows] = createSignal<FilterLeaf[]>(props.initialFilter);
+  const [sortRows, setSortRows] = createSignal<SortRow[]>(props.initialSort);
+  const [groupByRows, setGroupByRows] = createSignal<GroupByRow[]>(props.initialGroupBy);
+  const [aggRows, setAggRows] = createSignal<AggregationRow[]>(props.initialAggregations);
+
+  const hasFilter = () => filterRows().length > 0;
+  const hasSort = () => sortRows().length > 0;
+  const hasGroupBy = () => groupByRows().length > 0;
+  const hasAgg = () => aggRows().length > 0;
+  const hasAnyQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg();
+
+  // Validators trim incomplete rows before emitting upstream — same
+  // contract as before, just propagated through onCommit instead of
+  // navigateTo.
+  const validFilter = () => filterRows().filter((l) => isFilterLeafComplete(l, props.fields));
+  const validSort = () => sortRows().filter((r) => isSortRowComplete(r, props.fields));
+  const validGroupBy = () => groupByRows().filter((r) => isGroupByRowComplete(r, props.fields));
+  const validAgg = () => aggRows().filter(isAggregationRowComplete);
+
+  // Auto-emit: every panel-signal change reports the toolbar's current
+  // shape to the parent. The parent decides whether the resulting query
+  // is a no-op vs a real change (it owns the canonical state + URL).
+  // `defer: true` skips the initial run from props-derived signal init.
+  createEffect(
+    on(
+      [filterRows, sortRows, groupByRows, aggRows],
+      () => {
+        const f = validFilter();
+        const s = validSort();
+        const g = validGroupBy();
+        const a = validAgg();
+        props.onCommit({
+          filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
+          sort: s.length > 0 ? s : undefined,
+          groupBy: g.length > 0 ? g : undefined,
+          aggregations: a.length > 0 ? a : undefined,
+        });
+      },
+      { defer: true },
+    ),
+  );
+
+  // ---- Add row -----------------------------------------------------------
+  // Single-step create: CreateRecordDialog renders all editable fields
+  // including relations (RelationPicker is embedded inline). The dialog
+  // resolves with the full payload, we POST it, and RecordsView refetches
+  // the resource. No separate prompts.form / detail-panel ping-pong.
+  const addMut = mutations.create<GridRecord, Record<string, unknown>>({
+    mutation: async (payload) => {
+      const res = await apiClient.records["by-table"][":tableId"].$post({
+        param: { tableId: props.tableId },
+        json: payload,
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create record"));
+      return (await res.json()) as GridRecord;
+    },
+    onSuccess: (created) => {
+      // Prefer the parent's hook (KISS, no full reload — RecordsView
+      // refetches its createResource and optionally opens the detail
+      // panel for the new row). Fall back to a full nav for any future
+      // caller that doesn't wire it up.
+      if (props.onRecordCreated) props.onRecordCreated(created.id);
+      else refreshCurrentPath();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleAddRow = async () => {
+    const liveFields = props.fields.filter((f) => !f.deletedAt);
+    // Quick guard: if the user has nothing they can fill out (all
+    // computed / system fields), bail with a useful message rather
+    // than open an empty dialog.
+    const fillable = liveFields.filter((f) => isUserEditable(f.type) || f.type === "relation");
+    if (fillable.length === 0) {
+      prompts.error("This table has no editable fields. Add one first.");
+      return;
+    }
+    const result = await openCreateRecordDialog({
+      fields: liveFields,
+      baseId: props.baseId,
+    });
+    if (!result) return;
+    addMut.mutate(result);
+  };
+
+  // ---- Filter / Sort one-click toggles ----------------------------------
+  // Click Filter when empty → append a blank row. Panel appears
+  // automatically because we render iff filterRows().length > 0.
+  // Click Filter when non-empty → append another row (matches the user's
+  // mental model: "Filter button = add a filter").
+  const onFilterClick = () => {
+    const blank = blankLeaf(props.fields);
+    if (blank) setFilterRows([...filterRows(), blank]);
+  };
+  const onSortClick = () => {
+    const blank = blankSortRow(props.fields);
+    if (blank) setSortRows([...sortRows(), blank]);
+  };
+  const onGroupClick = () => {
+    if (groupByRows().length >= 3) return; // .max(3) at the schema
+    const blank = blankGroupByRow(props.fields);
+    if (blank) setGroupByRows([...groupByRows(), blank]);
+  };
+  const onAggClick = () => {
+    // Default to "*" / count — the universally-useful starter.
+    setAggRows([...aggRows(), { fieldId: "*", agg: "count" }]);
+  };
+
+  // ---- Save as view ------------------------------------------------------
+  // Reads SIGNAL state, not URL state — so unapplied changes get
+  // captured too ("save what you see"). Once saved, the view is FROZEN:
+  // ViewEditPage only allows rename / share / delete. To change the
+  // query, the user clears + re-saves from the toolbar.
+  const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
+    mutation: async (input) => {
+      const f = validFilter();
+      const s = validSort();
+      const g = validGroupBy();
+      const a = validAgg();
+      const query = {
+        filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
+        sort: s.length > 0 ? s : undefined,
+        groupBy: g.length > 0 ? g : undefined,
+        aggregations: a.length > 0 ? a : undefined,
+      };
+      const res = await apiClient.views["by-table"][":tableId"].$post({
+        param: { tableId: props.tableId },
+        json: { name: input.name, query, shared: input.shared },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view"));
+      return (await res.json()) as View;
+    },
+    onSuccess: () => refreshCurrentPath(),
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleSaveView = async () => {
+    const result = await prompts.form({
+      title: "Save view",
+      icon: "ti ti-bookmark-plus",
+      fields: {
+        name: { type: "text", label: "Name", required: true, placeholder: "e.g. Open tasks" },
+        shared: {
+          type: "boolean",
+          label: props.canWrite
+            ? "Share with everyone who can read this table"
+            : "Share (requires table-write)",
+          default: false,
+        },
+      },
+      confirmText: "Save",
+    });
+    if (!result) return;
+    if (result.shared && !props.canWrite) {
+      prompts.error("You don't have permission to share views on this table.");
+      return;
+    }
+    saveViewMut.mutate({ name: String(result.name).trim(), shared: Boolean(result.shared) });
+  };
+
+  // ---- Clear filter and/or sort (smart label) ---------------------------
+  // Builds a label that names exactly what's currently active so the user
+  // sees "Clear filter", "Clear sort", or "Clear filter & sort" depending
+  // on which URL params are set.
+  const clearLabel = () => {
+    const parts: string[] = [];
+    if (hasFilter()) parts.push("filter");
+    if (hasSort()) parts.push("sort");
+    if (hasGroupBy()) parts.push("group");
+    if (hasAgg()) parts.push("aggregations");
+    if (parts.length === 0) return "Clear";
+    if (parts.length === 1) return `Clear ${parts[0]}`;
+    return `Clear ${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}`;
+  };
+  const clearAll = () => {
+    // Each setter triggers the auto-emit createEffect above, which calls
+    // onCommit with the now-empty patch. The parent (RecordsView) handles
+    // URL sync — this is just toolbar-local state.
+    setFilterRows([]);
+    setSortRows([]);
+    setGroupByRows([]);
+    setAggRows([]);
+  };
+
+  // GridToolbar is only rendered in live + non-view mode (RecordsView
+  // wraps it in `<Show when={!viewMode && !trashMode}>`). So this whole
+  // file no longer needs to handle trash mode or view mode — Add row,
+  // every panel, every action button is unconditionally meaningful here.
+  return (
+    <div class="flex flex-col gap-2">
+      <div class="flex flex-wrap items-center gap-2">
+        {/* Add row — leftmost. Uses the same btn-input style as the rest. */}
+        <Show when={props.canWrite}>
+          <button
+            type="button"
+            class="btn-input btn-input-sm"
+            onClick={handleAddRow}
+            disabled={addMut.loading()}
+          >
+            <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
+              <i class="ti ti-loader-2 animate-spin" />
+            </Show>
+            Add row
+          </button>
+        </Show>
+
+        {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
+        <button
+          type="button"
+          class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
+          onClick={onFilterClick}
+        >
+          <i class="ti ti-filter" />
+          Filter
+        </button>
+
+        {/* Sort */}
+        <button
+          type="button"
+          class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`}
+          onClick={onSortClick}
+        >
+          <i class="ti ti-arrows-sort" />
+          Sort
+        </button>
+
+        {/* Group — multi-level (max 3); records area switches to
+            GroupedTable when groupBy is set. */}
+        <button
+          type="button"
+          class={`btn-input btn-input-sm ${hasGroupBy() ? "btn-input-active" : ""}`}
+          onClick={onGroupClick}
+        >
+          <i class="ti ti-list-tree" />
+          Group
+        </button>
+
+        {/* Aggregate — without groupBy: footer row. With groupBy: bucket
+            columns. */}
+        <button
+          type="button"
+          class={`btn-input btn-input-sm ${hasAgg() ? "btn-input-active" : ""}`}
+          onClick={onAggClick}
+        >
+          <i class="ti ti-sigma" />
+          Aggregate
+        </button>
+
+        {/* Smart Clear — appears when any query dimension is active.
+            Label names exactly what goes away. */}
+        <Show when={hasAnyQuery()}>
+          <button
+            type="button"
+            class="btn-input btn-input-sm text-red-500"
+            onClick={clearAll}
+            title={clearLabel()}
+          >
+            <i class="ti ti-filter-off" />
+            {clearLabel()}
+          </button>
+        </Show>
+
+        {/* Save as view — captures the current query into a frozen
+            preset. ViewEditPage handles renaming / sharing; the query
+            becomes read-only after save. */}
+        <Show when={hasAnyQuery()}>
+          <button
+            type="button"
+            class="btn-input btn-input-sm text-emerald-700 dark:text-emerald-300 ml-auto"
+            onClick={handleSaveView}
+            disabled={saveViewMut.loading()}
+            title="Save current filter / sort / group / aggregations as a view"
+          >
+            <i class="ti ti-bookmark-plus" />
+            Save as view
+          </button>
+        </Show>
+      </div>
+
+      {/* Filter panel — render iff there's at least one filter row */}
+      <Show when={hasFilter()}>
+        <div class="paper p-3">
+          <FilterPanel
+            fields={props.fields}
+            rows={filterRows}
+            onRowsChange={setFilterRows}
+          />
+        </div>
+      </Show>
+
+      {/* Sort panel */}
+      <Show when={hasSort()}>
+        <div class="paper p-3">
+          <SortPanel
+            fields={props.fields}
+            rows={sortRows}
+            onRowsChange={setSortRows}
+          />
+        </div>
+      </Show>
+
+      {/* Group-by panel */}
+      <Show when={hasGroupBy()}>
+        <div class="paper p-3">
+          <GroupByPanel
+            fields={props.fields}
+            rows={groupByRows}
+            onRowsChange={setGroupByRows}
+          />
+        </div>
+      </Show>
+
+      {/* Aggregations panel */}
+      <Show when={hasAgg()}>
+        <div class="paper p-3">
+          <AggregationsPanel
+            fields={props.fields}
+            rows={aggRows}
+            onRowsChange={setAggRows}
+          />
+        </div>
+      </Show>
+
+      {/* No Apply / Cancel chips — auto-commit on every signal change
+          (debounced 300ms) handles it. URL stays the source of truth so
+          reload / copy-paste / save-as-view all work. */}
+    </div>
+  );
+}

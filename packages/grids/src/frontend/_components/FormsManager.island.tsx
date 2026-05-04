@@ -50,7 +50,11 @@ export default function FormsManager(props: Props) {
     const eligibleFields = props.fields.filter((f) => !f.deletedAt && isUserEditable(f.type));
     // Default config = include every editable field, in declared order.
     const config: FormConfig = {
-      fields: eligibleFields.map((f) => ({ fieldId: f.id, required: f.required })),
+      fields: eligibleFields.map((f) => ({
+        kind: "user_input" as const,
+        fieldId: f.id,
+        required: f.required,
+      })),
     };
     const res = await apiClient.forms["by-table"][":tableId"].$post({
       param: { tableId: props.tableId },
@@ -227,7 +231,13 @@ function FormEditor(props: {
   const addEntry = (fieldId: string) => {
     const f = fieldById().get(fieldId);
     if (!f) return;
-    setEntries([...entries(), { fieldId, required: f.required }]);
+    // Default kind is `user_input` — the form_value variant is a power-
+    // user feature and gets a separate UI path (TBD; for now editing
+    // it requires hand-crafting the JSON in the API).
+    setEntries([
+      ...entries(),
+      { kind: "user_input", fieldId, required: f.required },
+    ]);
     setDirty(true);
   };
 
@@ -236,8 +246,20 @@ function FormEditor(props: {
     setDirty(true);
   };
 
-  const updateEntry = (index: number, patch: Partial<FormFieldEntry>) => {
-    setEntries(entries().map((e, i) => (i === index ? { ...e, ...patch } : e)));
+  /**
+   * Patch a user_input entry. form_value entries are read-only in this
+   * UI — to edit them today the user has to PATCH the form via the API
+   * directly. A dedicated form_value editor is a follow-up.
+   */
+  const updateEntry = (
+    index: number,
+    patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>,
+  ) => {
+    setEntries(entries().map((e, i) => {
+      if (i !== index) return e;
+      if (e.kind !== "user_input") return e;
+      return { ...e, ...patch };
+    }));
     setDirty(true);
   };
 
@@ -355,6 +377,30 @@ function FormEditor(props: {
               {(entry, idx) => {
                 const f = fieldById().get(entry.fieldId);
                 if (!f) return null;
+                if (entry.kind === "form_value") {
+                  // Read-only summary tile for form_value entries.
+                  // Editing them requires a dedicated UI (TBD); for now
+                  // power-users patch via the API directly.
+                  return (
+                    <li class="paper p-3 flex items-center gap-2">
+                      <i class="ti ti-lock text-dimmed" />
+                      <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                        <span class="text-sm font-medium text-primary truncate">{f.name}</span>
+                        <span class="text-[10px] text-dimmed">server-applied: {String(entry.value)}</span>
+                      </span>
+                      <button
+                        type="button"
+                        class="text-dimmed hover:text-red-500 px-1"
+                        onClick={() => removeEntry(idx())}
+                        title="Remove from form"
+                        aria-label="Remove from form"
+                      >
+                        <i class="ti ti-x" />
+                      </button>
+                    </li>
+                  );
+                }
+                // entry.kind === "user_input"
                 const required = () => entry.required ?? f.required;
                 return (
                   <li class="paper p-3 flex flex-col gap-2">

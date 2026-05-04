@@ -6,13 +6,31 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import { gateAt } from "./permissions";
 
-const FormFieldEntrySchema = z.object({
-  fieldId: z.string(),
+// v3 Slice 6: tagged-union FormFieldEntry. Pre-v3 entries (no `kind`)
+// are normalized to user_input by the service layer on read; the API
+// contract still requires the discriminator on writes.
+//
+// IMPORTANT: never reuse this for the *public* form response. form_value
+// entries' `value` field MUST NOT leak to anonymous callers — that's
+// the whole point of server-side application. The PublicFormSchema
+// further down strips them.
+const UserInputEntrySchema = z.object({
+  kind: z.literal("user_input"),
+  fieldId: z.string().uuid(),
   label: z.string().optional(),
   helpText: z.string().optional(),
   required: z.boolean().optional(),
   defaultValue: z.unknown().optional(),
 });
+const FormValueEntrySchema = z.object({
+  kind: z.literal("form_value"),
+  fieldId: z.string().uuid(),
+  value: z.unknown(),
+});
+const FormFieldEntrySchema = z.discriminatedUnion("kind", [
+  UserInputEntrySchema,
+  FormValueEntrySchema,
+]);
 
 const FormConfigSchema = z.object({
   title: z.string().optional(),
@@ -23,18 +41,61 @@ const FormConfigSchema = z.object({
   redirectUrl: z.string().nullable().optional(),
 });
 
+// FieldSnapshot lives on the response; we don't expose its schema in
+// detail because it mirrors FieldSchema and would be a maintenance
+// burden to keep in sync. z.unknown() lets clients use it raw.
 const FormSchema = z.object({
   id: z.string(),
   tableId: z.string().uuid(),
   name: z.string(),
   config: FormConfigSchema,
+  fieldSnapshot: z.array(z.unknown()),
   publicToken: z.string().nullable(),
   isActive: z.boolean(),
   ownerUserId: z.string().uuid().nullable(),
   position: z.number().int(),
   isDefault: z.boolean(),
+  deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+});
+
+// Public DTO returned from /forms/public/:token. Strips:
+//   - form_value entries (their `value` is server-managed, mustn't leak)
+//   - fieldSnapshot (internal — schema details aren't part of the public surface)
+//   - ownerUserId / deletedAt / publicToken / position / isDefault
+//   - timestamps (not useful to anonymous callers)
+// Title, description, submitLabel, successMessage, redirectUrl,
+// user_input field entries — all rendered, all safe to ship.
+const PublicFormSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  config: z.object({
+    title: z.string().optional(),
+    description: z.string().optional(),
+    fields: z.array(UserInputEntrySchema),
+    submitLabel: z.string().optional(),
+    successMessage: z.string().optional(),
+    redirectUrl: z.string().nullable().optional(),
+  }),
+});
+
+const toPublicForm = (
+  f: import("../service/forms").Form,
+): z.infer<typeof PublicFormSchema> => ({
+  id: f.id,
+  name: f.name,
+  config: {
+    title: f.config.title,
+    description: f.config.description,
+    fields: f.config.fields.filter(
+      (e): e is Extract<typeof f.config.fields[number], { kind: "user_input" }> =>
+        e.kind === "user_input",
+    ),
+    submitLabel: f.config.submitLabel,
+    successMessage: f.config.successMessage,
+    redirectUrl: f.config.redirectUrl,
+  },
 });
 const FormListSchema = z.array(FormSchema);
 
@@ -62,9 +123,9 @@ const app = new Hono<AuthContext>()
     "/public/:token",
     describeRoute({
       tags: ["Grids:Form"],
-      summary: "Fetch a public form by its share token",
+      summary: "Fetch a public form by its share token (anonymous)",
       responses: {
-        200: jsonResponse(FormSchema, "Form"),
+        200: jsonResponse(PublicFormSchema, "Public form (sensitive fields stripped)"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
@@ -72,7 +133,10 @@ const app = new Hono<AuthContext>()
       const token = c.req.param("token");
       const form = await gridsService.form.getByPublicToken(token);
       if (!form) return c.json({ message: "Form not found" }, 404);
-      return c.json(form);
+      // Strip form_value entries' values, fieldSnapshot, ownerUserId,
+      // publicToken, timestamps. Anonymous callers see only what they
+      // need to render the form — nothing else.
+      return c.json(toPublicForm(form));
     },
   )
 
@@ -95,29 +159,44 @@ const app = new Hono<AuthContext>()
 
       const submitted = c.req.valid("json");
       const formFields = form.config.fields ?? [];
-      const allowedIds = new Set(formFields.map((f) => f.fieldId));
 
-      // Reject any field the form doesn't expose. Public callers must NOT
-      // be able to set fields the form-author chose to hide; otherwise a
-      // form that asks for {name, email} could be abused to set
-      // {name, email, internal_status, billing_amount, …}.
+      // v3 Slice 6: split entries by kind. user_input fields accept
+      // payload from the caller; form_value fields are SERVER-applied
+      // and the user's payload for those keys is rejected (so a form
+      // that locks `source = "website"` can't be subverted by a
+      // hand-crafted POST with `{source: "...", ...}`).
+      const userInputIds = new Set<string>();
+      const formValueIds = new Set<string>();
+      for (const e of formFields) {
+        if (e.kind === "user_input") userInputIds.add(e.fieldId);
+        else formValueIds.add(e.fieldId);
+      }
+
       for (const key of Object.keys(submitted)) {
-        if (!allowedIds.has(key)) {
+        if (formValueIds.has(key)) {
+          return c.json({ message: `Field "${key}" is server-managed and cannot be set via the form` }, 400);
+        }
+        if (!userInputIds.has(key)) {
           return c.json({ message: `Field "${key}" is not part of this form` }, 400);
         }
       }
 
-      // Apply form-level defaults + required overrides on top of the
-      // submission. Defaults fill in for fields the user didn't touch;
-      // missing required fields produce a clear 400.
+      // Build payload: user input first, then user_input defaults for
+      // missing keys, then form_value entries (which always win — they
+      // can't be overridden because the user's payload was rejected
+      // upstream).
       const payload: Record<string, unknown> = { ...submitted };
-      for (const f of formFields) {
-        if (payload[f.fieldId] === undefined && f.defaultValue !== undefined && f.defaultValue !== null) {
-          payload[f.fieldId] = f.defaultValue;
+      for (const e of formFields) {
+        if (e.kind !== "user_input") continue;
+        if (payload[e.fieldId] === undefined && e.defaultValue !== undefined && e.defaultValue !== null) {
+          payload[e.fieldId] = e.defaultValue;
         }
-        if (f.required && (payload[f.fieldId] === undefined || payload[f.fieldId] === null || payload[f.fieldId] === "")) {
-          return c.json({ message: `Field "${f.fieldId}" is required` }, 400);
+        if (e.required && (payload[e.fieldId] === undefined || payload[e.fieldId] === null || payload[e.fieldId] === "")) {
+          return c.json({ message: `Field "${e.fieldId}" is required` }, 400);
         }
+      }
+      for (const e of formFields) {
+        if (e.kind === "form_value") payload[e.fieldId] = e.value;
       }
 
       // Anonymous submissions: actorId is null. Record service stamps
@@ -214,11 +293,31 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  .post(
+    "/:formId/re-snapshot",
+    describeRoute({
+      tags: ["Grids:Form"],
+      summary: "Refresh the form's frozen field snapshot from current fields",
+      responses: { 200: jsonResponse(FormSchema, "Re-snapshotted") },
+    }),
+    async (c) => {
+      const formId = c.req.param("formId");
+      const form = await gridsService.form.get(formId);
+      if (!form) return c.json({ message: "Form not found" }, 404);
+      const table = await gridsService.table.get(form.tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(c, () => gridsService.form.reSnapshot(formId, user.id));
+    },
+  )
+
   .delete(
     "/:formId",
     describeRoute({
       tags: ["Grids:Form"],
-      summary: "Delete a form",
+      summary: "Delete a form (soft-delete; restorable for 30 days)",
       responses: { 204: { description: "Deleted" } },
     }),
     async (c) => {
@@ -233,6 +332,29 @@ const app = new Hono<AuthContext>()
       const result = await gridsService.form.remove(formId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
+    },
+  )
+
+  .post(
+    "/:formId/restore",
+    describeRoute({
+      tags: ["Grids:Form"],
+      summary: "Restore a soft-deleted form",
+      responses: {
+        200: jsonResponse(FormSchema, "Restored"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const formId = c.req.param("formId");
+      const form = await gridsService.form.get(formId, { includeDeleted: true });
+      if (!form) return c.json({ message: "Form not found" }, 404);
+      const table = await gridsService.table.get(form.tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(c, () => gridsService.form.restore(formId, user.id));
     },
   );
 

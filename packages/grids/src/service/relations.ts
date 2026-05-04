@@ -8,142 +8,155 @@ import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-/**
- * Walks a record's relation field, fetches the target records, and
- * projects the given field on each. Used by both lookup (single value
- * passthrough) and rollup (aggregate over the values).
- *
- * Batched: fetches every linked record across the page in ONE query
- * so the read pipeline stays O(pages) rather than O(records-per-page).
- */
-export const fetchLinkedValuesBatched = async (params: {
-  records: GridRecord[];
-  relationField: Field;
-  targetFieldId: string;
-}): Promise<Map<string, unknown[]>> => {
-  // Collect every record-id this page links to via the relation field.
-  const allTargetIds = new Set<string>();
-  const perRecord = new Map<string, string[]>();
-  for (const rec of params.records) {
-    const v = rec.data[params.relationField.id];
-    const ids = Array.isArray(v) ? (v as string[]) : typeof v === "string" ? [v] : [];
-    perRecord.set(rec.id, ids);
-    for (const id of ids) allTargetIds.add(id);
-  }
-  if (allTargetIds.size === 0) {
-    return new Map(params.records.map((r) => [r.id, []]));
-  }
+// =============================================================================
+// record_links junction-table helpers (v3)
+// =============================================================================
+// All relation-field reads/writes go through this layer. The previous
+// JSONB-array storage in `records.data` is no longer the source of truth
+// for relations — record_links is. The records-list pipeline hydrates
+// each record's `data[relationFieldId]` from record_links just before
+// returning, so consumers that read `record.data[fieldId]` keep working
+// unchanged.
 
-  // Fetch the projected field from every target record in one go,
-  // constrained to the relation's configured target table. Without the
-  // table filter, a UUID from another table would silently leak its
-  // data into the lookup / rollup pipeline.
-  const targetTableId = (params.relationField.config as { targetTableId?: string }).targetTableId;
-  if (!targetTableId) {
-    return new Map(params.records.map((r) => [r.id, []]));
-  }
-  const ids = `{${[...allTargetIds].join(",")}}`;
-  const rows = await sql<DbRow[]>`
-    SELECT id, data
+/**
+ * Pre-flight check for a relation-write. Verifies every target id
+ * exists and lives in the relation's configured target table, and
+ * isn't soft-deleted. Returns the list of missing ids if any — the
+ * caller surfaces this as a 400 BEFORE doing any DB mutation, so
+ * we never end up with partial link state.
+ *
+ * Single round-trip — `id = ANY(uuid[])` plus a target-table filter.
+ */
+export const validateRelationTargets = async (
+  targetTableId: string,
+  targetIds: string[],
+): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
+  if (targetIds.length === 0) return { ok: true };
+  const arr = `{${targetIds.join(",")}}`;
+  const rows = await sql<{ id: string }[]>`
+    SELECT id::text AS id
     FROM grids.records
-    WHERE id = ANY(${ids}::uuid[])
+    WHERE id = ANY(${arr}::uuid[])
       AND table_id = ${targetTableId}::uuid
       AND deleted_at IS NULL
   `;
-  const valuesById = new Map<string, unknown>();
-  for (const row of rows) {
-    const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
-    valuesById.set(row.id as string, data[params.targetFieldId]);
-  }
-
-  // Map each source record back to its array of projected target values.
-  const result = new Map<string, unknown[]>();
-  for (const rec of params.records) {
-    const ids = perRecord.get(rec.id) ?? [];
-    result.set(
-      rec.id,
-      ids.map((tid) => valuesById.get(tid)).filter((v) => v !== undefined),
-    );
-  }
-  return result;
+  const found = new Set(rows.map((r) => r.id));
+  const missing = targetIds.filter((id) => !found.has(id));
+  return missing.length === 0 ? { ok: true } : { ok: false, missing };
 };
 
 /**
- * Computes lookup + rollup values for a page of records and merges them
- * into each record's `data`. Relation fields stay as their raw id arrays
- * (consumers can render labels separately). Errors per-field are swallowed
- * — a misconfigured rollup shouldn't break the whole list response.
+ * Replaces the link list for (recordId, fieldId) atomically. Used by
+ * record-create and record-update for every relation field in the
+ * payload. Targets are written in the order given (used as `position`).
+ *
+ * Single transaction: DELETE existing rows for this (record, field),
+ * then INSERT the new set. Both sides of an empty target list are
+ * handled — passing `[]` clears all links.
+ *
+ * Pre-flight target existence is the caller's job — call
+ * `validateRelationTargets` first to avoid orphan-record states on
+ * partial failure.
  */
-export const enrichRecordsWithLookups = async (
+export const writeRecordLinks = async (
+  fromRecordId: string,
+  fromFieldId: string,
+  toRecordIds: string[],
+): Promise<void> => {
+  await sql.begin(async (tx) => {
+    await tx`
+      DELETE FROM grids.record_links
+      WHERE from_record_id = ${fromRecordId}::uuid
+        AND from_field_id = ${fromFieldId}::uuid
+    `;
+    if (toRecordIds.length === 0) return;
+    // Build a single VALUES tuple list so the INSERT runs in one round-trip.
+    // Position preserves the user-ordered cardinality:multiple semantic.
+    const values = toRecordIds
+      .map((id, i) => tx`(${fromRecordId}::uuid, ${fromFieldId}::uuid, ${id}::uuid, ${i})`)
+      .reduce((acc, cur) => tx`${acc}, ${cur}`);
+    await tx`
+      INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
+      VALUES ${values}
+      ON CONFLICT (from_record_id, from_field_id, to_record_id) DO UPDATE
+        SET position = EXCLUDED.position
+    `;
+  });
+};
+
+/**
+ * Batch-fetches links for a set of records across multiple relation
+ * fields. Returns a nested map `recordId → fieldId → toRecordId[]`,
+ * preserving link order. ONE round-trip regardless of how many records
+ * or fields — keeps the records-list hot path linear.
+ *
+ * Empty record list or empty field list → empty map.
+ */
+export const readRecordLinksBatch = async (
+  recordIds: string[],
+  fieldIds: string[],
+): Promise<Map<string, Map<string, string[]>>> => {
+  const out = new Map<string, Map<string, string[]>>();
+  if (recordIds.length === 0 || fieldIds.length === 0) return out;
+  const recArr = `{${recordIds.join(",")}}`;
+  const fldArr = `{${fieldIds.join(",")}}`;
+  const rows = await sql<DbRow[]>`
+    SELECT from_record_id, from_field_id, to_record_id, position
+    FROM grids.record_links
+    WHERE from_record_id = ANY(${recArr}::uuid[])
+      AND from_field_id  = ANY(${fldArr}::uuid[])
+    ORDER BY from_record_id, from_field_id, position
+  `;
+  for (const row of rows) {
+    const rid = row.from_record_id as string;
+    const fid = row.from_field_id as string;
+    const tid = row.to_record_id as string;
+    let perRec = out.get(rid);
+    if (!perRec) {
+      perRec = new Map();
+      out.set(rid, perRec);
+    }
+    const arr = perRec.get(fid) ?? [];
+    arr.push(tid);
+    perRec.set(fid, arr);
+  }
+  return out;
+};
+
+/**
+ * Hydrates `record.data[relationFieldId]` for every relation field on
+ * the table by reading from record_links. Mutates the records in place
+ * (consistent with the other enrichment helpers). Old JSONB-array
+ * values get overwritten — record_links is the source of truth.
+ *
+ * Empty input → no-op. Tables with no relation fields → no-op.
+ */
+export const hydrateRelationsFromLinks = async (
   records: GridRecord[],
   fields: Field[],
-): Promise<GridRecord[]> => {
-  const computedFields = fields.filter(
-    (f) => !f.deletedAt && (f.type === "lookup" || f.type === "rollup"),
+): Promise<void> => {
+  if (records.length === 0) return;
+  const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
+  if (relationFields.length === 0) return;
+  const links = await readRecordLinksBatch(
+    records.map((r) => r.id),
+    relationFields.map((f) => f.id),
   );
-  if (computedFields.length === 0) return records;
-
-  const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  // Lookups + rollups can target relations on the SAME table only (Phase 4
-  // doesn't traverse multi-hop). The targetFieldId resolves on the OTHER
-  // table; we need its metadata for type-aware aggregation.
-  for (const computed of computedFields) {
-    const config = computed.config as {
-      relationFieldId?: string;
-      targetFieldId?: string;
-      agg?: "count" | "sum" | "avg" | "min" | "max";
-    };
-    if (!config.relationFieldId || !config.targetFieldId) continue;
-    const relationField = fieldsById.get(config.relationFieldId);
-    if (!relationField || relationField.type !== "relation") continue;
-
-    let valuesByRecord: Map<string, unknown[]>;
-    try {
-      valuesByRecord = await fetchLinkedValuesBatched({
-        records,
-        relationField,
-        targetFieldId: config.targetFieldId,
-      });
-    } catch {
-      continue;
-    }
-
-    for (const rec of records) {
-      const linked = valuesByRecord.get(rec.id) ?? [];
-      if (computed.type === "lookup") {
-        // First non-empty value (or null). Multi-link lookup picks the
-        // first match — power users can switch to rollup for a real
-        // aggregate.
-        rec.data[computed.id] = linked.find((v) => v !== null && v !== undefined) ?? null;
-        continue;
-      }
-      // rollup
-      const numeric = linked
-        .map((v) => (typeof v === "number" ? v : Number(v)))
-        .filter((n) => Number.isFinite(n));
-      switch (config.agg) {
-        case "count":
-          rec.data[computed.id] = linked.length;
-          break;
-        case "sum":
-          rec.data[computed.id] = numeric.reduce((a, b) => a + b, 0);
-          break;
-        case "avg":
-          rec.data[computed.id] = numeric.length === 0 ? null : numeric.reduce((a, b) => a + b, 0) / numeric.length;
-          break;
-        case "min":
-          rec.data[computed.id] = numeric.length === 0 ? null : Math.min(...numeric);
-          break;
-        case "max":
-          rec.data[computed.id] = numeric.length === 0 ? null : Math.max(...numeric);
-          break;
-        default:
-          rec.data[computed.id] = null;
-      }
+  for (const rec of records) {
+    const perRec = links.get(rec.id);
+    for (const rf of relationFields) {
+      rec.data[rf.id] = perRec?.get(rf.id) ?? [];
     }
   }
-  return records;
 };
+
+// v3 Slice 4: lookup/rollup VALUES are computed in the main records
+// query as correlated subqueries over record_links (see
+// `service/computed-projections.ts`). The previous JS-side enrichment
+// pass — fetchLinkedValuesBatched + enrichRecordsWithLookups — has been
+// deleted. Single source of truth (SQL), single round-trip per page,
+// and filter/sort/group on lookup/rollup values is a tractable
+// extension for Slice 8.
 
 /**
  * Topologically orders formula fields by their inter-formula references.
@@ -225,20 +238,6 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
 };
 
 /**
- * Convenience: looks up the active fields for a table, then enriches
- * with both lookup/rollup values AND formula display strings. Used at
- * the records.list boundary so callers don't need to know about the
- * computed-field plumbing.
- */
-export const enrichRecordsForTable = async (records: GridRecord[], tableId: string): Promise<GridRecord[]> => {
-  if (records.length === 0) return records;
-  const fields = await listFields(tableId);
-  await enrichRecordsWithLookups(records, fields);
-  enrichRecordsWithFormulas(records, fields);
-  return records;
-};
-
-/**
  * SSR helper: walks every relation field on the visible records and
  * builds `recordId → label` for every linked target record. Labels
  * use the target table's `presentable` fields (joined with " · "),
@@ -256,18 +255,23 @@ export const buildRelationLabelCache = async (
   const fieldsByTargetTable = new Map<string, { displayFieldId?: string }>();
 
   const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
+  if (relationFields.length === 0 || records.length === 0) return {};
+
+  // v3: pull links from record_links in one batch; the JSONB array on
+  // record.data is no longer authoritative.
+  const links = await readRecordLinksBatch(
+    records.map((r) => r.id),
+    relationFields.map((rf) => rf.id),
+  );
+
   for (const rf of relationFields) {
     const cfg = rf.config as { targetTableId?: string; displayFieldId?: string };
     if (!cfg.targetTableId) continue;
     fieldsByTargetTable.set(cfg.targetTableId, { displayFieldId: cfg.displayFieldId });
     const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
     for (const rec of records) {
-      const v = rec.data[rf.id];
-      if (Array.isArray(v)) {
-        for (const id of v) if (typeof id === "string") set.add(id);
-      } else if (typeof v === "string" && v.length > 0) {
-        set.add(v);
-      }
+      const linked = links.get(rec.id)?.get(rf.id);
+      if (linked) for (const id of linked) set.add(id);
     }
     idsByTargetTable.set(cfg.targetTableId, set);
   }
@@ -308,6 +312,96 @@ export const buildRelationLabelCache = async (
     }
   }
   return cache;
+};
+
+/**
+ * Search records of a target table by free text on its presentable
+ * fields, returning up-to-N `{ id, label }` pairs for the relation
+ * picker. Powers `GET /api/grids/tables/:tableId/lookup` — used by the
+ * record-detail panel to let the user pick records to link.
+ *
+ * Search semantics: ILIKE on each text-shaped presentable field, OR'd.
+ * Empty `q` → recent records (no filter), so an empty picker still
+ * shows results to choose from.
+ *
+ * `excludeIds` lets the caller hide already-linked records from the
+ * dropdown so the user can't pick the same row twice.
+ */
+export const lookupRecords = async (params: {
+  targetTableId: string;
+  q?: string | null;
+  limit?: number;
+  excludeIds?: string[];
+}): Promise<{ items: { id: string; label: string }[] }> => {
+  const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
+  const fields = await listFields(params.targetTableId);
+  const presentable = fields
+    .filter((f) => !f.deletedAt && f.presentable)
+    .sort((a, b) => a.position - b.position);
+
+  // Searchable fields: text-shaped presentables. If no presentables are
+  // configured, fall back to every text-shaped field so the picker can
+  // at least find rows by id-prefix or any visible text content.
+  const TEXT_TYPES = new Set([
+    "text",
+    "longtext",
+    "email",
+    "url",
+    "phone",
+    "slug",
+    "barcode",
+    "isbn",
+  ]);
+  const searchTargets = (presentable.length > 0 ? presentable : fields)
+    .filter((f) => !f.deletedAt && TEXT_TYPES.has(f.type));
+
+  const conditions: any[] = [
+    sql`table_id = ${params.targetTableId}::uuid`,
+    sql`deleted_at IS NULL`,
+  ];
+
+  const q = params.q?.trim();
+  if (q && searchTargets.length > 0) {
+    const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const orClauses = searchTargets.map(
+      (f) => sql`data->>${f.id} ILIKE ${pattern}`,
+    );
+    const orClause = orClauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+    conditions.push(sql`(${orClause})`);
+  }
+
+  if (params.excludeIds && params.excludeIds.length > 0) {
+    const excludeArr = `{${params.excludeIds.join(",")}}`;
+    conditions.push(sql`id <> ALL(${excludeArr}::uuid[])`);
+  }
+
+  const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
+  const rows = await sql<DbRow[]>`
+    SELECT id, data
+    FROM grids.records
+    WHERE ${where}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  // Build labels using the same rules as buildRelationLabelCache:
+  // joined presentable fields > id-prefix.
+  const items = rows.map((row) => {
+    const id = row.id as string;
+    const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
+    let label: string;
+    if (presentable.length > 0) {
+      const parts = presentable
+        .map((f) => formatLabelPart(data[f.id]))
+        .filter((s) => s.length > 0);
+      label = parts.length > 0 ? parts.join(" · ") : id.slice(0, 8);
+    } else {
+      label = id.slice(0, 8);
+    }
+    return { id, label };
+  });
+
+  return { items };
 };
 
 /** Tiny stringifier for relation-label parts. Coerces scalars and

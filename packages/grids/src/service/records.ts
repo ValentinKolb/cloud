@@ -12,8 +12,24 @@ import {
   type SortSpec,
 } from "./sort-compiler";
 import { compileAggregates, type AggregateRequest } from "./aggregate-compiler";
-import { enrichRecordsForTable } from "./relations";
-import type { GridRecord } from "./types";
+import {
+  compileGroupQuery,
+  type GroupBucket,
+  type GroupBySpec,
+  type GroupAggregationSpec,
+} from "./group-compiler";
+import {
+  enrichRecordsWithFormulas,
+  hydrateRelationsFromLinks,
+  validateRelationTargets,
+  writeRecordLinks,
+} from "./relations";
+import { nextAutonumberValue } from "./field-indexes";
+import {
+  applyComputedProjections,
+  buildComputedProjections,
+} from "./computed-projections";
+import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
 
@@ -28,6 +44,40 @@ const mapRow = (row: DbRow): GridRecord => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
+
+/**
+ * Splits a validated payload into (a) JSONB-storable scalar/array data
+ * and (b) the relation-link map keyed by fieldId. Relation values stop
+ * landing in `records.data` in v3 — they live exclusively in
+ * `grids.record_links`. The read path hydrates them back into
+ * `record.data[fieldId]` so consumers don't notice.
+ *
+ * Accepted shapes for a relation value: array of UUIDs (cardinality:multiple),
+ * single UUID string (cardinality:single), or null/empty (no links).
+ */
+const splitRelationsFromData = (
+  data: Record<string, unknown>,
+  fields: Field[],
+): { data: Record<string, unknown>; relations: Map<string, string[]> } => {
+  const relationFieldIds = new Set(
+    fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id),
+  );
+  const out: Record<string, unknown> = {};
+  const relations = new Map<string, string[]>();
+  for (const [k, v] of Object.entries(data)) {
+    if (relationFieldIds.has(k)) {
+      const ids = Array.isArray(v)
+        ? (v as unknown[]).filter((x): x is string => typeof x === "string")
+        : typeof v === "string"
+        ? [v]
+        : [];
+      relations.set(k, ids);
+    } else {
+      out[k] = v;
+    }
+  }
+  return { data: out, relations };
+};
 
 /**
  * Create-path validation: every user-writable field is materialized using
@@ -48,11 +98,10 @@ const validateForCreate = async (
   const out: Record<string, unknown> = {};
   for (const field of fields) {
     if (field.type === "autonumber") {
-      const [row] = await sql<DbRow[]>`
-        SELECT COALESCE(MAX((data->>${field.id})::bigint), 0) + 1 AS next
-        FROM grids.records WHERE table_id = ${tableId}::uuid
-      `;
-      out[field.id] = Number(row?.next ?? 1);
+      // v3: per-field Postgres sequence. nextval() is atomic so two
+      // concurrent inserts always get distinct numbers — replaces the
+      // previous MAX+1 race. Sequences are created lazily on first use.
+      out[field.id] = await nextAutonumberValue(field.id);
       continue;
     }
     const handler = getHandler(field.type);
@@ -130,12 +179,32 @@ export const list = async (params: {
   if (cursorWhere) conditions.push(cursorWhere);
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
+  // v3 Slice 4: lookup / rollup values are computed in the main query
+  // as correlated subqueries over record_links instead of a JS-side
+  // batch-fetch pass. Single source of truth, single round-trip.
+  const computed = buildComputedProjections(fields);
+  const projectionFragments = computed.length > 0
+    ? computed
+        .map((p) => sql`, ${p.fragment}`)
+        .reduce((acc, cur) => sql`${acc}${cur}`)
+    : sql``;
+
   const rows = await sql<DbRow[]>`
-    SELECT * FROM grids.records WHERE ${where}
+    SELECT r.*${projectionFragments}
+    FROM grids.records r
+    WHERE ${where}
     ORDER BY ${orderBy} LIMIT ${limit + 1}
   `;
   const hasMore = rows.length > limit;
   const items = rows.slice(0, limit).map(mapRow);
+
+  // Hydrate relation fields from record_links (v3 source of truth) so
+  // the UI sees the link arrays. Lookup/rollup values are already in
+  // the row via the projection — applyComputedProjections lifts them
+  // into record.data[fieldId] alongside the JSONB-derived columns.
+  await hydrateRelationsFromLinks(items, fields);
+  const recordsById = new Map(items.map((r) => [r.id, r]));
+  applyComputedProjections(rows.slice(0, limit) as Array<Record<string, unknown>>, recordsById, computed);
 
   let nextCursor: string | null = null;
   if (hasMore) {
@@ -143,12 +212,96 @@ export const list = async (params: {
     const sortValues = projections.map((p) => last.data[p.fieldId] ?? null);
     nextCursor = encodeCursor({ sortValues, id: last.id });
   }
-  // Compute lookup + rollup display values for the visible page so the UI
-  // can render them inline. This is purely additive — the records table
-  // already has the raw data; computed fields just need their derived
-  // values plus a single batch-fetch for the linked records.
-  await enrichRecordsForTable(items, params.tableId);
+  // Formulas still run in JS — they reference computed and base values
+  // alike, and the formula engine is not SQL-projectable yet.
+  enrichRecordsWithFormulas(items, fields);
   return ok({ items, nextCursor });
+};
+
+/**
+ * Group-by + aggregations endpoint — classic SQL GROUP BY semantics.
+ * Returns one row per (groupBy-key) tuple with the configured
+ * aggregations attached. Cursor pagination on the group-key tuple.
+ *
+ * v3 Slice 8. See group-compiler.ts for the SQL emission rules.
+ */
+export const group = async (params: {
+  tableId: string;
+  groupBy: GroupBySpec[];
+  aggregations: GroupAggregationSpec[];
+  filter?: FilterTree | null;
+  cursor?: string | null;
+  limit?: number;
+  includeDeleted?: boolean;
+}): Promise<Result<{ buckets: GroupBucket[]; nextCursor: string | null; explode: boolean }>> => {
+  const fields = await listFields(params.tableId);
+
+  // Cursor: keys-only (group rows have no id; the tuple itself is unique).
+  let cursorKeys: { keys: unknown[] } | null = null;
+  if (params.cursor) {
+    try {
+      const parsed = JSON.parse(params.cursor) as { k?: unknown[] };
+      if (!Array.isArray(parsed.k)) return fail(err.badInput("invalid cursor"));
+      cursorKeys = { keys: parsed.k };
+    } catch {
+      return fail(err.badInput("invalid cursor"));
+    }
+  }
+
+  const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
+  const compiled = compileGroupQuery({
+    tableId: params.tableId,
+    groupBy: params.groupBy,
+    aggregations: params.aggregations,
+    filter: params.filter,
+    fields,
+    cursor: cursorKeys,
+    limit,
+    includeDeleted: params.includeDeleted,
+  });
+  if (!compiled.ok) return fail(err.badInput(compiled.error));
+
+  const rows = await sql<DbRow[]>`${compiled.query}`;
+  const hasMore = rows.length > limit;
+  const visible = rows.slice(0, limit);
+
+  const buckets: GroupBucket[] = visible.map((row) => {
+    const keys = compiled.resolvedGroups.map((_, i) => {
+      const raw = row[`gk_${i}`];
+      // Date keys come back as JS Date — normalize to ISO string for
+      // a stable JSON envelope. Bigints (count-likes) become numbers.
+      if (raw instanceof Date) return raw.toISOString();
+      if (typeof raw === "bigint") return Number(raw);
+      return raw ?? null;
+    });
+    const values: Record<string, unknown> = {};
+    for (const k of compiled.aggKeys) {
+      const raw = row[k];
+      if (raw === null || raw === undefined) {
+        values[k] = null;
+        continue;
+      }
+      // Aggregate columns are numeric or text. Normalize bigints/strings
+      // to numbers when the column was a count-like; leave others raw.
+      if (typeof raw === "bigint") values[k] = Number(raw);
+      else if (typeof raw === "string" && k.endsWith("__count")) values[k] = Number(raw);
+      else if (typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw)) values[k] = Number(raw);
+      else values[k] = raw;
+    }
+    return { keys, values };
+  });
+
+  let nextCursor: string | null = null;
+  if (hasMore) {
+    const last = buckets[buckets.length - 1]!;
+    nextCursor = JSON.stringify({ k: last.keys });
+  }
+  // Explode-mode: at least one groupBy dimension is a relation field.
+  // The `*__count` aggregate then counts (record × link) pairs rather
+  // than records, which the UI should surface as a hint.
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+  const explode = params.groupBy.some((g) => fieldsById.get(g.fieldId)?.type === "relation");
+  return ok({ buckets, nextCursor, explode });
 };
 
 export const aggregate = async (params: {
@@ -188,11 +341,31 @@ export const aggregate = async (params: {
 };
 
 export const get = async (tableId: string, recordId: string): Promise<GridRecord | null> => {
+  const fields = await listFields(tableId);
+  const computed = buildComputedProjections(fields);
+  const projectionFragments = computed.length > 0
+    ? computed
+        .map((p) => sql`, ${p.fragment}`)
+        .reduce((acc, cur) => sql`${acc}${cur}`)
+    : sql``;
+
   const [row] = await sql<DbRow[]>`
-    SELECT * FROM grids.records
-    WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid
+    SELECT r.*${projectionFragments}
+    FROM grids.records r
+    WHERE r.id = ${recordId}::uuid AND r.table_id = ${tableId}::uuid
   `;
-  return row ? mapRow(row) : null;
+  if (!row) return null;
+  const record = mapRow(row);
+  // Hydrate relation fields + lookup/rollup projections so the response
+  // mirrors the list-path shape exactly.
+  await hydrateRelationsFromLinks([record], fields);
+  applyComputedProjections(
+    [row as Record<string, unknown>],
+    new Map([[record.id, record]]),
+    computed,
+  );
+  enrichRecordsWithFormulas([record], fields);
+  return record;
 };
 
 export const create = async (
@@ -203,13 +376,35 @@ export const create = async (
   const validated = await validateForCreate(tableId, payload);
   if (!validated.ok) return validated;
 
+  const fields = await listFields(tableId);
+  // v3: relation values DON'T go into the JSONB blob. Split them out
+  // before INSERT, write them to record_links after the record exists
+  // (FK requires the records row to be present first).
+  const split = splitRelationsFromData(validated.data, fields);
+
+  // Pre-flight: every relation-target must exist in the configured
+  // target table. Without this we'd write the records row, then the
+  // record_links INSERT would fail on FK and leave an orphan record.
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+  for (const [fieldId, toIds] of split.relations) {
+    const f = fieldsById.get(fieldId);
+    const targetTableId = (f?.config as { targetTableId?: string } | undefined)?.targetTableId;
+    if (!targetTableId) continue; // Slice 1 allows incomplete relation config; nothing to validate against
+    const check = await validateRelationTargets(targetTableId, toIds);
+    if (!check.ok) {
+      return fail(err.badInput(
+        `field "${f?.name}": missing target records ${check.missing.join(", ")}`,
+      ));
+    }
+  }
+
   const id = Bun.randomUUIDv7();
   const [row] = await sql<DbRow[]>`
     INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
     VALUES (
       ${id}::uuid,
       ${tableId}::uuid,
-      ${validated.data}::jsonb,
+      ${split.data}::jsonb,
       1,
       ${actorId}::uuid,
       ${actorId}::uuid
@@ -217,7 +412,19 @@ export const create = async (
     RETURNING *
   `;
   if (!row) return fail(err.internal("insert failed"));
+
+  // Write each relation field's link list. Empty list = no links (the
+  // helper does nothing in that case but the round-trip is preserved
+  // for diff/audit consistency).
+  for (const [fieldId, toIds] of split.relations) {
+    await writeRecordLinks(id, fieldId, toIds);
+  }
+
   const record = mapRow(row);
+  // Hydrate so the returned record carries the relation arrays the
+  // caller just sent — keeps the API contract stable.
+  await hydrateRelationsFromLinks([record], fields);
+
   await logAudit({
     tableId,
     recordId: record.id,
@@ -246,9 +453,36 @@ export const update = async (
   const validated = await validateForUpdate(tableId, payload);
   if (!validated.ok) return validated;
 
-  // Merge: existing data + only the validated fields. Explicit-null in payload
-  // means "clear this field" — preserved through the merge as null.
-  const merged = { ...existing.data, ...validated.data };
+  const fields = await listFields(tableId);
+  const split = splitRelationsFromData(validated.data, fields);
+
+  // Pre-flight relation-target existence check (same reasoning as create).
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+  for (const [fieldId, toIds] of split.relations) {
+    const f = fieldsById.get(fieldId);
+    const targetTableId = (f?.config as { targetTableId?: string } | undefined)?.targetTableId;
+    if (!targetTableId) continue;
+    const check = await validateRelationTargets(targetTableId, toIds);
+    if (!check.ok) {
+      return fail(err.badInput(
+        `field "${f?.name}": missing target records ${check.missing.join(", ")}`,
+      ));
+    }
+  }
+
+  // Merge: existing JSONB data + only the validated NON-RELATION fields.
+  // Relations are managed exclusively via record_links — they MUST NOT
+  // re-enter the JSONB blob (otherwise the hydration step on read
+  // would have to special-case "JSONB takes precedence" semantics).
+  const merged = { ...existing.data, ...split.data };
+  // Drop any zombie relation keys that may still live in the existing
+  // JSONB from pre-v3 writes.
+  const relationFieldIds = new Set(
+    fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id),
+  );
+  for (const k of Object.keys(merged)) {
+    if (relationFieldIds.has(k)) delete merged[k];
+  }
   // Strip nulls so JSONB doesn't carry zombie keys for cleared fields.
   for (const [k, v] of Object.entries(merged)) {
     if (v === null) delete merged[k];
@@ -267,7 +501,15 @@ export const update = async (
     RETURNING *
   `;
   if (!row) return fail(err.conflict("Record was modified concurrently"));
+
+  // Apply the relation diffs AFTER the version bump succeeded, so a
+  // concurrent-modify error doesn't leave links in an inconsistent state.
+  for (const [fieldId, toIds] of split.relations) {
+    await writeRecordLinks(recordId, fieldId, toIds);
+  }
+
   const record = mapRow(row);
+  await hydrateRelationsFromLinks([record], fields);
 
   const diff: Record<string, { old: unknown; new: unknown }> = {};
   for (const key of Object.keys(validated.data)) {
