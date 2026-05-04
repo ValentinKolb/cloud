@@ -82,6 +82,13 @@ export default ssr<AuthContext>(async (c) => {
 
   const fields = await gridsService.field.listByTable(tableId);
 
+  // Pre-fetch ACL entries for this view (the new Permissions section).
+  // canEditAccess mirrors the API gate (admin on the parent table) so
+  // the editor disables grant/revoke for non-admins instead of letting
+  // them get a 403 on click.
+  const accessEntries = await gridsService.access.listForView(viewId);
+  const canEditAccess = gridsService.permission.hasAtLeast(tableLevel, "admin");
+
   // Pre-fetch sibling tables + their views for the unified edit
   // sidebar. The sidebar mirrors the records-page sidebar shape so the
   // user can hop between editing a table OR a view in one click.
@@ -177,6 +184,8 @@ export default ssr<AuthContext>(async (c) => {
             tableId={tableId}
             initialView={view}
             fields={fields}
+            initialAccessEntries={accessEntries}
+            canEditAccess={canEditAccess}
           />
         </main>
       </div>

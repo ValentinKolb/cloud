@@ -296,6 +296,22 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_public_token ON grids.forms(public_token) WHERE public_token IS NOT NULL AND deleted_at IS NULL`.simple();
   console.log("  ✓ grids.forms");
 
+  // form_access — same junction shape as base_access / table_access /
+  // view_access. Form ACLs only carry `write` (= "can submit this form
+  // even when it has no public token"); the API rejects read/admin
+  // grants because they don't map to anything useful — read is implied
+  // by being granted any form access (the user needs to render the
+  // form schema), admin == form CRUD which lives at table-admin.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.form_access (
+      form_id UUID NOT NULL REFERENCES grids.forms(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (form_id, access_id)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_form_access_access ON grids.form_access(access_id)`.simple();
+  console.log("  ✓ grids.form_access");
+
   // ──────────────────────────────────────────────────────────────────
   // audit log
   // ──────────────────────────────────────────────────────────────────

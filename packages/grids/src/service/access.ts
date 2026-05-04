@@ -13,6 +13,7 @@ const TABLE_BY_RESOURCE = {
   base: "grids.base_access",
   table: "grids.table_access",
   view: "grids.view_access",
+  form: "grids.form_access",
 } as const;
 
 type DbAccessRow = {
@@ -61,8 +62,10 @@ export const grantAccess = async (params: {
     await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
   } else if (params.resourceType === "table") {
     await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
-  } else {
+  } else if (params.resourceType === "view") {
     await sql`INSERT INTO grids.view_access (view_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
+  } else {
+    await sql`INSERT INTO grids.form_access (form_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
   }
 
   return ok({ accessId });
@@ -99,7 +102,7 @@ const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resource
       WHERE ta.table_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
-  } else {
+  } else if (resourceType === "view") {
     rows = await sql<DbAccessRow[]>`
       SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
              a.permission, a.created_at,
@@ -111,6 +114,18 @@ const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resource
       WHERE va.view_id = ${resourceId}::uuid
       ORDER BY a.created_at
     `;
+  } else {
+    rows = await sql<DbAccessRow[]>`
+      SELECT a.id AS access_id, a.user_id, a.group_id, a.authenticated_only,
+             a.permission, a.created_at,
+             COALESCE(u.uid, g.name, NULL) AS display_name
+      FROM grids.form_access fa
+      JOIN auth.access a ON a.id = fa.access_id
+      LEFT JOIN auth.users u ON u.id = a.user_id
+      LEFT JOIN auth.groups g ON g.id = a.group_id
+      WHERE fa.form_id = ${resourceId}::uuid
+      ORDER BY a.created_at
+    `;
   }
   return rows.map(mapAccessRow);
 };
@@ -118,6 +133,7 @@ const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resource
 export const listBaseAccess = (baseId: string) => listAccess("base", baseId);
 export const listTableAccess = (tableId: string) => listAccess("table", tableId);
 export const listViewAccess = (viewId: string) => listAccess("view", viewId);
+export const listFormAccess = (formId: string) => listAccess("form", formId);
 
 /**
  * Updates an existing access entry's permission level. Wraps the platform
@@ -148,7 +164,8 @@ export const revokeAccess = async (accessId: string): Promise<Result<void>> => {
 export type AccessBinding =
   | { resourceType: "base"; baseId: string }
   | { resourceType: "table"; baseId: string; tableId: string }
-  | { resourceType: "view"; baseId: string; tableId: string; viewId: string };
+  | { resourceType: "view"; baseId: string; tableId: string; viewId: string }
+  | { resourceType: "form"; baseId: string; tableId: string; formId: string };
 
 export const resolveAccessBinding = async (accessId: string): Promise<AccessBinding | null> => {
   const [baseRow] = await sql<{ base_id: string }[]>`
@@ -179,6 +196,22 @@ export const resolveAccessBinding = async (accessId: string): Promise<AccessBind
       baseId: viewRow.base_id,
       tableId: viewRow.table_id,
       viewId: viewRow.view_id,
+    };
+  }
+
+  const [formRow] = await sql<{ form_id: string; table_id: string; base_id: string }[]>`
+    SELECT fa.form_id, f.table_id, t.base_id
+    FROM grids.form_access fa
+    JOIN grids.forms f ON f.id = fa.form_id
+    JOIN grids.tables t ON t.id = f.table_id
+    WHERE fa.access_id = ${accessId}::uuid
+  `;
+  if (formRow) {
+    return {
+      resourceType: "form",
+      baseId: formRow.base_id,
+      tableId: formRow.table_id,
+      formId: formRow.form_id,
     };
   }
 

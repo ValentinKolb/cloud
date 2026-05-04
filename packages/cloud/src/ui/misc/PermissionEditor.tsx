@@ -43,6 +43,17 @@ type PermissionEditorProps = {
   revokeAccess: (resourceId: string, accessId: string) => Promise<void>;
   /** Allow creating public access entries from this editor */
   allowPublic?: boolean;
+  /**
+   * Restrict which permission levels the editor offers. Default = all
+   * three (read / write / admin). When set to a subset:
+   * - the dropdown on existing rows + the SegmentedControl on the add
+   *   form filter to the allowed values
+   * - when exactly ONE level is allowed, both controls vanish entirely
+   *   (a one-option picker is just noise) and the level renders as a
+   *   plain inline badge instead. Use cases: views accept only `read`,
+   *   forms only `write`.
+   */
+  allowedLevels?: PermissionLevel[];
 };
 
 /**
@@ -56,6 +67,13 @@ export default function PermissionEditor(props: PermissionEditorProps) {
   const [showAddForm, setShowAddForm] = createSignal(false);
   const canEdit = () => props.canEdit !== false;
   const allowPublic = () => props.allowPublic === true;
+  // Resolve the level whitelist once. Falls back to all-three so the
+  // existing 40+ call-sites that don't pass `allowedLevels` keep
+  // exactly today's behaviour.
+  const allowedLevels = (): PermissionLevel[] =>
+    props.allowedLevels && props.allowedLevels.length > 0
+      ? props.allowedLevels
+      : (PERMISSION_OPTIONS.map((o) => o.value) as PermissionLevel[]);
 
   // Get existing user IDs and group IDs to exclude from search
   const existingUserIds = () =>
@@ -167,6 +185,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
               entry={entry}
               canEdit={canEdit()}
               canDelete={entries().length > 1}
+              allowedLevels={allowedLevels()}
               onUpdatePermission={(permission) =>
                 updateMut.mutate({ accessId: entry.id, permission })
               }
@@ -195,6 +214,7 @@ export default function PermissionEditor(props: PermissionEditorProps) {
           <AddAccessForm
             existingUserIds={existingUserIds()}
             existingGroupIds={existingGroupIds()}
+            allowedLevels={allowedLevels()}
             onSelectEntity={handleEntitySelect}
             onSelectPrincipal={(principal, permission) =>
               grantMut.mutate({ principal, permission })
@@ -257,11 +277,46 @@ function AccessEntryRow(props: {
   entry: AccessEntry;
   canEdit: boolean;
   canDelete: boolean;
+  allowedLevels: PermissionLevel[];
   onUpdatePermission: (permission: PermissionLevel) => void;
   onRevoke: () => void;
   updating: boolean;
 }) {
   const [showPermissionMenu, setShowPermissionMenu] = createSignal(false);
+
+  // Single-allowed-level → the badge is purely informational. No
+  // chevron, no dropdown, no hover affordance, not even a button —
+  // there's nothing to switch to. Keeps the row visually quiet for
+  // surfaces like view-edit (read-only) or form-write (submit-only).
+  const isSinglePicker = () => props.allowedLevels.length === 1;
+  const allowedOptions = () =>
+    PERMISSION_OPTIONS.filter((o) => props.allowedLevels.includes(o.value));
+  const isInteractive = () => props.canEdit && !isSinglePicker();
+
+  // Wrap the badge in a button only when interactive — a non-button
+  // <span> reads correctly to screen readers when there's no action.
+  const badgeContent = (
+    <>
+      <i
+        class={`ti ${
+          PERMISSION_OPTIONS.find((o) => o.value === props.entry.permission)
+            ?.icon
+        }`}
+      />
+      <span class="capitalize">{props.entry.permission}</span>
+      <Show when={isInteractive()}>
+        <i class="ti ti-chevron-down text-[10px]" />
+      </Show>
+    </>
+  );
+  const badgeClass = `flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${getPermissionColor(
+    props.entry.permission,
+  )}`;
+  const badgeBorderList = {
+    "border-blue-200 dark:border-blue-900": props.entry.permission === "read",
+    "border-amber-200 dark:border-amber-900": props.entry.permission === "write",
+    "border-purple-200 dark:border-purple-900": props.entry.permission === "admin",
+  };
 
   return (
     <div class="group/entry pl-3 py-1.5 flex items-center gap-2">
@@ -280,72 +335,54 @@ function AccessEntryRow(props: {
 
       {/* Permission badge / selector */}
       <div class="relative">
-        <button
-          type="button"
-          onClick={() =>
-            props.canEdit && setShowPermissionMenu(!showPermissionMenu())
+        <Show
+          when={isInteractive()}
+          fallback={
+            <span class={`${badgeClass} cursor-default`} classList={badgeBorderList}>
+              {badgeContent}
+            </span>
           }
-          disabled={!props.canEdit}
-          class={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border transition-colors ${getPermissionColor(
-            props.entry.permission
-          )} ${
-            props.canEdit
-              ? "cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              : "cursor-default"
-          }`}
-          classList={{
-            "border-blue-200 dark:border-blue-900":
-              props.entry.permission === "read",
-            "border-amber-200 dark:border-amber-900":
-              props.entry.permission === "write",
-            "border-purple-200 dark:border-purple-900":
-              props.entry.permission === "admin",
-          }}
         >
-          <i
-            class={`ti ${
-              PERMISSION_OPTIONS.find((o) => o.value === props.entry.permission)
-                ?.icon
-            }`}
-          />
-          <span class="capitalize">{props.entry.permission}</span>
-          <Show when={props.canEdit}>
-            <i class="ti ti-chevron-down text-[10px]" />
-          </Show>
-        </button>
+          <button
+            type="button"
+            onClick={() => setShowPermissionMenu(!showPermissionMenu())}
+            class={`${badgeClass} cursor-pointer transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800`}
+            classList={badgeBorderList}
+          >
+            {badgeContent}
+          </button>
 
-        {/* Permission dropdown */}
-        <Show when={showPermissionMenu()}>
-          <div class="absolute right-0 top-full mt-1 z-10 popup min-w-30">
-            <For each={PERMISSION_OPTIONS}>
-              {(option) => (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (option.value !== props.entry.permission) {
-                      props.onUpdatePermission(option.value);
-                    }
-                    setShowPermissionMenu(false);
-                  }}
-                  class="w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 flex items-center gap-2"
-                  classList={{
-                    "bg-zinc-50 dark:bg-zinc-700/50":
-                      option.value === props.entry.permission,
-                  }}
-                >
-                  <i
-                    class={`ti ${option.icon} ${getPermissionColor(
-                      option.value
-                    )}`}
-                  />
-                  <span>{option.label}</span>
-                  <Show when={option.value === props.entry.permission}>
-                    <i class="ti ti-check ml-auto text-green-500" />
-                  </Show>
-                </button>
-              )}
-            </For>
-          </div>
+          {/* Permission dropdown — only the allowed options are listed,
+              so a row showing `read` with allowedLevels=[read,write]
+              gives the user `write` as the only switch target. */}
+          <Show when={showPermissionMenu()}>
+            <div class="absolute right-0 top-full mt-1 z-10 popup min-w-30">
+              <For each={allowedOptions()}>
+                {(option) => (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (option.value !== props.entry.permission) {
+                        props.onUpdatePermission(option.value);
+                      }
+                      setShowPermissionMenu(false);
+                    }}
+                    class="w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 flex items-center gap-2"
+                    classList={{
+                      "bg-zinc-50 dark:bg-zinc-700/50":
+                        option.value === props.entry.permission,
+                    }}
+                  >
+                    <i class={`ti ${option.icon} ${getPermissionColor(option.value)}`} />
+                    <span>{option.label}</span>
+                    <Show when={option.value === props.entry.permission}>
+                      <i class="ti ti-check ml-auto text-green-500" />
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
         </Show>
       </div>
 
@@ -370,6 +407,7 @@ function AccessEntryRow(props: {
 function AddAccessForm(props: {
   existingUserIds: string[];
   existingGroupIds: string[];
+  allowedLevels: PermissionLevel[];
   onSelectEntity: (
     result: EntitySearchResult,
     permission: PermissionLevel
@@ -383,27 +421,41 @@ function AddAccessForm(props: {
   showAuthenticated: boolean;
   showPublic: boolean;
 }) {
-  const [permission, setPermission] = createSignal<PermissionLevel>("read");
+  // Initial permission = first allowed level. Picks "read" when all
+  // three are allowed (existing default); falls to whatever single
+  // value the caller restricted to (e.g. "write" for forms).
+  const [permission, setPermission] = createSignal<PermissionLevel>(
+    props.allowedLevels[0] ?? "read",
+  );
   const hasTwoPrincipalButtons = () =>
     props.showAuthenticated && props.showPublic;
-  const permissionOptions = PERMISSION_OPTIONS.map((option) => ({
-    value: option.value,
-    label: option.label,
-    icon: `ti ${option.icon}`,
-  }));
+  // Filter the SegmentedControl to the allowed subset only.
+  const permissionOptions = () =>
+    PERMISSION_OPTIONS
+      .filter((o) => props.allowedLevels.includes(o.value))
+      .map((option) => ({
+        value: option.value,
+        label: option.label,
+        icon: `ti ${option.icon}`,
+      }));
+  const isSinglePicker = () => props.allowedLevels.length === 1;
 
   return (
     <div class="paper p-3 flex flex-col gap-2">
-      {/* Permission level selector */}
-      <div class="flex flex-col gap-1">
-        <p class="text-xs text-secondary">Permission Level</p>
-        <SegmentedControl
-          options={permissionOptions}
-          value={permission}
-          onChange={setPermission}
-          disabled={props.loading}
-        />
-      </div>
+      {/* Permission level selector — hidden when only one level is
+          allowed (a one-option SegmentedControl is just visual noise;
+          the level is fixed at the allowedLevels[0] default). */}
+      <Show when={!isSinglePicker()}>
+        <div class="flex flex-col gap-1">
+          <p class="text-xs text-secondary">Permission Level</p>
+          <SegmentedControl
+            options={permissionOptions()}
+            value={permission}
+            onChange={setPermission}
+            disabled={props.loading}
+          />
+        </div>
+      </Show>
 
       {/* User/Group search */}
       <EntitySearch

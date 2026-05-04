@@ -224,18 +224,21 @@ export default ssr<AuthContext>(async (c) => {
   // Filter tables to those the user can read at the table level. Without
   // this, a base-read user could navigate to ?table=<deniedTableId> and read
   // denied data — the API routes already gate at table level, the SSR page
-  // must do the same.
+  // must do the same. We also keep the per-table level around so the
+  // sidebar can decide whether to show the edit-table settings icon
+  // per-row (matches the views section's per-row permission check).
   const allTables = await gridsService.table.listByBase(baseId);
-  const tables = (
-    await Promise.all(
-      allTables.map(async (t) => {
-        const tableLevel = await resolveLevel(user, baseId, t.id);
-        return gridsService.permission.hasAtLeast(tableLevel, "read")
-          ? t
-          : null;
-      })
-    )
-  ).filter((t): t is NonNullable<typeof t> => t !== null);
+  const tableLevelEntries = await Promise.all(
+    allTables.map(async (t) => ({
+      table: t,
+      level: await resolveLevel(user, baseId, t.id),
+    })),
+  );
+  const tables = tableLevelEntries
+    .filter((e) => gridsService.permission.hasAtLeast(e.level, "read"))
+    .map((e) => e.table);
+  const tableLevels: Record<string, "none" | "read" | "write" | "admin"> = {};
+  for (const e of tableLevelEntries) tableLevels[e.table.id] = e.level;
 
   const activeTable = activeTableId
     ? tables.find((t) => t.id === activeTableId) ?? null
@@ -589,7 +592,7 @@ export default ssr<AuthContext>(async (c) => {
                               into horizontal scroll. */}
                           <span class="truncate min-w-0">{t.name}</span>
                         </a>
-                        {canManageTable && isActive && (
+                        {gridsService.permission.hasAtLeast(tableLevels[t.id] ?? "none", "admin") && (
                           <a
                             href={`/app/grids/${baseId}/tables/${t.id}/edit`}
                             class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"

@@ -38,6 +38,10 @@ type Props = {
   initialFields: Field[];
   initialForms: Form[];
   initialAccessEntries: AccessEntry[];
+  /** Per-form ACL entries, keyed by form id. Pre-fetched server-side
+   *  so the per-form Permissions section in FormsManager renders
+   *  without a client-fetch on first expand. */
+  initialFormAccessEntries: Record<string, AccessEntry[]>;
   /** Other tables in the same base — needed for the relation type's
    *  targetTableId picker. */
   otherTables: Array<{ id: string; name: string }>;
@@ -477,6 +481,7 @@ export default function TableEditPage(props: Props) {
           tableId={props.table.id}
           fields={fields()}
           initialForms={props.initialForms}
+          initialFormAccessEntries={props.initialFormAccessEntries}
           canManage
         />
       </SectionCard>

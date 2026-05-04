@@ -1,7 +1,12 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
-import { TextInput, Select, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, TextInput, Select, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type {
+  AccessEntry,
+  PermissionLevel,
+  Principal,
+} from "@valentinkolb/cloud/contracts/shared";
 import type { Field, Form } from "../../service";
 import type { FormConfig, FormFieldEntry } from "../../service/forms";
 import { errorMessage } from "./api-helpers";
@@ -15,6 +20,11 @@ type Props = {
   fields: Field[];
   initialForms: Form[];
   canManage: boolean;
+  /** Pre-fetched ACL entries for each form, keyed by form id. The
+   *  PermissionEditor inside the per-form expanded body uses
+   *  `allowedLevels=["write"]` so it renders as inline badges (no
+   *  dropdown) — read/admin on a form are rejected by the API. */
+  initialFormAccessEntries?: Record<string, AccessEntry[]>;
 };
 
 /**
@@ -136,6 +146,10 @@ export default function FormsManager(props: Props) {
                     <FormEditor
                       form={form}
                       tableFields={props.fields}
+                      initialAccessEntries={
+                        props.initialFormAccessEntries?.[form.id] ?? []
+                      }
+                      canManageAccess={props.canManage}
                       onSaved={(next) => setForms(forms().map((f) => (f.id === next.id ? next : f)))}
                       onDelete={() => handleDelete(form)}
                     />
@@ -167,6 +181,8 @@ export default function FormsManager(props: Props) {
 function FormEditor(props: {
   form: Form;
   tableFields: Field[];
+  initialAccessEntries: AccessEntry[];
+  canManageAccess: boolean;
   onSaved: (next: Form) => void;
   onDelete: () => void;
 }) {
@@ -495,6 +511,27 @@ function FormEditor(props: {
         </Show>
       </div>
 
+      {/* Permissions — grants `write` on this form to specific users
+          or groups. Form-write = "can submit this form even when it
+          has no public token". The PermissionEditor renders as inline
+          badges (no dropdown) because allowedLevels=["write"] is the
+          single-pick case. Read+Admin on a form don't apply: read is
+          implied by being granted access; admin == form CRUD which
+          lives at table-admin (this whole panel). */}
+      <div class="flex flex-col gap-2">
+        <span class="text-xs font-medium text-secondary">Permissions</span>
+        <p class="text-[11px] text-dimmed leading-snug">
+          Grant Write to let specific users or groups submit this form
+          even without the public link. They won't see other submissions
+          unless they also have table read.
+        </p>
+        <FormPermissions
+          formId={props.form.id}
+          initialEntries={props.initialAccessEntries}
+          canEdit={props.canManageAccess}
+        />
+      </div>
+
       {/* Footer */}
       <div class="flex items-center justify-between gap-2 pt-2">
         <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDelete}>
@@ -512,5 +549,55 @@ function FormEditor(props: {
         </Show>
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// FormPermissions — wraps PermissionEditor with form-API wires
+// =============================================================================
+// Mirrors TablePermissions / ViewPermissions. allowedLevels=["write"]
+// collapses the dropdown / SegmentedControl into inline badges since
+// there's only one meaningful level for forms.
+
+function FormPermissions(props: {
+  formId: string;
+  initialEntries: AccessEntry[];
+  canEdit: boolean;
+}) {
+  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
+  return (
+    <PermissionEditor
+      resourceId={props.formId}
+      initialEntries={entries()}
+      canEdit={props.canEdit}
+      allowedLevels={["write"]}
+      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+        const res = await apiClient.access["by-form"][":formId"].$post({
+          param: { formId: resourceId },
+          json: { principal, permission },
+        });
+        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
+        const created = (await res.json()) as { accessId: string };
+        const listRes = await apiClient.access["by-form"][":formId"].$get({
+          param: { formId: resourceId },
+        });
+        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        setEntries(list);
+        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
+      }}
+      updateAccess={async (_resourceId, accessId, permission) => {
+        const res = await apiClient.access[":accessId"].$patch({
+          param: { accessId },
+          json: { permission },
+        });
+        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
+        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
+      }}
+      revokeAccess={async (_resourceId, accessId) => {
+        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
+        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
+        setEntries(entries().filter((e) => e.id !== accessId));
+      }}
+    />
   );
 }

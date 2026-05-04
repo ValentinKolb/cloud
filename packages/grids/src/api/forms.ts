@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
@@ -80,6 +80,67 @@ const PublicFormSchema = z.object({
   }),
 });
 
+/**
+ * Shared submit handler — used by both the anonymous public-token path
+ * and the authenticated form-write path. Validates the payload against
+ * the form's user-input + form-value entries (kind-aware: form_value
+ * keys can't be overridden by the caller; user_input keys must hit
+ * required/default rules), then creates the record.
+ *
+ * The actorId nullable carries through to record.create's created_by:
+ * anonymous public submissions get null, authenticated submissions get
+ * the user id so audit / row-history attribute correctly.
+ */
+const submitFormResponse = async (
+  c: Context<AuthContext>,
+  form: import("../service/forms").Form,
+  submitted: Record<string, unknown>,
+  actorId: string | null,
+) => {
+  const formFields = form.config.fields ?? [];
+
+  // Split entries by kind. user_input fields accept payload from the
+  // caller; form_value fields are SERVER-applied and the user's
+  // payload for those keys is rejected (so a form that locks
+  // `source = "website"` can't be subverted by a hand-crafted POST).
+  const userInputIds = new Set<string>();
+  const formValueIds = new Set<string>();
+  for (const e of formFields) {
+    if (e.kind === "user_input") userInputIds.add(e.fieldId);
+    else formValueIds.add(e.fieldId);
+  }
+
+  for (const key of Object.keys(submitted)) {
+    if (formValueIds.has(key)) {
+      return c.json({ message: `Field "${key}" is server-managed and cannot be set via the form` }, 400);
+    }
+    if (!userInputIds.has(key)) {
+      return c.json({ message: `Field "${key}" is not part of this form` }, 400);
+    }
+  }
+
+  // Build payload: user input first, then user_input defaults for
+  // missing keys, then form_value entries (which always win — their
+  // keys are blocked from the user's payload upstream).
+  const payload: Record<string, unknown> = { ...submitted };
+  for (const e of formFields) {
+    if (e.kind !== "user_input") continue;
+    if (payload[e.fieldId] === undefined && e.defaultValue !== undefined && e.defaultValue !== null) {
+      payload[e.fieldId] = e.defaultValue;
+    }
+    if (e.required && (payload[e.fieldId] === undefined || payload[e.fieldId] === null || payload[e.fieldId] === "")) {
+      return c.json({ message: `Field "${e.fieldId}" is required` }, 400);
+    }
+  }
+  for (const e of formFields) {
+    if (e.kind === "form_value") payload[e.fieldId] = e.value;
+  }
+
+  const result = await gridsService.record.create(form.tableId, payload, actorId);
+  if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+  return c.json({ recordId: result.data.id }, 201);
+};
+
 const toPublicForm = (
   f: import("../service/forms").Form,
 ): z.infer<typeof PublicFormSchema> => ({
@@ -156,54 +217,8 @@ const app = new Hono<AuthContext>()
       const token = c.req.param("token");
       const form = await gridsService.form.getByPublicToken(token);
       if (!form) return c.json({ message: "Form not found" }, 404);
-
-      const submitted = c.req.valid("json");
-      const formFields = form.config.fields ?? [];
-
-      // v3 Slice 6: split entries by kind. user_input fields accept
-      // payload from the caller; form_value fields are SERVER-applied
-      // and the user's payload for those keys is rejected (so a form
-      // that locks `source = "website"` can't be subverted by a
-      // hand-crafted POST with `{source: "...", ...}`).
-      const userInputIds = new Set<string>();
-      const formValueIds = new Set<string>();
-      for (const e of formFields) {
-        if (e.kind === "user_input") userInputIds.add(e.fieldId);
-        else formValueIds.add(e.fieldId);
-      }
-
-      for (const key of Object.keys(submitted)) {
-        if (formValueIds.has(key)) {
-          return c.json({ message: `Field "${key}" is server-managed and cannot be set via the form` }, 400);
-        }
-        if (!userInputIds.has(key)) {
-          return c.json({ message: `Field "${key}" is not part of this form` }, 400);
-        }
-      }
-
-      // Build payload: user input first, then user_input defaults for
-      // missing keys, then form_value entries (which always win — they
-      // can't be overridden because the user's payload was rejected
-      // upstream).
-      const payload: Record<string, unknown> = { ...submitted };
-      for (const e of formFields) {
-        if (e.kind !== "user_input") continue;
-        if (payload[e.fieldId] === undefined && e.defaultValue !== undefined && e.defaultValue !== null) {
-          payload[e.fieldId] = e.defaultValue;
-        }
-        if (e.required && (payload[e.fieldId] === undefined || payload[e.fieldId] === null || payload[e.fieldId] === "")) {
-          return c.json({ message: `Field "${e.fieldId}" is required` }, 400);
-        }
-      }
-      for (const e of formFields) {
-        if (e.kind === "form_value") payload[e.fieldId] = e.value;
-      }
-
-      // Anonymous submissions: actorId is null. Record service stamps
-      // created_by as null which is intentional.
-      const result = await gridsService.record.create(form.tableId, payload, null);
-      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
-      return c.json({ recordId: result.data.id }, 201);
+      // Anonymous submissions: actorId is null.
+      return submitFormResponse(c, form, c.req.valid("json"), null);
     },
   )
 
@@ -243,6 +258,49 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const form = await gridsService.form.buildDefault(tableId);
       return c.json(form);
+    },
+  )
+
+  // Authenticated submission. Distinct from /public/:token/submit
+  // because it doesn't need the public token — instead it gates at
+  // form-write OR table-write (table-write is a superset that always
+  // implies submit). Lets a user with form-write submit a non-public
+  // form they otherwise couldn't see.
+  //
+  // Permission semantics: form-write does NOT cascade to table-read;
+  // the user can submit but won't see the resulting record unless they
+  // ALSO have table-read. That's intentional — public-form-style
+  // submission shouldn't suddenly grant inbox visibility.
+  .post(
+    "/:formId/submit",
+    describeRoute({
+      tags: ["Grids:Form"],
+      summary: "Submit a form (authenticated, form-write or table-write)",
+      responses: {
+        201: jsonResponse(z.object({ recordId: z.string().uuid() }), "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("json", PublicSubmitSchema),
+    async (c) => {
+      const formId = c.req.param("formId");
+      const form = await gridsService.form.get(formId);
+      if (!form || !form.isActive) return c.json({ message: "Form not found" }, 404);
+      const table = await gridsService.table.get(form.tableId);
+      if (!table) return c.json({ message: "Form not found" }, 404);
+      // Gate at form-write — most-specific-wins resolution lets a
+      // table-write user pass through automatically (table-write
+      // shadows the form-target's "none" default).
+      const gate = await gateAt(
+        c,
+        { baseId: table.baseId, tableId: table.id, formId },
+        "write",
+      );
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return submitFormResponse(c, form, c.req.valid("json"), user.id);
     },
   )
 

@@ -106,10 +106,36 @@ const app = new Hono<AuthContext>()
   )
 
   // ── View ACL ────────────────────────────────────────────────────────
-  // View ACL only grants read at write-time (enforced here). Caller must be
-  // admin on the view's parent table/base — without this gate, any user
-  // could plant `none` grants that shadow table/base permissions on views
-  // they don't own.
+  // View ACL only grants read at write-time (enforced on POST). Both
+  // routes gate at admin on the view's parent table/base — without
+  // this gate, any user could plant `none` grants that shadow table/
+  // base permissions on views they don't own.
+  .get(
+    "/by-view/:viewId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "List ACL entries for a view",
+      responses: {
+        200: jsonResponse(AccessListSchema, "Entries"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "View not found"),
+      },
+    }),
+    async (c) => {
+      const viewId = c.req.param("viewId");
+      const [viewRow] = await sql<{ table_id: string; base_id: string }[]>`
+        SELECT v.table_id, t.base_id
+        FROM grids.views v
+        JOIN grids.tables t ON t.id = v.table_id
+        WHERE v.id = ${viewId}::uuid
+      `;
+      if (!viewRow) return c.json({ message: "View not found" }, 404);
+      const gate = await gateAt(c, { baseId: viewRow.base_id, tableId: viewRow.table_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const entries = await gridsService.access.listForView(viewId);
+      return c.json(entries);
+    },
+  )
   .post(
     "/by-view/:viewId",
     describeRoute({
@@ -150,6 +176,78 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  // ── Form ACL ────────────────────────────────────────────────────────
+  // Form ACLs only carry `write` (= "can submit this form even when it
+  // has no public token"). read/admin are rejected at write-time:
+  // `read` would just be "can render the form schema", which is implied
+  // by being granted any form access; `admin` (= edit form config)
+  // lives at table-admin and would conflict if duplicated here. Caller
+  // must be admin on the form's parent table — same reasoning as views.
+  .get(
+    "/by-form/:formId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "List ACL entries for a form",
+      responses: {
+        200: jsonResponse(AccessListSchema, "Entries"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Form not found"),
+      },
+    }),
+    async (c) => {
+      const formId = c.req.param("formId");
+      const [formRow] = await sql<{ table_id: string; base_id: string }[]>`
+        SELECT f.table_id, t.base_id
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id
+        WHERE f.id = ${formId}::uuid
+      `;
+      if (!formRow) return c.json({ message: "Form not found" }, 404);
+      const gate = await gateAt(c, { baseId: formRow.base_id, tableId: formRow.table_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const entries = await gridsService.access.listForForm(formId);
+      return c.json(entries);
+    },
+  )
+  .post(
+    "/by-form/:formId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "Grant write access on a form (only 'write' / 'none' accepted)",
+      responses: {
+        201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Form only accepts level 'write' or 'none'"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", GrantAccessSchema),
+    async (c) => {
+      const formId = c.req.param("formId");
+      const body = c.req.valid("json");
+      if (body.permission !== "write" && body.permission !== "none") {
+        return c.json({ message: "Form ACL only accepts 'write' or 'none'" }, 400);
+      }
+      const [formRow] = await sql<{ table_id: string; base_id: string }[]>`
+        SELECT f.table_id, t.base_id
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id
+        WHERE f.id = ${formId}::uuid
+      `;
+      if (!formRow) return c.json({ message: "Form not found" }, 404);
+      const gate = await gateAt(c, { baseId: formRow.base_id, tableId: formRow.table_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(
+        c,
+        () => gridsService.access.grant({
+          resourceType: "form",
+          resourceId: formId,
+          ...body,
+        }),
+        201,
+      );
+    },
+  )
+
   // ── Modify / revoke a single grant by accessId ──────────────────────
   // Both routes resolve the access-id to its bound grids resource first,
   // then gate at admin on the parent. Without this lookup any authenticated
@@ -176,7 +274,9 @@ const app = new Hono<AuthContext>()
           ? { baseId: binding.baseId }
           : binding.resourceType === "table"
             ? { baseId: binding.baseId, tableId: binding.tableId }
-            : { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId };
+            : binding.resourceType === "view"
+              ? { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId }
+              : { baseId: binding.baseId, tableId: binding.tableId, formId: binding.formId };
       const gate = await gateAt(c, target, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
@@ -185,6 +285,10 @@ const app = new Hono<AuthContext>()
       // never re-caps so we have to enforce on every write to the row.
       if (binding.resourceType === "view" && permission !== "read" && permission !== "none") {
         return c.json({ message: "View grants only accept 'read' or 'none'" }, 400);
+      }
+      // Same enforcement for forms: write-or-none only.
+      if (binding.resourceType === "form" && permission !== "write" && permission !== "none") {
+        return c.json({ message: "Form grants only accept 'write' or 'none'" }, 400);
       }
 
       const result = await gridsService.access.updateLevel(accessId, permission);
@@ -213,7 +317,9 @@ const app = new Hono<AuthContext>()
           ? { baseId: binding.baseId }
           : binding.resourceType === "table"
             ? { baseId: binding.baseId, tableId: binding.tableId }
-            : { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId };
+            : binding.resourceType === "view"
+              ? { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId }
+              : { baseId: binding.baseId, tableId: binding.tableId, formId: binding.formId };
       const gate = await gateAt(c, target, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 

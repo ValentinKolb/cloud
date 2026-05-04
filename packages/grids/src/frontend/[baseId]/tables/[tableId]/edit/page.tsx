@@ -6,6 +6,7 @@ import { gridsService } from "../../../../../service";
 import TableEditPage from "../../../../_components/TableEditPage.island";
 import EditSidebar from "../../../../_components/EditSidebar";
 import type { Field, View } from "../../../../../service";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -78,6 +79,15 @@ export default ssr<AuthContext>(async (c) => {
   // Per-table ACL entries — only the table-level grants. Base-level
   // grants are managed on the base settings page.
   const accessEntries = await gridsService.access.listForTable(tableId);
+  // Per-form ACL entries — pre-fetched for every non-virtual form so
+  // the FormsManager renders the Permissions section without a per-
+  // form fetch on first expand. One round-trip per form; the count is
+  // small (most tables have <5 custom forms) so this is cheap.
+  const formAccessEntries: Record<string, AccessEntry[]> = {};
+  for (const f of forms) {
+    if (f.isDefault) continue;
+    formAccessEntries[f.id] = await gridsService.access.listForForm(f.id);
+  }
   // Pre-fetch fields for sibling tables — relation editor needs targets.
   const fieldsByTable: Record<string, Field[]> = { [tableId]: fields };
   for (const t of tables) {
@@ -171,6 +181,7 @@ export default ssr<AuthContext>(async (c) => {
             }}
             initialFields={fields}
             initialForms={forms}
+            initialFormAccessEntries={formAccessEntries}
             initialAccessEntries={accessEntries}
             otherTables={tables.filter((t) => t.id !== tableId).map((t) => ({
               id: t.id,

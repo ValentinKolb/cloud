@@ -1,6 +1,8 @@
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 import {
+  NumberInput,
+  PermissionEditor,
   Select,
   TextInput,
   navigateTo,
@@ -12,6 +14,11 @@ import {
   mutation as mutations,
   type DndBuildIntentContext,
 } from "@valentinkolb/stdlib/solid";
+import type {
+  AccessEntry,
+  PermissionLevel,
+  Principal,
+} from "@valentinkolb/cloud/contracts/shared";
 import type { Field } from "../../service";
 import type {
   ColumnSpec,
@@ -28,6 +35,14 @@ type Props = {
   tableId: string;
   initialView: View;
   fields: Field[];
+  /** Pre-fetched ACL entries for this view (server-side load). The
+   *  PermissionEditor is given allowedLevels=["read"] because the API
+   *  caps view-grants to read/none — write or admin on a view doesn't
+   *  exist semantically (you can't "write to a saved query"). */
+  initialAccessEntries: AccessEntry[];
+  /** Whether the current user can mutate the view's ACL. The API gates
+   *  this at table-admin; we mirror it client-side for the UI. */
+  canEditAccess: boolean;
 };
 
 type DragMeta = { columnIdx: number };
@@ -68,11 +83,11 @@ export default function ViewEditPage(props: Props) {
         </a>
       </header>
 
-      <div class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/40 px-4 py-3 text-xs text-secondary">
-        <i class="ti ti-snowflake text-blue-500" /> The view's query (filter,
-        sort, group, aggregations) is frozen. To change it, go back to the
-        records page, adjust filter/sort/group/aggregate in the toolbar,
-        and save as a new view.
+      <div class="info-block-info text-xs">
+        <i class="ti ti-snowflake" /> The view's query (filter, sort, group,
+        aggregations) is frozen. To change it, go back to the records page,
+        adjust filter/sort/group/aggregate in the toolbar, and save as a
+        new view.
       </div>
 
       <GeneralSection viewId={props.initialView.id} initial={props.initialView} />
@@ -93,6 +108,24 @@ export default function ViewEditPage(props: Props) {
         viewId={props.initialView.id}
         initial={props.initialView.query.limit}
       />
+
+      {/* Permissions section — only meaningful for shared views (a
+          personal view's grants would be invisible to anyone but the
+          owner anyway). The Shared toggle in General turns this on/off
+          implicitly: shared = visible to everyone with table-read by
+          default; specific grants here let you NARROW that to a
+          subset. */}
+      <SectionCard
+        title="Permissions"
+        subtitle="Grant read access on this view to specific users or groups. Only Read is offered — views are saved queries; there's no Write or Admin level for them."
+      >
+        <ViewPermissions
+          viewId={props.initialView.id}
+          initialEntries={props.initialAccessEntries}
+          canEdit={props.canEditAccess}
+        />
+      </SectionCard>
+
       <SectionCard
         title="Danger zone"
         subtitle="Permanently delete this view. Records remain — only the saved filter / sort / columns go away."
@@ -468,19 +501,21 @@ function ColumnsSection(props: {
 // =============================================================================
 
 function LimitSection(props: { viewId: string; initial: number | undefined }) {
-  const [value, setValue] = createSignal<string>(
-    props.initial !== undefined ? String(props.initial) : "",
-  );
+  // The platform NumberInput is strictly numeric (no null/empty
+  // state) — so we treat 0 as the sentinel for "no limit". The user
+  // hint in the section subtitle calls that out. On save we convert
+  // 0 → undefined so the contract's `limit: int().min(1)` accepts it.
+  const [value, setValue] = createSignal<number>(props.initial ?? 0);
   const [dirty, setDirty] = createSignal(false);
 
   const mut = mutations.create<View, void>({
     mutation: async () => {
-      const trimmed = value().trim();
-      const n = trimmed === "" ? undefined : Number(trimmed);
-      if (n !== undefined && (!Number.isInteger(n) || n < 1)) {
-        throw new Error("Limit must be a positive integer or empty");
+      const n = value();
+      const limit = n > 0 ? n : undefined;
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
+        throw new Error("Limit must be a positive integer or 0 for unlimited");
       }
-      return await patchViewQuery(props.viewId, { limit: n });
+      return await patchViewQuery(props.viewId, { limit });
     },
     onSuccess: () => setDirty(false),
     onError: (e) => prompts.error(e.message),
@@ -489,20 +524,20 @@ function LimitSection(props: { viewId: string; initial: number | undefined }) {
   return (
     <SectionCard
       title="Limit"
-      subtitle="Show at most N records. Empty = no limit."
+      subtitle="Show at most N records. Use 0 for unlimited."
     >
       <div class="flex items-center gap-2 max-w-sm">
-        <input
-          type="number"
-          min="1"
-          class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1.5 text-sm flex-1"
-          placeholder="unlimited"
-          value={value()}
-          onInput={(e) => {
-            setValue(e.currentTarget.value);
-            setDirty(true);
-          }}
-        />
+        <div class="flex-1">
+          <NumberInput
+            min={0}
+            max={10000}
+            value={value}
+            onChange={(v) => {
+              setValue(v);
+              setDirty(true);
+            }}
+          />
+        </div>
         <Show when={dirty()}>
           <button
             type="button"
@@ -705,3 +740,55 @@ const pickFormatSpec = async (
   );
   return undefined;
 };
+
+// =============================================================================
+// ViewPermissions — wraps the platform PermissionEditor with view-API wires
+// =============================================================================
+// Mirrors TablePermissions in TableEditPage. The only difference: we pass
+// `allowedLevels={["read"]}` so the editor renders as plain inline badges
+// (no SegmentedControl, no chevron dropdown) — there's no Write or Admin
+// for a view, the API caps every grant at "read" or "none".
+
+function ViewPermissions(props: {
+  viewId: string;
+  initialEntries: AccessEntry[];
+  canEdit: boolean;
+}) {
+  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
+  return (
+    <PermissionEditor
+      resourceId={props.viewId}
+      initialEntries={entries()}
+      canEdit={props.canEdit}
+      allowedLevels={["read"]}
+      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+        const res = await apiClient.access["by-view"][":viewId"].$post({
+          param: { viewId: resourceId },
+          json: { principal, permission },
+        });
+        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
+        const created = (await res.json()) as { accessId: string };
+        // Refetch the canonical list so the new entry has displayName etc.
+        const listRes = await apiClient.access["by-view"][":viewId"].$get({
+          param: { viewId: resourceId },
+        });
+        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        setEntries(list);
+        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
+      }}
+      updateAccess={async (_resourceId, accessId, permission) => {
+        const res = await apiClient.access[":accessId"].$patch({
+          param: { accessId },
+          json: { permission },
+        });
+        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
+        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
+      }}
+      revokeAccess={async (_resourceId, accessId) => {
+        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
+        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
+        setEntries(entries().filter((e) => e.id !== accessId));
+      }}
+    />
+  );
+}

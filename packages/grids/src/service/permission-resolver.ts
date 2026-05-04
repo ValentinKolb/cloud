@@ -11,7 +11,7 @@ const LEVEL_RANK: Record<PermissionLevel, number> = {
 
 const LEVEL_BY_RANK: PermissionLevel[] = ["none", "read", "write", "admin"];
 
-export type ResourceType = "base" | "table" | "view";
+export type ResourceType = "base" | "table" | "view" | "form";
 
 export type Grant = {
   resourceType: ResourceType;
@@ -22,7 +22,8 @@ export type Grant = {
 export type ResolveTarget =
   | { baseId: string }
   | { baseId: string; tableId: string }
-  | { baseId: string; tableId: string; viewId: string };
+  | { baseId: string; tableId: string; viewId: string }
+  | { baseId: string; tableId: string; formId: string };
 
 const highest = (levels: PermissionLevel[]): PermissionLevel => {
   if (levels.length === 0) return "none";
@@ -44,6 +45,14 @@ const highest = (levels: PermissionLevel[]): PermissionLevel => {
  */
 export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarget): PermissionLevel => {
   const baseGrants = grants.filter((g) => g.resourceType === "base" && g.resourceId === target.baseId);
+
+  // Form-target: form-specific grants win at the most-specific level.
+  // Note: write on a form does NOT cascade to its parent table — that
+  // would be a privilege escalation. Form-write only authorises submit.
+  if ("formId" in target) {
+    const formGrants = grants.filter((g) => g.resourceType === "form" && g.resourceId === target.formId);
+    if (formGrants.length > 0) return highest(formGrants.map((g) => g.level));
+  }
 
   if ("viewId" in target) {
     const viewGrants = grants.filter((g) => g.resourceType === "view" && g.resourceId === target.viewId);
@@ -82,6 +91,7 @@ export const loadGrantsForUser = async (params: {
   baseId: string;
   tableId?: string | null;
   viewId?: string | null;
+  formId?: string | null;
 }): Promise<Grant[]> => {
   const userId = params.userId;
   // Use the shared helper — it tolerates non-array inputs (bun.sql surfaces
@@ -89,6 +99,7 @@ export const loadGrantsForUser = async (params: {
   const groups = toPgUuidArray(params.userGroups);
   const tableId = params.tableId ?? null;
   const viewId = params.viewId ?? null;
+  const formId = params.formId ?? null;
 
   const rows = await sql<DbRow[]>`
     SELECT 'base'::text AS resource_type, ba.base_id AS resource_id, a.permission AS level
@@ -121,6 +132,19 @@ export const loadGrantsForUser = async (params: {
     FROM grids.view_access va
     JOIN auth.access a ON a.id = va.access_id
     WHERE va.view_id = ${viewId}::uuid
+      AND (
+        a.user_id = ${userId}::uuid
+        OR a.group_id = ANY(${groups}::uuid[])
+        OR (a.authenticated_only = TRUE AND ${userId}::uuid IS NOT NULL)
+        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE)
+      )
+
+    UNION ALL
+
+    SELECT 'form'::text, fa.form_id, a.permission
+    FROM grids.form_access fa
+    JOIN auth.access a ON a.id = fa.access_id
+    WHERE fa.form_id = ${formId}::uuid
       AND (
         a.user_id = ${userId}::uuid
         OR a.group_id = ANY(${groups}::uuid[])
