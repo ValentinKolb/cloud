@@ -71,6 +71,7 @@ export const notebooksService = {
       summary: async (config: { filter?: { query?: string } }) =>
         notebooks.adminSummary({ search: config.filter?.query }),
     },
+    graph: links.buildNotebookGraph,
     access: {
       list: async (config: {
         notebookId: string;
@@ -173,4 +174,4 @@ export type {
   NoteWithContent,
   UpdateNote,
 } from "./notes";
-export type { Backlink, NoteLink } from "./links";
+export type { Backlink, GraphEdge, GraphNode, NoteGraph, NoteLink } from "./links";

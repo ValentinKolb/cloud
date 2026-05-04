@@ -10,6 +10,7 @@ import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island
 import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
+import NotebookGraph from "./_components/graph/NotebookGraph.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import { parseDetailPanelOpen, parseSettings } from "./_components/settings/NotebookSettingsStore";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
@@ -64,6 +65,7 @@ export default ssr<AuthContext>(async (c) => {
   const view = c.req.query("view");
   const isSettingsMode = mode === "settings";
   const isVersionsMode = mode === "versions";
+  const isGraphMode = mode === "graph";
   const isReadMode = view === "read";
 
   // Load note tree
@@ -153,7 +155,7 @@ export default ssr<AuthContext>(async (c) => {
   // Backlinks: only loaded for actual note views (skip settings + versions
   // modes). Cheap query; rendered server-side via SSR — no client fetch.
   const backlinks =
-    selectedNoteId && !isSettingsMode && !isVersionsMode
+    selectedNoteId && !isSettingsMode && !isVersionsMode && !isGraphMode
       ? await notebooksService.note.backlinks.list({
           noteId: selectedNoteId,
           userId: user.id,
@@ -161,6 +163,11 @@ export default ssr<AuthContext>(async (c) => {
           bypassAccess: hasRole(user, "admin"),
         })
       : [];
+
+  // Graph data: only fetched in graph mode. The whole-notebook payload
+  // (nodes + internal edges) is small enough to inline into the SSR
+  // response — saves the round-trip a client-fetch would otherwise need.
+  const graph = isGraphMode ? await notebooksService.notebook.graph({ notebookId }) : null;
 
   const ctx: NotebookContext = {
     notebook,
@@ -176,8 +183,8 @@ export default ssr<AuthContext>(async (c) => {
   const appUrl = await get<string>("app.url");
 
   // Detail panel only renders for actual note views (not settings/versions
-  // modes — those have their own dedicated layouts).
-  const showDetailPanel = !!selectedNote && !isSettingsMode && !isVersionsMode;
+  // /graph modes — those have their own dedicated layouts).
+  const showDetailPanel = !!selectedNote && !isSettingsMode && !isVersionsMode && !isGraphMode;
 
   return () => (
     <Layout
@@ -208,6 +215,8 @@ export default ssr<AuthContext>(async (c) => {
               isLocked={!!selectedNote?.lockedAt}
               currentContentMd={selectedNote?.contentMd ?? null}
             />
+          ) : isGraphMode && graph ? (
+            <NotebookGraph notebookId={notebookId} selectedNoteId={selectedNoteId} graph={graph} />
           ) : selectedNote ? (
             actualReadMode ? (
               <ReadonlyNote

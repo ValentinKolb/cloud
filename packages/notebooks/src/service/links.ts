@@ -55,6 +55,27 @@ export type Backlink = {
   updatedAt: string;
 };
 
+// Graph view payload — nodes + edges scoped to a single notebook. The shape
+// is intentionally tight (only what the visualisation needs) so we can stream
+// hundreds of notes without ballooning the SSR/JSON payload.
+export type GraphNode = {
+  id: string;
+  title: string;
+  /** Number of incoming links from inside this notebook — drives node size
+   *  in the visualisation (more linked = bigger). */
+  inDegree: number;
+};
+
+export type GraphEdge = {
+  source: string;
+  target: string;
+};
+
+export type NoteGraph = {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
 // ==========================
 // Link extraction
 // ==========================
@@ -213,4 +234,59 @@ export const listBacklinks = async (params: {
     notebookName: r.notebook_name,
     updatedAt: r.updated_at.toISOString(),
   }));
+};
+
+// ==========================
+// Graph view
+// ==========================
+
+/**
+ * Build the per-notebook link graph: every note in the notebook becomes a
+ * node, every `note_links` row whose source AND target are both inside the
+ * notebook becomes an edge.
+ *
+ * Edges that point outside the notebook (cross-notebook links) are
+ * intentionally dropped from the graph payload — the visualisation is
+ * scoped to one notebook at a time. Cross-notebook visualisation is a
+ * separate (larger) feature.
+ *
+ * `inDegree` counts only *internal* incoming links so node size in the
+ * graph reflects connectedness within the same notebook.
+ *
+ * Access control is performed at the route layer (the caller already
+ * passed `checkNotebookAccess`); this function trusts that gate and does
+ * not re-filter.
+ */
+export const buildNotebookGraph = async (params: { notebookId: string }): Promise<NoteGraph> => {
+  const { notebookId } = params;
+
+  const noteRows = await sql<{ id: string; title: string }[]>`
+    SELECT id, title
+    FROM notebooks.notes
+    WHERE notebook_id = ${notebookId}::uuid
+    ORDER BY created_at ASC
+  `;
+
+  const edgeRows = await sql<{ source_note_id: string; target_note_id: string }[]>`
+    SELECT nl.source_note_id, nl.target_note_id
+    FROM notebooks.note_links nl
+    JOIN notebooks.notes src ON src.id = nl.source_note_id
+    JOIN notebooks.notes tgt ON tgt.id = nl.target_note_id
+    WHERE src.notebook_id = ${notebookId}::uuid
+      AND tgt.notebook_id = ${notebookId}::uuid
+  `;
+
+  const inDegree = new Map<string, number>();
+  for (const edge of edgeRows) {
+    inDegree.set(edge.target_note_id, (inDegree.get(edge.target_note_id) ?? 0) + 1);
+  }
+
+  return {
+    nodes: noteRows.map((n) => ({
+      id: n.id,
+      title: n.title,
+      inDegree: inDegree.get(n.id) ?? 0,
+    })),
+    edges: edgeRows.map((e) => ({ source: e.source_note_id, target: e.target_note_id })),
+  };
 };

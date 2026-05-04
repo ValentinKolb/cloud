@@ -104,6 +104,22 @@ const BacklinkSchema = z.object({
   updatedAt: z.string(),
 });
 
+const GraphNodeSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  inDegree: z.number().int().min(0),
+});
+
+const GraphEdgeSchema = z.object({
+  source: z.uuid(),
+  target: z.uuid(),
+});
+
+const NoteGraphSchema = z.object({
+  nodes: z.array(GraphNodeSchema),
+  edges: z.array(GraphEdgeSchema),
+});
+
 const ListNotebooksQuerySchema = z.object({
   ...PaginationQuerySchema.shape,
   q: z.string().optional(),
@@ -918,6 +934,33 @@ const app = new Hono<AuthContext>()
       });
 
       return respond(c, ok({ data: items }));
+    },
+  )
+
+  // ==========================
+  // GRAPH
+  // ==========================
+
+  // Get notebook link graph
+  .get(
+    "/:id/graph",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Get link graph",
+      description: "Return all notes (nodes) and all internal note-links (edges) for the notebook.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.object({ data: NoteGraphSchema }), "Graph data"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    async (c) => {
+      const notebookId = c.req.param("id");
+      const { error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      const graph = await notebooksService.notebook.graph({ notebookId });
+      return respond(c, ok({ data: graph }));
     },
   )
 

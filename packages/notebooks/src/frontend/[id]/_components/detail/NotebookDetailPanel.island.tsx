@@ -247,6 +247,11 @@ export default function NotebookDetailPanel(props: Props) {
             <i class="ti ti-history" />
             <span>Version history</span>
           </a>
+
+          <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${props.noteId}`} class={ACTION_BTN}>
+            <i class="ti ti-vector" />
+            <span>Graph view</span>
+          </a>
         </div>
       </section>
 
