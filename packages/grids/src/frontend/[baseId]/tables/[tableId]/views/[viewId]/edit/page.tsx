@@ -4,6 +4,8 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../../../../../../service";
 import ViewEditPage from "../../../../../../_components/ViewEditPage.island";
+import EditSidebar from "../../../../../../_components/EditSidebar";
+import type { View } from "../../../../../../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -79,12 +81,28 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const fields = await gridsService.field.listByTable(tableId);
-  // Sibling views for the sidebar nav.
-  const viewsForTable = await gridsService.view.listForTable({
-    tableId,
-    userId: user.id,
-    userGroups: user.memberofGroupIds,
-  });
+
+  // Pre-fetch sibling tables + their views for the unified edit
+  // sidebar. The sidebar mirrors the records-page sidebar shape so the
+  // user can hop between editing a table OR a view in one click.
+  // Filter to the readable set so unreachable links don't show.
+  const allTables = await gridsService.table.listByBase(baseId);
+  const tables = (
+    await Promise.all(
+      allTables.map(async (t) => {
+        const lvl = await resolveLevel(user, baseId, t.id);
+        return gridsService.permission.hasAtLeast(lvl, "read") ? t : null;
+      }),
+    )
+  ).filter((t): t is NonNullable<typeof t> => t !== null);
+  const viewsByTable: Record<string, View[]> = {};
+  for (const t of tables) {
+    viewsByTable[t.id] = await gridsService.view.listForTable({
+      tableId: t.id,
+      userId: user.id,
+      userGroups: user.memberofGroupIds,
+    });
+  }
 
   return () => (
     <Layout
@@ -123,7 +141,7 @@ export default ssr<AuthContext>(async (c) => {
                 <i class="ti ti-arrow-left" />
                 Back to records
               </a>
-              {viewsForTable.map((v) => {
+              {(viewsByTable[tableId] ?? []).map((v) => {
                 const isActive = v.id === viewId;
                 return (
                   <a
@@ -143,48 +161,15 @@ export default ssr<AuthContext>(async (c) => {
           </details>
         </nav>
 
-        <aside class="sidebar-container">
-          <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
-            <div class="relative flex items-center gap-3 pr-7">
-              <div class="sidebar-header-icon" style="background-color:#3b82f6">
-                <i class="ti ti-table-spark text-xs" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="sidebar-header-title">Edit view</p>
-                <p class="sidebar-header-subtitle truncate">{view.name}</p>
-              </div>
-            </div>
-
-            <section class="sidebar-group">
-              <p class="sidebar-section-title">Actions</p>
-              <a
-                href={`/app/grids/${baseId}?table=${tableId}&view=${viewId}`}
-                class="sidebar-item text-xs"
-              >
-                <i class="ti ti-arrow-left text-sm" />
-                <span>Back to records</span>
-              </a>
-            </section>
-
-            <div class="sidebar-body">
-              <section class="sidebar-group">
-                <p class="sidebar-section-title">Views on {table.name}</p>
-                {viewsForTable.map((v) => {
-                  const isActive = v.id === viewId;
-                  return (
-                    <a
-                      href={`/app/grids/${baseId}/tables/${tableId}/views/${v.id}/edit`}
-                      class={`sidebar-item text-xs ${isActive ? "sidebar-item-active" : ""}`}
-                    >
-                      <i class="ti ti-table-spark text-sm" />
-                      <span class="truncate">{v.name}</span>
-                    </a>
-                  );
-                })}
-              </section>
-            </div>
-          </div>
-        </aside>
+        {/* Unified edit sidebar — same component as the table-edit
+            page. Lists Tables + Views with the active highlight on the
+            view being edited. */}
+        <EditSidebar
+          baseId={baseId}
+          tables={tables}
+          viewsByTable={viewsByTable}
+          active={{ kind: "view", tableId, viewId }}
+        />
 
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           <ViewEditPage

@@ -4,7 +4,8 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../../../../service";
 import TableEditPage from "../../../../_components/TableEditPage.island";
-import type { Field } from "../../../../../service";
+import EditSidebar from "../../../../_components/EditSidebar";
+import type { Field, View } from "../../../../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -84,6 +85,17 @@ export default ssr<AuthContext>(async (c) => {
       fieldsByTable[t.id] = await gridsService.field.listByTable(t.id);
     }
   }
+  // Pre-fetch views per table for the unified edit sidebar (lets the
+  // user hop directly from this table-editor to any sibling table OR
+  // any view). Cheap: one call per readable table.
+  const viewsByTable: Record<string, View[]> = {};
+  for (const t of tables) {
+    viewsByTable[t.id] = await gridsService.view.listForTable({
+      tableId: t.id,
+      userId: user.id,
+      userGroups: user.memberofGroupIds,
+    });
+  }
 
   return () => (
     <Layout
@@ -138,50 +150,15 @@ export default ssr<AuthContext>(async (c) => {
           </details>
         </nav>
 
-        {/* Desktop sidebar — base header + sibling tables. Slimmer than
-            the records page sidebar (no Views section) since the editor
-            doesn't operate on records. */}
-        <aside class="sidebar-container">
-          <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
-            <div class="relative flex items-center gap-3 pr-7">
-              <div class="sidebar-header-icon" style="background-color:#3b82f6">
-                <i class="ti ti-table text-xs" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="sidebar-header-title">Edit table</p>
-              </div>
-            </div>
-
-            <section class="sidebar-group">
-              <p class="sidebar-section-title">Actions</p>
-              <a
-                href={`/app/grids/${baseId}?table=${tableId}`}
-                class="sidebar-item text-xs"
-              >
-                <i class="ti ti-arrow-left text-sm" />
-                <span>Back to records</span>
-              </a>
-            </section>
-
-            <div class="sidebar-body">
-              <section class="sidebar-group">
-                <p class="sidebar-section-title">Tables</p>
-                {tables.map((t) => {
-                  const isActive = t.id === tableId;
-                  return (
-                    <a
-                      href={`/app/grids/${baseId}/tables/${t.id}/edit`}
-                      class={`sidebar-item text-xs ${isActive ? "sidebar-item-active" : ""}`}
-                    >
-                      <i class="ti ti-table text-sm" />
-                      <span class="truncate">{t.name}</span>
-                    </a>
-                  );
-                })}
-              </section>
-            </div>
-          </div>
-        </aside>
+        {/* Unified edit sidebar — lists Tables + Views with active
+            highlight. Same shape on the view-edit page so the user
+            doesn't see two different navigations. */}
+        <EditSidebar
+          baseId={baseId}
+          tables={tables}
+          viewsByTable={viewsByTable}
+          active={{ kind: "table", tableId }}
+        />
 
         {/* Full-width main column — editor body. */}
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
