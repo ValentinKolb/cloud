@@ -25,11 +25,7 @@ import {
 import {
   barcodeHandler,
   isbnHandler,
-  locationHandler,
-  colorHandler,
-  richTextHandler,
   jsonHandler,
-  signatureHandler,
 } from "./tier3";
 import { relationHandler, lookupHandler, rollupHandler } from "./relations";
 import { formulaHandler } from "./formula";
@@ -61,11 +57,7 @@ const handlers: FieldTypeHandler[] = [
   // Tier 3
   barcodeHandler,
   isbnHandler,
-  locationHandler,
-  colorHandler,
-  richTextHandler,
   jsonHandler,
-  signatureHandler,
   // Phase 4 — relations
   relationHandler,
   lookupHandler,

@@ -93,3 +93,36 @@ describe("compileAggregates — keys", () => {
     }
   });
 });
+
+describe("compileAggregates — `*` virtual field (row count)", () => {
+  test("`*` count compiles with the *__count key", () => {
+    const r = compileAggregates([{ fieldId: "*", agg: "count" }], fields);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.columns).toHaveLength(1);
+      expect(r.columns[0]!.key).toBe("*__count");
+    }
+  });
+
+  test("`*` mixed with field-scoped aggregations preserves order", () => {
+    const r = compileAggregates(
+      [
+        { fieldId: "*", agg: "count" },
+        { fieldId: "fld_amount", agg: "sum" },
+      ],
+      fields,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.columns.map((c) => c.key)).toEqual(["*__count", "fld_amount__sum"]);
+    }
+  });
+
+  test("`*` rejects non-count aggregations", () => {
+    for (const agg of ["sum", "avg", "min", "max", "median"] as const) {
+      const r = compileAggregates([{ fieldId: "*", agg }], fields);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/only count works on "\*"/);
+    }
+  });
+});

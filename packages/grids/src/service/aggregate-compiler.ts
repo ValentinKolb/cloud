@@ -13,7 +13,9 @@ export type AggKind =
   | "earliest"
   | "latest";
 
-export type AggregateRequest = { fieldId: string; agg: AggKind };
+/** "*" is a virtual field id meaning "the row itself". Only `count` is
+ *  defined for it (`COUNT(*)`); any other agg returns a compile error. */
+export type AggregateRequest = { fieldId: string | "*"; agg: AggKind };
 export type AggregateColumn = {
   /** Result key: `${fieldId}__${agg}` — stable for the renderer to extract. */
   key: string;
@@ -21,8 +23,31 @@ export type AggregateColumn = {
   expr: any;
 };
 
-const NUMERIC_TYPES = new Set(["number", "decimal", "rating", "autonumber"]);
+// Numeric-castable types. v3 (Slice 7) extends the set with currency,
+// percent, and duration — they were silently rejected before despite
+// having well-defined numeric aggregation semantics.
+//
+// Currency stores `{ amount: "12.34", currency: "EUR" }` — projected
+// via `data->'<id>'->>'amount'`. Aggregating across mixed currency
+// codes is the user's choice; the compiler doesn't reject it (a
+// future UI warning may surface "mixed currencies" if useful).
+const FLAT_NUMERIC_TYPES = new Set([
+  "number", "decimal", "rating", "autonumber", "percent", "duration",
+]);
+const NESTED_NUMERIC_TYPES = new Set(["currency"]);
+const NUMERIC_TYPES = new Set([...FLAT_NUMERIC_TYPES, ...NESTED_NUMERIC_TYPES]);
 const DATE_TYPES = new Set(["date"]);
+
+/** SQL fragment that extracts a numeric value for the given field type.
+ *  Routed through grids.try_numeric so corrupt JSONB values produce NULL
+ *  instead of crashing the aggregate. */
+const numericProjection = (fieldId: string, type: string): any => {
+  if (NESTED_NUMERIC_TYPES.has(type)) {
+    // Currency: nested under `amount`.
+    return sql`grids.try_numeric(data->${fieldId}->>'amount')`;
+  }
+  return sql`grids.try_numeric(data->>${fieldId})`;
+};
 
 const isCompatible = (agg: AggKind, type: string): boolean => {
   switch (agg) {
@@ -64,6 +89,16 @@ export const compileAggregates = (
   const columns: AggregateColumn[] = [];
 
   for (const req of requests) {
+    // "*" — virtual "the row" field. Only count is defined (COUNT(*)).
+    // The footer renders this under the leftmost column, Airtable-style.
+    if (req.fieldId === "*") {
+      if (req.agg !== "count") {
+        return { ok: false, error: `agg "${req.agg}" requires a field; only count works on "*"` };
+      }
+      columns.push({ key: "*__count", expr: sql`COUNT(*)` });
+      continue;
+    }
+
     const field = fieldsById.get(req.fieldId);
     if (!field) return { ok: false, error: `unknown field "${req.fieldId}"` };
     if (field.deletedAt) return { ok: false, error: `field "${field.name}" is deleted` };
@@ -87,23 +122,25 @@ export const compileAggregates = (
         expr = sql`COUNT(DISTINCT data->>${fieldId}) FILTER (WHERE data->>${fieldId} IS NOT NULL AND data->>${fieldId} <> '')`;
         break;
       case "sum":
-        expr = sql`SUM((data->>${fieldId})::numeric)`;
+        expr = sql`SUM(${numericProjection(fieldId, field.type)})`;
         break;
       case "avg":
-        expr = sql`AVG((data->>${fieldId})::numeric)`;
+        expr = sql`AVG(${numericProjection(fieldId, field.type)})`;
         break;
       case "median":
         // PERCENTILE_CONT(0.5) — Postgres returns the linear-interpolated
         // 50th percentile, which is the median.
-        expr = sql`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (data->>${fieldId})::numeric)`;
+        expr = sql`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${numericProjection(fieldId, field.type)})`;
         break;
       case "min":
       case "max": {
         const fn = req.agg === "min" ? sql`MIN` : sql`MAX`;
         if (NUMERIC_TYPES.has(field.type)) {
-          expr = sql`${fn}((data->>${fieldId})::numeric)`;
+          expr = sql`${fn}(${numericProjection(fieldId, field.type)})`;
         } else if (DATE_TYPES.has(field.type)) {
-          expr = sql`${fn}((data->>${fieldId})::date)`;
+          // Safe-cast: corrupt date data → NULL → ignored by MIN/MAX,
+          // not a query crash.
+          expr = sql`${fn}(grids.try_date(data->>${fieldId}))`;
         } else {
           expr = sql`${fn}(data->>${fieldId})`;
         }
@@ -112,7 +149,7 @@ export const compileAggregates = (
       case "earliest":
       case "latest": {
         const fn = req.agg === "earliest" ? sql`MIN` : sql`MAX`;
-        expr = sql`${fn}((data->>${fieldId})::timestamptz)`;
+        expr = sql`${fn}(grids.try_timestamptz(data->>${fieldId}))`;
         break;
       }
     }

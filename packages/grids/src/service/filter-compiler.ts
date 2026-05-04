@@ -56,7 +56,7 @@ const opsForType = (type: string): Set<string> => {
     case "text": case "longtext":
     // Tier 2 / 3 text-shaped subtypes — same set of text ops apply.
     case "email": case "url": case "phone": case "slug":
-    case "barcode": case "isbn": case "color": case "rich-text":
+    case "barcode": case "isbn":
       return TEXT_OPS;
     // Tier 1
     case "number": case "decimal": case "rating": case "autonumber":
@@ -67,7 +67,7 @@ const opsForType = (type: string): Set<string> => {
     case "boolean": return BOOL_OPS;
     case "single-select": return SINGLE_SELECT_OPS;
     case "multi-select": return MULTI_SELECT_OPS;
-    // currency / location / json / signature stay unfilterable for now.
+    // currency / json stay unfilterable for now.
     default: return new Set();
   }
 };
@@ -175,10 +175,14 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
     ? sql`LOWER(data->>${fieldId})`
     : sql`data->>${fieldId}`;
 
-  const numericProjection = sql`(data->>${fieldId})::numeric`;
-  const dateProjection = sql`(data->>${fieldId})::date`;
-  const tsProjection = sql`(data->>${fieldId})::timestamptz`;
-  const boolProjection = sql`(data->>${fieldId})::boolean`;
+  // Safe-cast wrappers: NULL on parse failure instead of raising.
+  // A single corrupt record (e.g. "abc" stored in a number field after
+  // schema drift) used to crash the entire query — now it just doesn't
+  // match the predicate.
+  const numericProjection = sql`grids.try_numeric(data->>${fieldId})`;
+  const dateProjection = sql`grids.try_date(data->>${fieldId})`;
+  const tsProjection = sql`grids.try_timestamptz(data->>${fieldId})`;
+  const boolProjection = sql`grids.try_boolean(data->>${fieldId})`;
 
   const ciVal = (v: unknown) => (typeof v === "string" && p.caseInsensitive ? v.toLowerCase() : v);
 
@@ -191,9 +195,7 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
     case "phone":
     case "slug":
     case "barcode":
-    case "isbn":
-    case "color":
-    case "rich-text": {
+    case "isbn": {
       const v = ciVal(p.value);
       switch (p.op) {
         case "equals": return sql`${textProjection} = ${v}`;

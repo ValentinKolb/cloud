@@ -6,8 +6,6 @@ import type { FormatSpec } from "../../service/views";
  *  - select   → option label, not id
  *  - currency → "<amount> <code>"
  *  - duration → HH:MM:SS
- *  - location → label or "lat, lng"
- *  - signature→ ✍ placeholder
  *  - object   → JSON-stringify fallback
  *
  * `format` overrides take precedence for date / decimal / currency /
@@ -62,14 +60,6 @@ export const formatCell = (
     const m = Math.floor((value % 3600) / 60);
     const s = value % 60;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-  if (type === "location" && typeof value === "object") {
-    const obj = value as { lat?: number; lng?: number; label?: string };
-    if (obj.label) return obj.label;
-    if (obj.lat !== undefined && obj.lng !== undefined) return `${obj.lat}, ${obj.lng}`;
-  }
-  if (type === "signature" && typeof value === "string" && value.startsWith("data:image/")) {
-    return "✍ signature";
   }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);

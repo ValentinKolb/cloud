@@ -84,8 +84,6 @@ export const opsForType = (type: string): FilterOp[] => {
     case "slug":
     case "barcode":
     case "isbn":
-    case "color":
-    case "rich-text":
       return TEXT_OPS;
     case "number":
     case "decimal":
@@ -100,7 +98,7 @@ export const opsForType = (type: string): FilterOp[] => {
     case "multi-select": return MULTI_SELECT_OPS;
     // currency stores as an object; no filter UI yet (would need a
     // sub-path like data->'fld'->>'amount').
-    // location, json, signature: opaque to filter — no ops surfaced.
+    // json: opaque to filter — no ops surfaced.
     default: return [];
   }
 };

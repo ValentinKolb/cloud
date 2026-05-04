@@ -31,11 +31,7 @@ export const TYPE_OPTIONS = [
   // Tier 3
   { value: "barcode", label: "Barcode / QR" },
   { value: "isbn", label: "ISBN" },
-  { value: "color", label: "Color" },
-  { value: "rich-text", label: "Rich text (markdown)" },
   { value: "json", label: "JSON" },
-  { value: "signature", label: "Signature" },
-  { value: "location", label: "Location" },
   // Phase 4 / 5
   { value: "relation", label: "Relation (link to another table)" },
   { value: "lookup", label: "Lookup (project a field through a relation)" },
@@ -93,14 +89,7 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   barcode:
     "Any barcode value. No format check, so EAN, Code-128, QR, anything works.",
   isbn: "A 10- or 13-digit ISBN. The check digit is verified.",
-  color: "A colour picked from a palette or entered as a hex code.",
-  "rich-text":
-    "A formatted text body. Supports bold, italics, headings, lists, and links via Markdown.",
   json: "A free-form JSON value. Use this when no other type fits.",
-  signature:
-    "A handwritten signature drawn on a touch screen or with a mouse.",
-  location:
-    "A point on a map — coordinates with an optional human-readable label.",
   relation:
     "A link to one or more records in another table. Pick the target table and which of its columns to show.",
   lookup:
@@ -151,7 +140,6 @@ type EditorProps = {
 const CONFIGURABLE = new Set([
   "text",
   "longtext",
-  "rich-text",
   "number",
   "percent",
   "duration",
@@ -174,9 +162,9 @@ const CONFIGURABLE = new Set([
  * blob to the parent on every change. The blob's shape mirrors the
  * server-side configSchema in packages/grids/src/field-types/<type>.ts.
  *
- * Email / url / phone / slug / barcode / isbn / color / json / signature /
- * location have no user-tunable constraints in the current schema, so they
- * fall through to a "nothing to configure" hint.
+ * Email / url / phone / slug / barcode / isbn / json have no user-tunable
+ * constraints in the current schema, so they fall through to a "nothing
+ * to configure" hint.
  */
 export function FieldConfigEditor(props: EditorProps) {
   // Description has been promoted to a top-level Field column; the new
@@ -185,7 +173,7 @@ export function FieldConfigEditor(props: EditorProps) {
   return (
     <div class="flex flex-col gap-3 p-3 rounded-md bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-700">
       <span class="text-xs font-medium text-secondary">Type constraints</span>
-      <Show when={props.type === "text" || props.type === "longtext" || props.type === "rich-text"}>
+      <Show when={props.type === "text" || props.type === "longtext"}>
         <TextConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={props.type === "number" || props.type === "percent" || props.type === "duration"}>

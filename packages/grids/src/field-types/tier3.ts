@@ -2,8 +2,11 @@ import { z } from "zod";
 import { fail, ok, type FieldTypeHandler } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
-// Tier-3 field types: barcode/qr, isbn, location, color,
-// rich-text, json, signature.
+// Tier-3 field types: barcode/qr, isbn, json.
+//
+// (color, rich-text, signature, location were dropped — they had no
+// honest input UX. Existing rows of those types are migrated to text /
+// longtext / json by migrate.ts; the data values survive verbatim.)
 // ─────────────────────────────────────────────────────────────────
 
 const Empty = z.object({});
@@ -77,75 +80,6 @@ export const isbnHandler: FieldTypeHandler = {
   },
 };
 
-// ── location ──────────────────────────────────────────────────────
-// Stored as { lat, lng, label }. Range validation is enough; radius
-// queries need PostGIS and are deferred (the field-types spec says so).
-const LocationConfigSchema = z.object({});
-
-type LocationValue = { lat: number; lng: number; label?: string | null };
-
-export const locationHandler: FieldTypeHandler = {
-  type: "location",
-  configSchema: LocationConfigSchema,
-  userInput: true,
-  validate(raw, _config, required) {
-    if (raw === null || raw === undefined || raw === "") return required ? fail("required") : ok(null);
-    if (typeof raw !== "object") return fail("must be { lat, lng, label? }");
-    const obj = raw as Record<string, unknown>;
-    const lat = typeof obj.lat === "number" ? obj.lat : Number(obj.lat);
-    const lng = typeof obj.lng === "number" ? obj.lng : Number(obj.lng);
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90) return fail("lat must be -90..90");
-    if (!Number.isFinite(lng) || lng < -180 || lng > 180) return fail("lng must be -180..180");
-    const out: LocationValue = { lat, lng };
-    if (typeof obj.label === "string" && obj.label.length > 0) out.label = obj.label.trim();
-    return ok(out);
-  },
-};
-
-// ── color ─────────────────────────────────────────────────────────
-// Hex (#rrggbb) or short (#rgb). Normalised to lowercase 6-char hex.
-export const colorHandler: FieldTypeHandler = {
-  type: "color",
-  configSchema: Empty,
-  userInput: true,
-  validate(raw, _config, required) {
-    if (raw === null || raw === undefined || raw === "") return required ? fail("required") : ok(null);
-    if (typeof raw !== "string") return fail("must be a hex color string");
-    const v = raw.trim().toLowerCase();
-    const m3 = v.match(/^#([0-9a-f]{3})$/);
-    if (m3) {
-      const [r, g, b] = m3[1]!.split("");
-      return ok(`#${r}${r}${g}${g}${b}${b}`);
-    }
-    if (/^#[0-9a-f]{6}$/.test(v)) return ok(v);
-    return fail("invalid hex color (#rgb or #rrggbb)");
-  },
-};
-
-// ── rich-text ─────────────────────────────────────────────────────
-// Markdown source kept as plain string. The renderer (cloud-ui's
-// MarkdownView) handles sanitization at display time.
-const RichTextConfigSchema = z.object({
-  maxLength: z.number().int().min(1).optional(),
-});
-
-export const richTextHandler: FieldTypeHandler = {
-  type: "rich-text",
-  configSchema: RichTextConfigSchema,
-  userInput: true,
-  validate(raw, configRaw, required) {
-    const parsed = RichTextConfigSchema.safeParse(configRaw ?? {});
-    if (!parsed.success) return fail("invalid field config");
-    const maxLength = parsed.data.maxLength;
-
-    if (raw === null || raw === undefined) return required ? fail("required") : ok(null);
-    if (typeof raw !== "string") return fail("must be a string");
-    if (raw.trim().length === 0) return required ? fail("required") : ok(null);
-    if (maxLength !== undefined && raw.length > maxLength) return fail(`max length ${maxLength}`);
-    return ok(raw);
-  },
-};
-
 // ── json ──────────────────────────────────────────────────────────
 // Raw JSON for power users. Accepts any valid JSON value, stores it
 // directly. Note: this is OPAQUE to filter/sort — those don't index
@@ -168,24 +102,3 @@ export const jsonHandler: FieldTypeHandler = {
   },
 };
 
-// ── signature ─────────────────────────────────────────────────────
-// Stored as a data URL (base64-encoded image). Capped at ~256KB so
-// nobody pastes a video. The actual capture UI is out of scope.
-const SIGNATURE_PREFIX = "data:image/";
-const SIGNATURE_MAX_BYTES = 256 * 1024;
-
-export const signatureHandler: FieldTypeHandler = {
-  type: "signature",
-  configSchema: Empty,
-  userInput: true,
-  validate(raw, _config, required) {
-    if (raw === null || raw === undefined || raw === "") return required ? fail("required") : ok(null);
-    if (typeof raw !== "string") return fail("must be a data: URL");
-    if (!raw.startsWith(SIGNATURE_PREFIX)) return fail("signature must be an image data: URL");
-    if (raw.length > SIGNATURE_MAX_BYTES * 1.4) {
-      // base64 expands ~4/3, so cap the encoded length above the byte limit.
-      return fail(`signature exceeds ${SIGNATURE_MAX_BYTES} bytes`);
-    }
-    return ok(raw);
-  },
-};

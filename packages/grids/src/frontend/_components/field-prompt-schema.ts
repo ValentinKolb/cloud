@@ -12,8 +12,8 @@ export const isUserEditable = (type: string): boolean => {
     "boolean", "date", "single-select", "multi-select",
     // Tier 2
     "email", "url", "phone", "currency", "percent", "duration", "slug",
-    // Tier 3 (text-input or json fallback)
-    "barcode", "isbn", "color", "rich-text", "json",
+    // Tier 3
+    "barcode", "isbn", "json",
   ].includes(type);
 };
 
@@ -108,10 +108,6 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
     case "barcode":
     case "isbn":
       return { type: "text", ...base, default: defaultVal };
-    case "color":
-      return { type: "text", ...base, placeholder: "#3b82f6", default: defaultVal };
-    case "rich-text":
-      return { type: "text", ...base, multiline: true, lines: 8, default: defaultVal };
     case "json":
       // Free-form JSON via multiline; server parses + validates.
       return {
@@ -121,8 +117,9 @@ export const fieldToPromptSchema = (field: Field, currentValue?: unknown): any =
         lines: 6,
         default: defaultVal !== undefined ? JSON.stringify(defaultVal, null, 2) : undefined,
       };
-    // Location / signature: not yet exposed in the inline form (need
-    // dedicated capture UIs). Set via API for now.
+    // Relations are edited in the detail panel via RelationPicker, not
+    // through this prompt-form path. Skip here so the create form
+    // doesn't try to render an input for them.
     default:
       return null;
   }
