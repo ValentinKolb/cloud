@@ -129,12 +129,6 @@ const app = new Hono<AuthContext>()
         const returnUrl = reqUrl.pathname + reqUrl.search;
         const loginParams = new URLSearchParams();
         loginParams.set("redirectTo", returnUrl);
-
-        if (!client.allowedProfiles.includes("guest")) {
-          loginParams.set("hide", "guest");
-          loginParams.set("method", "ipa");
-        }
-
         return `/auth/login?${loginParams.toString()}`;
       };
 
