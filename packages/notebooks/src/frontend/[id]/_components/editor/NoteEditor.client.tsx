@@ -141,6 +141,8 @@ export default function NoteEditor(props: Props) {
           editor.infoBlocksExtension(),
           editor.linksExtension(),
           editor.markupExtension(),
+          editor.markExtension(),
+          editor.subSupExtension(),
           editor.mermaidExtension(),
           editor.katexExtension(),
         ]

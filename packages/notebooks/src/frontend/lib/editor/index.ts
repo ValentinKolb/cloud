@@ -1,48 +1,54 @@
 import { basicExtensions } from "./basic";
-import { markdownExtension } from "./markdown";
-import { searchTheme } from "./search-theme";
-import { tablesExtension } from "./tables";
-import { katexExtension } from "./katex";
-import { mermaidExtension } from "./mermaid";
 import { imageExtension } from "./images";
-import { listsExtension } from "./lists";
 import { infoBlocksExtension } from "./info-blocks";
+import { katexExtension } from "./katex";
 import { linksExtension } from "./links";
+import { listsExtension } from "./lists";
+import { markExtension } from "./mark";
+import { markdownExtension } from "./markdown";
 import { markupExtension } from "./markup";
-import { customLightInit, customDarkInit, rawLightInit, rawDarkInit } from "./theme";
+import { mermaidExtension } from "./mermaid";
+import { searchTheme } from "./search-theme";
+import { subSupExtension } from "./sub-sup";
+import { tablesExtension } from "./tables";
+import { customDarkInit, customLightInit, rawDarkInit, rawLightInit } from "./theme";
 
 export {
   basicExtensions,
-  markdownExtension,
-  searchTheme,
-  tablesExtension,
-  katexExtension,
-  mermaidExtension,
   imageExtension,
-  listsExtension,
   infoBlocksExtension,
+  katexExtension,
   linksExtension,
+  listsExtension,
+  markExtension,
+  markdownExtension,
   markupExtension,
-  customLightInit,
+  mermaidExtension,
+  searchTheme,
+  subSupExtension,
+  tablesExtension,
   customDarkInit,
-  rawLightInit,
+  customLightInit,
   rawDarkInit,
+  rawLightInit,
 };
 
 export const editor = {
   basicExtensions,
-  markdownExtension,
-  searchTheme,
-  tablesExtension,
-  katexExtension,
-  mermaidExtension,
   imageExtension,
-  listsExtension,
   infoBlocksExtension,
+  katexExtension,
   linksExtension,
+  listsExtension,
+  markExtension,
+  markdownExtension,
   markupExtension,
-  customLightInit,
+  mermaidExtension,
+  searchTheme,
+  subSupExtension,
+  tablesExtension,
   customDarkInit,
-  rawLightInit,
+  customLightInit,
   rawDarkInit,
+  rawLightInit,
 } as const;

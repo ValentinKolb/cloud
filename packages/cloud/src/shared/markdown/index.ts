@@ -13,6 +13,8 @@ import { linksExtension } from "./extensions/links";
 import { imagesExtension } from "./extensions/images";
 import { codeExtension } from "./extensions/code";
 import { katexExtension } from "./extensions/katex";
+import { markExtension } from "./extensions/mark";
+import { subSupExtension } from "./extensions/sub-sup";
 import { markdownClient } from "./client";
 
 // Create a configured marked instance
@@ -33,6 +35,9 @@ const createMarked = () => {
   marked.use(imagesExtension());
   marked.use(katexExtension());
   marked.use(codeExtension());
+  // Inline-style decorators come last so they run after structural tokenizers.
+  marked.use(markExtension());
+  marked.use(subSupExtension());
 
   return marked;
 };

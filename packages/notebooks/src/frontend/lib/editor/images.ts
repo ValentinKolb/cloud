@@ -4,10 +4,31 @@ import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
+/** Match the optional `=WxH` size suffix Pandoc-style image syntax allows. */
+const SIZE_SUFFIX_REGEX = /\s+=(\d+)?x(\d+)?$/;
+
+type ParsedImage = {
+  url: string;
+  width: string | null;
+  height: string | null;
+};
+
+const parseImageHref = (href: string): ParsedImage => {
+  const match = SIZE_SUFFIX_REGEX.exec(href);
+  if (!match) return { url: href, width: null, height: null };
+  return {
+    url: href.slice(0, match.index),
+    width: match[1] ?? null,
+    height: match[2] ?? null,
+  };
+};
+
 class ImageWidget extends WidgetType {
   constructor(
     private url: string,
     private alt: string,
+    private width: string | null,
+    private height: string | null,
   ) {
     super();
   }
@@ -22,10 +43,20 @@ class ImageWidget extends WidgetType {
     figure.className = "flex flex-col items-center justify-center max-w-full";
 
     const img = document.createElement("img");
-    img.className = "block max-h-[400px] rounded border border-gray-200 dark:border-gray-700";
+    // Drop the `max-h-[400px]` cap when an explicit size is requested so
+    // the user's `=WxH` actually wins.
+    img.className =
+      this.width || this.height
+        ? "block rounded border border-gray-200 dark:border-gray-700"
+        : "block max-h-[400px] rounded border border-gray-200 dark:border-gray-700";
     img.src = this.url;
     img.alt = this.alt || "";
     img.loading = "lazy";
+    if (this.width) {
+      img.setAttribute("width", this.width);
+      img.style.maxWidth = `${this.width}px`;
+    }
+    if (this.height) img.setAttribute("height", this.height);
 
     if (this.alt) {
       const caption = document.createElement("figcaption");
@@ -42,7 +73,13 @@ class ImageWidget extends WidgetType {
   }
 
   override eq(other: WidgetType) {
-    return other instanceof ImageWidget && other.url === this.url && other.alt === this.alt;
+    return (
+      other instanceof ImageWidget &&
+      other.url === this.url &&
+      other.alt === this.alt &&
+      other.width === this.width &&
+      other.height === this.height
+    );
   }
 
   override ignoreEvent(event: Event) {
@@ -66,10 +103,11 @@ const findMarkdownImages = (state: EditorState): Range<Decoration>[] => {
 
       if (match) {
         const alt = match[1] ?? "";
-        const url = match[2] ?? "";
+        const rawHref = match[2] ?? "";
+        const { url, width, height } = parseImageHref(rawHref);
         decorations.push(
           Decoration.replace({
-            widget: new ImageWidget(url, alt),
+            widget: new ImageWidget(url, alt, width, height),
             block: true,
           }).range(node.from, node.to),
         );
