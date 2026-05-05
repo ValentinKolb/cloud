@@ -429,9 +429,6 @@ export default function RecordsView(props: Props) {
             }))}
             initialGroupBy={groupBy()}
             initialAggregations={toAggregationRows(aggregations())}
-            rawFilter={undefined}
-            rawSort={undefined}
-            trashMode={props.trashMode}
             canWrite={props.canWrite}
             onCommit={onToolbarCommit}
             onRecordCreated={onRecordCreated}

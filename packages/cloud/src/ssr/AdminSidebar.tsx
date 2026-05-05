@@ -65,7 +65,7 @@ export default function AdminSidebar({
       </nav>
 
       <aside class="sidebar-container">
-        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
           <div class="flex items-center gap-3">
             <div class="sidebar-header-icon bg-zinc-600 dark:bg-zinc-700">
               <i class="ti ti-settings text-xs" />

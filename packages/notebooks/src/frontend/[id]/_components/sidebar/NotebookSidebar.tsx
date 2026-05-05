@@ -62,7 +62,7 @@ export default function NotebookSidebar(props: Props) {
       </nav>
 
       <aside class="sidebar-container">
-        <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+        <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
           <div class="relative flex items-center gap-3 pr-7">
             <div class="sidebar-header-icon bg-blue-500">
               <i class={`ti ${props.ctx.notebook.icon || "ti-notebook"} text-xs`} />

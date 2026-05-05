@@ -529,7 +529,7 @@ export default ssr<AuthContext>(async (c) => {
         </nav>
 
         <aside class="sidebar-container">
-          <div class="paper flex h-full min-h-0 flex-col gap-4 p-4">
+          <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
             {/* Base header — name + single gear for settings. */}
             <div class="relative flex items-center gap-3 pr-7">
               <div class="sidebar-header-icon" style="background-color:#3b82f6">
