@@ -216,6 +216,24 @@ export const listForTable = async (
   return rows.map(mapRow);
 };
 
+/**
+ * Soft-deleted forms across all (live) tables of a base — for the
+ * base-settings trash view. Forms whose parent table is itself
+ * trashed are excluded; they'll come back when the table restores.
+ */
+export const listTrashedByBase = async (baseId: string): Promise<Form[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT ${sql`f.id, f.table_id, f.name, f.config, f.field_snapshot, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
+    FROM grids.forms f
+    JOIN grids.tables t ON t.id = f.table_id
+    WHERE t.base_id = ${baseId}::uuid
+      AND t.deleted_at IS NULL
+      AND f.deleted_at IS NOT NULL
+    ORDER BY f.deleted_at DESC
+  `;
+  return rows.map(mapRow);
+};
+
 export const get = async (
   id: string,
   opts: { includeDeleted?: boolean } = {},

@@ -44,6 +44,38 @@ export const logAudit = async (input: LogAuditInput): Promise<void> => {
   `;
 };
 
+export type AuditEntryWithUser = AuditEntry & {
+  /** Display name resolved from auth.users; null when the actor is
+   *  unknown (anonymous form submission or deleted user). */
+  userDisplayName: string | null;
+};
+
+/**
+ * Per-record audit history with the actor's display name resolved.
+ * Used by the record detail panel's History tab — the join keeps the
+ * UI from having to fetch users separately.
+ */
+export const listByRecord = async (
+  recordId: string,
+  limit = 50,
+): Promise<AuditEntryWithUser[]> => {
+  const cap = Math.min(Math.max(limit, 1), 200);
+  const rows = await sql<(DbRow & { user_display_name: string | null })[]>`
+    SELECT al.id, al.base_id, al.table_id, al.record_id, al.user_id, al.action,
+           al.diff, al.ip, al.user_agent, al.created_at,
+           COALESCE(u.uid, NULL) AS user_display_name
+    FROM grids.audit_log al
+    LEFT JOIN auth.users u ON u.id = al.user_id
+    WHERE al.record_id = ${recordId}::uuid
+    ORDER BY al.created_at DESC, al.id DESC
+    LIMIT ${cap}
+  `;
+  return rows.map((row) => ({
+    ...mapRow(row),
+    userDisplayName: (row.user_display_name as string | null) ?? null,
+  }));
+};
+
 /**
  * Audit-log IDs are gen_random_uuid() — not time-ordered — so pagination
  * uses (created_at DESC, id DESC) tuple cursor: rows with the same instant

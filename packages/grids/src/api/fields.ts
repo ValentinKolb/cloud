@@ -157,6 +157,31 @@ const app = new Hono<AuthContext>()
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
+  )
+
+  .post(
+    "/:fieldId/restore",
+    describeRoute({
+      tags: ["Grids:Field"],
+      summary: "Restore a soft-deleted field",
+      responses: {
+        200: jsonResponse(FieldSchema, "Restored"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const fieldId = c.req.param("fieldId");
+      // Fetch the trashed field directly — the regular `get` filters
+      // out deleted_at IS NOT NULL by default.
+      const field = await gridsService.field.get(fieldId);
+      if (!field) return c.json({ message: "Field not found" }, 404);
+      const table = await gridsService.table.get(field.tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(c, () => gridsService.field.restore(fieldId, user.id));
+    },
   );
 
 export default app;

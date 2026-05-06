@@ -27,6 +27,7 @@ export const gridsService = {
   },
   table: {
     listByBase: tables.listByBase,
+    listTrashedByBase: tables.listTrashedByBase,
     get: tables.get,
     create: tables.create,
     update: tables.update,
@@ -35,11 +36,13 @@ export const gridsService = {
   },
   field: {
     listByTable: fields.listByTable,
+    listTrashedByBase: fields.listTrashedByBase,
     get: fields.get,
     create: fields.create,
     update: fields.update,
     reorder: fields.reorder,
     softDelete: fields.softDelete,
+    restore: fields.restore,
   },
   record: {
     list: records.list,
@@ -54,6 +57,7 @@ export const gridsService = {
   audit: {
     log: audit.logAudit,
     list: audit.listAudit,
+    listByRecord: audit.listByRecord,
   },
   permission: {
     resolve: resolveEffectivePermission,
@@ -84,6 +88,7 @@ export const gridsService = {
   },
   form: {
     listForTable: forms.listForTable,
+    listTrashedByBase: forms.listTrashedByBase,
     get: forms.get,
     getByPublicToken: forms.getByPublicToken,
     create: forms.create,

@@ -49,6 +49,25 @@ export const listByTable = async (tableId: string, includeDeleted = false): Prom
   return rows.map(mapRow);
 };
 
+/**
+ * Soft-deleted fields across all (live) tables of a base — for the
+ * base-settings trash view. Fields whose parent table is itself
+ * trashed are intentionally excluded; they'll come back when the
+ * table restores.
+ */
+export const listTrashedByBase = async (baseId: string): Promise<Field[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT f.*
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id
+    WHERE t.base_id = ${baseId}::uuid
+      AND t.deleted_at IS NULL
+      AND f.deleted_at IS NOT NULL
+    ORDER BY f.deleted_at DESC
+  `;
+  return rows.map(mapRow);
+};
+
 export const get = async (id: string): Promise<Field | null> => {
   const [row] = await sql<DbRow[]>`SELECT * FROM grids.fields WHERE id = ${id}::uuid`;
   return row ? mapRow(row) : null;
@@ -299,6 +318,28 @@ export const reorder = async (
   });
 
   return ok();
+};
+
+/**
+ * Reverses a soft-delete. The field row is un-trashed but already-
+ * stripped form/view references are NOT auto-restored — those would
+ * need manual re-add since their context could have moved on. Useful
+ * when the user accidentally deletes a field they want back; rare
+ * enough that the form/view re-add cost is acceptable.
+ */
+export const restore = async (id: string, actorId: string | null): Promise<Result<Field>> => {
+  // We need the trashed row, so reach past listByTable's default filter.
+  const [row] = await sql<DbRow[]>`
+    SELECT * FROM grids.fields WHERE id = ${id}::uuid
+  `;
+  if (!row) return fail(err.notFound("Field"));
+  const existing = mapRow(row);
+  if (existing.deletedAt === null) return ok(existing);
+  await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
+  await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
+  // Re-create the expression index if the field was indexed.
+  if (existing.indexed) void ensureFieldIndex(id, existing.type);
+  return ok({ ...existing, deletedAt: null });
 };
 
 export const softDelete = async (id: string, actorId: string | null): Promise<Result<void>> => {

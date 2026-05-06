@@ -282,6 +282,28 @@ const app = new Hono<AuthContext>()
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
+  )
+
+  .get(
+    "/:tableId/:recordId/audit",
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "List audit entries for a record",
+      description:
+        "Returns the most-recent 50 entries from grids.audit_log for the record, " +
+        "with the actor's display name resolved. Newest first.",
+      responses: { 200: { description: "Audit entries" } },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId");
+      const recordId = c.req.param("recordId");
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const items = await gridsService.audit.listByRecord(recordId, 50);
+      return c.json({ items });
+    },
   );
 
 export default app;

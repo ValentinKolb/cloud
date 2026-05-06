@@ -1,11 +1,17 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Base } from "../../service";
+import type { Base, Field, Form, Table } from "../../service";
 import { errorMessage } from "./api-helpers";
 import { SectionCard } from "./SectionCard";
+
+type TrashResponse = {
+  tables: Table[];
+  fields: Field[];
+  forms: Form[];
+};
 
 type Props = {
   base: { id: string; name: string; description: string | null };
@@ -44,12 +50,151 @@ export default function BaseSettingsPanel(props: Props) {
       </SectionCard>
 
       <SectionCard
+        title="Trash"
+        subtitle="Soft-deleted tables, fields, and forms. Restorable for 30 days, then purged automatically."
+      >
+        <TrashSection baseId={props.base.id} />
+      </SectionCard>
+
+      <SectionCard
         title="Danger zone"
         subtitle="Permanently delete this base and all of its contents. This cannot be undone."
         variant="danger"
       >
         <DangerZone baseId={props.base.id} baseName={props.base.name} />
       </SectionCard>
+    </div>
+  );
+}
+
+function TrashSection(props: { baseId: string }) {
+  // Lazy-load on mount via createResource — trash is base-admin-only
+  // and rarely viewed, so we don't bloat the SSR payload with it.
+  const [trash, { refetch }] = createResource<TrashResponse>(async () => {
+    const res = await apiClient.bases[":baseId"].trash.$get({ param: { baseId: props.baseId } });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to load trash"));
+    return (await res.json()) as TrashResponse;
+  });
+
+  const restoreTable = async (id: string) => {
+    const res = await apiClient.tables[":tableId"].restore.$post({ param: { tableId: id } });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to restore table"));
+      return;
+    }
+    refetch();
+    refreshCurrentPath();
+  };
+
+  const restoreField = async (id: string) => {
+    const res = await apiClient.fields[":fieldId"].restore.$post({ param: { fieldId: id } });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to restore field"));
+      return;
+    }
+    refetch();
+  };
+
+  const restoreForm = async (id: string) => {
+    const res = await apiClient.forms[":formId"].restore.$post({ param: { formId: id } });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to restore form"));
+      return;
+    }
+    refetch();
+  };
+
+  const formatDeletedAt = (iso: string | null) => {
+    if (!iso) return "";
+    const date = new Date(iso);
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <Show
+      when={!trash.loading}
+      fallback={<p class="text-xs text-dimmed">Loading…</p>}
+    >
+      <Show
+        when={
+          trash() &&
+          (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.forms.length > 0)
+        }
+        fallback={<p class="text-xs text-dimmed py-1">Trash is empty.</p>}
+      >
+        <div class="flex flex-col gap-4">
+          <Show when={trash()!.tables.length > 0}>
+            <div class="flex flex-col gap-1">
+              <p class="text-xs font-medium text-secondary">Tables</p>
+              <For each={trash()!.tables}>
+                {(t) => (
+                  <TrashRow
+                    icon="ti-table"
+                    name={t.name}
+                    deletedAt={formatDeletedAt(t.deletedAt)}
+                    onRestore={() => restoreTable(t.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={trash()!.fields.length > 0}>
+            <div class="flex flex-col gap-1">
+              <p class="text-xs font-medium text-secondary">Fields</p>
+              <For each={trash()!.fields}>
+                {(f) => (
+                  <TrashRow
+                    icon="ti-columns"
+                    name={f.name}
+                    deletedAt={formatDeletedAt(f.deletedAt)}
+                    onRestore={() => restoreField(f.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={trash()!.forms.length > 0}>
+            <div class="flex flex-col gap-1">
+              <p class="text-xs font-medium text-secondary">Forms</p>
+              <For each={trash()!.forms}>
+                {(form) => (
+                  <TrashRow
+                    icon="ti-forms"
+                    name={form.name}
+                    deletedAt={formatDeletedAt(form.deletedAt)}
+                    onRestore={() => restoreForm(form.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      </Show>
+    </Show>
+  );
+}
+
+function TrashRow(props: {
+  icon: string;
+  name: string;
+  deletedAt: string;
+  onRestore: () => void;
+}) {
+  return (
+    <div class="flex items-center gap-2 py-1.5">
+      <i class={`ti ${props.icon} text-dimmed shrink-0`} />
+      <span class="flex-1 min-w-0 truncate text-sm">{props.name}</span>
+      <Show when={props.deletedAt}>
+        <span class="text-[11px] text-dimmed">deleted {props.deletedAt}</span>
+      </Show>
+      <button
+        type="button"
+        class="btn-simple btn-sm shrink-0"
+        onClick={props.onRestore}
+        title="Restore"
+      >
+        <i class="ti ti-arrow-back-up" /> Restore
+      </button>
     </div>
   );
 }

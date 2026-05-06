@@ -14,7 +14,6 @@ export type Table = {
   baseId: string;
   name: string;
   description: string | null;
-  primaryFieldId: string | null;
   position: number;
   /** When true, records can only be added through a form (the
    *  authenticated `/forms/:formId/submit` and the public
@@ -91,7 +90,6 @@ export type CreateTableInput = { baseId: string; name: string; description?: str
 export type UpdateTableInput = {
   name?: string;
   description?: string | null;
-  primaryFieldId?: string | null;
   disableDirectInsert?: boolean;
 };
 

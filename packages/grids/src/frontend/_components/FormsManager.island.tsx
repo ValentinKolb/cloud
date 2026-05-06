@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { PermissionEditor, prompts, refreshCurrentPath, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, prompts, refreshCurrentPath, SegmentedControl, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { FieldInput } from "./form-fields";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -162,8 +163,12 @@ function FormEditor(props: {
 }) {
   const [name, setName] = createSignal(props.form.name);
   const [isPublic, setIsPublic] = createSignal(Boolean(props.form.publicToken));
+  const [isActive, setIsActive] = createSignal(props.form.isActive);
+  const [title, setTitle] = createSignal(props.form.config.title ?? "");
+  const [description, setDescription] = createSignal(props.form.config.description ?? "");
   const [submitLabel, setSubmitLabel] = createSignal(props.form.config.submitLabel ?? "");
   const [successMessage, setSuccessMessage] = createSignal(props.form.config.successMessage ?? "");
+  const [redirectUrl, setRedirectUrl] = createSignal(props.form.config.redirectUrl ?? "");
   const [entries, setEntries] = createSignal<FormFieldEntry[]>(props.form.config.fields.map((e) => ({ ...e })));
   const [dirty, setDirty] = createSignal(false);
 
@@ -187,10 +192,14 @@ function FormEditor(props: {
         json: {
           name: name().trim(),
           isPublic: isPublic(),
+          isActive: isActive(),
           config: {
             ...props.form.config,
+            title: title().trim() || undefined,
+            description: description().trim() || undefined,
             submitLabel: submitLabel().trim() || undefined,
             successMessage: successMessage().trim() || undefined,
+            redirectUrl: redirectUrl().trim() || null,
             fields: entries(),
           },
         },
@@ -205,6 +214,30 @@ function FormEditor(props: {
     onError: (e) => prompts.error(e.message),
   });
 
+  // Re-snapshot: refreshes the form's frozen fieldSnapshot from the
+  // live table fields. Fires on user request — schema edits don't
+  // auto-update the snapshot (deliberate: a published form's behaviour
+  // shouldn't silently change when the table evolves).
+  const reSnapshotMut = mutations.create<Form, void>({
+    mutation: async () => {
+      const res = await apiClient.forms[":formId"]["re-snapshot"].$post({
+        param: { formId: props.form.id },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to refresh snapshot"));
+      return (await res.json()) as Form;
+    },
+    onSuccess: (next) => props.onSaved(next),
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const handleReSnapshot = async () => {
+    const confirmed = await prompts.confirm(
+      "This refreshes the form's frozen field metadata from the live table fields. Renamed labels, new options, and changed field types will be picked up. Continue?",
+      { title: "Refresh field snapshot?", confirmText: "Refresh" },
+    );
+    if (confirmed) reSnapshotMut.mutate(undefined);
+  };
+
   const handleSave = () => {
     if (!name().trim()) {
       prompts.error("Name is required");
@@ -213,13 +246,20 @@ function FormEditor(props: {
     updateMut.mutate(undefined);
   };
 
+  // What kind of entry the next "Add field" pick creates. user_input
+  // is the default (renders an input the visitor fills); form_value
+  // is the power-user mode (the form supplies a fixed server-applied
+  // value, not editable by the visitor).
+  const [addKind, setAddKind] = createSignal<"user_input" | "form_value">("user_input");
+
   const addEntry = (fieldId: string) => {
     const f = fieldById().get(fieldId);
     if (!f) return;
-    // Default kind is `user_input` — the form_value variant is a power-
-    // user feature and gets a separate UI path (TBD; for now editing
-    // it requires hand-crafting the JSON in the API).
-    setEntries([...entries(), { kind: "user_input", fieldId, required: f.required }]);
+    if (addKind() === "form_value") {
+      setEntries([...entries(), { kind: "form_value", fieldId, value: null }]);
+    } else {
+      setEntries([...entries(), { kind: "user_input", fieldId, required: f.required }]);
+    }
     setDirty(true);
   };
 
@@ -228,17 +268,25 @@ function FormEditor(props: {
     setDirty(true);
   };
 
-  /**
-   * Patch a user_input entry. form_value entries are read-only in this
-   * UI — to edit them today the user has to PATCH the form via the API
-   * directly. A dedicated form_value editor is a follow-up.
-   */
+  /** Patch a user_input entry. */
   const updateEntry = (index: number, patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => {
     setEntries(
       entries().map((e, i) => {
         if (i !== index) return e;
         if (e.kind !== "user_input") return e;
         return { ...e, ...patch };
+      }),
+    );
+    setDirty(true);
+  };
+
+  /** Patch a form_value entry's `value` (server-applied payload). */
+  const updateFormValue = (index: number, value: unknown) => {
+    setEntries(
+      entries().map((e, i) => {
+        if (i !== index) return e;
+        if (e.kind !== "form_value") return e;
+        return { ...e, value };
       }),
     );
     setDirty(true);
@@ -286,6 +334,31 @@ function FormEditor(props: {
       <div class="flex flex-col gap-3">
         <span class="text-xs font-medium text-secondary">General</span>
         <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
+        <TextInput
+          label="Title"
+          description="Heading shown on the form page (defaults to the name above)."
+          value={title}
+          onInput={wrap(setTitle)}
+          icon="ti ti-heading"
+          placeholder={name()}
+        />
+        <TextInput
+          label="Description"
+          description="Optional subtitle shown under the title on the form page."
+          value={description}
+          onInput={wrap(setDescription)}
+          icon="ti ti-align-left"
+          multiline
+          lines={2}
+        />
+        <label class="inline-flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={isActive()}
+            onChange={(e) => wrap(setIsActive)(e.currentTarget.checked)}
+          />
+          Active — submissions accepted. Uncheck to pause the form without deleting it.
+        </label>
         <div class="flex items-center gap-3 flex-wrap">
           <label class="inline-flex items-center gap-2 text-xs text-secondary">
             <input
@@ -353,6 +426,15 @@ function FormEditor(props: {
             placeholder="Saved"
           />
         </div>
+        <TextInput
+          label="Redirect URL"
+          description="When set, the public form redirects here after submit instead of showing the success message. Leave empty for the default in-page success card."
+          value={redirectUrl}
+          onInput={wrap(setRedirectUrl)}
+          icon="ti ti-external-link"
+          placeholder="https://example.com/thanks"
+          type="url"
+        />
       </div>
 
       {/* Fields */}
@@ -371,25 +453,40 @@ function FormEditor(props: {
                 const f = fieldById().get(entry.fieldId);
                 if (!f) return null;
                 if (entry.kind === "form_value") {
-                  // Read-only summary tile for form_value entries.
-                  // Editing them requires a dedicated UI (TBD); for now
-                  // power-users patch via the API directly.
+                  // Server-applied value tile — the visitor never sees
+                  // this field but every submission gets stamped with
+                  // the configured value (e.g. "source = website" on a
+                  // public lead form). The value editor renders the
+                  // platform input matching the field type via the
+                  // shared FieldInput, with a synthetic minimal entry
+                  // since we don't want overrides for label/help/etc.
                   return (
-                    <li class="paper p-3 flex items-center gap-2">
-                      <i class="ti ti-lock text-dimmed" />
-                      <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                        <span class="text-sm font-medium text-primary truncate">{f.name}</span>
-                        <span class="text-[10px] text-dimmed">server-applied: {String(entry.value)}</span>
-                      </span>
-                      <button
-                        type="button"
-                        class="text-dimmed hover:text-red-500 px-1"
-                        onClick={() => removeEntry(idx())}
-                        title="Remove from form"
-                        aria-label="Remove from form"
-                      >
-                        <i class="ti ti-x" />
-                      </button>
+                    <li class="paper p-3 flex flex-col gap-2">
+                      <div class="flex items-center gap-2">
+                        <i class="ti ti-lock text-dimmed shrink-0" />
+                        <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                          <span class="text-sm font-medium text-primary truncate">{f.name}</span>
+                          <span class="text-[10px] text-dimmed shrink-0">{TYPE_LABELS[f.type] ?? f.type} · server-applied</span>
+                        </span>
+                        <button
+                          type="button"
+                          class="text-dimmed hover:text-red-500 px-1"
+                          onClick={() => removeEntry(idx())}
+                          title="Remove from form"
+                          aria-label="Remove from form"
+                        >
+                          <i class="ti ti-x" />
+                        </button>
+                      </div>
+                      <FieldInput
+                        field={f}
+                        entry={{ kind: "user_input", fieldId: f.id, required: false }}
+                        value={entry.value}
+                        onChange={(v) => updateFormValue(idx(), v)}
+                      />
+                      <p class="text-[11px] text-dimmed leading-snug">
+                        Every submission to this form gets stamped with this value. Visitors don't see this field — and any payload they submit for it is rejected by the server.
+                      </p>
                     </li>
                   );
                 }
@@ -466,22 +563,63 @@ function FormEditor(props: {
         </Show>
 
         <Show when={addable().length > 0}>
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-dimmed">Add field:</span>
-            <div class="min-w-[14rem]">
-              <Select
-                value={() => ""}
-                onChange={(v) => v && addEntry(v)}
-                options={addable().map((f) => ({
-                  id: f.id,
-                  label: f.name,
-                  description: TYPE_LABELS[f.type] ?? f.type,
-                }))}
-                placeholder="Pick a field..."
-              />
+          <div class="flex flex-col gap-2">
+            <SegmentedControl
+              options={[
+                { value: "user_input", label: "User input", icon: "ti ti-pencil" },
+                { value: "form_value", label: "Server value", icon: "ti ti-lock" },
+              ]}
+              value={addKind}
+              onChange={(v) => setAddKind(v as "user_input" | "form_value")}
+            />
+            <p class="text-[11px] text-dimmed leading-snug">
+              <Show
+                when={addKind() === "form_value"}
+                fallback="User-input fields show as inputs the visitor fills out."
+              >
+                Server-value fields don't render in the form. Every submission gets stamped with the configured value (e.g. "source = website" or a fixed status).
+              </Show>
+            </p>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-dimmed">Add field:</span>
+              <div class="min-w-[14rem]">
+                <Select
+                  value={() => ""}
+                  onChange={(v) => v && addEntry(v)}
+                  options={addable().map((f) => ({
+                    id: f.id,
+                    label: f.name,
+                    description: TYPE_LABELS[f.type] ?? f.type,
+                  }))}
+                  placeholder="Pick a field..."
+                />
+              </div>
             </div>
           </div>
         </Show>
+
+        {/* Frozen-snapshot refresh — power-user action. The form
+            captures field metadata (labels, options, types) at
+            create-time so live schema edits don't silently change
+            published form behaviour. This button lets the form's
+            owner explicitly pull the latest metadata when they're
+            ready. */}
+        <div class="flex items-center justify-between gap-2 border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">
+          <span class="text-[11px] text-dimmed leading-snug">
+            Field metadata is frozen at form-create time. Refresh to pull renamed labels and changed options from the live table.
+          </span>
+          <button
+            type="button"
+            class="btn-simple btn-sm shrink-0"
+            onClick={handleReSnapshot}
+            disabled={reSnapshotMut.loading()}
+          >
+            <Show when={reSnapshotMut.loading()} fallback={<i class="ti ti-refresh" />}>
+              <i class="ti ti-loader-2 animate-spin" />
+            </Show>
+            Refresh snapshot
+          </button>
+        </div>
       </div>
 
       {/* Permissions — grants `write` on this form to specific users

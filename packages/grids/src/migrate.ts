@@ -359,4 +359,14 @@ export const migrate = async (): Promise<void> => {
   // record must go through validation.
   await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE`.simple();
   console.log("  ✓ grids.tables.disable_direct_insert");
+
+  // ──────────────────────────────────────────────────────────────────
+  // primary_field_id drop
+  // ──────────────────────────────────────────────────────────────────
+  // Dead column — never read by any code path, just persisted +
+  // pass-through. Record-label generation lives on the per-field
+  // `presentable` flag (multiple presentable fields joined with
+  // " · "). Kept the migration idempotent so reruns are safe.
+  await sql`ALTER TABLE grids.tables DROP COLUMN IF EXISTS primary_field_id`.simple();
+  console.log("  ✓ grids.tables.primary_field_id (dropped)");
 };

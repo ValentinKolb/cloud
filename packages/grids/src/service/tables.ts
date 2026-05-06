@@ -5,14 +5,13 @@ import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, base_id, name, description, primary_field_id, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+const COLS = sql`id, base_id, name, description, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
   baseId: row.base_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
-  primaryFieldId: (row.primary_field_id as string | null) ?? null,
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -39,6 +38,20 @@ export const listByBase = async (
         FROM grids.tables WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
         ORDER BY position, created_at
       `;
+  return rows.map(mapRow);
+};
+
+/**
+ * Soft-deleted tables for a base, newest-deletion first. Used by
+ * the base-settings trash view to surface restorable resources.
+ */
+export const listTrashedByBase = async (baseId: string): Promise<Table[]> => {
+  const rows = await sql<DbRow[]>`
+    SELECT ${COLS}
+    FROM grids.tables
+    WHERE base_id = ${baseId}::uuid AND deleted_at IS NOT NULL
+    ORDER BY deleted_at DESC
+  `;
   return rows.map(mapRow);
 };
 
@@ -86,8 +99,6 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   const next = {
     name: name ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
-    primaryFieldId:
-      input.primaryFieldId !== undefined ? input.primaryFieldId : existing.primaryFieldId,
     disableDirectInsert:
       input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
   };
@@ -96,7 +107,6 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
     UPDATE grids.tables
     SET name = ${next.name},
         description = ${next.description},
-        primary_field_id = ${next.primaryFieldId}::uuid,
         disable_direct_insert = ${next.disableDirectInsert},
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
@@ -109,9 +119,6 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
   if (next.description !== existing.description) {
     diff.description = { old: existing.description, new: next.description };
-  }
-  if (next.primaryFieldId !== existing.primaryFieldId) {
-    diff.primaryFieldId = { old: existing.primaryFieldId, new: next.primaryFieldId };
   }
   if (next.disableDirectInsert !== existing.disableDirectInsert) {
     diff.disableDirectInsert = { old: existing.disableDirectInsert, new: next.disableDirectInsert };

@@ -16,6 +16,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form, Table } from "../../service";
 import { errorMessage } from "./api-helpers";
+import { FieldInput } from "./form-fields";
 import FormsManager from "./FormsManager.island";
 import {
   defaultConfigForType,
@@ -572,6 +573,9 @@ function FieldEditor(props: {
   const [required, setRequired] = createSignal(props.field.required);
   const [presentable, setPresentable] = createSignal(props.field.presentable);
   const [hideInTable, setHideInTable] = createSignal(props.field.hideInTable);
+  const [defaultValue, setDefaultValue] = createSignal<unknown>(props.field.defaultValue);
+  const [indexed, setIndexed] = createSignal(props.field.indexed);
+  const [uniqueConstraint, setUniqueConstraint] = createSignal(props.field.uniqueConstraint);
   const [config, setConfig] = createSignal<FieldConfigState>(
     (props.field.config as FieldConfigState) ?? {}
   );
@@ -595,6 +599,9 @@ function FieldEditor(props: {
           required: required(),
           presentable: presentable(),
           hideInTable: hideInTable(),
+          defaultValue: defaultValue(),
+          indexed: indexed(),
+          uniqueConstraint: uniqueConstraint(),
           config: config() as Record<string, unknown>,
         },
       });
@@ -688,6 +695,43 @@ function FieldEditor(props: {
           Hide in table — only show this field in the detail panel by default
           (views can still include it)
         </label>
+        <label class="inline-flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={indexed()}
+            onChange={(e) => wrap(setIndexed)(e.currentTarget.checked)}
+          />
+          Indexed — faster filter and sort on this field. Costs disk; recommend
+          for fields you frequently query
+        </label>
+        <label class="inline-flex items-center gap-2 text-xs text-secondary">
+          <input
+            type="checkbox"
+            checked={uniqueConstraint()}
+            onChange={(e) => wrap(setUniqueConstraint)(e.currentTarget.checked)}
+          />
+          Unique values — no two records can share the same value. Existing
+          duplicates block enabling
+        </label>
+      </div>
+
+      {/* Default value — fills records that don't supply this field on
+          create. Renders via the shared FieldInput so the value editor
+          matches the field type (NumberInput for number, SelectInput
+          for single-select, etc). Saved as `defaultValue` on the field
+          row; null/undefined = no default. */}
+      <div class="flex flex-col gap-1">
+        <p class="text-xs font-medium text-secondary">Default value (optional)</p>
+        <FieldInput
+          field={{ ...props.field, config: config() as Record<string, unknown> }}
+          entry={{ kind: "user_input", fieldId: props.field.id, required: false }}
+          value={defaultValue()}
+          onChange={(v) => wrap(setDefaultValue)(v)}
+        />
+        <p class="text-[11px] text-dimmed leading-snug">
+          Used for records created without this field set (e.g. via direct API
+          inserts or imports).
+        </p>
       </div>
 
       <FieldConfigEditor
