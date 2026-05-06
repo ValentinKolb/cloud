@@ -5,6 +5,7 @@ import { Dropdown } from "@valentinkolb/cloud/ui";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { requestNotebookSearch } from "../../../lib/hotkeys";
 import { DETAIL_PANEL_STATE_EVENT, DETAIL_PANEL_TOGGLE_EVENT } from "../detail/events";
+import { openAttachmentPicker } from "./AttachmentPicker";
 import {
   cycleHeading,
   insertCallout,
@@ -138,6 +139,7 @@ export default function EditorToolbar(props: Props) {
       <Btn icon="ti-heading" title="Heading" onClick={heading} />
       <Btn icon="ti-link" title="Link" onClick={link} />
       <Btn icon="ti-file-symlink" title="Link to note (Mod+Alt+K)" onClick={linkToNote} />
+      <Btn icon="ti-paperclip" title="Attach file or image" onClick={() => void openAttachmentPicker(props.notebookId)} />
 
       {/* Insert dropdown — Lists, Info Blocks, Table */}
       <Dropdown

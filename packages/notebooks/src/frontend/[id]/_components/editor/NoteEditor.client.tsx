@@ -7,13 +7,16 @@ import { yjs } from "../../../lib/yjs";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { createCodeMirror } from "solid-codemirror";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { dropzone } from "@valentinkolb/stdlib/solid";
 import { yCollab } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import {
+  ATTACHMENTS_UPDATE_EVENT,
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
+  EDITOR_INSERT_ATTACHMENT_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -24,6 +27,9 @@ import {
 import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { writeSettings } from "../settings/NotebookSettingsStore";
+import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
+import type { AttachmentRef } from "./attachments-client";
+import { insertAttachment, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 import { slashCommandsExtension } from "./slash-commands";
 
@@ -138,10 +144,10 @@ export default function NoteEditor(props: Props) {
     richMode()
       ? [
           editor.tablesExtension(),
-          editor.imageExtension(),
+          editor.imageExtension(props.notebookId),
           editor.listsExtension(),
           editor.infoBlocksExtension(),
-          editor.linksExtension(),
+          editor.linksExtension(props.notebookId),
           editor.markupExtension(),
           editor.markExtension(),
           editor.subSupExtension(),
@@ -217,6 +223,7 @@ export default function NoteEditor(props: Props) {
     const md = ytext.toString();
     window.dispatchEvent(new CustomEvent(TOC_UPDATE_EVENT, { detail: extractTocFromMarkdown(md) }));
     window.dispatchEvent(new CustomEvent(TASKS_UPDATE_EVENT, { detail: extractTaskProgress(md) }));
+    window.dispatchEvent(new CustomEvent(ATTACHMENTS_UPDATE_EVENT, { detail: extractAttachmentIds(md) }));
   };
 
   const scheduleDerivedEmit = () => {
@@ -296,6 +303,40 @@ export default function NoteEditor(props: Props) {
     return true;
   };
 
+  // ── Attachment upload pipeline ───────────────────────────────────────
+  // Three trigger paths converge on the same `uploadAndInsert`:
+  //   1. Picker modal (slash /file, footer button) — dispatches
+  //      EDITOR_INSERT_ATTACHMENT_EVENT after upload-or-pick.
+  //   2. Drag-drop on the editor wrapper.
+  //   3. Paste of clipboard files (e.g. screenshots).
+  const uploadFilesSequentially = async (fileList: File[]) => {
+    const view = editorView();
+    if (!view || fileList.length === 0) return;
+    for (const file of fileList) {
+      try {
+        await uploadAndInsert(view, props.notebookId, file);
+      } catch (error) {
+        await prompts.error(error instanceof Error ? error.message : "Upload failed");
+        return;
+      }
+    }
+  };
+
+  const onInsertAttachment = (event: Event) => {
+    const view = editorView();
+    const detail = (event as CustomEvent<AttachmentRef>).detail;
+    if (view && detail) insertAttachment(view, detail);
+  };
+
+  const onPaste = (event: ClipboardEvent) => {
+    const fileList = Array.from(event.clipboardData?.files ?? []);
+    if (fileList.length === 0) return;
+    event.preventDefault();
+    void uploadFilesSequentially(fileList);
+  };
+
+  const dz = dropzone.create({ onDrop: (fileList) => void uploadFilesSequentially(fileList) });
+
   onMount(() => {
     writeSettings(props.notebookId, { lastNoteId: props.noteId });
     provider.connect();
@@ -309,6 +350,7 @@ export default function NoteEditor(props: Props) {
     window.addEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);
     window.addEventListener(EDITOR_COPY_EVENT, onCopy);
     window.addEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);
+    window.addEventListener(EDITOR_INSERT_ATTACHMENT_EVENT, onInsertAttachment);
 
     themeObserver = new MutationObserver(() => {
       setIsDark(document.documentElement.classList.contains("dark"));
@@ -332,6 +374,7 @@ export default function NoteEditor(props: Props) {
     window.removeEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);
     window.removeEventListener(EDITOR_COPY_EVENT, onCopy);
     window.removeEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);
+    window.removeEventListener(EDITOR_INSERT_ATTACHMENT_EVENT, onInsertAttachment);
     themeObserver?.disconnect();
     provider.dispose();
     undoManager.destroy();
@@ -342,7 +385,9 @@ export default function NoteEditor(props: Props) {
   return (
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
       <div
-        class="paper flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-950 cursor-text"
+        class={`paper relative flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-950 cursor-text transition-colors ${
+          dz.isDragging() ? "ring-2 ring-blue-400 dark:ring-blue-500 ring-inset" : ""
+        }`}
         onMouseDown={(event) => {
           const target = event.target as HTMLElement | null;
           if (target?.closest(".cm-editor")) return;
@@ -366,6 +411,8 @@ export default function NoteEditor(props: Props) {
             scheduleCursorIdleHide();
           }
         }}
+        onPaste={onPaste}
+        {...dz.handlers}
         role="textbox"
         tabIndex={-1}
         aria-label="Note editor surface"

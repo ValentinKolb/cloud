@@ -3,6 +3,8 @@ import { RangeSet, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
+import { fileIcons } from "@valentinkolb/stdlib";
+import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 
 /** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
 const NOTE_LINK_URL_REGEX = /^\/app\/notebooks\/[0-9a-fA-F-]{36}\?note=[0-9a-fA-F-]{36}$/;
@@ -10,7 +12,11 @@ const NOTE_LINK_URL_REGEX = /^\/app\/notebooks\/[0-9a-fA-F-]{36}\?note=[0-9a-fA-
 type LinkData = {
   label: string;
   url: string;
+  /** Resolved final href (rewritten for attachment URLs, identity otherwise). */
+  resolvedUrl: string;
   isNoteLink: boolean;
+  /** Set if the link is an `attachment://<id>` reference to a non-image blob. */
+  attachmentId: string | null;
 };
 
 class LinkWidget extends WidgetType {
@@ -19,6 +25,36 @@ class LinkWidget extends WidgetType {
   }
 
   override toDOM() {
+    if (this.linkData.attachmentId) {
+      // File-attachment pill: file icon + filename. Click opens download URL
+      // in a new tab — keeping the editor untouched.
+      const el = document.createElement("span");
+      el.className =
+        "cm-attachment-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-700";
+      el.title = this.linkData.label;
+
+      const icon = document.createElement("i");
+      icon.className = `ti ${fileIcons.getFileIcon({ name: this.linkData.label, type: "file" })} text-xs`;
+
+      const label = document.createElement("span");
+      label.textContent = this.linkData.label;
+
+      el.appendChild(icon);
+      el.appendChild(label);
+
+      el.onmousedown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+      el.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void confirmAndDownload(this.linkData.label, this.linkData.resolvedUrl);
+      };
+
+      return el;
+    }
+
     if (this.linkData.isNoteLink) {
       // Pill-style note link: ti-connection icon + title, no [] brackets, the
       // whole pill is clickable and navigates same-window.
@@ -82,32 +118,38 @@ class LinkWidget extends WidgetType {
       other instanceof LinkWidget &&
       other.linkData.label === this.linkData.label &&
       other.linkData.url === this.linkData.url &&
-      other.linkData.isNoteLink === this.linkData.isNoteLink
+      other.linkData.isNoteLink === this.linkData.isNoteLink &&
+      other.linkData.attachmentId === this.linkData.attachmentId
     );
   }
 
   override ignoreEvent(event: Event) {
     const target = event.target as HTMLElement;
-    // Note-link pill swallows its own events — we navigate via onclick and
-    // CM should not try to position the cursor.
+    // Note-link & attachment-pill swallow their own events — they navigate
+    // via onclick and CM should not try to position the cursor.
     if (target.closest(".cm-note-link") !== null) return true;
+    if (target.closest(".cm-attachment-pill") !== null) return true;
     // External link: only the icon click is "ours"; label click should pass
     // through so CM positions the cursor for editing.
     return target.closest(".cm-link-icon") !== null;
   }
 }
 
-const parseLinkSyntax = (text: string): LinkData | null => {
+const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
   const match = text.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
   if (!match || !match[1] || !match[2]) return null;
+  const url = match[2];
+  const attachmentId = extractAttachmentId(url);
   return {
     label: match[1],
-    url: match[2],
-    isNoteLink: NOTE_LINK_URL_REGEX.test(match[2]),
+    url,
+    resolvedUrl: attachmentId ? buildAttachmentContentUrl(notebookId, attachmentId) : url,
+    isNoteLink: NOTE_LINK_URL_REGEX.test(url),
+    attachmentId,
   };
 };
 
-const findLinks = (state: EditorState): Range<Decoration>[] => {
+const findLinks = (state: EditorState, notebookId: string): Range<Decoration>[] => {
   const decorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
 
@@ -117,7 +159,7 @@ const findLinks = (state: EditorState): Range<Decoration>[] => {
       if (cursor.from >= from && cursor.to <= to) return;
 
       const text = state.doc.sliceString(from, to);
-      const linkData = parseLinkSyntax(text);
+      const linkData = parseLinkSyntax(text, notebookId);
 
       if (linkData) {
         decorations.push(Decoration.replace({ widget: new LinkWidget(linkData) }).range(from, to));
@@ -128,14 +170,14 @@ const findLinks = (state: EditorState): Range<Decoration>[] => {
   return decorations;
 };
 
-export const linksExtension = (): Extension => {
+export const linksExtension = (notebookId: string): Extension => {
   const stateField = StateField.define<DecorationSet>({
     create(state) {
-      return RangeSet.of(findLinks(state), true);
+      return RangeSet.of(findLinks(state, notebookId), true);
     },
     update(decorations, tr) {
       if (tr.docChanged || tr.selection) {
-        return RangeSet.of(findLinks(tr.state), true);
+        return RangeSet.of(findLinks(tr.state, notebookId), true);
       }
       return decorations.map(tr.changes);
     },
@@ -163,7 +205,7 @@ export const linksExtension = (): Extension => {
     ".cm-link-widget:hover .cm-link-icon": {
       opacity: "1",
     },
-    ".cm-note-link": {
+    ".cm-note-link, .cm-attachment-pill": {
       verticalAlign: "baseline",
       transition: "background-color 0.15s",
     },
@@ -172,9 +214,10 @@ export const linksExtension = (): Extension => {
   const eventHandlers = EditorView.domEventHandlers({
     mousedown(event, view) {
       const target = event.target as HTMLElement;
-      // Note-link clicks are handled by the widget's own onclick (navigates
-      // same-window). Bail out so CM doesn't reposition the cursor.
-      if (target.closest(".cm-note-link")) {
+      // Note-link & attachment-pill clicks are handled by the widget's own
+      // onclick (note-link navigates same-window, attachment opens in new
+      // tab). Bail out so CM doesn't reposition the cursor.
+      if (target.closest(".cm-note-link") || target.closest(".cm-attachment-pill")) {
         return true;
       }
       if (target.closest(".cm-link-label")) {

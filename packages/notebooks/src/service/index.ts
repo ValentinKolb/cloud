@@ -1,6 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { type PageParams, paginate, type Paginated } from "@valentinkolb/stdlib";
 import * as access from "./access";
+import * as attachments from "./attachments";
 import * as links from "./links";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
@@ -160,9 +161,41 @@ export const notebooksService = {
     snapshot: presence.snapshot,
     reader: presence.reader,
   },
+  attachment: {
+    upload: attachments.upload,
+    get: attachments.get,
+    getContent: attachments.getContent,
+    list: attachments.list,
+    listByIds: attachments.listByIds,
+    /** Paginated + searchable variant — used by the overview page. */
+    listPaginated: async (config: {
+      notebookId: string;
+      pagination?: PageParams;
+      filter?: { query?: string };
+    }): Promise<Paginated<attachments.Attachment>> => {
+      const { page, perPage, offset } = paginate(config.pagination);
+      const result = await attachments.searchPaginated({
+        notebookId: config.notebookId,
+        search: config.filter?.query,
+        pagination: { limit: perPage, offset },
+      });
+      return {
+        items: result.items,
+        page,
+        perPage,
+        total: result.total,
+        hasNext: page * perPage < result.total,
+      };
+    },
+    remove: attachments.remove,
+    count: attachments.count,
+    usageCount: attachments.usageCount,
+    extractIds: attachments.extractIds,
+    transformHtml: attachments.transformAttachments,
+  },
 };
 
-export { notebooks, notes, access, links, presence, yjsSnapshotWorker };
+export { notebooks, notes, access, attachments, links, presence, yjsSnapshotWorker };
 
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";
@@ -175,3 +208,4 @@ export type {
   UpdateNote,
 } from "./notes";
 export type { Backlink, GraphEdge, GraphNode, NoteGraph, NoteLink } from "./links";
+export type { Attachment, AttachmentContent, AttachmentKind } from "./attachments";

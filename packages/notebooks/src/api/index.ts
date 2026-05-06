@@ -120,6 +120,22 @@ const NoteGraphSchema = z.object({
   edges: z.array(GraphEdgeSchema),
 });
 
+const AttachmentSchema = z.object({
+  id: z.uuid(),
+  notebookId: z.uuid(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int(),
+  kind: z.enum(["image", "file"]),
+  createdBy: z.uuid().nullable(),
+  createdAt: z.string(),
+});
+
+const AttachmentUsageSchema = z.object({ count: z.number().int() });
+
+/** 10 MB per-file upload cap. Larger files → 413. */
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+
 const ListNotebooksQuerySchema = z.object({
   ...PaginationQuerySchema.shape,
   q: z.string().optional(),
@@ -1110,6 +1126,159 @@ const app = new Hono<AuthContext>()
         }),
         "Access revoked",
       );
+    },
+  );
+
+// =============================================================================
+// Attachments — file/image blobs stored as bytea, FK to notebook (CASCADE)
+// =============================================================================
+
+app
+  // Upload — multipart with `file` field
+  .post(
+    "/:id/attachments",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Upload attachment",
+      description: `Upload a file blob (image or any other type) to a notebook. Max ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB.`,
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(AttachmentSchema, "Uploaded attachment metadata"),
+        400: jsonResponse(ErrorResponseSchema, "No file or invalid form"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        413: jsonResponse(ErrorResponseSchema, "File too large"),
+      },
+    }),
+    async (c) => {
+      const user = c.get("user");
+      const notebookId = c.req.param("id");
+
+      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      if (error) return error;
+
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("file");
+      if (!(file instanceof File)) return respond(c, fail(err.badInput("Missing 'file' field")));
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        return respond(c, fail(err.badInput(`File exceeds ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB limit`)));
+      }
+
+      const content = new Uint8Array(await file.arrayBuffer());
+      const attachment = await notebooksService.attachment.upload({
+        notebookId,
+        filename: file.name || "untitled",
+        mimeType: file.type || "application/octet-stream",
+        content,
+        userId: user.id,
+      });
+      return respond(c, ok(attachment));
+    },
+  )
+
+  // List
+  .get(
+    "/:id/attachments",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "List attachments",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(AttachmentSchema), "All attachments in this notebook"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    async (c) => {
+      const notebookId = c.req.param("id");
+      const { error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      return respond(c, ok(await notebooksService.attachment.list({ notebookId })));
+    },
+  )
+
+  // Stream content — used by image widgets, file downloads, read-mode renderer
+  .get(
+    "/:id/attachments/:attId/content",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Download attachment content",
+      ...requiresAuth,
+      responses: {
+        200: { description: "File content stream" },
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Attachment not found"),
+      },
+    }),
+    async (c) => {
+      const notebookId = c.req.param("id");
+      const attId = c.req.param("attId");
+
+      const { error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+
+      const att = await notebooksService.attachment.getContent({ id: attId });
+      if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
+
+      // `inline` query → render-in-browser (images, pdfs); else attachment download
+      const inline = c.req.query("inline") === "true" || att.kind === "image";
+      const disposition = `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(att.filename)}"`;
+      // Wrap bytea in a fresh ArrayBuffer slice — Postgres' returned
+      // Uint8Array is typed `<ArrayBufferLike>` which TS rejects for `BlobPart`.
+      const buffer = att.content.buffer.slice(att.content.byteOffset, att.content.byteOffset + att.content.byteLength) as ArrayBuffer;
+      return new Response(new Blob([buffer], { type: att.mimeType }), {
+        headers: {
+          "Content-Type": att.mimeType,
+          "Content-Disposition": disposition,
+          "Cache-Control": "private, max-age=300",
+        },
+      });
+    },
+  )
+
+  // Usage count — used by destructive-delete confirmation
+  .get(
+    "/:id/attachments/:attId/usage",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Count notes referencing an attachment",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(AttachmentUsageSchema, "Usage count"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    async (c) => {
+      const notebookId = c.req.param("id");
+      const attId = c.req.param("attId");
+      const { error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      const count = await notebooksService.attachment.usageCount({ notebookId, attachmentId: attId });
+      return respond(c, ok({ count }));
+    },
+  )
+
+  // Delete
+  .delete(
+    "/:id/attachments/:attId",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Delete attachment",
+      description: "Removes the blob. Markdown links pointing to it become broken — by design (KISS, no auto-cleanup).",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Deleted"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Attachment not found"),
+      },
+    }),
+    async (c) => {
+      const notebookId = c.req.param("id");
+      const attId = c.req.param("attId");
+      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      if (error) return error;
+      const att = await notebooksService.attachment.get({ id: attId });
+      if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
+      await notebooksService.attachment.remove({ id: attId });
+      return respond(c, ok({ message: "Attachment deleted" }));
     },
   );
 

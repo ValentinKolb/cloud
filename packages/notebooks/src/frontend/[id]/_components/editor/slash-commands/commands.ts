@@ -1,6 +1,7 @@
 import { navigateTo } from "@valentinkolb/cloud/ui";
 import { buildNoteUrl } from "../../../../params";
 import { openNoteSwitchPrompt } from "../../search/openNoteSearchPrompt";
+import { openAttachmentPicker } from "../AttachmentPicker";
 import {
   insertAtCursor,
   insertCallout,
@@ -115,6 +116,14 @@ export const slashCommands: SlashCommand[] = [
     section: "Insert",
     description: "Pick a note to link to",
     run: (view, ctx) => insertNoteLink(view, ctx.notebookId),
+  },
+  {
+    name: "file",
+    label: "Attach",
+    icon: "ti-paperclip",
+    section: "Insert",
+    description: "Upload or pick a file or image",
+    run: (_view, ctx) => openAttachmentPicker(ctx.notebookId),
   },
 
   // ── Callouts (info blocks) ───────────────────────────────

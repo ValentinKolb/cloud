@@ -24,3 +24,14 @@ export const PRESENCE_EVENT = "notebooks.presence.changed";
  */
 export const EDITOR_COPY_EVENT = "notebooks.editor.copy";
 export const EDITOR_DOWNLOAD_EVENT = "notebooks.editor.download";
+
+/**
+ * Picker-modal → editor: insert an attachment reference at the cursor.
+ * Detail = `AttachmentRef` ({id, kind, filename}). Decouples the modal
+ * (which has no editor-view ref) from the insertion site.
+ */
+export const EDITOR_INSERT_ATTACHMENT_EVENT = "notebooks.editor.insertAttachment";
+
+/** Editor → panel: list of `attachment://<id>` ids referenced in current
+ *  doc, debounced like TOC/Tasks. Detail = `string[]`. */
+export const ATTACHMENTS_UPDATE_EVENT = "notebooks.attachments.updated";

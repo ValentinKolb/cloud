@@ -3,6 +3,7 @@ import { StateField, RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
+import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 
 /** Match the optional `=WxH` size suffix Pandoc-style image syntax allows. */
 const SIZE_SUFFIX_REGEX = /\s+=(\d+)?x(\d+)?$/;
@@ -21,6 +22,12 @@ const parseImageHref = (href: string): ParsedImage => {
     width: match[1] ?? null,
     height: match[2] ?? null,
   };
+};
+
+/** `attachment://<id>` → `/api/notebooks/<nbid>/attachments/<id>/content`. */
+const resolveUrl = (rawUrl: string, notebookId: string): string => {
+  const id = extractAttachmentId(rawUrl);
+  return id ? buildAttachmentContentUrl(notebookId, id) : rawUrl;
 };
 
 class ImageWidget extends WidgetType {
@@ -69,6 +76,19 @@ class ImageWidget extends WidgetType {
     }
 
     container.appendChild(figure);
+
+    // Click → download confirm. Stop propagation so CM doesn't reposition
+    // the cursor (consistent with the file-pill widget).
+    container.onmousedown = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    container.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void confirmAndDownload(this.alt || "image", this.url);
+    };
+
     return container;
   }
 
@@ -87,7 +107,7 @@ class ImageWidget extends WidgetType {
   }
 }
 
-const findMarkdownImages = (state: EditorState): Range<Decoration>[] => {
+const findMarkdownImages = (state: EditorState, notebookId: string): Range<Decoration>[] => {
   const decorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
 
@@ -107,7 +127,7 @@ const findMarkdownImages = (state: EditorState): Range<Decoration>[] => {
         const { url, width, height } = parseImageHref(rawHref);
         decorations.push(
           Decoration.replace({
-            widget: new ImageWidget(url, alt, width, height),
+            widget: new ImageWidget(resolveUrl(url, notebookId), alt, width, height),
             block: true,
           }).range(node.from, node.to),
         );
@@ -118,14 +138,14 @@ const findMarkdownImages = (state: EditorState): Range<Decoration>[] => {
   return decorations;
 };
 
-export const imageExtension = (): Extension => {
+export const imageExtension = (notebookId: string): Extension => {
   const stateField = StateField.define<DecorationSet>({
     create(state) {
-      return RangeSet.of(findMarkdownImages(state), true);
+      return RangeSet.of(findMarkdownImages(state, notebookId), true);
     },
     update(decorations, tr) {
       if (tr.docChanged || tr.selection) {
-        return RangeSet.of(findMarkdownImages(tr.state), true);
+        return RangeSet.of(findMarkdownImages(tr.state, notebookId), true);
       }
       return decorations.map(tr.changes);
     },
@@ -147,19 +167,7 @@ export const imageExtension = (): Extension => {
     },
   });
 
-  const eventHandlers = EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const target = event.target as HTMLElement;
-      if (target.closest(".cm-image-widget")) {
-        const pos = view.posAtDOM(target);
-        if (pos !== null) {
-          view.dispatch({ selection: { anchor: pos } });
-          return true;
-        }
-      }
-      return false;
-    },
-  });
-
-  return [stateField, theme, eventHandlers];
+  // No view-level mousedown handler needed — the widget container swallows
+  // its own clicks (preventDefault + stopPropagation in toDOM).
+  return [stateField, theme];
 };

@@ -1,6 +1,7 @@
 import NoteTree from "./NoteTree.island";
 import SearchButton from "../search/SearchButton.island";
 import CreateNoteButton from "./CreateNoteButton.island";
+import { buildAttachmentsUrl } from "../../../params";
 import type { NotebookContext } from "./types";
 
 type Props = {
@@ -10,6 +11,8 @@ type Props = {
 export default function NotebookSidebar(props: Props) {
   const canWrite = props.ctx.permission === "write" || props.ctx.permission === "admin";
   const settingsHref = `/app/notebooks/${props.ctx.notebook.id}?mode=settings`;
+  const attachmentsHref = buildAttachmentsUrl(props.ctx.notebook.id);
+  const hasAttachments = props.ctx.attachmentCount > 0;
   const allNotebooksHref = "/app/notebooks";
   const vt = (key: string) => `notebook-sidebar-${props.ctx.notebook.id}-${key}`;
 
@@ -56,6 +59,12 @@ export default function NotebookSidebar(props: Props) {
             <div style={`view-transition-name:${vt("search-mobile")}`}>
               <SearchButton notebookId={props.ctx.notebook.id} notebookName={props.ctx.notebook.name} variant="sidebar-mobile" />
             </div>
+            {hasAttachments && (
+              <a href={attachmentsHref} class="sidebar-item-mobile" style={`view-transition-name:${vt("attachments-mobile")}`}>
+                <i class="ti ti-paperclip" />
+                Attachments ({props.ctx.attachmentCount})
+              </a>
+            )}
           </div>
           <div class="mt-2 max-h-64 overflow-y-auto p-2">{tree}</div>
         </details>
@@ -100,12 +109,30 @@ export default function NotebookSidebar(props: Props) {
             </section>
           </div>
 
+          {/* Notes — fills remaining space, scrolls when long. */}
           <div class="sidebar-body">
             <section class="sidebar-group">
               <p class="sidebar-section-title">Notes</p>
               {tree}
             </section>
           </div>
+
+          {/* Footer — pinned to the bottom via `mt-auto`, never scrolls
+              with the note tree above. Conditional on attachment count. */}
+          {hasAttachments && (
+            <section class="sidebar-footer">
+              <a
+                href={attachmentsHref}
+                class="sidebar-item text-xs"
+                style={`view-transition-name:${vt("attachments-desktop")}`}
+                title={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
+              >
+                <i class="ti ti-paperclip text-sm" />
+                <span class="flex-1">Attachments</span>
+                <span class="text-dimmed tabular-nums">{props.ctx.attachmentCount}</span>
+              </a>
+            </section>
+          )}
         </div>
       </aside>
     </>

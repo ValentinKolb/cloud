@@ -5,6 +5,7 @@ import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { notebooksService } from "@/service";
+import { transformAttachments } from "@/service/attachments";
 import { transformNoteLinks } from "@/service/links";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import { extractTaskProgress } from "./_components/detail/tasks";
@@ -129,10 +130,20 @@ export default ssr<AuthContext>(async (c) => {
 
         tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
 
-        // For read mode: rewrite note links + inject heading anchor ids so
-        // the TOC `#slug` clicks scroll to the right place natively.
+        // Hydrate referenced attachments so the post-processor can render
+        // file pills with the canonical filename (label may have been edited
+        // by the user; filename is the source of truth for the icon mapping).
+        const attachmentIds = notebooksService.attachment.extractIds(noteWithContent.contentMd);
+        const referencedAttachments = attachmentIds.length > 0 ? await notebooksService.attachment.listByIds({ ids: attachmentIds }) : [];
+        const idToFilename = new Map(referencedAttachments.map((a) => [a.id, a.filename]));
+
+        // For read mode: rewrite note links + attachment URLs + inject
+        // heading anchor ids so the TOC `#slug` clicks scroll natively.
         const renderedHtml = shouldRenderHtml
-          ? injectHeadingIds(transformNoteLinks(markdown.render(noteWithContent.contentMd ?? "")), tocItems)
+          ? injectHeadingIds(
+              transformAttachments(transformNoteLinks(markdown.render(noteWithContent.contentMd ?? "")), { notebookId, idToFilename }),
+              tocItems,
+            )
           : null;
 
         selectedNote = {
@@ -170,6 +181,9 @@ export default ssr<AuthContext>(async (c) => {
   // response — saves the round-trip a client-fetch would otherwise need.
   const graph = isGraphMode ? await notebooksService.notebook.graph({ notebookId }) : null;
 
+  // Cheap COUNT — gates the sidebar's "Attachments" link.
+  const attachmentCount = await notebooksService.attachment.count({ notebookId });
+
   const ctx: NotebookContext = {
     notebook,
     tree,
@@ -177,6 +191,7 @@ export default ssr<AuthContext>(async (c) => {
     settings,
     permission,
     viewMode: isReadMode ? "read" : "edit",
+    attachmentCount,
   };
 
   // Read app.url once in the async handler and pass it through closure into the
@@ -186,6 +201,12 @@ export default ssr<AuthContext>(async (c) => {
   // Detail panel only renders for actual note views (not settings/versions
   // /graph modes — those have their own dedicated layouts).
   const showDetailPanel = !!selectedNote && !isSettingsMode && !isVersionsMode && !isGraphMode;
+
+  // Hydrate metadata for attachments referenced in the current note's
+  // markdown — feeds the detail panel's "Attachments" section. Live updates
+  // flow through `ATTACHMENTS_UPDATE_EVENT` once the editor is mounted.
+  const panelAttachmentIds = showDetailPanel ? notebooksService.attachment.extractIds(selectedNote!.contentMd) : [];
+  const panelAttachments = panelAttachmentIds.length > 0 ? await notebooksService.attachment.listByIds({ ids: panelAttachmentIds }) : [];
 
   return () => (
     <Layout
@@ -260,6 +281,7 @@ export default ssr<AuthContext>(async (c) => {
             initiallyOpen={actualReadMode ? true : detailPanelOpen}
             tocItems={tocItems}
             taskProgress={extractTaskProgress(selectedNote.contentMd)}
+            attachments={panelAttachments}
             backlinks={backlinks}
             currentNotebookId={notebookId}
             notebookId={notebookId}

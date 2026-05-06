@@ -1,11 +1,14 @@
-import { dates } from "@valentinkolb/stdlib";
+import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Backlink } from "../../../../service/links";
 import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../../../params";
+import type { Attachment } from "../editor/attachments-client";
+import { buildAttachmentContentUrl, confirmAndDownload, formatBytes } from "../editor/attachments-client";
 import { setDetailPanelOpen } from "../settings/NotebookSettingsStore";
 import {
+  ATTACHMENTS_UPDATE_EVENT,
   DETAIL_PANEL_STATE_EVENT,
   DETAIL_PANEL_TOGGLE_EVENT,
   EDITOR_COPY_EVENT,
@@ -25,6 +28,9 @@ type Props = {
   initiallyOpen: boolean;
   tocItems: TocItem[];
   taskProgress: TaskProgress;
+  /** Attachments referenced from the current note's markdown — initial SSR
+   *  hydration. Live updates flow through `ATTACHMENTS_UPDATE_EVENT`. */
+  attachments: Attachment[];
   backlinks: Backlink[];
   currentNotebookId: string;
   notebookId: string;
@@ -65,6 +71,31 @@ export default function NotebookDetailPanel(props: Props) {
   const [open, setOpen] = createSignal(props.initiallyOpen);
   const [tocItems, setTocItems] = createSignal<TocItem[]>(props.tocItems);
   const [tasks, setTasks] = createSignal<TaskProgress>(props.taskProgress);
+
+  // Attachment state: a cache (id → Attachment) plus the ordered ID list of
+  // what's currently referenced in the doc. The displayed list is computed
+  // from cache ⨯ ids — broken refs (cache miss) are silently dropped.
+  // Cache is refreshed lazily when an unknown ID appears in an update event.
+  const [attachmentCache, setAttachmentCache] = createSignal<Map<string, Attachment>>(
+    new Map(props.attachments.map((a) => [a.id, a])),
+  );
+  const [attachmentIds, setAttachmentIds] = createSignal<string[]>(props.attachments.map((a) => a.id));
+  const visibleAttachments = (): Attachment[] => {
+    const c = attachmentCache();
+    const out: Attachment[] = [];
+    for (const id of attachmentIds()) {
+      const att = c.get(id);
+      if (att) out.push(att);
+    }
+    return out;
+  };
+
+  const refetchAttachments = async () => {
+    const res = await fetch(`/api/notebooks/${encodeURIComponent(props.notebookId)}/attachments`);
+    if (!res.ok) return;
+    const list = (await res.json()) as Attachment[];
+    setAttachmentCache(new Map(list.map((a) => [a.id, a])));
+  };
   const [participants, setParticipants] = createSignal<NotebookPresenceParticipant[]>([]);
   // Mirrors the editor's richMode signal — kept in sync via window events.
   // Default `true` matches the editor's initial state, so SSR and the first
@@ -133,8 +164,17 @@ export default function NotebookDetailPanel(props: Props) {
       if (typeof detail?.isRich === "boolean") setIsRich(detail.isRich);
     };
 
+    const onAttachmentsUpdate = (event: Event) => {
+      const ids = (event as CustomEvent<string[]>).detail ?? [];
+      setAttachmentIds(ids);
+      // Lazy cache fill: refetch whenever the doc references an id we have
+      // no metadata for (e.g. fresh upload, or another client added it).
+      if (ids.some((id) => !attachmentCache().has(id))) void refetchAttachments();
+    };
+
     window.addEventListener(TOC_UPDATE_EVENT, onTocUpdate);
     window.addEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
+    window.addEventListener(ATTACHMENTS_UPDATE_EVENT, onAttachmentsUpdate);
     window.addEventListener(PRESENCE_EVENT, onPresenceUpdate);
     window.addEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
     window.addEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
@@ -142,6 +182,7 @@ export default function NotebookDetailPanel(props: Props) {
     onCleanup(() => {
       window.removeEventListener(TOC_UPDATE_EVENT, onTocUpdate);
       window.removeEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
+      window.removeEventListener(ATTACHMENTS_UPDATE_EVENT, onAttachmentsUpdate);
       window.removeEventListener(PRESENCE_EVENT, onPresenceUpdate);
       window.removeEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
       window.removeEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
@@ -195,6 +236,33 @@ export default function NotebookDetailPanel(props: Props) {
               style={`width: ${(tasks().done / Math.max(1, tasks().total)) * 100}%`}
             />
           </div>
+        </section>
+      </Show>
+
+      {/* Attachments — files & images referenced from this note. Click a
+          row → download confirm modal. Deletion lives on the dedicated
+          attachments overview page. */}
+      <Show when={visibleAttachments().length > 0}>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Attachments</h3>
+          <ul class="flex flex-col">
+            <For each={visibleAttachments()}>
+              {(att) => (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.id))}
+                    class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded transition-colors text-left"
+                    title={att.filename}
+                  >
+                    <i class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`} />
+                    <span class="flex-1 truncate">{att.filename}</span>
+                    <span class="text-dimmed tabular-nums shrink-0">{formatBytes(att.sizeBytes)}</span>
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
         </section>
       </Show>
 

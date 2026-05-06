@@ -91,4 +91,23 @@ export const migrate = async (): Promise<void> => {
     ON notebooks.note_links(target_note_id)
   `.simple();
   console.log("  ✓ notebooks.note_links table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS notebooks.attachments (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      notebook_id UUID NOT NULL REFERENCES notebooks.notebooks(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes BIGINT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('image', 'file')),
+      content BYTEA NOT NULL,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_attachments_notebook
+    ON notebooks.attachments(notebook_id)
+  `.simple();
+  console.log("  ✓ notebooks.attachments table");
 };

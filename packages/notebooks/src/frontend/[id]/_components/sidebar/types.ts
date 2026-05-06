@@ -36,4 +36,6 @@ export type NotebookContext = {
   settings: NotebookSettings;
   permission: string;
   viewMode: "read" | "edit";
+  /** Number of attachments in the notebook — gates the sidebar link. */
+  attachmentCount: number;
 };
