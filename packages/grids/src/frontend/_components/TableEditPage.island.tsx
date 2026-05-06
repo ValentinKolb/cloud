@@ -4,7 +4,6 @@ import {
   navigateTo,
   PermissionEditor,
   prompts,
-  refreshCurrentPath,
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import {
@@ -75,7 +74,7 @@ export default function TableEditPage(props: Props) {
   const [tName, setTName] = createSignal(props.table.name);
   const [tDesc, setTDesc] = createSignal(props.table.description ?? "");
   const [tDisableDirectInsert, setTDisableDirectInsert] = createSignal(
-    props.table.disableDirectInsert,
+    props.table.disableDirectInsert
   );
   const [tDirty, setTDirty] = createSignal(false);
 
@@ -237,7 +236,6 @@ export default function TableEditPage(props: Props) {
     const created = (await res.json()) as Field;
     setFields([...fields(), created]);
     setExpandedId(created.id);
-    refreshCurrentPath();
   };
 
   const handleDeleteField = async (field: Field) => {
@@ -282,7 +280,6 @@ export default function TableEditPage(props: Props) {
       return;
     }
     setFields(fields().filter((f) => f.id !== field.id));
-    refreshCurrentPath();
   };
 
   // -------------------------------------------------------------------
@@ -459,6 +456,22 @@ export default function TableEditPage(props: Props) {
                             {field.description}
                           </span>
                         </Show>
+                        {/* Copy-field-id — power-user hook for formula
+                            references ({uuid}), form_value entries, and
+                            API debugging. Span instead of <button> to
+                            stay valid HTML (we're already nested inside
+                            the row's clickable button). */}
+                        <span
+                          class="text-dimmed hover:text-primary p-1"
+                          aria-label="Copy field ID"
+                          title="Copy field ID — useful for formulas {id} and API debugging"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void navigator.clipboard?.writeText(field.id);
+                          }}
+                        >
+                          <i class="ti ti-copy text-sm" />
+                        </span>
                         <i
                           class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
                             isExpanded() ? "rotate-180" : ""
@@ -573,9 +586,13 @@ function FieldEditor(props: {
   const [required, setRequired] = createSignal(props.field.required);
   const [presentable, setPresentable] = createSignal(props.field.presentable);
   const [hideInTable, setHideInTable] = createSignal(props.field.hideInTable);
-  const [defaultValue, setDefaultValue] = createSignal<unknown>(props.field.defaultValue);
+  const [defaultValue, setDefaultValue] = createSignal<unknown>(
+    props.field.defaultValue
+  );
   const [indexed, setIndexed] = createSignal(props.field.indexed);
-  const [uniqueConstraint, setUniqueConstraint] = createSignal(props.field.uniqueConstraint);
+  const [uniqueConstraint, setUniqueConstraint] = createSignal(
+    props.field.uniqueConstraint
+  );
   const [config, setConfig] = createSignal<FieldConfigState>(
     (props.field.config as FieldConfigState) ?? {}
   );
@@ -651,7 +668,7 @@ function FieldEditor(props: {
             uses (with disabled styling) so heights line up. */}
         <TextInput
           label="Type (immutable)"
-          description="Field types can't be changed after creation. To switch types, create a new field with the desired type and migrate values manually."
+          description="Field types can't be changed after creation."
           icon="ti ti-category"
           value={() => typeLabel}
           disabled
@@ -722,10 +739,19 @@ function FieldEditor(props: {
           for single-select, etc). Saved as `defaultValue` on the field
           row; null/undefined = no default. */}
       <div class="flex flex-col gap-1">
-        <p class="text-xs font-medium text-secondary">Default value (optional)</p>
+        <p class="text-xs font-medium text-secondary">
+          Default value (optional)
+        </p>
         <FieldInput
-          field={{ ...props.field, config: config() as Record<string, unknown> }}
-          entry={{ kind: "user_input", fieldId: props.field.id, required: false }}
+          field={{
+            ...props.field,
+            config: config() as Record<string, unknown>,
+          }}
+          entry={{
+            kind: "user_input",
+            fieldId: props.field.id,
+            required: false,
+          }}
           value={defaultValue()}
           onChange={(v) => wrap(setDefaultValue)(v)}
         />

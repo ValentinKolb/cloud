@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { PermissionEditor, prompts, refreshCurrentPath, SegmentedControl, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, prompts, SegmentedControl, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { FieldInput } from "./form-fields";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -72,7 +72,6 @@ export default function FormsManager(props: Props) {
     const created = (await res.json()) as Form;
     setForms([...forms(), created]);
     setExpandedId(created.id);
-    refreshCurrentPath();
   };
 
   // ---- Delete ----------------------------------------------------------
@@ -89,7 +88,6 @@ export default function FormsManager(props: Props) {
       return;
     }
     setForms(forms().filter((f) => f.id !== form.id));
-    refreshCurrentPath();
   };
 
   return (

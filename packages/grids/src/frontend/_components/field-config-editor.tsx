@@ -797,7 +797,36 @@ function FormulaConstraints(props: {
   const expr = () =>
     typeof cfg().expression === "string" ? (cfg().expression as string) : "";
   return (
-    <div class="flex flex-col gap-2">
+    <div class="flex flex-col gap-3">
+      {/* Quick-start examples — concrete first, theory second. Most
+          users grok formulas faster from a working snippet than from a
+          function list. */}
+      <div class="info-block-info text-xs flex flex-col gap-2">
+        <span class="font-medium">Examples</span>
+        <div class="flex flex-col gap-1.5 font-mono text-[11px]">
+          <div>
+            <span class="text-dimmed">— Mark up by 19%:</span>
+            <br />
+            <code>{"{price-field-id} * 1.19"}</code>
+          </div>
+          <div>
+            <span class="text-dimmed">— Format with prefix:</span>
+            <br />
+            <code>{`CONCAT(UPPER({title-field-id}), " — €", {price-field-id})`}</code>
+          </div>
+          <div>
+            <span class="text-dimmed">— Conditional label:</span>
+            <br />
+            <code>{`IF({stock-field-id}, "Available", "Out of stock")`}</code>
+          </div>
+          <div>
+            <span class="text-dimmed">— Days since created:</span>
+            <br />
+            <code>{`DATEDIFF(TODAY(), {created-at-field-id}, "days")`}</code>
+          </div>
+        </div>
+      </div>
+
       <TextInput
         label="Expression"
         value={expr}
@@ -805,12 +834,78 @@ function FormulaConstraints(props: {
         placeholder='e.g. {field-id} * 1.19  or  CONCAT(UPPER({title}), " — €", {price})'
         icon="ti ti-math-function"
         multiline
+        lines={3}
       />
-      <p class="text-xs text-dimmed">
-        Reference fields by their UUID in <code>{`{...}`}</code>. Functions: IF, AND, OR, NOT,
-        ISBLANK, ABS, ROUND, FLOOR, CEIL, MIN, MAX, CONCAT, LEN, LOWER, UPPER, TRIM,
-        TODAY, NOW, YEAR, MONTH, DAY, DATEADD, DATEDIFF.
+
+      <p class="text-xs text-dimmed leading-snug">
+        <span class="font-medium text-secondary">Field references:</span>{" "}
+        Wrap a field's UUID in curly braces — e.g. <code>{"{bef9c4a4-…}"}</code>. Use the{" "}
+        <i class="ti ti-copy" /> button on a field row above to copy its ID. Formulas
+        recompute on every read; references to other formula fields evaluate in
+        dependency order (cycles render as <code>#CYCLE</code>).
       </p>
+
+      {/* Function reference — collapsed by default to keep the editor
+          tidy. Each entry: signature · description · example. */}
+      <details class="text-xs">
+        <summary class="cursor-pointer select-none text-secondary font-medium py-1">
+          Function reference
+        </summary>
+        <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+          <FormulaFn
+            sig="IF(cond, then, else)"
+            desc="Branch by truthiness of cond."
+            ex='IF({inStock}, "Yes", "No")'
+          />
+          <FormulaFn sig="AND(a, b, …)" desc="True iff every arg is truthy." ex="AND({active}, {paid})" />
+          <FormulaFn sig="OR(a, b, …)" desc="True iff any arg is truthy." ex="OR({vip}, {gold})" />
+          <FormulaFn sig="NOT(x)" desc="Logical negation." ex="NOT({archived})" />
+          <FormulaFn sig="ISBLANK(x)" desc="True if x is null / empty." ex="ISBLANK({notes})" />
+          <FormulaFn sig="ABS(n)" desc="Absolute value." ex="ABS({delta})" />
+          <FormulaFn sig="ROUND(n)" desc="Round half-away-from-zero." ex="ROUND({avg})" />
+          <FormulaFn sig="FLOOR(n)" desc="Round down." ex="FLOOR({rate})" />
+          <FormulaFn sig="CEIL(n)" desc="Round up." ex="CEIL({rate})" />
+          <FormulaFn sig="MIN(a, b, …)" desc="Smallest of args." ex="MIN({a}, {b})" />
+          <FormulaFn sig="MAX(a, b, …)" desc="Largest of args." ex="MAX({a}, {b})" />
+          <FormulaFn
+            sig="CONCAT(s, …)"
+            desc="Join strings — non-strings auto-coerce."
+            ex='CONCAT({first}, " ", {last})'
+          />
+          <FormulaFn sig="LEN(s)" desc="String length." ex="LEN({title})" />
+          <FormulaFn sig="LOWER(s)" desc="Lowercase." ex="LOWER({email})" />
+          <FormulaFn sig="UPPER(s)" desc="Uppercase." ex="UPPER({code})" />
+          <FormulaFn sig="TRIM(s)" desc="Strip leading/trailing whitespace." ex="TRIM({input})" />
+          <FormulaFn sig="TODAY()" desc="Today as date (no time)." ex="TODAY()" />
+          <FormulaFn sig="NOW()" desc="Current datetime." ex="NOW()" />
+          <FormulaFn sig="YEAR(d)" desc="4-digit year of d." ex="YEAR({createdAt})" />
+          <FormulaFn sig="MONTH(d)" desc="Month 1-12." ex="MONTH({createdAt})" />
+          <FormulaFn sig="DAY(d)" desc="Day-of-month 1-31." ex="DAY({createdAt})" />
+          <FormulaFn
+            sig='DATEADD(d, n, "days")'
+            desc='Add n units (days/weeks/months/years) to d.'
+            ex='DATEADD({due}, 7, "days")'
+          />
+          <FormulaFn
+            sig='DATEDIFF(a, b, "days")'
+            desc='Difference between dates in the chosen unit.'
+            ex='DATEDIFF(TODAY(), {due}, "days")'
+          />
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/** Single function-doc row inside the Formula reference grid. */
+function FormulaFn(props: { sig: string; desc: string; ex: string }) {
+  return (
+    <div class="flex flex-col gap-0.5">
+      <code class="font-mono text-secondary">{props.sig}</code>
+      <span class="text-dimmed leading-snug">{props.desc}</span>
+      <code class="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
+        {props.ex}
+      </code>
     </div>
   );
 }
