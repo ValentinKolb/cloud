@@ -5,7 +5,7 @@ import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, base_id, name, description, primary_field_id, position, deleted_at, created_at, updated_at`;
+const COLS = sql`id, base_id, name, description, primary_field_id, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
@@ -14,6 +14,7 @@ const mapRow = (row: DbRow): Table => ({
   description: (row.description as string | null) ?? null,
   primaryFieldId: (row.primary_field_id as string | null) ?? null,
   position: row.position as number,
+  disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
@@ -87,6 +88,8 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
     description: input.description !== undefined ? input.description : existing.description,
     primaryFieldId:
       input.primaryFieldId !== undefined ? input.primaryFieldId : existing.primaryFieldId,
+    disableDirectInsert:
+      input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
   };
 
   const [row] = await sql<DbRow[]>`
@@ -94,6 +97,7 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
     SET name = ${next.name},
         description = ${next.description},
         primary_field_id = ${next.primaryFieldId}::uuid,
+        disable_direct_insert = ${next.disableDirectInsert},
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
     RETURNING ${COLS}
@@ -108,6 +112,9 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   }
   if (next.primaryFieldId !== existing.primaryFieldId) {
     diff.primaryFieldId = { old: existing.primaryFieldId, new: next.primaryFieldId };
+  }
+  if (next.disableDirectInsert !== existing.disableDirectInsert) {
+    diff.disableDirectInsert = { old: existing.disableDirectInsert, new: next.disableDirectInsert };
   }
   if (Object.keys(diff).length > 0) {
     await logAudit({ baseId: table.baseId, tableId: id, userId: actorId, action: "updated", diff });

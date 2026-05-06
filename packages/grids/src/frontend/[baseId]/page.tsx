@@ -6,6 +6,7 @@ import { gridsService } from "../../service";
 import RecordsView from "../_components/records-view/RecordsView.island";
 import type { GroupBucket } from "../_components/GroupedTable";
 import CreateTableButton from "../_components/CreateTableButton.island";
+import FormSidebarEntry from "../_components/FormSidebarEntry.island";
 import type { FilterTree, SortSpec, Field } from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
@@ -88,7 +89,8 @@ const mergeSearchIntoFilter = (
 const resolveLevel = async (
   user: AuthUser,
   baseId: string,
-  tableId?: string
+  tableId?: string,
+  formId?: string,
 ) => {
   if (hasRole(user, "admin")) return "admin" as const;
   const grants = await gridsService.permission.loadGrants({
@@ -96,11 +98,14 @@ const resolveLevel = async (
     userGroups: user.memberofGroupIds,
     baseId,
     tableId: tableId ?? null,
+    formId: formId ?? null,
   });
-  return gridsService.permission.resolve(
-    grants,
-    tableId ? { baseId, tableId } : { baseId }
-  );
+  const target = formId
+    ? { baseId, tableId: tableId!, formId }
+    : tableId
+      ? { baseId, tableId }
+      : { baseId };
+  return gridsService.permission.resolve(grants, target);
 };
 
 export default ssr<AuthContext>(async (c) => {
@@ -416,6 +421,20 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
 
+  // Per-form effective permission. Needed for the sidebar filter:
+  // a form should appear when (publicToken && isActive) OR the user
+  // has form-write or higher resolved against it. Forms with a
+  // public token are visible to everyone with base-read regardless
+  // of form-grant — that's the existing share semantics.
+  const formLevels: Record<string, "none" | "read" | "write" | "admin"> = {};
+  await Promise.all(
+    tables.flatMap((t) =>
+      (formsByTable[t.id] ?? []).map(async (form) => {
+        formLevels[form.id] = await resolveLevel(user, baseId, t.id, form.id);
+      }),
+    ),
+  );
+
   const canManageTable = gridsService.permission.hasAtLeast(
     activeTableLevel,
     "admin"
@@ -683,16 +702,22 @@ export default ssr<AuthContext>(async (c) => {
                 );
               })()}
 
-              {/* Forms — flat alphabetical, public-only. Each row carries
-                  the same dim "· table" suffix as views for context. */}
+              {/* Forms — flat alphabetical. A form appears here when
+                  it's public+active OR the user has effective form-
+                  write (or higher) on it. Click opens the authenticated
+                  submit modal (no external-link to /share — public
+                  sharing happens from the FormsManager copy-link). */}
               {(() => {
                 type FormRow = { form: NonNullable<(typeof formsByTable)[string]>[number]; table: typeof tables[number] };
                 const allForms: FormRow[] = [];
                 for (const t of tables) {
                   for (const form of formsByTable[t.id] ?? []) {
-                    if (form.publicToken && form.isActive) {
-                      allForms.push({ form, table: t });
-                    }
+                    if (!form.isActive) continue;
+                    const effectiveLevel = formLevels[form.id] ?? "none";
+                    const canSubmit =
+                      Boolean(form.publicToken) ||
+                      gridsService.permission.hasAtLeast(effectiveLevel, "write");
+                    if (canSubmit) allForms.push({ form, table: t });
                   }
                 }
                 if (allForms.length === 0) return null;
@@ -702,18 +727,11 @@ export default ssr<AuthContext>(async (c) => {
                 return (
                   <section class="sidebar-group">
                     <p class="sidebar-section-title">Forms</p>
-                    {allForms.map(({ form }) => (
-                      <a
-                        href={`/share/grids/forms/${form.publicToken}`}
-                        class="sidebar-item"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title={`Open public submit form for ${form.name}`}
-                      >
-                        <i class="ti ti-forms text-sm shrink-0" />
-                        <span class="truncate min-w-0 flex-1">{form.name}</span>
-                        <i class="ti ti-external-link text-[10px] text-dimmed shrink-0" />
-                      </a>
+                    {allForms.map(({ form, table: t }) => (
+                      <FormSidebarEntry
+                        form={form}
+                        fields={fieldsByTable[t.id] ?? []}
+                      />
                     ))}
                   </section>
                 );

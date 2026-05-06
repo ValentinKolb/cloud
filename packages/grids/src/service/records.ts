@@ -372,7 +372,26 @@ export const create = async (
   tableId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
+  opts: { bypassDirectInsertCheck?: boolean } = {},
 ): Promise<Result<GridRecord>> => {
+  // Per-table QoL gate: a "submission inbox" table can mark
+  // disable_direct_insert=true so records only flow in via a form.
+  // The form-submit handler explicitly opts out of this check
+  // (bypassDirectInsertCheck=true). Direct API + records-grid inserts
+  // don't pass the flag and so get rejected here.
+  if (!opts.bypassDirectInsertCheck) {
+    const [row] = await sql<{ disable_direct_insert: boolean }[]>`
+      SELECT disable_direct_insert FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
+    `;
+    if (row?.disable_direct_insert) {
+      return fail(
+        err.forbidden(
+          "Direct insert is disabled for this table; records can only be added via a form.",
+        ),
+      );
+    }
+  }
+
   const validated = await validateForCreate(tableId, payload);
   if (!validated.ok) return validated;
 

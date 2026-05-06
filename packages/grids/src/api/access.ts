@@ -73,7 +73,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForTable(tableId);
       return c.json(entries);
@@ -83,22 +83,33 @@ const app = new Hono<AuthContext>()
     "/by-table/:tableId",
     describeRoute({
       tags: ["Grids:Access"],
-      summary: "Grant access on a table",
-      responses: { 201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created") },
+      summary: "Grant access on a table (only 'read' / 'write' / 'none' accepted)",
+      responses: {
+        201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Table only accepts level 'read' / 'write' / 'none'"),
+      },
     }),
     v("json", GrantAccessSchema),
     async (c) => {
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const body = c.req.valid("json");
+      // Tables only carry read/write/none — the structural ops that
+      // table-admin used to authorise (field CRUD, table delete, ACL
+      // management, form CRUD) all moved to base-admin in the
+      // permission simplification.
+      if (body.permission === "admin") {
+        return c.json({ message: "Table grants only accept 'read' / 'write' / 'none'" }, 400);
+      }
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
         () => gridsService.access.grant({
           resourceType: "table",
           resourceId: tableId,
-          ...c.req.valid("json"),
+          ...body,
         }),
         201,
       );
@@ -130,7 +141,7 @@ const app = new Hono<AuthContext>()
         WHERE v.id = ${viewId}::uuid
       `;
       if (!viewRow) return c.json({ message: "View not found" }, 404);
-      const gate = await gateAt(c, { baseId: viewRow.base_id, tableId: viewRow.table_id }, "admin");
+      const gate = await gateAt(c, { baseId: viewRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForView(viewId);
       return c.json(entries);
@@ -162,7 +173,7 @@ const app = new Hono<AuthContext>()
         WHERE v.id = ${viewId}::uuid
       `;
       if (!viewRow) return c.json({ message: "View not found" }, 404);
-      const gate = await gateAt(c, { baseId: viewRow.base_id, tableId: viewRow.table_id }, "admin");
+      const gate = await gateAt(c, { baseId: viewRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
@@ -203,7 +214,7 @@ const app = new Hono<AuthContext>()
         WHERE f.id = ${formId}::uuid
       `;
       if (!formRow) return c.json({ message: "Form not found" }, 404);
-      const gate = await gateAt(c, { baseId: formRow.base_id, tableId: formRow.table_id }, "admin");
+      const gate = await gateAt(c, { baseId: formRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForForm(formId);
       return c.json(entries);
@@ -234,7 +245,7 @@ const app = new Hono<AuthContext>()
         WHERE f.id = ${formId}::uuid
       `;
       if (!formRow) return c.json({ message: "Form not found" }, 404);
-      const gate = await gateAt(c, { baseId: formRow.base_id, tableId: formRow.table_id }, "admin");
+      const gate = await gateAt(c, { baseId: formRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
         c,
@@ -269,18 +280,18 @@ const app = new Hono<AuthContext>()
       const binding = await gridsService.access.resolveBinding(accessId);
       if (!binding) return c.json({ message: "Access entry not found" }, 404);
 
-      const target =
-        binding.resourceType === "base"
-          ? { baseId: binding.baseId }
-          : binding.resourceType === "table"
-            ? { baseId: binding.baseId, tableId: binding.tableId }
-            : binding.resourceType === "view"
-              ? { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId }
-              : { baseId: binding.baseId, tableId: binding.tableId, formId: binding.formId };
-      const gate = await gateAt(c, target, "admin");
+      // ACL management on any grids resource (base/table/view/form)
+      // is a base-admin action — there's no per-table admin level any
+      // more, so granting/revoking always gates at the base level.
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const { permission } = c.req.valid("json");
+      // Tables only carry read/write/none — admin was removed in the
+      // permission simplification (structural ops moved to base-admin).
+      if (binding.resourceType === "table" && permission === "admin") {
+        return c.json({ message: "Table grants only accept 'read' / 'write' / 'none'" }, 400);
+      }
       // View grants stay capped at read/none even on update — the resolver
       // never re-caps so we have to enforce on every write to the row.
       if (binding.resourceType === "view" && permission !== "read" && permission !== "none") {
@@ -312,15 +323,8 @@ const app = new Hono<AuthContext>()
       const binding = await gridsService.access.resolveBinding(accessId);
       if (!binding) return c.json({ message: "Access entry not found" }, 404);
 
-      const target =
-        binding.resourceType === "base"
-          ? { baseId: binding.baseId }
-          : binding.resourceType === "table"
-            ? { baseId: binding.baseId, tableId: binding.tableId }
-            : binding.resourceType === "view"
-              ? { baseId: binding.baseId, tableId: binding.tableId, viewId: binding.viewId }
-              : { baseId: binding.baseId, tableId: binding.tableId, formId: binding.formId };
-      const gate = await gateAt(c, target, "admin");
+      // Same as PATCH above — ACL revoke always gates at base-admin.
+      const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const result = await gridsService.access.revoke(accessId);

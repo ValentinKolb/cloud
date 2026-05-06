@@ -96,7 +96,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.table.update(tableId, c.req.valid("json"), user.id));
@@ -114,7 +114,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const result = await gridsService.table.remove(tableId, user.id);
@@ -137,7 +137,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId, { includeDeleted: true });
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.table.restore(tableId, user.id));

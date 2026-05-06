@@ -136,7 +136,12 @@ const submitFormResponse = async (
     if (e.kind === "form_value") payload[e.fieldId] = e.value;
   }
 
-  const result = await gridsService.record.create(form.tableId, payload, actorId);
+  // Bypass `disable_direct_insert` — that gate is meant to BLOCK
+  // direct API/grid inserts. Form-submit IS the intended pathway for
+  // such tables, so we always allow it here.
+  const result = await gridsService.record.create(form.tableId, payload, actorId, {
+    bypassDirectInsertCheck: true,
+  });
   if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
   return c.json({ recordId: result.data.id }, 201);
 };
@@ -319,7 +324,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(
@@ -344,7 +349,7 @@ const app = new Hono<AuthContext>()
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.form.update(formId, c.req.valid("json"), user.id));
@@ -364,7 +369,7 @@ const app = new Hono<AuthContext>()
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.form.reSnapshot(formId, user.id));
@@ -384,7 +389,7 @@ const app = new Hono<AuthContext>()
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const result = await gridsService.form.remove(formId, user.id);
@@ -409,7 +414,7 @@ const app = new Hono<AuthContext>()
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.form.restore(formId, user.id));

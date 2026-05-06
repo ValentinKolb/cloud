@@ -16,6 +16,13 @@ export type Table = {
   description: string | null;
   primaryFieldId: string | null;
   position: number;
+  /** When true, records can only be added through a form (the
+   *  authenticated `/forms/:formId/submit` and the public
+   *  `/forms/public/:token/submit` endpoints). Direct inserts via the
+   *  records grid or `POST /records` get rejected with 403. Lets a
+   *  table act as a gated submission inbox where every entry passes
+   *  through form validation. */
+  disableDirectInsert: boolean;
   /** Soft-delete tombstone. */
   deletedAt: string | null;
   createdAt: string;
@@ -81,7 +88,12 @@ export type CreateBaseInput = { name: string; description?: string | null };
 export type UpdateBaseInput = { name?: string; description?: string | null };
 
 export type CreateTableInput = { baseId: string; name: string; description?: string | null };
-export type UpdateTableInput = { name?: string; description?: string | null; primaryFieldId?: string | null };
+export type UpdateTableInput = {
+  name?: string;
+  description?: string | null;
+  primaryFieldId?: string | null;
+  disableDirectInsert?: boolean;
+};
 
 export type CreateFieldInput = {
   tableId: string;

@@ -288,7 +288,33 @@ function FormEditor(props: {
         <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
         <div class="flex items-center gap-3 flex-wrap">
           <label class="inline-flex items-center gap-2 text-xs text-secondary">
-            <input type="checkbox" checked={isPublic()} onChange={(e) => wrap(setIsPublic)(e.currentTarget.checked)} />
+            <input
+              type="checkbox"
+              checked={isPublic()}
+              onChange={async (e) => {
+                const next = e.currentTarget.checked;
+                // Disabling a public form is destructive: the existing
+                // share token is nullified server-side and re-enabling
+                // mints a fresh one. Anyone holding the old link is
+                // permanently locked out — surface that explicitly.
+                if (!next && props.form.publicToken) {
+                  const confirmed = await prompts.confirm(
+                    "This permanently breaks the existing share link. Anyone with it will no longer be able to access this form. Re-enabling later generates a fresh token. Continue?",
+                    {
+                      title: "Disable public link?",
+                      variant: "danger",
+                      confirmText: "Disable",
+                    },
+                  );
+                  if (!confirmed) {
+                    // User cancelled — revert the visual checkbox state.
+                    e.currentTarget.checked = true;
+                    return;
+                  }
+                }
+                wrap(setIsPublic)(next);
+              }}
+            />
             Public — anyone with the link can submit, no login required
           </label>
           {/* Icon-only with tooltip, ALWAYS in the DOM. Hidden via opacity

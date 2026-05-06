@@ -178,6 +178,7 @@ export default ssr<AuthContext>(async (c) => {
               baseId,
               name: table.name,
               description: table.description ?? null,
+              disableDirectInsert: table.disableDirectInsert,
             }}
             initialFields={fields}
             initialForms={forms}

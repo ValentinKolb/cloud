@@ -52,11 +52,15 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      // Personal views require only read; shared views require write so a
-      // table-reader can't pollute the shared view list.
+      // Personal views: any table-reader can save their own preset.
+      // Shared views: structural change to the table's catalog → only
+      // base-admin can publish them. Mirrors the rule that all other
+      // structural ops on a base (fields, forms, ACLs) live at
+      // base-admin.
       const body = c.req.valid("json");
-      const requiredLevel = body.shared ? "write" : "read";
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, requiredLevel);
+      const gate = body.shared
+        ? await gateAt(c, { baseId: table.baseId }, "admin")
+        : await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(
@@ -119,12 +123,12 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      // Personal view: only the owner can edit. Shared view: requires
-      // table-write.
+      // Personal view: only the owner can edit. Shared view: base-admin.
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
-      const requiredLevel = view.ownerUserId === null ? "write" : "read";
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, requiredLevel);
+      const gate = view.ownerUserId === null
+        ? await gateAt(c, { baseId: table.baseId }, "admin")
+        : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       if (view.ownerUserId !== null && !isOwner) {
         return c.json({ message: "Only the owner can edit a personal view" }, 403);
@@ -151,8 +155,9 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
-      const requiredLevel = view.ownerUserId === null ? "write" : "read";
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, requiredLevel);
+      const gate = view.ownerUserId === null
+        ? await gateAt(c, { baseId: table.baseId }, "admin")
+        : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       if (view.ownerUserId !== null && !isOwner) {
         return c.json({ message: "Only the owner can delete a personal view" }, 403);
@@ -181,8 +186,9 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
-      const requiredLevel = view.ownerUserId === null ? "write" : "read";
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, requiredLevel);
+      const gate = view.ownerUserId === null
+        ? await gateAt(c, { baseId: table.baseId }, "admin")
+        : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       if (view.ownerUserId !== null && !isOwner) {
         return c.json({ message: "Only the owner can restore a personal view" }, 403);

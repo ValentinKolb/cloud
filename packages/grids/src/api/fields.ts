@@ -49,7 +49,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const { fieldIds } = c.req.valid("json");
@@ -74,7 +74,7 @@ const app = new Hono<AuthContext>()
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const body = c.req.valid("json");
@@ -116,7 +116,7 @@ const app = new Hono<AuthContext>()
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: field.tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.field.update(fieldId, c.req.valid("json"), user.id));
@@ -139,7 +139,7 @@ const app = new Hono<AuthContext>()
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: field.tableId }, "admin");
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const deps = await gridsService.fieldDependents.get(fieldId);

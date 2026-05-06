@@ -348,4 +348,15 @@ export const migrate = async (): Promise<void> => {
   await sql`UPDATE grids.fields SET type = 'longtext', config = '{}'::jsonb WHERE type = 'signature'`.simple();
   await sql`UPDATE grids.fields SET type = 'json', config = '{}'::jsonb WHERE type = 'location'`.simple();
   console.log("  ✓ deprecated field types collapsed");
+
+  // ──────────────────────────────────────────────────────────────────
+  // table-level QoL flags
+  // ──────────────────────────────────────────────────────────────────
+  // `disable_direct_insert`: when true, records can only be added via
+  // a form. The records-grid + direct API insert paths return 403; the
+  // form-submit handler bypasses the check (form-driven inserts are
+  // always allowed). Used for "submission inbox" tables where every
+  // record must go through validation.
+  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE`.simple();
+  console.log("  ✓ grids.tables.disable_direct_insert");
 };

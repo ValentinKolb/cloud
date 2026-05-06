@@ -37,6 +37,7 @@ export const TableSchema = z.object({
   description: z.string().nullable(),
   primaryFieldId: z.string().uuid().nullable(),
   position: z.number().int(),
+  disableDirectInsert: z.boolean(),
   deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -52,6 +53,7 @@ export const UpdateTableSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
   primaryFieldId: z.string().uuid().nullable().optional(),
+  disableDirectInsert: z.boolean().optional(),
 });
 
 // ── Field ─────────────────────────────────────────────────────────────────
