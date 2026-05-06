@@ -10,7 +10,25 @@
 @custom-variant light (html:not(.dark) &);
 
 @import "@tabler/icons-webfont/dist/tabler-icons.css";
-@import "@fontsource-variable/jetbrains-mono";
+
+/* IBM Plex family — Sans for body, Mono for code, Condensed for badges/tags.
+   Per-weight imports keep the network payload predictable; we deliberately
+   skip the lighter weights (100–300) and italic-condensed since the design
+   system never uses them. */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/400-italic.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/400-italic.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource/ibm-plex-sans-condensed/400.css";
+@import "@fontsource/ibm-plex-sans-condensed/500.css";
+@import "@fontsource/ibm-plex-sans-condensed/600.css";
+@import "@fontsource/ibm-plex-sans-condensed/700.css";
+
 @import "./tokens.css";
 @import "./utilities-buttons.css";
 @import "./utilities-layout.css";
@@ -25,6 +43,18 @@
   --color-dark: rgb(9 9 11);
   --color-selection-bg: rgb(147 197 253 / 0.45);
   --color-selection-fg: rgb(15 23 42);
+
+  /* Type system — IBM Plex family.
+     - Sans: default body / UI text (readable, neutral, slight personality)
+     - Mono: code, IDs, technical values (matches sans proportions)
+     - Condensed: badges, tags, dense labels where Sans is too wide
+
+     Tailwind 4 derives `font-sans` / `font-mono` / `font-condensed`
+     utilities from these tokens. CSS consumers can also reference them
+     via `var(--font-sans)` etc. (e.g. CodeMirror theme overrides). */
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-condensed: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
 }
 
 :root {
@@ -48,7 +78,7 @@
 
 * {
   font-variant-ligatures: contextual;
-  font-family: "JetBrains Mono Variable", monospace;
+  font-family: var(--font-sans);
   scrollbar-width: thin;
   scrollbar-color: rgb(161 161 170 / 0.4) transparent;
 }

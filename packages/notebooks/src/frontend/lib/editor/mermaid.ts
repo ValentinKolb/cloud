@@ -16,7 +16,7 @@ const initializeMermaid = () => {
     theme: "base",
     suppressErrorRendering: true,
     themeVariables: {
-      fontFamily: "JetBrains Mono Variable",
+      fontFamily: "IBM Plex Mono",
       fontSize: "10px",
       // Keep full hex values to avoid shorthand parsing issues in strict Mermaid builds.
       textColor: "#111827",
