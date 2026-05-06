@@ -12,16 +12,19 @@ import {
   EDITOR_DOWNLOAD_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
+  TASKS_UPDATE_EVENT,
   TOC_SCROLL_EVENT,
   TOC_UPDATE_EVENT,
   TOGGLE_RICH_MODE_EVENT,
 } from "./events";
+import type { TaskProgress } from "./tasks";
 import type { TocItem } from "./toc";
 
 type Props = {
   mode: "edit" | "read";
   initiallyOpen: boolean;
   tocItems: TocItem[];
+  taskProgress: TaskProgress;
   backlinks: Backlink[];
   currentNotebookId: string;
   notebookId: string;
@@ -61,6 +64,7 @@ const ACTION_BTN = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimm
 export default function NotebookDetailPanel(props: Props) {
   const [open, setOpen] = createSignal(props.initiallyOpen);
   const [tocItems, setTocItems] = createSignal<TocItem[]>(props.tocItems);
+  const [tasks, setTasks] = createSignal<TaskProgress>(props.taskProgress);
   const [participants, setParticipants] = createSignal<NotebookPresenceParticipant[]>([]);
   // Mirrors the editor's richMode signal — kept in sync via window events.
   // Default `true` matches the editor's initial state, so SSR and the first
@@ -113,6 +117,12 @@ export default function NotebookDetailPanel(props: Props) {
       const detail = (event as CustomEvent<TocItem[]>).detail;
       if (Array.isArray(detail)) setTocItems(detail);
     };
+    const onTasksUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<TaskProgress>).detail;
+      if (detail && typeof detail.done === "number" && typeof detail.total === "number") {
+        setTasks(detail);
+      }
+    };
     const onPresenceUpdate = (event: Event) => {
       const detail = (event as CustomEvent<NotebookPresenceParticipant[]>).detail;
       if (Array.isArray(detail)) setParticipants(detail);
@@ -124,12 +134,14 @@ export default function NotebookDetailPanel(props: Props) {
     };
 
     window.addEventListener(TOC_UPDATE_EVENT, onTocUpdate);
+    window.addEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
     window.addEventListener(PRESENCE_EVENT, onPresenceUpdate);
     window.addEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
     window.addEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
 
     onCleanup(() => {
       window.removeEventListener(TOC_UPDATE_EVENT, onTocUpdate);
+      window.removeEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
       window.removeEventListener(PRESENCE_EVENT, onPresenceUpdate);
       window.removeEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
       window.removeEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
@@ -161,6 +173,28 @@ export default function NotebookDetailPanel(props: Props) {
               )}
             </For>
           </ul>
+        </section>
+      </Show>
+
+      {/* Tasks — checklist progress, hidden when the note has no tasks. */}
+      <Show when={tasks().total > 0}>
+        <section class="detail-section">
+          <h3 class="detail-section-label">Tasks</h3>
+          <div class="flex items-center justify-between text-xs">
+            <span>
+              <span class="text-primary tabular-nums">{tasks().done}</span>
+              <span class="text-dimmed"> of </span>
+              <span class="text-primary tabular-nums">{tasks().total}</span>
+              <span class="text-dimmed"> done</span>
+            </span>
+            <span class="text-dimmed tabular-nums">{Math.round((tasks().done / Math.max(1, tasks().total)) * 100)}%</span>
+          </div>
+          <div class="mt-2 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+            <div
+              class="h-full bg-emerald-500 dark:bg-emerald-400 transition-[width] duration-200"
+              style={`width: ${(tasks().done / Math.max(1, tasks().total)) * 100}%`}
+            />
+          </div>
         </section>
       </Show>
 

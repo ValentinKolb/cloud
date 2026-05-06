@@ -16,10 +16,12 @@ import {
   EDITOR_DOWNLOAD_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
+  TASKS_UPDATE_EVENT,
   TOC_SCROLL_EVENT,
   TOC_UPDATE_EVENT,
   TOGGLE_RICH_MODE_EVENT,
 } from "../detail/events";
+import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { writeSettings } from "../settings/NotebookSettingsStore";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
@@ -206,17 +208,22 @@ export default function NoteEditor(props: Props) {
   let themeObserver: MutationObserver | undefined;
   let tocDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const emitToc = () => {
-    const items = extractTocFromMarkdown(ytext.toString());
-    window.dispatchEvent(new CustomEvent(TOC_UPDATE_EVENT, { detail: items }));
+  // Both `emitToc` and the task-progress emitter share the same debounced
+  // doc-change trigger, so we walk the markdown once and dispatch both
+  // events in one pass. (TOC + tasks each parse cheaply, but doing it
+  // twice would scan a large note twice per debounce tick.)
+  const emitDerivedDocState = () => {
+    const md = ytext.toString();
+    window.dispatchEvent(new CustomEvent(TOC_UPDATE_EVENT, { detail: extractTocFromMarkdown(md) }));
+    window.dispatchEvent(new CustomEvent(TASKS_UPDATE_EVENT, { detail: extractTaskProgress(md) }));
   };
 
-  const scheduleTocEmit = () => {
+  const scheduleDerivedEmit = () => {
     if (tocDebounceTimer) clearTimeout(tocDebounceTimer);
-    tocDebounceTimer = setTimeout(emitToc, TOC_DEBOUNCE_MS);
+    tocDebounceTimer = setTimeout(emitDerivedDocState, TOC_DEBOUNCE_MS);
   };
 
-  const onTextUpdate = () => scheduleTocEmit();
+  const onTextUpdate = () => scheduleDerivedEmit();
   ytext.observe(onTextUpdate);
 
   const onToggleRich = () => setRichMode((value) => !value);
@@ -295,7 +302,7 @@ export default function NoteEditor(props: Props) {
     scheduleCursorIdleHide();
     // First emit so the panel reflects the current doc immediately on mount,
     // not only after the first keystroke.
-    emitToc();
+    emitDerivedDocState();
 
     window.addEventListener(TOC_SCROLL_EVENT, onScrollToHeading);
     window.addEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);

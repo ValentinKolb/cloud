@@ -7,6 +7,7 @@ import { markdown } from "@valentinkolb/cloud/shared";
 import { notebooksService } from "@/service";
 import { transformNoteLinks } from "@/service/links";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
+import { extractTaskProgress } from "./_components/detail/tasks";
 import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
@@ -258,6 +259,7 @@ export default ssr<AuthContext>(async (c) => {
             // history / etc. Force it open here regardless of cookie.
             initiallyOpen={actualReadMode ? true : detailPanelOpen}
             tocItems={tocItems}
+            taskProgress={extractTaskProgress(selectedNote.contentMd)}
             backlinks={backlinks}
             currentNotebookId={notebookId}
             notebookId={notebookId}

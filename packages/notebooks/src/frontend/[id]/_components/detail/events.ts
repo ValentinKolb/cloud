@@ -13,6 +13,8 @@ export const TOGGLE_RICH_MODE_EVENT = "notebooks.editor.toggleRich";
 export const RICH_MODE_CHANGED_EVENT = "notebooks.editor.richModeChanged";
 export const TOC_UPDATE_EVENT = "notebooks.toc.updated";
 export const TOC_SCROLL_EVENT = "notebooks.editor.scrollToHeading";
+/** Editor → panel: GFM task-list progress after every doc change. */
+export const TASKS_UPDATE_EVENT = "notebooks.tasks.updated";
 export const PRESENCE_EVENT = "notebooks.presence.changed";
 
 /**
