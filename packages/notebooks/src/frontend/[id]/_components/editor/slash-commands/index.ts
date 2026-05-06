@@ -73,7 +73,9 @@ const buildSlashSource = (ctx: SlashCommandContext) => {
         ? allCompletions
         : allCompletions.filter((c) => {
             const cmd = (c as SlashCompletion).slashCommand;
-            return cmd.name.toLowerCase().includes(q) || cmd.label.toLowerCase().includes(q);
+            if (cmd.name.toLowerCase().includes(q)) return true;
+            if (cmd.label.toLowerCase().includes(q)) return true;
+            return cmd.aliases?.some((a) => a.toLowerCase().includes(q)) ?? false;
           });
 
     return {

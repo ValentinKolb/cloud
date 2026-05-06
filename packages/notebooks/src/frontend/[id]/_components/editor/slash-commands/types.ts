@@ -25,6 +25,13 @@ export type SlashCommand = {
   section: SlashCommandSection;
   /** Optional one-liner shown after the label. */
   description?: string;
+  /**
+   * Extra match keys — typing any of these (substring, case-insensitive)
+   * surfaces this command. Useful for synonyms (`/img` → "Attach") and
+   * naming-convention variants (`/h1` ↔ `/heading1`). Pick aliases that
+   * cannot reasonably belong to another future command.
+   */
+  aliases?: string[];
   /** What the command does. May be async (e.g. opens a picker dialog). */
   run: (view: EditorView, ctx: SlashCommandContext) => void | Promise<void>;
 };

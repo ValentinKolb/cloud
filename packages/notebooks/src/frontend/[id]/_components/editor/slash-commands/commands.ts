@@ -31,6 +31,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Heading 1",
     icon: "ti-h-1",
     section: "Formatting",
+    aliases: ["heading1", "title"],
     run: (view) => setHeading(view, 1),
   },
   {
@@ -38,6 +39,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Heading 2",
     icon: "ti-h-2",
     section: "Formatting",
+    aliases: ["heading2", "subtitle"],
     run: (view) => setHeading(view, 2),
   },
   {
@@ -45,6 +47,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Heading 3",
     icon: "ti-h-3",
     section: "Formatting",
+    aliases: ["heading3"],
     run: (view) => setHeading(view, 3),
   },
   {
@@ -52,6 +55,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Quote",
     icon: "ti-quote",
     section: "Formatting",
+    aliases: ["blockquote", "citation"],
     run: (view) => insertAtCursor(view, "> "),
   },
   {
@@ -60,6 +64,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-minus",
     section: "Formatting",
     description: "Horizontal rule",
+    aliases: ["hr", "separator", "rule"],
     run: (view) => insertAtCursor(view, "---\n"),
   },
 
@@ -69,6 +74,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Bullet list",
     icon: "ti-list",
     section: "Lists",
+    aliases: ["bullet", "ul", "unordered"],
     run: (view) => insertAtCursor(view, "- "),
   },
   {
@@ -76,6 +82,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Numbered list",
     icon: "ti-list-numbers",
     section: "Lists",
+    aliases: ["ol", "ordered", "enumerate"],
     run: (view) => insertAtCursor(view, "1. "),
   },
   {
@@ -83,6 +90,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Checklist",
     icon: "ti-checkbox",
     section: "Lists",
+    aliases: ["checkbox", "task", "tasks"],
     run: (view) => insertAtCursor(view, "- [ ] "),
   },
 
@@ -92,6 +100,7 @@ export const slashCommands: SlashCommand[] = [
     label: "Code block",
     icon: "ti-code",
     section: "Insert",
+    aliases: ["codeblock", "pre", "snippet"],
     run: (view) => insertCodeBlock(view),
   },
   {
@@ -107,6 +116,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-link",
     section: "Insert",
     description: "Insert a `[text](url)` template",
+    aliases: ["url", "href", "hyperlink"],
     run: (view) => insertLink(view),
   },
   {
@@ -115,6 +125,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-connection",
     section: "Insert",
     description: "Pick a note to link to",
+    aliases: ["wikilink", "crosslink", "wiki", "ref"],
     run: (view, ctx) => insertNoteLink(view, ctx.notebookId),
   },
   {
@@ -123,6 +134,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-paperclip",
     section: "Insert",
     description: "Upload or pick a file or image",
+    aliases: ["image", "photo", "picture", "img", "pic", "upload", "attach", "attachment", "media"],
     run: (_view, ctx) => openAttachmentPicker(ctx.notebookId),
   },
 
@@ -133,6 +145,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-chevron-right",
     section: "Callouts",
     description: ":::note",
+    aliases: ["notice", "box"],
     run: (view) => insertCallout(view, "note"),
   },
   {
@@ -141,6 +154,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-info-circle",
     section: "Callouts",
     description: ":::info",
+    aliases: ["tip", "hint"],
     run: (view) => insertCallout(view, "info"),
   },
   {
@@ -149,6 +163,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-check",
     section: "Callouts",
     description: ":::success",
+    aliases: ["ok", "done"],
     run: (view) => insertCallout(view, "success"),
   },
   {
@@ -157,6 +172,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-alert-circle",
     section: "Callouts",
     description: ":::warning",
+    aliases: ["warn", "caution", "alert"],
     run: (view) => insertCallout(view, "warning"),
   },
   {
@@ -165,6 +181,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-alert-hexagon",
     section: "Callouts",
     description: ":::danger",
+    aliases: ["error", "critical", "fail"],
     run: (view) => insertCallout(view, "danger"),
   },
 
@@ -175,6 +192,7 @@ export const slashCommands: SlashCommand[] = [
     icon: "ti-arrows-right-left",
     section: "Navigation",
     description: "Open a different note in this notebook",
+    aliases: ["goto", "jump", "open", "nav"],
     run: async (_view, ctx) => {
       const picked = await openNoteSwitchPrompt(ctx.notebookId);
       if (!picked) return;
