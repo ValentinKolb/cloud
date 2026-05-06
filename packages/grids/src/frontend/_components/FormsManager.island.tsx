@@ -214,34 +214,20 @@ function FormEditor(props: {
     onError: (e) => prompts.error(e.message),
   });
 
-  // Re-snapshot: refreshes the form's frozen fieldSnapshot from the
-  // live table fields. Fires on user request — schema edits don't
-  // auto-update the snapshot (deliberate: a published form's behaviour
-  // shouldn't silently change when the table evolves).
-  const reSnapshotMut = mutations.create<Form, void>({
-    mutation: async () => {
-      const res = await apiClient.forms[":formId"]["re-snapshot"].$post({
-        param: { formId: props.form.id },
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to refresh snapshot"));
-      return (await res.json()) as Form;
-    },
-    onSuccess: (next) => props.onSaved(next),
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const handleReSnapshot = async () => {
-    const confirmed = await prompts.confirm(
-      "This refreshes the form's frozen field metadata from the live table fields. Renamed labels, new options, and changed field types will be picked up. Continue?",
-      { title: "Refresh field snapshot?", confirmText: "Refresh" },
-    );
-    if (confirmed) reSnapshotMut.mutate(undefined);
-  };
-
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name().trim()) {
       prompts.error("Name is required");
       return;
+    }
+    // Schema/config changes on a publicly-shared form take effect for
+    // new submissions immediately. Surface that explicitly before save
+    // so authors don't accidentally break a campaign mid-flight.
+    if (props.form.publicToken && props.form.isActive) {
+      const confirmed = await prompts.confirm(
+        "This form is currently live and shared via the public link. Saving any changes (fields, options, labels, etc.) takes effect immediately for new submissions. Existing submissions stay as-is. Continue?",
+        { title: "Save live form?", confirmText: "Save" },
+      );
+      if (!confirmed) return;
     }
     updateMut.mutate(undefined);
   };
@@ -598,28 +584,6 @@ function FormEditor(props: {
           </div>
         </Show>
 
-        {/* Frozen-snapshot refresh — power-user action. The form
-            captures field metadata (labels, options, types) at
-            create-time so live schema edits don't silently change
-            published form behaviour. This button lets the form's
-            owner explicitly pull the latest metadata when they're
-            ready. */}
-        <div class="flex items-center justify-between gap-2 border-t border-zinc-200 dark:border-zinc-700 pt-3 mt-1">
-          <span class="text-[11px] text-dimmed leading-snug">
-            Field metadata is frozen at form-create time. Refresh to pull renamed labels and changed options from the live table.
-          </span>
-          <button
-            type="button"
-            class="btn-simple btn-sm shrink-0"
-            onClick={handleReSnapshot}
-            disabled={reSnapshotMut.loading()}
-          >
-            <Show when={reSnapshotMut.loading()} fallback={<i class="ti ti-refresh" />}>
-              <i class="ti ti-loader-2 animate-spin" />
-            </Show>
-            Refresh snapshot
-          </button>
-        </div>
       </div>
 
       {/* Permissions — grants `write` on this form to specific users

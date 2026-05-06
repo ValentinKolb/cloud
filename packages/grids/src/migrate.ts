@@ -369,4 +369,15 @@ export const migrate = async (): Promise<void> => {
   // " · "). Kept the migration idempotent so reruns are safe.
   await sql`ALTER TABLE grids.tables DROP COLUMN IF EXISTS primary_field_id`.simple();
   console.log("  ✓ grids.tables.primary_field_id (dropped)");
+
+  // ──────────────────────────────────────────────────────────────────
+  // form field_snapshot drop
+  // ──────────────────────────────────────────────────────────────────
+  // The frozen-snapshot model proved harder to explain than it was
+  // worth: published forms got "stuck" on stale field metadata and
+  // form-authors didn't notice they had to refresh. Replaced with a
+  // confirm-on-save warning when the form is publicly shared. Live
+  // fields drive everything from now on.
+  await sql`ALTER TABLE grids.forms DROP COLUMN IF EXISTS field_snapshot`.simple();
+  console.log("  ✓ grids.forms.field_snapshot (dropped)");
 };

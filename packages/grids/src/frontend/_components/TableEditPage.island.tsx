@@ -651,6 +651,7 @@ function FieldEditor(props: {
             uses (with disabled styling) so heights line up. */}
         <TextInput
           label="Type (immutable)"
+          description="Field types can't be changed after creation. To switch types, create a new field with the desired type and migrate values manually."
           icon="ti ti-category"
           value={() => typeLabel}
           disabled
@@ -736,6 +737,7 @@ function FieldEditor(props: {
 
       <FieldConfigEditor
         type={props.field.type}
+        currentTableId={props.field.tableId}
         config={config}
         onChange={(next) => {
           setConfig(next);

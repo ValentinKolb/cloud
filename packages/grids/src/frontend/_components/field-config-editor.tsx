@@ -1,5 +1,5 @@
 import { For, Show } from "solid-js";
-import { ColorInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 
 // =============================================================================
@@ -127,6 +127,9 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
 
 type EditorProps = {
   type: string;
+  /** ID of the table this field lives on. Needed by lookup/rollup so
+   *  the relation-field picker can list THIS table's relation fields. */
+  currentTableId: string;
   config: () => FieldConfigState;
   onChange: (next: FieldConfigState) => void;
   /** All sibling tables in the same base — used by relation type targetTableId. */
@@ -134,6 +137,17 @@ type EditorProps = {
   /** Fields per table id — used for displayFieldId / lookup-rollup target picker. */
   fieldsByTable: Record<string, Field[]>;
 };
+
+/** Field types that can't sensibly serve as a presentable label or as
+ *  a lookup/rollup target — they either nest deeper or render badly as
+ *  a flat value. Filtering them out keeps target/displayField pickers
+ *  focused on scalar fields. */
+const NON_PRESENTABLE_TYPES = new Set([
+  "relation",
+  "lookup",
+  "rollup",
+  "formula",
+]);
 
 // Set of types we know how to show a constraint form for. Anything outside
 // this set falls into the "no extra configuration" hint.
@@ -214,6 +228,8 @@ export function FieldConfigEditor(props: EditorProps) {
           config={props.config}
           onChange={props.onChange}
           isRollup={props.type === "rollup"}
+          currentTableId={props.currentTableId}
+          fieldsByTable={props.fieldsByTable}
         />
       </Show>
       <Show when={props.type === "formula"}>
@@ -650,10 +666,11 @@ function RelationConstraints(props: {
       <Show when={targetFields().length > 0}>
         <Select
           label="Display field (shown when rendering this relation)"
+          description="The field whose value renders as the link label. Relation/lookup/rollup/formula fields are excluded — they nest or render unpredictably as labels."
           value={displayFieldId}
           onChange={(v) => update({ displayFieldId: v })}
           options={targetFields()
-            .filter((f) => !f.deletedAt)
+            .filter((f) => !f.deletedAt && !NON_PRESENTABLE_TYPES.has(f.type))
             .map((f) => ({ id: f.id, label: f.name }))}
           placeholder="Pick a field..."
         />
@@ -675,32 +692,85 @@ function LookupRollupConstraints(props: {
   config: () => FieldConfigState;
   onChange: (next: FieldConfigState) => void;
   isRollup: boolean;
+  currentTableId: string;
+  fieldsByTable: Record<string, Field[]>;
 }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
+
+  const relationFieldId = () =>
+    typeof cfg().relationFieldId === "string" ? (cfg().relationFieldId as string) : "";
+  const targetFieldId = () =>
+    typeof cfg().targetFieldId === "string" ? (cfg().targetFieldId as string) : "";
+
+  // Relation fields available on THIS table — the lookup/rollup follows
+  // one of them to reach the target table.
+  const relationFields = () =>
+    (props.fieldsByTable[props.currentTableId] ?? []).filter(
+      (f) => f.type === "relation" && !f.deletedAt,
+    );
+
+  // Resolve the picked relation's target table from its config blob.
+  // Empty until the user actually selects a relation field — drives
+  // the cascade behaviour for the target-field picker below.
+  const selectedRelation = () =>
+    relationFields().find((f) => f.id === relationFieldId());
+  const targetTableId = () =>
+    (selectedRelation()?.config as { targetTableId?: string } | undefined)?.targetTableId;
+
+  // Target-table fields, filtered to scalar types — projecting a
+  // lookup of a lookup or a relation-of-a-relation rarely renders
+  // sensibly. Rollup follows the same filter (the agg aggregator
+  // expects flat scalars too).
+  const targetFields = () => {
+    const id = targetTableId();
+    if (!id) return [];
+    return (props.fieldsByTable[id] ?? []).filter(
+      (f) => !f.deletedAt && !NON_PRESENTABLE_TYPES.has(f.type),
+    );
+  };
+
   return (
     <div class="flex flex-col gap-3">
-      <p class="text-xs text-dimmed">
-        Configure {props.isRollup ? "rollup" : "lookup"} via the JSON config — pick a relation
-        field id and a target field id from the linked table. UI picker
-        coming in a follow-up; for now use the API or paste IDs:
-      </p>
-      <TextInput
-        label="Relation field id"
-        value={() =>
-          typeof cfg().relationFieldId === "string" ? (cfg().relationFieldId as string) : ""
+      <Show
+        when={relationFields().length > 0}
+        fallback={
+          <p class="text-xs text-amber-600 dark:text-amber-400">
+            No relation fields on this table yet. Add a relation field first to enable {props.isRollup ? "rollup" : "lookup"}.
+          </p>
         }
-        onInput={(v) => update({ relationFieldId: v.trim() || undefined })}
-        placeholder="<uuid of a relation field on this table>"
-      />
-      <TextInput
-        label="Target field id (on the linked table)"
-        value={() =>
-          typeof cfg().targetFieldId === "string" ? (cfg().targetFieldId as string) : ""
-        }
-        onInput={(v) => update({ targetFieldId: v.trim() || undefined })}
-        placeholder="<uuid of a field on the target table>"
-      />
+      >
+        <Select
+          label="Relation field"
+          description="The relation on this table to follow."
+          value={relationFieldId}
+          // Reset targetFieldId when the relation changes — its old
+          // value would point at fields on the previous target table.
+          onChange={(v) => update({ relationFieldId: v || undefined, targetFieldId: undefined })}
+          options={relationFields().map((f) => ({ id: f.id, label: f.name }))}
+          placeholder="Pick a relation..."
+          required
+        />
+      </Show>
+
+      <Show when={selectedRelation() && !targetTableId()}>
+        <p class="text-xs text-amber-600 dark:text-amber-400">
+          The selected relation has no target table set yet. Configure that relation field first.
+        </p>
+      </Show>
+
+      <Show when={targetTableId() && targetFields().length > 0}>
+        <Select
+          label="Target field"
+          description="Which field on the linked table to project. Relation/lookup/rollup/formula fields are excluded — they'd nest or render unpredictably."
+          value={targetFieldId}
+          onChange={(v) => update({ targetFieldId: v || undefined })}
+          options={targetFields().map((f) => ({ id: f.id, label: f.name }))}
+          placeholder="Pick a field..."
+          required
+        />
+      </Show>
+
       <Show when={props.isRollup}>
         <Select
           label="Aggregate"
@@ -749,6 +819,13 @@ function FormulaConstraints(props: {
 // Tiny shared input helper
 // =============================================================================
 
+/**
+ * Thin wrapper around the platform NumberInput that keeps the legacy
+ * string-based call signature used throughout this file. Each call
+ * site computes its config string-side; we translate to/from number
+ * here so the constraint forms keep their existing per-field
+ * validation logic without rewriting.
+ */
 function NumberField(props: {
   label: string;
   value: () => string;
@@ -756,17 +833,19 @@ function NumberField(props: {
   min?: number;
   max?: number;
 }) {
+  const numericValue = () => {
+    const raw = props.value();
+    if (raw === "" || raw === undefined) return undefined;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : undefined;
+  };
   return (
-    <label class="flex flex-col gap-1">
-      <span class="text-xs text-secondary">{props.label}</span>
-      <input
-        type="number"
-        min={props.min}
-        max={props.max}
-        class="rounded-md border border-zinc-200 dark:border-zinc-700 bg-transparent px-2 py-1.5 text-sm"
-        value={props.value()}
-        onInput={(e) => props.onInput(e.currentTarget.value)}
-      />
-    </label>
+    <NumberInput
+      label={props.label}
+      value={numericValue}
+      onInput={(v) => props.onInput(Number.isFinite(v) ? String(v) : "")}
+      min={props.min}
+      max={props.max}
+    />
   );
 }

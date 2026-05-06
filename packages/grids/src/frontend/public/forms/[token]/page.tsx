@@ -47,36 +47,27 @@ export default ssr<AuthContext>(async (c) => {
   // server-applied — the anonymous HTML must not contain their target
   // field metadata (would leak schema details, even if values are
   // applied server-side).
-  //
-  // Prefer the form's frozen fieldSnapshot when present (v3 Slice 6) —
-  // editing the live field after publishing the form must not mutate
-  // what the form renders. Fall back to live fields when the snapshot
-  // is empty (default form, or pre-Slice-6 forms).
   const userInputIds = new Set(
     form.config.fields
       .filter((e) => e.kind === "user_input")
       .map((e) => e.fieldId),
   );
-  const sourceFields = form.fieldSnapshot.length > 0
-    ? form.fieldSnapshot
-    : await gridsService.field.listByTable(form.tableId);
-  const fields = sourceFields.filter((f) => userInputIds.has(f.id));
+  const liveFields = await gridsService.field.listByTable(form.tableId);
+  const fields = liveFields.filter((f) => userInputIds.has(f.id));
 
   c.get("page").title = form.config.title ?? form.name;
   c.get("page").description = form.config.description ?? undefined;
 
   // Sanitize the form object before hydration: strip form_value entries
-  // (their `value` is server-only), drop fieldSnapshot / ownerUserId /
-  // publicToken / timestamps. Mirrors the public DTO returned from
-  // /api/grids/forms/public/:token. Without this, the hydration payload
-  // leaks server-managed values into anonymous HTML.
+  // (their `value` is server-only) and drop ownerUserId / publicToken
+  // so they don't leak into anonymous HTML. Mirrors the public DTO
+  // returned from /api/grids/forms/public/:token.
   const safeForm = {
     ...form,
     config: {
       ...form.config,
       fields: form.config.fields.filter((e) => e.kind === "user_input"),
     },
-    fieldSnapshot: [],
     ownerUserId: null,
     publicToken: null,
   };

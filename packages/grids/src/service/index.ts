@@ -95,7 +95,6 @@ export const gridsService = {
     update: forms.update,
     remove: forms.remove,
     restore: forms.restore,
-    reSnapshot: forms.reSnapshot,
     buildDefault: forms.buildDefaultForm,
   },
   exporter: {

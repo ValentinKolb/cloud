@@ -2,15 +2,17 @@ import { z } from "zod";
 import { fail, type FieldTypeHandler } from "./types";
 import { parseFormula } from "../formula/parser";
 
-// Refine the expression at schema-level so the field-service config
-// validator catches malformed formulas at save-time. Without the refine,
-// only userInput's `validate()` (skipped for read-only fields) would
-// parse-check; a typo like `1 +` would be silently accepted and then
-// disappear at record-enrichment time.
+// Expression is optional at create-time so a brand-new formula field
+// can be added before the user has typed the formula in. Once an
+// expression is present, the superRefine parse-checks it so typos like
+// `1 +` get rejected at save-time rather than disappearing at record-
+// enrichment time.
 const FormulaConfigSchema = z
-  .object({ expression: z.string().min(1) })
+  .object({ expression: z.string().optional() })
   .superRefine((cfg, ctx) => {
-    const result = parseFormula(cfg.expression);
+    const expr = cfg.expression?.trim();
+    if (!expr) return;
+    const result = parseFormula(expr);
     if (!result.ok) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

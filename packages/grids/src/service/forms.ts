@@ -64,21 +64,13 @@ export type Form = {
   ownerUserId: string | null;
   position: number;
   isDefault: boolean;
-  /**
-   * Frozen Field[] copy taken at form-create time. The submit handler
-   * validates against these snapshots rather than live `grids.fields`,
-   * so editing a field after a form is published doesn't silently
-   * change form behavior. Empty for the virtual default form (which
-   * is always live-driven). Manual `re-snapshot` action refreshes it.
-   */
-  fieldSnapshot: Field[];
   /** Soft-delete tombstone. null on the virtual default form. */
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
-const COLS = sql`id, table_id, name, config, field_snapshot, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
+const COLS = sql`id, table_id, name, config, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
 
 /**
  * Normalises a raw FormFieldEntry, defaulting `kind` to "user_input"
@@ -125,7 +117,6 @@ const mapRow = (row: DbRow): Form => ({
   tableId: row.table_id as string,
   name: row.name as string,
   config: normalizeFormConfig(row.config),
-  fieldSnapshot: parseJsonbRow<Field[]>(row.field_snapshot, []),
   publicToken: (row.public_token as string | null) ?? null,
   isActive: row.is_active as boolean,
   ownerUserId: (row.owner_user_id as string | null) ?? null,
@@ -180,9 +171,6 @@ export const buildDefaultForm = async (tableId: string): Promise<Form> => {
     tableId,
     name: "Quick add",
     config,
-    // Default form is always live-driven (no snapshot — schema changes
-    // flow through immediately). Stored forms are the place to freeze.
-    fieldSnapshot: [],
     publicToken: null,
     isActive: true,
     ownerUserId: null,
@@ -223,7 +211,7 @@ export const listForTable = async (
  */
 export const listTrashedByBase = async (baseId: string): Promise<Form[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT ${sql`f.id, f.table_id, f.name, f.config, f.field_snapshot, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
+    SELECT ${sql`f.id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
     FROM grids.forms f
     JOIN grids.tables t ON t.id = f.table_id
     WHERE t.base_id = ${baseId}::uuid
@@ -257,7 +245,7 @@ export const get = async (
  */
 export const getByPublicToken = async (token: string): Promise<Form | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT f.id, f.table_id, f.name, f.config, f.field_snapshot,
+    SELECT f.id, f.table_id, f.name, f.config,
            f.public_token, f.is_active, f.owner_user_id, f.position,
            f.deleted_at, f.created_at, f.updated_at
     FROM grids.forms f
@@ -284,39 +272,18 @@ const generatePublicToken = (): string => {
     .join("");
 };
 
-/**
- * Build the field-snapshot to freeze with a stored form. We snapshot
- * only the fields actually referenced by the form config (by id), not
- * the whole table — keeps the payload small AND scoped to the contract
- * the form-author committed to.
- */
-const buildFieldSnapshot = async (
-  tableId: string,
-  config: FormConfig,
-): Promise<Field[]> => {
-  const referencedIds = new Set(config.fields.map((e) => e.fieldId));
-  if (referencedIds.size === 0) return [];
-  const tableFields = await listFields(tableId);
-  return tableFields.filter((f) => referencedIds.has(f.id));
-};
-
 export const create = async (input: CreateFormInput, actorId: string | null): Promise<Result<Form>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
   const config = input.config ?? { fields: [] };
   const publicToken = input.isPublic ? generatePublicToken() : null;
 
-  // Freeze the field metadata at create-time. Editing those fields
-  // afterwards no longer changes how this form behaves.
-  const snapshot = await buildFieldSnapshot(input.tableId, config);
-
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.forms (table_id, name, config, field_snapshot, public_token, owner_user_id, position)
+    INSERT INTO grids.forms (table_id, name, config, public_token, owner_user_id, position)
     VALUES (
       ${input.tableId}::uuid,
       ${name},
       ${config}::jsonb,
-      ${snapshot}::jsonb,
       ${publicToken},
       ${actorId}::uuid,
       COALESCE((SELECT MAX(position) + 1 FROM grids.forms WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL), 0)
@@ -326,33 +293,6 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
   if (!row) return fail(err.internal("insert failed"));
   const form = mapRow(row);
   await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { form: { old: null, new: { id: form.id, name: form.name } } } });
-  return ok(form);
-};
-
-/**
- * Refresh the form's field snapshot from currently-active fields. Manual,
- * never automatic — the whole point of the snapshot is to give the form
- * author control over WHEN their published form picks up schema changes.
- */
-export const reSnapshot = async (
-  id: string,
-  actorId: string | null,
-): Promise<Result<Form>> => {
-  const existing = await get(id);
-  if (!existing) return fail(err.notFound("Form"));
-  const snapshot = await buildFieldSnapshot(existing.tableId, existing.config);
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.forms
-    SET field_snapshot = ${snapshot}::jsonb, updated_at = now()
-    WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING ${COLS}
-  `;
-  if (!row) return fail(err.internal("re-snapshot failed"));
-  const form = mapRow(row);
-  await logAudit({
-    tableId: existing.tableId, userId: actorId, action: "updated",
-    diff: { fieldSnapshot: { old: "stale", new: "refreshed" } },
-  });
   return ok(form);
 };
 
@@ -384,32 +324,10 @@ export const update = async (id: string, input: UpdateFormInput, actorId: string
     position: input.position ?? existing.position,
   };
 
-  // Snapshot evolution on config edits: keep frozen metadata for fields
-  // already in the snapshot, drop entries no longer referenced, and
-  // ADD live snapshots for newly-referenced field ids. Editing the
-  // title etc. doesn't touch the snapshot at all. Manual reSnapshot()
-  // is the only way to refresh frozen metadata for a still-referenced
-  // field.
-  let nextSnapshot = existing.fieldSnapshot;
-  if (input.config !== undefined) {
-    const referencedIds = new Set(next.config.fields.map((e) => e.fieldId));
-    const kept = existing.fieldSnapshot.filter((f) => referencedIds.has(f.id));
-    const keptIds = new Set(kept.map((f) => f.id));
-    const newlyReferenced = [...referencedIds].filter((id) => !keptIds.has(id));
-    if (newlyReferenced.length === 0) {
-      nextSnapshot = kept;
-    } else {
-      const liveFields = await listFields(existing.tableId);
-      const additions = liveFields.filter((f) => newlyReferenced.includes(f.id));
-      nextSnapshot = [...kept, ...additions];
-    }
-  }
-
   const [row] = await sql<DbRow[]>`
     UPDATE grids.forms
     SET name = ${next.name},
         config = ${next.config}::jsonb,
-        field_snapshot = ${nextSnapshot}::jsonb,
         public_token = ${next.publicToken},
         is_active = ${next.isActive},
         position = ${next.position},

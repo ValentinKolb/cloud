@@ -41,15 +41,11 @@ const FormConfigSchema = z.object({
   redirectUrl: z.string().nullable().optional(),
 });
 
-// FieldSnapshot lives on the response; we don't expose its schema in
-// detail because it mirrors FieldSchema and would be a maintenance
-// burden to keep in sync. z.unknown() lets clients use it raw.
 const FormSchema = z.object({
   id: z.string(),
   tableId: z.string().uuid(),
   name: z.string(),
   config: FormConfigSchema,
-  fieldSnapshot: z.array(z.unknown()),
   publicToken: z.string().nullable(),
   isActive: z.boolean(),
   ownerUserId: z.string().uuid().nullable(),
@@ -62,7 +58,6 @@ const FormSchema = z.object({
 
 // Public DTO returned from /forms/public/:token. Strips:
 //   - form_value entries (their `value` is server-managed, mustn't leak)
-//   - fieldSnapshot (internal — schema details aren't part of the public surface)
 //   - ownerUserId / deletedAt / publicToken / position / isDefault
 //   - timestamps (not useful to anonymous callers)
 // Title, description, submitLabel, successMessage, redirectUrl,
@@ -199,9 +194,9 @@ const app = new Hono<AuthContext>()
       const token = c.req.param("token");
       const form = await gridsService.form.getByPublicToken(token);
       if (!form) return c.json({ message: "Form not found" }, 404);
-      // Strip form_value entries' values, fieldSnapshot, ownerUserId,
-      // publicToken, timestamps. Anonymous callers see only what they
-      // need to render the form — nothing else.
+      // Strip form_value entries' values, ownerUserId, publicToken,
+      // timestamps. Anonymous callers see only what they need to render
+      // the form — nothing else.
       return c.json(toPublicForm(form));
     },
   )
@@ -353,26 +348,6 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(c, () => gridsService.form.update(formId, c.req.valid("json"), user.id));
-    },
-  )
-
-  .post(
-    "/:formId/re-snapshot",
-    describeRoute({
-      tags: ["Grids:Form"],
-      summary: "Refresh the form's frozen field snapshot from current fields",
-      responses: { 200: jsonResponse(FormSchema, "Re-snapshotted") },
-    }),
-    async (c) => {
-      const formId = c.req.param("formId");
-      const form = await gridsService.form.get(formId);
-      if (!form) return c.json({ message: "Form not found" }, 404);
-      const table = await gridsService.table.get(form.tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const user = c.get("user");
-      return respond(c, () => gridsService.form.reSnapshot(formId, user.id));
     },
   )
 
