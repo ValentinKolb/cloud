@@ -5,7 +5,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { EntitySearch, type EntitySearchResult } from "@valentinkolb/cloud/ui";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
 import type { ProxyAuthAllowedGroup, ProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
 import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
@@ -59,9 +59,9 @@ const ProxyClientActions = (props: Props) => {
         const [description, setDescription] = createSignal(client.description ?? "");
         const [groups, setGroups] = createSignal<ProxyAuthAllowedGroup[]>([...client.allowedGroups]);
 
-        const handleGroupSelect = (r: EntitySearchResult) => {
-          if (r.type === "group" && !groups().some((group) => group.id === r.id)) {
-            setGroups([...groups(), { id: r.id, name: r.name, provider: r.provider }]);
+        const handleGroupSelect = (r: EntitySearchPrincipal) => {
+          if (r.type === "group" && !groups().some((group) => group.id === r.groupId)) {
+            setGroups([...groups(), { id: r.groupId, name: r.name, provider: r.provider }]);
           }
         };
 
@@ -112,9 +112,7 @@ const ProxyClientActions = (props: Props) => {
                 </div>
               </Show>
                 <EntitySearch
-                  apiBaseUrl="/api/accounts"
-                  searchGroups
-                  searchUsers={false}
+                  includeGroups
                   excludeGroupIds={groups().map((group) => group.id)}
                   onSelect={handleGroupSelect}
                   placeholder="Search groups..."

@@ -1,8 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { EntitySearch, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
-import { EntitySearch, type EntitySearchResult } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type AddMemberProps = {
   /** Group id */
@@ -42,17 +40,17 @@ export default function AddMember(props: AddMemberProps) {
     prompts.dialog(
       (close) => (
         <EntitySearch
-          apiBaseUrl="/api/accounts"
-          groupProvider={props.groupProvider}
-          searchUsers={props.searchUsers !== false}
-          searchGroups={props.searchGroups}
+          providers={[props.groupProvider]}
+          includeUsers={props.searchUsers !== false}
+          includeGroups={props.searchGroups}
           excludeUserIds={props.excludeUserIds}
           excludeGroupIds={props.excludeGroups}
           placeholder={props.searchGroups ? "Search users or groups..." : "Search users..."}
-          adding={mutation.loading()}
-          onSelect={async (result: EntitySearchResult) => {
+          disabled={mutation.loading()}
+          onSelect={async (result) => {
             close();
-            await mutation.mutate({ type: result.type, id: result.id });
+            if (result.type === "user") await mutation.mutate({ type: "user", id: result.userId });
+            else if (result.type === "group") await mutation.mutate({ type: "group", id: result.groupId });
           }}
         />
       ),

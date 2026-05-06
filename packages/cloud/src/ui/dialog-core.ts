@@ -23,13 +23,46 @@ export type DialogCore = {
   isOpen: () => boolean;
 };
 
-type DialogState = {
-  element?: HTMLDialogElement;
+/**
+ * One level on the dialog stack. Multiple levels can coexist (a deeper
+ * dialog opens on top of a shallower one — e.g. a `prompts.confirm`
+ * called from inside a `prompts.dialog`'s view), but only the topmost
+ * level is visible. Lower levels stay mounted (`display:none`) so their
+ * SolidJS state survives across the round-trip.
+ */
+type DialogStackEntry = {
+  /** Container `<div>` inside the shared `<dialog>`; one per level. */
+  container: HTMLDivElement;
+  /** SolidJS `render` disposer. Called only when this level is popped
+   *  off the stack — NOT when it's merely hidden by a deeper level. */
   dispose?: () => void;
+  /** Promise resolver for this level's `open()` call. */
   resolve?: (value: unknown) => void;
+  panelClassName: string;
+  cancelBehavior: NonNullable<OpenDialogOptions["cancelBehavior"]>;
+  initialFocus: NonNullable<OpenDialogOptions["initialFocus"]>;
+};
+
+type DialogState = {
+  /** Shared `<dialog>` element. One on the page, regardless of stack
+   *  depth — only the topmost level's container is visible. */
+  element?: HTMLDialogElement;
+  /** Active stack of dialog levels. Top of stack is the visible one.
+   *  Empty means no dialog is shown; `<dialog>.close()` has been called
+   *  and scroll is unlocked. */
+  stack: DialogStackEntry[];
   scrollLocked?: boolean;
   previousBodyOverflow?: string;
   previousHtmlOverflow?: string;
+  /** Tracks whether the most recent `mousedown` had `event.target ===
+   *  dialog` (i.e. on the backdrop itself, not on dialog content).
+   *  Used by the click handler to distinguish a real backdrop click
+   *  from a phantom one — e.g. when an option in an open `popover`
+   *  is mousedown'd, the popover hides synchronously, and the
+   *  subsequent click event gets retargeted to the dialog because the
+   *  option is now `display:none`. We only close on a click whose
+   *  mousedown was ALSO on the backdrop. */
+  mouseDownOnDialog?: boolean;
 };
 
 const DEFAULT_PANEL_CLASS = "dialog-panel";
@@ -41,25 +74,49 @@ const resolveInitialFocusTarget = (dialog: HTMLDialogElement, initialFocus: Open
   return dialog.querySelector<HTMLElement>("input:not([type='hidden']), textarea, select, button");
 };
 
-const applyCancelBehavior = <T>(dialog: HTMLDialogElement, close: DialogClose<T>, behavior: OpenDialogOptions["cancelBehavior"]) => {
-  dialog.oncancel = (event) => {
-    if (behavior === "ignore") {
-      event.preventDefault();
-      return;
-    }
-    event.preventDefault();
-    close(undefined);
-  };
-
-  dialog.onclick = (event) => {
-    if (event.target !== dialog) return;
-    if (behavior === "ignore") return;
-    close(undefined);
-  };
-};
-
 export const createDialogCore = (): DialogCore => {
-  const state: DialogState = {};
+  const state: DialogState = { stack: [] };
+
+  /**
+   * Wires up Esc-cancel + backdrop-click behaviour to the dialog. Re-
+   * called whenever the topmost level changes (push/pop) so the
+   * handlers always reflect the current top's `cancelBehavior` and
+   * `close` callback.
+   *
+   * Backdrop-click detection guards against phantom clicks: it only
+   * fires when BOTH `mousedown` AND `click` target the dialog element
+   * itself. A click whose `mousedown` was on a child (and got
+   * retargeted to the dialog because the child went `display:none`
+   * mid-gesture — e.g. a popover hiding from inside its own option's
+   * onMouseDown) is rejected as not a real backdrop click.
+   */
+  const applyCancelBehavior = (
+    dialog: HTMLDialogElement,
+    close: () => void,
+    behavior: OpenDialogOptions["cancelBehavior"],
+  ) => {
+    dialog.oncancel = (event) => {
+      if (behavior === "ignore") {
+        event.preventDefault();
+        return;
+      }
+      event.preventDefault();
+      close();
+    };
+
+    dialog.onmousedown = (event) => {
+      state.mouseDownOnDialog = event.target === dialog;
+    };
+
+    dialog.onclick = (event) => {
+      const wasRealBackdropClick = state.mouseDownOnDialog === true;
+      state.mouseDownOnDialog = false;
+      if (event.target !== dialog) return;
+      if (!wasRealBackdropClick) return;
+      if (behavior === "ignore") return;
+      close();
+    };
+  };
 
   const ensureDialogElement = () => {
     if (typeof document === "undefined") throw new Error("Dialog core is browser-only");
@@ -69,11 +126,6 @@ export const createDialogCore = (): DialogCore => {
     document.body.appendChild(element);
     state.element = element;
     return element;
-  };
-
-  const clearRenderedContent = () => {
-    state.dispose?.();
-    state.dispose = undefined;
   };
 
   const lockPageScroll = () => {
@@ -96,50 +148,126 @@ export const createDialogCore = (): DialogCore => {
     state.previousHtmlOverflow = undefined;
   };
 
-  const close: DialogCore["close"] = (result) => {
+  /**
+   * Pop the topmost level off the stack. Disposes its SolidJS render,
+   * removes its container, resolves its promise. If this empties the
+   * stack the underlying `<dialog>` is closed and scroll unlocked;
+   * otherwise the previous level is unhidden and its dialog chrome
+   * (className, cancel handlers, initial focus) is restored.
+   */
+  const popTop = (result?: unknown) => {
+    const top = state.stack.pop();
+    if (!top) return;
+
+    top.dispose?.();
+    top.container.remove();
+
     const dialog = state.element;
-    if (!dialog) return;
+    const previous = state.stack[state.stack.length - 1];
 
-    clearRenderedContent();
-    if (dialog.open) dialog.close();
-    unlockPageScroll();
+    if (previous && dialog) {
+      // Restore the level that was hidden when this one opened — it
+      // was never disposed, so its SolidJS state is still live.
+      previous.container.style.display = "";
+      dialog.className = previous.panelClassName;
+      applyCancelBehavior(dialog, () => popTop(undefined), previous.cancelBehavior);
 
-    const resolve = state.resolve;
-    state.resolve = undefined;
-    resolve?.(result);
+      // Re-run the previous level's initial focus resolver. The
+      // browser's modal focus trap would otherwise pick the first
+      // focusable in DOM order, which can be wrong if the previous
+      // view declared a custom `initialFocus` function.
+      requestAnimationFrame(() => {
+        resolveInitialFocusTarget(dialog, previous.initialFocus)?.focus();
+      });
+    } else if (dialog) {
+      // Stack is empty — close the underlying dialog for real.
+      if (dialog.open) dialog.close();
+      unlockPageScroll();
+    }
+
+    // Resolve LAST so the awaiting caller observes the unmounted state.
+    top.resolve?.(result);
   };
 
   const open = <T>(view: DialogRender<T>, options: OpenDialogOptions = {}): Promise<T | undefined> => {
     const dialog = ensureDialogElement();
-    if (dialog.open) close(undefined);
 
-    dialog.className = options.panelClassName ?? DEFAULT_PANEL_CLASS;
-    dialog.innerHTML = "";
+    // Hide the currently-visible level (if any). We don't dispose —
+    // its SolidJS render keeps running so its signals, scroll, focus
+    // intent, etc. all survive the round-trip.
+    const previousTop = state.stack[state.stack.length - 1];
+    if (previousTop) {
+      previousTop.container.style.display = "none";
+    }
 
-    const content = document.createElement("div");
-    content.className = options.contentClassName ?? DEFAULT_CONTENT_CLASS;
-    dialog.appendChild(content);
+    const panelClassName = options.panelClassName ?? DEFAULT_PANEL_CLASS;
+    const cancelBehavior = options.cancelBehavior ?? "resolve-undefined";
+    const initialFocus = options.initialFocus ?? "first-input";
+
+    dialog.className = panelClassName;
+
+    const container = document.createElement("div");
+    container.className = options.contentClassName ?? DEFAULT_CONTENT_CLASS;
+    dialog.appendChild(container);
+
+    const entry: DialogStackEntry = {
+      container,
+      panelClassName,
+      cancelBehavior,
+      initialFocus,
+    };
 
     return new Promise((resolve) => {
-      state.resolve = (value) => resolve(value as T | undefined);
+      entry.resolve = (value) => resolve(value as T | undefined);
 
-      const closeTyped: DialogClose<T> = (result) => close(result);
-      state.dispose = render(() => view(closeTyped, { dialog }), content);
+      // Per-entry close callback. Idempotent and safe to call from a
+      // stale closure — if this entry has already been popped (or a
+      // deeper level is now on top), the call no-ops instead of
+      // accidentally popping someone else's level.
+      const closeTyped: DialogClose<T> = (result) => {
+        if (state.stack[state.stack.length - 1] !== entry) return;
+        popTop(result);
+      };
 
-      applyCancelBehavior(dialog, closeTyped, options.cancelBehavior ?? "resolve-undefined");
-      dialog.showModal();
-      lockPageScroll();
+      entry.dispose = render(() => view(closeTyped, { dialog }), container);
+
+      applyCancelBehavior(dialog, () => closeTyped(undefined), cancelBehavior);
+
+      // Push only after dispose is set so a synchronous close from the
+      // view's render path still finds itself on top.
+      state.stack.push(entry);
+
+      const wasFirstLevel = state.stack.length === 1;
+      if (wasFirstLevel) {
+        dialog.showModal();
+        lockPageScroll();
+      }
 
       requestAnimationFrame(() => {
-        resolveInitialFocusTarget(dialog, options.initialFocus ?? "first-input")?.focus();
+        resolveInitialFocusTarget(dialog, initialFocus)?.focus();
       });
     });
+  };
+
+  /**
+   * Close ALL levels on the stack. The first pop receives `result`,
+   * the rest get `undefined`. Used by external callers that want to
+   * dismiss the dialog system entirely (e.g. in cleanup / route
+   * change). Internal per-level closing goes through the `close`
+   * callback passed to each view, which only pops its own level.
+   */
+  const close: DialogCore["close"] = (result) => {
+    let first = true;
+    while (state.stack.length > 0) {
+      popTop(first ? result : undefined);
+      first = false;
+    }
   };
 
   return {
     open,
     close,
-    isOpen: () => !!state.element?.open,
+    isOpen: () => state.stack.length > 0,
   };
 };
 

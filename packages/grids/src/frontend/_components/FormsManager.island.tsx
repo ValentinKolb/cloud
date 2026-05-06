@@ -1,12 +1,8 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
-import { apiClient } from "@/api/client";
-import { PermissionEditor, TextInput, Select, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import { PermissionEditor, prompts, refreshCurrentPath, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type {
-  AccessEntry,
-  PermissionLevel,
-  Principal,
-} from "@valentinkolb/cloud/contracts/shared";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../service";
 import type { FormConfig, FormFieldEntry } from "../../service/forms";
 import { errorMessage } from "./api-helpers";
@@ -40,9 +36,7 @@ type Props = {
  * forms here, the default is always available regardless.
  */
 export default function FormsManager(props: Props) {
-  const [forms, setForms] = createSignal<Form[]>(
-    props.initialForms.filter((f) => !f.isDefault),
-  );
+  const [forms, setForms] = createSignal<Form[]>(props.initialForms.filter((f) => !f.isDefault));
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
 
   // ---- Create ----------------------------------------------------------
@@ -82,10 +76,11 @@ export default function FormsManager(props: Props) {
 
   // ---- Delete ----------------------------------------------------------
   const handleDelete = async (form: Form) => {
-    const confirmed = await prompts.confirm(
-      `Delete form "${form.name}"? Submissions already saved as records remain.`,
-      { title: "Delete form?", variant: "danger", confirmText: "Delete" },
-    );
+    const confirmed = await prompts.confirm(`Delete form "${form.name}"? Submissions already saved as records remain.`, {
+      title: "Delete form?",
+      variant: "danger",
+      confirmText: "Delete",
+    });
     if (!confirmed) return;
     const res = await apiClient.forms[":formId"].$delete({ param: { formId: form.id } });
     if (res.status >= 400) {
@@ -98,22 +93,13 @@ export default function FormsManager(props: Props) {
 
   return (
     <div class="flex flex-col gap-2">
-      <Show
-        when={forms().length > 0}
-        fallback={<p class="text-xs text-dimmed py-2">No custom forms yet.</p>}
-      >
+      <Show when={forms().length > 0} fallback={<p class="text-xs text-dimmed py-2">No custom forms yet.</p>}>
         <ul class="flex flex-col gap-2">
           <For each={forms()}>
             {(form) => {
               const isExpanded = () => expandedId() === form.id;
               return (
-                <li
-                  class={`paper transition-colors ${
-                    isExpanded()
-                      ? "border-blue-500! dark:border-blue-400!"
-                      : ""
-                  }`}
-                >
+                <li class={`paper transition-colors ${isExpanded() ? "border-blue-500! dark:border-blue-400!" : ""}`}>
                   <button
                     type="button"
                     class="flex w-full items-center gap-2 px-3 py-2 text-left"
@@ -131,24 +117,16 @@ export default function FormsManager(props: Props) {
                         {form.config.fields.length} field
                         {form.config.fields.length === 1 ? "" : "s"}
                       </span>
-                      <span class="text-[10px] text-dimmed">
-                        · {form.publicToken ? "public" : "private"}
-                      </span>
+                      <span class="text-[10px] text-dimmed">· {form.publicToken ? "public" : "private"}</span>
                     </span>
-                    <i
-                      class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
-                        isExpanded() ? "rotate-180" : ""
-                      }`}
-                    />
+                    <i class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${isExpanded() ? "rotate-180" : ""}`} />
                   </button>
 
                   <Show when={isExpanded()}>
                     <FormEditor
                       form={form}
                       tableFields={props.fields}
-                      initialAccessEntries={
-                        props.initialFormAccessEntries?.[form.id] ?? []
-                      }
+                      initialAccessEntries={props.initialFormAccessEntries?.[form.id] ?? []}
                       canManageAccess={props.canManage}
                       onSaved={(next) => setForms(forms().map((f) => (f.id === next.id ? next : f)))}
                       onDelete={() => handleDelete(form)}
@@ -162,11 +140,7 @@ export default function FormsManager(props: Props) {
       </Show>
 
       <Show when={props.canManage}>
-        <button
-          type="button"
-          class="btn-input btn-input-sm self-start text-emerald-600 hover:text-emerald-700"
-          onClick={handleCreate}
-        >
+        <button type="button" class="btn-input btn-input-sm self-start text-emerald-600 hover:text-emerald-700" onClick={handleCreate}>
           <i class="ti ti-plus" /> New form
         </button>
       </Show>
@@ -190,9 +164,7 @@ function FormEditor(props: {
   const [isPublic, setIsPublic] = createSignal(Boolean(props.form.publicToken));
   const [submitLabel, setSubmitLabel] = createSignal(props.form.config.submitLabel ?? "");
   const [successMessage, setSuccessMessage] = createSignal(props.form.config.successMessage ?? "");
-  const [entries, setEntries] = createSignal<FormFieldEntry[]>(
-    props.form.config.fields.map((e) => ({ ...e })),
-  );
+  const [entries, setEntries] = createSignal<FormFieldEntry[]>(props.form.config.fields.map((e) => ({ ...e })));
   const [dirty, setDirty] = createSignal(false);
 
   const wrap =
@@ -205,10 +177,7 @@ function FormEditor(props: {
   // Fields available to ADD — i.e. on the table, user-editable, not in the
   // form yet. Computed memo so the picker shrinks as the user adds rows.
   const includedIds = createMemo(() => new Set(entries().map((e) => e.fieldId)));
-  const addable = createMemo(() =>
-    props.tableFields
-      .filter((f) => !f.deletedAt && isUserEditable(f.type) && !includedIds().has(f.id)),
-  );
+  const addable = createMemo(() => props.tableFields.filter((f) => !f.deletedAt && isUserEditable(f.type) && !includedIds().has(f.id)));
   const fieldById = createMemo(() => new Map(props.tableFields.map((f) => [f.id, f])));
 
   const updateMut = mutations.create<Form, void>({
@@ -250,10 +219,7 @@ function FormEditor(props: {
     // Default kind is `user_input` — the form_value variant is a power-
     // user feature and gets a separate UI path (TBD; for now editing
     // it requires hand-crafting the JSON in the API).
-    setEntries([
-      ...entries(),
-      { kind: "user_input", fieldId, required: f.required },
-    ]);
+    setEntries([...entries(), { kind: "user_input", fieldId, required: f.required }]);
     setDirty(true);
   };
 
@@ -267,15 +233,14 @@ function FormEditor(props: {
    * UI — to edit them today the user has to PATCH the form via the API
    * directly. A dedicated form_value editor is a follow-up.
    */
-  const updateEntry = (
-    index: number,
-    patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>,
-  ) => {
-    setEntries(entries().map((e, i) => {
-      if (i !== index) return e;
-      if (e.kind !== "user_input") return e;
-      return { ...e, ...patch };
-    }));
+  const updateEntry = (index: number, patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => {
+    setEntries(
+      entries().map((e, i) => {
+        if (i !== index) return e;
+        if (e.kind !== "user_input") return e;
+        return { ...e, ...patch };
+      }),
+    );
     setDirty(true);
   };
 
@@ -303,9 +268,7 @@ function FormEditor(props: {
       (close) => (
         <div class="flex flex-col gap-3">
           <p class="text-xs text-secondary">Copied to clipboard:</p>
-          <code class="block break-all text-xs bg-zinc-100 dark:bg-zinc-800 rounded-md p-2 font-mono">
-            {url}
-          </code>
+          <code class="block break-all text-xs bg-zinc-100 dark:bg-zinc-800 rounded-md p-2 font-mono">{url}</code>
           <div class="flex justify-end">
             <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
               OK
@@ -325,11 +288,7 @@ function FormEditor(props: {
         <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
         <div class="flex items-center gap-3 flex-wrap">
           <label class="inline-flex items-center gap-2 text-xs text-secondary">
-            <input
-              type="checkbox"
-              checked={isPublic()}
-              onChange={(e) => wrap(setIsPublic)(e.currentTarget.checked)}
-            />
+            <input type="checkbox" checked={isPublic()} onChange={(e) => wrap(setIsPublic)(e.currentTarget.checked)} />
             Public — anyone with the link can submit, no login required
           </label>
           {/* Icon-only with tooltip, ALWAYS in the DOM. Hidden via opacity
@@ -337,11 +296,7 @@ function FormEditor(props: {
               width stable so toggling public on doesn't cause a shift. */}
           <button
             type="button"
-            class={`btn-simple btn-sm transition-opacity ${
-              props.form.publicToken
-                ? "opacity-100"
-                : "opacity-0 pointer-events-none"
-            }`}
+            class={`btn-simple btn-sm transition-opacity ${props.form.publicToken ? "opacity-100" : "opacity-0 pointer-events-none"}`}
             onClick={handleCopyPublicUrl}
             title="Copy public URL"
             aria-label="Copy public URL"
@@ -382,11 +337,7 @@ function FormEditor(props: {
         </div>
         <Show
           when={entries().length > 0}
-          fallback={
-            <p class="text-xs text-dimmed py-1">
-              No fields included. Pick one from the list below to start.
-            </p>
-          }
+          fallback={<p class="text-xs text-dimmed py-1">No fields included. Pick one from the list below to start.</p>}
         >
           <ul class="flex flex-col gap-2">
             <For each={entries()}>
@@ -451,9 +402,7 @@ function FormEditor(props: {
                         <input
                           type="checkbox"
                           checked={required()}
-                          onChange={(e) =>
-                            updateEntry(idx(), { required: e.currentTarget.checked })
-                          }
+                          onChange={(e) => updateEntry(idx(), { required: e.currentTarget.checked })}
                         />
                         Required
                       </label>
@@ -478,9 +427,7 @@ function FormEditor(props: {
                       label="Help text (optional)"
                       icon="ti ti-info-circle"
                       value={() => entry.helpText ?? ""}
-                      onInput={(v) =>
-                        updateEntry(idx(), { helpText: v.trim() === "" ? undefined : v })
-                      }
+                      onInput={(v) => updateEntry(idx(), { helpText: v.trim() === "" ? undefined : v })}
                       placeholder="Shown under the input in the form"
                       multiline
                       lines={2}
@@ -521,15 +468,10 @@ function FormEditor(props: {
       <div class="flex flex-col gap-2">
         <span class="text-xs font-medium text-secondary">Permissions</span>
         <p class="text-[11px] text-dimmed leading-snug">
-          Grant Write to let specific users or groups submit this form
-          even without the public link. They won't see other submissions
-          unless they also have table read.
+          Grant Write to let specific users or groups submit this form even without the public link. They won't see other submissions unless
+          they also have table read.
         </p>
-        <FormPermissions
-          formId={props.form.id}
-          initialEntries={props.initialAccessEntries}
-          canEdit={props.canManageAccess}
-        />
+        <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
       </div>
 
       {/* Footer */}
@@ -538,12 +480,7 @@ function FormEditor(props: {
           <i class="ti ti-trash" /> Delete form
         </button>
         <Show when={dirty()}>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            onClick={handleSave}
-            disabled={updateMut.loading()}
-          >
+          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={updateMut.loading()}>
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
         </Show>
@@ -559,33 +496,28 @@ function FormEditor(props: {
 // collapses the dropdown / SegmentedControl into inline badges since
 // there's only one meaningful level for forms.
 
-function FormPermissions(props: {
-  formId: string;
-  initialEntries: AccessEntry[];
-  canEdit: boolean;
-}) {
+function FormPermissions(props: { formId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
   const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   return (
     <PermissionEditor
-      resourceId={props.formId}
       initialEntries={entries()}
       canEdit={props.canEdit}
-      allowedLevels={["write"]}
-      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+      allowedLevels={[{ level: "write", label: "Use", icon: "ti-cursor-text" }]}
+      grantAccess={async (principal, permission) => {
         const res = await apiClient.access["by-form"][":formId"].$post({
-          param: { formId: resourceId },
+          param: { formId: props.formId },
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
         const created = (await res.json()) as { accessId: string };
         const listRes = await apiClient.access["by-form"][":formId"].$get({
-          param: { formId: resourceId },
+          param: { formId: props.formId },
         });
         const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}
-      updateAccess={async (_resourceId, accessId, permission) => {
+      updateAccess={async (accessId, permission) => {
         const res = await apiClient.access[":accessId"].$patch({
           param: { accessId },
           json: { permission },
@@ -593,7 +525,7 @@ function FormPermissions(props: {
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
         setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
       }}
-      revokeAccess={async (_resourceId, accessId) => {
+      revokeAccess={async (accessId) => {
         const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
         setEntries(entries().filter((e) => e.id !== accessId));

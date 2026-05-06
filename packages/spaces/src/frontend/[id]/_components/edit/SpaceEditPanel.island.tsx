@@ -1,22 +1,28 @@
+import {
+  ColorInput,
+  CopyButton,
+  navigateTo,
+  PermissionEditor,
+  prompts,
+  refreshCurrentPath,
+  SegmentedControl,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { ColorInput, CopyButton, PermissionEditor, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
-import type { SpaceDetail, SpaceTag, SpaceColumn, AccessEntry } from "@/contracts";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import type { AccessEntry, Priority, SpaceColumn, SpaceDetail, SpaceTag } from "@/contracts";
 import {
-  type ViewType,
   type DetailPanelWidth,
-  type SpaceUserSettings,
-  type WidgetSettings,
   type EventsDaysAhead,
   readAllSettings,
-  writeAllSettings,
   readWidgetSettings,
+  type SpaceUserSettings,
+  type ViewType,
+  type WidgetSettings,
+  writeAllSettings,
   writeWidgetSettings,
 } from "@/frontend/[id]/_components/settings/SpaceSettingsStore";
-import type { Priority } from "@/contracts";
 
 type Props = {
   space: SpaceDetail;
@@ -88,12 +94,11 @@ export default function SpaceEditPanel(props: Props) {
         <section class="flex flex-col gap-2">
           <h3 class="section-label">Permissions</h3>
           <PermissionEditor
-            resourceId={props.space.id}
             initialEntries={props.accessEntries!}
             canEdit={props.isAdmin}
-            grantAccess={async (resourceId, principal, permission) => {
+            grantAccess={async (principal, permission) => {
               const res = await apiClient[":id"].access.$post({
-                param: { id: resourceId },
+                param: { id: props.space.id },
                 json: { principal, permission },
               });
               if (!res.ok) {
@@ -102,9 +107,9 @@ export default function SpaceEditPanel(props: Props) {
               }
               return res.json();
             }}
-            updateAccess={async (resourceId, accessId, permission) => {
+            updateAccess={async (accessId, permission) => {
               const res = await apiClient[":id"].access[":accessId"].$patch({
-                param: { id: resourceId, accessId },
+                param: { id: props.space.id, accessId },
                 json: { permission },
               });
               if (!res.ok) {
@@ -112,9 +117,9 @@ export default function SpaceEditPanel(props: Props) {
                 throw new Error("message" in errData ? errData.message : "Failed to update permission");
               }
             }}
-            revokeAccess={async (resourceId, accessId) => {
+            revokeAccess={async (accessId) => {
               const res = await apiClient[":id"].access[":accessId"].$delete({
-                param: { id: resourceId, accessId },
+                param: { id: props.space.id, accessId },
               });
               if (!res.ok) {
                 const errData = await res.json();

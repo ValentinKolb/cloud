@@ -1,249 +1,111 @@
-import { createSignal, For, Show } from "solid-js";
-
-import { prompts } from "../prompts";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import SegmentedControl from "../input/SegmentedControl";
-import EntitySearch, { type EntitySearchResult } from "./EntitySearch";
-import type {
-  AccessEntry,
-  PermissionLevel,
-  Principal,
-} from "../../contracts/shared";
+import { createSignal, For, Show } from "solid-js";
+import type { AccessEntry, PermissionLevel, Principal } from "../../contracts/shared";
+import Combobox, { type ComboboxOption } from "../input/Combobox";
+import { prompts } from "../prompts";
+import Dropdown from "./Dropdown";
 
-const PERMISSION_OPTIONS: {
-  value: PermissionLevel;
-  label: string;
-  icon: string;
-}[] = [
-  { value: "read", label: "Read", icon: "ti-eye" },
-  { value: "write", label: "Write", icon: "ti-pencil" },
-  { value: "admin", label: "Admin", icon: "ti-shield" },
-];
+// ─────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────
+
+/** The three grantable permission levels — `"none"` exists in the
+ *  contract for resolution semantics but is never directly granted. */
+export type GrantableLevel = Exclude<PermissionLevel, "none">;
+
+/** Either a bare level (uses the default View / Edit / Manage label and
+ *  icon) or an object with per-context overrides. */
+export type AllowedLevel = GrantableLevel | { level: GrantableLevel; label?: string; icon?: string };
 
 type PermissionEditorProps = {
-  /** Resource ID (e.g., space ID) */
-  resourceId: string;
-  /** Initial access entries */
+  /** Initial access entries — caller stays the source of truth for
+   *  what's stored on the resource; the editor only mutates locally
+   *  on optimistic update. */
   initialEntries: AccessEntry[];
-  /** Whether the current user can edit permissions */
+
+  /** Whether the current user can edit permissions. When `false`, the
+   *  editor renders the entries read-only — no row dropdowns, no
+   *  delete buttons, no add form. */
   canEdit?: boolean;
-  /** Grant access for this resource */
-  grantAccess: (
-    resourceId: string,
-    principal: Principal,
-    permission: PermissionLevel
-  ) => Promise<AccessEntry>;
-  /** Update access permission for this resource */
-  updateAccess: (
-    resourceId: string,
-    accessId: string,
-    permission: PermissionLevel
-  ) => Promise<void>;
-  /** Revoke access for this resource */
-  revokeAccess: (resourceId: string, accessId: string) => Promise<void>;
-  /** Allow creating public access entries from this editor */
+
+  /** Grant access. The caller closes over the resource id. */
+  grantAccess: (principal: Principal, permission: GrantableLevel) => Promise<AccessEntry>;
+
+  /** Update an existing entry's permission level. */
+  updateAccess: (accessId: string, permission: GrantableLevel) => Promise<void>;
+
+  /** Revoke an existing entry. The last entry IS deletable — for
+   *  hierarchical resources the parent ACL still applies. */
+  revokeAccess: (accessId: string) => Promise<void>;
+
+  /** Allow granting `public` access from this editor. The
+   *  authenticated principal is always allowed (no flag needed). */
   allowPublic?: boolean;
-  /**
-   * Restrict which permission levels the editor offers. Default = all
-   * three (read / write / admin). When set to a subset:
-   * - the dropdown on existing rows + the SegmentedControl on the add
-   *   form filter to the allowed values
-   * - when exactly ONE level is allowed, both controls vanish entirely
-   *   (a one-option picker is just noise) and the level renders as a
-   *   plain inline badge instead. Use cases: views accept only `read`,
-   *   forms only `write`.
-   */
-  allowedLevels?: PermissionLevel[];
+
+  /** Which levels the UI offers — and what they're called. Bare strings
+   *  use the default labels (View / Edit / Manage). Objects override
+   *  label and/or icon for per-context vocabulary (e.g. forms call
+   *  write "Use", views call read "View"). When undefined, all three
+   *  are offered with default labels. New entries are granted
+   *  `allowedLevels[0]` on pick — the user upgrades via the row pill
+   *  afterwards. */
+  allowedLevels?: AllowedLevel[];
 };
 
-/**
- * Permission Editor component for managing access control.
- * Can be used in dialogs or pages to manage who has access to a resource.
- */
-export default function PermissionEditor(props: PermissionEditorProps) {
-  const [entries, setEntries] = createSignal<AccessEntry[]>([
-    ...props.initialEntries,
-  ]);
-  const [showAddForm, setShowAddForm] = createSignal(false);
-  const canEdit = () => props.canEdit !== false;
-  const allowPublic = () => props.allowPublic === true;
-  // Resolve the level whitelist once. Falls back to all-three so the
-  // existing 40+ call-sites that don't pass `allowedLevels` keep
-  // exactly today's behaviour.
-  const allowedLevels = (): PermissionLevel[] =>
-    props.allowedLevels && props.allowedLevels.length > 0
-      ? props.allowedLevels
-      : (PERMISSION_OPTIONS.map((o) => o.value) as PermissionLevel[]);
+// ─────────────────────────────────────────────────────────────────────────
+// Defaults & helpers
+// ─────────────────────────────────────────────────────────────────────────
 
-  // Get existing user IDs and group IDs to exclude from search
-  const existingUserIds = () =>
-    entries()
-      .filter((e) => e.principal.type === "user")
-      .map((e) => (e.principal as { type: "user"; userId: string }).userId);
+const DEFAULT_LABELS: Record<PermissionLevel, { label: string; icon: string }> = {
+  read: { label: "View", icon: "ti-eye" },
+  write: { label: "Edit", icon: "ti-pencil" },
+  admin: { label: "Manage", icon: "ti-shield" },
+  // Defensive — never granted by this editor, but renders correctly if
+  // a legacy entry has permission === "none".
+  none: { label: "No access", icon: "ti-ban" },
+};
 
-  const existingGroupIds = () =>
-    entries()
-      .filter((e) => e.principal.type === "group")
-      .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
+type ResolvedLevel = {
+  level: GrantableLevel;
+  label: string;
+  icon: string;
+};
 
-  const hasAuthenticatedEntry = () =>
-    entries().some((entry) => entry.principal.type === "authenticated");
-  const hasPublicEntry = () =>
-    entries().some((entry) => entry.principal.type === "public");
-
-  // Grant access mutation
-  const grantMut = mutation.create({
-    mutation: async (data: {
-      principal: Principal;
-      permission: PermissionLevel;
-    }) => {
-      return props.grantAccess(
-        props.resourceId,
-        data.principal,
-        data.permission
-      );
-    },
-    onSuccess: (newEntry) => {
-      setEntries([...entries(), newEntry as AccessEntry]);
-      setShowAddForm(false);
-    },
-    onError: (err) => prompts.error(err.message),
+/** Resolve the AllowedLevel union into a flat shape the renderer can
+ *  loop over. Falls back to the default View / Edit / Manage list when
+ *  no override is given. */
+const resolveAllowedLevels = (allowed: AllowedLevel[] | undefined): ResolvedLevel[] => {
+  const list = allowed && allowed.length > 0 ? allowed : (["read", "write", "admin"] as GrantableLevel[]);
+  return list.map((entry) => {
+    const level = typeof entry === "string" ? entry : entry.level;
+    const override = typeof entry === "string" ? null : entry;
+    const def = DEFAULT_LABELS[level];
+    return {
+      level,
+      label: override?.label ?? def.label,
+      icon: override?.icon ?? def.icon,
+    };
   });
+};
 
-  // Update permission mutation
-  const updateMut = mutation.create<
-    { accessId: string; permission: PermissionLevel },
-    { accessId: string; permission: PermissionLevel }
-  >({
-    mutation: async (data) => {
-      await props.updateAccess(
-        props.resourceId,
-        data.accessId,
-        data.permission
-      );
-      // Return the data so we can use it in onSuccess
-      return data;
-    },
-    onSuccess: (result) => {
-      if (result) {
-        setEntries(
-          entries().map((e) =>
-            e.id === result.accessId
-              ? { ...e, permission: result.permission }
-              : e
-          )
-        );
-      }
-    },
-    onError: (err) => prompts.error(err.message),
-  });
+/** Resolve a stored entry's permission to a renderable {label,icon},
+ *  preferring the caller's allowedLevels override and falling back to
+ *  the platform defaults. Tolerates "none" / unknown legacy values. */
+const resolveEntryDisplay = (permission: PermissionLevel, allowed: ResolvedLevel[]): { label: string; icon: string } => {
+  const fromAllowed = allowed.find((a) => a.level === permission);
+  if (fromAllowed) return fromAllowed;
+  return DEFAULT_LABELS[permission] ?? DEFAULT_LABELS.none;
+};
 
-  // Revoke access mutation
-  const revokeMut = mutation.create<void, string>({
-    mutation: async (accessId: string) => {
-      await props.revokeAccess(props.resourceId, accessId);
-    },
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const handleRevoke = async (entry: AccessEntry) => {
-    if (entries().length <= 1) {
-      prompts.error("Cannot remove the last access entry");
-      return;
-    }
-
-    const displayName = getEntryDisplayName(entry);
-    const confirmed = await prompts.confirm(
-      `Remove access for ${displayName}?`,
-      { title: "Remove Access", variant: "danger" }
-    );
-    if (confirmed) {
-      revokeMut.mutate(entry.id);
-      setEntries(entries().filter((e) => e.id !== entry.id));
-    }
-  };
-
-  const handleEntitySelect = (
-    result: EntitySearchResult,
-    permission: PermissionLevel
-  ) => {
-    const principal: Principal =
-      result.type === "user"
-        ? { type: "user", userId: result.id }
-        : { type: "group", groupId: result.id };
-
-    grantMut.mutate({ principal, permission });
-  };
-
-  return (
-    <div class="flex flex-col gap-3">
-      {/* Existing entries */}
-      <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
-        <For each={entries()}>
-          {(entry) => (
-            <AccessEntryRow
-              entry={entry}
-              canEdit={canEdit()}
-              canDelete={entries().length > 1}
-              allowedLevels={allowedLevels()}
-              onUpdatePermission={(permission) =>
-                updateMut.mutate({ accessId: entry.id, permission })
-              }
-              onRevoke={() => handleRevoke(entry)}
-              updating={updateMut.loading()}
-            />
-          )}
-        </For>
-      </div>
-
-      {/* Add access */}
-      <Show when={canEdit()}>
-        <Show
-          when={showAddForm()}
-          fallback={
-            <button
-              type="button"
-              onClick={() => setShowAddForm(true)}
-              class="flex items-center gap-2 text-sm text-dimmed hover:text-primary transition-colors"
-            >
-              <i class="ti ti-plus" />
-              <span>Add access</span>
-            </button>
-          }
-        >
-          <AddAccessForm
-            existingUserIds={existingUserIds()}
-            existingGroupIds={existingGroupIds()}
-            allowedLevels={allowedLevels()}
-            onSelectEntity={handleEntitySelect}
-            onSelectPrincipal={(principal, permission) =>
-              grantMut.mutate({ principal, permission })
-            }
-            onCancel={() => setShowAddForm(false)}
-            loading={grantMut.loading()}
-            showAuthenticated={!hasAuthenticatedEntry()}
-            showPublic={allowPublic() && !hasPublicEntry()}
-          />
-        </Show>
-      </Show>
-    </div>
-  );
-}
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-function getEntryDisplayName(entry: AccessEntry): string {
+const getEntryDisplayName = (entry: AccessEntry): string => {
   if (entry.displayName) return entry.displayName;
-  if (entry.principal.type === "authenticated")
-    return "All users (incl. guests)";
+  if (entry.principal.type === "authenticated") return "All users (incl. guests)";
   if (entry.principal.type === "public") return "Public";
   if (entry.principal.type === "user") return entry.principal.userId;
   return entry.principal.groupId;
-}
+};
 
-function getPrincipalIcon(principal: Principal): string {
+const getPrincipalIcon = (principal: Principal): string => {
   switch (principal.type) {
     case "user":
       return "ti-user";
@@ -254,9 +116,9 @@ function getPrincipalIcon(principal: Principal): string {
     case "public":
       return "ti-world";
   }
-}
+};
 
-function getPermissionColor(level: PermissionLevel): string {
+const getPermissionColor = (level: PermissionLevel): string => {
   switch (level) {
     case "read":
       return "text-blue-500";
@@ -267,254 +129,318 @@ function getPermissionColor(level: PermissionLevel): string {
     default:
       return "text-zinc-500";
   }
-}
+};
 
-// =============================================================================
-// Access Entry Row
-// =============================================================================
+// Backend `/api/accounts/entities` shape (the subset we consume).
+type ApiEntity =
+  | { kind: "user"; user: { id: string; uid: string; displayName: string; mail: string | null } }
+  | { kind: "group"; group: { id: string; name: string; description: string | null } };
 
-function AccessEntryRow(props: {
-  entry: AccessEntry;
-  canEdit: boolean;
-  canDelete: boolean;
-  allowedLevels: PermissionLevel[];
-  onUpdatePermission: (permission: PermissionLevel) => void;
-  onRevoke: () => void;
-  updating: boolean;
-}) {
-  const [showPermissionMenu, setShowPermissionMenu] = createSignal(false);
+// ─────────────────────────────────────────────────────────────────────────
+// PermissionEditor
+// ─────────────────────────────────────────────────────────────────────────
 
-  // Single-allowed-level → the badge is purely informational. No
-  // chevron, no dropdown, no hover affordance, not even a button —
-  // there's nothing to switch to. Keeps the row visually quiet for
-  // surfaces like view-edit (read-only) or form-write (submit-only).
-  const isSinglePicker = () => props.allowedLevels.length === 1;
-  const allowedOptions = () =>
-    PERMISSION_OPTIONS.filter((o) => props.allowedLevels.includes(o.value));
-  const isInteractive = () => props.canEdit && !isSinglePicker();
+export default function PermissionEditor(props: PermissionEditorProps) {
+  const [entries, setEntries] = createSignal<AccessEntry[]>([...props.initialEntries]);
+  const canEdit = () => props.canEdit !== false;
+  const allowPublic = () => props.allowPublic === true;
+  const allowed = () => resolveAllowedLevels(props.allowedLevels);
+  const isSinglePicker = () => allowed().length === 1;
 
-  // Wrap the badge in a button only when interactive — a non-button
-  // <span> reads correctly to screen readers when there's no action.
-  const badgeContent = (
-    <>
-      <i
-        class={`ti ${
-          PERMISSION_OPTIONS.find((o) => o.value === props.entry.permission)
-            ?.icon
-        }`}
-      />
-      <span class="capitalize">{props.entry.permission}</span>
-      <Show when={isInteractive()}>
-        <i class="ti ti-chevron-down text-[10px]" />
-      </Show>
-    </>
-  );
-  const badgeClass = `flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${getPermissionColor(
-    props.entry.permission,
-  )}`;
-  const badgeBorderList = {
-    "border-blue-200 dark:border-blue-900": props.entry.permission === "read",
-    "border-amber-200 dark:border-amber-900": props.entry.permission === "write",
-    "border-purple-200 dark:border-purple-900": props.entry.permission === "admin",
+  // Defensive dev-warning: an empty allowedLevels array makes the editor
+  // unable to grant anything.
+  if (props.allowedLevels && props.allowedLevels.length === 0) {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[PermissionEditor] `allowedLevels=[]` — the editor cannot grant any permission. Pass at least one level or omit the prop for the default View / Edit / Manage set.",
+      );
+    }
+  }
+
+  const existingUserIds = () =>
+    entries()
+      .filter((e) => e.principal.type === "user")
+      .map((e) => (e.principal as { type: "user"; userId: string }).userId);
+  const existingGroupIds = () =>
+    entries()
+      .filter((e) => e.principal.type === "group")
+      .map((e) => (e.principal as { type: "group"; groupId: string }).groupId);
+  const hasAuthenticatedEntry = () => entries().some((entry) => entry.principal.type === "authenticated");
+  const hasPublicEntry = () => entries().some((entry) => entry.principal.type === "public");
+
+  const grantMut = mutation.create({
+    mutation: async (data: { principal: Principal; permission: GrantableLevel }) => props.grantAccess(data.principal, data.permission),
+    onSuccess: (newEntry) => {
+      setEntries([...entries(), newEntry as AccessEntry]);
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+
+  const updateMut = mutation.create<{ accessId: string; permission: GrantableLevel }, { accessId: string; permission: GrantableLevel }>({
+    mutation: async (data) => {
+      await props.updateAccess(data.accessId, data.permission);
+      return data;
+    },
+    onSuccess: (result) => {
+      if (result) {
+        setEntries(entries().map((e) => (e.id === result.accessId ? { ...e, permission: result.permission } : e)));
+      }
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+
+  const revokeMut = mutation.create<void, string>({
+    mutation: async (accessId: string) => {
+      await props.revokeAccess(accessId);
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+
+  const handleRevoke = async (entry: AccessEntry) => {
+    const displayName = getEntryDisplayName(entry);
+    const confirmed = await prompts.confirm(`Remove access for ${displayName}?`, { title: "Remove Access", variant: "danger" });
+    if (confirmed) {
+      revokeMut.mutate(entry.id);
+      setEntries(entries().filter((e) => e.id !== entry.id));
+    }
+  };
+
+  // ── Combobox add-flow ─────────────────────────────────────────────────
+  // The Combobox is a fire-and-forget input: type → pick → granted at the
+  // lowest allowed level. The `principalsByOptId` map carries the original
+  // discriminated principal across the ComboboxOption boundary so onSelect
+  // can route it to grantAccess without re-parsing prefixed ids.
+  let principalsByOptId = new Map<string, Principal>();
+
+  const fetchPrincipals = async (q: string, signal: AbortSignal): Promise<ComboboxOption[]> => {
+    const map = new Map<string, Principal>();
+    const opts: ComboboxOption[] = [];
+
+    // Synthetic principals — only when allowed AND not already granted.
+    // Placed first so they're visible immediately on focus, before any
+    // typing kicks off a backend request.
+    if (!hasAuthenticatedEntry()) {
+      map.set("auth", { type: "authenticated" });
+      opts.push({
+        id: "auth",
+        label: "All users (incl. guests)",
+        description: "Anyone signed in to the cloud",
+        icon: "ti-lock-open-2",
+      });
+    }
+    if (allowPublic() && !hasPublicEntry()) {
+      map.set("public", { type: "public" });
+      opts.push({
+        id: "public",
+        label: "Public",
+        description: "Anyone with the link, even unauthenticated",
+        icon: "ti-world",
+      });
+    }
+
+    // Real entities require a query — avoid a wide listing on every focus.
+    if (q.length >= 2) {
+      const url = new URL("/api/accounts/entities", window.location.origin);
+      url.searchParams.set("search", q);
+      url.searchParams.set("kinds", "user,group");
+      url.searchParams.set("per_page", "10");
+      const userIds = existingUserIds();
+      if (userIds.length) url.searchParams.set("exclude_user_ids", userIds.join(","));
+      const groupIds = existingGroupIds();
+      if (groupIds.length) url.searchParams.set("exclude_group_ids", groupIds.join(","));
+
+      const res = await fetch(url.toString(), { credentials: "same-origin", signal });
+      if (res.ok) {
+        const data = (await res.json()) as { items?: ApiEntity[] };
+        for (const item of data.items ?? []) {
+          if (item.kind === "user") {
+            const id = `u:${item.user.id}`;
+            map.set(id, { type: "user", userId: item.user.id });
+            opts.push({
+              id,
+              label: item.user.displayName,
+              description: item.user.mail ?? item.user.uid,
+              icon: "ti-user",
+            });
+          } else if (item.kind === "group") {
+            const id = `g:${item.group.id}`;
+            map.set(id, { type: "group", groupId: item.group.id });
+            opts.push({
+              id,
+              label: item.group.name,
+              description: item.group.description ?? undefined,
+              icon: "ti-users-group",
+            });
+          }
+        }
+      }
+    }
+
+    principalsByOptId = map;
+    return opts;
+  };
+
+  const handleSelect = (option: ComboboxOption) => {
+    const principal = principalsByOptId.get(option.id);
+    if (!principal) return;
+    const firstLevel = allowed()[0]?.level;
+    if (!firstLevel) return; // dev-warned above; bail silently
+    grantMut.mutate({ principal, permission: firstLevel });
   };
 
   return (
-    <div class="group/entry pl-3 py-1.5 flex items-center gap-2">
-      {/* Icon */}
-      <div class="flex shrink-0 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 h-7 w-7">
-        <i class={`ti ${getPrincipalIcon(props.entry.principal)} text-sm`} />
-      </div>
-
-      {/* Name */}
-      <div class="flex-1 min-w-0">
-        <span class="text-sm truncate">{getEntryDisplayName(props.entry)}</span>
-        <Show when={props.entry.principal.type === "public"}>
-          <span class="text-xs text-dimmed ml-1">(Anyone with the link)</span>
+    <div class="flex flex-col gap-3">
+      {/* Existing entries */}
+      <div class="flex flex-col gap-1">
+        <For each={entries()}>
+          {(entry) => (
+            <AccessEntryRow
+              entry={entry}
+              canEdit={canEdit()}
+              allowed={allowed()}
+              singlePicker={isSinglePicker()}
+              onUpdatePermission={(permission) => updateMut.mutate({ accessId: entry.id, permission })}
+              onRevoke={() => handleRevoke(entry)}
+            />
+          )}
+        </For>
+        <Show when={entries().length === 0}>
+          <p class="px-1 py-2 text-xs text-dimmed">No direct grants yet.</p>
         </Show>
       </div>
 
-      {/* Permission badge / selector */}
-      <div class="relative">
-        <Show
-          when={isInteractive()}
-          fallback={
-            <span class={`${badgeClass} cursor-default`} classList={badgeBorderList}>
-              {badgeContent}
-            </span>
-          }
-        >
-          <button
-            type="button"
-            onClick={() => setShowPermissionMenu(!showPermissionMenu())}
-            class={`${badgeClass} cursor-pointer transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800`}
-            classList={badgeBorderList}
-          >
-            {badgeContent}
-          </button>
-
-          {/* Permission dropdown — only the allowed options are listed,
-              so a row showing `read` with allowedLevels=[read,write]
-              gives the user `write` as the only switch target. */}
-          <Show when={showPermissionMenu()}>
-            <div class="absolute right-0 top-full mt-1 z-10 popup min-w-30">
-              <For each={allowedOptions()}>
-                {(option) => (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (option.value !== props.entry.permission) {
-                        props.onUpdatePermission(option.value);
-                      }
-                      setShowPermissionMenu(false);
-                    }}
-                    class="w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 flex items-center gap-2"
-                    classList={{
-                      "bg-zinc-50 dark:bg-zinc-700/50":
-                        option.value === props.entry.permission,
-                    }}
-                  >
-                    <i class={`ti ${option.icon} ${getPermissionColor(option.value)}`} />
-                    <span>{option.label}</span>
-                    <Show when={option.value === props.entry.permission}>
-                      <i class="ti ti-check ml-auto text-green-500" />
-                    </Show>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-        </Show>
-      </div>
-
-      {/* Delete button */}
-      <Show when={props.canEdit && props.canDelete}>
-        <button
-          type="button"
-          onClick={props.onRevoke}
-          class="p-1 w-6 h-6 flex items-center justify-center text-dimmed hover:text-red-500 opacity-0 group-hover/entry:opacity-100 transition-opacity"
-        >
-          <i class="ti ti-x text-sm" />
-        </button>
+      {/* Add access — single Combobox, granted at the lowest allowed
+          level on pick. The user upgrades via the row pill if they want
+          a higher level. KISS: one decision per step. */}
+      <Show when={canEdit()}>
+        <Combobox
+          placeholder="Add user, group or audience..."
+          fetchData={fetchPrincipals}
+          onSelect={handleSelect}
+          disabled={grantMut.loading()}
+        />
       </Show>
     </div>
   );
 }
 
-// =============================================================================
-// Add Access Form
-// =============================================================================
+// ─────────────────────────────────────────────────────────────────────────
+// Access Entry Row
+// ─────────────────────────────────────────────────────────────────────────
 
-function AddAccessForm(props: {
-  existingUserIds: string[];
-  existingGroupIds: string[];
-  allowedLevels: PermissionLevel[];
-  onSelectEntity: (
-    result: EntitySearchResult,
-    permission: PermissionLevel
-  ) => void;
-  onSelectPrincipal: (
-    principal: Principal,
-    permission: PermissionLevel
-  ) => void;
-  onCancel: () => void;
-  loading: boolean;
-  showAuthenticated: boolean;
-  showPublic: boolean;
+function AccessEntryRow(props: {
+  entry: AccessEntry;
+  canEdit: boolean;
+  allowed: ResolvedLevel[];
+  /** When true the per-row picker collapses to a non-interactive badge
+   *  (single-level mode — there's nothing to switch to). */
+  singlePicker: boolean;
+  onUpdatePermission: (permission: GrantableLevel) => void;
+  onRevoke: () => void;
 }) {
-  // Initial permission = first allowed level. Picks "read" when all
-  // three are allowed (existing default); falls to whatever single
-  // value the caller restricted to (e.g. "write" for forms).
-  const [permission, setPermission] = createSignal<PermissionLevel>(
-    props.allowedLevels[0] ?? "read",
+  const display = () => resolveEntryDisplay(props.entry.permission, props.allowed);
+  const isInteractive = () => props.canEdit && !props.singlePicker;
+
+  const badgeClass = () => `flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${getPermissionColor(props.entry.permission)}`;
+  const badgeBorderList = () => ({
+    "border-blue-200 dark:border-blue-900": props.entry.permission === "read",
+    "border-amber-200 dark:border-amber-900": props.entry.permission === "write",
+    "border-purple-200 dark:border-purple-900": props.entry.permission === "admin",
+    "border-zinc-200 dark:border-zinc-700":
+      props.entry.permission !== "read" && props.entry.permission !== "write" && props.entry.permission !== "admin",
+  });
+
+  const badgeContent = (
+    <>
+      <i class={`ti ${display().icon}`} />
+      <span>{display().label}</span>
+      <Show when={isInteractive()}>
+        <i class="ti ti-chevron-down text-[10px]" />
+      </Show>
+    </>
   );
-  const hasTwoPrincipalButtons = () =>
-    props.showAuthenticated && props.showPublic;
-  // Filter the SegmentedControl to the allowed subset only.
-  const permissionOptions = () =>
-    PERMISSION_OPTIONS
-      .filter((o) => props.allowedLevels.includes(o.value))
-      .map((option) => ({
-        value: option.value,
-        label: option.label,
-        icon: `ti ${option.icon}`,
-      }));
-  const isSinglePicker = () => props.allowedLevels.length === 1;
 
   return (
-    <div class="paper p-3 flex flex-col gap-2">
-      {/* Permission level selector — hidden when only one level is
-          allowed (a one-option SegmentedControl is just visual noise;
-          the level is fixed at the allowedLevels[0] default). */}
-      <Show when={!isSinglePicker()}>
-        <div class="flex flex-col gap-1">
-          <p class="text-xs text-secondary">Permission Level</p>
-          <SegmentedControl
-            options={permissionOptions()}
-            value={permission}
-            onChange={setPermission}
-            disabled={props.loading}
-          />
-        </div>
-      </Show>
+    <div class="flex items-center gap-2 py-1.5">
+      {/* Principal icon */}
+      <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+        <i class={`ti ${getPrincipalIcon(props.entry.principal)} text-sm`} />
+      </div>
 
-      {/* User/Group search */}
-      <EntitySearch
-        apiBaseUrl="/api/accounts"
-        searchUsers
-        searchGroups
-        excludeUserIds={props.existingUserIds}
-        excludeGroupIds={props.existingGroupIds}
-        onSelect={(result) => props.onSelectEntity(result, permission())}
-        placeholder="Search users or groups..."
-        adding={props.loading}
-        resultsHeightClass="max-h-36 min-h-20"
-      />
+      {/* Display name */}
+      <div class="min-w-0 flex-1">
+        <span class="truncate text-sm">{getEntryDisplayName(props.entry)}</span>
+        <Show when={props.entry.principal.type === "public"}>
+          <span class="ml-1 text-xs text-dimmed">(Anyone with the link)</span>
+        </Show>
+      </div>
 
-      <Show when={props.showAuthenticated || props.showPublic}>
-        <div
-          class="grid gap-2"
-          classList={{
-            "grid-cols-2": hasTwoPrincipalButtons(),
-            "grid-cols-1": !hasTwoPrincipalButtons(),
-          }}
-        >
-          <Show when={props.showAuthenticated}>
-            <button
-              type="button"
-              onClick={() =>
-                props.onSelectPrincipal({ type: "authenticated" }, permission())
-              }
-              disabled={props.loading}
-              class="btn-simple btn-sm w-full justify-center"
-            >
-              <i class="ti ti-lock-open-2" />
-              All users (incl. guests)
-            </button>
-          </Show>
-          <Show when={props.showPublic}>
-            <button
-              type="button"
-              onClick={() =>
-                props.onSelectPrincipal({ type: "public" }, permission())
-              }
-              disabled={props.loading}
-              class="btn-secondary btn-sm w-full justify-center"
-            >
-              <i class="ti ti-world" />
-              Allow public
-            </button>
-          </Show>
-        </div>
-      </Show>
-
-      {/* Cancel button */}
-      <button
-        type="button"
-        onClick={props.onCancel}
-        class="text-xs text-dimmed hover:text-primary self-end"
+      {/* Permission badge — interactive Dropdown when editable, plain
+          span otherwise. */}
+      <Show
+        when={isInteractive()}
+        fallback={
+          <span class={`${badgeClass()} cursor-default`} classList={badgeBorderList()}>
+            {badgeContent}
+          </span>
+        }
       >
-        Cancel
-      </button>
+        <Dropdown
+          trigger={
+            <button
+              type="button"
+              class={`${badgeClass()} cursor-pointer transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800`}
+              classList={badgeBorderList()}
+            >
+              {badgeContent}
+            </button>
+          }
+          position="bottom-left"
+          width="10rem"
+          // Custom `element` items rather than action items — lets us
+          // color-tint each row by its level (matching the row pill
+          // colors), prefix icons correctly with the `ti ` base class
+          // (Dropdown's action.icon expected the full class but we
+          // store just `ti-eye` etc.), and mark the currently-active
+          // level with a checkmark.
+          elements={props.allowed.map((option) => ({
+            element: (close) => {
+              const isCurrent = () => option.level === props.entry.permission;
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isCurrent()) props.onUpdatePermission(option.level);
+                    close();
+                  }}
+                  class="flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  classList={{ "bg-zinc-50 dark:bg-zinc-700/50": isCurrent() }}
+                >
+                  <i class={`ti ${option.icon} ${getPermissionColor(option.level)}`} />
+                  <span class="flex-1 text-left">{option.label}</span>
+                  <Show when={isCurrent()}>
+                    <i class="ti ti-check text-emerald-500" />
+                  </Show>
+                </button>
+              );
+            },
+          }))}
+        />
+      </Show>
+
+      {/* Delete button — always visible when editable, dimmed by default
+          (no longer hover-only). The last entry IS deletable; parent ACL
+          covers the gap. */}
+      <Show when={props.canEdit}>
+        <button
+          type="button"
+          onClick={props.onRevoke}
+          aria-label={`Remove ${getEntryDisplayName(props.entry)}`}
+          class="flex h-6 w-6 items-center justify-center text-zinc-400 transition-colors hover:text-red-500"
+        >
+          <i class="ti ti-x text-sm" />
+        </button>
+      </Show>
     </div>
   );
 }

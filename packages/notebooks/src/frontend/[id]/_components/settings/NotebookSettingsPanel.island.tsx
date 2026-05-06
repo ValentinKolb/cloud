@@ -1,12 +1,10 @@
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { icons } from "@valentinkolb/cloud/shared";
+import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { PermissionEditor, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
-import { icons } from "@valentinkolb/cloud/shared";
 import type { Notebook } from "../sidebar/types";
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type Props = {
   notebook: Notebook;
@@ -165,27 +163,26 @@ export default function NotebookSettingsPanel(props: Props) {
                 Permissions
               </h3>
               <PermissionEditor
-                resourceId={props.notebook.id}
                 initialEntries={props.accessEntries}
                 canEdit
-                grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+                grantAccess={async (principal, permission) => {
                   const res = await apiClient[":id"].access.$post({
-                    param: { id: resourceId },
+                    param: { id: props.notebook.id },
                     json: { principal, permission },
                   });
                   if (!res.ok) throw new Error("Failed to grant access");
                   return res.json() as Promise<AccessEntry>;
                 }}
-                updateAccess={async (resourceId: string, accessId: string, permission: PermissionLevel) => {
+                updateAccess={async (accessId, permission) => {
                   const res = await apiClient[":id"].access[":accessId"].$patch({
-                    param: { id: resourceId, accessId },
+                    param: { id: props.notebook.id, accessId },
                     json: { permission },
                   });
                   if (!res.ok) throw new Error("Failed to update access");
                 }}
-                revokeAccess={async (resourceId: string, accessId: string) => {
+                revokeAccess={async (accessId) => {
                   const res = await apiClient[":id"].access[":accessId"].$delete({
-                    param: { id: resourceId, accessId },
+                    param: { id: props.notebook.id, accessId },
                   });
                   if (!res.ok) throw new Error("Failed to revoke access");
                 }}

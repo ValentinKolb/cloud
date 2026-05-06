@@ -6,7 +6,7 @@ export { Pagination } from "./Pagination";
 export { default as MarkdownView } from "./MarkdownView";
 export { default as PermissionEditor } from "./PermissionEditor";
 export { default as EntitySearch } from "./EntitySearch";
-export type { EntitySearchResult } from "./EntitySearch";
+export type { EntitySearchPrincipal } from "./EntitySearch";
 export { default as CopyButton } from "./CopyButton";
 export { default as Lightbox } from "./Lightbox";
 export type { LightboxImage } from "./Lightbox";

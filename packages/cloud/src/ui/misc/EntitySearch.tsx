@@ -1,45 +1,104 @@
-import { createSignal, For, Show } from "solid-js";
 import { timed } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
 import TextInput from "../input/TextInput";
 
-type UserResult = {
+/**
+ * Discriminated principal returned to `onSelect`. Field names match the
+ * platform `Principal` contract (`userId`/`groupId`) so callers can pass
+ * `onSelect={grant}` directly via structural typing — the extra display
+ * fields (uid, displayName, etc.) are silently ignored by `Principal`-
+ * typed callbacks.
+ */
+export type EntitySearchPrincipal =
+  | {
+      type: "user";
+      userId: string;
+      uid: string;
+      displayName: string;
+      mail: string | null;
+      provider: "ipa" | "local";
+    }
+  | {
+      type: "group";
+      groupId: string;
+      provider: "ipa" | "local";
+      name: string;
+      description: string | null;
+    }
+  | { type: "authenticated" }
+  | { type: "public" };
+
+type EntitySearchProps = {
+  // ── Include flags (one per principal type, all default false) ────────
+  /** Surface real user accounts in the result list. */
+  includeUsers?: boolean;
+  /** Surface real groups in the result list. */
+  includeGroups?: boolean;
+  /** Inject a synthetic "All authenticated users" row at the top. */
+  includeAuthenticated?: boolean;
+  /** Inject a synthetic "Public" row at the top. */
+  includePublic?: boolean;
+
+  // ── Exclude filters (apply only when the related kind is included) ──
+  excludeUserIds?: string[];
+  excludeGroupIds?: string[];
+
+  /** Provider filter — applies uniformly to BOTH users and groups.
+   *  Whitelist semantics: `["local"]` shows only local accounts,
+   *  `["ipa"]` only IPA. Empty / both / undefined → no filter.
+   *  Backend accepts a single provider; this client only sends the
+   *  filter when the array has exactly one entry, since both-allowed
+   *  is identical to no-filter. */
+  providers?: ("ipa" | "local")[];
+
+  /** Restrict users to those who are members of at least one of these
+   *  groups. User-side qualifier — only meaningful when
+   *  `includeUsers` is true. */
+  onlyMembersOf?: string[];
+
+  // ── Output ──────────────────────────────────────────────────────────
+  onSelect: (principal: EntitySearchPrincipal) => void;
+
+  // ── Cosmetics ───────────────────────────────────────────────────────
+  placeholder?: string;
+  /** Override the result-list height. Default `h-48`. */
+  resultsHeightClass?: string;
+  /** Disables every "+" button in the result list while a parent-side
+   *  mutation is in flight. */
+  disabled?: boolean;
+};
+
+// Backend `/api/accounts/entities` shape (subset we consume here).
+type ApiUser = {
   id: string;
   uid: string;
   displayName: string;
   mail: string | null;
+  provider: "ipa" | "local";
 };
-
-type GroupResult = {
+type ApiGroup = {
   id: string;
   provider: "ipa" | "local";
   name: string;
   description: string | null;
 };
 
-export type EntitySearchResult =
-  | { type: "user"; id: string; displayName: string; mail: string | null }
-  | { type: "group"; id: string; provider: "ipa" | "local"; name: string; description: string | null };
-
-type EntitySearchProps = {
-  apiBaseUrl?: string;
-  groupProvider?: "ipa" | "local";
-  searchUsers?: boolean;
-  searchGroups?: boolean;
-  excludeUserIds?: string[];
-  excludeGroupIds?: string[];
-  onSelect: (result: EntitySearchResult) => void;
-  placeholder?: string;
-  adding?: boolean;
-  userMemberOfGroupIds?: string[];
-  resultsHeightClass?: string;
-};
-
 const EntitySearch = (props: EntitySearchProps) => {
   const [search, setSearch] = createSignal("");
-  const [users, setUsers] = createSignal<UserResult[]>([]);
-  const [groups, setGroups] = createSignal<GroupResult[]>([]);
+  const [users, setUsers] = createSignal<ApiUser[]>([]);
+  const [groups, setGroups] = createSignal<ApiGroup[]>([]);
   const [loading, setLoading] = createSignal(false);
-  const [addingId, setAddingId] = createSignal<string | null>(null);
+
+  // Defensive dev-warning: at least one principal kind must be enabled,
+  // otherwise the component is decorative-only and the caller probably
+  // forgot a flag.
+  if (!props.includeUsers && !props.includeGroups && !props.includeAuthenticated && !props.includePublic) {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[EntitySearch] No `includeUsers / includeGroups / includeAuthenticated / includePublic` flag is set — the search will never produce a result.",
+      );
+    }
+  }
 
   const doSearch = async (q: string) => {
     if (q.length < 2) {
@@ -48,48 +107,44 @@ const EntitySearch = (props: EntitySearchProps) => {
       return;
     }
 
+    const kinds = [...(props.includeUsers ? ["user"] : []), ...(props.includeGroups ? ["group"] : [])];
+    if (kinds.length === 0) {
+      // Special-principals-only mode (e.g. `includeAuthenticated`).
+      // Nothing to fetch from the backend; the synthetic rows render
+      // unconditionally.
+      setUsers([]);
+      setGroups([]);
+      return;
+    }
+
     setLoading(true);
     try {
-      const url = new URL(`${props.apiBaseUrl ?? "/api/accounts"}/entities`, window.location.origin);
-      const kinds = [
-        ...(props.searchUsers !== false ? ["user"] : []),
-        ...(props.searchGroups ? ["group"] : []),
-      ];
-      if (kinds.length === 0) {
-        setUsers([]);
-        setGroups([]);
-        return;
-      }
-
+      const url = new URL("/api/accounts/entities", window.location.origin);
       url.searchParams.set("search", q);
       url.searchParams.set("kinds", kinds.join(","));
       url.searchParams.set("per_page", "10");
 
-      if (props.excludeUserIds && props.excludeUserIds.length > 0) {
+      if (props.excludeUserIds?.length) {
         url.searchParams.set("exclude_user_ids", props.excludeUserIds.join(","));
       }
-
-      if (props.excludeGroupIds && props.excludeGroupIds.length > 0) {
+      if (props.excludeGroupIds?.length) {
         url.searchParams.set("exclude_group_ids", props.excludeGroupIds.join(","));
       }
-
-      if (props.userMemberOfGroupIds && props.userMemberOfGroupIds.length > 0) {
-        url.searchParams.set("user_member_of_group_ids", props.userMemberOfGroupIds.join(","));
+      if (props.onlyMembersOf?.length) {
+        url.searchParams.set("user_member_of_group_ids", props.onlyMembersOf.join(","));
+      }
+      // Provider whitelist — only meaningful when restricting to a single
+      // provider (both-allowed = no filter).
+      if (props.providers?.length === 1) {
+        url.searchParams.set("provider", props.providers[0]!);
       }
 
-      if (props.groupProvider) {
-        url.searchParams.set("provider", props.groupProvider);
-      }
-
-      const res = await fetch(url.toString(), {
-        credentials: "same-origin",
-      });
-
+      const res = await fetch(url.toString(), { credentials: "same-origin" });
       if (res.ok) {
         const data = await res.json();
-        const items = data.items ?? [];
-        setUsers(items.filter((item: { kind: string }) => item.kind === "user").map((item: { user: UserResult }) => item.user));
-        setGroups(items.filter((item: { kind: string }) => item.kind === "group").map((item: { group: GroupResult }) => item.group));
+        const items: { kind: "user" | "group"; user?: ApiUser; group?: ApiGroup }[] = data.items ?? [];
+        setUsers(items.filter((item) => item.kind === "user" && item.user).map((item) => item.user!));
+        setGroups(items.filter((item) => item.kind === "group" && item.group).map((item) => item.group!));
       }
     } finally {
       setLoading(false);
@@ -103,13 +158,14 @@ const EntitySearch = (props: EntitySearchProps) => {
     debouncedSearch(value);
   };
 
-  const handleSelect = (result: EntitySearchResult) => {
-    setAddingId(result.id);
-    props.onSelect(result);
-    setAddingId(null);
-  };
-
   const resultsHeightClass = () => props.resultsHeightClass ?? "h-48";
+
+  // Synthetic principals show whenever the flag is on — they're a
+  // standing offer, not gated on the search query. They render at the
+  // top of the list above real entities.
+  const showSynthetic = () => props.includeAuthenticated || props.includePublic;
+  const hasRealResults = () => users().length > 0 || groups().length > 0;
+  const hasAnyResults = () => showSynthetic() || hasRealResults();
 
   return (
     <div class="flex flex-col gap-3">
@@ -122,92 +178,108 @@ const EntitySearch = (props: EntitySearchProps) => {
           </div>
         </Show>
 
-        <Show when={!loading() && search().length >= 2 && users().length === 0 && groups().length === 0}>
+        <Show when={!loading() && hasAnyResults()}>
+          <div class="flex flex-col gap-1">
+            {/* Synthetic principals — always available when their flag
+                is on, irrespective of the search query. */}
+            <Show when={props.includeAuthenticated}>
+              <ResultRow
+                icon="ti-lock-open-2"
+                title="All users (incl. guests)"
+                subtitle="Anyone signed in to the cloud"
+                disabled={props.disabled}
+                onSelect={() => props.onSelect({ type: "authenticated" })}
+              />
+            </Show>
+            <Show when={props.includePublic}>
+              <ResultRow
+                icon="ti-world"
+                title="Public"
+                subtitle="Anyone with the link, even unauthenticated"
+                disabled={props.disabled}
+                onSelect={() => props.onSelect({ type: "public" })}
+              />
+            </Show>
+
+            {/* Real entities — only after a search query. */}
+            <For each={users()}>
+              {(user) => (
+                <ResultRow
+                  icon="ti-user"
+                  title={user.displayName}
+                  subtitle={user.mail ? `${user.uid} · ${user.mail}` : user.uid}
+                  disabled={props.disabled}
+                  onSelect={() =>
+                    props.onSelect({
+                      type: "user",
+                      userId: user.id,
+                      uid: user.uid,
+                      displayName: user.displayName,
+                      mail: user.mail,
+                      provider: user.provider,
+                    })
+                  }
+                />
+              )}
+            </For>
+            <For each={groups()}>
+              {(group) => (
+                <ResultRow
+                  icon="ti-users-group"
+                  title={group.name}
+                  subtitle={group.description ?? undefined}
+                  disabled={props.disabled}
+                  onSelect={() =>
+                    props.onSelect({
+                      type: "group",
+                      groupId: group.id,
+                      provider: group.provider,
+                      name: group.name,
+                      description: group.description,
+                    })
+                  }
+                />
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <Show when={!loading() && !hasAnyResults() && search().length >= 2}>
           <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
             <i class="ti ti-search-off text-sm" />
             No results found
           </p>
         </Show>
 
-        <Show when={!loading() && search().length < 2}>
+        <Show when={!loading() && !hasAnyResults() && search().length < 2}>
           <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
             <i class="ti ti-search text-sm" />
             Type at least 2 characters
           </p>
         </Show>
-
-        <Show when={!loading() && (users().length > 0 || groups().length > 0)}>
-          <div class="flex flex-col gap-1">
-            <For each={users()}>
-              {(user) => (
-                <div class="flex items-center gap-3 rounded p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                    <i class="ti ti-user text-sm" />
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-medium">{user.displayName}</div>
-                    <div class="truncate text-xs text-dimmed">
-                      {user.uid}
-                      {user.mail && ` · ${user.mail}`}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleSelect({
-                        type: "user",
-                        id: user.id,
-                        displayName: user.displayName,
-                        mail: user.mail,
-                      })
-                    }
-                    disabled={addingId() !== null || props.adding}
-                    class="rounded p-2 text-emerald-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50 dark:hover:bg-emerald-900/20"
-                    aria-label={`Add ${user.displayName}`}
-                  >
-                    <i class={addingId() === user.id ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
-                  </button>
-                </div>
-              )}
-            </For>
-
-            <For each={groups()}>
-              {(group) => (
-                <div class="flex items-center gap-3 rounded p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                    <i class="ti ti-users-group text-sm" />
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-medium">{group.name}</div>
-                    <Show when={group.description}>
-                      <div class="truncate text-xs text-dimmed">{group.description}</div>
-                    </Show>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleSelect({
-                        type: "group",
-                        id: group.id,
-                        provider: group.provider,
-                        name: group.name,
-                        description: group.description,
-                      })
-                    }
-                    disabled={addingId() !== null || props.adding}
-                    class="rounded p-2 text-emerald-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 disabled:opacity-50 dark:hover:bg-emerald-900/20"
-                    aria-label={`Add ${group.name}`}
-                  >
-                    <i class={addingId() === group.id ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
       </div>
     </div>
   );
 };
+
+const ResultRow = (props: { icon: string; title: string; subtitle?: string; disabled?: boolean; onSelect: () => void }) => (
+  <button
+    type="button"
+    onClick={props.onSelect}
+    disabled={props.disabled}
+    class="flex items-center gap-3 rounded p-2 text-left hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-800"
+  >
+    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+      <i class={`ti ${props.icon} text-sm`} />
+    </div>
+    <div class="min-w-0 flex-1">
+      <div class="truncate text-sm font-medium">{props.title}</div>
+      <Show when={props.subtitle}>
+        <div class="truncate text-xs text-dimmed">{props.subtitle}</div>
+      </Show>
+    </div>
+    <i class="ti ti-plus text-emerald-500" />
+  </button>
+);
 
 export default EntitySearch;

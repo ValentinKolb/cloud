@@ -1,8 +1,6 @@
-import { Dropdown, PermissionEditor } from "@valentinkolb/cloud/ui";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
-import type { AccessEntry, PermissionLevel, Principal } from "@/contracts";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import type { AccessEntry } from "@/contracts";
 
 type AdminSpaceActionsProps = {
   spaceId: string;
@@ -37,12 +35,11 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps) => {
       <div class="w-full max-w-full flex flex-col gap-3">
         <p class="text-xs text-dimmed">Manage who can access this space.</p>
         <PermissionEditor
-          resourceId={props.spaceId}
           initialEntries={entries}
           canEdit
-          grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+          grantAccess={async (principal, permission) => {
             const response = await apiClient[":id"].access.$post({
-              param: { id: resourceId },
+              param: { id: props.spaceId },
               json: { principal, permission },
             });
             if (!response.ok) {
@@ -50,18 +47,18 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps) => {
             }
             return (await response.json()) as AccessEntry;
           }}
-          updateAccess={async (resourceId: string, accessId: string, permission: PermissionLevel) => {
+          updateAccess={async (accessId, permission) => {
             const response = await apiClient[":id"].access[":accessId"].$patch({
-              param: { id: resourceId, accessId },
+              param: { id: props.spaceId, accessId },
               json: { permission },
             });
             if (!response.ok) {
               throw new Error(await readErrorMessage(response, "Failed to update access."));
             }
           }}
-          revokeAccess={async (resourceId: string, accessId: string) => {
+          revokeAccess={async (accessId) => {
             const response = await apiClient[":id"].access[":accessId"].$delete({
-              param: { id: resourceId, accessId },
+              param: { id: props.spaceId, accessId },
             });
             if (!response.ok) {
               throw new Error(await readErrorMessage(response, "Failed to revoke access."));

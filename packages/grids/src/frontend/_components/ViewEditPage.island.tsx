@@ -1,34 +1,13 @@
-import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import { NumberInput, navigateTo, PermissionEditor, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { type DndBuildIntentContext, dnd, mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import {
-  NumberInput,
-  PermissionEditor,
-  Select,
-  TextInput,
-  navigateTo,
-  prompts,
-  refreshCurrentPath,
-} from "@valentinkolb/cloud/ui";
-import {
-  dnd,
-  mutation as mutations,
-  type DndBuildIntentContext,
-} from "@valentinkolb/stdlib/solid";
-import type {
-  AccessEntry,
-  PermissionLevel,
-  Principal,
-} from "@valentinkolb/cloud/contracts/shared";
-import type { Field } from "../../service";
-import type {
-  ColumnSpec,
-  FormatSpec,
-  ViewQuery,
-} from "../../service/views";
-import type { View } from "../../service";
+import type { Field, View } from "../../service";
+import type { ColumnSpec, FormatSpec, ViewQuery } from "../../service/views";
 import { errorMessage } from "./api-helpers";
-import { SectionCard } from "./SectionCard";
 import { TYPE_LABELS } from "./field-config-editor";
+import { SectionCard } from "./SectionCard";
 
 type Props = {
   baseId: string;
@@ -75,19 +54,14 @@ export default function ViewEditPage(props: Props) {
     <div class="flex flex-col gap-4 p-6">
       <header class="flex items-center justify-between gap-3">
         <h1 class="text-xl font-semibold text-primary">View settings</h1>
-        <a
-          href={`/app/grids/${props.baseId}?table=${props.tableId}&view=${props.initialView.id}`}
-          class="btn-input btn-input-sm"
-        >
+        <a href={`/app/grids/${props.baseId}?table=${props.tableId}&view=${props.initialView.id}`} class="btn-input btn-input-sm">
           <i class="ti ti-arrow-left" /> Back to records
         </a>
       </header>
 
       <div class="info-block-info text-xs">
-        <i class="ti ti-snowflake" /> The view's query (filter, sort, group,
-        aggregations) is frozen. To change it, go back to the records page,
-        adjust filter/sort/group/aggregate in the toolbar, and save as a
-        new view.
+        <i class="ti ti-snowflake" /> The view's query (filter, sort, group, aggregations) is frozen. To change it, go back to the records
+        page, adjust filter/sort/group/aggregate in the toolbar, and save as a new view.
       </div>
 
       <GeneralSection viewId={props.initialView.id} initial={props.initialView} />
@@ -97,17 +71,10 @@ export default function ViewEditPage(props: Props) {
           from groupBy + aggregations, so a separate column list would
           be ignored anyway. */}
       <Show when={!isGrouped}>
-        <ColumnsSection
-          viewId={props.initialView.id}
-          fields={props.fields}
-          initialColumns={props.initialView.query.columns}
-        />
+        <ColumnsSection viewId={props.initialView.id} fields={props.fields} initialColumns={props.initialView.query.columns} />
       </Show>
 
-      <LimitSection
-        viewId={props.initialView.id}
-        initial={props.initialView.query.limit}
-      />
+      <LimitSection viewId={props.initialView.id} initial={props.initialView.query.limit} />
 
       {/* Permissions section — only meaningful for shared views (a
           personal view's grants would be invisible to anyone but the
@@ -119,11 +86,7 @@ export default function ViewEditPage(props: Props) {
         title="Permissions"
         subtitle="Grant read access on this view to specific users or groups. Only Read is offered — views are saved queries; there's no Write or Admin level for them."
       >
-        <ViewPermissions
-          viewId={props.initialView.id}
-          initialEntries={props.initialAccessEntries}
-          canEdit={props.canEditAccess}
-        />
+        <ViewPermissions viewId={props.initialView.id} initialEntries={props.initialAccessEntries} canEdit={props.canEditAccess} />
       </SectionCard>
 
       <SectionCard
@@ -131,12 +94,7 @@ export default function ViewEditPage(props: Props) {
         subtitle="Permanently delete this view. Records remain — only the saved filter / sort / columns go away."
         variant="danger"
       >
-        <DeleteButton
-          viewId={props.initialView.id}
-          baseId={props.baseId}
-          tableId={props.tableId}
-          name={props.initialView.name}
-        />
+        <DeleteButton viewId={props.initialView.id} baseId={props.baseId} tableId={props.tableId} name={props.initialView.name} />
       </SectionCard>
     </div>
   );
@@ -146,10 +104,7 @@ export default function ViewEditPage(props: Props) {
 // Shared helper — patch the view's query (merging into existing)
 // =============================================================================
 
-const patchViewQuery = async (
-  viewId: string,
-  patch: Partial<ViewQuery>,
-): Promise<View> => {
+const patchViewQuery = async (viewId: string, patch: Partial<ViewQuery>): Promise<View> => {
   // Fetch current to merge — the API replaces query wholesale, so we
   // need to send everything together. (Tiny round-trip cost; this only
   // happens on Save clicks, not on every keystroke.)
@@ -200,19 +155,9 @@ function GeneralSection(props: { viewId: string; initial: View }) {
 
   return (
     <SectionCard title="General" subtitle="Name and visibility scope.">
-      <TextInput
-        label="Name"
-        value={name}
-        onInput={wrap(setName)}
-        icon="ti ti-typography"
-        required
-      />
+      <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
       <label class="inline-flex items-center gap-2 text-xs text-secondary">
-        <input
-          type="checkbox"
-          checked={shared()}
-          onChange={(e) => wrap(setShared)(e.currentTarget.checked)}
-        />
+        <input type="checkbox" checked={shared()} onChange={(e) => wrap(setShared)(e.currentTarget.checked)} />
         Shared — visible to everyone with read access on this table
       </label>
       <Show when={dirty()}>
@@ -235,12 +180,7 @@ function GeneralSection(props: { viewId: string; initial: View }) {
   );
 }
 
-
-function ColumnsSection(props: {
-  viewId: string;
-  fields: Field[];
-  initialColumns: ColumnSpec[] | undefined;
-}) {
+function ColumnsSection(props: { viewId: string; fields: Field[]; initialColumns: ColumnSpec[] | undefined }) {
   const [columns, setColumns] = createSignal<ColumnSpec[] | undefined>(props.initialColumns);
   const [savedAt, setSavedAt] = createSignal<number | null>(null);
   const fieldsById = createMemo(() => new Map(props.fields.map((f) => [f.id, f])));
@@ -260,19 +200,12 @@ function ColumnsSection(props: {
   // field types, not view-level joins.
   const visible = () => columns() ?? [];
   const usedIds = createMemo(() => new Set(visible().map((c) => c.fieldId)));
-  const addable = createMemo(() =>
-    props.fields.filter((f) => !f.deletedAt && !usedIds().has(f.id)),
-  );
+  const addable = createMemo(() => props.fields.filter((f) => !f.deletedAt && !usedIds().has(f.id)));
 
   // ── DnD ───────────────────────────────────────────────────────────
-  const buildIntent = (
-    ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>,
-  ): DropIntent | null => {
+  const buildIntent = (ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>): DropIntent | null => {
     if (!ctx.over) return null;
-    const insertIndex =
-      ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2
-        ? ctx.over.meta.index
-        : ctx.over.meta.index + 1;
+    const insertIndex = ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2 ? ctx.over.meta.index : ctx.over.meta.index + 1;
     return { insertIndex };
   };
   const colDnd = dnd.create<DragMeta, DropMeta, DropIntent>({
@@ -318,10 +251,11 @@ function ColumnsSection(props: {
   };
 
   const resetToInherit = async () => {
-    const ok = await prompts.confirm(
-      'Reset to table default? Custom column ordering and per-column formats will be lost.',
-      { title: "Reset columns?", variant: "danger", confirmText: "Reset" },
-    );
+    const ok = await prompts.confirm("Reset to table default? Custom column ordering and per-column formats will be lost.", {
+      title: "Reset columns?",
+      variant: "danger",
+      confirmText: "Reset",
+    });
     if (!ok) return;
     void persist(undefined);
   };
@@ -342,11 +276,7 @@ function ColumnsSection(props: {
     const next = await pickFormatSpec(f, col.format);
     if (next === undefined) return; // cancelled
     const updated: ColumnSpec[] = visible().map((c, i) =>
-      i === idx
-        ? next === null
-          ? { fieldId: c.fieldId }
-          : { fieldId: c.fieldId, format: next }
-        : c,
+      i === idx ? (next === null ? { fieldId: c.fieldId } : { fieldId: c.fieldId, format: next }) : c,
     );
     void persist(updated);
   };
@@ -355,14 +285,8 @@ function ColumnsSection(props: {
     <SectionCard
       title="Columns"
       subtitle="Drag to reorder. Click ⚙ to set per-column format. Hidden fields can be added explicitly."
-      meta={
-        columns() === undefined
-          ? "Inheriting"
-          : `${visible().length} column${visible().length === 1 ? "" : "s"}`
-      }
-      action={
-        savedAt() ? <span class="text-[10px] text-emerald-600">Saved</span> : undefined
-      }
+      meta={columns() === undefined ? "Inheriting" : `${visible().length} column${visible().length === 1 ? "" : "s"}`}
+      action={savedAt() ? <span class="text-[10px] text-emerald-600">Saved</span> : undefined}
     >
       <Show
         when={columns() !== undefined}
@@ -370,15 +294,10 @@ function ColumnsSection(props: {
           <div class="info-block-info text-xs flex items-start gap-2">
             <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
             <span class="flex-1">
-              Inheriting table default: every field where{" "}
-              <code class="font-mono">!hideInTable</code> is shown in{" "}
+              Inheriting table default: every field where <code class="font-mono">!hideInTable</code> is shown in{" "}
               <code class="font-mono">position</code> order.
             </span>
-            <button
-              type="button"
-              class="btn-input btn-input-sm shrink-0"
-              onClick={startCustomizing}
-            >
+            <button type="button" class="btn-input btn-input-sm shrink-0" onClick={startCustomizing}>
               <i class="ti ti-pencil" /> Customize
             </button>
           </div>
@@ -426,13 +345,9 @@ function ColumnsSection(props: {
                     <Show when={f()} fallback={<span class="text-xs text-red-500">deleted field</span>}>
                       <span class="flex-1 min-w-0 flex items-baseline gap-2">
                         <span class="text-sm font-medium text-primary truncate">{f()!.name}</span>
-                        <span class="text-[10px] text-dimmed">
-                          {TYPE_LABELS[f()!.type] ?? f()!.type}
-                        </span>
+                        <span class="text-[10px] text-dimmed">{TYPE_LABELS[f()!.type] ?? f()!.type}</span>
                         <Show when={col.format}>
-                          <span class="text-[10px] text-blue-600 dark:text-blue-400">
-                            format: {col.format!.kind}
-                          </span>
+                          <span class="text-[10px] text-blue-600 dark:text-blue-400">format: {col.format!.kind}</span>
                         </Show>
                       </span>
                       <button
@@ -484,11 +399,7 @@ function ColumnsSection(props: {
           </div>
         </Show>
 
-        <button
-          type="button"
-          class="btn-simple btn-sm text-orange-500 hover:text-orange-600 self-start"
-          onClick={resetToInherit}
-        >
+        <button type="button" class="btn-simple btn-sm text-orange-500 hover:text-orange-600 self-start" onClick={resetToInherit}>
           <i class="ti ti-rotate" /> Reset to table default
         </button>
       </Show>
@@ -522,10 +433,7 @@ function LimitSection(props: { viewId: string; initial: number | undefined }) {
   });
 
   return (
-    <SectionCard
-      title="Limit"
-      subtitle="Show at most N records. Use 0 for unlimited."
-    >
+    <SectionCard title="Limit" subtitle="Show at most N records. Use 0 for unlimited.">
       <div class="flex items-center gap-2 max-w-sm">
         <div class="flex-1">
           <NumberInput
@@ -539,12 +447,7 @@ function LimitSection(props: { viewId: string; initial: number | undefined }) {
           />
         </div>
         <Show when={dirty()}>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            onClick={() => mut.mutate(undefined)}
-            disabled={mut.loading()}
-          >
+          <button type="button" class="btn-primary btn-sm" onClick={() => mut.mutate(undefined)} disabled={mut.loading()}>
             {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
         </Show>
@@ -557,12 +460,7 @@ function LimitSection(props: { viewId: string; initial: number | undefined }) {
 // Delete
 // =============================================================================
 
-function DeleteButton(props: {
-  viewId: string;
-  baseId: string;
-  tableId: string;
-  name: string;
-}) {
+function DeleteButton(props: { viewId: string; baseId: string; tableId: string; name: string }) {
   const mut = mutations.create<void, void>({
     mutation: async () => {
       const res = await apiClient.views[":viewId"].$delete({
@@ -575,21 +473,17 @@ function DeleteButton(props: {
   });
 
   const handleDelete = async () => {
-    const ok = await prompts.confirm(
-      `Delete view "${props.name}"? Records remain — only the saved configuration goes away.`,
-      { title: "Delete view?", variant: "danger", confirmText: "Delete" },
-    );
+    const ok = await prompts.confirm(`Delete view "${props.name}"? Records remain — only the saved configuration goes away.`, {
+      title: "Delete view?",
+      variant: "danger",
+      confirmText: "Delete",
+    });
     if (!ok) return;
     mut.mutate(undefined);
   };
 
   return (
-    <button
-      type="button"
-      class="btn-danger btn-sm self-start"
-      onClick={handleDelete}
-      disabled={mut.loading()}
-    >
+    <button type="button" class="btn-danger btn-sm self-start" onClick={handleDelete} disabled={mut.loading()}>
       <i class="ti ti-trash" /> Delete view
     </button>
   );
@@ -609,10 +503,7 @@ function DeleteButton(props: {
  *  - `null` on "clear" (drop the format override)
  *  - a FormatSpec on save
  */
-const pickFormatSpec = async (
-  field: Field,
-  current?: FormatSpec,
-): Promise<FormatSpec | null | undefined> => {
+const pickFormatSpec = async (field: Field, current?: FormatSpec): Promise<FormatSpec | null | undefined> => {
   if (field.type === "date") {
     const result = await prompts.form({
       title: `Format: ${field.name}`,
@@ -627,8 +518,7 @@ const pickFormatSpec = async (
             { id: "long", label: "Long (May 3, 2026)" },
             { id: "relative", label: "Relative (3d ago)" },
           ],
-          default:
-            current?.kind === "date" ? current.format : "short",
+          default: current?.kind === "date" ? current.format : "short",
           required: true,
         },
         includeTime: {
@@ -656,10 +546,7 @@ const pickFormatSpec = async (
           label: "Decimal places",
           min: 0,
           max: 10,
-          default:
-            current?.kind === "decimal" && current.precision !== undefined
-              ? current.precision
-              : undefined,
+          default: current?.kind === "decimal" && current.precision !== undefined ? current.precision : undefined,
         },
         thousandsSeparator: {
           type: "boolean",
@@ -684,7 +571,7 @@ const pickFormatSpec = async (
         symbol: {
           type: "text",
           label: "Override symbol (optional)",
-          default: current?.kind === "currency" ? current.symbol ?? "" : "",
+          default: current?.kind === "currency" ? (current.symbol ?? "") : "",
           placeholder: "€ / $ / record's own code",
         },
         precision: {
@@ -692,10 +579,7 @@ const pickFormatSpec = async (
           label: "Decimal places",
           min: 0,
           max: 10,
-          default:
-            current?.kind === "currency" && current.precision !== undefined
-              ? current.precision
-              : undefined,
+          default: current?.kind === "currency" && current.precision !== undefined ? current.precision : undefined,
         },
       },
       confirmText: "Save",
@@ -703,9 +587,7 @@ const pickFormatSpec = async (
     if (!result) return undefined;
     return {
       kind: "currency",
-      symbol: typeof result.symbol === "string" && result.symbol.trim() !== ""
-        ? result.symbol.trim()
-        : undefined,
+      symbol: typeof result.symbol === "string" && result.symbol.trim() !== "" ? result.symbol.trim() : undefined,
       precision: typeof result.precision === "number" ? result.precision : undefined,
     };
   }
@@ -719,10 +601,7 @@ const pickFormatSpec = async (
           label: "Decimal places",
           min: 0,
           max: 10,
-          default:
-            current?.kind === "percent" && current.precision !== undefined
-              ? current.precision
-              : undefined,
+          default: current?.kind === "percent" && current.precision !== undefined ? current.precision : undefined,
         },
       },
       confirmText: "Save",
@@ -734,10 +613,10 @@ const pickFormatSpec = async (
     };
   }
   // Other types — no format options. Tell the user.
-  await prompts.alert(
-    `Field type "${TYPE_LABELS[field.type] ?? field.type}" has no format options.`,
-    { title: "No formats", icon: "ti ti-info-circle" },
-  );
+  await prompts.alert(`Field type "${TYPE_LABELS[field.type] ?? field.type}" has no format options.`, {
+    title: "No formats",
+    icon: "ti ti-info-circle",
+  });
   return undefined;
 };
 
@@ -749,34 +628,29 @@ const pickFormatSpec = async (
 // (no SegmentedControl, no chevron dropdown) — there's no Write or Admin
 // for a view, the API caps every grant at "read" or "none".
 
-function ViewPermissions(props: {
-  viewId: string;
-  initialEntries: AccessEntry[];
-  canEdit: boolean;
-}) {
+function ViewPermissions(props: { viewId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
   const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   return (
     <PermissionEditor
-      resourceId={props.viewId}
       initialEntries={entries()}
       canEdit={props.canEdit}
-      allowedLevels={["read"]}
-      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+      allowedLevels={[{ level: "read", label: "View" }]}
+      grantAccess={async (principal, permission) => {
         const res = await apiClient.access["by-view"][":viewId"].$post({
-          param: { viewId: resourceId },
+          param: { viewId: props.viewId },
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
         const created = (await res.json()) as { accessId: string };
         // Refetch the canonical list so the new entry has displayName etc.
         const listRes = await apiClient.access["by-view"][":viewId"].$get({
-          param: { viewId: resourceId },
+          param: { viewId: props.viewId },
         });
         const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}
-      updateAccess={async (_resourceId, accessId, permission) => {
+      updateAccess={async (accessId, permission) => {
         const res = await apiClient.access[":accessId"].$patch({
           param: { accessId },
           json: { permission },
@@ -784,7 +658,7 @@ function ViewPermissions(props: {
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
         setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
       }}
-      revokeAccess={async (_resourceId, accessId) => {
+      revokeAccess={async (accessId) => {
         const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
         setEntries(entries().filter((e) => e.id !== accessId));

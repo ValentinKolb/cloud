@@ -1,14 +1,8 @@
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import {
-  TextInput,
-  PermissionEditor,
-  navigateTo,
-  prompts,
-  refreshCurrentPath,
-} from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import type { Base } from "../../service";
 import { errorMessage } from "./api-helpers";
 import { SectionCard } from "./SectionCard";
@@ -27,34 +21,22 @@ export default function BaseSettingsPanel(props: Props) {
   return (
     <div class="flex flex-col gap-4">
       <header class="flex items-center gap-3">
-        <a
-          href={`/app/grids/${props.base.id}`}
-          class="p-1.5 text-dimmed hover:text-primary transition-colors"
-          title="Back to base"
-        >
+        <a href={`/app/grids/${props.base.id}`} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to base">
           <i class="ti ti-arrow-left" />
         </a>
         <h1 class="text-xl font-semibold text-primary">Base settings</h1>
       </header>
 
-      <SectionCard
-        title="General"
-        subtitle="Base name and description shown on the grids overview."
-      >
+      <SectionCard title="General" subtitle="Base name and description shown on the grids overview.">
         <GeneralForm base={props.base} />
       </SectionCard>
 
-      <SectionCard
-        title="Permissions"
-        subtitle="Base-level grants apply to every table by default."
-      >
+      <SectionCard title="Permissions" subtitle="Base-level grants apply to every table by default.">
         <div class="info-block-info text-xs flex items-start gap-2">
           <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
           <span>
-            Override per table from that table's editor: a group with{" "}
-            <code class="font-mono">read</code> on the base and{" "}
-            <code class="font-mono">write</code> on a single table can edit
-            that table but only read others. Within the same tier, "no
+            Override per table from that table's editor: a group with <code class="font-mono">read</code> on the base and{" "}
+            <code class="font-mono">write</code> on a single table can edit that table but only read others. Within the same tier, "no
             access" wins; user grants override group grants.
           </span>
         </div>
@@ -109,14 +91,7 @@ function GeneralForm(props: { base: { id: string; name: string; description: str
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-3">
-      <TextInput
-        label="Name"
-        placeholder="My Base"
-        icon="ti ti-typography"
-        value={name}
-        onInput={update(setName)}
-        required
-      />
+      <TextInput label="Name" placeholder="My Base" icon="ti ti-typography" value={name} onInput={update(setName)} required />
       <TextInput
         label="Description"
         placeholder="Optional description..."
@@ -139,24 +114,23 @@ function PermissionsSection(props: { baseId: string; initialEntries: AccessEntry
 
   return (
     <PermissionEditor
-      resourceId={props.baseId}
       initialEntries={entries()}
       canEdit
-      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+      grantAccess={async (principal, permission) => {
         const res = await apiClient.access["by-base"][":baseId"].$post({
-          param: { baseId: resourceId },
+          param: { baseId: props.baseId },
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
         const created = (await res.json()) as { accessId: string };
         const listRes = await apiClient.access["by-base"][":baseId"].$get({
-          param: { baseId: resourceId },
+          param: { baseId: props.baseId },
         });
         const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}
-      updateAccess={async (_resourceId, accessId, permission) => {
+      updateAccess={async (accessId, permission) => {
         const res = await apiClient.access[":accessId"].$patch({
           param: { accessId },
           json: { permission },
@@ -164,7 +138,7 @@ function PermissionsSection(props: { baseId: string; initialEntries: AccessEntry
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
         setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
       }}
-      revokeAccess={async (_resourceId, accessId) => {
+      revokeAccess={async (accessId) => {
         const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
         setEntries(entries().filter((e) => e.id !== accessId));
@@ -194,12 +168,7 @@ function DangerZone(props: { baseId: string; baseName: string }) {
   };
 
   return (
-    <button
-      type="button"
-      onClick={handleDelete}
-      disabled={deleteMut.loading()}
-      class="btn-danger btn-sm self-start"
-    >
+    <button type="button" onClick={handleDelete} disabled={deleteMut.loading()} class="btn-danger btn-sm self-start">
       {deleteMut.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (

@@ -3,7 +3,7 @@ import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { dates } from "@valentinkolb/stdlib";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { Dropdown, EntitySearch, MarkdownView, prompts, type DropdownItem, type EntitySearchResult } from "@valentinkolb/cloud/ui";
+import { Dropdown, EntitySearch, MarkdownView, prompts, type DropdownItem, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { setDetailItemInUrl, shouldHandleDetailClick } from "../../../lib/detail";
 import CommentsSection from "./CommentsSection";
@@ -313,13 +313,11 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
   };
 
   const handleAdd = async () => {
-    const result = await prompts.dialog<EntitySearchResult | null>(
+    const result = await prompts.dialog<EntitySearchPrincipal | null>(
       (close) => (
         <div class="min-h-70">
           <EntitySearch
-            apiBaseUrl="/api/accounts"
-            searchUsers
-            searchGroups={false}
+            includeUsers
             excludeUserIds={currentIds()}
             onSelect={(result) => close(result)}
             placeholder="Search users..."
@@ -330,7 +328,7 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
     );
 
     if (result?.type === "user") {
-      props.onUpdate([...currentIds(), result.id]);
+      props.onUpdate([...currentIds(), result.userId]);
     }
   };
 

@@ -1,30 +1,20 @@
-import { For, Show, createSignal, onCleanup } from "solid-js";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { type DndBuildIntentContext, dnd, mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import {
-  PermissionEditor,
-  TextInput,
-  prompts,
-  navigateTo,
-  refreshCurrentPath,
-} from "@valentinkolb/cloud/ui";
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
-import { SectionCard } from "./SectionCard";
-import {
-  dnd,
-  mutation as mutations,
-  type DndBuildIntentContext,
-} from "@valentinkolb/stdlib/solid";
 import type { Field, Form, Table } from "../../service";
 import { errorMessage } from "./api-helpers";
 import FormsManager from "./FormsManager.island";
 import {
-  FieldConfigEditor,
-  TYPE_OPTIONS,
-  TYPE_LABELS,
-  FIELD_TYPE_DESCRIPTIONS,
-  type FieldConfigState,
   defaultConfigForType,
+  FIELD_TYPE_DESCRIPTIONS,
+  FieldConfigEditor,
+  type FieldConfigState,
+  TYPE_LABELS,
+  TYPE_OPTIONS,
 } from "./field-config-editor";
+import { SectionCard } from "./SectionCard";
 
 type TableHeader = {
   id: string;
@@ -107,9 +97,7 @@ export default function TableEditPage(props: Props) {
   // -------------------------------------------------------------------
   // Fields section — reorderable cards with expand/collapse
   // -------------------------------------------------------------------
-  const [fields, setFields] = createSignal<Field[]>(
-    [...props.initialFields].sort((a, b) => a.position - b.position),
-  );
+  const [fields, setFields] = createSignal<Field[]>([...props.initialFields].sort((a, b) => a.position - b.position));
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
 
   // -------------------------------------------------------------------
@@ -126,15 +114,10 @@ export default function TableEditPage(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const buildIntent = (
-    ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>,
-  ): DropIntent | null => {
+  const buildIntent = (ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>): DropIntent | null => {
     if (!ctx.over) return null;
     // Pointer below midpoint of the over-card → insert AFTER it.
-    const insertIndex =
-      ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2
-        ? ctx.over.meta.index
-        : ctx.over.meta.index + 1;
+    const insertIndex = ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2 ? ctx.over.meta.index : ctx.over.meta.index + 1;
     return { insertIndex };
   };
 
@@ -236,10 +219,11 @@ export default function TableEditPage(props: Props) {
         return;
       }
     }
-    const confirmed = await prompts.confirm(
-      `Soft-delete "${field.name}"? Records keep their data; the column is hidden from the UI.`,
-      { title: "Delete field?", variant: "danger", confirmText: "Delete" },
-    );
+    const confirmed = await prompts.confirm(`Soft-delete "${field.name}"? Records keep their data; the column is hidden from the UI.`, {
+      title: "Delete field?",
+      variant: "danger",
+      confirmText: "Delete",
+    });
     if (!confirmed) return;
 
     const res = await apiClient.fields[":fieldId"].$delete({ param: { fieldId: field.id } });
@@ -283,26 +267,14 @@ export default function TableEditPage(props: Props) {
       {/* Page header — sits on the page background, no paper card. */}
       <header class="flex items-center justify-between gap-3">
         <h1 class="text-xl font-semibold text-primary">Edit table</h1>
-        <a
-          href={`/app/grids/${props.table.baseId}?table=${props.table.id}`}
-          class="btn-input btn-input-sm"
-        >
+        <a href={`/app/grids/${props.table.baseId}?table=${props.table.id}`} class="btn-input btn-input-sm">
           <i class="ti ti-arrow-left" /> Back to records
         </a>
       </header>
 
-      <SectionCard
-        title="General"
-        subtitle="Table name and description shown to viewers."
-      >
+      <SectionCard title="General" subtitle="Table name and description shown to viewers.">
         <form onSubmit={handleTableSave} class="flex flex-col gap-3">
-          <TextInput
-            label="Name"
-            value={tName}
-            onInput={setName}
-            icon="ti ti-typography"
-            required
-          />
+          <TextInput label="Name" value={tName} onInput={setName} icon="ti ti-typography" required />
           <TextInput
             label="Description"
             description="Optional — shown to viewers as table-level context."
@@ -312,11 +284,7 @@ export default function TableEditPage(props: Props) {
             multiline
           />
           <Show when={tDirty()}>
-            <button
-              type="submit"
-              class="btn-primary btn-sm self-start"
-              disabled={updateTableMut.loading()}
-            >
+            <button type="submit" class="btn-primary btn-sm self-start" disabled={updateTableMut.loading()}>
               {updateTableMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
             </button>
           </Show>
@@ -330,11 +298,7 @@ export default function TableEditPage(props: Props) {
       >
         <Show
           when={fields().length > 0}
-          fallback={
-            <p class="text-xs text-dimmed">
-              No fields yet. Click "Add field" below to create the first one.
-            </p>
-          }
+          fallback={<p class="text-xs text-dimmed">No fields yet. Click "Add field" below to create the first one.</p>}
         >
           <ul class="flex flex-col gap-2">
             <For each={fields()}>
@@ -370,12 +334,8 @@ export default function TableEditPage(props: Props) {
                         }));
                       }}
                       data-card-index={index()}
-                      class={`rounded-lg border transition-colors ${
-                        isDragging() ? "opacity-40" : ""
-                      } ${
-                        isExpanded()
-                          ? "border-blue-500 dark:border-blue-400"
-                          : "border-zinc-200 dark:border-zinc-700"
+                      class={`rounded-lg border transition-colors ${isDragging() ? "opacity-40" : ""} ${
+                        isExpanded() ? "border-blue-500 dark:border-blue-400" : "border-zinc-200 dark:border-zinc-700"
                       }`}
                     >
                       {/* Card header — visible in both states */}
@@ -395,28 +355,16 @@ export default function TableEditPage(props: Props) {
                           <i class="ti ti-grip-vertical" />
                         </span>
                         <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                          <span class="text-sm font-semibold text-primary truncate">
-                            {field.name}
-                          </span>
-                          <span class="text-[10px] text-dimmed">
-                            {TYPE_LABELS[field.type] ?? field.type}
-                          </span>
+                          <span class="text-sm font-semibold text-primary truncate">{field.name}</span>
+                          <span class="text-[10px] text-dimmed">{TYPE_LABELS[field.type] ?? field.type}</span>
                           <Show when={field.required}>
-                            <span class="text-[10px] text-amber-600 dark:text-amber-400">
-                              required
-                            </span>
+                            <span class="text-[10px] text-amber-600 dark:text-amber-400">required</span>
                           </Show>
                         </span>
                         <Show when={field.description}>
-                          <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
-                            {field.description}
-                          </span>
+                          <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">{field.description}</span>
                         </Show>
-                        <i
-                          class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
-                            isExpanded() ? "rotate-180" : ""
-                          }`}
-                        />
+                        <i class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${isExpanded() ? "rotate-180" : ""}`} />
                       </button>
 
                       <Show when={isExpanded()}>
@@ -443,31 +391,20 @@ export default function TableEditPage(props: Props) {
           </ul>
         </Show>
 
-        <button
-          type="button"
-          class="btn-input btn-input-sm self-start text-emerald-600 hover:text-emerald-700"
-          onClick={handleAddField}
-        >
+        <button type="button" class="btn-input btn-input-sm self-start text-emerald-600 hover:text-emerald-700" onClick={handleAddField}>
           <i class="ti ti-plus" /> Add field
         </button>
       </SectionCard>
 
-      <SectionCard
-        title="Permissions"
-        subtitle="Grants resolve most-specific-first: table > base, user > group."
-      >
+      <SectionCard title="Permissions" subtitle="Grants resolve most-specific-first: table > base, user > group.">
         <div class="info-block-info text-xs flex items-start gap-2">
           <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
           <span>
-            Within the same tier, "no access" wins over a positive grant. Set
-            base-level grants for the team default; tighten or loosen per table
-            here.
+            Within the same tier, "no access" wins over a positive grant. Set base-level grants for the team default; tighten or loosen per
+            table here.
           </span>
         </div>
-        <TablePermissions
-          tableId={props.table.id}
-          initialEntries={props.initialAccessEntries}
-        />
+        <TablePermissions tableId={props.table.id} initialEntries={props.initialAccessEntries} />
       </SectionCard>
 
       <SectionCard
@@ -491,12 +428,7 @@ export default function TableEditPage(props: Props) {
         subtitle="Permanently delete this table and all of its data. This cannot be undone."
         variant="danger"
       >
-        <button
-          type="button"
-          class="btn-danger btn-sm self-start"
-          onClick={handleDeleteTable}
-          disabled={deleteTableMut.loading()}
-        >
+        <button type="button" class="btn-danger btn-sm self-start" onClick={handleDeleteTable} disabled={deleteTableMut.loading()}>
           <i class="ti ti-trash" /> Delete table
         </button>
       </SectionCard>
@@ -520,9 +452,7 @@ function FieldEditor(props: {
   const [required, setRequired] = createSignal(props.field.required);
   const [presentable, setPresentable] = createSignal(props.field.presentable);
   const [hideInTable, setHideInTable] = createSignal(props.field.hideInTable);
-  const [config, setConfig] = createSignal<FieldConfigState>(
-    (props.field.config as FieldConfigState) ?? {},
-  );
+  const [config, setConfig] = createSignal<FieldConfigState>((props.field.config as FieldConfigState) ?? {});
   const [dirty, setDirty] = createSignal(false);
 
   // Touch-tracker — any field-level edit flips the dirty bit.
@@ -580,21 +510,10 @@ function FieldEditor(props: {
       </Show>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <TextInput
-          label="Name"
-          value={name}
-          onInput={wrap(setName)}
-          icon="ti ti-typography"
-          required
-        />
+        <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
         {/* Type display — uses the same TextInput visual the Name input
             uses (with disabled styling) so heights line up. */}
-        <TextInput
-          label="Type (immutable)"
-          icon="ti ti-category"
-          value={() => typeLabel}
-          disabled
-        />
+        <TextInput label="Type (immutable)" icon="ti ti-category" value={() => typeLabel} disabled />
       </div>
 
       <TextInput
@@ -610,30 +529,16 @@ function FieldEditor(props: {
 
       <div class="flex flex-col gap-2">
         <label class="inline-flex items-center gap-2 text-xs text-secondary">
-          <input
-            type="checkbox"
-            checked={required()}
-            onChange={(e) => wrap(setRequired)(e.currentTarget.checked)}
-          />
+          <input type="checkbox" checked={required()} onChange={(e) => wrap(setRequired)(e.currentTarget.checked)} />
           Required — every record must have a value for this field
         </label>
         <label class="inline-flex items-center gap-2 text-xs text-secondary">
-          <input
-            type="checkbox"
-            checked={presentable()}
-            onChange={(e) => wrap(setPresentable)(e.currentTarget.checked)}
-          />
-          Presentable — show this field whenever the record is referenced
-          elsewhere (relation cells, picker labels)
+          <input type="checkbox" checked={presentable()} onChange={(e) => wrap(setPresentable)(e.currentTarget.checked)} />
+          Presentable — show this field whenever the record is referenced elsewhere (relation cells, picker labels)
         </label>
         <label class="inline-flex items-center gap-2 text-xs text-secondary">
-          <input
-            type="checkbox"
-            checked={hideInTable()}
-            onChange={(e) => wrap(setHideInTable)(e.currentTarget.checked)}
-          />
-          Hide in table — only show this field in the detail panel by
-          default (views can still include it)
+          <input type="checkbox" checked={hideInTable()} onChange={(e) => wrap(setHideInTable)(e.currentTarget.checked)} />
+          Hide in table — only show this field in the detail panel by default (views can still include it)
         </label>
       </div>
 
@@ -649,21 +554,12 @@ function FieldEditor(props: {
       />
 
       <div class="flex items-center justify-between gap-2 pt-2">
-        <button
-          type="button"
-          class="btn-simple btn-sm text-red-500 hover:text-red-600"
-          onClick={props.onDeleted}
-        >
+        <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDeleted}>
           <i class="ti ti-trash" /> Delete field
         </button>
         <div class="flex items-center gap-2">
           <Show when={dirty()}>
-            <button
-              type="button"
-              class="btn-primary btn-sm"
-              onClick={handleSave}
-              disabled={updateMut.loading()}
-            >
+            <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={updateMut.loading()}>
               {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
             </button>
           </Show>
@@ -677,32 +573,28 @@ function FieldEditor(props: {
 // TablePermissions — wraps the platform PermissionEditor with table-API wires
 // =============================================================================
 
-function TablePermissions(props: {
-  tableId: string;
-  initialEntries: AccessEntry[];
-}) {
+function TablePermissions(props: { tableId: string; initialEntries: AccessEntry[] }) {
   const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   return (
     <PermissionEditor
-      resourceId={props.tableId}
       initialEntries={entries()}
       canEdit
-      grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+      grantAccess={async (principal, permission) => {
         const res = await apiClient.access["by-table"][":tableId"].$post({
-          param: { tableId: resourceId },
+          param: { tableId: props.tableId },
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
         const created = (await res.json()) as { accessId: string };
         // Re-fetch the canonical list so the new entry has its displayName etc.
         const listRes = await apiClient.access["by-table"][":tableId"].$get({
-          param: { tableId: resourceId },
+          param: { tableId: props.tableId },
         });
         const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}
-      updateAccess={async (_resourceId, accessId, permission) => {
+      updateAccess={async (accessId, permission) => {
         const res = await apiClient.access[":accessId"].$patch({
           param: { accessId },
           json: { permission },
@@ -710,7 +602,7 @@ function TablePermissions(props: {
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
         setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
       }}
-      revokeAccess={async (_resourceId, accessId) => {
+      revokeAccess={async (accessId) => {
         const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
         if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
         setEntries(entries().filter((e) => e.id !== accessId));

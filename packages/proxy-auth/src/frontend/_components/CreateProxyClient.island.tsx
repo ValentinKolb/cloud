@@ -5,7 +5,7 @@ import {
   CopyButton,
   TextInput,
   EntitySearch,
-  type EntitySearchResult,
+  type EntitySearchPrincipal,
   refreshCurrentPath,
 } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
@@ -49,9 +49,9 @@ const CreateProxyClient = () => {
         const [description, setDescription] = createSignal("");
         const [groups, setGroups] = createSignal<ProxyAuthAllowedGroup[]>([]);
 
-        const handleGroupSelect = (r: EntitySearchResult) => {
-          if (r.type === "group" && !groups().some((group) => group.id === r.id)) {
-            setGroups([...groups(), { id: r.id, name: r.name, provider: r.provider }]);
+        const handleGroupSelect = (r: EntitySearchPrincipal) => {
+          if (r.type === "group" && !groups().some((group) => group.id === r.groupId)) {
+            setGroups([...groups(), { id: r.groupId, name: r.name, provider: r.provider }]);
           }
         };
 
@@ -105,9 +105,7 @@ const CreateProxyClient = () => {
                 </div>
               </Show>
                 <EntitySearch
-                  apiBaseUrl="/api/accounts"
-                  searchGroups
-                  searchUsers={false}
+                  includeGroups
                   excludeGroupIds={groups().map((group) => group.id)}
                   onSelect={handleGroupSelect}
                   placeholder="Search groups..."

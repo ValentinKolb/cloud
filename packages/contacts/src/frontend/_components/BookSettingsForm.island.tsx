@@ -1,15 +1,12 @@
-import { createSignal } from "solid-js";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
-import { TextInput } from "@valentinkolb/cloud/ui";
-import { PermissionEditor } from "@valentinkolb/cloud/ui";
+import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
-import DeleteBookButton from "./DeleteBookButton";
-import BookTagsManager from "./BookTagsManager.island";
-import BookActions from "./BookActions.island";
 import type { ContactTag } from "../../service";
+import BookActions from "./BookActions.island";
+import BookTagsManager from "./BookTagsManager.island";
+import DeleteBookButton from "./DeleteBookButton";
 
 type Props = {
   bookId: string;
@@ -106,8 +103,8 @@ export default function BookSettingsForm(props: Props) {
           Tags
         </h2>
         <p class="text-xs text-dimmed">
-          Tags categorize contacts in this book (e.g. „VIP", „Lead", „Supplier"). Manage the vocabulary
-          here; assign tags from the contact editor.
+          Tags categorize contacts in this book (e.g. „VIP", „Lead", „Supplier"). Manage the vocabulary here; assign tags from the contact
+          editor.
         </p>
         <BookTagsManager bookId={props.bookId} initialTags={props.initialTags} />
       </section>
@@ -120,12 +117,11 @@ export default function BookSettingsForm(props: Props) {
           Permissions
         </h2>
         <PermissionEditor
-          resourceId={props.bookId}
           initialEntries={props.accessEntries}
           canEdit
-          grantAccess={async (resourceId: string, principal: Principal, permission: PermissionLevel) => {
+          grantAccess={async (principal, permission) => {
             const response = await apiClient.books[":bookId"].access.$post({
-              param: { bookId: resourceId },
+              param: { bookId: props.bookId },
               json: { principal, permission },
             });
 
@@ -138,9 +134,9 @@ export default function BookSettingsForm(props: Props) {
 
             return (await response.json()) as AccessEntry;
           }}
-          updateAccess={async (resourceId: string, accessId: string, permission: PermissionLevel) => {
+          updateAccess={async (accessId, permission) => {
             const response = await apiClient.books[":bookId"].access[":accessId"].$patch({
-              param: { bookId: resourceId, accessId },
+              param: { bookId: props.bookId, accessId },
               json: { permission },
             });
 
@@ -151,9 +147,9 @@ export default function BookSettingsForm(props: Props) {
               throw new Error(data.message ?? "Failed to update access");
             }
           }}
-          revokeAccess={async (resourceId: string, accessId: string) => {
+          revokeAccess={async (accessId) => {
             const response = await apiClient.books[":bookId"].access[":accessId"].$delete({
-              param: { bookId: resourceId, accessId },
+              param: { bookId: props.bookId, accessId },
             });
 
             if (!response.ok) {
@@ -174,8 +170,8 @@ export default function BookSettingsForm(props: Props) {
           Import &amp; Export
         </h2>
         <p class="text-xs text-dimmed">
-          Bulk-import contacts from a vCard file or export the entire book as vCard / CSV. Restricted to
-          book admins to prevent accidental data extraction.
+          Bulk-import contacts from a vCard file or export the entire book as vCard / CSV. Restricted to book admins to prevent accidental
+          data extraction.
         </p>
         <BookActions bookId={props.bookId} canWrite />
       </section>

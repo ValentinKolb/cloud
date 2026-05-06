@@ -1,8 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { EntitySearch, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
-import { EntitySearch, type EntitySearchResult } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type AddToGroupProps = {
   id: string;
@@ -32,16 +30,16 @@ export default function AddToGroup(props: AddToGroupProps) {
     prompts.dialog(
       (close) => (
         <EntitySearch
-          apiBaseUrl="/api/accounts"
-          groupProvider={props.userProvider === "local" ? "local" : undefined}
-          searchUsers={false}
-          searchGroups={true}
+          providers={props.userProvider === "local" ? ["local"] : undefined}
+          includeGroups
           excludeGroupIds={props.excludeGroups}
           placeholder="Search groups..."
-          adding={mutation.loading()}
-          onSelect={async (result: EntitySearchResult) => {
-            close();
-            await mutation.mutate(result.id);
+          disabled={mutation.loading()}
+          onSelect={async (result) => {
+            if (result.type === "group") {
+              close();
+              await mutation.mutate(result.groupId);
+            }
           }}
         />
       ),

@@ -3,6 +3,8 @@ export { default as NumberInput } from "./NumberInput";
 export { Checkbox, CheckboxInput } from "./Checkbox";
 export { Select, SelectInput } from "./Select";
 export { default as SelectChip } from "./SelectChip";
+export { default as Combobox } from "./Combobox";
+export type { ComboboxOption, ComboboxProps } from "./Combobox";
 export { Switch, SwitchInput } from "./Switch";
 export { default as DateTimeInput } from "./DateTimeInput";
 export { default as SegmentedControl } from "./SegmentedControl";
