@@ -1,4 +1,5 @@
 import { basicExtensions } from "./basic";
+import { codeFontExtension } from "./code-font";
 import { imageExtension } from "./images";
 import { infoBlocksExtension } from "./info-blocks";
 import { katexExtension } from "./katex";
@@ -15,6 +16,7 @@ import { customDarkInit, customLightInit, rawDarkInit, rawLightInit } from "./th
 
 export {
   basicExtensions,
+  codeFontExtension,
   imageExtension,
   infoBlocksExtension,
   katexExtension,
@@ -35,6 +37,7 @@ export {
 
 export const editor = {
   basicExtensions,
+  codeFontExtension,
   imageExtension,
   infoBlocksExtension,
   katexExtension,

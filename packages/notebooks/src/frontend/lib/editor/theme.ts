@@ -2,17 +2,20 @@ import { tags as t } from "@lezer/highlight";
 import { createTheme, type CreateThemeOptions } from "@uiw/codemirror-themes";
 import { EditorView } from "@codemirror/view";
 
-const customEditorCSS = EditorView.theme({
+/**
+ * Layout / chrome styles — shared between rich and raw modes. Deliberately
+ * font-family-free so each mode can pick its own type system (rich = sans
+ * with code-mark mono override, raw = full mono).
+ */
+const baseEditorCSS = EditorView.theme({
   "&": {
     overflow: "hidden",
     flex: "1",
     minHeight: "0",
     height: "100%",
     fontSize: "14px",
-    fontFamily: "var(--font-mono) !important",
   },
   ".cm-line": {
-    fontFamily: "var(--font-mono) !important",
     cursor: "text",
     maxWidth: "100%",
     overflow: "visible",
@@ -33,6 +36,8 @@ const customEditorCSS = EditorView.theme({
     border: "none",
     marginRight: "12px",
   },
+  // Gutter / line numbers always mono for tabular alignment, regardless
+  // of the rich/raw body font.
   ".cm-gutterElement": {
     color: "var(--color-gray-500)",
     fontFamily: "var(--font-mono) !important",
@@ -73,6 +78,27 @@ const customEditorCSS = EditorView.theme({
     whiteSpace: "nowrap",
     boxShadow: "0 1px 2px rgb(0 0 0 / 0.16)",
   },
+});
+
+/**
+ * Rich-mode font: prose in Sans, code in Mono.
+ *
+ * `.cm-md-code` is applied per-range by `codeFontExtension` against the
+ * markdown syntax tree (FencedCode / InlineCode / CodeBlock nodes).
+ */
+const richFontCSS = EditorView.theme({
+  "&": { fontFamily: "var(--font-sans)" },
+  ".cm-line": { fontFamily: "var(--font-sans)" },
+  ".cm-md-code": { fontFamily: "var(--font-mono)" },
+});
+
+/**
+ * Raw-mode font: full mono — raw mode is a literal source view, sans
+ * would obscure the markdown structure.
+ */
+const rawFontCSS = EditorView.theme({
+  "&": { fontFamily: "var(--font-mono)" },
+  ".cm-line": { fontFamily: "var(--font-mono)" },
 });
 
 const customLightStyle: CreateThemeOptions["styles"] = [
@@ -151,7 +177,8 @@ export const customLightInit = (options?: Partial<CreateThemeOptions>) => {
       },
       styles: [...customLightStyle, ...styles],
     }),
-    customEditorCSS,
+    baseEditorCSS,
+    richFontCSS,
   ];
 };
 
@@ -172,7 +199,8 @@ export const customDarkInit = (options?: Partial<CreateThemeOptions>) => {
       },
       styles: [...customDarkStyle, ...styles],
     }),
-    customEditorCSS,
+    baseEditorCSS,
+    richFontCSS,
   ];
 };
 
@@ -190,7 +218,8 @@ export const rawLightInit = () => [
     },
     styles: [],
   }),
-  customEditorCSS,
+  baseEditorCSS,
+  rawFontCSS,
 ];
 
 export const rawDarkInit = () => [
@@ -207,5 +236,6 @@ export const rawDarkInit = () => [
     },
     styles: [],
   }),
-  customEditorCSS,
+  baseEditorCSS,
+  rawFontCSS,
 ];

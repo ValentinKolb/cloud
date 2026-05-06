@@ -147,6 +147,7 @@ export default function NoteEditor(props: Props) {
           editor.subSupExtension(),
           editor.mermaidExtension(),
           editor.katexExtension(),
+          editor.codeFontExtension(),
         ]
       : [],
   );
