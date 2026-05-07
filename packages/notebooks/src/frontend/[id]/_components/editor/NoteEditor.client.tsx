@@ -154,6 +154,7 @@ export default function NoteEditor(props: Props) {
           editor.mermaidExtension(),
           editor.katexExtension(),
           editor.codeFontExtension(),
+          editor.tagPillExtension(props.notebookId),
         ]
       : [],
   );

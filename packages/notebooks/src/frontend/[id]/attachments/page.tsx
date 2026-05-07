@@ -72,7 +72,7 @@ export default ssr<AuthContext>(async (c) => {
   //   3. Unfiltered total count for the sidebar's "Attachments" badge —
   //      independent of the active search so the badge always reflects
   //      the notebook's actual size, not the current view.
-  const [tree, paginatedResult, totalAttachmentCount] = await Promise.all([
+  const [tree, paginatedResult, totalAttachmentCount, tagCount] = await Promise.all([
     notebooksService.note.getTree({ notebookId }),
     notebooksService.attachment.listPaginated({
       notebookId,
@@ -80,6 +80,7 @@ export default ssr<AuthContext>(async (c) => {
       filter: { query: search || undefined },
     }),
     notebooksService.attachment.count({ notebookId }),
+    notebooksService.tag.count({ notebookId }),
   ]);
 
   const totalPages = Math.max(
@@ -99,6 +100,7 @@ export default ssr<AuthContext>(async (c) => {
     permission,
     viewMode: "edit",
     attachmentCount: totalAttachmentCount,
+    tagCount,
   };
 
   return () => (

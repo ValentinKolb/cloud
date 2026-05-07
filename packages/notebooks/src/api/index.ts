@@ -1284,6 +1284,34 @@ app
   );
 
 // =============================================================================
+// Tags — list endpoint used by the `/tag` slash-command picker
+// =============================================================================
+
+const TagSummarySchema = z.object({
+  tag: z.string(),
+  count: z.number().int(),
+});
+
+app.get(
+  "/:id/tags",
+  describeRoute({
+    tags: ["Notebooks"],
+    summary: "List notebook tags with usage counts",
+    ...requiresAuth,
+    responses: {
+      200: jsonResponse(z.array(TagSummarySchema), "Tags"),
+      403: jsonResponse(ErrorResponseSchema, "Access denied"),
+    },
+  }),
+  async (c) => {
+    const notebookId = c.req.param("id");
+    const { error } = await checkNotebookAccess(c, notebookId);
+    if (error) return error;
+    return respond(c, ok(await notebooksService.tag.listForNotebook({ notebookId })));
+  },
+);
+
+// =============================================================================
 // Admin — notebooks-app-level settings (extensible: any setting whose key
 // is in the `notebooks` group is exposed here, so future settings just
 // need a `defaults.ts` entry to show up in the admin UI without API

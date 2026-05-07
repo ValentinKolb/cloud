@@ -1,6 +1,7 @@
 import NoteTree from "./NoteTree.island";
 import SearchButton from "../search/SearchButton.island";
 import CreateNoteButton from "./CreateNoteButton.island";
+import TagsButton from "./TagsButton.island";
 import { buildAttachmentsUrl } from "../../../params";
 import type { NotebookContext } from "./types";
 
@@ -13,6 +14,7 @@ export default function NotebookSidebar(props: Props) {
   const settingsHref = `/app/notebooks/${props.ctx.notebook.id}?mode=settings`;
   const attachmentsHref = buildAttachmentsUrl(props.ctx.notebook.id);
   const hasAttachments = props.ctx.attachmentCount > 0;
+  const hasTags = props.ctx.tagCount > 0;
   const allNotebooksHref = "/app/notebooks";
   const vt = (key: string) => `notebook-sidebar-${props.ctx.notebook.id}-${key}`;
 
@@ -59,6 +61,11 @@ export default function NotebookSidebar(props: Props) {
             <div style={`view-transition-name:${vt("search-mobile")}`}>
               <SearchButton notebookId={props.ctx.notebook.id} notebookName={props.ctx.notebook.name} variant="sidebar-mobile" />
             </div>
+            {hasTags && (
+              <div style={`view-transition-name:${vt("tags-mobile")}`}>
+                <TagsButton notebookId={props.ctx.notebook.id} tagCount={props.ctx.tagCount} variant="sidebar-mobile" />
+              </div>
+            )}
             {hasAttachments && (
               <a href={attachmentsHref} class="sidebar-item-mobile" style={`view-transition-name:${vt("attachments-mobile")}`}>
                 <i class="ti ti-paperclip" />
@@ -117,20 +124,29 @@ export default function NotebookSidebar(props: Props) {
             </section>
           </div>
 
-          {/* Footer — pinned to the bottom via `mt-auto`, never scrolls
-              with the note tree above. Conditional on attachment count. */}
-          {hasAttachments && (
+          {/* Footer — pinned to the bottom via `mt-auto`. Tags + attachments
+              entries appear conditionally on their counts; the section
+              itself only renders if at least one of them is non-empty so
+              the bottom border doesn't show without content. */}
+          {(hasTags || hasAttachments) && (
             <section class="sidebar-footer">
-              <a
-                href={attachmentsHref}
-                class="sidebar-item text-xs"
-                style={`view-transition-name:${vt("attachments-desktop")}`}
-                title={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
-              >
-                <i class="ti ti-paperclip text-sm" />
-                <span class="flex-1">Attachments</span>
-                <span class="text-dimmed tabular-nums">{props.ctx.attachmentCount}</span>
-              </a>
+              {hasTags && (
+                <div style={`view-transition-name:${vt("tags-desktop")}`}>
+                  <TagsButton notebookId={props.ctx.notebook.id} tagCount={props.ctx.tagCount} variant="sidebar" />
+                </div>
+              )}
+              {hasAttachments && (
+                <a
+                  href={attachmentsHref}
+                  class="sidebar-item text-xs"
+                  style={`view-transition-name:${vt("attachments-desktop")}`}
+                  title={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
+                >
+                  <i class="ti ti-paperclip text-sm" />
+                  <span class="flex-1">Attachments</span>
+                  <span class="text-dimmed tabular-nums">{props.ctx.attachmentCount}</span>
+                </a>
+              )}
             </section>
           )}
         </div>

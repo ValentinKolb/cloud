@@ -2,6 +2,7 @@ import { navigateTo } from "@valentinkolb/cloud/ui";
 import { buildNoteUrl } from "../../../../params";
 import { openNoteSwitchPrompt } from "../../search/openNoteSearchPrompt";
 import { openAttachmentPicker } from "../AttachmentPicker";
+import { openTagPicker } from "../TagPicker";
 import {
   insertAtCursor,
   insertCallout,
@@ -136,6 +137,15 @@ export const slashCommands: SlashCommand[] = [
     description: "Upload or pick a file or image",
     aliases: ["image", "photo", "picture", "img", "pic", "upload", "attach", "attachment", "media"],
     run: (_view, ctx) => openAttachmentPicker(ctx.notebookId),
+  },
+  {
+    name: "tag",
+    label: "Tag",
+    icon: "ti-hash",
+    section: "Insert",
+    description: "Pick or create a `#tag`",
+    aliases: ["tags", "label", "category", "hashtag"],
+    run: (view, ctx) => openTagPicker(ctx.notebookId, view),
   },
 
   // ── Callouts (info blocks) ───────────────────────────────

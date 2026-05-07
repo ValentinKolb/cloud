@@ -66,6 +66,103 @@ export const listForNotebook = async (params: { notebookId: string }): Promise<T
   return rows;
 };
 
+export type TaggedNote = {
+  id: string;
+  title: string;
+  preview: string | null;
+  updatedAt: string;
+};
+
+/** Limit on preview length — keeps the SSR payload small and matches
+ *  the visual line-clamp on the cards. */
+const PREVIEW_CHARS = 240;
+
+/** Strip frontmatter + heading markers + code fences from a markdown
+ *  body so the preview reads like prose. KISS — full markdown→text
+ *  parsing would be overkill for a 240-char snippet. */
+const buildPreview = (md: string | null): string | null => {
+  if (!md) return null;
+  let stripped = md;
+  // Drop YAML/TOML frontmatter at the head of the doc
+  stripped = stripped.replace(/^---[\s\S]*?\n---\n/, "");
+  // Strip fenced code blocks entirely (they read poorly out of context)
+  stripped = stripped.replace(/```[\s\S]*?```/g, "");
+  // Drop heading markers but keep the heading text (gives context)
+  stripped = stripped.replace(/^#{1,6}\s+/gm, "");
+  // Collapse whitespace
+  stripped = stripped.replace(/\s+/g, " ").trim();
+  if (stripped.length === 0) return null;
+  return stripped.length > PREVIEW_CHARS ? `${stripped.slice(0, PREVIEW_CHARS - 1)}…` : stripped;
+};
+
+/** Notes within a notebook that reference a given tag. Notebook-level
+ *  access gating happens at the page handler — all notes in a readable
+ *  notebook are visible.
+ *
+ *  Optional `search` does a case-insensitive substring match against the
+ *  title and the (already-stored) markdown body; results are paginated. */
+export const listNotesForTag = async (params: {
+  notebookId: string;
+  tag: string;
+  search?: string;
+  pagination?: { limit: number; offset: number };
+}): Promise<{ items: TaggedNote[]; total: number }> => {
+  const q = params.search?.trim().toLowerCase();
+  const pattern = q && q.length > 0 ? `%${q}%` : null;
+  const limit = params.pagination?.limit ?? 50;
+  const offset = params.pagination?.offset ?? 0;
+
+  const rows = await sql<{ id: string; title: string; content_md: string | null; updated_at: string }[]>`
+    SELECT n.id, n.title, n.content_md, n.updated_at
+    FROM notebooks.note_tags t
+    JOIN notebooks.notes n ON n.id = t.note_id
+    WHERE t.notebook_id = ${params.notebookId}
+      AND t.tag = ${params.tag.toLowerCase()}
+      AND (
+        ${pattern}::text IS NULL
+        OR LOWER(n.title) LIKE ${pattern}
+        OR LOWER(n.content_md) LIKE ${pattern}
+      )
+    ORDER BY n.updated_at DESC
+    LIMIT ${limit}
+    OFFSET ${offset}
+  `;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM notebooks.note_tags t
+    JOIN notebooks.notes n ON n.id = t.note_id
+    WHERE t.notebook_id = ${params.notebookId}
+      AND t.tag = ${params.tag.toLowerCase()}
+      AND (
+        ${pattern}::text IS NULL
+        OR LOWER(n.title) LIKE ${pattern}
+        OR LOWER(n.content_md) LIKE ${pattern}
+      )
+  `;
+
+  return {
+    items: rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      preview: buildPreview(r.content_md),
+      updatedAt: r.updated_at,
+    })),
+    total: countRow?.count ?? 0,
+  };
+};
+
+/** Total notes-with-this-tag (unfiltered), for the page-header count. */
+export const countNotesForTag = async (params: { notebookId: string; tag: string }): Promise<number> => {
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM notebooks.note_tags
+    WHERE notebook_id = ${params.notebookId}
+      AND tag = ${params.tag.toLowerCase()}
+  `;
+  return row?.count ?? 0;
+};
+
 /** Total distinct tags in a notebook — gates the sidebar "Tags" link. */
 export const count = async (params: { notebookId: string }): Promise<number> => {
   const [row] = await sql<{ count: number }[]>`
@@ -74,4 +171,60 @@ export const count = async (params: { notebookId: string }): Promise<number> => 
     WHERE notebook_id = ${params.notebookId}
   `;
   return row?.count ?? 0;
+};
+
+// =============================================================================
+// HTML post-processor — wraps `#tag` references in rendered read-mode
+// HTML as clickable pills. Mirrors the editor's `cm-tag-pill` styling so
+// edit and read modes look identical.
+// =============================================================================
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const TAG_HTML_REGEX = /(^|\s|>)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
+
+const renderPill = (notebookId: string, tag: string): string => {
+  const href = `/app/notebooks/${notebookId}/tags/${encodeURIComponent(tag)}`;
+  return `<a href="${href}" class="cm-tag-pill inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 no-underline" title="Show notes with #${escapeHtml(tag)}">#${escapeHtml(tag)}</a>`;
+};
+
+/** Wrap `#tag` references in HTML as pill anchors — but skip content
+ *  inside `<code>` and `<pre>` blocks so doc snippets don't get mangled.
+ *  Walks the HTML segment-by-segment, leaving code blocks untouched. */
+export const transformTags = (html: string, params: { notebookId: string }): string => {
+  const transformText = (text: string): string =>
+    text.replace(TAG_HTML_REGEX, (_match, prefix: string, tag: string) =>
+      `${prefix}${renderPill(params.notebookId, tag.toLowerCase())}`,
+    );
+
+  // Split on opening `<pre>` / `<code>` tags so we can walk the HTML
+  // without parsing — content inside these blocks is copied verbatim.
+  let result = "";
+  let cursor = 0;
+  const open = /<(pre|code)\b[^>]*>/gi;
+  let openMatch: RegExpExecArray | null;
+  while ((openMatch = open.exec(html)) !== null) {
+    // Transform the text leading up to the open tag.
+    result += transformText(html.slice(cursor, openMatch.index));
+
+    const tagName = openMatch[1]!.toLowerCase();
+    const close = new RegExp(`</${tagName}>`, "gi");
+    close.lastIndex = openMatch.index + openMatch[0].length;
+    const closeMatch = close.exec(html);
+    if (!closeMatch) {
+      // Unmatched open tag → copy rest verbatim, don't transform.
+      result += html.slice(openMatch.index);
+      cursor = html.length;
+      break;
+    }
+    // Copy the entire `<code>...</code>` (or `<pre>...</pre>`) verbatim.
+    const blockEnd = closeMatch.index + closeMatch[0].length;
+    result += html.slice(openMatch.index, blockEnd);
+    cursor = blockEnd;
+    open.lastIndex = blockEnd;
+  }
+  // Transform the trailing text after the last code block.
+  result += transformText(html.slice(cursor));
+  return result;
 };

@@ -25,3 +25,9 @@ export const buildVersionsUrl = (notebookId: string, noteId: string): string =>
 
 /** Build URL for the attachments overview (path-based, NOT a query mode). */
 export const buildAttachmentsUrl = (notebookId: string): string => `/app/notebooks/${notebookId}/attachments`;
+
+/** Build URL for an individual tag's notes page. The tag list itself
+ *  lives in a modal opened from the sidebar — there's no /tags overview
+ *  page anymore. */
+export const buildTagPageUrl = (notebookId: string, tag: string): string =>
+  `/app/notebooks/${notebookId}/tags/${encodeURIComponent(tag)}`;

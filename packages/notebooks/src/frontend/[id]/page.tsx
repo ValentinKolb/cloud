@@ -7,6 +7,7 @@ import { markdown } from "@valentinkolb/cloud/shared";
 import { notebooksService } from "@/service";
 import { transformAttachments } from "@/service/attachments";
 import { transformNoteLinks } from "@/service/links";
+import { transformTags } from "@/service/tags";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import { extractTaskProgress } from "./_components/detail/tasks";
 import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
@@ -137,11 +138,15 @@ export default ssr<AuthContext>(async (c) => {
         const referencedAttachments = attachmentIds.length > 0 ? await notebooksService.attachment.listByIds({ ids: attachmentIds }) : [];
         const idToFilename = new Map(referencedAttachments.map((a) => [a.id, a.filename]));
 
-        // For read mode: rewrite note links + attachment URLs + inject
-        // heading anchor ids so the TOC `#slug` clicks scroll natively.
+        // For read mode: pipe markdown.render through link transforms +
+        // tag pills + attachment URL rewrite + heading id injection so
+        // the rendered HTML mirrors the editor's pill widgets.
         const renderedHtml = shouldRenderHtml
           ? injectHeadingIds(
-              transformAttachments(transformNoteLinks(markdown.render(noteWithContent.contentMd ?? "")), { notebookId, idToFilename }),
+              transformTags(
+                transformAttachments(transformNoteLinks(markdown.render(noteWithContent.contentMd ?? "")), { notebookId, idToFilename }),
+                { notebookId },
+              ),
               tocItems,
             )
           : null;
@@ -181,8 +186,11 @@ export default ssr<AuthContext>(async (c) => {
   // response — saves the round-trip a client-fetch would otherwise need.
   const graph = isGraphMode ? await notebooksService.notebook.graph({ notebookId }) : null;
 
-  // Cheap COUNT — gates the sidebar's "Attachments" link.
-  const attachmentCount = await notebooksService.attachment.count({ notebookId });
+  // Cheap COUNTs — gate the sidebar's "Attachments" + "Tags" links.
+  const [attachmentCount, tagCount] = await Promise.all([
+    notebooksService.attachment.count({ notebookId }),
+    notebooksService.tag.count({ notebookId }),
+  ]);
 
   const ctx: NotebookContext = {
     notebook,
@@ -192,6 +200,7 @@ export default ssr<AuthContext>(async (c) => {
     permission,
     viewMode: isReadMode ? "read" : "edit",
     attachmentCount,
+    tagCount,
   };
 
   // Read app.url once in the async handler and pass it through closure into the
