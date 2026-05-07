@@ -29,10 +29,13 @@
 }
 
 /* `@tailwindcss/typography` (`prose` class) puts a `border-bottom` on
-   every `tbody tr`. The tile look already separates rows visually via
-   the 4px gap + per-cell radius, so we reset all row/cell borders to
-   keep the surface clean. Our utility CSS is loaded AFTER the
-   typography plugin in `global.css` → same specificity, later wins. */
+   `thead` AND every `tbody tr`. The tile look already separates rows
+   visually via the 4px gap + per-cell radius, so we reset all
+   table/row/cell borders to keep the surface clean. Our utility CSS
+   is loaded AFTER the typography plugin in `global.css` → same
+   specificity, later wins. */
+.md-table thead,
+.md-table tbody,
 .md-table thead tr,
 .md-table tbody tr,
 .md-table th,
