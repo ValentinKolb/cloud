@@ -1,6 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   Checkbox,
+  CopyButton,
   navigateTo,
   PermissionEditor,
   prompts,
@@ -420,64 +421,62 @@ export default function TableEditPage(props: Props) {
                           : "border-zinc-200 dark:border-zinc-700"
                       }`}
                     >
-                      {/* Card header — visible in both states */}
-                      <button
-                        type="button"
-                        class="flex w-full items-center gap-2 px-3 py-2 text-left"
-                        onClick={() =>
-                          setExpandedId(isExpanded() ? null : field.id)
-                        }
-                        aria-expanded={isExpanded()}
-                      >
-                        <span
-                          data-dnd-handle
-                          class="cursor-grab active:cursor-grabbing text-dimmed hover:text-primary p-1 -ml-1"
-                          aria-label="Drag to reorder"
-                          title="Drag to reorder"
-                          onClick={(e) => e.stopPropagation()}
+                      {/* Card header — toggle button + copy-id button as
+                          flex siblings so we can nest a real <button>
+                          for CopyButton (would be invalid HTML inside
+                          the toggle button). */}
+                      <div class="flex items-center">
+                        <button
+                          type="button"
+                          class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
+                          onClick={() =>
+                            setExpandedId(isExpanded() ? null : field.id)
+                          }
+                          aria-expanded={isExpanded()}
                         >
-                          <i class="ti ti-grip-vertical" />
-                        </span>
-                        <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                          <span class="text-sm font-semibold text-primary truncate">
-                            {field.name}
+                          <span
+                            data-dnd-handle
+                            class="cursor-grab active:cursor-grabbing text-dimmed hover:text-primary p-1 -ml-1"
+                            aria-label="Drag to reorder"
+                            title="Drag to reorder"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <i class="ti ti-grip-vertical" />
                           </span>
-                          <span class="text-[10px] text-dimmed">
-                            {TYPE_LABELS[field.type] ?? field.type}
+                          <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                            <span class="text-sm font-semibold text-primary truncate">
+                              {field.name}
+                            </span>
+                            <span class="text-[10px] text-dimmed">
+                              {TYPE_LABELS[field.type] ?? field.type}
+                            </span>
+                            <Show when={field.required}>
+                              <span class="text-[10px] text-amber-600 dark:text-amber-400">
+                                required
+                              </span>
+                            </Show>
                           </span>
-                          <Show when={field.required}>
-                            <span class="text-[10px] text-amber-600 dark:text-amber-400">
-                              required
+                          <Show when={field.description}>
+                            <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
+                              {field.description}
                             </span>
                           </Show>
-                        </span>
-                        <Show when={field.description}>
-                          <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
-                            {field.description}
-                          </span>
-                        </Show>
-                        {/* Copy-field-id — power-user hook for formula
-                            references ({uuid}), form_value entries, and
-                            API debugging. Span instead of <button> to
-                            stay valid HTML (we're already nested inside
-                            the row's clickable button). */}
-                        <span
-                          class="text-dimmed hover:text-primary p-1"
-                          aria-label="Copy field ID"
-                          title="Copy field ID — useful for formulas {id} and API debugging"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void navigator.clipboard?.writeText(field.id);
-                          }}
-                        >
-                          <i class="ti ti-copy text-sm" />
-                        </span>
-                        <i
-                          class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
-                            isExpanded() ? "rotate-180" : ""
-                          }`}
+                          <i
+                            class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
+                              isExpanded() ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
+                        {/* Power-user hook: copy the field ID (used in
+                            formula references and API debugging). Real
+                            CopyButton with debounced check-mark feedback
+                            so users actually notice the copy happened. */}
+                        <CopyButton
+                          text={field.id}
+                          label="Copy ID"
+                          class="btn-simple btn-sm mr-2 shrink-0"
                         />
-                      </button>
+                      </div>
 
                       <Show when={isExpanded()}>
                         <FieldEditor
