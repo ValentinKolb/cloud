@@ -50,8 +50,13 @@ const app = new Hono<AuthContext>()
       return c.json(body);
     }
 
+    // `notebookIcon` is stored as the bare Tabler name (e.g. `ti-notebook`)
+    // — see `ICON_OPTIONS` in `cloud/shared/icons.ts`. The dashboard
+    // renders the icon as `<i class={item.icon}>`, so we have to prepend
+    // the `ti` family class ourselves; otherwise the font isn't applied
+    // and the icon renders as a generic glyph.
     const items: WidgetListItem[] = notes.map((n) => ({
-      icon: n.notebookIcon ?? "ti ti-file-text",
+      icon: n.notebookIcon ? `ti ${n.notebookIcon}` : "ti ti-file-text",
       label: n.title || "(untitled)",
       sub: n.notebookName,
       meta: dates.formatDateRelative(new Date(n.updatedAt)),
