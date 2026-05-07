@@ -333,7 +333,7 @@ const main = async () => {
   };
 
   // 1 — Recent books: filter (published >= 2000) + sort by published desc
-  await mkView(booksTable, "Recent books (2000+)", {
+  const vRecentBooks = await mkView(booksTable, "Recent books (2000+)", {
     filter: {
       op: "AND",
       filters: [{ fieldId: B_PUBLISHED, op: "after", value: "2000-01-01" }],
@@ -356,7 +356,7 @@ const main = async () => {
   log(`view: By genre · revenue (group-by)`);
 
   // 3 — Top customers: sort by joined desc (proxy for "newest first")
-  await mkView(customersTable, "Newest customers", {
+  const vNewestCustomers = await mkView(customersTable, "Newest customers", {
     sort: [{ fieldId: C_JOINED, direction: "desc" }],
     limit: 10,
   });
@@ -416,9 +416,113 @@ const main = async () => {
   const formToken = formRes.data.publicToken;
   log(`public form created — share URL: /share/grids/forms/${formToken}`);
 
+  // ──────────────────────────────────────────────────────────────────
+  // DASHBOARD — base default with stat cards + an embedded view
+  // ──────────────────────────────────────────────────────────────────
+  // A simple "Bookshop overview" the user lands on when opening the
+  // base. Demonstrates: 4 stat cards across one row (counts + sums),
+  // one embedded-view row showing the newest customers. Set as the
+  // base default so opening /grids/<base> redirects here automatically.
+  const dashboardRes = await gridsService.dashboard.create(
+    {
+      baseId,
+      name: "Bookshop overview",
+      description: "Counts, revenue, and the newest customers — everything at a glance.",
+      ownerUserId: null /* shared */,
+      config: {
+        rows: [
+          {
+            id: "row-stats",
+            height: "sm",
+            cells: [
+              {
+                id: "w-orders-count",
+                kind: "stat",
+                title: "Orders",
+                icon: "ti ti-shopping-cart",
+                format: "integer",
+                source: {
+                  tableId: ordersTable,
+                  aggregations: [{ fieldId: "*", agg: "count" }],
+                },
+              },
+              {
+                id: "w-revenue",
+                kind: "stat",
+                title: "Revenue",
+                icon: "ti ti-currency-euro",
+                format: "currency",
+                source: {
+                  tableId: ordersTable,
+                  aggregations: [{ fieldId: O_TOTAL, agg: "sum" }],
+                },
+              },
+              {
+                id: "w-customers",
+                kind: "stat",
+                title: "Customers",
+                icon: "ti ti-users",
+                format: "integer",
+                source: {
+                  tableId: customersTable,
+                  aggregations: [{ fieldId: "*", agg: "count" }],
+                },
+              },
+              {
+                id: "w-avg-price",
+                kind: "stat",
+                title: "Avg. price",
+                icon: "ti ti-tag",
+                format: "currency",
+                source: {
+                  tableId: booksTable,
+                  aggregations: [{ fieldId: B_PRICE, agg: "avg" }],
+                },
+              },
+            ],
+          },
+          {
+            id: "row-customers",
+            height: "lg",
+            cells: [
+              {
+                id: "w-newest-customers",
+                kind: "view",
+                title: "Newest customers",
+                viewId: vNewestCustomers,
+              },
+              {
+                id: "w-recent-books",
+                kind: "view",
+                title: "Recent books",
+                viewId: vRecentBooks,
+              },
+            ],
+          },
+        ],
+      },
+    },
+    actor,
+  );
+  if (!dashboardRes.ok) throw new Error(`dashboard.create: ${dashboardRes.error.message}`);
+  const dashboard = dashboardRes.data;
+  log(`dashboard: ${dashboard.name} (slug=${dashboard.slug})`);
+
+  // Set as base default so opening the base lands on the dashboard.
+  const setDefaultRes = await gridsService.base.update(
+    baseId,
+    { defaultDashboardId: dashboard.id },
+    actor,
+  );
+  if (!setDefaultRes.ok) {
+    throw new Error(`base.update default-dashboard: ${setDefaultRes.error.message}`);
+  }
+  log(`set as base default`);
+
   console.log("");
   console.log("✓ Demo seeded.");
   console.log(`  open: /app/grids/${baseId}`);
+  console.log(`  dashboard: /app/grids/${baseId}?dashboard=${dashboard.slug}`);
   console.log(`  public form: /share/grids/forms/${formToken}`);
 
   await sql.end();
