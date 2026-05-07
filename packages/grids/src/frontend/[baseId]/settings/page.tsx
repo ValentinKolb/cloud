@@ -39,6 +39,14 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const accessEntries = await gridsService.access.listForBase(baseId);
+  // Pre-fetch dashboards for the default-dashboard select. Listing as
+  // the (just-confirmed admin) user — admins see every dashboard, so
+  // the select isn't restricted by personal-dashboard ownership.
+  const dashboards = await gridsService.dashboard.listForBase({
+    baseId,
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+  });
 
   return () => (
     <Layout
@@ -51,7 +59,11 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="max-w-xl mx-auto w-full py-6 px-4">
-        <BaseSettingsPanel base={base} accessEntries={accessEntries} />
+        <BaseSettingsPanel
+          base={base}
+          accessEntries={accessEntries}
+          dashboards={dashboards}
+        />
       </div>
     </Layout>
   );

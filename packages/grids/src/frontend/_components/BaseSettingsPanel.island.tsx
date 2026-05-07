@@ -1,9 +1,9 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Base, Field, Form, Table } from "../../service";
+import type { Base, Dashboard, Field, Form, Table } from "../../service";
 import { errorMessage } from "./api-helpers";
 import { SectionCard } from "./SectionCard";
 
@@ -14,8 +14,17 @@ type TrashResponse = {
 };
 
 type Props = {
-  base: { id: string; slug: string; name: string; description: string | null };
+  base: {
+    id: string;
+    slug: string;
+    name: string;
+    description: string | null;
+    defaultDashboardId: string | null;
+  };
   accessEntries: AccessEntry[];
+  /** Pre-fetched dashboards on this base, used to populate the
+   *  default-dashboard select. Empty list disables the select. */
+  dashboards: Dashboard[];
 };
 
 /**
@@ -35,6 +44,17 @@ export default function BaseSettingsPanel(props: Props) {
 
       <SectionCard title="General" subtitle="Base name and description shown on the grids overview.">
         <GeneralForm base={props.base} />
+      </SectionCard>
+
+      <SectionCard
+        title="Default dashboard"
+        subtitle="Shown when opening this base directly. Tables remain accessible from the sidebar."
+      >
+        <DefaultDashboardSelect
+          baseId={props.base.id}
+          initial={props.base.defaultDashboardId}
+          dashboards={props.dashboards}
+        />
       </SectionCard>
 
       <SectionCard title="Permissions" subtitle="Base-level grants apply to every table by default.">
@@ -251,6 +271,64 @@ function GeneralForm(props: { base: { id: string; name: string; description: str
         </button>
       </Show>
     </form>
+  );
+}
+
+/**
+ * Default-dashboard select. Saves on change (no separate Save button —
+ * the select itself is the affordance, like a setting toggle). Empty
+ * dashboards list disables the select with a hint to create one first.
+ *
+ * The "(none)" option is always present so users can clear the
+ * default; that PATCHes `defaultDashboardId: null`.
+ */
+function DefaultDashboardSelect(props: {
+  baseId: string;
+  initial: string | null;
+  dashboards: Dashboard[];
+}) {
+  const [value, setValue] = createSignal<string>(props.initial ?? "");
+
+  const mutation = mutations.create<void, string | null>({
+    mutation: async (next) => {
+      const res = await apiClient.bases[":baseId"].$patch({
+        param: { baseId: props.baseId },
+        json: { defaultDashboardId: next },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update default dashboard"));
+    },
+    onSuccess: () => {
+      // The base record on the page may be stale — refresh so other
+      // surfaces that read defaultDashboardId (sidebar badge etc.) update.
+      refreshCurrentPath();
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const onChange = (next: string) => {
+    setValue(next);
+    mutation.mutate(next === "" ? null : next);
+  };
+
+  if (props.dashboards.length === 0) {
+    return (
+      <p class="text-xs text-dimmed">
+        No dashboards on this base yet. Create one from the records sidebar to enable this setting.
+      </p>
+    );
+  }
+
+  return (
+    <Select
+      label="Default dashboard"
+      value={value}
+      onChange={onChange}
+      options={[
+        { value: "", label: "(none)" },
+        ...props.dashboards.map((d) => ({ value: d.id, label: d.name })),
+      ]}
+      icon="ti ti-layout-dashboard"
+    />
   );
 }
 

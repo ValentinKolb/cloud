@@ -4,8 +4,14 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../../service";
 import RecordsView from "../_components/records-view/RecordsView.island";
+import DashboardLayout from "../_components/dashboard/DashboardLayout";
+import {
+  resolveWidgetData,
+  type WidgetData,
+} from "../_components/dashboard/widget-data";
 import type { GroupBucket } from "../_components/GroupedTable";
 import CreateTableButton from "../_components/CreateTableButton.island";
+import CreateDashboardButton from "../_components/CreateDashboardButton.island";
 import FormSidebarEntry from "../_components/FormSidebarEntry.island";
 import type { FilterTree, SortSpec, Field } from "../../service";
 
@@ -117,6 +123,11 @@ export default ssr<AuthContext>(async (c) => {
   const activeTableSlug = c.req.query("table") ?? null;
   const trashMode = c.req.query("trash") === "1";
   const activeViewSlug = c.req.query("view") ?? null;
+  // Dashboard mode: when ?dashboard=<slug> is set, the main column
+  // renders the dashboard's widget layout instead of a records grid.
+  // Sidebar (Tables/Views/Dashboards) stays the same so the user can
+  // hop back to a table in one click.
+  const activeDashboardSlug = c.req.query("dashboard") ?? null;
   const rawCursor = c.req.query("cursor") ?? null;
 
   // Parse the filter query — bad input is treated as empty rather than a
@@ -219,6 +230,20 @@ export default ssr<AuthContext>(async (c) => {
   }
   const baseId = base.id;
 
+  // Default-dashboard redirect — when the URL pins neither a table nor
+  // a dashboard AND the base has a configured default dashboard alive,
+  // redirect into dashboard mode. Doing this as a 302 (rather than
+  // inline-render) keeps the user's URL share-able and the default
+  // state explicit. A stale default_dashboard_id (referenced row got
+  // soft-deleted) silently falls through to the existing first-table
+  // behaviour — `getByIdOrSlug` returns null in that case.
+  if (!activeTableSlug && !activeDashboardSlug && base.defaultDashboardId) {
+    const defaultDashboard = await gridsService.dashboard.get(base.defaultDashboardId);
+    if (defaultDashboard && defaultDashboard.deletedAt === null) {
+      return c.redirect(`/app/grids/${baseSlug}?dashboard=${defaultDashboard.slug}`, 302);
+    }
+  }
+
   // Resolve the active table+view slugs now that we know the base. Both
   // optional — null when the URL doesn't pin a specific one. listByBase
   // below will additionally narrow to readable tables, so a slug for a
@@ -227,6 +252,14 @@ export default ssr<AuthContext>(async (c) => {
     ? await gridsService.table.getByIdOrSlug(baseId, activeTableSlug)
     : null;
   const activeTableId = activeTableFromSlug?.id ?? null;
+
+  // Resolve the active dashboard. Same tolerant lookup pattern as the
+  // table/view resolvers — accepts slug or UUID. Permission gating
+  // happens via listForBase in dashboard mode (only readable dashboards
+  // hit the page).
+  const activeDashboard = activeDashboardSlug
+    ? await gridsService.dashboard.getByIdOrSlug(baseId, activeDashboardSlug)
+    : null;
 
   const level = await resolveLevel(user, baseId);
   if (!gridsService.permission.hasAtLeast(level, "read")) {
@@ -238,6 +271,43 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
+
+  // Personal-dashboard visibility gate: a dashboard with ownerUserId
+  // set is private to that user (plus any explicit dashboard_access
+  // grants — listForBase covers those). Direct ?dashboard=<slug> hits
+  // skip listForBase, so we apply the same rule here. A non-owner
+  // viewer just sees "dashboard not found" rather than a redirect, to
+  // stay consistent with personal-view semantics.
+  const dashboardVisible =
+    activeDashboard !== null &&
+    (activeDashboard.ownerUserId === null || activeDashboard.ownerUserId === user.id);
+  const renderDashboard = dashboardVisible ? activeDashboard : null;
+
+  // Pre-fetch widget data when dashboard mode is active. Each widget's
+  // source is a small server-side query (aggregate for stat, group for
+  // chart, list+25 for view); fan-out via Promise.all so the slowest
+  // widget caps the total render time, not the sum.
+  const widgetData: Record<string, WidgetData> = {};
+  if (renderDashboard) {
+    const widgets = renderDashboard.config.rows.flatMap((r) => r.cells);
+    const results = await Promise.all(
+      widgets.map((w) =>
+        resolveWidgetData(w, {
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+        }).then((data) => [w.id, data] as const),
+      ),
+    );
+    for (const [id, data] of results) widgetData[id] = data;
+  }
+
+  // Sidebar listing — readable dashboards across the base. Same shape
+  // as views/forms (ownership filtering happens in listForBase).
+  const dashboardsForBase = await gridsService.dashboard.listForBase({
+    baseId,
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+  });
 
   // Filter tables to those the user can read at the table level. Without
   // this, a base-read user could navigate to ?table=<deniedTableId> and read
@@ -647,6 +717,66 @@ export default ssr<AuthContext>(async (c) => {
                 {canCreateTables && <CreateTableButton baseId={baseId} baseSlug={baseSlug} />}
               </section>
 
+              {/* Dashboards — flat alphabetical list scoped to this base.
+                  Active highlight when ?dashboard=<slug> matches. The
+                  edit-pencil affordance shows for shared dashboards
+                  (when the user has base-write+) and personal ones the
+                  user owns. "+ New dashboard" sits at the bottom and
+                  opens an inline form prompt. */}
+              {(() => {
+                if (dashboardsForBase.length === 0 && !canCreateTables) return null;
+                const sorted = [...dashboardsForBase].sort((a, b) =>
+                  a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+                );
+                return (
+                  <section class="sidebar-group">
+                    <p class="sidebar-section-title">Dashboards</p>
+                    {sorted.map((d) => {
+                      const isActive = activeDashboard?.id === d.id;
+                      const canEdit =
+                        d.ownerUserId === user.id ||
+                        (d.ownerUserId === null && canWriteRecords);
+                      return (
+                        <div
+                          class={`sidebar-item group ${isActive ? "sidebar-item-active" : ""}`}
+                        >
+                          <a
+                            href={`/app/grids/${baseSlug}?dashboard=${d.slug}`}
+                            class="flex min-w-0 flex-1 items-center gap-2"
+                            aria-current={isActive ? "page" : undefined}
+                          >
+                            <i class="ti ti-layout-dashboard text-sm shrink-0" />
+                            <span class="truncate min-w-0">{d.name}</span>
+                            {/* "Default" badge surfaces inline so the
+                                user knows which dashboard the base
+                                opens to. The Settings page is the
+                                canonical place to change it. */}
+                            {base.defaultDashboardId === d.id && (
+                              <span class="text-[9px] uppercase tracking-wider text-dimmed shrink-0">
+                                default
+                              </span>
+                            )}
+                          </a>
+                          {canEdit && (
+                            <a
+                              href={`/app/grids/${baseSlug}/dashboards/${d.slug}/edit`}
+                              class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                              aria-label={`Edit dashboard ${d.name}`}
+                              title="Dashboard settings"
+                            >
+                              <i class="ti ti-settings text-xs" />
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {canCreateTables && (
+                      <CreateDashboardButton baseId={baseId} baseSlug={baseSlug} />
+                    )}
+                  </section>
+                );
+              })()}
+
               {/* Views — flat alphabetical list across the whole base.
                   Each row carries a dim "· table" suffix so the user
                   still knows which table it belongs to without the
@@ -759,9 +889,19 @@ export default ssr<AuthContext>(async (c) => {
           </div>
         </aside>
 
-        {/* Main: records table */}
+        {/* Main: dashboard layout OR records table.
+            Dashboard mode wins when ?dashboard=<slug> is set (or the
+            base default redirected here); records-mode is the
+            existing fallback. The sidebar above renders the same in
+            both modes so the user can hop with one click. */}
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
-          {activeTable ? (
+          {renderDashboard ? (
+            <DashboardLayout
+              dashboard={renderDashboard}
+              widgetData={widgetData}
+              baseSlug={baseSlug}
+            />
+          ) : activeTable ? (
             <div class="flex flex-col gap-2">
               {/* Records-area lives in a single client-side island
                   (Phase 2 of the RecordsView refactor). It owns the

@@ -115,6 +115,15 @@ export default ssr<AuthContext>(async (c) => {
     });
   }
 
+  // Dashboards on this base — listed in EditSidebar so the user can
+  // hop from table-edit to dashboard-edit in one click. Cheap query;
+  // typical bases have <10 dashboards.
+  const dashboards = await gridsService.dashboard.listForBase({
+    baseId,
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+  });
+
   return () => (
     <Layout
       c={c}
@@ -177,6 +186,8 @@ export default ssr<AuthContext>(async (c) => {
           activeTableSlug={tableSlug}
           tables={tables}
           viewsByTable={viewsByTable}
+          dashboards={dashboards}
+          defaultDashboardId={base.defaultDashboardId}
           active={{ kind: "table", tableId }}
           canCreateTables={canCreateTables}
         />

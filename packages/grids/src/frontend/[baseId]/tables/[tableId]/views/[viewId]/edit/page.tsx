@@ -119,6 +119,11 @@ export default ssr<AuthContext>(async (c) => {
       userGroups: user.memberofGroupIds,
     });
   }
+  const dashboards = await gridsService.dashboard.listForBase({
+    baseId,
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+  });
 
   return () => (
     <Layout
@@ -187,6 +192,8 @@ export default ssr<AuthContext>(async (c) => {
           activeViewSlug={viewSlug}
           tables={tables}
           viewsByTable={viewsByTable}
+          dashboards={dashboards}
+          defaultDashboardId={base.defaultDashboardId}
           active={{ kind: "view", tableId, viewId }}
           canCreateTables={canCreateTables}
         />

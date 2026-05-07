@@ -1,10 +1,12 @@
 import { For, Show } from "solid-js";
-import type { Table, View } from "../../service";
+import type { Dashboard, Table, View } from "../../service";
 import CreateTableButton from "./CreateTableButton.island";
+import CreateDashboardButton from "./CreateDashboardButton.island";
 
 type ActiveTarget =
   | { kind: "table"; tableId: string }
-  | { kind: "view"; tableId: string; viewId: string };
+  | { kind: "view"; tableId: string; viewId: string }
+  | { kind: "dashboard"; dashboardId: string };
 
 type Props = {
   /** Parent base UUID — needed by `CreateTableButton` for its API call
@@ -32,9 +34,19 @@ type Props = {
    */
   viewsByTable: Record<string, View[]>;
   /**
+   * Dashboards on this base — listed below Views in the sidebar so the
+   * user can hop from a dashboard-edit to a table-edit (and vice versa)
+   * in one click. Caller pre-filters to readable ones.
+   */
+  dashboards: Dashboard[];
+  /** Slug of the dashboard currently set as the base default — drives
+   *  the `default` badge next to the matching list entry. Optional;
+   *  null when no default is configured. */
+  defaultDashboardId: string | null;
+  /**
    * What's currently being edited. Drives the `sidebar-item-active`
    * highlight + the icon in the header (table = `ti-table`, view =
-   * `ti-table-spark`).
+   * `ti-table-spark`, dashboard = `ti-layout-dashboard`).
    */
   active: ActiveTarget;
   /**
@@ -72,12 +84,22 @@ export default function EditSidebar(props: Props) {
   const isActiveView = (viewId: string) =>
     props.active.kind === "view" && props.active.viewId === viewId;
 
+  const isActiveDashboard = (dashboardId: string) =>
+    props.active.kind === "dashboard" && props.active.dashboardId === dashboardId;
+
   // Active-target helpers for the "Back to records" link. From a view-
   // edit, back goes to the view itself (so the user sees their preset
-  // applied). From a table-edit, back goes to the table.
+  // applied). From a table-edit, back goes to the table. From a
+  // dashboard-edit, back goes to the dashboard render.
   const backHref = (() => {
     if (props.active.kind === "view") {
       return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}&view=${props.activeViewSlug ?? ""}`;
+    }
+    if (props.active.kind === "dashboard") {
+      const slug = props.dashboards.find((d) => d.id === props.active.dashboardId)?.slug;
+      return slug
+        ? `/app/grids/${props.baseSlug}?dashboard=${slug}`
+        : `/app/grids/${props.baseSlug}`;
     }
     return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}`;
   })();
@@ -93,7 +115,17 @@ export default function EditSidebar(props: Props) {
     a.view.name.localeCompare(b.view.name, undefined, { sensitivity: "base" }),
   );
 
-  const headerIcon = props.active.kind === "view" ? "ti ti-table-spark" : "ti ti-table";
+  const headerIcon =
+    props.active.kind === "view"
+      ? "ti ti-table-spark"
+      : props.active.kind === "dashboard"
+      ? "ti ti-layout-dashboard"
+      : "ti ti-table";
+
+  const sortedDashboards = () =>
+    [...props.dashboards].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
 
   return (
     <aside class="sidebar-container">
@@ -148,6 +180,31 @@ export default function EditSidebar(props: Props) {
                   </a>
                 )}
               </For>
+            </section>
+          </Show>
+
+          <Show when={props.dashboards.length > 0 || props.canCreateTables}>
+            <section class="sidebar-group">
+              <p class="sidebar-section-title">Dashboards</p>
+              <For each={sortedDashboards()}>
+                {(d) => (
+                  <a
+                    href={`/app/grids/${props.baseSlug}/dashboards/${d.slug}/edit`}
+                    class={`sidebar-item ${isActiveDashboard(d.id) ? "sidebar-item-active" : ""}`}
+                  >
+                    <i class="ti ti-layout-dashboard text-sm shrink-0" />
+                    <span class="truncate min-w-0">{d.name}</span>
+                    <Show when={props.defaultDashboardId === d.id}>
+                      <span class="text-[9px] uppercase tracking-wider text-dimmed shrink-0">
+                        default
+                      </span>
+                    </Show>
+                  </a>
+                )}
+              </For>
+              <Show when={props.canCreateTables}>
+                <CreateDashboardButton baseId={props.baseId} baseSlug={props.baseSlug} />
+              </Show>
             </section>
           </Show>
         </div>
