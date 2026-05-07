@@ -1,198 +1,149 @@
+/**
+ * Markdown table widget — renders a `| col | col |` block as a tile-style
+ * table when the cursor is on a different line, mirroring the read-mode
+ * HTML output served by the `marked` extension. Same `.md-table-*`
+ * classes flow through `cloud/src/styles/utilities-table-tile.css` so the
+ * visual is identical in edit and read mode.
+ *
+ * No pagination, no per-cell type detection, no column zebra. Markdown
+ * tables are hand-edited and small — those features belong in the Grids
+ * app for actual data work.
+ */
 import { syntaxTree } from "@codemirror/language";
 import { StateField, RangeSet, EditorState, type Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
-import { dates } from "@valentinkolb/stdlib";
-import dayjs from "dayjs";
+
+type Align = "left" | "right" | "center" | null;
 
 type TableData = {
   headers: string[];
   rows: string[][];
+  align: Align[];
 };
 
-const parseAndFormatTable = (text: string): TableData | null => {
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+const splitRow = (line: string): string[] => {
+  const trimmed = line.trim();
+  return trimmed
+    .split("|")
+    .map((cell) => cell.trim())
+    .filter((_, i, arr) => !((i === 0 && trimmed.startsWith("|")) || (i === arr.length - 1 && trimmed.endsWith("|"))));
+};
+
+const parseAlign = (separator: string): Align => {
+  const t = separator.trim();
+  const startsColon = t.startsWith(":");
+  const endsColon = t.endsWith(":");
+  if (startsColon && endsColon) return "center";
+  if (endsColon) return "right";
+  if (startsColon) return "left";
+  return null;
+};
+
+const parseTable = (text: string): TableData | null => {
   const lines = text.split("\n").filter((line) => line.trim());
   if (lines.length < 2) return null;
-
-  const allRows = lines.map((line) => {
-    const trimmed = line.trim();
-    return trimmed
-      .split("|")
-      .map((cell) => cell.trim())
-      .filter((_, i, arr) => {
-        return !((i === 0 && trimmed.startsWith("|")) || (i === arr.length - 1 && trimmed.endsWith("|")));
-      });
-  });
-
   if (!lines[1]?.includes("---")) return null;
 
+  const allRows = lines.map(splitRow);
   const headers = allRows[0] ?? [];
+  const align: Align[] = (allRows[1] ?? []).map(parseAlign);
   const rows = allRows.slice(2);
 
-  const columnCount = headers.length;
+  const cols = headers.length;
   const normalizedRows = rows.map((row) => {
-    while (row.length < columnCount) row.push("");
-    return row.slice(0, columnCount);
+    while (row.length < cols) row.push("");
+    return row.slice(0, cols);
   });
+  // Pad / truncate align to match column count.
+  while (align.length < cols) align.push(null);
 
-  return { headers, rows: normalizedRows };
+  return { headers, rows: normalizedRows, align: align.slice(0, cols) };
 };
 
-export function createTable(data: { headers: string[]; rows: unknown[][] }, perPage: number = 20): HTMLElement {
-  const container = document.createElement("div");
-  container.className = "flex flex-col";
+const alignClass = (align: Align): string => {
+  if (align === "right") return " md-align-right";
+  if (align === "center") return " md-align-center";
+  return "";
+};
 
-  const tableContentArea = document.createElement("div");
-  tableContentArea.className = "table-content-area";
-
-  const paginationArea = document.createElement("div");
-  paginationArea.className = "pagination-area mt-2";
-  paginationArea.setAttribute("data-ignore-click", "true");
-
-  let currentPage = 1;
-  const rowCount = data.rows.length;
-  const maxPage = Math.ceil(rowCount / perPage);
-
-  let tbody: HTMLTableSectionElement;
-  let pageIndicator: HTMLElement | null = null;
-  let prevBtn: HTMLButtonElement | null = null;
-  let nextBtn: HTMLButtonElement | null = null;
-
-  const formatCell = (cell: unknown): string => {
-    if (cell === null) return '<span class="text-gray-400 italic">NULL</span>';
-    if (cell === undefined) return '<span class="text-gray-400 italic">---</span>';
-    if (typeof cell === "boolean") return `<span class="${cell ? "text-green-600" : "text-red-600"}">${cell}</span>`;
-    if (typeof cell === "number" && !Number.isInteger(cell)) return cell.toFixed(4).replace(/\.?0+$/, "");
-    if (
-      cell instanceof Date ||
-      (typeof cell === "object" && cell && dayjs.isDayjs(cell)) ||
-      (typeof cell === "string" && cell.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/))
-    ) {
-      return dates.formatDateTime(dayjs.isDayjs(cell) ? cell.toDate() : (cell as Date | string));
-    }
-    return String(cell);
-  };
-
-  const generateRowsHtml = (rows: unknown[][]): string => {
-    return rows
-      .map(
-        (row) =>
-          `<tr class="hover:font-semibold">
-          ${row
-            .map(formatCell)
-            .map((s, i) => ({
-              cell: s,
-              cls: i % 2 === 0 ? "bg-gray-50 dark:bg-gray-800/20" : "",
-            }))
-            .map(({ cell, cls }) => `<td class="px-3 py-2 whitespace-nowrap min-w-30 ${cls}">${cell}</td>`)
-            .join("")}
-        </tr>`,
-      )
-      .join("");
-  };
-
-  const updateTable = (newPage: number): void => {
-    currentPage = newPage;
-    const start = (currentPage - 1) * perPage;
-    const end = start + perPage;
-    const pageRows = data.rows.slice(start, end);
-
-    if (tbody) tbody.innerHTML = generateRowsHtml(pageRows);
-
-    if (rowCount > perPage) {
-      if (pageIndicator) pageIndicator.textContent = `${currentPage} of ${maxPage} • ${rowCount} rows total`;
-      if (prevBtn) prevBtn.disabled = currentPage === 1;
-      if (nextBtn) nextBtn.disabled = currentPage === maxPage;
-    }
-  };
-
-  const headersHtml = data.headers
-    .map(
-      (h) =>
-        `<th class="px-3 py-2 text-left font-medium bg-gray-100 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap min-w-30">${h}</th>`,
-    )
+const renderTable = (data: TableData): string => {
+  const headerHtml = data.headers
+    .map((h, i) => `<th><span class="md-table-cell${alignClass(data.align[i] ?? null)}">${escapeHtml(h)}</span></th>`)
     .join("");
 
-  const tableWrapper = document.createElement("div");
-  tableWrapper.className = "overflow-x-auto rounded";
+  const bodyHtml = data.rows
+    .map((row) => {
+      const cells = row
+        .map((cell, i) => `<td><span class="md-table-cell${alignClass(data.align[i] ?? null)}">${escapeHtml(cell)}</span></td>`)
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
 
-  const table = document.createElement("table");
-  table.className = "min-w-full text-sm tabular-nums";
-  table.innerHTML = `<thead><tr>${headersHtml}</tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-700"></tbody>`;
-
-  tbody = table.querySelector("tbody") as HTMLTableSectionElement;
-  tableWrapper.appendChild(table);
-  tableContentArea.appendChild(tableWrapper);
-  container.appendChild(tableContentArea);
-
-  if (rowCount > perPage) {
-    paginationArea.className += " flex items-center justify-center gap-2";
-
-    prevBtn = document.createElement("button");
-    prevBtn.className = "btn-subtle";
-    prevBtn.innerHTML = '<i class="ti ti-chevron-left"></i>';
-    prevBtn.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (currentPage > 1) updateTable(currentPage - 1);
-    };
-    paginationArea.appendChild(prevBtn);
-
-    pageIndicator = document.createElement("span");
-    pageIndicator.className = "text-xs";
-    paginationArea.appendChild(pageIndicator);
-
-    nextBtn = document.createElement("button");
-    nextBtn.className = "btn-subtle";
-    nextBtn.innerHTML = '<i class="ti ti-chevron-right"></i>';
-    nextBtn.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (currentPage < maxPage) updateTable(currentPage + 1);
-    };
-    paginationArea.appendChild(nextBtn);
-
-    container.appendChild(paginationArea);
-  } else {
-    paginationArea.className += " text-center text-xs";
-    paginationArea.textContent = `${rowCount} row${rowCount === 1 ? "" : "s"}`;
-    container.appendChild(paginationArea);
-  }
-
-  updateTable(1);
-  return container;
-}
+  return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+};
 
 class TableWidget extends WidgetType {
-  private container: HTMLElement | null = null;
-
-  constructor(private tableData: TableData) {
+  /**
+   * `fromPos` is the document offset where the table starts at the
+   * moment the decoration was created. We capture it here so the
+   * click handler (below) can dispatch the cursor INTO the widget's
+   * source range without going through `posAtDOM` / `posAtCoords` —
+   * both fall back to unreliable positions for clicks inside
+   * `contenteditable=false` widget DOM (the symptom: cursor jumps to
+   * `state.doc.length`). If text is inserted before the table after
+   * this widget was created, `fromPos` may drift by a few chars; CM
+   * clamps to a valid position, so the cursor lands close enough that
+   * the show-source range still fires on the next render tick.
+   */
+  constructor(
+    private data: TableData,
+    private fromPos: number,
+  ) {
     super();
   }
 
-  override toDOM() {
-    if (!this.container) {
-      this.container = document.createElement("div");
-      this.container.className = "cm-table-widget my-2";
-      this.container.setAttribute("contenteditable", "false");
-      this.container.setAttribute("tabindex", "0");
-      this.container.appendChild(createTable(this.tableData, 20));
-    }
-    return this.container;
+  override toDOM(view: EditorView) {
+    const container = document.createElement("div");
+    container.className = "cm-table-widget";
+    container.setAttribute("contenteditable", "false");
+    container.innerHTML = renderTable(this.data);
+
+    // Click handler at the widget level — same shape as the image and
+    // note-link widgets in this package. Stopping propagation also
+    // avoids CM's internal mousedown logic running with widget-DOM
+    // targets (which is what produces the end-of-doc jump).
+    container.onmousedown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      view.dispatch({ selection: { anchor: this.fromPos } });
+      view.focus();
+    };
+
+    return container;
   }
 
   override eq(other: WidgetType) {
-    return other instanceof TableWidget && JSON.stringify(this.tableData) === JSON.stringify(other.tableData);
+    return (
+      other instanceof TableWidget &&
+      other.fromPos === this.fromPos &&
+      JSON.stringify(this.data) === JSON.stringify(other.data)
+    );
   }
 
-  override ignoreEvent(event: Event) {
-    const target = event.target as HTMLElement;
-    if (target.closest("[data-ignore-click]")) return true;
-    return false;
+  /** Widget owns its own click. Tell CM to keep its hands off all
+   *  events on this DOM tree so the editor's view-level handlers
+   *  don't double-process clicks (which is how `posAtDOM` ends up
+   *  being called against widget DOM in the first place). */
+  override ignoreEvent() {
+    return true;
   }
 
   override get estimatedHeight() {
-    const rows = Math.min(this.tableData.rows.length, 20) + 1;
-    return rows * 40 + 80;
+    return (this.data.rows.length + 1) * 36 + 16;
   }
 }
 
@@ -204,20 +155,22 @@ const findMarkdownTables = (state: EditorState): Range<Decoration>[] => {
     enter: (node) => {
       if (node.type.name !== "Table") return;
 
+      // Hide the widget if the cursor is anywhere inside the table — keep
+      // the literal markdown source editable. Same pattern as image /
+      // tag-pill widgets.
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
       if (cursor.from >= node.from && cursor.to <= nextLine.to) return false;
 
       const text = state.sliceDoc(node.from, node.to);
-      const tableData = parseAndFormatTable(text);
+      const data = parseTable(text);
+      if (!data || data.headers.length === 0) return;
 
-      if (tableData && tableData.headers.length > 0) {
-        decorations.push(
-          Decoration.replace({
-            widget: new TableWidget(tableData),
-            block: true,
-          }).range(node.from, node.to),
-        );
-      }
+      decorations.push(
+        Decoration.replace({
+          widget: new TableWidget(data, node.from),
+          block: true,
+        }).range(node.from, node.to),
+      );
     },
   });
 
@@ -248,20 +201,8 @@ export const tablesExtension = (): Extension => {
     },
   });
 
-  const eventHandlers = EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const target = event.target as HTMLElement;
-      if (target.closest("[data-ignore-click]")) return false;
-      if (target.closest(".cm-table-widget")) {
-        const pos = view.posAtDOM(target);
-        if (pos !== null) {
-          view.dispatch({ selection: { anchor: pos } });
-          return true;
-        }
-      }
-      return false;
-    },
-  });
-
-  return [stateField, theme, eventHandlers];
+  // No view-level mousedown handler — the widget's own onmousedown
+  // captures the click + stopPropagation prevents CM's internal
+  // logic from running posAtDOM against widget-DOM targets.
+  return [stateField, theme];
 };
