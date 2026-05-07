@@ -4,6 +4,7 @@ import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
 import { reindexNoteRefsSafe } from "./note-refs";
 import { parseStreamCursor } from "./yjs-sync";
+import { generateUniqueShortId, isShortId } from "../lib/short-id";
 
 // ==========================
 // Types
@@ -11,6 +12,7 @@ import { parseStreamCursor } from "./yjs-sync";
 
 export type Note = {
   id: string;
+  shortId: string;
   notebookId: string;
   parentId: string | null;
   title: string;
@@ -56,6 +58,7 @@ export type NoteVersion = {
 
 type DbNote = {
   id: string;
+  short_id: string;
   notebook_id: string;
   parent_id: string | null;
   title: string;
@@ -97,6 +100,7 @@ const VERSION_MIN_INTERVAL = "5 minutes";
  */
 const mapToNote = (row: DbNote): Note => ({
   id: row.id,
+  shortId: row.short_id,
   notebookId: row.notebook_id,
   parentId: row.parent_id,
   title: row.title,
@@ -176,7 +180,7 @@ export const lock = async (params: { id: string }): Promise<MutationResult<Note>
     UPDATE notebooks.notes
     SET locked_at = now(), updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, notebook_id, parent_id, title, position,
+    RETURNING id, short_id, notebook_id, parent_id, title, position,
               yjs_snapshot_at, content_md, created_by, created_at, updated_at, locked_at
   `;
 
@@ -201,7 +205,9 @@ export const lock = async (params: { id: string }): Promise<MutationResult<Note>
  */
 export type RecentNote = {
   id: string;
+  shortId: string;
   notebookId: string;
+  notebookShortId: string;
   title: string;
   updatedAt: string;
   notebookIcon: string | null;
@@ -216,15 +222,17 @@ export const recentForUser = async (params: {
   const groupsArr = `{${params.groups.map((g) => `"${g}"`).join(",")}}`;
   const rows = await sql<{
     id: string;
+    short_id: string;
     notebook_id: string;
+    notebook_short_id: string;
     title: string;
     updated_at: string;
     notebook_icon: string | null;
     notebook_name: string;
   }[]>`
     SELECT
-      nt.id, nt.notebook_id, nt.title, nt.updated_at,
-      nb.icon AS notebook_icon, nb.name AS notebook_name
+      nt.id, nt.short_id, nt.notebook_id, nt.title, nt.updated_at,
+      nb.short_id AS notebook_short_id, nb.icon AS notebook_icon, nb.name AS notebook_name
     FROM notebooks.notes nt
     JOIN notebooks.notebooks nb ON nb.id = nt.notebook_id
     WHERE EXISTS (
@@ -244,7 +252,9 @@ export const recentForUser = async (params: {
   `;
   return rows.map((r) => ({
     id: r.id,
+    shortId: r.short_id,
     notebookId: r.notebook_id,
+    notebookShortId: r.notebook_short_id,
     title: r.title,
     updatedAt: r.updated_at,
     notebookIcon: r.notebook_icon,
@@ -258,7 +268,7 @@ export const recentForUser = async (params: {
 export const list = async (params: { notebookId: string }): Promise<Note[]> => {
   const rows = await sql<DbNote[]>`
     SELECT
-      n.id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
       n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
       EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
     FROM notebooks.notes n
@@ -292,7 +302,7 @@ export const listPaged = async (params: {
     params.pagination === undefined
       ? await sql<DbNote[]>`
           SELECT
-            n.id, n.notebook_id, n.parent_id, n.title, n.position,
+            n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
             n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
             EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
           FROM notebooks.notes n
@@ -310,7 +320,7 @@ export const listPaged = async (params: {
         `
       : await sql<DbNote[]>`
           SELECT
-            n.id, n.notebook_id, n.parent_id, n.title, n.position,
+            n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
             n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
             EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
           FROM notebooks.notes n
@@ -382,7 +392,7 @@ export const getTree = async (params: { notebookId: string }): Promise<NoteTreeN
 export const get = async (params: { id: string }): Promise<Note | null> => {
   const [row] = await sql<DbNote[]>`
     SELECT
-      n.id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
       n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
       EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
     FROM notebooks.notes n
@@ -393,12 +403,35 @@ export const get = async (params: { id: string }): Promise<Note | null> => {
 };
 
 /**
+ * Resolve a note by either UUID or short-id. Format-detection branches
+ * keep each query on a single-column index — see `notebooks.getByIdOrShortId`
+ * for the same pattern. Used at the page-handler boundary so URLs +
+ * markdown `note://` schemes can carry short-ids while service
+ * internals stay UUID-driven.
+ */
+export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Note | null> => {
+  const v = params.idOrShortId;
+  if (isShortId(v)) {
+    const [row] = await sql<DbNote[]>`
+      SELECT
+        n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
+        n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+        EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+      FROM notebooks.notes n
+      WHERE n.short_id = ${v}
+    `;
+    return row ? mapToNote(row) : null;
+  }
+  return get({ id: v });
+};
+
+/**
  * Get a note with its Yjs content.
  */
 export const getWithContent = async (params: { id: string }): Promise<NoteWithContent | null> => {
   const [row] = await sql<DbNote[]>`
     SELECT
-      n.id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
       n.yjs_snapshot, n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
       EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
     FROM notebooks.notes n
@@ -406,6 +439,25 @@ export const getWithContent = async (params: { id: string }): Promise<NoteWithCo
   `;
 
   return row ? mapToNoteWithContent(row) : null;
+};
+
+/** `getWithContent` variant that accepts a UUID OR a short-id. Same
+ *  branching trick as `getByIdOrShortId` so each query stays on its
+ *  single-column index. */
+export const getWithContentByIdOrShortId = async (params: { idOrShortId: string }): Promise<NoteWithContent | null> => {
+  const v = params.idOrShortId;
+  if (isShortId(v)) {
+    const [row] = await sql<DbNote[]>`
+      SELECT
+        n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
+        n.yjs_snapshot, n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+        EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+      FROM notebooks.notes n
+      WHERE n.short_id = ${v}
+    `;
+    return row ? mapToNoteWithContent(row) : null;
+  }
+  return getWithContent({ id: v });
 };
 
 /**
@@ -427,16 +479,18 @@ export const create = async (params: { data: CreateNote; creatorId: string | nul
   }
 
   try {
+    const shortId = await generateUniqueShortId("note");
     const [row] = await sql<DbNote[]>`
-      INSERT INTO notebooks.notes (notebook_id, parent_id, title, position, created_by)
+      INSERT INTO notebooks.notes (short_id, notebook_id, parent_id, title, position, created_by)
       VALUES (
+        ${shortId},
         ${data.notebookId}::uuid,
         ${data.parentId ?? null}::uuid,
         ${data.title},
         ${position},
         ${creatorId}::uuid
       )
-      RETURNING id, notebook_id, parent_id, title, position,
+      RETURNING id, short_id, notebook_id, parent_id, title, position,
                 yjs_snapshot_at, content_md, created_by, created_at, updated_at
     `;
 
@@ -905,7 +959,7 @@ export const search = async (params: {
 
   const rows = await sql<DbNote[]>`
     SELECT
-      n.id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
       n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
       EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
     FROM notebooks.notes n

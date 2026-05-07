@@ -4,6 +4,7 @@ import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { getNotebookPermission, grantNotebookAccess } from "./access";
 import * as notes from "./notes";
+import { generateUniqueShortId, isShortId } from "../lib/short-id";
 import helloMd from "./hello.md" with { type: "text" };
 
 // ==========================
@@ -12,6 +13,7 @@ import helloMd from "./hello.md" with { type: "text" };
 
 export type Notebook = {
   id: string;
+  shortId: string;
   name: string;
   description: string | null;
   icon: string | null;
@@ -34,6 +36,7 @@ export type UpdateNotebook = {
 
 type DbNotebook = {
   id: string;
+  short_id: string;
   name: string;
   description: string | null;
   icon: string | null;
@@ -67,6 +70,7 @@ const toPgUuidArray = (values: string[] | null | undefined): string => {
  */
 const mapToNotebook = (row: DbNotebook): Notebook => ({
   id: row.id,
+  shortId: row.short_id,
   name: row.name,
   description: row.description,
   icon: row.icon,
@@ -128,6 +132,7 @@ export const list = async (params: {
       ? await sql<DbNotebook[]>`
           SELECT
             n.id,
+            n.short_id,
             n.name,
             n.description,
             n.icon,
@@ -157,6 +162,7 @@ export const list = async (params: {
       : await sql<DbNotebook[]>`
           SELECT
             n.id,
+            n.short_id,
             n.name,
             n.description,
             n.icon,
@@ -227,6 +233,7 @@ export const listAdmin = async (params: {
   const rows = await sql<DbNotebookAdmin[]>`
     SELECT
       n.id,
+      n.short_id,
       n.name,
       n.description,
       n.icon,
@@ -240,7 +247,7 @@ export const listAdmin = async (params: {
       ${pattern}::text IS NULL
       OR LOWER(n.name) LIKE ${pattern}
     )
-    GROUP BY n.id, n.name, n.description, n.icon, n.created_by, n.created_at, n.updated_at
+    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.created_by, n.created_at, n.updated_at
     ORDER BY LOWER(n.name) ASC, n.created_at ASC
     LIMIT ${params.pagination.limit}
     OFFSET ${params.pagination.offset}
@@ -300,11 +307,31 @@ export const adminSummary = async (params: { search?: string }): Promise<{
  */
 export const get = async (params: { id: string }): Promise<Notebook | null> => {
   const [row] = await sql<DbNotebook[]>`
-    SELECT id, name, description, icon, created_by, created_at, updated_at
+    SELECT id, short_id, name, description, icon, created_by, created_at, updated_at
     FROM notebooks.notebooks
     WHERE id = ${params.id}::uuid
   `;
   return row ? mapToNotebook(row) : null;
+};
+
+/**
+ * Resolve a notebook by either UUID or short-id. The format-detection
+ * branch keeps each query on its own single-column index — no
+ * `OR`-walk across two indexes. Used at the page-handler boundary so
+ * URL routes can carry short-ids while the service layer below stays
+ * UUID-driven.
+ */
+export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Notebook | null> => {
+  const v = params.idOrShortId;
+  if (isShortId(v)) {
+    const [row] = await sql<DbNotebook[]>`
+      SELECT id, short_id, name, description, icon, created_by, created_at, updated_at
+      FROM notebooks.notebooks
+      WHERE short_id = ${v}
+    `;
+    return row ? mapToNotebook(row) : null;
+  }
+  return get({ id: v });
 };
 
 /**
@@ -314,10 +341,11 @@ export const get = async (params: { id: string }): Promise<Notebook | null> => {
 export const create = async (params: { data: CreateNotebook; creatorId: string }): Promise<MutationResult<Notebook>> => {
   const { data, creatorId } = params;
 
+  const shortId = await generateUniqueShortId("notebook");
   const [row] = await sql<DbNotebook[]>`
-    INSERT INTO notebooks.notebooks (name, description, icon, created_by)
-    VALUES (${data.name}, ${data.description ?? null}, ${data.icon ?? null}, ${creatorId}::uuid)
-    RETURNING id, name, description, icon, created_by, created_at, updated_at
+    INSERT INTO notebooks.notebooks (short_id, name, description, icon, created_by)
+    VALUES (${shortId}, ${data.name}, ${data.description ?? null}, ${data.icon ?? null}, ${creatorId}::uuid)
+    RETURNING id, short_id, name, description, icon, created_by, created_at, updated_at
   `;
 
   if (!row) {
@@ -377,7 +405,7 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
     UPDATE notebooks.notebooks
     SET name = ${name}, description = ${description}, icon = ${icon}, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, name, description, icon, created_by, created_at, updated_at
+    RETURNING id, short_id, name, description, icon, created_by, created_at, updated_at
   `;
 
   if (!row) {

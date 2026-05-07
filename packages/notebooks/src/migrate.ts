@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { backfillShortIds, type ShortIdTable } from "./lib/short-id";
 
 export const migrate = async (): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS notebooks`.simple();
@@ -15,6 +16,12 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  // `short_id`: 6-char base62 alias used in URLs and markdown link
+  // schemes (`note://`, `attach://`). Nullable to allow the migration
+  // path on existing rows; the startup backfill below fills any NULLs
+  // and `service/notebooks.ts` always sets it on INSERT going forward.
+  await sql`ALTER TABLE notebooks.notebooks ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notebooks_short_id ON notebooks.notebooks(short_id)`.simple();
   console.log("  ✓ notebooks.notebooks table");
 
   await sql`
@@ -60,6 +67,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_notes_notebook_parent_position
     ON notebooks.notes(notebook_id, parent_id, position)
   `.simple();
+  await sql`ALTER TABLE notebooks.notes ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_short_id ON notebooks.notes(short_id)`.simple();
   console.log("  ✓ notebooks.notes table");
 
   await sql`
@@ -109,6 +118,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_attachments_notebook
     ON notebooks.attachments(notebook_id)
   `.simple();
+  await sql`ALTER TABLE notebooks.attachments ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_short_id ON notebooks.attachments(short_id)`.simple();
   console.log("  ✓ notebooks.attachments table");
 
   // Index table for `#tag` references inside note bodies. Reindexed on
@@ -155,4 +166,16 @@ export const migrate = async (): Promise<void> => {
     ON notebooks.note_attachments(notebook_id, attachment_id)
   `.simple();
   console.log("  ✓ notebooks.note_attachments table");
+
+  // Short-id backfill — fills `short_id` for any rows created before
+  // the column existed (or before the new code path was deployed).
+  // Idempotent: each call is just a `WHERE short_id IS NULL` SELECT.
+  // The UNIQUE index above guarantees we never write duplicates.
+  // Keep at the END of `migrate()` so the columns + indexes exist
+  // before we try to populate them.
+  const tables: ShortIdTable[] = ["notebook", "note", "attachment"];
+  for (const table of tables) {
+    const filled = await backfillShortIds(table);
+    if (filled > 0) console.log(`  ✓ short_id backfill: ${filled} ${table}(s)`);
+  }
 };

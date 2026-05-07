@@ -11,6 +11,7 @@
  */
 import { sql } from "bun";
 import { fileIcons } from "@valentinkolb/stdlib";
+import { generateUniqueShortId, isShortId } from "../lib/short-id";
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -19,6 +20,7 @@ export type AttachmentKind = "image" | "file";
 
 export type Attachment = {
   id: string;
+  shortId: string;
   notebookId: string;
   filename: string;
   mimeType: string;
@@ -32,6 +34,7 @@ export type AttachmentContent = Attachment & { content: Uint8Array };
 
 type DbRow = {
   id: string;
+  short_id: string;
   notebook_id: string;
   filename: string;
   mime_type: string;
@@ -43,6 +46,7 @@ type DbRow = {
 
 const mapRow = (r: DbRow): Attachment => ({
   id: r.id,
+  shortId: r.short_id,
   notebookId: r.notebook_id,
   filename: r.filename,
   mimeType: r.mime_type,
@@ -68,36 +72,71 @@ export const upload = async (params: {
   userId: string;
 }): Promise<Attachment> => {
   const kind = detectKind(params.filename, params.mimeType);
+  const shortId = await generateUniqueShortId("attachment");
   const [row] = await sql<DbRow[]>`
     INSERT INTO notebooks.attachments
-      (notebook_id, filename, mime_type, size_bytes, kind, content, created_by)
+      (short_id, notebook_id, filename, mime_type, size_bytes, kind, content, created_by)
     VALUES
-      (${params.notebookId}, ${params.filename}, ${params.mimeType},
+      (${shortId}, ${params.notebookId}, ${params.filename}, ${params.mimeType},
        ${params.content.byteLength}, ${kind}, ${params.content}, ${params.userId})
-    RETURNING id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    RETURNING id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
   `;
   return mapRow(row!);
 };
 
 export const get = async (params: { id: string }): Promise<Attachment | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments WHERE id = ${params.id}
   `;
   return row ? mapRow(row) : null;
 };
 
+/**
+ * Resolve an attachment by either UUID or short-id. Format-detection
+ * branches keep each query on its own single-column index — same
+ * pattern as `notebooks.getByIdOrShortId` and `notes.getByIdOrShortId`.
+ * Used by the content-serving route + detail-panel hydration so the
+ * `attach://` markdown scheme can carry short-ids end-to-end.
+ */
+export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Attachment | null> => {
+  const v = params.idOrShortId;
+  if (isShortId(v)) {
+    const [row] = await sql<DbRow[]>`
+      SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+      FROM notebooks.attachments WHERE short_id = ${v}
+    `;
+    return row ? mapRow(row) : null;
+  }
+  return get({ id: v });
+};
+
 export const getContent = async (params: { id: string }): Promise<AttachmentContent | null> => {
   const [row] = await sql<(DbRow & { content: Uint8Array })[]>`
-    SELECT id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at, content
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at, content
     FROM notebooks.attachments WHERE id = ${params.id}
   `;
   return row ? { ...mapRow(row), content: row.content } : null;
 };
 
+/** `getContent` variant accepting UUID OR short-id — used by the
+ *  attachment serving endpoint when callers reference blobs via the
+ *  user-facing short-id form. */
+export const getContentByIdOrShortId = async (params: { idOrShortId: string }): Promise<AttachmentContent | null> => {
+  const v = params.idOrShortId;
+  if (isShortId(v)) {
+    const [row] = await sql<(DbRow & { content: Uint8Array })[]>`
+      SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at, content
+      FROM notebooks.attachments WHERE short_id = ${v}
+    `;
+    return row ? { ...mapRow(row), content: row.content } : null;
+  }
+  return getContent({ id: v });
+};
+
 export const list = async (params: { notebookId: string }): Promise<Attachment[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
     WHERE notebook_id = ${params.notebookId}
     ORDER BY created_at DESC
@@ -114,7 +153,7 @@ export const listByIds = async (params: { ids: string[] }): Promise<Attachment[]
   // `notebooks.ts` toPgUuidArray.
   const idArray = `{${params.ids.join(",")}}`;
   const rows = await sql<DbRow[]>`
-    SELECT id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
     WHERE id = ANY(${idArray}::uuid[])
   `;
@@ -147,7 +186,7 @@ export const searchPaginated = async (params: {
   const pattern = q && q.length > 0 ? `%${q}%` : null;
 
   const rows = await sql<DbRow[]>`
-    SELECT id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
     WHERE notebook_id = ${params.notebookId}
       AND (${pattern}::text IS NULL OR LOWER(filename) LIKE ${pattern})
