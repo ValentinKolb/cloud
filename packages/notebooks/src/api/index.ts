@@ -3,7 +3,8 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { notebooksService } from "../service";
+import { notebooksService, reindexRuntime } from "../service";
+import { settingsService } from "@valentinkolb/cloud/services";
 import type { MutationResult, PermissionLevel } from "@valentinkolb/cloud/contracts";
 import {
   ErrorResponseSchema,
@@ -1279,6 +1280,118 @@ app
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
       await notebooksService.attachment.remove({ id: attId });
       return respond(c, ok({ message: "Attachment deleted" }));
+    },
+  );
+
+// =============================================================================
+// Admin — notebooks-app-level settings (extensible: any setting whose key
+// is in the `notebooks` group is exposed here, so future settings just
+// need a `defaults.ts` entry to show up in the admin UI without API
+// changes). Plus a manual reindex trigger.
+// =============================================================================
+
+const NOTEBOOKS_SETTING_GROUP = "notebooks";
+const NOTEBOOKS_SETTING_PREFIX = "notebooks.";
+
+const SettingEntrySchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  kind: z.string(),
+  description: z.string(),
+  default: z.unknown(),
+  value: z.unknown(),
+  isCustom: z.boolean(),
+});
+
+const UpdateSettingSchema = z.object({
+  value: z.unknown(),
+});
+
+const requireAdmin = (c: Context<AuthContext>) => {
+  const user = c.get("user");
+  if (!hasRole(user, "admin")) {
+    return respond(c, fail(err.forbidden("Admin access required")));
+  }
+  return null;
+};
+
+app
+  // List all notebooks-namespaced settings
+  .get(
+    "/admin/settings",
+    describeRoute({
+      tags: ["Notebooks", "Admin"],
+      summary: "List notebooks-app settings",
+      description: "Returns every setting whose key starts with `notebooks.` Admins can update any of them via PUT /admin/settings/:key.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(SettingEntrySchema), "Notebook settings"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+      },
+    }),
+    async (c) => {
+      const denied = requireAdmin(c);
+      if (denied) return denied;
+      const result = await settingsService.entry.list({ filter: { group: NOTEBOOKS_SETTING_GROUP } });
+      return respond(c, ok(result.items));
+    },
+  )
+
+  // Update one setting — key validated to belong to the notebooks namespace
+  .put(
+    "/admin/settings/:key",
+    describeRoute({
+      tags: ["Notebooks", "Admin"],
+      summary: "Update a notebooks-app setting",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Updated"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid key or value"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+      },
+    }),
+    v("json", UpdateSettingSchema),
+    async (c) => {
+      const denied = requireAdmin(c);
+      if (denied) return denied;
+      const key = c.req.param("key");
+      if (!key.startsWith(NOTEBOOKS_SETTING_PREFIX)) {
+        return respond(c, fail(err.badInput(`Setting "${key}" is not in the notebooks namespace`)));
+      }
+      const { value } = c.req.valid("json");
+      const result = await settingsService.entry.update({ key, value });
+      if (!result.ok) return respond(c, result);
+      // If the user changed the reindex cron, reschedule live (no restart
+      // needed). Logs go to `notebooks:reindex` for observability.
+      if (key === "notebooks.reindex_cron" && typeof value === "string") {
+        try {
+          await reindexRuntime.updateCron(value);
+        } catch (error) {
+          return respond(c, fail(err.badInput(`Setting saved but rescheduling failed: ${error instanceof Error ? error.message : String(error)}`)));
+        }
+      }
+      return respond(c, ok({ message: "Setting updated" }));
+    },
+  )
+
+  // Manual trigger — for the admin's "Run reindex now" action
+  .post(
+    "/admin/reindex",
+    describeRoute({
+      tags: ["Notebooks", "Admin"],
+      summary: "Run note-refs reindex now",
+      description: "Submits an immediate reindex job. Returns once submitted — actual work runs async in the scheduler worker. Watch logs for progress.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(MessageResponseSchema, "Reindex submitted"),
+        403: jsonResponse(ErrorResponseSchema, "Admin access required"),
+      },
+    }),
+    async (c) => {
+      const denied = requireAdmin(c);
+      if (denied) return denied;
+      await reindexRuntime.runNow();
+      return respond(c, ok({ message: "Reindex submitted" }));
     },
   );
 

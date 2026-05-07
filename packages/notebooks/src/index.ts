@@ -5,7 +5,7 @@ import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import pageRoutes from "./frontend";
 import { adminPages as adminPageRoutes } from "./frontend";
-import { notebooksService, yjsSnapshotWorker } from "./service";
+import { notebooksService, reindexRuntime, yjsSnapshotWorker } from "./service";
 import { migrate } from "./migrate";
 import { notebooksCapabilities } from "./capabilities";
 
@@ -26,9 +26,14 @@ const result = await app.start({
     },
     start: async () => {
       yjsSnapshotWorker.start();
+      // Periodic note-refs reindex (links + tags + attachments). Also
+      // kicks off a one-shot startup backfill so newly-deployed schema
+      // changes get picked up without waiting for the next cron tick.
+      await reindexRuntime.start();
     },
     stop: async () => {
       await yjsSnapshotWorker.stop();
+      await reindexRuntime.stop();
     },
   },
 });

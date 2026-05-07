@@ -2,7 +2,7 @@ import { sql } from "bun";
 import * as Y from "yjs";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
-import { reindexLinksSafe } from "./links";
+import { reindexNoteRefsSafe } from "./note-refs";
 import { parseStreamCursor } from "./yjs-sync";
 
 // ==========================
@@ -699,10 +699,15 @@ export const save = async (params: {
     }
   }
 
-  // Refresh the cross-note link index after every successful content write.
-  // Cheap (one PK delete + small insert on changed rows) and best-effort —
-  // a failure here never aborts the save.
-  await reindexLinksSafe(noteId, contentMd ?? null);
+  // Refresh the three note-ref indexes (links, tags, attachments) after
+  // every successful content write. Cheap and best-effort — a failure
+  // here never aborts the save (the periodic scheduler reconciles drift).
+  const [refRow] = await sql<{ notebook_id: string }[]>`
+    SELECT notebook_id FROM notebooks.notes WHERE id = ${noteId}::uuid
+  `;
+  if (refRow) {
+    await reindexNoteRefsSafe({ noteId, notebookId: refRow.notebook_id, contentMd: contentMd ?? null });
+  }
 
   return { ok: true, data: undefined };
 };
@@ -850,9 +855,9 @@ export const restoreFromSnapshot = async (params: {
     VALUES (${noteId}::uuid, ${snapshotBuffer}, ${restoredContentMd}, ${existing.title}, ${createdBy}::uuid)
   `;
 
-  // Restored content can carry a different set of cross-note links than what
-  // was previously indexed for this note — refresh the edge list.
-  await reindexLinksSafe(noteId, restoredContentMd);
+  // Restored content can carry a different set of refs (links, tags,
+  // attachments) than was previously indexed — refresh all three.
+  await reindexNoteRefsSafe({ noteId, notebookId: existing.notebookId, contentMd: restoredContentMd });
 
   const updated = await get({ id: noteId });
   return { ok: true, data: updated! };
@@ -957,9 +962,14 @@ export const copyToNotebook = async (params: {
           content_md = ${source.contentMd ?? null}
       WHERE id = ${result.data.id}::uuid
     `;
-    // The copy carries the source's outgoing links — index them so the new
-    // note shows up as a backlink source where appropriate.
-    await reindexLinksSafe(result.data.id, source.contentMd ?? null);
+    // The copy carries the source's refs (outgoing links + tags +
+    // attachment URLs) — index them so the new note shows up where
+    // appropriate. `targetNotebookId` is the destination notebook.
+    await reindexNoteRefsSafe({
+      noteId: result.data.id,
+      notebookId: params.targetNotebookId,
+      contentMd: source.contentMd ?? null,
+    });
   }
 
   return result;

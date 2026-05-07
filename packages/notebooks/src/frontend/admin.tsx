@@ -4,6 +4,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { Pagination, StatCell } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import AdminNotebookActions from "./_components/AdminNotebookActions.island";
+import AdminNotebooksAppSettings from "./_components/AdminNotebooksAppSettings.island";
 import { notebooksService } from "../service";
 
 const PER_PAGE = 100;
@@ -61,7 +62,12 @@ export default ssr<AuthContext>(async (c) => {
             </div>
           </div>
 
-          <SearchBar action="/admin/notebooks" value={search} placeholder="Search notebooks by name..." ariaLabel="Search notebooks" />
+          <div class="flex items-stretch gap-2">
+            <div class="flex-1 min-w-0">
+              <SearchBar action="/admin/notebooks" value={search} placeholder="Search notebooks by name..." ariaLabel="Search notebooks" />
+            </div>
+            <AdminNotebooksAppSettings />
+          </div>
 
           {notebooks.items.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-notebooks-table">

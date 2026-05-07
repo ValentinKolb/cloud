@@ -622,6 +622,15 @@ export const SETTINGS: SettingDef[] = [
     placeholder: "https://example.org/imprint",
     group: "legal",
   },
+
+  {
+    key: "notebooks.reindex_cron",
+    label: "Reindex Cron",
+    kind: "cron",
+    default: "0 */12 * * *",
+    description: "Five-field cron schedule for the periodic note-refs reindex job (links, tags, attachments) in app.timezone.",
+    group: "notebooks",
+  },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

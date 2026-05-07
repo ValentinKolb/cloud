@@ -1,0 +1,197 @@
+/**
+ * Admin button for notebook-app-level settings on `/admin/notebooks`.
+ *
+ * Click → opens a modal that lists every setting in the `notebooks`
+ * group (read from `GET /api/notebooks/admin/settings`). Each setting
+ * is rendered as a labelled input picking the right widget for its
+ * kind. Save submits the changed values via `PUT /admin/settings/:key`.
+ *
+ * Extensible by design: future settings just need a `defaults.ts`
+ * entry — they auto-appear in this modal without any frontend change.
+ */
+import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { For, Show, createResource, createSignal } from "solid-js";
+
+type SettingEntry = {
+  key: string;
+  label: string;
+  kind: string;
+  description: string;
+  default: unknown;
+  value: unknown;
+  isCustom: boolean;
+};
+
+const fetchSettings = async (): Promise<SettingEntry[]> => {
+  const res = await fetch("/api/notebooks/admin/settings");
+  if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
+  return (await res.json()) as SettingEntry[];
+};
+
+const updateSetting = async (key: string, value: unknown): Promise<void> => {
+  const res = await fetch(`/api/notebooks/admin/settings/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(data?.message ?? `Failed to update ${key}`);
+  }
+};
+
+const runReindex = async (): Promise<void> => {
+  const res = await fetch("/api/notebooks/admin/reindex", { method: "POST" });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(data?.message ?? "Failed to submit reindex");
+  }
+};
+
+/**
+ * Renders one setting row. Falls back to a text input for unknown kinds
+ * so a new `kind` doesn't crash the modal — the value still round-trips
+ * as a string and the API will validate it.
+ */
+const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => void }) => {
+  const initial = props.entry.value ?? props.entry.default ?? "";
+  const [value, setValue] = createSignal(typeof initial === "string" ? initial : String(initial));
+
+  const handleInput = (e: Event) => {
+    const next = (e.currentTarget as HTMLInputElement).value;
+    setValue(next);
+    props.onChange(next);
+  };
+
+  return (
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-primary" for={`setting-${props.entry.key}`}>
+        {props.entry.label}
+        <span class="ml-1.5 text-[10px] text-dimmed font-normal font-mono">{props.entry.key}</span>
+      </label>
+      <input
+        id={`setting-${props.entry.key}`}
+        type="text"
+        class="input"
+        value={value()}
+        onInput={handleInput}
+        placeholder={typeof props.entry.default === "string" ? props.entry.default : ""}
+      />
+      <Show when={props.entry.description}>
+        <p class="text-[11px] text-dimmed">{props.entry.description}</p>
+      </Show>
+    </div>
+  );
+};
+
+const SettingsBody = (props: { close: () => void }) => {
+  const [entries, { refetch }] = createResource(fetchSettings);
+  const pending = new Map<string, unknown>();
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const onChange = (key: string, value: unknown) => {
+    pending.set(key, value);
+  };
+
+  const onSave = async () => {
+    if (pending.size === 0) {
+      props.close();
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      for (const [key, value] of pending) {
+        await updateSetting(key, value);
+      }
+      props.close();
+      refreshCurrentPath();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onReindexNow = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await runReindex();
+      await prompts.alert("Reindex job submitted. Check the notebooks app logs for progress.", {
+        title: "Reindex submitted",
+        icon: "ti ti-refresh",
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to submit reindex");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div class="w-full max-w-full flex flex-col gap-4 min-w-[28rem]">
+      <Show
+        when={!entries.loading}
+        fallback={<p class="text-xs text-dimmed">Loading settings…</p>}
+      >
+        <Show
+          when={(entries() ?? []).length > 0}
+          fallback={<p class="text-xs text-dimmed">No notebooks-app settings registered.</p>}
+        >
+          <div class="flex flex-col gap-3">
+            <For each={entries() ?? []}>
+              {(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}
+            </For>
+          </div>
+        </Show>
+      </Show>
+
+      <Show when={error()}>
+        <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
+      </Show>
+
+      <div class="flex items-center gap-2 pt-2">
+        <button
+          type="button"
+          class="btn-input btn-input-sm"
+          onClick={() => void onReindexNow()}
+          disabled={busy()}
+          title="Run a one-shot reindex right now (instead of waiting for the next scheduled tick)"
+        >
+          <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-refresh"} text-sm`} />
+          Reindex now
+        </button>
+        <div class="flex-1" />
+        <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={busy()}>
+          Cancel
+        </button>
+        <button type="button" class="btn-input btn-input-sm" onClick={() => void onSave()} disabled={busy()}>
+          <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
+          Save
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const openSettingsDialog = () =>
+  prompts.dialog<void>(
+    (close) => <SettingsBody close={close} />,
+    { title: "Notebook Settings", icon: "ti ti-settings" },
+  );
+
+export default function AdminNotebooksAppSettings() {
+  return (
+    <button
+      type="button"
+      class="btn-input btn-input-sm shrink-0"
+      onClick={() => void openSettingsDialog()}
+      title="Notebook app settings"
+    >
+      <i class="ti ti-settings text-sm" />
+      Settings
+    </button>
+  );
+}

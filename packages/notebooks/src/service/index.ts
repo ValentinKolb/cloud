@@ -3,9 +3,12 @@ import { type PageParams, paginate, type Paginated } from "@valentinkolb/stdlib"
 import * as access from "./access";
 import * as attachments from "./attachments";
 import * as links from "./links";
+import * as noteRefs from "./note-refs";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
 import * as presence from "./presence";
+import { reindexRuntime } from "./reindex-scheduler";
+import * as tags from "./tags";
 import { yjsSnapshotWorker } from "./yjs-snapshot-worker";
 
 const pageFromPagination = (pagination?: PageParams) => {
@@ -161,6 +164,17 @@ export const notebooksService = {
     snapshot: presence.snapshot,
     reader: presence.reader,
   },
+  tag: {
+    listForNotebook: tags.listForNotebook,
+    count: tags.count,
+    extractTags: tags.extractTags,
+  },
+  noteRefs: {
+    reindexNoteRefs: noteRefs.reindexNoteRefs,
+    reindexNoteRefsSafe: noteRefs.reindexNoteRefsSafe,
+    reindexNotebook: noteRefs.reindexNotebook,
+    reindexAll: noteRefs.reindexAll,
+  },
   attachment: {
     upload: attachments.upload,
     get: attachments.get,
@@ -195,7 +209,7 @@ export const notebooksService = {
   },
 };
 
-export { notebooks, notes, access, attachments, links, presence, yjsSnapshotWorker };
+export { notebooks, notes, access, attachments, links, presence, tags, noteRefs, reindexRuntime, yjsSnapshotWorker };
 
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";

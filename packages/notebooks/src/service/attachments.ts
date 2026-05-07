@@ -181,17 +181,47 @@ export const extractIds = (md: string | null): string[] => {
 };
 
 /**
- * Count notes within a notebook that reference a given attachment id. Used
- * to warn before destructive deletes ("also used in 3 other notes").
+ * Count notes within a notebook that reference a given attachment id —
+ * served from the `notebooks.note_attachments` index table (O(log N)
+ * lookup instead of a `LIKE '%...'%` content_md scan). The index is kept
+ * in sync via the per-save `reindexAttachmentRefs` and the periodic
+ * scheduler reindex.
  */
 export const usageCount = async (params: { notebookId: string; attachmentId: string }): Promise<number> => {
   const [row] = await sql<{ count: number }[]>`
     SELECT COUNT(*)::int AS count
-    FROM notebooks.notes
+    FROM notebooks.note_attachments
     WHERE notebook_id = ${params.notebookId}
-      AND content_md LIKE ${"%attachment://" + params.attachmentId + "%"}
+      AND attachment_id = ${params.attachmentId}
   `;
   return row?.count ?? 0;
+};
+
+/** Reindex which attachment ids the given note references. Mirrors
+ *  `reindexLinks` / `reindexTags` shape for the unified `reindexNoteRefs`
+ *  orchestrator. Drops rows that point at attachments which have been
+ *  deleted in the meantime (FK CASCADE handles that, but we ANTI JOIN
+ *  upfront to avoid inserting them). */
+export const reindexAttachmentRefs = async (params: { noteId: string; notebookId: string; contentMd: string | null }): Promise<void> => {
+  const ids = extractIds(params.contentMd);
+  await sql.begin(async (tx) => {
+    await tx`DELETE FROM notebooks.note_attachments WHERE note_id = ${params.noteId}`;
+    if (ids.length === 0) return;
+    // Filter to attachments that actually exist + belong to the same
+    // notebook — defensive against cross-notebook copy/paste of an
+    // `attachment://` URL whose blob isn't visible from here.
+    const idArray = `{${ids.join(",")}}`;
+    const valid = await tx<{ id: string }[]>`
+      SELECT id FROM notebooks.attachments
+      WHERE notebook_id = ${params.notebookId}
+        AND id = ANY(${idArray}::uuid[])
+    `;
+    if (valid.length === 0) return;
+    await tx`
+      INSERT INTO notebooks.note_attachments ${tx(valid.map((row) => ({ note_id: params.noteId, notebook_id: params.notebookId, attachment_id: row.id })))}
+      ON CONFLICT DO NOTHING
+    `;
+  });
 };
 
 // =============================================================================
