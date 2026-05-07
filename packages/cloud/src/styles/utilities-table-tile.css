@@ -28,6 +28,18 @@
   border: 0;
 }
 
+/* `@tailwindcss/typography` (`prose` class) puts a `border-bottom` on
+   every `tbody tr`. The tile look already separates rows visually via
+   the 4px gap + per-cell radius, so we reset all row/cell borders to
+   keep the surface clean. Our utility CSS is loaded AFTER the
+   typography plugin in `global.css` → same specificity, later wins. */
+.md-table thead tr,
+.md-table tbody tr,
+.md-table th,
+.md-table td {
+  border: 0;
+}
+
 .md-table th,
 .md-table td {
   padding: 0;
