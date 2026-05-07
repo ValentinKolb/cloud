@@ -33,6 +33,11 @@
   padding: 0;
   height: 100%;
   vertical-align: top;
+  /* Per-cell minimum width — the table's own `width: 100%` keeps it
+     fitted to the wrap when content is narrow, but `min-width` here
+     gives every column a readable floor and triggers the wrap div's
+     `overflow-x: auto` once the sum exceeds the available width. */
+  min-width: 7rem;
 }
 
 /* Gaps via adjacent-sibling padding (NOT border-spacing — that would
@@ -67,10 +72,13 @@
 }
 
 /* Header tiles: one shade darker than body + medium weight. Subtle
-   bg-shift only — no accent line, no caps, no shouting. */
+   bg-shift only — no accent line, no caps, no shouting. Headers also
+   get `nowrap` so they don't ever break char-by-char even if the
+   widest body cell still pushes the column past the 7 rem floor. */
 .md-table thead .md-table-cell {
   background-color: rgb(244 244 245); /* zinc-100 */
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .dark .md-table thead .md-table-cell {

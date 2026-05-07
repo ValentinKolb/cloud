@@ -1,13 +1,23 @@
 /**
  * Markdown table widget — renders a `| col | col |` block as a tile-style
- * table when the cursor is on a different line, mirroring the read-mode
- * HTML output served by the `marked` extension. Same `.md-table-*`
- * classes flow through `cloud/src/styles/utilities-table-tile.css` so the
- * visual is identical in edit and read mode.
+ * preview when the cursor is on a different line, mirroring the read-mode
+ * HTML produced by the `marked` extension. Same `.md-table-*` classes
+ * flow through `cloud/src/styles/utilities-table-tile.css` so the visual
+ * is identical in edit and read mode.
  *
- * No pagination, no per-cell type detection, no column zebra. Markdown
- * tables are hand-edited and small — those features belong in the Grids
- * app for actual data work.
+ * Editing path:
+ *  - Cursor inside the table's lines (or on the line right after it) →
+ *    widget hidden, raw markdown source visible, normal CM editing.
+ *  - Click on the widget → cursor dispatched to the table's start so the
+ *    source-show range fires; user can then arrow-key around inside.
+ *
+ * Known limitation: `Decoration.replace({ block: true })` is atomic in
+ * CodeMirror's cursor model, so arrow-up FROM BELOW jumps the cursor
+ * past the entire widget instead of stopping at its boundary. Click +
+ * arrow-down from above both work as expected.
+ *
+ * No pagination, no per-cell type detection, no column zebra — markdown
+ * tables are hand-edited and small. Data tables belong in the Grids app.
  */
 import { syntaxTree } from "@codemirror/language";
 import { StateField, RangeSet, EditorState, type Extension, Range } from "@codemirror/state";
@@ -86,19 +96,18 @@ const renderTable = (data: TableData): string => {
   return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
 };
 
+/**
+ * Tile-style table preview. Click → dispatches cursor to the table's
+ * start (`fromPos`, captured at decoration time) so the source-show
+ * range fires and the user can edit inline.
+ *
+ * The click handler lives on the widget DOM, not in a view-level
+ * `mousedown`, because `view.posAtDOM(target)` falls back to
+ * `state.doc.length` for nodes inside a `contenteditable=false` widget
+ * — that fallback was the cause of the "click jumps to end of doc" bug.
+ * Capturing the start position at construction sidesteps the problem.
+ */
 class TableWidget extends WidgetType {
-  /**
-   * `fromPos` is the document offset where the table starts at the
-   * moment the decoration was created. We capture it here so the
-   * click handler (below) can dispatch the cursor INTO the widget's
-   * source range without going through `posAtDOM` / `posAtCoords` —
-   * both fall back to unreliable positions for clicks inside
-   * `contenteditable=false` widget DOM (the symptom: cursor jumps to
-   * `state.doc.length`). If text is inserted before the table after
-   * this widget was created, `fromPos` may drift by a few chars; CM
-   * clamps to a valid position, so the cursor lands close enough that
-   * the show-source range still fires on the next render tick.
-   */
   constructor(
     private data: TableData,
     private fromPos: number,
@@ -111,18 +120,12 @@ class TableWidget extends WidgetType {
     container.className = "cm-table-widget";
     container.setAttribute("contenteditable", "false");
     container.innerHTML = renderTable(this.data);
-
-    // Click handler at the widget level — same shape as the image and
-    // note-link widgets in this package. Stopping propagation also
-    // avoids CM's internal mousedown logic running with widget-DOM
-    // targets (which is what produces the end-of-doc jump).
     container.onmousedown = (event) => {
       event.preventDefault();
       event.stopPropagation();
       view.dispatch({ selection: { anchor: this.fromPos } });
       view.focus();
     };
-
     return container;
   }
 
@@ -134,10 +137,8 @@ class TableWidget extends WidgetType {
     );
   }
 
-  /** Widget owns its own click. Tell CM to keep its hands off all
-   *  events on this DOM tree so the editor's view-level handlers
-   *  don't double-process clicks (which is how `posAtDOM` ends up
-   *  being called against widget DOM in the first place). */
+  /** Widget handles its own clicks; keep CM's view-level handlers off
+   *  this DOM tree so the click never reaches `posAtDOM`. */
   override ignoreEvent() {
     return true;
   }
@@ -155,8 +156,9 @@ const findMarkdownTables = (state: EditorState): Range<Decoration>[] => {
     enter: (node) => {
       if (node.type.name !== "Table") return;
 
-      // Hide the widget if the cursor is anywhere inside the table — keep
-      // the literal markdown source editable. Same pattern as image /
+      // Show-source range: when the cursor is anywhere inside the table
+      // OR on the line right after it, drop the widget so the raw
+      // markdown becomes editable. Same pattern as image / callout /
       // tag-pill widgets.
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
       if (cursor.from >= node.from && cursor.to <= nextLine.to) return false;
