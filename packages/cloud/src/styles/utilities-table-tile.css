@@ -94,3 +94,107 @@
 .md-table-cell.md-align-center {
   text-align: center;
 }
+
+/* "Total" / summary rows — when ≥50 % of a row's formula cells are
+   aggregates (`SUM`, `AVG`, …) the renderer tags the `<tr>` with this
+   class. Body cells in such rows render with bumped weight + a stable
+   tile bg one shade darker than the regular zinc-50 floor, so the
+   summary visually anchors the bottom of the table. */
+.md-table tbody tr.md-table-total-row .md-table-cell {
+  font-weight: 600;
+  background-color: rgb(244 244 245); /* zinc-100 — same as header */
+}
+
+.dark .md-table tbody tr.md-table-total-row .md-table-cell {
+  background-color: rgb(39 39 42); /* zinc-800 */
+}
+
+/* Formula-OK cells: blue text + `ti-math-function` icon prefix so the
+   reader can tell which values are computed vs hand-typed. Hover
+   title shows the original formula. */
+.md-table-cell.md-formula-ok {
+  color: rgb(37 99 235); /* blue-600 */
+  cursor: help;
+}
+
+.md-table-cell.md-formula-ok > i.ti {
+  margin-right: 0.25rem;
+  font-size: 0.75rem;
+  opacity: 0.7;
+  vertical-align: -1px;
+}
+
+.dark .md-table-cell.md-formula-ok {
+  color: rgb(96 165 250); /* blue-400 */
+}
+
+/* CodeMirror inline live-preview after each `=...` cell when the
+   table source is visible (cursor inside the table). Greyed out so
+   it's clearly virtual / not part of the markdown. Errors switch to
+   red to mirror the read-mode error styling.
+
+   The OK variant is click-to-copy (handled in tables.ts). Hover gets
+   underline + pointer cursor as the affordance. Errors stay inert —
+   `pointer-events: none` blocks any interaction, leaving CM to handle
+   clicks at the underlying source position. */
+.cm-formula-preview {
+  color: rgb(113 113 122); /* zinc-500 */
+  font-style: italic;
+  font-size: 0.85em;
+  opacity: 0.7;
+  user-select: none;
+}
+
+.cm-formula-preview:hover {
+  text-decoration: underline;
+  cursor: pointer;
+  opacity: 1;
+}
+
+.dark .cm-formula-preview {
+  color: rgb(161 161 170); /* zinc-400 */
+}
+
+.cm-formula-preview-error {
+  color: rgb(220 38 38); /* red-600 */
+  font-style: normal;
+  pointer-events: none;
+}
+
+.cm-formula-preview-error:hover {
+  text-decoration: none;
+  cursor: default;
+}
+
+.dark .cm-formula-preview-error {
+  color: rgb(248 113 113); /* red-400 */
+}
+
+/* Brief post-copy state — green, no italic, stable through hover. */
+.cm-formula-preview-copied,
+.cm-formula-preview-copied:hover {
+  color: rgb(22 163 74); /* green-600 */
+  font-style: normal;
+  text-decoration: none;
+  opacity: 1;
+}
+
+.dark .cm-formula-preview-copied,
+.dark .cm-formula-preview-copied:hover {
+  color: rgb(74 222 128); /* green-400 */
+}
+
+/* Formula-error cells render the original formula in red so the user
+   spots the broken cell immediately. The full diagnostic (with
+   "did-you-mean" suggestion when available) lives in the `title`
+   attribute → hover tooltip. */
+.md-table-cell.md-formula-error {
+  color: rgb(220 38 38); /* red-600 */
+  background-color: rgb(254 242 242); /* red-50 */
+  cursor: help;
+}
+
+.dark .md-table-cell.md-formula-error {
+  color: rgb(248 113 113); /* red-400 */
+  background-color: rgb(127 29 29 / 0.25); /* red-900 / 25% */
+}

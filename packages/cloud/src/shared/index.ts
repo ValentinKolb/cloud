@@ -4,6 +4,8 @@ export * from "./account-session";
 export type * from "./icons";
 export { icons } from "./icons";
 export { markdown } from "./markdown";
+export { evaluateFormula, formatValue, isFormula, isTotalRow } from "./markdown/formula";
+export type { EvalContext, EvalError, EvalResult, EvalValue, ErrorCode } from "./markdown/formula";
 
 // Re-export from stdlib for backward compatibility
 // Prefer importing directly from @valentinkolb/stdlib

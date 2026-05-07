@@ -10,11 +10,19 @@
  * Per-column alignment from `:---:` syntax flows through `token.align`
  * to a `md-align-{left,center,right}` class on each cell.
  *
+ * Cells starting with `=` are evaluated as formulas via the shared
+ * `formula.ts` module. The computed value replaces the cell text;
+ * errors render as a red-text cell with a hover-title showing the
+ * full diagnostic. The same evaluator runs in the editor widget so
+ * read-mode HTML and rich-edit preview stay in sync.
+ *
  * Markdown tables are hand-edited and small — no pagination, no
  * NULL/datetime cell-formatting, no zebra columns. If you need any of
  * those, you're rendering data not prose; use the Grids app.
  */
 import type { MarkedExtension, Tokens } from "marked";
+import { evaluateFormula, formatValue, isFormula, isTotalRow, type EvalContext } from "../formula";
+import { escapeHtml } from "../shared";
 
 type Align = "left" | "right" | "center" | null;
 
@@ -24,11 +32,44 @@ const alignClass = (align: Align): string => {
   return "";
 };
 
+/** Best-effort plain-text extraction for formula evaluation. The
+ *  formula evaluator only needs the raw cell value (numbers, strings),
+ *  so we walk the marked-token tree and collect the text — falling
+ *  back to `cell.text` if anything goes wrong. */
+const cellText = (cell: Tokens.TableCell): string => {
+  if (typeof cell.text === "string" && cell.text.length > 0) return cell.text;
+  return "";
+};
+
+const renderCell = (alignCls: string, originalText: string, ctx: EvalContext, htmlContent: string): string => {
+  if (!isFormula(originalText)) {
+    return `<td><span class="md-table-cell${alignCls}">${htmlContent}</span></td>`;
+  }
+  const result = evaluateFormula(originalText, ctx);
+  if (result.kind === "ok") {
+    // Computed cells get a `ti-math-function` icon prefix + blue text
+    // so the user can tell at a glance which values are derived vs
+    // hand-typed. Hover-title shows the original formula source.
+    return `<td><span class="md-table-cell md-formula-ok${alignCls}" title="${escapeHtml(originalText)}"><i class="ti ti-math-function"></i>${escapeHtml(formatValue(result.value))}</span></td>`;
+  }
+  // Error: show the original formula in red + ⚠ icon, hover title
+  // carries the full diagnostic. Pattern matches `md-formula-error`
+  // styling in `utilities-table-tile.css`.
+  const tooltip = result.suggestion ? `${result.message}\n→ Suggestion: ${result.suggestion}` : result.message;
+  return `<td><span class="md-table-cell md-formula-error${alignCls}" title="${escapeHtml(tooltip)}">⚠ ${escapeHtml(originalText)}</span></td>`;
+};
+
 export function tablesExtension(): MarkedExtension {
   return {
     renderer: {
       table(token: Tokens.Table): string {
         const align = token.align ?? [];
+
+        // Build the EvalContext once per table — formulas reference
+        // raw cell text, not other formulas' results, so a single pass
+        // through the source rows is enough.
+        const headers = token.header.map((h) => cellText(h));
+        const rawRows = token.rows.map((row) => row.map((c) => cellText(c)));
 
         const headerCells = token.header
           .map((cell, i) => {
@@ -38,14 +79,19 @@ export function tablesExtension(): MarkedExtension {
           .join("");
 
         const rows = token.rows
-          .map((row) => {
+          .map((row, rowIdx) => {
+            const rowTexts = rawRows[rowIdx] ?? [];
+            const totalRow = isTotalRow(rowTexts);
             const cells = row
-              .map((cell, i) => {
-                const cls = `md-table-cell${alignClass(align[i] ?? null)}`;
-                return `<td><span class="${cls}">${this.parser.parseInline(cell.tokens)}</span></td>`;
+              .map((cell, colIdx) => {
+                const alignCls = alignClass(align[colIdx] ?? null);
+                const original = cellText(cell);
+                const htmlContent = this.parser.parseInline(cell.tokens);
+                const ctx: EvalContext = { headers, rows: rawRows, currentRow: rowIdx, currentCol: colIdx };
+                return renderCell(alignCls, original, ctx, htmlContent);
               })
               .join("");
-            return `<tr>${cells}</tr>`;
+            return totalRow ? `<tr class="md-table-total-row">${cells}</tr>` : `<tr>${cells}</tr>`;
           })
           .join("");
 
