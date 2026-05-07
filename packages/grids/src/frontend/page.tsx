@@ -63,7 +63,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {visible.map((base) => (
               <a
-                href={`/app/grids/${base.id}`}
+                href={`/app/grids/${base.slug}`}
                 class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
                 style={`view-transition-name: grids-base-card-${base.id}`}
               >

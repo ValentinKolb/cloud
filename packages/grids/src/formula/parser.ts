@@ -64,7 +64,13 @@ const tokenize = (src: string): Token[] => {
       i = j + 1;
       continue;
     }
-    // field reference {fieldId}
+    // field reference — two equivalent syntaxes:
+    //   {fieldId}  legacy / explicit form (still parsed; UUID inside)
+    //   #slug      preferred short form (matches the field's 5-char slug)
+    // Both emit the same `field` token. The evaluator resolves the
+    // value by trying its UUID map first, then its slug map — slugs and
+    // UUIDs can't collide (UUIDs are 36 chars with hyphens, slugs are
+    // 5 chars of alphanumeric).
     if (c === "{") {
       const j = src.indexOf("}", i + 1);
       if (j === -1) throw new Error("unclosed field reference");
@@ -72,6 +78,20 @@ const tokenize = (src: string): Token[] => {
       if (value.length === 0) throw new Error("empty field reference");
       tokens.push({ kind: "field", value });
       i = j + 1;
+      continue;
+    }
+    if (c === "#") {
+      let j = i + 1;
+      while (j < n) {
+        const k = src[j]!;
+        if ((k >= "a" && k <= "z") || (k >= "A" && k <= "Z") || (k >= "0" && k <= "9")) {
+          j++;
+        } else break;
+      }
+      if (j === i + 1) throw new Error("empty slug reference after #");
+      const value = src.slice(i + 1, j);
+      tokens.push({ kind: "field", value });
+      i = j;
       continue;
     }
     // identifier (function name) or boolean literal

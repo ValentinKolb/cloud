@@ -6,6 +6,7 @@ import fieldsRoutes from "./fields";
 import recordsRoutes from "./records";
 import accessRoutes from "./access";
 import viewsRoutes from "./views";
+import dashboardsRoutes from "./dashboards";
 import formsRoutes from "./forms";
 
 const app = new Hono()
@@ -16,6 +17,7 @@ const app = new Hono()
   .route("/records", recordsRoutes)
   .route("/access", accessRoutes)
   .route("/views", viewsRoutes)
+  .route("/dashboards", dashboardsRoutes)
   .route("/forms", formsRoutes);
 
 export default app;

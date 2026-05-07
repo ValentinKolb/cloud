@@ -12,12 +12,14 @@ import {
 } from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
 import { getHandler, isKnownFieldType } from "../field-types";
+import { generateUniqueSlug } from "./slug";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
 const mapRow = (row: DbRow): Field => ({
   id: row.id as string,
+  slug: row.slug as string,
   tableId: row.table_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
@@ -34,6 +36,28 @@ const mapRow = (row: DbRow): Field => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
+
+const slugTakenInTable = (tableId: string) => async (slug: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1 FROM grids.fields
+      WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    ) AS exists
+  `;
+  return Boolean(row?.exists);
+};
+
+/**
+ * Look up a field by (tableId, slug). Used by the formula evaluator
+ * when resolving #slug references. Returns null for deleted fields.
+ */
+export const getBySlug = async (tableId: string, slug: string): Promise<Field | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT * FROM grids.fields
+    WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
+};
 
 export const listByTable = async (tableId: string, includeDeleted = false): Promise<Field[]> => {
   const rows = includeDeleted
@@ -108,12 +132,14 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     input.defaultValue === undefined || input.defaultValue === null
       ? null
       : JSON.stringify(input.defaultValue);
+  const slug = await generateUniqueSlug(slugTakenInTable(input.tableId));
   const [row] = await sql<DbRow[]>`
     INSERT INTO grids.fields (
-      table_id, name, description, type, config, position, required,
+      slug, table_id, name, description, type, config, position, required,
       presentable, hide_in_table, default_value, indexed, unique_constraint
     )
     VALUES (
+      ${slug},
       ${input.tableId}::uuid,
       ${name},
       -- bun.sql can't infer the type of a literal NULL; cast keeps the

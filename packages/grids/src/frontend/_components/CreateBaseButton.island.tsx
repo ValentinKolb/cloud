@@ -13,7 +13,7 @@ export default function CreateBaseButton() {
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create base"));
       return (await res.json()) as Base;
     },
-    onSuccess: (base) => navigateTo(`/app/grids/${base.id}`),
+    onSuccess: (base) => navigateTo(`/app/grids/${base.slug}`),
     onError: (e) => prompts.error(e.message),
   });
 

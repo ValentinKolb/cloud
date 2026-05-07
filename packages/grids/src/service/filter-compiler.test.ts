@@ -4,6 +4,7 @@ import type { Field } from "./types";
 
 const mkField = (id: string, type: string): Field => ({
   id,
+  slug: id,
   tableId: "t1",
   name: id,
   description: null,

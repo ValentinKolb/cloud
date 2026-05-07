@@ -58,8 +58,13 @@ const fetchAllForExport = async (params: {
  * Formats a single cell value as plain text for export. Single-select /
  * multi-select project the human label, not the option id, so an exported
  * CSV is readable without consulting the field config.
+ *
+ * Exported (rather than file-private) so it can be unit-tested in
+ * isolation; the CSV path here decides the entire user-visible export
+ * fidelity, so the corner cases (booleans, select-options, objects) are
+ * worth pinning down independently of the DB-bound `exportRecords`.
  */
-const formatCellForExport = (value: unknown, field: Field): string => {
+export const formatCellForExport = (value: unknown, field: Field): string => {
   if (value === null || value === undefined) return "";
   if (field.type === "boolean") return value ? "true" : "false";
   if (field.type === "single-select") {
@@ -75,8 +80,9 @@ const formatCellForExport = (value: unknown, field: Field): string => {
 };
 
 /** RFC 4180 CSV quoting — wraps in double-quotes when the cell contains
- *  a delimiter, newline, or quote, and doubles internal quotes. */
-const csvQuote = (s: string): string => {
+ *  a delimiter, newline, or quote, and doubles internal quotes. Exported
+ *  alongside `formatCellForExport` for unit testing. */
+export const csvQuote = (s: string): string => {
   if (/[,\r\n"]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 };

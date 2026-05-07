@@ -43,6 +43,7 @@ const FormConfigSchema = z.object({
 
 const FormSchema = z.object({
   id: z.string(),
+  slug: z.string(),
   tableId: z.string().uuid(),
   name: z.string(),
   config: FormConfigSchema,

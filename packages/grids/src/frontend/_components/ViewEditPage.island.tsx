@@ -10,8 +10,9 @@ import { TYPE_LABELS } from "./field-config-editor";
 import { SectionCard } from "./SectionCard";
 
 type Props = {
-  baseId: string;
-  tableId: string;
+  baseSlug: string;
+  tableSlug: string;
+  viewSlug: string;
   initialView: View;
   fields: Field[];
   /** Pre-fetched ACL entries for this view (server-side load). The
@@ -54,7 +55,7 @@ export default function ViewEditPage(props: Props) {
     <div class="flex flex-col gap-4 p-6">
       <header class="flex items-center justify-between gap-3">
         <h1 class="text-xl font-semibold text-primary">View settings</h1>
-        <a href={`/app/grids/${props.baseId}?table=${props.tableId}&view=${props.initialView.id}`} class="btn-input btn-input-sm">
+        <a href={`/app/grids/${props.baseSlug}?table=${props.tableSlug}&view=${props.viewSlug}`} class="btn-input btn-input-sm">
           <i class="ti ti-arrow-left" /> Back to records
         </a>
       </header>
@@ -94,7 +95,7 @@ export default function ViewEditPage(props: Props) {
         subtitle="Permanently delete this view. Records remain — only the saved filter / sort / columns go away."
         variant="danger"
       >
-        <DeleteButton viewId={props.initialView.id} baseId={props.baseId} tableId={props.tableId} name={props.initialView.name} />
+        <DeleteButton viewId={props.initialView.id} baseSlug={props.baseSlug} tableSlug={props.tableSlug} name={props.initialView.name} />
       </SectionCard>
     </div>
   );
@@ -460,7 +461,7 @@ function LimitSection(props: { viewId: string; initial: number | undefined }) {
 // Delete
 // =============================================================================
 
-function DeleteButton(props: { viewId: string; baseId: string; tableId: string; name: string }) {
+function DeleteButton(props: { viewId: string; baseSlug: string; tableSlug: string; name: string }) {
   const mut = mutations.create<void, void>({
     mutation: async () => {
       const res = await apiClient.views[":viewId"].$delete({
@@ -468,7 +469,7 @@ function DeleteButton(props: { viewId: string; baseId: string; tableId: string; 
       });
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete view"));
     },
-    onSuccess: () => navigateTo(`/app/grids/${props.baseId}?table=${props.tableId}`),
+    onSuccess: () => navigateTo(`/app/grids/${props.baseSlug}?table=${props.tableSlug}`),
     onError: (e) => prompts.error(e.message),
   });
 

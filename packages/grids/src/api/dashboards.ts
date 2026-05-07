@@ -1,0 +1,210 @@
+import { Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
+import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import {
+  DashboardSchema,
+  DashboardListSchema,
+  CreateDashboardSchema,
+  UpdateDashboardSchema,
+} from "../contracts";
+import { gridsService } from "../service";
+import { gateAt } from "./permissions";
+
+// =============================================================================
+// /api/grids/dashboards
+//
+// Permission rules mirror /api/grids/views:
+//   - Personal dashboard (ownerUserId = caller): caller can do anything.
+//   - Shared dashboard (ownerUserId = null): structural — gated to
+//     base-admin, just like shared views, since publishing one affects
+//     everyone with base-read.
+//   - Read access flows through service.dashboard.listForBase, which
+//     applies dashboard_access on top of default visibility.
+// =============================================================================
+
+const app = new Hono<AuthContext>()
+  .use(auth.requireRole("authenticated"))
+
+  .get(
+    "/by-base/:baseId",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "List dashboards visible on a base",
+      responses: { 200: jsonResponse(DashboardListSchema, "Dashboards") },
+    }),
+    async (c) => {
+      const baseId = c.req.param("baseId");
+      const base = await gridsService.base.get(baseId);
+      if (!base) return c.json({ message: "Base not found" }, 404);
+      const gate = await gateAt(c, { baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      const list = await gridsService.dashboard.listForBase({
+        baseId,
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+      });
+      return c.json(list);
+    },
+  )
+
+  .post(
+    "/by-base/:baseId",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Create a dashboard (shared or personal)",
+      responses: {
+        201: jsonResponse(DashboardSchema, "Created"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", CreateDashboardSchema),
+    async (c) => {
+      const baseId = c.req.param("baseId");
+      const base = await gridsService.base.get(baseId);
+      if (!base) return c.json({ message: "Base not found" }, 404);
+      const body = c.req.valid("json");
+      // Shared dashboards are catalog-level changes (visible to every
+      // base-reader), gated to base-admin. Personal dashboards are
+      // user scratchpads — any base-reader can save their own.
+      const gate = body.shared
+        ? await gateAt(c, { baseId }, "admin")
+        : await gateAt(c, { baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
+      return respond(
+        c,
+        () =>
+          gridsService.dashboard.create(
+            {
+              baseId,
+              name: body.name,
+              description: body.description ?? null,
+              config: body.config,
+              ownerUserId: body.shared ? null : user.id,
+            },
+            user.id,
+          ),
+        201,
+      );
+    },
+  )
+
+  .get(
+    "/:dashboardId",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Get a single dashboard",
+      responses: {
+        200: jsonResponse(DashboardSchema, "Dashboard"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId");
+      const dashboard = await gridsService.dashboard.get(dashboardId);
+      if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
+      const gate = await gateAt(c, { baseId: dashboard.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      // Personal dashboards: only the owner can read directly. Explicit
+      // dashboard_access grants are surfaced via listForBase, not GET-by-id
+      // (matches view behaviour — kept consistent intentionally).
+      const user = c.get("user");
+      if (dashboard.ownerUserId !== null && dashboard.ownerUserId !== user.id) {
+        return c.json({ message: "Dashboard not found" }, 404);
+      }
+      return c.json(dashboard);
+    },
+  )
+
+  .patch(
+    "/:dashboardId",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Update a dashboard",
+      responses: {
+        200: jsonResponse(DashboardSchema, "Updated"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", UpdateDashboardSchema),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId");
+      const dashboard = await gridsService.dashboard.get(dashboardId);
+      if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
+      const user = c.get("user");
+      const isOwner = dashboard.ownerUserId === user.id;
+      const gate =
+        dashboard.ownerUserId === null
+          ? await gateAt(c, { baseId: dashboard.baseId }, "admin")
+          : await gateAt(c, { baseId: dashboard.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      if (dashboard.ownerUserId !== null && !isOwner) {
+        return c.json({ message: "Only the owner can edit a personal dashboard" }, 403);
+      }
+      return respond(c, () =>
+        gridsService.dashboard.update(dashboardId, c.req.valid("json"), user.id),
+      );
+    },
+  )
+
+  .delete(
+    "/:dashboardId",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Delete a dashboard",
+      responses: {
+        204: { description: "Deleted" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId");
+      const dashboard = await gridsService.dashboard.get(dashboardId);
+      if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
+      const user = c.get("user");
+      const isOwner = dashboard.ownerUserId === user.id;
+      const gate =
+        dashboard.ownerUserId === null
+          ? await gateAt(c, { baseId: dashboard.baseId }, "admin")
+          : await gateAt(c, { baseId: dashboard.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      if (dashboard.ownerUserId !== null && !isOwner) {
+        return c.json({ message: "Only the owner can delete a personal dashboard" }, 403);
+      }
+      const result = await gridsService.dashboard.remove(dashboardId, user.id);
+      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+      return c.body(null, 204);
+    },
+  )
+
+  .post(
+    "/:dashboardId/restore",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Restore a soft-deleted dashboard",
+      responses: {
+        200: jsonResponse(DashboardSchema, "Restored"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId");
+      const dashboard = await gridsService.dashboard.get(dashboardId, { includeDeleted: true });
+      if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
+      const user = c.get("user");
+      const isOwner = dashboard.ownerUserId === user.id;
+      const gate =
+        dashboard.ownerUserId === null
+          ? await gateAt(c, { baseId: dashboard.baseId }, "admin")
+          : await gateAt(c, { baseId: dashboard.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      if (dashboard.ownerUserId !== null && !isOwner) {
+        return c.json({ message: "Only the owner can restore a personal dashboard" }, 403);
+      }
+      return respond(c, () => gridsService.dashboard.restore(dashboardId, user.id));
+    },
+  );
+
+export default app;

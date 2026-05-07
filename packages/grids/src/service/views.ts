@@ -3,9 +3,20 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
+import { generateUniqueSlug } from "./slug";
 import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type FormatSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
+
+const slugTakenInTable = (tableId: string) => async (slug: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1 FROM grids.views
+      WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    ) AS exists
+  `;
+  return Boolean(row?.exists);
+};
 
 // View / ViewQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
 // re-export so consumers can keep importing them from the service layer.
@@ -24,6 +35,7 @@ const mapRow = (row: DbRow): View => {
   const parsed = ViewQuerySchema.safeParse(rawQuery);
   return {
     id: row.id as string,
+    slug: (row.slug as string | null) ?? "",
     tableId: row.table_id as string,
     name: row.name as string,
     query: parsed.success ? parsed.data : {},
@@ -33,6 +45,32 @@ const mapRow = (row: DbRow): View => {
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
   };
+};
+
+/**
+ * Look up a view by (tableId, slug). Used at the SSR-route boundary
+ * to resolve the `?view=<slug>` URL param to a UUID. Returns null for
+ * soft-deleted views.
+ */
+export const getBySlug = async (tableId: string, slug: string): Promise<View | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT * FROM grids.views
+    WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
+};
+
+/**
+ * Tolerant lookup — accepts either UUID or slug. Same length-based
+ * heuristic as `bases.getByIdOrSlug` / `tables.getByIdOrSlug`.
+ */
+export const getByIdOrSlug = async (tableId: string, idOrSlug: string): Promise<View | null> => {
+  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
+    const v = await get(idOrSlug);
+    // Scope-check: a leaked UUID from another table must not resolve here.
+    return v && v.tableId === tableId ? v : null;
+  }
+  return getBySlug(tableId, idOrSlug);
 };
 
 /**
@@ -195,9 +233,12 @@ export const create = async (
     return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
   }
 
+  const slug = await generateUniqueSlug(slugTakenInTable(input.tableId));
+
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.views (table_id, name, query, owner_user_id, position)
+    INSERT INTO grids.views (slug, table_id, name, query, owner_user_id, position)
     VALUES (
+      ${slug},
       ${input.tableId}::uuid,
       ${name},
       ${queryParsed.data}::jsonb,

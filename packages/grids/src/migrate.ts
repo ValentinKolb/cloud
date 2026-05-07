@@ -380,4 +380,105 @@ export const migrate = async (): Promise<void> => {
   // fields drive everything from now on.
   await sql`ALTER TABLE grids.forms DROP COLUMN IF EXISTS field_snapshot`.simple();
   console.log("  ✓ grids.forms.field_snapshot (dropped)");
+
+  // ──────────────────────────────────────────────────────────────────
+  // Short slugs alongside UUIDs
+  // ──────────────────────────────────────────────────────────────────
+  // Every base/table/field/form/view gets a 5-char readable slug used
+  // for URLs (`/app/grids/k3Mp9`) and formula references (`#a3X8b`).
+  // UUIDs stay as PKs and FKs — slugs are surface-level only. Records
+  // are not slugged (high cardinality; UUIDv7 stays).
+  //
+  // NULL is allowed at column level — the service layer enforces
+  // not-null at write time via the slug-gen helper. The unique index
+  // is partial (alive rows only) so soft-deleted rows don't block new
+  // ones from re-using the slug.
+  await sql`ALTER TABLE grids.bases  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
+  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
+  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
+  await sql`ALTER TABLE grids.forms  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
+  await sql`ALTER TABLE grids.views  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_slug
+    ON grids.bases(slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_slug
+    ON grids.tables(base_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_fields_slug
+    ON grids.fields(table_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_slug
+    ON grids.forms(table_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_slug
+    ON grids.views(table_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+  `.simple();
+  console.log("  ✓ grids.{bases,tables,fields,forms,views}.slug + unique indexes");
+
+  // ──────────────────────────────────────────────────────────────────
+  // dashboards (P0 — stat cards + embedded views; chart widgets ship
+  // in P1 once the chart-render lib lands)
+  // ──────────────────────────────────────────────────────────────────
+  // Per-base composition surface. The `config` JSONB carries the full
+  // layout tree (rows × cells × widgets) — same blob-on-row pattern as
+  // forms.config and views.query. Keeps reads atomic and lets us evolve
+  // the widget shape without DDL. owner_user_id mirrors the views model
+  // (NULL = shared, UUID = personal). dashboard_access narrows visibility
+  // for shared dashboards the same way view_access does.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.dashboards (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      slug TEXT,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT,
+      config JSONB NOT NULL DEFAULT '{"rows":[]}'::jsonb,
+      owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+      position INT NOT NULL DEFAULT 0,
+      deleted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  // Hot path: list alive dashboards of a base in user-defined order.
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_dashboards_base_live
+    ON grids.dashboards(base_id, position) WHERE deleted_at IS NULL
+  `.simple();
+  // Slug uniqueness scoped per base, alive rows only — same partial-
+  // index pattern as the other slug-bearing tables.
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_dashboards_slug
+    ON grids.dashboards(base_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+  `.simple();
+  console.log("  ✓ grids.dashboards");
+
+  // dashboard_access: same junction shape as view_access. Level is
+  // implicit `read` — the API rejects write/admin grants because they
+  // don't make semantic sense for a saved layout (edit-rights flow from
+  // base-write or owner, not from a per-dashboard ACL).
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.dashboard_access (
+      dashboard_id UUID NOT NULL REFERENCES grids.dashboards(id) ON DELETE CASCADE,
+      access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      PRIMARY KEY (dashboard_id, access_id)
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_grids_dashboard_access_access ON grids.dashboard_access(access_id)`.simple();
+  console.log("  ✓ grids.dashboard_access");
+
+  // bases.default_dashboard_id: when set, opening /grids/<base> with no
+  // ?table or ?dashboard query param renders this dashboard. Nullable
+  // and intentionally NOT a hard FK — we don't want a base-level dep
+  // on the dashboards table to constrain ordering or destruction.
+  // Service layer treats a stale id (referenced dashboard soft-deleted
+  // or hard-deleted) as "no default" and falls back to first table.
+  await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS default_dashboard_id UUID`.simple();
+  console.log("  ✓ grids.bases.default_dashboard_id");
 };

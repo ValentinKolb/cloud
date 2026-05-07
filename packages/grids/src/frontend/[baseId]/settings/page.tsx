@@ -7,9 +7,9 @@ import BaseSettingsPanel from "../../_components/BaseSettingsPanel.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseId = c.req.param("baseId");
+  const baseSlug = c.req.param("baseId");
 
-  const base = await gridsService.base.get(baseId);
+  const base = await gridsService.base.getByIdOrSlug(baseSlug);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -19,6 +19,7 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
+  const baseId = base.id;
 
   // Permission gate. Admin shortcuts past the per-base ACL like the rest of
   // grids; otherwise we resolve the level on the base and require admin.
@@ -34,7 +35,7 @@ export default ssr<AuthContext>(async (c) => {
         { baseId },
       );
   if (!gridsService.permission.hasAtLeast(level, "admin")) {
-    return c.redirect(`/app/grids/${baseId}`, 302);
+    return c.redirect(`/app/grids/${baseSlug}`, 302);
   }
 
   const accessEntries = await gridsService.access.listForBase(baseId);
@@ -45,7 +46,7 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseId}` },
+        { title: base.name, href: `/app/grids/${baseSlug}` },
         { title: "Settings" },
       ]}
     >

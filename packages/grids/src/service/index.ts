@@ -5,6 +5,7 @@ import * as records from "./records";
 import * as audit from "./audit";
 import * as access from "./access";
 import * as views from "./views";
+import * as dashboards from "./dashboards";
 import * as forms from "./forms";
 import * as exporter from "./export";
 import * as maintenance from "./maintenance";
@@ -16,6 +17,8 @@ export const gridsService = {
   base: {
     list: bases.list,
     get: bases.get,
+    getBySlug: bases.getBySlug,
+    getByIdOrSlug: bases.getByIdOrSlug,
     create: bases.create,
     update: bases.update,
     remove: bases.remove,
@@ -29,6 +32,8 @@ export const gridsService = {
     listByBase: tables.listByBase,
     listTrashedByBase: tables.listTrashedByBase,
     get: tables.get,
+    getBySlug: tables.getBySlug,
+    getByIdOrSlug: tables.getByIdOrSlug,
     create: tables.create,
     update: tables.update,
     remove: tables.remove,
@@ -38,6 +43,7 @@ export const gridsService = {
     listByTable: fields.listByTable,
     listTrashedByBase: fields.listTrashedByBase,
     get: fields.get,
+    getBySlug: fields.getBySlug,
     create: fields.create,
     update: fields.update,
     reorder: fields.reorder,
@@ -74,6 +80,7 @@ export const gridsService = {
     listForTable: access.listTableAccess,
     listForView: access.listViewAccess,
     listForForm: access.listFormAccess,
+    listForDashboard: access.listDashboardAccess,
     updateLevel: access.updateAccessLevel,
     revoke: access.revokeAccess,
     resolveBinding: access.resolveAccessBinding,
@@ -81,15 +88,28 @@ export const gridsService = {
   view: {
     listForTable: views.listForTable,
     get: views.get,
+    getBySlug: views.getBySlug,
+    getByIdOrSlug: views.getByIdOrSlug,
     create: views.create,
     update: views.update,
     remove: views.remove,
     restore: views.restore,
   },
+  dashboard: {
+    listForBase: dashboards.listForBase,
+    get: dashboards.get,
+    getBySlug: dashboards.getBySlug,
+    getByIdOrSlug: dashboards.getByIdOrSlug,
+    create: dashboards.create,
+    update: dashboards.update,
+    remove: dashboards.remove,
+    restore: dashboards.restore,
+  },
   form: {
     listForTable: forms.listForTable,
     listTrashedByBase: forms.listTrashedByBase,
     get: forms.get,
+    getBySlug: forms.getBySlug,
     getByPublicToken: forms.getByPublicToken,
     create: forms.create,
     update: forms.update,
@@ -109,8 +129,16 @@ export const gridsService = {
   },
 };
 
-export { bases, tables, fields, records, audit, access, views, forms, exporter, maintenance };
+export { bases, tables, fields, records, audit, access, views, dashboards, forms, exporter, maintenance };
 export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
+export type {
+  Dashboard,
+  DashboardConfig,
+  DashboardRow,
+  Widget,
+  WidgetSource,
+  WidgetFormat,
+} from "../contracts";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
 export type { FieldDependent } from "./field-dependents";

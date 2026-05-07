@@ -166,14 +166,22 @@ export const hydrateRelationsFromLinks = async (
  */
 const orderFormulasByDeps = (
   formulaFields: Field[],
+  slugToId: Record<string, string>,
 ): { ordered: Array<{ field: Field; ast: ReturnType<typeof parseFormula> extends infer R ? R extends { ok: true; ast: infer A } ? A : never : never }>; cycle: Set<string> } => {
+  // Refs in formulas are either UUIDs (legacy {uuid} syntax) or slugs
+  // (#slug syntax). Normalise both to UUIDs via the slug-map so the
+  // dep graph stays UUID-keyed.
+  const resolveRef = (ref: string): string => slugToId[ref] ?? ref;
+
   const compiled = formulaFields
     .map((f) => {
       const expr = (f.config as { expression?: string }).expression;
       if (!expr) return null;
       const parsed = parseFormula(expr);
       if (!parsed.ok) return null;
-      const refs = collectFieldRefs(parsed.ast);
+      const refs = new Set(
+        [...collectFieldRefs(parsed.ast)].map(resolveRef),
+      );
       return { field: f, ast: parsed.ast, refs };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
@@ -220,7 +228,15 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
   const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula");
   if (formulaFields.length === 0) return records;
 
-  const { ordered, cycle } = orderFormulasByDeps(formulaFields);
+  // slug → fieldId map for #slug references in formula expressions.
+  // Built across ALL alive fields (not just formulas) since a formula
+  // can reference any field by slug.
+  const slugToId: Record<string, string> = {};
+  for (const f of fields) {
+    if (!f.deletedAt && f.slug) slugToId[f.slug] = f.id;
+  }
+
+  const { ordered, cycle } = orderFormulasByDeps(formulaFields, slugToId);
 
   for (const rec of records) {
     // Mark cycle members first so dependents see the error sentinel
@@ -230,7 +246,7 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
     }
     for (const { field, ast } of ordered) {
       if (cycle.has(field.id)) continue;
-      const value = evaluate(ast, { fields: rec.data });
+      const value = evaluate(ast, { fields: rec.data, slugToId });
       rec.data[field.id] = renderResult(value);
     }
   }

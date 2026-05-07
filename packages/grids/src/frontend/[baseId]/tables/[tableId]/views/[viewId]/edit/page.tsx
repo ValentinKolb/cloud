@@ -34,11 +34,11 @@ const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) =>
  */
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseId = c.req.param("baseId");
-  const tableId = c.req.param("tableId");
-  const viewId = c.req.param("viewId");
+  const baseSlug = c.req.param("baseId");
+  const tableSlug = c.req.param("tableId");
+  const viewSlug = c.req.param("viewId");
 
-  const base = await gridsService.base.get(baseId);
+  const base = await gridsService.base.getByIdOrSlug(baseSlug);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -48,7 +48,8 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
-  const table = await gridsService.table.get(tableId);
+  const baseId = base.id;
+  const table = await gridsService.table.getByIdOrSlug(baseId, tableSlug);
   if (!table || table.baseId !== baseId) {
     return () => (
       <Layout c={c} title="Not found">
@@ -58,7 +59,8 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
-  const view = await gridsService.view.get(viewId);
+  const tableId = table.id;
+  const view = await gridsService.view.getByIdOrSlug(tableId, viewSlug);
   if (!view || view.tableId !== tableId) {
     return () => (
       <Layout c={c} title="Not found">
@@ -68,16 +70,17 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
+  const viewId = view.id;
 
   const tableLevel = await resolveLevel(user, baseId, tableId);
   const isOwner = view.ownerUserId === user.id;
   const isShared = view.ownerUserId === null;
   const requiredLevel = isShared ? "write" : "read";
   if (!gridsService.permission.hasAtLeast(tableLevel, requiredLevel)) {
-    return c.redirect(`/app/grids/${baseId}?table=${tableId}`, 302);
+    return c.redirect(`/app/grids/${baseSlug}?table=${tableSlug}`, 302);
   }
   if (!isShared && !isOwner) {
-    return c.redirect(`/app/grids/${baseId}?table=${tableId}`, 302);
+    return c.redirect(`/app/grids/${baseSlug}?table=${tableSlug}`, 302);
   }
 
   const fields = await gridsService.field.listByTable(tableId);
@@ -88,6 +91,12 @@ export default ssr<AuthContext>(async (c) => {
   // them get a 403 on click.
   const accessEntries = await gridsService.access.listForView(viewId);
   const canEditAccess = gridsService.permission.hasAtLeast(tableLevel, "admin");
+
+  // Base-level permission gates the "New table" entry in the sidebar —
+  // mirrors the records-page sidebar so the affordance lives in the same
+  // place across both views.
+  const baseLevel = await resolveLevel(user, baseId);
+  const canCreateTables = gridsService.permission.hasAtLeast(baseLevel, "write");
 
   // Pre-fetch sibling tables + their views for the unified edit
   // sidebar. The sidebar mirrors the records-page sidebar shape so the
@@ -118,9 +127,9 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseId}` },
-        { title: table.name, href: `/app/grids/${baseId}?table=${tableId}` },
-        { title: view.name, href: `/app/grids/${baseId}?table=${tableId}&view=${viewId}` },
+        { title: base.name, href: `/app/grids/${baseSlug}` },
+        { title: table.name, href: `/app/grids/${baseSlug}?table=${tableSlug}` },
+        { title: view.name, href: `/app/grids/${baseSlug}?table=${tableSlug}&view=${viewSlug}` },
         { title: "Edit" },
       ]}
     >
@@ -142,7 +151,7 @@ export default ssr<AuthContext>(async (c) => {
             </summary>
             <div class="sidebar-mobile-actions">
               <a
-                href={`/app/grids/${baseId}?table=${tableId}&view=${viewId}`}
+                href={`/app/grids/${baseSlug}?table=${tableSlug}&view=${viewSlug}`}
                 class="sidebar-item-mobile"
               >
                 <i class="ti ti-arrow-left" />
@@ -152,7 +161,7 @@ export default ssr<AuthContext>(async (c) => {
                 const isActive = v.id === viewId;
                 return (
                   <a
-                    href={`/app/grids/${baseId}/tables/${tableId}/views/${v.id}/edit`}
+                    href={`/app/grids/${baseSlug}/tables/${tableSlug}/views/${v.slug}/edit`}
                     class={`sidebar-item-mobile ${
                       isActive
                         ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
@@ -173,15 +182,20 @@ export default ssr<AuthContext>(async (c) => {
             view being edited. */}
         <EditSidebar
           baseId={baseId}
+          baseSlug={baseSlug}
+          activeTableSlug={tableSlug}
+          activeViewSlug={viewSlug}
           tables={tables}
           viewsByTable={viewsByTable}
           active={{ kind: "view", tableId, viewId }}
+          canCreateTables={canCreateTables}
         />
 
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           <ViewEditPage
-            baseId={baseId}
-            tableId={tableId}
+            baseSlug={baseSlug}
+            tableSlug={tableSlug}
+            viewSlug={viewSlug}
             initialView={view}
             fields={fields}
             initialAccessEntries={accessEntries}

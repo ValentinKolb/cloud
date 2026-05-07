@@ -3,6 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { listByTable as listFields } from "./fields";
+import { generateUniqueSlug } from "./slug";
 import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -56,6 +57,10 @@ export type FormConfig = {
 export type Form = {
   /** `default-<tableId>` for the virtual default form, real UUID otherwise. */
   id: string;
+  /** Short readable handle (5 chars), unique per table. Empty string
+   *  for the virtual default form (which is identified by its prefix
+   *  in the id, not by a slug). */
+  slug: string;
   tableId: string;
   name: string;
   config: FormConfig;
@@ -70,7 +75,7 @@ export type Form = {
   updatedAt: string;
 };
 
-const COLS = sql`id, table_id, name, config, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
+const COLS = sql`id, slug, table_id, name, config, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
 
 /**
  * Normalises a raw FormFieldEntry, defaulting `kind` to "user_input"
@@ -114,6 +119,7 @@ const normalizeFormConfig = (raw: unknown): FormConfig => {
 
 const mapRow = (row: DbRow): Form => ({
   id: row.id as string,
+  slug: (row.slug as string | null) ?? "",
   tableId: row.table_id as string,
   name: row.name as string,
   config: normalizeFormConfig(row.config),
@@ -126,6 +132,28 @@ const mapRow = (row: DbRow): Form => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
+
+const slugTakenInTable = (tableId: string) => async (slug: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1 FROM grids.forms
+      WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    ) AS exists
+  `;
+  return Boolean(row?.exists);
+};
+
+/**
+ * Look up a form by (tableId, slug). Used for slug-based URL routing.
+ * Returns null for soft-deleted forms.
+ */
+export const getBySlug = async (tableId: string, slug: string): Promise<Form | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT ${COLS} FROM grids.forms
+    WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
+};
 
 // ──────────────────────────────────────────────────────────────────
 // Virtual default form
@@ -168,6 +196,9 @@ export const buildDefaultForm = async (tableId: string): Promise<Form> => {
   };
   return {
     id: `default-${tableId}`,
+    // Virtual default form has no real slug — never appears in URLs
+    // since it's accessed by the always-derived `default-<tableId>` id.
+    slug: "",
     tableId,
     name: "Quick add",
     config,
@@ -211,7 +242,7 @@ export const listForTable = async (
  */
 export const listTrashedByBase = async (baseId: string): Promise<Form[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT ${sql`f.id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
+    SELECT ${sql`f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
     FROM grids.forms f
     JOIN grids.tables t ON t.id = f.table_id
     WHERE t.base_id = ${baseId}::uuid
@@ -245,7 +276,7 @@ export const get = async (
  */
 export const getByPublicToken = async (token: string): Promise<Form | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT f.id, f.table_id, f.name, f.config,
+    SELECT f.id, f.slug, f.table_id, f.name, f.config,
            f.public_token, f.is_active, f.owner_user_id, f.position,
            f.deleted_at, f.created_at, f.updated_at
     FROM grids.forms f
@@ -277,10 +308,12 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
   if (name.length === 0) return fail(err.badInput("name required"));
   const config = input.config ?? { fields: [] };
   const publicToken = input.isPublic ? generatePublicToken() : null;
+  const slug = await generateUniqueSlug(slugTakenInTable(input.tableId));
 
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.forms (table_id, name, config, public_token, owner_user_id, position)
+    INSERT INTO grids.forms (slug, table_id, name, config, public_token, owner_user_id, position)
     VALUES (
+      ${slug},
       ${input.tableId}::uuid,
       ${name},
       ${config}::jsonb,

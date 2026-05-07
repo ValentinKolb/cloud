@@ -14,7 +14,7 @@ type TrashResponse = {
 };
 
 type Props = {
-  base: { id: string; name: string; description: string | null };
+  base: { id: string; slug: string; name: string; description: string | null };
   accessEntries: AccessEntry[];
 };
 
@@ -27,7 +27,7 @@ export default function BaseSettingsPanel(props: Props) {
   return (
     <div class="flex flex-col gap-4">
       <header class="flex items-center gap-3">
-        <a href={`/app/grids/${props.base.id}`} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to base">
+        <a href={`/app/grids/${props.base.slug}`} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to base">
           <i class="ti ti-arrow-left" />
         </a>
         <h1 class="text-xl font-semibold text-primary">Base settings</h1>

@@ -1,12 +1,24 @@
 import { For, Show } from "solid-js";
 import type { Table, View } from "../../service";
+import CreateTableButton from "./CreateTableButton.island";
 
 type ActiveTarget =
   | { kind: "table"; tableId: string }
   | { kind: "view"; tableId: string; viewId: string };
 
 type Props = {
+  /** Parent base UUID — needed by `CreateTableButton` for its API call
+   *  (the create endpoint still keys by UUID; only URLs use slugs). */
   baseId: string;
+  baseSlug: string;
+  /**
+   * URL-friendly slug for the active table (used to build the "Back to
+   * records" href). Provided alongside the UUID-based `active` so we
+   * don't have to scan tables[] to find it.
+   */
+  activeTableSlug: string;
+  /** Slug for the active view, when active.kind === "view". */
+  activeViewSlug?: string;
   /**
    * Sibling tables to list. Caller pre-filters to the readable set
    * (admin sees all; non-admin sees what they can read) so the
@@ -25,6 +37,13 @@ type Props = {
    * `ti-table-spark`).
    */
   active: ActiveTarget;
+  /**
+   * Whether to render the "New table" entry under the Tables list. Mirrors
+   * the records-page sidebar so the create-table affordance lives in the
+   * same spot whether the user is browsing records or editing schema.
+   * Caller computes this from the base-level permission (write or higher).
+   */
+  canCreateTables: boolean;
 };
 
 /**
@@ -58,9 +77,9 @@ export default function EditSidebar(props: Props) {
   // applied). From a table-edit, back goes to the table.
   const backHref = (() => {
     if (props.active.kind === "view") {
-      return `/app/grids/${props.baseId}?table=${props.active.tableId}&view=${props.active.viewId}`;
+      return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}&view=${props.activeViewSlug ?? ""}`;
     }
-    return `/app/grids/${props.baseId}?table=${props.active.tableId}`;
+    return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}`;
   })();
 
   // Flat alphabetical view list — same UX as the records page sidebar.
@@ -102,7 +121,7 @@ export default function EditSidebar(props: Props) {
             <For each={props.tables}>
               {(t) => (
                 <a
-                  href={`/app/grids/${props.baseId}/tables/${t.id}/edit`}
+                  href={`/app/grids/${props.baseSlug}/tables/${t.slug}/edit`}
                   class={`sidebar-item ${isActiveTable(t.id) ? "sidebar-item-active" : ""}`}
                 >
                   <i class="ti ti-table text-sm shrink-0" />
@@ -110,6 +129,9 @@ export default function EditSidebar(props: Props) {
                 </a>
               )}
             </For>
+            <Show when={props.canCreateTables}>
+              <CreateTableButton baseId={props.baseId} baseSlug={props.baseSlug} />
+            </Show>
           </section>
 
           <Show when={allViews.length > 0}>
@@ -118,7 +140,7 @@ export default function EditSidebar(props: Props) {
               <For each={allViews}>
                 {({ view, table: t }) => (
                   <a
-                    href={`/app/grids/${props.baseId}/tables/${t.id}/views/${view.id}/edit`}
+                    href={`/app/grids/${props.baseSlug}/tables/${t.slug}/views/${view.slug}/edit`}
                     class={`sidebar-item ${isActiveView(view.id) ? "sidebar-item-active" : ""}`}
                   >
                     <i class="ti ti-table-spark text-sm shrink-0" />

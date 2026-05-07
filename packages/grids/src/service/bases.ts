@@ -2,19 +2,31 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { grantAccess } from "./access";
+import { generateUniqueSlug } from "./slug";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
+const COLS = sql`id, slug, name, description, created_by, default_dashboard_id, deleted_at, created_at, updated_at`;
+
 const mapRow = (row: DbRow): Base => ({
   id: row.id as string,
+  slug: row.slug as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
   createdBy: (row.created_by as string | null) ?? null,
+  defaultDashboardId: (row.default_dashboard_id as string | null) ?? null,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
+
+const slugTaken = async (slug: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(SELECT 1 FROM grids.bases WHERE slug = ${slug} AND deleted_at IS NULL) AS exists
+  `;
+  return Boolean(row?.exists);
+};
 
 /**
  * Lists active (non-soft-deleted) bases. Pass `includeDeleted: true`
@@ -23,12 +35,12 @@ const mapRow = (row: DbRow): Base => ({
 export const list = async (opts: { includeDeleted?: boolean } = {}): Promise<Base[]> => {
   const rows = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        SELECT ${COLS}
         FROM grids.bases
         ORDER BY created_at DESC
       `
     : await sql<DbRow[]>`
-        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        SELECT ${COLS}
         FROM grids.bases
         WHERE deleted_at IS NULL
         ORDER BY created_at DESC
@@ -47,24 +59,54 @@ export const get = async (
 ): Promise<Base | null> => {
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        SELECT ${COLS}
         FROM grids.bases WHERE id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT id, name, description, created_by, deleted_at, created_at, updated_at
+        SELECT ${COLS}
         FROM grids.bases WHERE id = ${id}::uuid AND deleted_at IS NULL
       `;
   return row ? mapRow(row) : null;
+};
+
+/**
+ * Look up a base by its short slug. Used at the SSR-route boundary to
+ * resolve URL slugs (`/app/grids/k3Mp9`) to UUIDs that the rest of the
+ * service layer + API works with. Returns null for soft-deleted bases.
+ */
+export const getBySlug = async (slug: string): Promise<Base | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT ${COLS}
+    FROM grids.bases WHERE slug = ${slug} AND deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
+};
+
+/**
+ * Tolerant lookup — accepts either the short slug (5 chars) or the full
+ * UUID (36 chars with hyphens). Used by URL handlers that may receive
+ * either form: sidebar links and breadcrumbs use slugs, but deep-link
+ * URLs from relation cells (record-cross-table navigation) still pass
+ * UUIDs from `field.config.targetTableId`. Cheap to support both — slugs
+ * and UUIDs are length-distinguishable so no DB round-trip is wasted.
+ */
+export const getByIdOrSlug = async (idOrSlug: string): Promise<Base | null> => {
+  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
+    return get(idOrSlug);
+  }
+  return getBySlug(idOrSlug);
 };
 
 export const create = async (input: CreateBaseInput, actorId: string | null): Promise<Result<Base>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
+  const slug = await generateUniqueSlug(slugTaken);
+
   const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.bases (name, description, created_by)
-    VALUES (${name}, ${input.description ?? null}, ${actorId}::uuid)
-    RETURNING id, name, description, created_by, deleted_at, created_at, updated_at
+    INSERT INTO grids.bases (slug, name, description, created_by)
+    VALUES (${slug}, ${name}, ${input.description ?? null}, ${actorId}::uuid)
+    RETURNING ${COLS}
   `;
   if (!row) return fail(err.internal("insert failed"));
   const base = mapRow(row);
@@ -93,16 +135,41 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
 
+  // defaultDashboardId is allowed through the same update path (caller
+  // gates with base-admin). Validate that the referenced dashboard
+  // exists, belongs to this base, and is alive — otherwise we'd be
+  // happily writing dangling references.
+  if (input.defaultDashboardId !== undefined && input.defaultDashboardId !== null) {
+    const [row] = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS(
+        SELECT 1 FROM grids.dashboards
+        WHERE id = ${input.defaultDashboardId}::uuid
+          AND base_id = ${id}::uuid
+          AND deleted_at IS NULL
+      ) AS exists
+    `;
+    if (!row?.exists) {
+      return fail(err.badInput("defaultDashboardId must reference an alive dashboard in this base"));
+    }
+  }
+
   const next = {
     name: name ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
+    defaultDashboardId:
+      input.defaultDashboardId !== undefined
+        ? input.defaultDashboardId
+        : existing.defaultDashboardId,
   };
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.bases
-    SET name = ${next.name}, description = ${next.description}, updated_at = now()
+    SET name = ${next.name},
+        description = ${next.description},
+        default_dashboard_id = ${next.defaultDashboardId}::uuid,
+        updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, name, description, created_by, deleted_at, created_at, updated_at
+    RETURNING ${COLS}
   `;
   if (!row) return fail(err.internal("update failed"));
   const base = mapRow(row);
@@ -111,6 +178,12 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
   if (next.description !== existing.description) {
     diff.description = { old: existing.description, new: next.description };
+  }
+  if (next.defaultDashboardId !== existing.defaultDashboardId) {
+    diff.defaultDashboardId = {
+      old: existing.defaultDashboardId,
+      new: next.defaultDashboardId,
+    };
   }
   if (Object.keys(diff).length > 0) {
     await logAudit({ baseId: id, userId: actorId, action: "updated", diff });
@@ -146,7 +219,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const [row] = await sql<DbRow[]>`
     UPDATE grids.bases SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NOT NULL
-    RETURNING id, name, description, created_by, deleted_at, created_at, updated_at
+    RETURNING ${COLS}
   `;
   if (!row) return fail(err.notFound("base"));
   const base = mapRow(row);
@@ -188,7 +261,7 @@ export const adminList = async (params: {
 
   const rows = await sql<DbRow[]>`
     SELECT
-      b.id, b.name, b.description, b.created_by, b.created_at, b.updated_at,
+      b.id, b.slug, b.name, b.description, b.created_by, b.default_dashboard_id, b.deleted_at, b.created_at, b.updated_at,
       (SELECT COUNT(*)::int FROM grids.tables WHERE base_id = b.id) AS table_count,
       (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = b.id AND r.deleted_at IS NULL) AS record_count,
       (SELECT COUNT(*)::int FROM grids.base_access WHERE base_id = b.id) AS access_count

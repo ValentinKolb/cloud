@@ -110,10 +110,13 @@ const resolveLevel = async (
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseId = c.req.param("baseId");
-  const activeTableId = c.req.query("table") ?? null;
+  // URL params carry slugs (`/app/grids/k3Mp9?table=x4kP9&view=y9Qb2`).
+  // Resolve each to the underlying entity once at the page boundary —
+  // the rest of the page works with UUIDs as before.
+  const baseSlug = c.req.param("baseId");
+  const activeTableSlug = c.req.query("table") ?? null;
   const trashMode = c.req.query("trash") === "1";
-  const activeViewId = c.req.query("view") ?? null;
+  const activeViewSlug = c.req.query("view") ?? null;
   const rawCursor = c.req.query("cursor") ?? null;
 
   // Parse the filter query — bad input is treated as empty rather than a
@@ -204,7 +207,7 @@ export default ssr<AuthContext>(async (c) => {
   // already populated (no client-side spinner on first paint).
   const selectedRecordId = c.req.query("record") ?? null;
 
-  const base = await gridsService.base.get(baseId);
+  const base = await gridsService.base.getByIdOrSlug(baseSlug);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -214,6 +217,16 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
+  const baseId = base.id;
+
+  // Resolve the active table+view slugs now that we know the base. Both
+  // optional — null when the URL doesn't pin a specific one. listByBase
+  // below will additionally narrow to readable tables, so a slug for a
+  // table the user can't read still resolves to "no active table".
+  const activeTableFromSlug = activeTableSlug
+    ? await gridsService.table.getByIdOrSlug(baseId, activeTableSlug)
+    : null;
+  const activeTableId = activeTableFromSlug?.id ?? null;
 
   const level = await resolveLevel(user, baseId);
   if (!gridsService.permission.hasAtLeast(level, "read")) {
@@ -248,6 +261,14 @@ export default ssr<AuthContext>(async (c) => {
   const activeTable = activeTableId
     ? tables.find((t) => t.id === activeTableId) ?? null
     : tables[0] ?? null;
+
+  // Resolve the active view slug AFTER the active table — view slugs
+  // are scoped per-table. activeViewId stays null when no view is set
+  // OR the URL refers to a view that doesn't exist on this table.
+  const activeView = activeTable && activeViewSlug
+    ? await gridsService.view.getByIdOrSlug(activeTable.id, activeViewSlug)
+    : null;
+  const activeViewId = activeView?.id ?? null;
 
   type RecordsPage = {
     items: import("../../service").GridRecord[];
@@ -450,11 +471,9 @@ export default ssr<AuthContext>(async (c) => {
   // is the active one (only when no filter/sort/view is set).
   const hasFilterOrSort = filterLeaves.length > 0 || parsedSort.length > 0;
 
-  // Resolve the currently-applied view's column overrides. Undefined =
-  // table-default rendering (`!hideInTable` fields by `position`).
-  const activeView = activeViewId
-    ? viewsForTable.find((v) => v.id === activeViewId) ?? null
-    : null;
+  // activeView already resolved at the top of the page (slug-keyed).
+  // Look at its column overrides — undefined means table-default
+  // rendering (`!hideInTable` fields by `position`).
   const activeViewColumns = activeView?.query.columns;
 
   // Slice 8: when groupBy is non-empty (from URL or active view), the
@@ -484,14 +503,14 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseId}` },
+        { title: base.name, href: `/app/grids/${baseSlug}` },
         // Active table is the second-to-last crumb when a view is open;
         // becomes the leaf when no view. The view name (when set) takes
         // the leaf so the user sees exactly which preset they're on.
         ...(activeTable
           ? activeView
             ? [
-                { title: activeTable.name, href: `/app/grids/${baseId}?table=${activeTable.id}` },
+                { title: activeTable.name, href: `/app/grids/${baseSlug}?table=${activeTable.slug}` },
                 { title: activeView.name },
               ]
             : [{ title: activeTable.name }]
@@ -518,7 +537,7 @@ export default ssr<AuthContext>(async (c) => {
             </summary>
             <div class="sidebar-mobile-actions">
               {canManageBase && (
-                <a href={`/app/grids/${baseId}/settings`} class="sidebar-item-mobile">
+                <a href={`/app/grids/${baseSlug}/settings`} class="sidebar-item-mobile">
                   <i class="ti ti-settings" />
                   Settings
                 </a>
@@ -531,7 +550,7 @@ export default ssr<AuthContext>(async (c) => {
                 const isActive = activeTable?.id === t.id;
                 return (
                   <a
-                    href={`/app/grids/${baseId}?table=${t.id}`}
+                    href={`/app/grids/${baseSlug}?table=${t.slug}`}
                     class={`sidebar-item-mobile ${
                       isActive
                         ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
@@ -559,7 +578,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
               {canManageBase && (
                 <a
-                  href={`/app/grids/${baseId}/settings`}
+                  href={`/app/grids/${baseSlug}/settings`}
                   class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
                   title="Settings"
                 >
@@ -598,7 +617,7 @@ export default ssr<AuthContext>(async (c) => {
                         }`}
                       >
                         <a
-                          href={`/app/grids/${baseId}?table=${t.id}`}
+                          href={`/app/grids/${baseSlug}?table=${t.slug}`}
                           class="flex min-w-0 flex-1 items-center gap-2"
                           aria-current={isActive ? "page" : undefined}
                         >
@@ -613,7 +632,7 @@ export default ssr<AuthContext>(async (c) => {
                         </a>
                         {gridsService.permission.hasAtLeast(tableLevels[t.id] ?? "none", "admin") && (
                           <a
-                            href={`/app/grids/${baseId}/tables/${t.id}/edit`}
+                            href={`/app/grids/${baseSlug}/tables/${t.slug}/edit`}
                             class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                             aria-label={`Edit table ${t.name}`}
                             title="Edit table"
@@ -625,7 +644,7 @@ export default ssr<AuthContext>(async (c) => {
                     );
                   })
                 )}
-                {canCreateTables && <CreateTableButton baseId={baseId} />}
+                {canCreateTables && <CreateTableButton baseId={baseId} baseSlug={baseSlug} />}
               </section>
 
               {/* Views — flat alphabetical list across the whole base.
@@ -650,7 +669,7 @@ export default ssr<AuthContext>(async (c) => {
                     <p class="sidebar-section-title">Views</p>
                     {allViews.map(({ view, table: t }) => {
                       const url = (() => {
-                        const u = new URL(`/app/grids/${baseId}`, "http://x");
+                        const u = new URL(`/app/grids/${baseSlug}`, "http://x");
                         u.searchParams.set("table", t.id);
                         u.searchParams.set("view", view.id);
                         if (view.query.filter)
@@ -687,7 +706,7 @@ export default ssr<AuthContext>(async (c) => {
                           </a>
                           {canEdit && (
                             <a
-                              href={`/app/grids/${baseId}/tables/${t.id}/views/${view.id}/edit`}
+                              href={`/app/grids/${baseSlug}/tables/${t.slug}/views/${view.slug}/edit`}
                               class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                               aria-label={`Edit view ${view.name}`}
                               title="View settings"

@@ -97,7 +97,7 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   rollup:
     "Summarises values from linked records — count them, add them up, average them, or take the smallest or largest.",
   formula:
-    "A computed value, recalculated whenever the row is read. Reference other columns by id in {curly braces} and use functions like IF, CONCAT, ROUND, AVG.",
+    "A computed value, recalculated whenever the row is read. Reference other columns by their #slug (e.g. #price) and use functions like IF, CONCAT, ROUND, AVG.",
 };
 
 /** Default config blob for a brand-new field of `type`. */
@@ -803,26 +803,31 @@ function FormulaConstraints(props: {
           function list. */}
       <div class="info-block-info text-xs flex flex-col gap-2">
         <span class="font-medium">Examples</span>
+        <span class="text-dimmed">
+          Slugs below (<code>#aB3kQ</code> etc.) are placeholders — paste your
+          field's real <code>#slug</code> via the <em>Copy ref</em> button on a
+          field row.
+        </span>
         <div class="flex flex-col gap-1.5 font-mono text-[11px]">
           <div>
             <span class="text-dimmed">— Mark up by 19%:</span>
             <br />
-            <code>{"{price-field-id} * 1.19"}</code>
+            <code>{"#aB3kQ * 1.19"}</code>
           </div>
           <div>
             <span class="text-dimmed">— Format with prefix:</span>
             <br />
-            <code>{`CONCAT(UPPER({title-field-id}), " — €", {price-field-id})`}</code>
+            <code>{`CONCAT(UPPER(#xY7mP), " — €", #aB3kQ)`}</code>
           </div>
           <div>
             <span class="text-dimmed">— Conditional label:</span>
             <br />
-            <code>{`IF({stock-field-id}, "Available", "Out of stock")`}</code>
+            <code>{`IF(#7n2Lk, "Available", "Out of stock")`}</code>
           </div>
           <div>
             <span class="text-dimmed">— Days since created:</span>
             <br />
-            <code>{`DATEDIFF(TODAY(), {created-at-field-id}, "days")`}</code>
+            <code>{`DATEDIFF(TODAY(), #Pq4tD, "days")`}</code>
           </div>
         </div>
       </div>
@@ -831,7 +836,7 @@ function FormulaConstraints(props: {
         label="Expression"
         value={expr}
         onInput={(v) => props.onChange({ ...cfg(), expression: v })}
-        placeholder='e.g. {field-id} * 1.19  or  CONCAT(UPPER({title}), " — €", {price})'
+        placeholder='e.g. #aB3kQ * 1.19  or  CONCAT(UPPER(#xY7mP), " — €", #aB3kQ)'
         icon="ti ti-math-function"
         multiline
         lines={3}
@@ -839,10 +844,11 @@ function FormulaConstraints(props: {
 
       <p class="text-xs text-dimmed leading-snug">
         <span class="font-medium text-secondary">Field references:</span>{" "}
-        Wrap a field's UUID in curly braces — e.g. <code>{"{bef9c4a4-…}"}</code>. Use the{" "}
-        <i class="ti ti-copy" /> button on a field row above to copy its ID. Formulas
-        recompute on every read; references to other formula fields evaluate in
-        dependency order (cycles render as <code>#CYCLE</code>).
+        Prefix a field's slug with <code>#</code> — e.g. <code>#abc12</code>. Use the{" "}
+        <i class="ti ti-copy" /> <em>Copy ref</em> button on a field row above to grab the
+        exact <code>#slug</code>. Formulas recompute on every read; references to other
+        formula fields evaluate in dependency order (cycles render as{" "}
+        <code>#CYCLE</code>).
       </p>
 
       {/* Function reference — collapsed by default to keep the editor
@@ -855,41 +861,41 @@ function FormulaConstraints(props: {
           <FormulaFn
             sig="IF(cond, then, else)"
             desc="Branch by truthiness of cond."
-            ex='IF({inStock}, "Yes", "No")'
+            ex='IF(#7n2Lk, "Yes", "No")'
           />
-          <FormulaFn sig="AND(a, b, …)" desc="True iff every arg is truthy." ex="AND({active}, {paid})" />
-          <FormulaFn sig="OR(a, b, …)" desc="True iff any arg is truthy." ex="OR({vip}, {gold})" />
-          <FormulaFn sig="NOT(x)" desc="Logical negation." ex="NOT({archived})" />
-          <FormulaFn sig="ISBLANK(x)" desc="True if x is null / empty." ex="ISBLANK({notes})" />
-          <FormulaFn sig="ABS(n)" desc="Absolute value." ex="ABS({delta})" />
-          <FormulaFn sig="ROUND(n)" desc="Round half-away-from-zero." ex="ROUND({avg})" />
-          <FormulaFn sig="FLOOR(n)" desc="Round down." ex="FLOOR({rate})" />
-          <FormulaFn sig="CEIL(n)" desc="Round up." ex="CEIL({rate})" />
-          <FormulaFn sig="MIN(a, b, …)" desc="Smallest of args." ex="MIN({a}, {b})" />
-          <FormulaFn sig="MAX(a, b, …)" desc="Largest of args." ex="MAX({a}, {b})" />
+          <FormulaFn sig="AND(a, b, …)" desc="True iff every arg is truthy." ex="AND(#aB3kQ, #xY7mP)" />
+          <FormulaFn sig="OR(a, b, …)" desc="True iff any arg is truthy." ex="OR(#aB3kQ, #xY7mP)" />
+          <FormulaFn sig="NOT(x)" desc="Logical negation." ex="NOT(#7n2Lk)" />
+          <FormulaFn sig="ISBLANK(x)" desc="True if x is null / empty." ex="ISBLANK(#aB3kQ)" />
+          <FormulaFn sig="ABS(n)" desc="Absolute value." ex="ABS(#aB3kQ)" />
+          <FormulaFn sig="ROUND(n)" desc="Round half-away-from-zero." ex="ROUND(#aB3kQ)" />
+          <FormulaFn sig="FLOOR(n)" desc="Round down." ex="FLOOR(#aB3kQ)" />
+          <FormulaFn sig="CEIL(n)" desc="Round up." ex="CEIL(#aB3kQ)" />
+          <FormulaFn sig="MIN(a, b, …)" desc="Smallest of args." ex="MIN(#aB3kQ, #xY7mP)" />
+          <FormulaFn sig="MAX(a, b, …)" desc="Largest of args." ex="MAX(#aB3kQ, #xY7mP)" />
           <FormulaFn
             sig="CONCAT(s, …)"
             desc="Join strings — non-strings auto-coerce."
-            ex='CONCAT({first}, " ", {last})'
+            ex='CONCAT(#xY7mP, " ", #aB3kQ)'
           />
-          <FormulaFn sig="LEN(s)" desc="String length." ex="LEN({title})" />
-          <FormulaFn sig="LOWER(s)" desc="Lowercase." ex="LOWER({email})" />
-          <FormulaFn sig="UPPER(s)" desc="Uppercase." ex="UPPER({code})" />
-          <FormulaFn sig="TRIM(s)" desc="Strip leading/trailing whitespace." ex="TRIM({input})" />
+          <FormulaFn sig="LEN(s)" desc="String length." ex="LEN(#xY7mP)" />
+          <FormulaFn sig="LOWER(s)" desc="Lowercase." ex="LOWER(#xY7mP)" />
+          <FormulaFn sig="UPPER(s)" desc="Uppercase." ex="UPPER(#xY7mP)" />
+          <FormulaFn sig="TRIM(s)" desc="Strip leading/trailing whitespace." ex="TRIM(#xY7mP)" />
           <FormulaFn sig="TODAY()" desc="Today as date (no time)." ex="TODAY()" />
           <FormulaFn sig="NOW()" desc="Current datetime." ex="NOW()" />
-          <FormulaFn sig="YEAR(d)" desc="4-digit year of d." ex="YEAR({createdAt})" />
-          <FormulaFn sig="MONTH(d)" desc="Month 1-12." ex="MONTH({createdAt})" />
-          <FormulaFn sig="DAY(d)" desc="Day-of-month 1-31." ex="DAY({createdAt})" />
+          <FormulaFn sig="YEAR(d)" desc="4-digit year of d." ex="YEAR(#Pq4tD)" />
+          <FormulaFn sig="MONTH(d)" desc="Month 1-12." ex="MONTH(#Pq4tD)" />
+          <FormulaFn sig="DAY(d)" desc="Day-of-month 1-31." ex="DAY(#Pq4tD)" />
           <FormulaFn
             sig='DATEADD(d, n, "days")'
             desc='Add n units (days/weeks/months/years) to d.'
-            ex='DATEADD({due}, 7, "days")'
+            ex='DATEADD(#Pq4tD, 7, "days")'
           />
           <FormulaFn
             sig='DATEDIFF(a, b, "days")'
             desc='Difference between dates in the chosen unit.'
-            ex='DATEDIFF(TODAY(), {due}, "days")'
+            ex='DATEDIFF(TODAY(), #Pq4tD, "days")'
           />
         </div>
       </details>

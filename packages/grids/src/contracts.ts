@@ -11,9 +11,16 @@ export {
 // ── Base ──────────────────────────────────────────────────────────────────
 export const BaseSchema = z.object({
   id: z.string().uuid(),
+  slug: z.string(),
   name: z.string(),
   description: z.string().nullable(),
   createdBy: z.string().uuid().nullable(),
+  /** When set, opening `/grids/<base>` with no ?table or ?dashboard query
+   *  param renders this dashboard. Service layer treats stale ids
+   *  (referenced dashboard soft-deleted) as null. Settable via the
+   *  base settings page; surfaced as a read-only "Currently base default"
+   *  badge on the dashboard render/edit pages. */
+  defaultDashboardId: z.string().uuid().nullable(),
   deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -26,12 +33,19 @@ export const CreateBaseSchema = z.object({
 });
 export type CreateBaseInput = z.infer<typeof CreateBaseSchema>;
 
-export const UpdateBaseSchema = CreateBaseSchema.partial();
+export const UpdateBaseSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  /** Set/unset the default dashboard for this base. Pass null to clear.
+   *  Caller must hold base-admin (gate enforced in api/bases.ts). */
+  defaultDashboardId: z.string().uuid().nullable().optional(),
+});
 export type UpdateBaseInput = z.infer<typeof UpdateBaseSchema>;
 
 // ── Table ─────────────────────────────────────────────────────────────────
 export const TableSchema = z.object({
   id: z.string().uuid(),
+  slug: z.string(),
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -57,6 +71,7 @@ export const UpdateTableSchema = z.object({
 // ── Field ─────────────────────────────────────────────────────────────────
 export const FieldSchema = z.object({
   id: z.string().uuid(),
+  slug: z.string(),
   tableId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -401,6 +416,7 @@ export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
 // ── View entity ───────────────────────────────────────────────────────────
 export const ViewSchema = z.object({
   id: z.string().uuid(),
+  slug: z.string(),
   tableId: z.string().uuid(),
   name: z.string(),
   /** Canonical query — replaces the old loose `config: unknown` blob. */
@@ -430,6 +446,139 @@ export const UpdateViewSchema = z.object({
 export type UpdateViewInput = z.infer<typeof UpdateViewSchema>;
 
 export const ViewListSchema = z.array(ViewSchema);
+
+// ── Dashboards ────────────────────────────────────────────────────────────
+//
+// A dashboard is a per-base composition of widgets that pull data from
+// any table in the base. Three widget kinds:
+//
+//   - "stat"  : single number from records.aggregate(source) — e.g.
+//               "1,247 orders this month". One aggregation, no groupBy.
+//   - "chart" : multi-bucket data from records.group(source) rendered
+//               by the chart-render layer (deferred to P1; the schema
+//               ships now so the JSONB blob doesn't need re-versioning).
+//   - "view"  : embedded saved View — mounts the existing RecordsView
+//               island scoped to a fixed view id with pagesize 25.
+//
+// The data source for stat / chart widgets is a thin wrapper over the
+// existing aggregate/group/filter compilers — there is no new query DSL
+// for dashboards. A widget is "saved query + presentation hint".
+//
+// Layout: `rows × cells` with 1-4 cells per row. Mobile collapses to a
+// 1-column stack. No pixel-grid DnD — keeps the editor implementable
+// without a layout library.
+
+/**
+ * Source spec shared by stat and chart widgets. Reuses every existing
+ * query primitive (filter / sort / groupBy / aggregations) so the same
+ * compilers and the same permission gates apply.
+ */
+export const WidgetSourceSchema = z.object({
+  tableId: z.string().uuid(),
+  filter: FilterTreeSchema.optional(),
+  sort: z.array(SortSpecSchema).optional(),
+  /** 0 entries → scalar (stat-card shape). 1-2 entries → buckets (chart
+   *  shape). 3 max stays consistent with ViewQuery.groupBy. */
+  groupBy: z.array(GroupBySpecSchema).max(3).optional(),
+  /** Stat: exactly one. Chart: at least one (typically count + sum).
+   *  Validation that "stat must have exactly one agg" lives at the
+   *  widget-discriminant level — would be ugly in a Zod refinement
+   *  here because we don't know the kind. */
+  aggregations: z.array(AggregationSpecSchema).min(1),
+  limit: z.number().int().min(1).max(10_000).optional(),
+});
+export type WidgetSource = z.infer<typeof WidgetSourceSchema>;
+
+/** Format hint for stat-card rendering. `plain` = the number as-is,
+ *  `currency` / `percent` use existing format-cell helpers, `integer`
+ *  forces no decimals (e.g. for counts). The chart-render layer will
+ *  consume the same enum so axis ticks format consistently. */
+export const WidgetFormatSchema = z.enum(["plain", "currency", "percent", "integer"]);
+export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
+
+/** Discriminated union — one variant per widget kind. The `id` is
+ *  client-generated (any string) so DnD can track widgets across
+ *  reorders without server round-trips. */
+export const WidgetSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("stat"),
+    title: z.string().max(200).optional(),
+    source: WidgetSourceSchema,
+    icon: z.string().max(60).optional(),
+    format: WidgetFormatSchema.optional(),
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("chart"),
+    title: z.string().max(200).optional(),
+    chartType: z.enum(["donut", "bar", "line", "scatter"]),
+    source: WidgetSourceSchema,
+    format: WidgetFormatSchema.optional(),
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("view"),
+    /** Embedded view id. Must belong to a table the viewer can read —
+     *  enforced at SSR-render time, not at save time, so a permission
+     *  change doesn't break a saved dashboard. */
+    viewId: z.string().uuid(),
+    title: z.string().max(200).optional(),
+  }),
+]);
+export type Widget = z.infer<typeof WidgetSchema>;
+
+/** A row holds 1-4 cells of equal width and shares one of three
+ *  heights. The 4-cell cap matches the typical "4 stat cards across"
+ *  pattern; more would be unreadable on tablets. */
+export const DashboardRowSchema = z.object({
+  id: z.string().min(1),
+  height: z.enum(["sm", "md", "lg"]),
+  cells: z.array(WidgetSchema).min(1).max(4),
+});
+export type DashboardRow = z.infer<typeof DashboardRowSchema>;
+
+export const DashboardConfigSchema = z.object({
+  rows: z.array(DashboardRowSchema),
+});
+export type DashboardConfig = z.infer<typeof DashboardConfigSchema>;
+
+// Dashboard entity — same row shape as views, scoped per-base.
+export const DashboardSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  baseId: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  config: DashboardConfigSchema,
+  /** null = shared (visible to anyone with base-read); else owner's
+   *  user id. Same model as views. */
+  ownerUserId: z.string().uuid().nullable(),
+  position: z.number().int(),
+  deletedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type Dashboard = z.infer<typeof DashboardSchema>;
+
+export const CreateDashboardSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).nullable().optional(),
+  config: DashboardConfigSchema.optional(),
+  shared: z.boolean().optional(),
+});
+export type CreateDashboardInput = z.infer<typeof CreateDashboardSchema>;
+
+export const UpdateDashboardSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  config: DashboardConfigSchema.optional(),
+  position: z.number().int().optional(),
+  shared: z.boolean().optional(),
+});
+export type UpdateDashboardInput = z.infer<typeof UpdateDashboardSchema>;
+
+export const DashboardListSchema = z.array(DashboardSchema);
 
 // ── Audit ─────────────────────────────────────────────────────────────────
 export const AuditEntrySchema = z.object({

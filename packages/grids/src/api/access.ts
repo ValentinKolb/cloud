@@ -259,6 +259,71 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  // ── Dashboard ACL ───────────────────────────────────────────────────
+  // Same shape as views: only `read` / `none` accepted. Caller must be
+  // admin on the dashboard's parent base — without this gate, any user
+  // could plant `none` grants that hide a shared dashboard from a
+  // legitimate viewer.
+  .get(
+    "/by-dashboard/:dashboardId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "List ACL entries for a dashboard",
+      responses: {
+        200: jsonResponse(AccessListSchema, "Entries"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Dashboard not found"),
+      },
+    }),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId");
+      const [row] = await sql<{ base_id: string }[]>`
+        SELECT base_id FROM grids.dashboards WHERE id = ${dashboardId}::uuid
+      `;
+      if (!row) return c.json({ message: "Dashboard not found" }, 404);
+      const gate = await gateAt(c, { baseId: row.base_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const entries = await gridsService.access.listForDashboard(dashboardId);
+      return c.json(entries);
+    },
+  )
+  .post(
+    "/by-dashboard/:dashboardId",
+    describeRoute({
+      tags: ["Grids:Access"],
+      summary: "Grant read access on a dashboard (only 'read' / 'none' accepted)",
+      responses: {
+        201: jsonResponse(z.object({ accessId: z.string().uuid() }), "Created"),
+        400: jsonResponse(ErrorResponseSchema, "Dashboard only accepts 'read' or 'none'"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      },
+    }),
+    v("json", GrantAccessSchema),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId");
+      const body = c.req.valid("json");
+      if (body.permission !== "read" && body.permission !== "none") {
+        return c.json({ message: "Dashboard ACL only accepts 'read' or 'none'" }, 400);
+      }
+      const [row] = await sql<{ base_id: string }[]>`
+        SELECT base_id FROM grids.dashboards WHERE id = ${dashboardId}::uuid
+      `;
+      if (!row) return c.json({ message: "Dashboard not found" }, 404);
+      const gate = await gateAt(c, { baseId: row.base_id }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      return respond(
+        c,
+        () =>
+          gridsService.access.grant({
+            resourceType: "dashboard",
+            resourceId: dashboardId,
+            ...body,
+          }),
+        201,
+      );
+    },
+  )
+
   // ── Modify / revoke a single grant by accessId ──────────────────────
   // Both routes resolve the access-id to its bound grids resource first,
   // then gate at admin on the parent. Without this lookup any authenticated
@@ -300,6 +365,10 @@ const app = new Hono<AuthContext>()
       // Same enforcement for forms: write-or-none only.
       if (binding.resourceType === "form" && permission !== "write" && permission !== "none") {
         return c.json({ message: "Form grants only accept 'write' or 'none'" }, 400);
+      }
+      // Dashboards mirror views: read-or-none.
+      if (binding.resourceType === "dashboard" && permission !== "read" && permission !== "none") {
+        return c.json({ message: "Dashboard grants only accept 'read' or 'none'" }, 400);
       }
 
       const result = await gridsService.access.updateLevel(accessId, permission);
