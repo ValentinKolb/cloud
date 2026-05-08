@@ -11,17 +11,17 @@ type Props = {
 
 export default function NotebookSidebar(props: Props) {
   const canWrite = props.ctx.permission === "write" || props.ctx.permission === "admin";
-  const settingsHref = `/app/notebooks/${props.ctx.notebook.id}?mode=settings`;
-  const attachmentsHref = buildAttachmentsUrl(props.ctx.notebook.id);
+  const settingsHref = `/app/notebooks/${props.ctx.notebook.shortId}?mode=settings`;
+  const attachmentsHref = buildAttachmentsUrl(props.ctx.notebook.shortId);
   const hasAttachments = props.ctx.attachmentCount > 0;
   const hasTags = props.ctx.tagCount > 0;
   const allNotebooksHref = "/app/notebooks";
-  const vt = (key: string) => `notebook-sidebar-${props.ctx.notebook.id}-${key}`;
+  const vt = (key: string) => `notebook-sidebar-${props.ctx.notebook.shortId}-${key}`;
 
   const tree = (
     <NoteTree
       tree={props.ctx.tree}
-      notebookId={props.ctx.notebook.id}
+      notebookId={props.ctx.notebook.shortId}
       notebookName={props.ctx.notebook.name}
       selectedNoteId={props.ctx.selectedNoteId}
       canWrite={canWrite}
@@ -51,7 +51,7 @@ export default function NotebookSidebar(props: Props) {
             </a>
             {canWrite && (
               <div style={`view-transition-name:${vt("create-mobile")}`}>
-                <CreateNoteButton notebookId={props.ctx.notebook.id} variant="chip" />
+                <CreateNoteButton notebookId={props.ctx.notebook.shortId} variant="chip" />
               </div>
             )}
             <a href={allNotebooksHref} class="sidebar-item-mobile" style={`view-transition-name:${vt("all-notebooks-mobile")}`}>
@@ -59,11 +59,11 @@ export default function NotebookSidebar(props: Props) {
               All Notebooks
             </a>
             <div style={`view-transition-name:${vt("search-mobile")}`}>
-              <SearchButton notebookId={props.ctx.notebook.id} notebookName={props.ctx.notebook.name} variant="sidebar-mobile" />
+              <SearchButton notebookId={props.ctx.notebook.shortId} notebookName={props.ctx.notebook.name} variant="sidebar-mobile" />
             </div>
             {hasTags && (
               <div style={`view-transition-name:${vt("tags-mobile")}`}>
-                <TagsButton notebookId={props.ctx.notebook.id} tagCount={props.ctx.tagCount} variant="sidebar-mobile" />
+                <TagsButton notebookId={props.ctx.notebook.shortId} tagCount={props.ctx.tagCount} variant="sidebar-mobile" />
               </div>
             )}
             {hasAttachments && (
@@ -99,7 +99,7 @@ export default function NotebookSidebar(props: Props) {
               <p class="sidebar-section-title">Actions</p>
               {canWrite && (
                 <div style={`view-transition-name:${vt("create-desktop")}`}>
-                  <CreateNoteButton notebookId={props.ctx.notebook.id} variant="sidebar" />
+                  <CreateNoteButton notebookId={props.ctx.notebook.shortId} variant="sidebar" />
                 </div>
               )}
               <a
@@ -111,7 +111,7 @@ export default function NotebookSidebar(props: Props) {
                 <span>All Notebooks</span>
               </a>
               <div style={`view-transition-name:${vt("search-desktop")}`}>
-                <SearchButton notebookId={props.ctx.notebook.id} notebookName={props.ctx.notebook.name} variant="sidebar" />
+                <SearchButton notebookId={props.ctx.notebook.shortId} notebookName={props.ctx.notebook.name} variant="sidebar" />
               </div>
             </section>
           </div>
@@ -132,7 +132,7 @@ export default function NotebookSidebar(props: Props) {
             <section class="sidebar-footer">
               {hasTags && (
                 <div style={`view-transition-name:${vt("tags-desktop")}`}>
-                  <TagsButton notebookId={props.ctx.notebook.id} tagCount={props.ctx.tagCount} variant="sidebar" />
+                  <TagsButton notebookId={props.ctx.notebook.shortId} tagCount={props.ctx.tagCount} variant="sidebar" />
                 </div>
               )}
               {hasAttachments && (

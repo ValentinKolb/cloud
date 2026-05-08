@@ -27,11 +27,13 @@ const parsePage = (raw: string | undefined): number => {
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const notebookId = c.req.param("id");
+  // Route param accepts either UUID or short-id — same boundary trick
+  // as `[id]/page.tsx`. Local `notebookId` holds the canonical UUID.
+  const idOrShort = c.req.param("id");
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
 
-  const notebook = await notebooksService.notebook.get({ id: notebookId });
+  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: idOrShort });
   if (!notebook) {
     return () => (
       <Layout c={c} title="Not Found">
@@ -44,6 +46,7 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
+  const notebookId = notebook.id;
 
   const permission = await notebooksService.notebook.permission.get({
     notebookId,
@@ -87,7 +90,7 @@ export default ssr<AuthContext>(async (c) => {
     1,
     Math.ceil(paginatedResult.total / paginatedResult.perPage)
   );
-  const baseHref = buildAttachmentsUrl(notebookId);
+  const baseHref = buildAttachmentsUrl(notebook.shortId);
   const paginationBaseUrl = search
     ? `${baseHref}?search=${encodeURIComponent(search)}&page=`
     : `${baseHref}?page=`;
@@ -110,7 +113,7 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Notebooks", href: "/app/notebooks" },
-        { title: notebook.name, href: `/app/notebooks/${notebook.id}` },
+        { title: notebook.name, href: `/app/notebooks/${notebook.shortId}` },
         { title: "Attachments" },
       ]}
     >
@@ -128,7 +131,7 @@ export default ssr<AuthContext>(async (c) => {
 
           <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
             <AttachmentsOverview
-              notebookId={notebookId}
+              notebookId={notebook.shortId}
               initial={paginatedResult.items}
               searchQuery={search}
             />

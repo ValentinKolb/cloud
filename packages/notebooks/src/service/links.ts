@@ -60,6 +60,7 @@ export type Backlink = {
 // hundreds of notes without ballooning the SSR/JSON payload.
 export type GraphNode = {
   id: string;
+  shortId: string;
   title: string;
   /** Number of incoming links from inside this notebook — drives node size
    *  in the visualisation (more linked = bigger). */
@@ -260,8 +261,8 @@ export const listBacklinks = async (params: {
 export const buildNotebookGraph = async (params: { notebookId: string }): Promise<NoteGraph> => {
   const { notebookId } = params;
 
-  const noteRows = await sql<{ id: string; title: string }[]>`
-    SELECT id, title
+  const noteRows = await sql<{ id: string; short_id: string; title: string }[]>`
+    SELECT id, short_id, title
     FROM notebooks.notes
     WHERE notebook_id = ${notebookId}::uuid
     ORDER BY created_at ASC
@@ -284,6 +285,7 @@ export const buildNotebookGraph = async (params: { notebookId: string }): Promis
   return {
     nodes: noteRows.map((n) => ({
       id: n.id,
+      shortId: n.short_id,
       title: n.title,
       inDegree: inDegree.get(n.id) ?? 0,
     })),

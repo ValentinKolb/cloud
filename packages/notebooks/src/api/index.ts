@@ -24,6 +24,7 @@ import { parsePagination, createPagination } from "@valentinkolb/cloud/contracts
 
 const NotebookSchema = z.object({
   id: z.uuid(),
+  shortId: z.string().describe("6-char base62 alias for URLs"),
   name: z.string(),
   description: z.string().nullable(),
   icon: z.string().nullable(),
@@ -46,6 +47,7 @@ const UpdateNotebookSchema = z.object({
 
 const NoteSchema = z.object({
   id: z.uuid(),
+  shortId: z.string().describe("6-char base62 alias for URLs and `note://` schemes"),
   notebookId: z.uuid(),
   parentId: z.uuid().nullable(),
   title: z.string(),
@@ -123,6 +125,7 @@ const NoteGraphSchema = z.object({
 
 const AttachmentSchema = z.object({
   id: z.uuid(),
+  shortId: z.string().describe("6-char base62 alias for `attach://` schemes"),
   notebookId: z.uuid(),
   filename: z.string(),
   mimeType: z.string(),
@@ -154,10 +157,17 @@ const ListNotesQuerySchema = z.object({
 
 /**
  * Check notebook access with permission level.
+ *
+ * `idOrShortId` accepts either the canonical UUID or the 6-char base62
+ * `short_id` alias — `getByIdOrShortId` resolves the form on a
+ * single-column index and the rest of this helper (and every caller)
+ * proceeds with the canonical UUID via `notebook.id`. This is the only
+ * boundary where the format ambiguity matters; below this point the
+ * service layer is UUID-driven end-to-end.
  */
-const checkNotebookAccess = async (c: Context<AuthContext>, notebookId: string, requiredLevel: PermissionLevel = "read") => {
+const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string, requiredLevel: PermissionLevel = "read") => {
   const user = c.get("user");
-  const notebook = await notebooksService.notebook.get({ id: notebookId });
+  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId });
 
   if (!notebook) {
     return {
@@ -172,7 +182,7 @@ const checkNotebookAccess = async (c: Context<AuthContext>, notebookId: string, 
   }
 
   const hasAccess = await notebooksService.notebook.permission.canAccess({
-    notebookId,
+    notebookId: notebook.id,
     userId: user.id,
     userGroups: user.memberofGroupIds,
     requiredLevel,
@@ -187,7 +197,7 @@ const checkNotebookAccess = async (c: Context<AuthContext>, notebookId: string, 
   }
 
   const permission = await notebooksService.notebook.permission.get({
-    notebookId,
+    notebookId: notebook.id,
     userId: user.id,
     userGroups: user.memberofGroupIds,
   });
@@ -207,10 +217,15 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
 };
 
 /**
- * Ensures a note belongs to the requested notebook so cross-notebook access is rejected early.
+ * Ensures a note belongs to the requested notebook so cross-notebook
+ * access is rejected early. Both `notebookId` and `noteIdOrShortId`
+ * accept either UUID or short-id — this helper compares against the
+ * resolved `note.notebookId` (always UUID) AFTER the service-layer
+ * lookup, so callers can pass whichever form the route param arrived
+ * in. Returns the note for downstream use.
  */
-const requireNoteInNotebook = async (notebookId: string, noteId: string) => {
-  const note = await notebooksService.note.get({ id: noteId });
+const requireNoteInNotebook = async (notebookId: string, noteIdOrShortId: string) => {
+  const note = await notebooksService.note.getByIdOrShortId({ idOrShortId: noteIdOrShortId });
   if (!note || note.notebookId !== notebookId) {
     return fail(err.notFound("Note"));
   }
@@ -342,12 +357,11 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateNotebookSchema),
     async (c) => {
-      const id = c.req.param("id");
       const data = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, id, "write");
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id"), "write");
       if (error) return error;
-      return respond(c, notebooksService.notebook.update({ id, data }));
+      return respond(c, notebooksService.notebook.update({ id: notebook!.id, data }));
     },
   )
 
@@ -366,11 +380,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const id = c.req.param("id");
-
-      const { error } = await checkNotebookAccess(c, id, "admin");
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id"), "admin");
       if (error) return error;
-      return respondMessage(c, notebooksService.notebook.remove({ id }), "Notebook deleted");
+      return respondMessage(c, notebooksService.notebook.remove({ id: notebook!.id }), "Notebook deleted");
     },
   )
 
@@ -393,10 +405,11 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
 
       const tree = await notebooksService.note.getTree({ notebookId });
       return respond(c, ok(tree));
@@ -425,12 +438,13 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListNotesQuerySchema),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
 
       const result = await notebooksService.note.list({
         notebookId,
@@ -468,11 +482,12 @@ const app = new Hono<AuthContext>()
     v("json", CreateNoteSchema),
     async (c) => {
       const user = c.get("user");
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const data = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
       return respond(
         c,
         notebooksService.note.create({
@@ -498,13 +513,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
 
-      const note = await notebooksService.note.get({ id: noteId });
+      const note = await notebooksService.note.getByIdOrShortId({ idOrShortId: noteId });
       if (!note || note.notebookId !== notebookId) {
         return respond(c, fail(err.notFound("Note")));
       }
@@ -528,13 +544,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
 
-      const note = await notebooksService.note.getWithContent({ id: noteId });
+      const note = await notebooksService.note.getWithContentByIdOrShortId({ idOrShortId: noteId });
       if (!note || note.notebookId !== notebookId) {
         return respond(c, fail(err.notFound("Note")));
       }
@@ -560,14 +577,16 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateNoteSchema),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const data = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
       return respond(c, notebooksService.note.update({ id: noteId, data }));
     },
   )
@@ -589,14 +608,16 @@ const app = new Hono<AuthContext>()
     }),
     v("json", MoveNoteSchema),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const { parentId, position } = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
       return respond(c, notebooksService.note.move({ id: noteId, parentId, position }));
     },
   )
@@ -616,13 +637,15 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
       return respondMessage(c, notebooksService.note.remove({ id: noteId }), "Note deleted");
     },
   )
@@ -643,13 +666,15 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
       return respond(c, notebooksService.note.lock({ id: noteId }));
     },
   )
@@ -671,8 +696,8 @@ const app = new Hono<AuthContext>()
     v("json", CopyNoteSchema),
     async (c) => {
       const user = c.get("user");
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const { targetNotebookId, targetParentId } = c.req.valid("json");
 
       // Check source notebook access (read)
@@ -685,6 +710,7 @@ const app = new Hono<AuthContext>()
 
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
       return respond(
         c,
         notebooksService.note.copyToNotebook({
@@ -723,14 +749,16 @@ const app = new Hono<AuthContext>()
     }),
     v("query", PaginationQuerySchema),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const pagination = parsePagination(c.req.valid("query"));
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
 
       const { versions, total } = await notebooksService.note.versions.list({
         noteId,
@@ -761,14 +789,16 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const versionId = c.req.param("versionId");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
 
       const snapshot = await notebooksService.note.versions.getSnapshot({
         noteId,
@@ -804,14 +834,16 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ yjsSnapshot: z.string() })),
     async (c) => {
       const user = c.get("user");
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const { yjsSnapshot } = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
       return respond(
         c,
         notebooksService.note.versions.restore({
@@ -845,12 +877,13 @@ const app = new Hono<AuthContext>()
     }),
     v("query", z.object({ q: z.string().min(1) }).merge(PaginationQuerySchema)),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
 
       const { notes: results, total } = await notebooksService.note.search({
         notebookId,
@@ -888,14 +921,16 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
       const versionId = c.req.param("versionId");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
 
       const version = await notebooksService.note.versions.getWithContent({
         noteId,
@@ -934,13 +969,15 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id");
+      let noteId = c.req.param("noteId");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
 
       const user = c.get("user");
       const items = await notebooksService.note.backlinks.list({
@@ -973,9 +1010,10 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const { error } = await checkNotebookAccess(c, notebookId);
+      let notebookId = c.req.param("id");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
       const graph = await notebooksService.notebook.graph({ notebookId });
       return respond(c, ok({ data: graph }));
     },
@@ -1000,10 +1038,11 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "admin");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
       if (error) return error;
+      notebookId = notebook!.id;
 
       const entries = await notebooksService.notebook.access.list({ notebookId });
       return respond(c, ok(entries.items));
@@ -1027,11 +1066,12 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const { principal, permission } = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "admin");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
       if (error) return error;
+      notebookId = notebook!.id;
       return respond(
         c,
         notebooksService.notebook.access.grant({
@@ -1060,12 +1100,13 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const accessId = c.req.param("accessId");
       const { permission } = c.req.valid("json");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "admin");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
       if (error) return error;
+      notebookId = notebook!.id;
 
       const guard = await notebooksService.notebook.access.guard({
         notebookId,
@@ -1098,11 +1139,12 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const accessId = c.req.param("accessId");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "admin");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
       if (error) return error;
+      notebookId = notebook!.id;
 
       const guard = await notebooksService.notebook.access.guard({
         notebookId,
@@ -1152,10 +1194,11 @@ app
     }),
     async (c) => {
       const user = c.get("user");
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
 
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
+      notebookId = notebook!.id;
 
       const form = await c.req.formData().catch(() => null);
       const file = form?.get("file");
@@ -1189,9 +1232,10 @@ app
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const { error } = await checkNotebookAccess(c, notebookId);
+      let notebookId = c.req.param("id");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
       return respond(c, ok(await notebooksService.attachment.list({ notebookId })));
     },
   )
@@ -1210,13 +1254,17 @@ app
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
+      let notebookId = c.req.param("id");
       const attId = c.req.param("attId");
 
-      const { error } = await checkNotebookAccess(c, notebookId);
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
+      notebookId = notebook!.id;
 
-      const att = await notebooksService.attachment.getContent({ id: attId });
+      // `attId` may be a UUID or a 6-char short-id (markdown bodies use
+      // `attach://<shortId>`). The lookup helper branches on length so
+      // each query stays on a single-column index.
+      const att = await notebooksService.attachment.getContentByIdOrShortId({ idOrShortId: attId });
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
 
       // `inline` query → render-in-browser (images, pdfs); else attachment download
@@ -1248,11 +1296,14 @@ app
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const attId = c.req.param("attId");
-      const { error } = await checkNotebookAccess(c, notebookId);
+      let notebookId = c.req.param("id");
+      const attIdOrShort = c.req.param("attId");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
-      const count = await notebooksService.attachment.usageCount({ notebookId, attachmentId: attId });
+      notebookId = notebook!.id;
+      const att = await notebooksService.attachment.getByIdOrShortId({ idOrShortId: attIdOrShort });
+      if (!att || att.notebookId !== notebookId) return respond(c, ok({ count: 0 }));
+      const count = await notebooksService.attachment.usageCount({ notebookId, attachmentId: att.id });
       return respond(c, ok({ count }));
     },
   )
@@ -1272,13 +1323,14 @@ app
       },
     }),
     async (c) => {
-      const notebookId = c.req.param("id");
-      const attId = c.req.param("attId");
-      const { error } = await checkNotebookAccess(c, notebookId, "write");
+      let notebookId = c.req.param("id");
+      const attIdOrShort = c.req.param("attId");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
-      const att = await notebooksService.attachment.get({ id: attId });
+      notebookId = notebook!.id;
+      const att = await notebooksService.attachment.getByIdOrShortId({ idOrShortId: attIdOrShort });
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
-      await notebooksService.attachment.remove({ id: attId });
+      await notebooksService.attachment.remove({ id: att.id });
       return respond(c, ok({ message: "Attachment deleted" }));
     },
   );
@@ -1304,7 +1356,7 @@ app.get(
     },
   }),
   async (c) => {
-    const notebookId = c.req.param("id");
+    let notebookId = c.req.param("id");
     const { error } = await checkNotebookAccess(c, notebookId);
     if (error) return error;
     return respond(c, ok(await notebooksService.tag.listForNotebook({ notebookId })));

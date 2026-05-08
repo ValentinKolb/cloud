@@ -47,6 +47,7 @@ export const notebooksService = {
       };
     },
     get: notebooks.get,
+    getByIdOrShortId: notebooks.getByIdOrShortId,
     create: notebooks.create,
     update: notebooks.update,
     remove: notebooks.remove,
@@ -134,7 +135,9 @@ export const notebooksService = {
       };
     },
     get: notes.get,
+    getByIdOrShortId: notes.getByIdOrShortId,
     getWithContent: notes.getWithContent,
+    getWithContentByIdOrShortId: notes.getWithContentByIdOrShortId,
     getTree: notes.getTree,
     create: notes.create,
     update: notes.update,
@@ -181,7 +184,9 @@ export const notebooksService = {
   attachment: {
     upload: attachments.upload,
     get: attachments.get,
+    getByIdOrShortId: attachments.getByIdOrShortId,
     getContent: attachments.getContent,
+    getContentByIdOrShortId: attachments.getContentByIdOrShortId,
     list: attachments.list,
     listByIds: attachments.listByIds,
     /** Paginated + searchable variant — used by the overview page. */

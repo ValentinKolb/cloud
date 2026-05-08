@@ -11,6 +11,10 @@ import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type Props = {
   tree: NoteTreeNode[];
+  /** Notebook short-id (6-char base62). Used both for URL building
+   *  (`buildNoteUrl`, etc.) and for API path params — the API resolves
+   *  short-ids to UUIDs at the boundary, so islands never need both
+   *  forms. Same convention applies to `noteId` references below. */
   notebookId: string;
   notebookName: string;
   selectedNoteId: string | null;
@@ -25,7 +29,10 @@ type Props = {
 // =============================================================================
 
 /** Flatten tree into a list, optionally excluding a node and its descendants */
-function flattenTree(nodes: NoteTreeNode[], excludeId?: string): NoteTreeNode[] {
+function flattenTree(
+  nodes: NoteTreeNode[],
+  excludeId?: string
+): NoteTreeNode[] {
   const result: NoteTreeNode[] = [];
   const walk = (list: NoteTreeNode[]) => {
     for (const node of list) {
@@ -39,7 +46,10 @@ function flattenTree(nodes: NoteTreeNode[], excludeId?: string): NoteTreeNode[] 
 }
 
 /** Build indented label for flat tree list */
-function getNodeDepthLabel(node: NoteTreeNode, allNodes: NoteTreeNode[]): string {
+function getNodeDepthLabel(
+  node: NoteTreeNode,
+  allNodes: NoteTreeNode[]
+): string {
   let depth = 0;
   let current = node;
   while (current.parentId) {
@@ -56,17 +66,20 @@ function getNodeDepthLabel(node: NoteTreeNode, allNodes: NoteTreeNode[]): string
 // =============================================================================
 
 function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
-  const createNoteMut = mutations.create<{ id: string }, { title: string; parentId?: string }>({
+  const createNoteMut = mutations.create<
+    { id: string; shortId: string },
+    { title: string; parentId?: string }
+  >({
     mutation: async (data: { title: string; parentId?: string }) => {
       const res = await apiClient[":id"].notes.$post({
         param: { id: notebookId },
         json: data,
       });
       if (!res.ok) throw new Error("Failed to create note");
-      return (await res.json()) as { id: string };
+      return (await res.json()) as { id: string; shortId: string };
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(notebookId, data.id));
+      navigateTo(buildNoteUrl(notebookId, data.shortId));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -85,7 +98,11 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   });
 
   const moveNoteMut = mutations.create({
-    mutation: async (data: { noteId: string; parentId: string | null; position: number }) => {
+    mutation: async (data: {
+      noteId: string;
+      parentId: string | null;
+      position: number;
+    }) => {
       const res = await apiClient[":id"].notes[":noteId"].move.$post({
         param: { id: notebookId, noteId: data.noteId },
         json: { parentId: data.parentId, position: data.position },
@@ -98,10 +115,14 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   });
 
   const copyNoteMut = mutations.create<
-    { id: string; notebookId: string },
+    { id: string; shortId: string; notebookId: string; notebookShortId: string },
     { noteId: string; targetNotebookId: string; targetParentId?: string | null }
   >({
-    mutation: async (data: { noteId: string; targetNotebookId: string; targetParentId?: string | null }) => {
+    mutation: async (data: {
+      noteId: string;
+      targetNotebookId: string;
+      targetParentId?: string | null;
+    }) => {
       const res = await apiClient[":id"].notes[":noteId"].copy.$post({
         param: { id: notebookId, noteId: data.noteId },
         json: {
@@ -109,11 +130,18 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
           targetParentId: data.targetParentId,
         },
       });
-      if (!res.ok) throw new Error("Failed to copy note");
-      return (await res.json()) as { id: string; notebookId: string };
+      if (!res.ok) throw new Error("Failed to duplicate note");
+      const json = (await res.json()) as { id: string; shortId: string; notebookId: string };
+      // The target notebook's short-id isn't on the response — we only
+      // get the note's short-id and the target notebook's UUID. The
+      // page-handler resolves either form so feeding the UUID through
+      // `buildNoteUrl` works; if URL aesthetics on cross-notebook copy
+      // become an issue we can hydrate the target notebook short-id
+      // here with a small extra fetch.
+      return { ...json, notebookShortId: json.notebookId };
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(data.notebookId, data.id));
+      navigateTo(buildNoteUrl(data.notebookShortId, data.shortId));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -192,7 +220,9 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
 
     const result = await prompts.dialog<{ parentId: string | null }>(
       (close) => {
-        const [selected, setSelected] = createSignal<string | null>(node.parentId);
+        const [selected, setSelected] = createSignal<string | null>(
+          node.parentId
+        );
 
         return (
           <div class="flex flex-col gap-4">
@@ -234,7 +264,11 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
             </div>
 
             <div class="flex justify-end gap-3">
-              <button type="button" onClick={() => close(undefined)} class="btn-secondary btn-md">
+              <button
+                type="button"
+                onClick={() => close(undefined)}
+                class="btn-secondary btn-md"
+              >
                 Cancel
               </button>
               <button
@@ -249,7 +283,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
           </div>
         );
       },
-      { title: "Move Note", icon: "ti ti-arrow-move-right" },
+      { title: "Move Note", icon: "ti ti-arrow-move-right" }
     );
 
     if (result) {
@@ -266,7 +300,9 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
     try {
       allNotebooks = await listAccessibleNotebooks();
     } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Failed to load notebooks.");
+      prompts.error(
+        error instanceof Error ? error.message : "Failed to load notebooks."
+      );
       return;
     }
 
@@ -276,7 +312,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
     }
 
     const result = await prompts.form({
-      title: "Copy Note",
+      title: "Duplicate Note",
       icon: "ti ti-copy",
       fields: {
         targetNotebookId: {
@@ -304,13 +340,15 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   const handleDelete = async (node: NoteTreeNode) => {
     const hasKids = node.children.length > 0;
     const confirmed = await prompts.confirm(
-      hasKids ? `Delete "${node.title}" and all its sub-notes? This cannot be undone.` : `Delete "${node.title}"? This cannot be undone.`,
+      hasKids
+        ? `Delete "${node.title}" and all its sub-notes? This cannot be undone.`
+        : `Delete "${node.title}"? This cannot be undone.`,
       {
         title: "Delete Note",
         icon: "ti ti-trash",
         variant: "danger",
         confirmText: "Delete",
-      },
+      }
     );
     if (confirmed) {
       deleteNoteMut.mutate(node.id);
@@ -325,7 +363,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
         icon: "ti ti-lock",
         variant: "danger",
         confirmText: "Lock Permanently",
-      },
+      }
     );
     if (confirmed) {
       lockNoteMut.mutate(node.id);
@@ -366,13 +404,17 @@ function TreeNode(props: {
   const isSelected = () => props.node.id === props.selectedNoteId;
   const hasChildren = () => props.node.children.length > 0;
   const href = () => {
-    return props.viewMode === "read" ? buildReadUrl(props.notebookId, props.node.id) : buildNoteUrl(props.notebookId, props.node.id);
+    return props.viewMode === "read"
+      ? buildReadUrl(props.notebookId, props.node.shortId)
+      : buildNoteUrl(props.notebookId, props.node.shortId);
   };
 
   return (
     <div class="sidebar-tree-item">
       <div
-        class={`sidebar-tree-row group/node ${isSelected() ? "sidebar-item-active" : ""}`}
+        class={`sidebar-tree-row group/node ${
+          isSelected() ? "sidebar-item-active" : ""
+        }`}
         style={`--sidebar-level:${props.depth}`}
       >
         {/* Expand/collapse toggle or leaf dot */}
@@ -382,7 +424,11 @@ function TreeNode(props: {
             class="sidebar-tree-toggle"
             onClick={() => setExpanded((v) => !v)}
           >
-            <i class={`ti ti-chevron-right text-xs transition-transform ${expanded() ? "rotate-90" : ""}`} />
+            <i
+              class={`ti ti-chevron-right text-xs transition-transform ${
+                expanded() ? "rotate-90" : ""
+              }`}
+            />
           </button>
         ) : (
           <span class="sidebar-tree-toggle">
@@ -395,7 +441,10 @@ function TreeNode(props: {
           <span class="flex min-w-0 items-center gap-1.5">
             <span class="truncate">{props.node.title || "Untitled"}</span>
             <Show when={props.node.lockedAt}>
-              <i class="ti ti-lock shrink-0 text-xs text-amber-500" title="Locked" />
+              <i
+                class="ti ti-lock shrink-0 text-xs text-amber-500"
+                title="Locked"
+              />
             </Show>
           </span>
         </a>
@@ -425,7 +474,7 @@ function TreeNode(props: {
                       : [
                           {
                             icon: "ti ti-pencil",
-                            label: "Edit",
+                            label: "Edit Title",
                             action: () => props.actions.handleEdit(props.node),
                           },
                           {
@@ -436,7 +485,7 @@ function TreeNode(props: {
                         ]),
                     {
                       icon: "ti ti-copy",
-                      label: "Copy",
+                      label: "Duplicate",
                       action: () => props.actions.handleCopy(props.node),
                     },
                   ],
@@ -509,7 +558,11 @@ export default function NoteTree(props: Props) {
           <span class="section-label mb-0">Notes</span>
           <div class="flex items-center gap-1">
             <Show when={props.showSearch}>
-              <SearchButton notebookId={props.notebookId} notebookName={props.notebookName} variant="compact" />
+              <SearchButton
+                notebookId={props.notebookId}
+                notebookName={props.notebookName}
+                variant="compact"
+              />
             </Show>
             <Show when={props.canWrite}>
               <button
@@ -519,7 +572,11 @@ export default function NoteTree(props: Props) {
                 class="text-dimmed hover:text-primary transition-colors p-0.5"
                 title="New Note (Mod+Alt+N)"
               >
-                <i class={`ti ${actions.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-xs`} />
+                <i
+                  class={`ti ${
+                    actions.loading() ? "ti-loader-2 animate-spin" : "ti-plus"
+                  } text-xs`}
+                />
               </button>
             </Show>
           </div>

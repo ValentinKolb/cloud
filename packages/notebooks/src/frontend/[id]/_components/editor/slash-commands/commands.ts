@@ -206,7 +206,7 @@ export const slashCommands: SlashCommand[] = [
     run: async (_view, ctx) => {
       const picked = await openNoteSwitchPrompt(ctx.notebookId);
       if (!picked) return;
-      navigateTo(buildNoteUrl(ctx.notebookId, picked.id));
+      navigateTo(buildNoteUrl(ctx.notebookId, picked.shortId));
     },
   },
 ];

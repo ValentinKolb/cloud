@@ -2,6 +2,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 
 type NoteResult = {
   id: string;
+  shortId: string;
   title: string;
   contentMd: string | null;
 };
@@ -37,6 +38,7 @@ const getSnippet = (content: string | null, query: string): string | undefined =
 
 export type PickedNote = {
   id: string;
+  shortId: string;
   title: string;
 };
 
@@ -68,7 +70,7 @@ const runNotePrompt = async (
 
       const payload = (await response.json()) as SearchResponse;
       return payload.data.map((note) => ({
-        value: { id: note.id, title: note.title },
+        value: { id: note.id, shortId: note.shortId, title: note.title },
         label: note.title,
         desc: getSnippet(note.contentMd, trimmed),
       }));

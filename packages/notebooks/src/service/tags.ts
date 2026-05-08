@@ -68,6 +68,7 @@ export const listForNotebook = async (params: { notebookId: string }): Promise<T
 
 export type TaggedNote = {
   id: string;
+  shortId: string;
   title: string;
   preview: string | null;
   updatedAt: string;
@@ -112,8 +113,8 @@ export const listNotesForTag = async (params: {
   const limit = params.pagination?.limit ?? 50;
   const offset = params.pagination?.offset ?? 0;
 
-  const rows = await sql<{ id: string; title: string; content_md: string | null; updated_at: string }[]>`
-    SELECT n.id, n.title, n.content_md, n.updated_at
+  const rows = await sql<{ id: string; short_id: string; title: string; content_md: string | null; updated_at: string }[]>`
+    SELECT n.id, n.short_id, n.title, n.content_md, n.updated_at
     FROM notebooks.note_tags t
     JOIN notebooks.notes n ON n.id = t.note_id
     WHERE t.notebook_id = ${params.notebookId}
@@ -144,6 +145,7 @@ export const listNotesForTag = async (params: {
   return {
     items: rows.map((r) => ({
       id: r.id,
+      shortId: r.short_id,
       title: r.title,
       preview: buildPreview(r.content_md),
       updatedAt: r.updated_at,

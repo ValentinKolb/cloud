@@ -12,7 +12,7 @@ export default function SearchButton(props: Props) {
   const handleSearch = async () => {
     const picked = await openNoteSearchPrompt(props.notebookId, props.notebookName);
     if (picked) {
-      navigateTo(buildNoteUrl(props.notebookId, picked.id));
+      navigateTo(buildNoteUrl(props.notebookId, picked.shortId));
     }
   };
 

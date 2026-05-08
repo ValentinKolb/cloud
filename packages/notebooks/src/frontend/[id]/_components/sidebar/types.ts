@@ -3,6 +3,7 @@ import type { NotebookSettings } from "../settings/NotebookSettingsStore";
 /** Notebook metadata (matches backend NotebookSchema) */
 export type Notebook = {
   id: string;
+  shortId: string;
   name: string;
   description: string | null;
   icon: string | null;
@@ -14,6 +15,7 @@ export type Notebook = {
 /** Note tree node (matches backend NoteTreeNodeSchema) */
 export type NoteTreeNode = {
   id: string;
+  shortId: string;
   notebookId: string;
   parentId: string | null;
   title: string;

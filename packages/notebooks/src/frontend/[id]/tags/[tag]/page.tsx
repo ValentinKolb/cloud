@@ -28,13 +28,17 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString();
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const notebookId = c.req.param("id");
+  // Route param accepts either UUID or short-id — resolved to canonical
+  // UUID via `getByIdOrShortId`. The local `notebookId` variable below
+  // holds the UUID; `notebook.shortId` is what we hand to URL builders.
+  const idOrShort = c.req.param("id");
   const tagParam = (c.req.param("tag") ?? "").toLowerCase();
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
 
-  const notebook = await notebooksService.notebook.get({ id: notebookId });
-  if (!notebook) {
+  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: idOrShort });
+  const notebookId = notebook?.id;
+  if (!notebook || !notebookId) {
     return () => (
       <Layout c={c} title="Not Found">
         <div class="max-w-md mx-auto mt-16">
@@ -87,7 +91,7 @@ export default ssr<AuthContext>(async (c) => {
   ]);
 
   const totalPages = Math.max(1, Math.ceil(paginatedResult.total / PER_PAGE));
-  const baseHref = buildTagPageUrl(notebookId, tagParam);
+  const baseHref = buildTagPageUrl(notebook.shortId, tagParam);
   const paginationBaseUrl = search ? `${baseHref}?search=${encodeURIComponent(search)}&page=` : `${baseHref}?page=`;
 
   const ctx: NotebookContext = {
@@ -108,7 +112,7 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Notebooks", href: "/app/notebooks" },
-        { title: notebook.name, href: `/app/notebooks/${notebook.id}` },
+        { title: notebook.name, href: `/app/notebooks/${notebook.shortId}` },
         { title: `#${tagParam}` },
       ]}
     >
@@ -137,7 +141,7 @@ export default ssr<AuthContext>(async (c) => {
                 {paginatedResult.items.map((n) => (
                   <li>
                     <a
-                      href={buildNoteUrl(notebookId, n.id)}
+                      href={buildNoteUrl(notebook.shortId, n.shortId)}
                       class="flex flex-col gap-1 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 no-underline"
                     >
                       <div class="flex items-center gap-2">

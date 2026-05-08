@@ -24,10 +24,13 @@ import VersionHistory from "./_components/versions/VersionHistory.island";
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const sessionToken = auth.session.getToken(c);
-  const notebookId = c.req.param("id");
+  // Route param is the notebook short-id (or, for tolerance, a UUID —
+  // resolved via `getByIdOrShortId`). Service layer below the boundary
+  // continues to use the canonical UUID `notebookId`.
+  const notebookIdOrShort = c.req.param("id");
 
   // Get notebook
-  const notebook = await notebooksService.notebook.get({ id: notebookId });
+  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShort });
   if (!notebook) {
     return () => (
       <Layout c={c} title="Not Found">
@@ -40,6 +43,7 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
+  const notebookId = notebook.id;
 
   // Check access
   const permission = await notebooksService.notebook.permission.get({
@@ -77,17 +81,24 @@ export default ssr<AuthContext>(async (c) => {
   // Load access entries for settings mode (admin only)
   const accessEntries = isSettingsMode && isAdmin ? (await notebooksService.notebook.access.list({ notebookId })).items : [];
 
-  // Determine selected note: query param > cookie > first note
+  // Determine selected note: path param > cookie > first note.
+  // Path is `/notebooks/:nbId/notes/:noteId` — `noteId` is a short-id
+  // (or, tolerantly, a UUID). We resolve to the canonical UUID once
+  // here so everything below stays UUID-driven.
   const cookieHeader = c.req.header("Cookie");
   const settings = parseSettings(cookieHeader, notebookId);
   const detailPanelOpen = parseDetailPanelOpen(cookieHeader);
-  const noteIdParam = c.req.query("note");
-  const selectedNoteId = noteIdParam ?? settings.lastNoteId ?? tree[0]?.id ?? null;
+  const noteParam = c.req.param("noteId");
+  const resolvedFromPath = noteParam
+    ? (await notebooksService.note.getByIdOrShortId({ idOrShortId: noteParam }))?.id ?? null
+    : null;
+  const selectedNoteId = resolvedFromPath ?? settings.lastNoteId ?? tree[0]?.id ?? null;
 
   // Load selected note content (Yjs snapshot) for SSR → editor.
   // Also pull metadata used by the detail panel's Info section.
   let selectedNote: {
     id: string;
+    shortId: string;
     title: string;
     yjsSnapshot: string | null;
     contentMd: string | null;
@@ -109,6 +120,7 @@ export default ssr<AuthContext>(async (c) => {
       if (noteMeta) {
         selectedNote = {
           id: noteMeta.id,
+          shortId: noteMeta.shortId,
           title: noteMeta.title,
           yjsSnapshot: null,
           contentMd: noteMeta.contentMd,
@@ -153,6 +165,7 @@ export default ssr<AuthContext>(async (c) => {
 
         selectedNote = {
           id: noteWithContent.id,
+          shortId: noteWithContent.shortId,
           title: noteWithContent.title,
           yjsSnapshot: noteWithContent.yjsSnapshot, // already base64
           contentMd: noteWithContent.contentMd,
@@ -224,12 +237,12 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Notebooks", href: "/app/notebooks" },
-        { title: notebook.name, href: `/app/notebooks/${notebook.id}` },
+        { title: notebook.name, href: `/app/notebooks/${notebook.shortId}` },
         ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
       ]}
     >
       <div class="app-cols flex-1 min-h-0">
-        <NotebookHotkeys notebookId={notebook.id} notebookName={notebook.name} canWrite={canWrite} />
+        <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
 
         {/* Sidebar */}
         <NotebookSidebar ctx={ctx} />
@@ -240,28 +253,28 @@ export default ssr<AuthContext>(async (c) => {
             <NotebookSettingsPanel notebook={notebook} accessEntries={accessEntries} isAdmin={isAdmin} canWrite={canWrite} />
           ) : isVersionsMode && selectedNoteId ? (
             <VersionHistory
-              notebookId={notebookId}
-              noteId={selectedNoteId}
+              notebookId={notebook.shortId}
+              noteId={selectedNote?.shortId ?? selectedNoteId}
               noteTitle={selectedNote?.title ?? ""}
               isLocked={!!selectedNote?.lockedAt}
               currentContentMd={selectedNote?.contentMd ?? null}
             />
           ) : isGraphMode && graph ? (
-            <NotebookGraph notebookId={notebookId} selectedNoteId={selectedNoteId} graph={graph} />
+            <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />
           ) : selectedNote ? (
             actualReadMode ? (
               <ReadonlyNote
-                noteId={selectedNote.id}
+                noteId={selectedNote.shortId}
                 noteTitle={selectedNote.title}
-                notebookId={notebookId}
+                notebookId={notebook.shortId}
                 renderedHtml={selectedNote.renderedHtml ?? ""}
                 isLocked={!!selectedNote.lockedAt}
               />
             ) : (
               <NoteEditor
-                noteId={selectedNote.id}
+                noteId={selectedNote.shortId}
                 noteTitle={selectedNote.title}
-                notebookId={notebookId}
+                notebookId={notebook.shortId}
                 appUrl={appUrl}
                 sessionToken={sessionToken!}
                 userId={user.id}
@@ -292,9 +305,9 @@ export default ssr<AuthContext>(async (c) => {
             taskProgress={extractTaskProgress(selectedNote.contentMd)}
             attachments={panelAttachments}
             backlinks={backlinks}
-            currentNotebookId={notebookId}
-            notebookId={notebookId}
-            noteId={selectedNote.id}
+            currentNotebookId={notebook.shortId}
+            notebookId={notebook.shortId}
+            noteId={selectedNote.shortId}
             noteTitle={selectedNote.title}
             contentMd={selectedNote.contentMd}
             createdAt={selectedNote.createdAt}

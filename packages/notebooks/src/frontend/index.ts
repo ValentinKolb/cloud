@@ -10,6 +10,10 @@ export const adminPages = new Hono<AuthContext>().get("/", auth.requireRole("adm
 
 export default new Hono<AuthContext>()
   .get("/", auth.requireRole("authenticated", auth.redirectToLogin), ...notebooksPage)
+  // Both `/notebooks/:id` and `/notebooks/:id/notes/:noteId` hit the same
+  // SSR handler — the latter just supplies a `noteId` route param. The
+  // handler reads both shape variants from `c.req.param(...)`.
   .get("/:id", auth.requireRole("authenticated", auth.redirectToLogin), ...notebookDetailPage)
+  .get("/:id/notes/:noteId", auth.requireRole("authenticated", auth.redirectToLogin), ...notebookDetailPage)
   .get("/:id/attachments", auth.requireRole("authenticated", auth.redirectToLogin), ...notebookAttachmentsPage)
   .get("/:id/tags/:tag", auth.requireRole("authenticated", auth.redirectToLogin), ...notebookTagPage);

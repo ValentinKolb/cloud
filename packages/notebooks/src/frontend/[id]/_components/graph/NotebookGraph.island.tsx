@@ -182,7 +182,7 @@ export default function NotebookGraph(props: Props) {
         // Pure click → unpin and navigate to the note.
         node.fx = null;
         node.fy = null;
-        window.location.assign(buildNoteUrl(props.notebookId, node.id));
+        window.location.assign(buildNoteUrl(props.notebookId, node.shortId));
       }
       // If the user dragged, keep `fx`/`fy` so the node stays where they
       // dropped it. The simulation will re-settle the rest around it.
