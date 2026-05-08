@@ -49,7 +49,13 @@ const resolveHttpBaseUrl = (raw: string): URL => {
  * - stop reconnecting on terminal `notes.yjs.error` codes
  */
 export function createYjsProvider(opts: YjsProviderOptions) {
-  const { doc, awareness, noteId, appUrl } = opts;
+  const { doc, awareness, appUrl } = opts;
+  // `activeNoteId` starts at whatever the caller passed (UUID or
+  // 6-char short-id) and converges to the server-canonical UUID on
+  // `replayReady`. Every subsequent client→server message uses the
+  // canonical form, so the per-message `payload.noteId` matcher on
+  // both sides agrees on a single value.
+  let activeNoteId = opts.noteId;
   let ws: WebSocket | null = null;
   let isDisposed = false;
   let isTerminated = false;
@@ -82,13 +88,13 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     return false;
   };
 
-  const sendSyncPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.syncPublish, { noteId, payload: encoding.toBase64(data) });
+  const sendSyncPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.syncPublish, { noteId: activeNoteId, payload: encoding.toBase64(data) });
 
-  const sendAwarenessPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.awarenessPublish, { noteId, payload: encoding.toBase64(data) });
+  const sendAwarenessPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.awarenessPublish, { noteId: activeNoteId, payload: encoding.toBase64(data) });
 
   const sendReplayRequest = (fromCursor: string | null): boolean =>
     sendJson(WS_TYPE.replayRequest, {
-      noteId,
+      noteId: activeNoteId,
       fromCursor,
       sessionToken: opts.sessionToken,
     });
@@ -218,7 +224,11 @@ export function createYjsProvider(opts: YjsProviderOptions) {
 
     if (msg.type === WS_TYPE.replayReady) {
       const payload = (msg.payload ?? {}) as { noteId?: unknown };
-      if (payload.noteId !== noteId) return;
+      // Adopt the server-canonical id form. We may have sent a
+      // short-id; the server replies with the canonical UUID. Updating
+      // `activeNoteId` here means every subsequent send + every
+      // inbound `payload.noteId` matcher uses the same value.
+      if (typeof payload.noteId === "string") activeNoteId = payload.noteId;
       replayReady = true;
       sendLocalStateIfNeeded();
       return;
@@ -230,7 +240,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
         participants?: unknown;
       };
 
-      if (payload.noteId !== noteId) return;
+      if (payload.noteId !== activeNoteId) return;
       const participants = NotebookPresenceParticipantSchema.array().safeParse(payload.participants);
       if (!participants.success) return;
       opts.onPresenceChange?.(participants.data);
@@ -245,7 +255,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       updates?: Array<{ cursor?: unknown; payload?: unknown }>;
     };
 
-    if (payload.noteId !== noteId || !Array.isArray(payload.updates)) return;
+    if (payload.noteId !== activeNoteId || !Array.isArray(payload.updates)) return;
     for (const update of payload.updates) {
       if (typeof update.payload !== "string") continue;
       try {

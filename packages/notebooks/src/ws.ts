@@ -45,7 +45,10 @@ const BASE64_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{
 const ReplayRequestMessageSchema = z.object({
   type: z.literal(WS_TYPE.replayRequest),
   payload: z.object({
-    noteId: z.uuid(),
+    // Accepts either a UUID or a 6-char short-id — `evaluateAccess`
+    // resolves the form against `notebooks.notes` and stores the
+    // canonical UUID in `WsContext.noteId` for everything downstream.
+    noteId: z.string().min(6).max(36),
     sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(notebooksYjs.streamCursorPattern).nullable().optional(),
   }),
@@ -54,7 +57,10 @@ const ReplayRequestMessageSchema = z.object({
 const SyncPublishMessageSchema = z.object({
   type: z.literal(WS_TYPE.syncPublish),
   payload: z.object({
-    noteId: z.uuid(),
+    // Accepts either a UUID or a 6-char short-id — `evaluateAccess`
+    // resolves the form against `notebooks.notes` and stores the
+    // canonical UUID in `WsContext.noteId` for everything downstream.
+    noteId: z.string().min(6).max(36),
     payload: z.string().min(1),
   }),
 });
@@ -62,7 +68,10 @@ const SyncPublishMessageSchema = z.object({
 const AwarenessPublishMessageSchema = z.object({
   type: z.literal(WS_TYPE.awarenessPublish),
   payload: z.object({
-    noteId: z.uuid(),
+    // Accepts either a UUID or a 6-char short-id — `evaluateAccess`
+    // resolves the form against `notebooks.notes` and stores the
+    // canonical UUID in `WsContext.noteId` for everything downstream.
+    noteId: z.string().min(6).max(36),
     payload: z.string().min(1),
   }),
 });
@@ -81,7 +90,13 @@ type WsContext = {
   phase: WsPhase;
   sessionToken: string | null;
   user: User | null;
+  /** Canonical UUID — what every DB call + presence channel uses. */
   noteId: string | null;
+  /** The form the client sent on `replayRequest` (UUID or short-id) —
+   *  echoed back unchanged in server messages so the client's
+   *  `replayReady` matcher converges. Wire-level publishes are
+   *  validated against this. */
+  wireNoteId: string | null;
   canWrite: boolean;
   peerId: string;
   streamAbort: AbortController | null;
@@ -104,6 +119,10 @@ type AccessEvaluation = {
   code?: NotebooksYjsErrorCode;
   message?: string;
   noteId?: string;
+  /** Canonical UUID resolved from the route param (which may have been
+   *  a short-id). Set when `ok` is true so callers can store it in
+   *  `WsContext.noteId` for the rest of the session. */
+  resolvedNoteId?: string;
   canWrite?: boolean;
 };
 
@@ -127,6 +146,7 @@ const createContext = (socket: ServerWebSocket<unknown>): WsContext => ({
   sessionToken: null,
   user: null,
   noteId: null,
+  wireNoteId: null,
   canWrite: false,
   peerId: crypto.randomUUID(),
   streamAbort: null,
@@ -390,18 +410,21 @@ const resolveSessionUser = async (sessionToken: string | null): Promise<User | n
 };
 
 const evaluateAccess = async (
-  noteId: string,
+  noteIdOrShortId: string,
   user: User,
   mode: "read" | "write",
   deniedCode: NotebooksYjsErrorCode,
 ): Promise<AccessEvaluation> => {
-  const note = await notebooksService.note.get({ id: noteId });
+  // Route param may be a UUID or a 6-char short-id — same boundary
+  // resolution as the HTTP API. From here on we work with the
+  // canonical UUID `note.id`.
+  const note = await notebooksService.note.getByIdOrShortId({ idOrShortId: noteIdOrShortId });
   if (!note) {
     return {
       ok: false,
       code: ERROR_CODE.noteNotFound,
       message: "Note not found",
-      noteId,
+      noteId: noteIdOrShortId,
     };
   }
 
@@ -416,7 +439,7 @@ const evaluateAccess = async (
       ok: false,
       code: deniedCode,
       message: deniedCode === ERROR_CODE.accessRevoked ? "Access was revoked" : "Access denied",
-      noteId,
+      noteId: note.id,
     };
   }
 
@@ -426,7 +449,7 @@ const evaluateAccess = async (
       ok: false,
       code: ERROR_CODE.accessDenied,
       message: "Write access required",
-      noteId,
+      noteId: note.id,
     };
   }
 
@@ -435,12 +458,13 @@ const evaluateAccess = async (
       ok: false,
       code: ERROR_CODE.noteLocked,
       message: "Note is locked",
-      noteId,
+      noteId: note.id,
     };
   }
 
   return {
     ok: true,
+    resolvedNoteId: note.id,
     canWrite,
   };
 };
@@ -598,9 +622,12 @@ const ensurePhase = (ctx: WsContext, allowedTypes: readonly string[], attemptedT
   return false;
 };
 
-const ensureJoinedNote = (ctx: WsContext, noteId: string): boolean => {
-  if (ctx.phase !== "joined" || !ctx.noteId || ctx.noteId !== noteId) {
-    warn(ctx.socket, ERROR_CODE.invalidPayload, "Replay request required before publishing", noteId);
+const ensureJoinedNote = (ctx: WsContext, wireNoteId: string): boolean => {
+  // Compare against `wireNoteId` (the form the client sent at join
+  // time) — `ctx.noteId` is the canonical UUID we use for DB calls
+  // and may differ from what the client sent if they used a short-id.
+  if (ctx.phase !== "joined" || !ctx.wireNoteId || ctx.wireNoteId !== wireNoteId) {
+    warn(ctx.socket, ERROR_CODE.invalidPayload, "Replay request required before publishing", wireNoteId);
     return false;
   }
   return true;
@@ -628,33 +655,42 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     await fatal(ctx, access.code ?? ERROR_CODE.accessDenied, access.message ?? "Access denied", access.noteId ?? payload.noteId);
     return;
   }
+  // Wire-level convention: the server emits canonical UUIDs in every
+  // message it sends, including the response to `replayRequest`. The
+  // client (`provider.ts`) starts with whatever form the caller passed
+  // (UUID or short-id) and adopts the server's canonical form on
+  // first `replayReady`. Subsequent client→server messages then use
+  // the canonical UUID, so both sides agree on a single per-message
+  // `payload.noteId` value for the rest of the session.
+  const dbNoteId = access.resolvedNoteId!;
 
-  if (ctx.noteId && ctx.noteId !== payload.noteId) {
+  if (ctx.noteId && ctx.noteId !== dbNoteId) {
     await leaveCurrentNote(ctx);
   }
 
   ctx.phase = "joined";
   ctx.user = user;
-  ctx.noteId = payload.noteId;
+  ctx.noteId = dbNoteId;
+  ctx.wireNoteId = dbNoteId; // converged
   ctx.canWrite = access.canWrite ?? false;
 
-  registerPresenceMember(ctx, payload.noteId);
+  registerPresenceMember(ctx, dbNoteId);
   await notebooksService.presence.join({
-    noteId: payload.noteId,
+    noteId: dbNoteId,
     peerId: ctx.peerId,
     userId: user.id,
     displayName: user.displayName,
   });
-  await sendPresenceSnapshot(ctx, payload.noteId);
-  await broadcastPresenceChanged(payload.noteId);
+  await sendPresenceSnapshot(ctx, dbNoteId);
+  await broadcastPresenceChanged(dbNoteId);
   startPresenceHeartbeat(ctx);
 
   let replayCursor = payload.fromCursor ?? null;
   if (!replayCursor) {
-    const snapshot = await notebooksService.note.getYjsStateWithCursor({ noteId: payload.noteId });
+    const snapshot = await notebooksService.note.getYjsStateWithCursor({ noteId: dbNoteId });
     if (snapshot?.yjsState) {
       send(ctx.socket, WS_TYPE.syncPush, {
-        noteId: payload.noteId,
+        noteId: dbNoteId,
         updates: [
           {
             cursor: snapshot.streamCursor,
@@ -667,11 +703,11 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     replayCursor = snapshot?.streamCursor ?? null;
   }
 
-  startLiveStream(ctx, payload.noteId, replayCursor);
+  startLiveStream(ctx, dbNoteId, replayCursor);
   startAccessRefresh(ctx);
-  send(ctx.socket, WS_TYPE.replayReady, { noteId: payload.noteId });
+  send(ctx.socket, WS_TYPE.replayReady, { noteId: dbNoteId });
   log.debug("Replay stream started", {
-    noteId: payload.noteId,
+    noteId: dbNoteId,
     peerId: ctx.peerId,
     fromCursor: replayCursor,
   });
@@ -685,7 +721,9 @@ const handleSyncPublish = async (ctx: WsContext, payload: z.infer<typeof SyncPub
     return;
   }
 
-  const noteTopic = createYjsTopic(payload.noteId);
+  // Topic key is the canonical UUID — peers may have joined with
+  // either form but they all converge on the same per-note topic.
+  const noteTopic = createYjsTopic(ctx.noteId!);
   const published = await noteTopic.pub({
     data: {
       kind: "sync",
@@ -705,7 +743,7 @@ const handleAwarenessPublish = async (ctx: WsContext, payload: z.infer<typeof Aw
     return;
   }
 
-  const noteTopic = createYjsTopic(payload.noteId);
+  const noteTopic = createYjsTopic(ctx.noteId!);
   await noteTopic.pub({
     data: {
       kind: "awareness",
