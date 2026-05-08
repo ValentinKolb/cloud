@@ -6,6 +6,11 @@ export type Base = {
   name: string;
   description: string | null;
   createdBy: string | null;
+  /** When set, opening `/grids/<base>` with no ?table or ?dashboard
+   *  query param redirects to this dashboard. Service treats stale
+   *  ids (referenced dashboard soft-deleted) as null, so consumers
+   *  can rely on the value being a live dashboard id when non-null. */
+  defaultDashboardId: string | null;
   /** Soft-delete tombstone. null = alive, ISO timestamp = trashed. */
   deletedAt: string | null;
   createdAt: string;
@@ -94,7 +99,11 @@ export type AuditEntry = {
 };
 
 export type CreateBaseInput = { name: string; description?: string | null };
-export type UpdateBaseInput = { name?: string; description?: string | null };
+export type UpdateBaseInput = {
+  name?: string;
+  description?: string | null;
+  defaultDashboardId?: string | null;
+};
 
 export type CreateTableInput = { baseId: string; name: string; description?: string | null };
 export type UpdateTableInput = {

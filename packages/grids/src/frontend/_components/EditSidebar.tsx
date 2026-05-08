@@ -92,11 +92,12 @@ export default function EditSidebar(props: Props) {
   // applied). From a table-edit, back goes to the table. From a
   // dashboard-edit, back goes to the dashboard render.
   const backHref = (() => {
-    if (props.active.kind === "view") {
+    const a = props.active;
+    if (a.kind === "view") {
       return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}&view=${props.activeViewSlug ?? ""}`;
     }
-    if (props.active.kind === "dashboard") {
-      const slug = props.dashboards.find((d) => d.id === props.active.dashboardId)?.slug;
+    if (a.kind === "dashboard") {
+      const slug = props.dashboards.find((d) => d.id === a.dashboardId)?.slug;
       return slug
         ? `/app/grids/${props.baseSlug}?dashboard=${slug}`
         : `/app/grids/${props.baseSlug}`;

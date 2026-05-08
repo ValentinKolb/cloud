@@ -17,7 +17,7 @@ type Props = {
  */
 export default function ChartWidgetStub(props: Props) {
   return (
-    <div class="paper h-full flex flex-col min-h-0 min-w-0 overflow-hidden">
+    <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex items-center justify-between gap-2">
         <span class="text-xs font-semibold text-primary truncate">
           {props.widget.title ?? `${props.widget.chartType} chart`}

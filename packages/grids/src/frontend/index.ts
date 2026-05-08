@@ -5,6 +5,7 @@ import baseDetailPage from "./[baseId]/page";
 import baseSettingsPage from "./[baseId]/settings/page";
 import tableEditPage from "./[baseId]/tables/[tableId]/edit/page";
 import viewEditPage from "./[baseId]/tables/[tableId]/views/[viewId]/edit/page";
+import dashboardEditPage from "./[baseId]/dashboards/[dashboardId]/edit/page";
 import adminPage from "./admin";
 import publicFormPage from "./public/forms/[token]/page";
 
@@ -39,6 +40,11 @@ export default new Hono<AuthContext>()
     "/:baseId/tables/:tableId/edit",
     auth.requireRole("user", auth.redirectToLogin),
     ...tableEditPage,
+  )
+  .get(
+    "/:baseId/dashboards/:dashboardId/edit",
+    auth.requireRole("user", auth.redirectToLogin),
+    ...dashboardEditPage,
   )
   .get("/:baseId/settings", auth.requireRole("user", auth.redirectToLogin), ...baseSettingsPage)
   .get("/:baseId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage);

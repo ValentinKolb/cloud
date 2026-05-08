@@ -324,8 +324,8 @@ function DefaultDashboardSelect(props: {
       value={value}
       onChange={onChange}
       options={[
-        { value: "", label: "(none)" },
-        ...props.dashboards.map((d) => ({ value: d.id, label: d.name })),
+        { id: "", label: "(none)" },
+        ...props.dashboards.map((d) => ({ id: d.id, label: d.name })),
       ]}
       icon="ti ti-layout-dashboard"
     />

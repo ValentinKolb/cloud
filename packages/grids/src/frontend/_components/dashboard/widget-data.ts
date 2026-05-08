@@ -74,11 +74,19 @@ const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {
   // Chart widgets need groupBy. If groupBy is empty we fall back to a
   // synthetic single-bucket so the stub renderer can still surface a
   // meaningful preview during P0.
+  // Chart widgets use AggregationSpec which carries the wider agg
+  // kind union (median/earliest/latest) — record.group only accepts
+  // the narrower GroupAggregationSpec. P1 (chart renderer) will narrow
+  // this at the schema level; for now we strip the extra label and
+  // let the compiler reject any chart that picks an unsupported agg.
   const result = await gridsService.record.group({
     tableId: source.tableId,
     filter: source.filter ?? null,
     groupBy: source.groupBy ?? [],
-    aggregations: source.aggregations,
+    aggregations: source.aggregations.map((a) => ({
+      fieldId: a.fieldId,
+      agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
+    })),
     limit: source.limit,
   });
   if (!result.ok) return { kind: "error", reason: result.error.message };

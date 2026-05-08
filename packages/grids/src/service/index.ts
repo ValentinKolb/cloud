@@ -135,7 +135,12 @@ export type {
   Dashboard,
   DashboardConfig,
   DashboardRow,
+  StatsRow,
+  WidgetsRow,
   Widget,
+  StatWidget,
+  ChartWidget,
+  ViewWidget,
   WidgetSource,
   WidgetFormat,
 } from "../contracts";

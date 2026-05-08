@@ -431,14 +431,18 @@ const main = async () => {
       ownerUserId: null /* shared */,
       config: {
         rows: [
+          // Stats row: ui-lab small-grid pattern, one paper with
+          // hairline-separated cells. No height tier — small-grid
+          // sizes itself.
           {
             id: "row-stats",
-            height: "sm",
+            kind: "stats",
             cells: [
               {
                 id: "w-orders-count",
                 kind: "stat",
                 title: "Orders",
+                sub: "all-time",
                 icon: "ti ti-shopping-cart",
                 format: "integer",
                 source: {
@@ -450,6 +454,7 @@ const main = async () => {
                 id: "w-revenue",
                 kind: "stat",
                 title: "Revenue",
+                sub: "line totals",
                 icon: "ti ti-currency-euro",
                 format: "currency",
                 source: {
@@ -461,6 +466,7 @@ const main = async () => {
                 id: "w-customers",
                 kind: "stat",
                 title: "Customers",
+                sub: "registered",
                 icon: "ti ti-users",
                 format: "integer",
                 source: {
@@ -472,6 +478,7 @@ const main = async () => {
                 id: "w-avg-price",
                 kind: "stat",
                 title: "Avg. price",
+                sub: "all books",
                 icon: "ti ti-tag",
                 format: "currency",
                 source: {
@@ -481,8 +488,11 @@ const main = async () => {
               },
             ],
           },
+          // View row: each cell is its own paper card with the lg
+          // height tier so the embedded record table has breathing room.
           {
             id: "row-customers",
+            kind: "widgets",
             height: "lg",
             cells: [
               {

@@ -539,21 +539,33 @@ const pushTypeForKind = (kind: YjsTopicEvent["kind"]): typeof WS_TYPE.syncPush |
   kind === "sync" ? WS_TYPE.syncPush : WS_TYPE.awarenessPush;
 
 /**
- * Catch-up "drain quiet" window. After every event we forward, we
- * arm a timer for this duration; if no further event arrives before
- * it fires, the topic backlog has drained (XREAD BLOCK returned no
- * entry) and we're at head.
+ * Catch-up "drain quiet" window. After every event we pull from
+ * the topic (forwarded OR skipped), we arm a timer for this
+ * duration; if no further event arrives before it fires, the
+ * backlog has *very likely* drained.
  *
- * Why a quiet window instead of a wall-clock heuristic: codex review
- * on commit 696680a flagged that "the first event with a recent
- * cursor" is wrong — `topic.live()` reads one entry per XREAD, so
- * other already-retained events whose cursors happen to be recent
- * may still be queued behind the trigger. Waiting for actual quiet
- * is the deterministic signal that backlog has drained.
+ * Caveat (codex review on commit 3a121e0, finding 1): this remains
+ * a wall-clock silence heuristic, not a "stream is actually empty"
+ * signal. `@valentinkolb/sync`'s `topic.live()` swallows the
+ * "XREAD BLOCK timed out" case internally (its impl's
+ * `if (!entry) continue`) and never surfaces it to the consumer,
+ * so we can't observe "no more retained entries" deterministically
+ * from this side. If Redis latency or a transient retry pause
+ * exceeds 150 ms between yields, the timer can fire while real
+ * backlog is still queued. The proper fix is to either:
+ *   1. Add a head-cursor query to `@valentinkolb/sync` so we know
+ *      a deterministic stop condition at subscribe time, or
+ *   2. Surface the empty-read signal from `topic.live()` itself.
+ * Both require library changes; deferred. In practice 150 ms is
+ * comfortably above local Redis round-trip times (typically
+ * sub-ms) and the impact of misfiring is one Y.js merge with
+ * slightly out-of-order updates — correct under CRDT semantics,
+ * just not perfectly ordered.
  *
  * Picked at 150 ms: long enough to absorb single-digit-ms jitter
- * between rapid-fire events, short enough that a fresh-note connect
- * with empty topic feels instant (~150 ms gate before replayReady).
+ * between rapid-fire events, short enough that a fresh-note
+ * connect with empty topic feels instant (~150 ms gate before
+ * `replayReady`).
  */
 const CATCH_UP_DRAIN_QUIET_MS = 150;
 
@@ -697,11 +709,18 @@ const startLiveStream = (
         // the next awareness timeout. Once `caughtUp` flips
         // (drain-quiet timer fires after silence on the stream, OR
         // hard-cap fallback), retained-feel awareness flows again.
+        //
+        // Re-arm the drain-quiet timer for SKIPPED events too.
+        // A retained stream may interleave awareness and sync —
+        // not re-arming on awareness skips would let the timer
+        // fire while we're still pulling skipped events with sync
+        // entries queued behind them, sending `replayReady`
+        // before the sync history actually reaches the client
+        // (codex review on commit 3a121e0, finding 2). The
+        // hard-cap timer is the safety net for streams that are
+        // genuinely stuck on stale-awareness floods.
         if (!caughtUp && event.data.kind === "awareness") {
-          // Don't reset the drain-quiet timer for skipped events —
-          // we want to converge on "no real events for 150 ms",
-          // not "no events at all". A flood of stale awareness
-          // alone shouldn't keep us out of catch-up forever.
+          armDrainQuietTimer();
           continue;
         }
 

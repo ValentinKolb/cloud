@@ -496,47 +496,92 @@ export type WidgetSource = z.infer<typeof WidgetSourceSchema>;
 export const WidgetFormatSchema = z.enum(["plain", "currency", "percent", "integer"]);
 export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
 
-/** Discriminated union — one variant per widget kind. The `id` is
- *  client-generated (any string) so DnD can track widgets across
- *  reorders without server round-trips. */
+// Per-kind widget schemas. Split out so the row-discriminant can
+// constrain `cells` to a single kind: stats-rows take only stat
+// widgets, widget-rows take only views (and later charts). The
+// `id` is client-generated so DnD can track widgets across reorders
+// without server round-trips.
+export const StatWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("stat"),
+  title: z.string().max(200).optional(),
+  source: WidgetSourceSchema,
+  icon: z.string().max(60).optional(),
+  format: WidgetFormatSchema.optional(),
+  /** Optional small-text sub-line under the value. Mirrors the
+   *  ui-lab "Small grid only" reference (`9·12 admin`, `last 24h`,
+   *  `providers`). Plain text only, no icons. */
+  sub: z.string().max(60).optional(),
+});
+
+export const ChartWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("chart"),
+  title: z.string().max(200).optional(),
+  chartType: z.enum(["donut", "bar", "line", "scatter"]),
+  source: WidgetSourceSchema,
+  format: WidgetFormatSchema.optional(),
+});
+
+export const ViewWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("view"),
+  /** Embedded view id. Must belong to a table the viewer can read —
+   *  enforced at SSR-render time, not at save time, so a permission
+   *  change doesn't break a saved dashboard. */
+  viewId: z.string().uuid(),
+  title: z.string().max(200).optional(),
+});
+
 export const WidgetSchema = z.discriminatedUnion("kind", [
-  z.object({
-    id: z.string().min(1),
-    kind: z.literal("stat"),
-    title: z.string().max(200).optional(),
-    source: WidgetSourceSchema,
-    icon: z.string().max(60).optional(),
-    format: WidgetFormatSchema.optional(),
-  }),
-  z.object({
-    id: z.string().min(1),
-    kind: z.literal("chart"),
-    title: z.string().max(200).optional(),
-    chartType: z.enum(["donut", "bar", "line", "scatter"]),
-    source: WidgetSourceSchema,
-    format: WidgetFormatSchema.optional(),
-  }),
-  z.object({
-    id: z.string().min(1),
-    kind: z.literal("view"),
-    /** Embedded view id. Must belong to a table the viewer can read —
-     *  enforced at SSR-render time, not at save time, so a permission
-     *  change doesn't break a saved dashboard. */
-    viewId: z.string().uuid(),
-    title: z.string().max(200).optional(),
-  }),
+  StatWidgetSchema,
+  ChartWidgetSchema,
+  ViewWidgetSchema,
 ]);
 export type Widget = z.infer<typeof WidgetSchema>;
+export type StatWidget = z.infer<typeof StatWidgetSchema>;
+export type ChartWidget = z.infer<typeof ChartWidgetSchema>;
+export type ViewWidget = z.infer<typeof ViewWidgetSchema>;
 
-/** A row holds 1-4 cells of equal width and shares one of three
- *  heights. The 4-cell cap matches the typical "4 stat cards across"
- *  pattern; more would be unreadable on tablets. */
-export const DashboardRowSchema = z.object({
+// Two row types, period:
+//
+//   - StatsRow:  1-N stat cells rendered as one paper container with
+//                hairline-separated cells (the ui-lab "Small grid
+//                only" pattern). No height tier — the small-grid has
+//                its natural padded height. No mixing with views/
+//                charts; those are too tall to share a row visually.
+//   - WidgetsRow: 1-4 larger widgets (views; charts later) rendered
+//                as separate paper cards with `gap-3` between them.
+//                Carries an explicit sm/md/lg height tier because
+//                embedded views need vertical breathing room.
+//
+// Splitting at the row level (vs. inferring from cell contents)
+// keeps the editor's add-row affordance unambiguous and avoids the
+// "why does it suddenly look different" surprise when a user mixes
+// kinds.
+export const StatsRowSchema = z.object({
   id: z.string().min(1),
-  height: z.enum(["sm", "md", "lg"]),
-  cells: z.array(WidgetSchema).min(1).max(4),
+  kind: z.literal("stats"),
+  cells: z.array(StatWidgetSchema).min(1).max(6),
 });
+
+export const WidgetsRowSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("widgets"),
+  height: z.enum(["sm", "md", "lg"]),
+  cells: z
+    .array(z.discriminatedUnion("kind", [ChartWidgetSchema, ViewWidgetSchema]))
+    .min(1)
+    .max(4),
+});
+
+export const DashboardRowSchema = z.discriminatedUnion("kind", [
+  StatsRowSchema,
+  WidgetsRowSchema,
+]);
 export type DashboardRow = z.infer<typeof DashboardRowSchema>;
+export type StatsRow = z.infer<typeof StatsRowSchema>;
+export type WidgetsRow = z.infer<typeof WidgetsRowSchema>;
 
 export const DashboardConfigSchema = z.object({
   rows: z.array(DashboardRowSchema),

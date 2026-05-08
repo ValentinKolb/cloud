@@ -1,4 +1,4 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import type { AccessEntry, Principal, PermissionLevel } from "@valentinkolb/cloud/contracts/shared";
 import {
   navigateTo,
   PermissionEditor,
@@ -14,85 +14,72 @@ import type {
   DashboardConfig,
   DashboardRow,
   Field,
+  StatWidget,
+  StatsRow as StatsRowType,
   View,
-  Widget,
+  ViewWidget,
   WidgetSource,
+  WidgetsRow as WidgetsRowType,
 } from "../../service";
 import type { AggregationSpec } from "../../contracts";
 import { errorMessage } from "./api-helpers";
 import { SectionCard } from "./SectionCard";
 import { formatWidgetValue } from "./dashboard/widget-format";
 
+// =============================================================================
+// Dashboard editor — split into "stats rows" (ui-lab small-grid pattern)
+// and "widgets rows" (one paper per widget, sm/md/lg height tier). The
+// row-kind discriminant decides both the renderer and the cell-editor
+// shape; mixing widget kinds inside a row was deliberately removed
+// after the user pointed out it never made visual sense (charts and
+// stats need very different vertical real estate).
+// =============================================================================
+
 type Props = {
   baseSlug: string;
   initialDashboard: Dashboard;
   /** Whether this dashboard is the base's default — surfaces as a
-   *  read-only badge with a link to base settings (the canonical place
-   *  to change it). */
+   *  read-only badge with a link to base settings. */
   isBaseDefault: boolean;
-  /** Tables the viewer can read on this base. Source for the stat /
-   *  chart widget table-pickers. */
   tables: Array<{ id: string; name: string; slug: string }>;
-  /** Fields by table — drives the aggregation field-picker. Pre-loaded
-   *  server-side so the picker doesn't round-trip per click. */
   fieldsByTable: Record<string, Field[]>;
-  /** Views by table — view-picker for embedded-view widgets. */
   viewsByTable: Record<string, View[]>;
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
 };
 
-type WidgetKind = Widget["kind"];
-
 const DEFAULT_AGG: AggregationSpec = { fieldId: "*", agg: "count" };
 
-const newId = () => `w_${crypto.randomUUID()}`;
+const newId = (prefix: string) =>
+  `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
-const newRowId = () => `r_${crypto.randomUUID()}`;
-
-/**
- * Builds a "best-guess sensible" widget when the user adds a new cell
- * of a given kind. Source defaults to the first readable table so the
- * cell renders something instead of a "pick a table" placeholder.
- */
-const buildNewWidget = (
-  kind: WidgetKind,
-  defaultTableId: string | null,
-): Widget => {
-  if (kind === "stat") {
-    return {
-      id: newId(),
-      kind: "stat",
-      title: "New stat",
-      source: defaultSource(defaultTableId),
-      format: "plain",
-    };
-  }
-  if (kind === "chart") {
-    return {
-      id: newId(),
-      kind: "chart",
-      title: "New chart",
-      chartType: "donut",
-      source: defaultSource(defaultTableId),
-    };
-  }
-  return { id: newId(), kind: "view", viewId: "", title: undefined };
-};
-
-const defaultSource = (tableId: string | null): WidgetSource => ({
-  tableId: tableId ?? "",
-  aggregations: [DEFAULT_AGG],
+const defaultStatWidget = (tableId: string): StatWidget => ({
+  id: newId("w"),
+  kind: "stat",
+  title: "New stat",
+  format: "plain",
+  source: { tableId, aggregations: [DEFAULT_AGG] },
 });
 
-/**
- * Top-level editor island. Stateful: every mutation goes through a
- * single `setConfig` setter that diffs against the last-saved snapshot
- * to drive the dirty-state Save button. We deliberately avoid per-cell
- * mutations against the server — the layout is small (typically <30
- * widgets) and a single PATCH for the whole config keeps the model
- * simple and survives concurrent edits with last-write-wins.
- */
+const defaultViewWidget = (): ViewWidget => ({
+  id: newId("w"),
+  kind: "view",
+  viewId: "",
+});
+
+const defaultStatsRow = (tableId: string): StatsRowType => ({
+  id: newId("r"),
+  kind: "stats",
+  cells: [defaultStatWidget(tableId)],
+});
+
+const defaultWidgetsRow = (): WidgetsRowType => ({
+  id: newId("r"),
+  kind: "widgets",
+  height: "lg",
+  cells: [defaultViewWidget()],
+});
+
 export default function DashboardEditPage(props: Props) {
   const [config, setConfig] = createSignal<DashboardConfig>(
     props.initialDashboard.config,
@@ -100,7 +87,9 @@ export default function DashboardEditPage(props: Props) {
   const [savedConfig, setSavedConfig] = createSignal<DashboardConfig>(
     props.initialDashboard.config,
   );
-  const dirty = createMemo(() => JSON.stringify(config()) !== JSON.stringify(savedConfig()));
+  const dirty = createMemo(
+    () => JSON.stringify(config()) !== JSON.stringify(savedConfig()),
+  );
 
   const saveLayoutMut = mutations.create<Dashboard, void>({
     mutation: async () => {
@@ -144,7 +133,7 @@ export default function DashboardEditPage(props: Props) {
 
       <SectionCard
         title="Layout"
-        subtitle="Rows of 1-4 cells. Each cell is one widget. Click a cell to edit its source."
+        subtitle="Stats rows render the small-grid pattern (one paper, hairline cells). View rows give each widget its own paper card with a height tier."
       >
         <LayoutEditor
           config={config}
@@ -208,7 +197,9 @@ export default function DashboardEditPage(props: Props) {
 
 function GeneralSection(props: { dashboard: Dashboard }) {
   const [name, setName] = createSignal(props.dashboard.name);
-  const [description, setDescription] = createSignal(props.dashboard.description ?? "");
+  const [description, setDescription] = createSignal(
+    props.dashboard.description ?? "",
+  );
   const [shared, setShared] = createSignal(props.dashboard.ownerUserId === null);
 
   const mutation = mutations.create<Dashboard, void>({
@@ -249,7 +240,7 @@ function GeneralSection(props: { dashboard: Dashboard }) {
         <span>
           <span class="font-medium">Shared</span>{" "}
           <span class="text-dimmed">
-            — visible to anyone with base-read. Untoggle to make it personal (only you can see it).
+            — visible to anyone with base-read. Untoggle to make it personal.
           </span>
         </span>
       </label>
@@ -270,14 +261,8 @@ function GeneralSection(props: { dashboard: Dashboard }) {
 }
 
 // =============================================================================
-// Layout editor
+// Layout editor — top-level row list with two add-row buttons
 // =============================================================================
-
-const HEIGHT_OPTIONS = [
-  { value: "sm", label: "Small (96px)" },
-  { value: "md", label: "Medium (192px)" },
-  { value: "lg", label: "Large (360px)" },
-] as const;
 
 function LayoutEditor(props: {
   config: () => DashboardConfig;
@@ -286,20 +271,12 @@ function LayoutEditor(props: {
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
 }) {
-  const updateRow = (rowIdx: number, patch: Partial<DashboardRow>) => {
-    const next = { ...props.config() };
-    next.rows = next.rows.map((r, i) => (i === rowIdx ? { ...r, ...patch } : r));
-    props.setConfig(next);
-  };
-
-  const updateCell = (rowIdx: number, cellIdx: number, widget: Widget) => {
-    const next = { ...props.config() };
-    next.rows = next.rows.map((r, i) =>
-      i === rowIdx
-        ? { ...r, cells: r.cells.map((c, j) => (j === cellIdx ? widget : c)) }
-        : r,
-    );
-    props.setConfig(next);
+  const updateRow = (rowIdx: number, next: DashboardRow) => {
+    const cfg = props.config();
+    props.setConfig({
+      ...cfg,
+      rows: cfg.rows.map((r, i) => (i === rowIdx ? next : r)),
+    });
   };
 
   const moveRow = (rowIdx: number, dir: -1 | 1) => {
@@ -312,48 +289,26 @@ function LayoutEditor(props: {
   };
 
   const removeRow = (rowIdx: number) => {
-    const next = { ...props.config() };
-    next.rows = next.rows.filter((_, i) => i !== rowIdx);
-    props.setConfig(next);
+    const cfg = props.config();
+    props.setConfig({
+      ...cfg,
+      rows: cfg.rows.filter((_, i) => i !== rowIdx),
+    });
   };
 
-  const addRow = () => {
-    const next = { ...props.config() };
-    next.rows = [
-      ...next.rows,
-      {
-        id: newRowId(),
-        height: "md",
-        cells: [buildNewWidget("stat", props.tables[0]?.id ?? null)],
-      },
-    ];
-    props.setConfig(next);
+  const addStatsRow = () => {
+    const tableId = props.tables[0]?.id ?? "";
+    props.setConfig({
+      ...props.config(),
+      rows: [...props.config().rows, defaultStatsRow(tableId)],
+    });
   };
 
-  const addCell = (rowIdx: number, kind: WidgetKind) => {
-    const next = { ...props.config() };
-    next.rows = next.rows.map((r, i) =>
-      i === rowIdx && r.cells.length < 4
-        ? {
-            ...r,
-            cells: [...r.cells, buildNewWidget(kind, props.tables[0]?.id ?? null)],
-          }
-        : r,
-    );
-    props.setConfig(next);
-  };
-
-  const removeCell = (rowIdx: number, cellIdx: number) => {
-    const next = { ...props.config() };
-    next.rows = next.rows
-      .map((r, i) =>
-        i === rowIdx
-          ? { ...r, cells: r.cells.filter((_, j) => j !== cellIdx) }
-          : r,
-      )
-      // A row with zero cells has no business existing; collapse it.
-      .filter((r) => r.cells.length > 0);
-    props.setConfig(next);
+  const addWidgetsRow = () => {
+    props.setConfig({
+      ...props.config(),
+      rows: [...props.config().rows, defaultWidgetsRow()],
+    });
   };
 
   return (
@@ -362,186 +317,361 @@ function LayoutEditor(props: {
         when={props.config().rows.length > 0}
         fallback={
           <div class="info-block-info text-xs text-center py-4">
-            No rows yet. Click "Add row" below to start.
+            No rows yet. Add a stats row or a view row below.
           </div>
         }
       >
         <For each={props.config().rows}>
-          {(row, rowIdx) => (
-            <RowCard
-              row={row}
-              rowIdx={rowIdx()}
-              rowCount={props.config().rows.length}
-              tables={props.tables}
-              fieldsByTable={props.fieldsByTable}
-              viewsByTable={props.viewsByTable}
-              onUpdateRow={(patch) => updateRow(rowIdx(), patch)}
-              onUpdateCell={(cellIdx, widget) => updateCell(rowIdx(), cellIdx, widget)}
-              onMoveRow={(dir) => moveRow(rowIdx(), dir)}
-              onRemoveRow={() => removeRow(rowIdx())}
-              onAddCell={(kind) => addCell(rowIdx(), kind)}
-              onRemoveCell={(cellIdx) => removeCell(rowIdx(), cellIdx)}
-            />
-          )}
+          {(row, rowIdx) =>
+            row.kind === "stats" ? (
+              <StatsRowCard
+                row={row}
+                rowIdx={rowIdx()}
+                rowCount={props.config().rows.length}
+                tables={props.tables}
+                fieldsByTable={props.fieldsByTable}
+                onUpdate={(next) => updateRow(rowIdx(), next)}
+                onMoveRow={(dir) => moveRow(rowIdx(), dir)}
+                onRemoveRow={() => removeRow(rowIdx())}
+              />
+            ) : (
+              <WidgetsRowCard
+                row={row}
+                rowIdx={rowIdx()}
+                rowCount={props.config().rows.length}
+                tables={props.tables}
+                viewsByTable={props.viewsByTable}
+                onUpdate={(next) => updateRow(rowIdx(), next)}
+                onMoveRow={(dir) => moveRow(rowIdx(), dir)}
+                onRemoveRow={() => removeRow(rowIdx())}
+              />
+            )
+          }
         </For>
       </Show>
-      <button type="button" class="btn-input btn-sm self-start" onClick={addRow}>
-        <i class="ti ti-plus" /> Add row
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="btn-input btn-sm"
+          onClick={addStatsRow}
+          disabled={props.tables.length === 0}
+        >
+          <i class="ti ti-number" /> Add stats row
+        </button>
+        <button
+          type="button"
+          class="btn-input btn-sm"
+          onClick={addWidgetsRow}
+        >
+          <i class="ti ti-table-spark" /> Add view row
+        </button>
+      </div>
     </div>
   );
 }
 
 // =============================================================================
-// Row card
+// Stats row card — 1-6 stat cells (matches StatsRow renderer cap)
 // =============================================================================
 
-function RowCard(props: {
-  row: DashboardRow;
+function StatsRowCard(props: {
+  row: StatsRowType;
   rowIdx: number;
   rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
-  viewsByTable: Record<string, View[]>;
-  onUpdateRow: (patch: Partial<DashboardRow>) => void;
-  onUpdateCell: (cellIdx: number, widget: Widget) => void;
+  onUpdate: (row: StatsRowType) => void;
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
-  onAddCell: (kind: WidgetKind) => void;
-  onRemoveCell: (cellIdx: number) => void;
 }) {
-  const [expandedCellIdx, setExpandedCellIdx] = createSignal<number | null>(null);
+  const [expanded, setExpanded] = createSignal<number | null>(null);
+
+  const updateCell = (cellIdx: number, widget: StatWidget) => {
+    props.onUpdate({
+      ...props.row,
+      cells: props.row.cells.map((c, i) => (i === cellIdx ? widget : c)),
+    });
+  };
+
+  const addCell = () => {
+    if (props.row.cells.length >= 6) return;
+    const tableId = props.tables[0]?.id ?? "";
+    props.onUpdate({
+      ...props.row,
+      cells: [...props.row.cells, defaultStatWidget(tableId)],
+    });
+  };
+
+  const removeCell = (cellIdx: number) => {
+    if (props.row.cells.length <= 1) return; // keep at least one
+    props.onUpdate({
+      ...props.row,
+      cells: props.row.cells.filter((_, i) => i !== cellIdx),
+    });
+  };
 
   return (
     <div class="paper p-3 flex flex-col gap-3">
-      <header class="flex items-center justify-between gap-2">
-        <span class="text-xs font-medium text-dimmed">Row {props.rowIdx + 1}</span>
-        <div class="flex items-center gap-2">
-          <Select
-            value={() => props.row.height}
-            onChange={(v) => props.onUpdateRow({ height: v as "sm" | "md" | "lg" })}
-            options={HEIGHT_OPTIONS as unknown as { value: string; label: string }[]}
-          />
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={() => props.onMoveRow(-1)}
-            disabled={props.rowIdx === 0}
-            title="Move row up"
-          >
-            <i class="ti ti-arrow-up" />
-          </button>
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={() => props.onMoveRow(1)}
-            disabled={props.rowIdx === props.rowCount - 1}
-            title="Move row down"
-          >
-            <i class="ti ti-arrow-down" />
-          </button>
-          <button
-            type="button"
-            class="btn-input btn-sm text-red-600 dark:text-red-400"
-            onClick={async () => {
-              if (await prompts.confirm("Delete this row and all its widgets?")) {
-                props.onRemoveRow();
-              }
-            }}
-            title="Delete row"
-          >
-            <i class="ti ti-trash" />
-          </button>
-        </div>
-      </header>
+      <RowHeader
+        kindLabel="Stats row"
+        kindIcon="ti ti-number"
+        rowIdx={props.rowIdx}
+        rowCount={props.rowCount}
+        onMoveRow={props.onMoveRow}
+        onRemoveRow={props.onRemoveRow}
+      />
 
-      <div
-        class={`grid grid-cols-1 gap-2 md:grid-cols-${props.row.cells.length}`}
-      >
+      <div class="flex flex-col gap-2">
         <For each={props.row.cells}>
           {(cell, cellIdx) => (
-            <CellPreview
+            <StatCellEditor
               widget={cell}
-              isExpanded={expandedCellIdx() === cellIdx()}
+              isExpanded={expanded() === cellIdx()}
+              canRemove={props.row.cells.length > 1}
               onToggle={() =>
-                setExpandedCellIdx(expandedCellIdx() === cellIdx() ? null : cellIdx())
+                setExpanded(expanded() === cellIdx() ? null : cellIdx())
               }
-              onRemove={() => props.onRemoveCell(cellIdx())}
+              onUpdate={(w) => updateCell(cellIdx(), w)}
+              onRemove={() => removeCell(cellIdx())}
               tables={props.tables}
-              fields={
-                cell.kind === "view"
-                  ? []
-                  : props.fieldsByTable[cell.source.tableId] ?? []
-              }
-              viewsByTable={props.viewsByTable}
               fieldsByTable={props.fieldsByTable}
-              onUpdate={(w) => props.onUpdateCell(cellIdx(), w)}
             />
           )}
         </For>
       </div>
 
-      <Show when={props.row.cells.length < 4}>
-        <div class="flex items-center gap-2">
-          <span class="text-xs text-dimmed">Add cell:</span>
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={() => props.onAddCell("stat")}
-          >
-            <i class="ti ti-number" /> Stat
-          </button>
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={() => props.onAddCell("view")}
-          >
-            <i class="ti ti-table-spark" /> View
-          </button>
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={() => props.onAddCell("chart")}
-            title="Chart rendering ships in P1 — bucket preview only for now"
-          >
-            <i class="ti ti-chart-pie" /> Chart (preview)
-          </button>
-        </div>
+      <Show when={props.row.cells.length < 6}>
+        <button
+          type="button"
+          class="btn-input btn-sm self-start"
+          onClick={addCell}
+        >
+          <i class="ti ti-plus" /> Add stat
+        </button>
       </Show>
     </div>
   );
 }
 
 // =============================================================================
-// Cell preview + editors
+// Widgets row card — 1-4 view cells (chart later) with sm/md/lg height
 // =============================================================================
 
-function CellPreview(props: {
-  widget: Widget;
-  isExpanded: boolean;
-  onToggle: () => void;
-  onRemove: () => void;
-  onUpdate: (w: Widget) => void;
+const HEIGHT_OPTIONS = [
+  { id: "sm", label: "Small (96px)" },
+  { id: "md", label: "Medium (192px)" },
+  { id: "lg", label: "Large (360px)" },
+];
+
+function WidgetsRowCard(props: {
+  row: WidgetsRowType;
+  rowIdx: number;
+  rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
-  fields: Field[];
-  fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
+  onUpdate: (row: WidgetsRowType) => void;
+  onMoveRow: (dir: -1 | 1) => void;
+  onRemoveRow: () => void;
 }) {
+  const [expanded, setExpanded] = createSignal<number | null>(null);
+
+  // Chart variant exists in the schema but the render stub ships in P1.
+  // The editor only offers `view` cells until then; an existing chart
+  // cell on a saved dashboard is preserved via the `cell.kind` check
+  // below but can't be added here.
+  const updateCell = (cellIdx: number, widget: ViewWidget) => {
+    props.onUpdate({
+      ...props.row,
+      cells: props.row.cells.map((c, i) => (i === cellIdx ? widget : c)),
+    });
+  };
+
+  const addCell = () => {
+    if (props.row.cells.length >= 4) return;
+    props.onUpdate({
+      ...props.row,
+      cells: [...props.row.cells, defaultViewWidget()],
+    });
+  };
+
+  const removeCell = (cellIdx: number) => {
+    if (props.row.cells.length <= 1) return;
+    props.onUpdate({
+      ...props.row,
+      cells: props.row.cells.filter((_, i) => i !== cellIdx),
+    });
+  };
+
+  return (
+    <div class="paper p-3 flex flex-col gap-3">
+      <RowHeader
+        kindLabel="View row"
+        kindIcon="ti ti-table-spark"
+        rowIdx={props.rowIdx}
+        rowCount={props.rowCount}
+        onMoveRow={props.onMoveRow}
+        onRemoveRow={props.onRemoveRow}
+        extra={
+          <Select
+            value={() => props.row.height}
+            onChange={(v) =>
+              props.onUpdate({ ...props.row, height: v as "sm" | "md" | "lg" })
+            }
+            options={HEIGHT_OPTIONS}
+          />
+        }
+      />
+
+      <div class="flex flex-col gap-2">
+        <For each={props.row.cells}>
+          {(cell, cellIdx) =>
+            cell.kind === "view" ? (
+              <ViewCellEditor
+                widget={cell}
+                isExpanded={expanded() === cellIdx()}
+                canRemove={props.row.cells.length > 1}
+                onToggle={() =>
+                  setExpanded(expanded() === cellIdx() ? null : cellIdx())
+                }
+                onUpdate={(w) => updateCell(cellIdx(), w)}
+                onRemove={() => removeCell(cellIdx())}
+                viewsByTable={props.viewsByTable}
+                tables={props.tables}
+              />
+            ) : (
+              <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md p-2 text-xs text-dimmed">
+                Chart widget — renderer ships in P1. Stays in the saved
+                config; can't be edited from here yet.
+              </div>
+            )
+          }
+        </For>
+      </div>
+
+      <Show when={props.row.cells.length < 4}>
+        <button
+          type="button"
+          class="btn-input btn-sm self-start"
+          onClick={addCell}
+        >
+          <i class="ti ti-plus" /> Add view
+        </button>
+      </Show>
+    </div>
+  );
+}
+
+// Shared row-header strip — rendered above both stats and widgets cards
+// so reorder + delete affordances stay in the same screen position
+// regardless of the row kind.
+import type { JSX } from "solid-js";
+function RowHeader(props: {
+  kindLabel: string;
+  kindIcon: string;
+  rowIdx: number;
+  rowCount: number;
+  onMoveRow: (dir: -1 | 1) => void;
+  onRemoveRow: () => void;
+  /** Optional inline control rendered before the move/delete buttons —
+   *  used by widget-rows to surface the height select. */
+  extra?: JSX.Element;
+}) {
+  return (
+    <header class="flex items-center justify-between gap-2">
+      <span class="text-xs font-medium text-dimmed flex items-center gap-1.5">
+        <i class={`${props.kindIcon} text-[12px]`} />
+        {props.kindLabel} · row {props.rowIdx + 1}
+      </span>
+      <div class="flex items-center gap-2">
+        {props.extra}
+        <button
+          type="button"
+          class="btn-input btn-sm"
+          onClick={() => props.onMoveRow(-1)}
+          disabled={props.rowIdx === 0}
+          title="Move row up"
+        >
+          <i class="ti ti-arrow-up" />
+        </button>
+        <button
+          type="button"
+          class="btn-input btn-sm"
+          onClick={() => props.onMoveRow(1)}
+          disabled={props.rowIdx === props.rowCount - 1}
+          title="Move row down"
+        >
+          <i class="ti ti-arrow-down" />
+        </button>
+        <button
+          type="button"
+          class="btn-input btn-sm text-red-600 dark:text-red-400"
+          onClick={async () => {
+            if (await prompts.confirm("Delete this row and its widgets?")) {
+              props.onRemoveRow();
+            }
+          }}
+          title="Delete row"
+        >
+          <i class="ti ti-trash" />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+// =============================================================================
+// Stat cell editor — inline expandable, configures a single StatWidget
+// =============================================================================
+
+const AGG_OPTIONS = [
+  { id: "count", label: "count" },
+  { id: "countEmpty", label: "count empty" },
+  { id: "countUnique", label: "count unique" },
+  { id: "sum", label: "sum" },
+  { id: "avg", label: "avg" },
+  { id: "min", label: "min" },
+  { id: "max", label: "max" },
+];
+
+const FORMAT_OPTIONS = [
+  { id: "plain", label: "Plain number" },
+  { id: "integer", label: "Integer" },
+  { id: "currency", label: "Currency (EUR)" },
+  { id: "percent", label: "Percent" },
+];
+
+function StatCellEditor(props: {
+  widget: StatWidget;
+  isExpanded: boolean;
+  canRemove: boolean;
+  onToggle: () => void;
+  onUpdate: (w: StatWidget) => void;
+  onRemove: () => void;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  fieldsByTable: Record<string, Field[]>;
+}) {
+  const fields = () =>
+    (props.fieldsByTable[props.widget.source.tableId] ?? []).filter(
+      (f) => !f.deletedAt,
+    );
+
+  const updateAgg = (patch: Partial<AggregationSpec>) => {
+    const current = props.widget.source.aggregations[0] ?? DEFAULT_AGG;
+    const nextSource: WidgetSource = {
+      ...props.widget.source,
+      aggregations: [{ ...current, ...patch }],
+    };
+    props.onUpdate({ ...props.widget, source: nextSource });
+  };
+
   const summary = () => {
-    if (props.widget.kind === "stat") {
-      const agg = props.widget.source.aggregations[0];
-      const fieldName =
-        agg?.fieldId === "*"
-          ? "*"
-          : props.fields.find((f) => f.id === agg?.fieldId)?.name ?? "?";
-      return `${agg?.agg ?? "?"}(${fieldName})`;
-    }
-    if (props.widget.kind === "chart") {
-      return `${props.widget.chartType} chart`;
-    }
-    const allViews = Object.values(props.viewsByTable).flat();
-    const v = allViews.find((vv) => vv.id === props.widget.viewId);
-    return v ? v.name : "(pick a view)";
+    const agg = props.widget.source.aggregations[0];
+    if (!agg) return "?";
+    const fieldName =
+      agg.fieldId === "*"
+        ? "*"
+        : fields().find((f) => f.id === agg.fieldId)?.name ?? "?";
+    return `${agg.agg}(${fieldName})`;
   };
 
   return (
@@ -551,32 +681,26 @@ function CellPreview(props: {
         onClick={props.onToggle}
       >
         <div class="flex items-center gap-2 min-w-0">
-          <i
-            class={`ti ${
-              props.widget.kind === "stat"
-                ? "ti-number"
-                : props.widget.kind === "view"
-                ? "ti-table-spark"
-                : "ti-chart-pie"
-            } text-sm shrink-0 text-dimmed`}
-          />
+          <i class="ti ti-number text-sm shrink-0 text-dimmed" />
           <span class="text-sm font-medium truncate">
-            {("title" in props.widget && props.widget.title) || "(untitled)"}
+            {props.widget.title || "(untitled)"}
           </span>
           <span class="text-[10px] text-dimmed shrink-0">{summary()}</span>
         </div>
         <div class="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            class="text-dimmed hover:text-primary p-1"
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onRemove();
-            }}
-            title="Delete cell"
-          >
-            <i class="ti ti-trash text-xs" />
-          </button>
+          <Show when={props.canRemove}>
+            <button
+              type="button"
+              class="text-dimmed hover:text-primary p-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onRemove();
+              }}
+              title="Delete cell"
+            >
+              <i class="ti ti-trash text-xs" />
+            </button>
+          </Show>
           <i
             class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
               props.isExpanded ? "rotate-180" : ""
@@ -587,28 +711,79 @@ function CellPreview(props: {
 
       <Show when={props.isExpanded}>
         <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2">
-          {props.widget.kind === "stat" && (
-            <StatCellEditor
-              widget={props.widget}
-              tables={props.tables}
-              fieldsByTable={props.fieldsByTable}
-              onUpdate={props.onUpdate}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <TextInput
+              label="Title"
+              value={() => props.widget.title ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, title: v || undefined })
+              }
             />
-          )}
-          {props.widget.kind === "view" && (
-            <ViewCellEditor
-              widget={props.widget}
-              viewsByTable={props.viewsByTable}
-              tables={props.tables}
-              onUpdate={props.onUpdate}
+            <TextInput
+              label="Sub-line (optional)"
+              value={() => props.widget.sub ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, sub: v || undefined })
+              }
+              placeholder="e.g. last 24h"
             />
-          )}
-          {props.widget.kind === "chart" && (
-            <div class="text-xs text-dimmed py-2">
-              Chart rendering lands in P1. Source stats are still saved so the
-              widget will render once the chart layer ships.
+            <Select
+              label="Source table"
+              value={() => props.widget.source.tableId}
+              onChange={(v) =>
+                props.onUpdate({
+                  ...props.widget,
+                  source: {
+                    ...props.widget.source,
+                    tableId: v,
+                    aggregations: [DEFAULT_AGG],
+                  },
+                })
+              }
+              options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
+            />
+            <Select
+              label="Aggregation"
+              value={() => props.widget.source.aggregations[0]?.agg ?? "count"}
+              onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
+              options={AGG_OPTIONS}
+            />
+            <Select
+              label="Field"
+              value={() => props.widget.source.aggregations[0]?.fieldId ?? "*"}
+              onChange={(v) => updateAgg({ fieldId: v })}
+              options={[
+                { id: "*", label: "* (records)" },
+                ...fields().map((f) => ({ id: f.id, label: f.name })),
+              ]}
+            />
+            <Select
+              label="Format"
+              value={() => props.widget.format ?? "plain"}
+              onChange={(v) =>
+                props.onUpdate({
+                  ...props.widget,
+                  format: v as "plain" | "currency" | "percent" | "integer",
+                })
+              }
+              options={FORMAT_OPTIONS}
+            />
+            <TextInput
+              label="Icon (Tabler class)"
+              value={() => props.widget.icon ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, icon: v || undefined })
+              }
+              placeholder="e.g. ti ti-shopping-cart"
+            />
+            <div class="md:col-span-2 text-[11px] text-dimmed">
+              Preview:{" "}
+              <code class="font-mono">
+                {formatWidgetValue(0, props.widget.format)}
+              </code>{" "}
+              (style only — real value resolves at render time)
             </div>
-          )}
+          </div>
         </div>
       </Show>
     </div>
@@ -616,118 +791,19 @@ function CellPreview(props: {
 }
 
 // =============================================================================
-// Stat editor
-// =============================================================================
-
-const AGG_OPTIONS = [
-  { value: "count", label: "count" },
-  { value: "countEmpty", label: "count empty" },
-  { value: "countUnique", label: "count unique" },
-  { value: "sum", label: "sum" },
-  { value: "avg", label: "avg" },
-  { value: "min", label: "min" },
-  { value: "max", label: "max" },
-];
-
-const FORMAT_OPTIONS = [
-  { value: "plain", label: "Plain number" },
-  { value: "integer", label: "Integer" },
-  { value: "currency", label: "Currency (EUR)" },
-  { value: "percent", label: "Percent" },
-];
-
-function StatCellEditor(props: {
-  widget: Extract<Widget, { kind: "stat" }>;
-  tables: Array<{ id: string; name: string; slug: string }>;
-  fieldsByTable: Record<string, Field[]>;
-  onUpdate: (w: Widget) => void;
-}) {
-  const fields = () =>
-    (props.fieldsByTable[props.widget.source.tableId] ?? []).filter(
-      (f) => !f.deletedAt,
-    );
-
-  const updateAgg = (patch: Partial<AggregationSpec>) => {
-    const current = props.widget.source.aggregations[0] ?? DEFAULT_AGG;
-    props.onUpdate({
-      ...props.widget,
-      source: {
-        ...props.widget.source,
-        aggregations: [{ ...current, ...patch }],
-      },
-    });
-  };
-
-  return (
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-      <TextInput
-        label="Title"
-        value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-      />
-      <TextInput
-        label="Icon (Tabler class)"
-        value={() => props.widget.icon ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, icon: v || undefined })}
-        placeholder="e.g. ti ti-shopping-cart"
-      />
-      <Select
-        label="Source table"
-        value={() => props.widget.source.tableId}
-        onChange={(v) =>
-          props.onUpdate({
-            ...props.widget,
-            source: {
-              ...props.widget.source,
-              tableId: v,
-              aggregations: [DEFAULT_AGG], // reset agg — old fieldId may not exist on new table
-            },
-          })
-        }
-        options={props.tables.map((t) => ({ value: t.id, label: t.name }))}
-      />
-      <Select
-        label="Aggregation"
-        value={() => props.widget.source.aggregations[0]?.agg ?? "count"}
-        onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
-        options={AGG_OPTIONS}
-      />
-      <Select
-        label="Field"
-        value={() => props.widget.source.aggregations[0]?.fieldId ?? "*"}
-        onChange={(v) => updateAgg({ fieldId: v })}
-        options={[
-          { value: "*", label: "* (records)" },
-          ...fields().map((f) => ({ value: f.id, label: f.name })),
-        ]}
-      />
-      <Select
-        label="Format"
-        value={() => props.widget.format ?? "plain"}
-        onChange={(v) =>
-          props.onUpdate({ ...props.widget, format: v as "plain" | "currency" | "percent" | "integer" })
-        }
-        options={FORMAT_OPTIONS}
-      />
-      <div class="md:col-span-2 text-[11px] text-dimmed">
-        Preview: <code class="font-mono">{formatWidgetValue(0, props.widget.format)}</code> (style only — real value resolves at render time)
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
-// View editor
+// View cell editor
 // =============================================================================
 
 function ViewCellEditor(props: {
-  widget: Extract<Widget, { kind: "view" }>;
+  widget: ViewWidget;
+  isExpanded: boolean;
+  canRemove: boolean;
+  onToggle: () => void;
+  onUpdate: (w: ViewWidget) => void;
+  onRemove: () => void;
   viewsByTable: Record<string, View[]>;
   tables: Array<{ id: string; name: string; slug: string }>;
-  onUpdate: (w: Widget) => void;
 }) {
-  // Flat alphabetical view list across all tables, with "table · view"
-  // labels so the user can disambiguate views with the same name.
   const allViews = createMemo(() => {
     const flat: { view: View; tableName: string }[] = [];
     for (const t of props.tables) {
@@ -741,36 +817,84 @@ function ViewCellEditor(props: {
     return flat;
   });
 
+  const summary = () => {
+    const v = allViews().find((x) => x.view.id === props.widget.viewId);
+    return v ? `${v.tableName} · ${v.view.name}` : "(pick a view)";
+  };
+
   return (
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-      <TextInput
-        label="Title (optional override)"
-        value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-        placeholder="Defaults to the view's name"
-      />
-      <Select
-        label="View"
-        value={() => props.widget.viewId}
-        onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-        options={[
-          { value: "", label: "(pick a view)" },
-          ...allViews().map(({ view, tableName }) => ({
-            value: view.id,
-            label: `${tableName} · ${view.name}`,
-          })),
-        ]}
-      />
-      <div class="md:col-span-2 text-[11px] text-dimmed">
-        Embedded views show 25 records inline with an "Open full view →" link
-        to the records page.
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col">
+      <div
+        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+        onClick={props.onToggle}
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="ti ti-table-spark text-sm shrink-0 text-dimmed" />
+          <span class="text-sm font-medium truncate">
+            {props.widget.title || "(untitled)"}
+          </span>
+          <span class="text-[10px] text-dimmed shrink-0 truncate">
+            {summary()}
+          </span>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <Show when={props.canRemove}>
+            <button
+              type="button"
+              class="text-dimmed hover:text-primary p-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onRemove();
+              }}
+              title="Delete cell"
+            >
+              <i class="ti ti-trash text-xs" />
+            </button>
+          </Show>
+          <i
+            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
+              props.isExpanded ? "rotate-180" : ""
+            }`}
+          />
+        </div>
       </div>
+
+      <Show when={props.isExpanded}>
+        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <TextInput
+              label="Title (optional override)"
+              value={() => props.widget.title ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, title: v || undefined })
+              }
+              placeholder="Defaults to the view's name"
+            />
+            <Select
+              label="View"
+              value={() => props.widget.viewId}
+              onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+              options={[
+                { id: "", label: "(pick a view)" },
+                ...allViews().map(({ view, tableName }) => ({
+                  id: view.id,
+                  label: `${tableName} · ${view.name}`,
+                })),
+              ]}
+            />
+            <div class="md:col-span-2 text-[11px] text-dimmed">
+              Embedded views show 25 records inline with an "Open full view →"
+              link to the records page.
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }
 
 // =============================================================================
-// Permissions section
+// Permissions
 // =============================================================================
 
 function DashboardPermissions(props: {
@@ -778,46 +902,54 @@ function DashboardPermissions(props: {
   initialEntries: AccessEntry[];
   canEdit: boolean;
 }) {
-  const [entries, setEntries] = createSignal(props.initialEntries);
+  const grantAccess = async (
+    principal: Principal,
+    permission: Exclude<PermissionLevel, "none">,
+  ): Promise<AccessEntry> => {
+    const res = await apiClient.access["by-dashboard"][":dashboardId"].$post({
+      param: { dashboardId: props.dashboardId },
+      json: { principal, permission },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
+    const created = (await res.json()) as { accessId: string };
+    // Round-trip the access entry from the list endpoint so the editor
+    // gets a fully populated row (display name etc.) — POST returns
+    // only the id.
+    const listRes = await apiClient.access["by-dashboard"][":dashboardId"].$get({
+      param: { dashboardId: props.dashboardId },
+    });
+    if (!listRes.ok) throw new Error(await errorMessage(listRes, "Failed to refresh access"));
+    const entries = (await listRes.json()) as AccessEntry[];
+    const entry = entries.find((e) => e.id === created.accessId);
+    if (!entry) throw new Error("granted access entry vanished");
+    return entry;
+  };
 
-  const grant = mutations.create<
-    { accessId: string },
-    { principal: import("@valentinkolb/cloud/contracts").Principal; permission: "read" | "none" }
-  >({
-    mutation: async (input) => {
-      const res = await apiClient.access["by-dashboard"][":dashboardId"].$post({
-        param: { dashboardId: props.dashboardId },
-        json: input,
-      });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-      return (await res.json()) as { accessId: string };
-    },
-    onSuccess: async () => {
-      const listRes = await apiClient.access["by-dashboard"][":dashboardId"].$get({
-        param: { dashboardId: props.dashboardId },
-      });
-      if (listRes.ok) setEntries((await listRes.json()) as AccessEntry[]);
-    },
-    onError: (e) => prompts.error(e.message),
-  });
+  const updateAccess = async (
+    accessId: string,
+    permission: Exclude<PermissionLevel, "none">,
+  ): Promise<void> => {
+    const res = await apiClient.access[":accessId"].$patch({
+      param: { accessId },
+      json: { permission },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to update access"));
+  };
 
-  const revoke = async (accessId: string) => {
-    const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
-    if (!res.ok) {
-      prompts.error(await errorMessage(res, "Failed to revoke access"));
-      return;
-    }
-    setEntries(entries().filter((e) => e.id !== accessId));
+  const revokeAccess = async (accessId: string): Promise<void> => {
+    const res = await apiClient.access[":accessId"].$delete({
+      param: { accessId },
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "Failed to revoke access"));
   };
 
   return (
     <PermissionEditor
-      entries={entries()}
+      initialEntries={props.initialEntries}
       allowedLevels={["read"]}
-      onGrant={(principal, permission) =>
-        grant.mutate({ principal, permission: permission as "read" | "none" })
-      }
-      onRevoke={revoke}
+      grantAccess={grantAccess}
+      updateAccess={updateAccess}
+      revokeAccess={revokeAccess}
       canEdit={props.canEdit}
     />
   );
@@ -842,7 +974,7 @@ function DeleteButton(props: { dashboardId: string; baseSlug: string; name: stri
   const onClick = async () => {
     if (
       !(await prompts.confirm(
-        `Delete the "${props.name}" dashboard? This cannot be undone from the UI (admin can restore from the trash).`,
+        `Delete the "${props.name}" dashboard? Restorable from base settings (admin).`,
       ))
     ) {
       return;

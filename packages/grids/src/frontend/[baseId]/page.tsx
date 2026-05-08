@@ -13,7 +13,14 @@ import type { GroupBucket } from "../_components/GroupedTable";
 import CreateTableButton from "../_components/CreateTableButton.island";
 import CreateDashboardButton from "../_components/CreateDashboardButton.island";
 import FormSidebarEntry from "../_components/FormSidebarEntry.island";
-import type { FilterTree, SortSpec, Field } from "../../service";
+import type {
+  FilterTree,
+  SortSpec,
+  Field,
+  StatWidget,
+  ChartWidget,
+  ViewWidget,
+} from "../../service";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -289,7 +296,17 @@ export default ssr<AuthContext>(async (c) => {
   // widget caps the total render time, not the sum.
   const widgetData: Record<string, WidgetData> = {};
   if (renderDashboard) {
-    const widgets = renderDashboard.config.rows.flatMap((r) => r.cells);
+    // The discriminated row union (`stats` vs `widgets`) keeps cell
+    // arrays typed as their per-row narrow set (StatWidget[] for
+    // stats, (ChartWidget|ViewWidget)[] for widgets). Concatenating
+    // them as Widget[] loses the discriminant narrowing and TS
+    // synthesises a fresh inferred union — flat-mapping into a typed
+    // array via a per-row branch keeps each call site narrow.
+    const widgets: Array<StatWidget | ChartWidget | ViewWidget> = [];
+    for (const r of renderDashboard.config.rows) {
+      if (r.kind === "stats") widgets.push(...r.cells);
+      else widgets.push(...r.cells);
+    }
     const results = await Promise.all(
       widgets.map((w) =>
         resolveWidgetData(w, {
