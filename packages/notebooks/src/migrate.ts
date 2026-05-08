@@ -146,8 +146,8 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   console.log("  ✓ notebooks.note_tags table");
 
-  // Index table for `attachment://<id>` references inside note bodies.
-  // Replaces the previous `LIKE '%attachment://...'` scan in
+  // Index table for `attach://<shortId>` references inside note bodies.
+  // Replaces the previous `LIKE '%attach://...'` scan in
   // `attachment.usageCount` with an O(log N) lookup.
   await sql`
     CREATE TABLE IF NOT EXISTS notebooks.note_attachments (

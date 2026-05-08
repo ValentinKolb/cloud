@@ -441,6 +441,34 @@ export const getWithContent = async (params: { id: string }): Promise<NoteWithCo
   return row ? mapToNoteWithContent(row) : null;
 };
 
+/**
+ * Batch-resolve note short-ids to `(noteShortId → notebookShortId)`
+ * pairs. Used by the read-mode renderer to build the
+ * `noteShortIdToHref` map handed to `transformNoteLinks` in one SQL
+ * roundtrip — avoids an N+1 lookup per `note://` link in a body.
+ *
+ * Notes / notebooks the caller can't see (cross-notebook references)
+ * are simply omitted; the renderer marks unresolved short-ids as
+ * "broken" links so dangling references stay visible.
+ */
+export const resolveShortIdsToNotebookShortIds = async (params: {
+  shortIds: string[];
+}): Promise<Map<string, { notebookShortId: string; noteShortId: string }>> => {
+  if (params.shortIds.length === 0) return new Map();
+  const arr = `{${params.shortIds.join(",")}}`;
+  const rows = await sql<{ note_short_id: string; notebook_short_id: string }[]>`
+    SELECT n.short_id AS note_short_id, nb.short_id AS notebook_short_id
+    FROM notebooks.notes n
+    JOIN notebooks.notebooks nb ON nb.id = n.notebook_id
+    WHERE n.short_id = ANY(${arr}::text[])
+  `;
+  const map = new Map<string, { notebookShortId: string; noteShortId: string }>();
+  for (const r of rows) {
+    map.set(r.note_short_id, { notebookShortId: r.notebook_short_id, noteShortId: r.note_short_id });
+  }
+  return map;
+};
+
 /** `getWithContent` variant that accepts a UUID OR a short-id. Same
  *  branching trick as `getByIdOrShortId` so each query stays on its
  *  single-column index. */

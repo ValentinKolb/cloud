@@ -8,35 +8,63 @@ const log = logger("notebooks:links");
 // ==========================
 
 /**
- * Matches the platform link-renderer's wrapper for an internal note URL.
- * Mirrors the shape produced by `LINK_STYLES` in `@valentinkolb/cloud/shared`:
+ * Markdown-body scheme for internal note references:
  *
- *   <span class="md-link-widget …"><span class="md-link-label …">[Title]</span><a href="/app/notebooks/<uuid>?note=<uuid>" target="_blank" …><i class="ti ti-arrow-up-right…"></i></a></span>
+ *   [Some Title](note://k2s8s6)
  *
- * Tightly anchored on `md-link-widget` and the note-URL shape so non-note
- * links pass through untouched.
+ * `marked` renders that as a plain `<a href="note://k2s8s6">`. The
+ * post-processor below detects the scheme and rewrites it into a
+ * navigable URL plus a pill-style `<a class="note-link">`. The
+ * `noteShortIdToHref` map is built upstream (in the page handler) by
+ * resolving every referenced short-id to a `(notebookShortId, noteShortId)`
+ * pair — that lookup is one batched SQL query, not a per-link N+1.
  *
- * The captured `label` and `href` are already HTML-escaped by `marked` —
- * they go straight back into the replacement without further escaping.
+ * Anchored on the `note://` href so non-note `<a>` tags pass through.
+ * Tolerant of attribute order: `marked` always emits `<a href="...">`
+ * first but other content-source pipelines may inject classes or `target`
+ * before `href`. We anchor on `href="note://<id>"` and re-emit the full
+ * tag from scratch.
  */
-const NOTE_LINK_HTML_REGEX =
-  /<span class="md-link-widget[^"]*"><span class="md-link-label[^"]*">\[([^\]]+)\]<\/span><a href="(\/app\/notebooks\/[0-9a-fA-F-]{36}\?note=[0-9a-fA-F-]{36})"[^>]*><i class="ti ti-arrow-up-right[^"]*"><\/i><\/a><\/span>/g;
+const NOTE_LINK_HTML_REGEX = /<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>([\s\S]*?)<\/a>/g;
+
+const NOTE_PILL_CLASS =
+  "note-link inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 no-underline hover:bg-blue-100 dark:hover:bg-blue-900/50";
 
 /**
- * Rewrites the platform's `[Label] ↗` rendering into a pill-style note-link
- * (`<a class="note-link">`) for internal note URLs. Non-note links are
- * untouched. Run this AFTER `markdown.render(...)` in the page handler so
- * the cloud-lib renderer stays generic.
+ * Rewrites `<a href="note://<shortId>">` into a navigable pill-style
+ * link. `noteShortIdToHref` carries the resolved URL for every short-id
+ * — when a short-id isn't in the map (deleted note, cross-notebook
+ * reference the caller couldn't resolve), the link is rendered with a
+ * "broken" red style so the user spots dangling references at a glance.
+ *
+ * Run this AFTER `markdown.render(...)`. The map is computed once per
+ * page render (see `[id]/page.tsx`) and lives only as long as the
+ * SSR call.
  */
-export const transformNoteLinks = (html: string): string =>
-  html.replace(
-    NOTE_LINK_HTML_REGEX,
-    (_, label, href) =>
-      `<a class="note-link inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 no-underline hover:bg-blue-100 dark:hover:bg-blue-900/50" href="${href}">` +
+export const transformNoteLinks = (
+  html: string,
+  params: { noteShortIdToHref: Map<string, string> },
+): string =>
+  html.replace(NOTE_LINK_HTML_REGEX, (_match, shortId: string, label: string) => {
+    const href = params.noteShortIdToHref.get(shortId);
+    if (!href) {
+      // Dangling reference — keep the original short-id visible so the
+      // author can find + fix it. Red palette mirrors the formula
+      // error styling in `utilities-table-tile.css`.
+      return (
+        `<a class="note-link note-link-broken inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 no-underline" title="Note ${shortId} not found">` +
+        `<i class="ti ti-link-off text-xs"></i>` +
+        `<span>${label}</span>` +
+        `</a>`
+      );
+    }
+    return (
+      `<a class="${NOTE_PILL_CLASS}" href="${href}">` +
       `<i class="ti ti-connection text-xs"></i>` +
       `<span>${label}</span>` +
-      `</a>`,
-  );
+      `</a>`
+    );
+  });
 
 // ==========================
 // Types
@@ -82,26 +110,21 @@ export type NoteGraph = {
 // ==========================
 
 /**
- * Matches internal note URLs of the form
- * `/app/notebooks/<notebookUuid>?note=<noteUuid>` inside markdown content.
- *
- * Hex chars are case-insensitive; uuids are normalised to lowercase by the
- * extractor before being persisted, so the canonical form in `note_links`
- * matches what `gen_random_uuid()` produces.
+ * Matches internal note references of the form `note://<shortId>`
+ * inside a markdown body. Short-ids are 6-char base62.
  */
-export const NOTE_LINK_REGEX = /\/app\/notebooks\/([0-9a-fA-F-]{36})\?note=([0-9a-fA-F-]{36})/g;
+export const NOTE_LINK_REGEX = /note:\/\/([0-9a-zA-Z]{6})/g;
 
 /**
- * Pull every distinct target-note UUID out of a markdown body.
- *
- * Returns lowercase UUIDs to keep the persisted edge list canonical regardless
- * of how the link was typed/pasted.
+ * Pull every distinct referenced-note short-id out of a markdown body.
+ * Returns the short-id form (deduped); the caller resolves to UUIDs
+ * before persisting into `note_links` (see `reindexLinks` below).
  */
 export const extractNoteLinks = (contentMd: string | null): string[] => {
   if (!contentMd) return [];
   const ids = new Set<string>();
   for (const match of contentMd.matchAll(NOTE_LINK_REGEX)) {
-    if (match[2]) ids.add(match[2].toLowerCase());
+    if (match[1]) ids.add(match[1]);
   }
   return [...ids];
 };
@@ -113,26 +136,28 @@ export const extractNoteLinks = (contentMd: string | null): string[] => {
 /**
  * Replace the outgoing links for a single source note.
  *
- * The `INSERT … SELECT FROM notebooks.notes` shape silently filters out
- * targets that don't exist (stale UUIDs in markdown after the target note
- * was deleted). Self-links are dropped both in JS and in the SQL `<>` guard.
+ * Body refs come in as `note://<shortId>` — we resolve those short-ids
+ * to canonical UUIDs against `notebooks.notes` and persist UUIDs in
+ * `note_links` (which has UUID FKs both directions). Stale or
+ * cross-notebook short-ids that don't resolve are silently dropped.
+ * Self-links are filtered both in JS and in the SQL `<>` guard.
  */
 export const reindexLinks = async (sourceNoteId: string, contentMd: string | null): Promise<void> => {
-  const targets = extractNoteLinks(contentMd).filter((id) => id !== sourceNoteId.toLowerCase());
+  const targetShortIds = extractNoteLinks(contentMd);
 
   await sql`
     DELETE FROM notebooks.note_links
     WHERE source_note_id = ${sourceNoteId}::uuid
   `;
 
-  if (targets.length === 0) return;
+  if (targetShortIds.length === 0) return;
 
-  const arr = `{${targets.join(",")}}`;
+  const arr = `{${targetShortIds.join(",")}}`;
   await sql`
     INSERT INTO notebooks.note_links (source_note_id, target_note_id)
     SELECT ${sourceNoteId}::uuid, n.id
     FROM notebooks.notes n
-    WHERE n.id = ANY(${arr}::uuid[])
+    WHERE n.short_id = ANY(${arr}::text[])
       AND n.id <> ${sourceNoteId}::uuid
     ON CONFLICT DO NOTHING
   `;

@@ -60,7 +60,7 @@ const app = new Hono<AuthContext>()
       label: n.title || "(untitled)",
       sub: n.notebookName,
       meta: dates.formatDateRelative(new Date(n.updatedAt)),
-      href: `/app/notebooks/${n.notebookId}/${n.id}`,
+      href: `/app/notebooks/${n.notebookShortId}/notes/${n.shortId}`,
     }));
 
     const body: WidgetResponse = {

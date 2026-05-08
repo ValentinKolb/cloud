@@ -2,9 +2,12 @@
  * Attachments service — file blobs stored in Postgres bytea, FK-bound to a
  * notebook (cascades on notebook delete).
  *
- * Markdown encodes attachment references as `attachment://<id>`. Resolution
- * to the real download URL happens at render time (see `transformAttachments`)
- * and inside CodeMirror image/file widgets (client-side).
+ * Markdown encodes attachment references as `attach://<shortId>` (6-char
+ * base62 alias). Resolution to the real download URL happens at render
+ * time (see `transformAttachments`) and inside CodeMirror image/file
+ * widgets (client-side). The scheme is `attach://` (not `attachment://`
+ * or `file://`) — the latter clashes with RFC 8089 filesystem URIs that
+ * some markdown sanitizers / mail clients block.
  *
  * All primitives here are permission-blind. The API/page layer is
  * responsible for `notebook.permission.get(...)` checks before calling.
@@ -145,7 +148,7 @@ export const list = async (params: { notebookId: string }): Promise<Attachment[]
 };
 
 /** Hydrate metadata for a specific set of ids — used by detail panel
- *  when only `attachment://` ids referenced in the current note matter. */
+ *  when only `attach://` ids referenced in the current note matter. */
 export const listByIds = async (params: { ids: string[] }): Promise<Attachment[]> => {
   if (params.ids.length === 0) return [];
   // Bun's sql tag does not expand JS arrays into Postgres array literals —
@@ -156,6 +159,21 @@ export const listByIds = async (params: { ids: string[] }): Promise<Attachment[]
     SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
     WHERE id = ANY(${idArray}::uuid[])
+  `;
+  return rows.map(mapRow);
+};
+
+/** Hydrate metadata by short-id — used by the read-mode renderer when
+ *  it has just extracted `attach://<shortId>` refs from a markdown body
+ *  and needs filenames for the file-pill rendering. Single batched
+ *  query, served from the unique `short_id` index. */
+export const listByShortIds = async (params: { shortIds: string[] }): Promise<Attachment[]> => {
+  if (params.shortIds.length === 0) return [];
+  const arr = `{${params.shortIds.join(",")}}`;
+  const rows = await sql<DbRow[]>`
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    FROM notebooks.attachments
+    WHERE short_id = ANY(${arr}::text[])
   `;
   return rows.map(mapRow);
 };
@@ -209,13 +227,15 @@ export const searchPaginated = async (params: {
 // Markdown helpers (used by editor / detail panel / read-mode renderer)
 // =============================================================================
 
-const ATTACHMENT_REF_REGEX = /attachment:\/\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/gi;
+const ATTACHMENT_REF_REGEX = /attach:\/\/([0-9a-zA-Z]{6})/g;
 
-/** Extract every unique attachment id referenced from a markdown body. */
+/** Extract every unique attachment short-id referenced from a markdown body.
+ *  Returns the short-id form — callers resolve to UUIDs via the `attachments`
+ *  table when they need to query (e.g. `reindexAttachmentRefs`). */
 export const extractIds = (md: string | null): string[] => {
   if (!md) return [];
   const ids = new Set<string>();
-  for (const match of md.matchAll(ATTACHMENT_REF_REGEX)) ids.add(match[1]!.toLowerCase());
+  for (const match of md.matchAll(ATTACHMENT_REF_REGEX)) ids.add(match[1]!);
   return Array.from(ids);
 };
 
@@ -242,18 +262,19 @@ export const usageCount = async (params: { notebookId: string; attachmentId: str
  *  deleted in the meantime (FK CASCADE handles that, but we ANTI JOIN
  *  upfront to avoid inserting them). */
 export const reindexAttachmentRefs = async (params: { noteId: string; notebookId: string; contentMd: string | null }): Promise<void> => {
-  const ids = extractIds(params.contentMd);
+  const shortIds = extractIds(params.contentMd);
   await sql.begin(async (tx) => {
     await tx`DELETE FROM notebooks.note_attachments WHERE note_id = ${params.noteId}`;
-    if (ids.length === 0) return;
+    if (shortIds.length === 0) return;
     // Filter to attachments that actually exist + belong to the same
     // notebook — defensive against cross-notebook copy/paste of an
-    // `attachment://` URL whose blob isn't visible from here.
-    const idArray = `{${ids.join(",")}}`;
+    // `attach://` URL whose blob isn't visible from here. Lookup by
+    // short_id since that's the form carried in markdown bodies.
+    const arr = `{${shortIds.join(",")}}`;
     const valid = await tx<{ id: string }[]>`
       SELECT id FROM notebooks.attachments
       WHERE notebook_id = ${params.notebookId}
-        AND id = ANY(${idArray}::uuid[])
+        AND short_id = ANY(${arr}::text[])
     `;
     if (valid.length === 0) return;
     await tx`
@@ -265,28 +286,34 @@ export const reindexAttachmentRefs = async (params: { noteId: string; notebookId
 
 // =============================================================================
 // HTML post-processor — analogous to `transformNoteLinks`. Run AFTER
-// `markdown.render(...)` to swap `attachment://<id>` references for real
+// `markdown.render(...)` to swap `attach://<shortId>` references for real
 // download URLs and render non-image links as file pills.
 // =============================================================================
 
-const buildContentUrl = (notebookId: string, id: string) =>
-  `/api/notebooks/${notebookId}/attachments/${id}/content`;
+/**
+ * Notebook-scoped content URL. The API endpoint accepts either UUID or
+ * short-id (see `getContentByIdOrShortId`), so we keep the short-id form
+ * end-to-end — the URL stays short and stable through copy-paste, and
+ * the route `:attId` param works either way.
+ */
+const buildContentUrl = (notebookId: string, idOrShortId: string) =>
+  `/api/notebooks/${notebookId}/attachments/${idOrShortId}/content`;
 
-export const transformAttachments = (html: string, params: { notebookId: string; idToFilename?: Map<string, string> }): string => {
-  const { notebookId, idToFilename } = params;
+export const transformAttachments = (html: string, params: { notebookId: string; shortIdToFilename?: Map<string, string> }): string => {
+  const { notebookId, shortIdToFilename } = params;
 
-  // 1) <img src="attachment://<id>"> → rewrite src to API content URL
-  let out = html.replace(/(<img[^>]*\bsrc=")attachment:\/\/([0-9a-f-]{36})("[^>]*>)/gi, (_m, head: string, id: string, tail: string) => {
-    return `${head}${buildContentUrl(notebookId, id.toLowerCase())}${tail}`;
+  // 1) <img src="attach://<shortId>"> → rewrite src to API content URL
+  let out = html.replace(/(<img[^>]*\bsrc=")attach:\/\/([0-9a-zA-Z]{6})("[^>]*>)/g, (_m, head: string, shortId: string, tail: string) => {
+    return `${head}${buildContentUrl(notebookId, shortId)}${tail}`;
   });
 
-  // 2) <a href="attachment://<id>">label</a> → render as file pill
+  // 2) <a href="attach://<shortId>">label</a> → render as file pill
   out = out.replace(
-    /<a[^>]*\bhref="attachment:\/\/([0-9a-f-]{36})"[^>]*>([^<]*)<\/a>/gi,
-    (_m, id: string, label: string) => {
-      const filename = idToFilename?.get(id.toLowerCase()) ?? label;
+    /<a[^>]*\bhref="attach:\/\/([0-9a-zA-Z]{6})"[^>]*>([^<]*)<\/a>/g,
+    (_m, shortId: string, label: string) => {
+      const filename = shortIdToFilename?.get(shortId) ?? label;
       const icon = fileIcons.getFileIcon({ name: filename, type: "file" });
-      const href = buildContentUrl(notebookId, id.toLowerCase());
+      const href = buildContentUrl(notebookId, shortId);
       return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cm-attachment-pill inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 no-underline" title="${escapeHtml(filename)}"><i class="ti ${icon} text-xs"></i><span>${escapeHtml(label)}</span></a>`;
     },
   );

@@ -24,7 +24,7 @@ const parseImageHref = (href: string): ParsedImage => {
   };
 };
 
-/** `attachment://<id>` → `/api/notebooks/<nbid>/attachments/<id>/content`. */
+/** `attach://<shortId>` → `/api/notebooks/<nbid>/attachments/<shortId>/content`. */
 const resolveUrl = (rawUrl: string, notebookId: string): string => {
   const id = extractAttachmentId(rawUrl);
   return id ? buildAttachmentContentUrl(notebookId, id) : rawUrl;

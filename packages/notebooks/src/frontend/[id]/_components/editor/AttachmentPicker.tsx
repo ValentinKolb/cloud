@@ -43,7 +43,7 @@ const AttachmentPicker = (props: Props) => {
       // Sequential to keep order + UI feedback simple.
       for (const file of files) {
         const att = await uploadFile(props.notebookId, file);
-        dispatchInsert({ id: att.id, kind: att.kind, filename: att.filename });
+        dispatchInsert({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename });
       }
       props.close();
     } catch (e) {
@@ -54,7 +54,7 @@ const AttachmentPicker = (props: Props) => {
   };
 
   const pick = (att: Attachment) => {
-    dispatchInsert({ id: att.id, kind: att.kind, filename: att.filename });
+    dispatchInsert({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename });
     props.close();
   };
 

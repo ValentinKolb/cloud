@@ -1,5 +1,5 @@
 /**
- * Browser-side helpers for the `attachment://<id>` URL scheme + the click
+ * Browser-side helpers for the `attach://<shortId>` URL scheme + the click
  * download flow. Used by both lib/editor decorations and the editor
  * components — neutral location to avoid backwards-layered imports.
  *
@@ -7,23 +7,26 @@
  */
 import { prompts } from "@valentinkolb/cloud/ui";
 
-const ATTACHMENT_URL_RE = /^attachment:\/\/([0-9a-f-]{36})$/i;
-const ATTACHMENT_REF_RE_GLOBAL = /attachment:\/\/([0-9a-f-]{36})/gi;
+const ATTACHMENT_URL_RE = /^attach:\/\/([0-9a-zA-Z]{6})$/;
+const ATTACHMENT_REF_RE_GLOBAL = /attach:\/\/([0-9a-zA-Z]{6})/g;
 
 export const extractAttachmentId = (url: string): string | null =>
-  url.match(ATTACHMENT_URL_RE)?.[1]?.toLowerCase() ?? null;
+  url.match(ATTACHMENT_URL_RE)?.[1] ?? null;
 
-/** Extract all unique attachment ids referenced in a markdown body.
+/** Extract all unique attachment short-ids referenced in a markdown body.
  *  Browser-safe twin of `service/attachments.ts:extractIds`. */
 export const extractAttachmentIds = (md: string | null): string[] => {
   if (!md) return [];
   const ids = new Set<string>();
-  for (const m of md.matchAll(ATTACHMENT_REF_RE_GLOBAL)) ids.add(m[1]!.toLowerCase());
+  for (const m of md.matchAll(ATTACHMENT_REF_RE_GLOBAL)) ids.add(m[1]!);
   return Array.from(ids);
 };
 
-export const buildAttachmentContentUrl = (notebookId: string, attachmentId: string): string =>
-  `/api/notebooks/${notebookId}/attachments/${attachmentId}/content`;
+/** Notebook-scoped content URL — the API endpoint accepts either UUID
+ *  or short-id, and we keep the short-id end-to-end so the rendered
+ *  `<img src>` / `<a href>` stays short and copy-paste-friendly. */
+export const buildAttachmentContentUrl = (notebookId: string, attachmentIdOrShortId: string): string =>
+  `/api/notebooks/${notebookId}/attachments/${attachmentIdOrShortId}/content`;
 
 /**
  * Shared click-to-download flow used by image widgets and file pills.

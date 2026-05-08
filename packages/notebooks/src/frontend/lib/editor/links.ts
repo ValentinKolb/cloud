@@ -7,7 +7,9 @@ import { fileIcons } from "@valentinkolb/stdlib";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 
 /** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
-const NOTE_LINK_URL_REGEX = /^\/app\/notebooks\/[0-9a-fA-F-]{36}\?note=[0-9a-fA-F-]{36}$/;
+/** Internal `note://<shortId>` markdown scheme — distinct from
+ *  user-typed external URLs so we can render note links as pills. */
+const NOTE_LINK_URL_REGEX = /^note:\/\/[0-9a-zA-Z]{6}$/;
 
 type LinkData = {
   label: string;
@@ -15,7 +17,7 @@ type LinkData = {
   /** Resolved final href (rewritten for attachment URLs, identity otherwise). */
   resolvedUrl: string;
   isNoteLink: boolean;
-  /** Set if the link is an `attachment://<id>` reference to a non-image blob. */
+  /** Set if the link is an `attach://<shortId>` reference to a non-image blob. */
   attachmentId: string | null;
 };
 
@@ -81,7 +83,9 @@ class LinkWidget extends WidgetType {
       el.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        window.location.assign(this.linkData.url);
+        // Navigate to the resolved URL — `note://<shortId>` is internal
+        // and not navigable; `resolvedUrl` carries the full path.
+        window.location.assign(this.linkData.resolvedUrl);
       };
 
       return el;
@@ -135,15 +139,29 @@ class LinkWidget extends WidgetType {
   }
 }
 
+/** Extract the 6-char short-id from a `note://<shortId>` URL, else null. */
+const NOTE_LINK_SHORT_ID_REGEX = /^note:\/\/([0-9a-zA-Z]{6})$/;
+const extractNoteShortId = (url: string): string | null => url.match(NOTE_LINK_SHORT_ID_REGEX)?.[1] ?? null;
+
 const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
   const match = text.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
   if (!match || !match[1] || !match[2]) return null;
   const url = match[2];
   const attachmentId = extractAttachmentId(url);
+  const noteShortId = extractNoteShortId(url);
+  // Note links resolve to `/app/notebooks/<currentNotebookShortId>/notes/<targetShortId>`.
+  // We assume same-notebook (the most common case); cross-notebook
+  // references resolve via the page-handler's lenient lookup, which
+  // 404s gracefully if the target lives elsewhere.
+  const resolvedUrl = attachmentId
+    ? buildAttachmentContentUrl(notebookId, attachmentId)
+    : noteShortId
+      ? `/app/notebooks/${notebookId}/notes/${noteShortId}`
+      : url;
   return {
     label: match[1],
     url,
-    resolvedUrl: attachmentId ? buildAttachmentContentUrl(notebookId, attachmentId) : url,
+    resolvedUrl,
     isNoteLink: NOTE_LINK_URL_REGEX.test(url),
     attachmentId,
   };

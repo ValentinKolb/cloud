@@ -143,12 +143,25 @@ export default ssr<AuthContext>(async (c) => {
 
         tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
 
-        // Hydrate referenced attachments so the post-processor can render
-        // file pills with the canonical filename (label may have been edited
-        // by the user; filename is the source of truth for the icon mapping).
-        const attachmentIds = notebooksService.attachment.extractIds(noteWithContent.contentMd);
-        const referencedAttachments = attachmentIds.length > 0 ? await notebooksService.attachment.listByIds({ ids: attachmentIds }) : [];
-        const idToFilename = new Map(referencedAttachments.map((a) => [a.id, a.filename]));
+        // Hydrate referenced attachments + note links in parallel.
+        // Both transformers are sync regex-replacers, so we resolve the
+        // short-id → metadata maps upfront (one batched query each)
+        // and feed them in. Avoids any per-link N+1.
+        const attachmentShortIds = notebooksService.attachment.extractIds(noteWithContent.contentMd);
+        const noteLinkShortIds = notebooksService.note.extractLinks(noteWithContent.contentMd);
+        const [referencedAttachments, noteLinkResolutions] = await Promise.all([
+          attachmentShortIds.length > 0
+            ? notebooksService.attachment.listByShortIds({ shortIds: attachmentShortIds })
+            : Promise.resolve([]),
+          noteLinkShortIds.length > 0
+            ? notebooksService.note.resolveShortIdsToNotebookShortIds({ shortIds: noteLinkShortIds })
+            : Promise.resolve(new Map<string, { notebookShortId: string; noteShortId: string }>()),
+        ]);
+        const shortIdToFilename = new Map(referencedAttachments.map((a) => [a.shortId, a.filename]));
+        const noteShortIdToHref = new Map<string, string>();
+        for (const [shortId, resolved] of noteLinkResolutions) {
+          noteShortIdToHref.set(shortId, `/app/notebooks/${resolved.notebookShortId}/notes/${resolved.noteShortId}`);
+        }
 
         // For read mode: pipe markdown.render through link transforms +
         // tag pills + attachment URL rewrite + heading id injection so
@@ -156,7 +169,10 @@ export default ssr<AuthContext>(async (c) => {
         const renderedHtml = shouldRenderHtml
           ? injectHeadingIds(
               transformTags(
-                transformAttachments(transformNoteLinks(markdown.render(noteWithContent.contentMd ?? "")), { notebookId, idToFilename }),
+                transformAttachments(
+                  transformNoteLinks(markdown.render(noteWithContent.contentMd ?? ""), { noteShortIdToHref }),
+                  { notebookId, shortIdToFilename },
+                ),
                 { notebookId },
               ),
               tocItems,
@@ -227,8 +243,11 @@ export default ssr<AuthContext>(async (c) => {
   // Hydrate metadata for attachments referenced in the current note's
   // markdown — feeds the detail panel's "Attachments" section. Live updates
   // flow through `ATTACHMENTS_UPDATE_EVENT` once the editor is mounted.
-  const panelAttachmentIds = showDetailPanel ? notebooksService.attachment.extractIds(selectedNote!.contentMd) : [];
-  const panelAttachments = panelAttachmentIds.length > 0 ? await notebooksService.attachment.listByIds({ ids: panelAttachmentIds }) : [];
+  // `extractIds` returns short-ids (the form carried in `attach://`).
+  const panelAttachmentShortIds = showDetailPanel ? notebooksService.attachment.extractIds(selectedNote!.contentMd) : [];
+  const panelAttachments = panelAttachmentShortIds.length > 0
+    ? await notebooksService.attachment.listByShortIds({ shortIds: panelAttachmentShortIds })
+    : [];
 
   return () => (
     <Layout

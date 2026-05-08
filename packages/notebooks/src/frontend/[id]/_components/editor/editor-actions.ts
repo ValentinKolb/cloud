@@ -282,7 +282,13 @@ export const insertNoteLink = async (view: EditorView, notebookId: string): Prom
   if (!picked) return;
 
   const linkText = selectedText.length > 0 ? selectedText : picked.title;
-  const url = `/app/notebooks/${notebookId}?note=${picked.id}`;
+  // `note://<shortId>` is our internal scheme — the read-mode HTML
+  // renderer (`transformNoteLinks`) rewrites it into a navigable
+  // `<a>`, and the page-handler resolves the short-id back to a UUID.
+  // Carrying short-ids in markdown bodies (instead of full URLs)
+  // means link references survive notebook renames / URL refactors
+  // and stay short + portable across copy-paste between notebooks.
+  const url = `note://${picked.shortId}`;
   const insert = `[${linkText}](${url})`;
 
   view.dispatch({

@@ -72,14 +72,16 @@ export default function NotebookDetailPanel(props: Props) {
   const [tocItems, setTocItems] = createSignal<TocItem[]>(props.tocItems);
   const [tasks, setTasks] = createSignal<TaskProgress>(props.taskProgress);
 
-  // Attachment state: a cache (id → Attachment) plus the ordered ID list of
-  // what's currently referenced in the doc. The displayed list is computed
-  // from cache ⨯ ids — broken refs (cache miss) are silently dropped.
-  // Cache is refreshed lazily when an unknown ID appears in an update event.
+  // Attachment state: a cache (shortId → Attachment) plus the ordered
+  // shortId list of what's currently referenced in the doc. The
+  // displayed list is computed from cache ⨯ ids — broken refs (cache
+  // miss) are silently dropped. Cache is refreshed lazily when an
+  // unknown ID appears in an update event. We key by shortId because
+  // that's what `extractAttachmentIds` carries from the markdown body.
   const [attachmentCache, setAttachmentCache] = createSignal<Map<string, Attachment>>(
-    new Map(props.attachments.map((a) => [a.id, a])),
+    new Map(props.attachments.map((a) => [a.shortId, a])),
   );
-  const [attachmentIds, setAttachmentIds] = createSignal<string[]>(props.attachments.map((a) => a.id));
+  const [attachmentIds, setAttachmentIds] = createSignal<string[]>(props.attachments.map((a) => a.shortId));
   const visibleAttachments = (): Attachment[] => {
     const c = attachmentCache();
     const out: Attachment[] = [];
@@ -94,7 +96,7 @@ export default function NotebookDetailPanel(props: Props) {
     const res = await fetch(`/api/notebooks/${encodeURIComponent(props.notebookId)}/attachments`);
     if (!res.ok) return;
     const list = (await res.json()) as Attachment[];
-    setAttachmentCache(new Map(list.map((a) => [a.id, a])));
+    setAttachmentCache(new Map(list.map((a) => [a.shortId, a])));
   };
   const [participants, setParticipants] = createSignal<NotebookPresenceParticipant[]>([]);
   // Mirrors the editor's richMode signal — kept in sync via window events.
@@ -251,7 +253,7 @@ export default function NotebookDetailPanel(props: Props) {
                 <li>
                   <button
                     type="button"
-                    onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.id))}
+                    onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded transition-colors text-left"
                     title={att.filename}
                   >

@@ -13,6 +13,7 @@ export { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId, ext
 
 export type AttachmentRef = {
   id: string;
+  shortId: string;
   kind: "image" | "file";
   filename: string;
 };
@@ -47,9 +48,11 @@ export const formatBytes = (b: number): string => {
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
 };
 
-/** Markdown form for inserting an attachment reference. Image vs file. */
+/** Markdown form for inserting an attachment reference. Image vs file.
+ *  Uses the short-id `attach://` scheme — see `service/attachments.ts`
+ *  for why we picked `attach://` over `file://`. */
 export const attachmentMarkdown = (att: AttachmentRef): string =>
-  att.kind === "image" ? `![${att.filename}](attachment://${att.id})` : `[${att.filename}](attachment://${att.id})`;
+  att.kind === "image" ? `![${att.filename}](attach://${att.shortId})` : `[${att.filename}](attach://${att.shortId})`;
 
 /**
  * Insert an attachment reference at the current cursor position. Images

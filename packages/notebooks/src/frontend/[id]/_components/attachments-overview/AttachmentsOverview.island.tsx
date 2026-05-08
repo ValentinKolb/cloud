@@ -36,12 +36,12 @@ const AttachmentsOverview = (props: Props) => {
   const onDownload = (att: Attachment) =>
     void confirmAndDownload(
       att.filename,
-      buildAttachmentContentUrl(props.notebookId, att.id)
+      buildAttachmentContentUrl(props.notebookId, att.shortId)
     );
 
   const onCopy = async (att: Attachment) => {
     await clipboard.copy(
-      attachmentMarkdown({ id: att.id, kind: att.kind, filename: att.filename })
+      attachmentMarkdown({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename })
     );
     // Lightweight feedback — `prompts.alert` is the platform-standard
     // confirmation surface (used by oauth/contacts/core etc.).
@@ -129,7 +129,7 @@ const AttachmentsOverview = (props: Props) => {
                 <div class="relative aspect-square overflow-hidden bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-100 dark:border-zinc-800">
                   {att.kind === "image" ? (
                     <img
-                      src={buildAttachmentContentUrl(props.notebookId, att.id)}
+                      src={buildAttachmentContentUrl(props.notebookId, att.shortId)}
                       alt={att.filename}
                       loading="lazy"
                       class="absolute inset-0 w-full h-full object-contain"

@@ -138,6 +138,7 @@ export const notebooksService = {
     getByIdOrShortId: notes.getByIdOrShortId,
     getWithContent: notes.getWithContent,
     getWithContentByIdOrShortId: notes.getWithContentByIdOrShortId,
+    resolveShortIdsToNotebookShortIds: notes.resolveShortIdsToNotebookShortIds,
     getTree: notes.getTree,
     create: notes.create,
     update: notes.update,
@@ -159,6 +160,10 @@ export const notebooksService = {
     backlinks: {
       list: links.listBacklinks,
     },
+    /** Pull every distinct `note://<shortId>` reference out of a markdown
+     *  body. Returns short-ids (the form embedded in the body); the
+     *  caller resolves to UUIDs / hrefs as needed. */
+    extractLinks: links.extractNoteLinks,
   },
   presence: {
     join: presence.join,
@@ -189,6 +194,7 @@ export const notebooksService = {
     getContentByIdOrShortId: attachments.getContentByIdOrShortId,
     list: attachments.list,
     listByIds: attachments.listByIds,
+    listByShortIds: attachments.listByShortIds,
     /** Paginated + searchable variant — used by the overview page. */
     listPaginated: async (config: {
       notebookId: string;
