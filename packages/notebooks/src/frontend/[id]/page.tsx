@@ -283,7 +283,15 @@ export default ssr<AuthContext>(async (c) => {
           ) : selectedNote ? (
             actualReadMode ? (
               <ReadonlyNote
-                noteId={selectedNote.shortId}
+                // Editor + readonly view get the canonical UUID, NOT the
+                // short-id. The yjs websocket, presence channel, attachment
+                // API, and Y.Doc topic all key on the canonical form
+                // internally — passing the UUID end-to-end keeps every
+                // payload.noteId comparison on a single value and avoids
+                // the dropped-initial-syncPush race that plagued the
+                // short-id-everywhere variant. URL-builder + markdown
+                // schemes still use short-ids (notebook.shortId etc).
+                noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
                 renderedHtml={selectedNote.renderedHtml ?? ""}
@@ -291,7 +299,7 @@ export default ssr<AuthContext>(async (c) => {
               />
             ) : (
               <NoteEditor
-                noteId={selectedNote.shortId}
+                noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
                 appUrl={appUrl}

@@ -571,7 +571,15 @@ const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | n
 
     try {
       for await (const event of noteTopic.live({
-        after: afterCursor ?? undefined,
+        // `"0-0"` = Redis Streams "from the very beginning" sentinel —
+        // when there's no DB cursor yet (fresh note, snapshot worker
+        // hasn't fired) we still need to replay every topic event the
+        // user produced before reconnecting. Passing `undefined` would
+        // fall through to `@valentinkolb/sync`'s default of `"$"`,
+        // which means "deliver only NEW events from now on" and
+        // silently drops the in-flight history. Mirrors the pattern
+        // used by `yjs-snapshot-worker.ts:waitUntilTargetCursor`.
+        after: afterCursor ?? "0-0",
         signal: abort.signal,
       })) {
         if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
