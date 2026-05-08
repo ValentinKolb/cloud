@@ -11,7 +11,7 @@ import { notebooksService } from "./service";
 import { PRESENCE_HEARTBEAT_INTERVAL_MS } from "./service/presence";
 import { yjsSnapshotWorker } from "./service/yjs-snapshot-worker";
 import type { YjsTopicEvent } from "./service/yjs-sync";
-import { createYjsTopic, maxStreamCursor, NODE_ID, parseStreamCursor, toBase64 } from "./service/yjs-sync";
+import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
 
 /**
  * Notebooks realtime websocket (chat-style declarative flow):
@@ -539,21 +539,29 @@ const pushTypeForKind = (kind: YjsTopicEvent["kind"]): typeof WS_TYPE.syncPush |
   kind === "sync" ? WS_TYPE.syncPush : WS_TYPE.awarenessPush;
 
 /**
- * Time window inside which an event's cursor counts as "live edge" —
- * i.e. so recent that we've effectively caught up to head and the
- * client may safely receive `replayReady`. Picked at 1s because
- * publish→consume latency on a healthy local Redis is sub-100ms; a
- * full second leaves plenty of slack for a busy server / network
- * jitter without keeping the client waiting noticeably.
+ * Catch-up "drain quiet" window. After every event we forward, we
+ * arm a timer for this duration; if no further event arrives before
+ * it fires, the topic backlog has drained (XREAD BLOCK returned no
+ * entry) and we're at head.
+ *
+ * Why a quiet window instead of a wall-clock heuristic: codex review
+ * on commit 696680a flagged that "the first event with a recent
+ * cursor" is wrong — `topic.live()` reads one entry per XREAD, so
+ * other already-retained events whose cursors happen to be recent
+ * may still be queued behind the trigger. Waiting for actual quiet
+ * is the deterministic signal that backlog has drained.
+ *
+ * Picked at 150 ms: long enough to absorb single-digit-ms jitter
+ * between rapid-fire events, short enough that a fresh-note connect
+ * with empty topic feels instant (~150 ms gate before replayReady).
  */
-const CATCH_UP_LIVE_EDGE_MS = 1000;
+const CATCH_UP_DRAIN_QUIET_MS = 150;
 
 /**
- * Hard cap on the catch-up phase. Even on a totally dormant note (no
- * inbound events to use as a "live edge" signal), we must release the
- * gate eventually so the user can start typing. Picked at 2s because
- * topic.live's BLOCK timeout is much shorter (200ms) — by 2s we've
- * almost certainly drained any retained backlog.
+ * Hard cap on the catch-up phase. Even with the drain-quiet timer,
+ * a truly continuous stream (multi-tab session, bot writes) might
+ * never go quiet — at which point we fall back to "we've replayed
+ * 2 s worth of backlog, anything still arriving is live enough."
  */
 const CATCH_UP_MAX_MS = 2000;
 
@@ -585,10 +593,34 @@ const startLiveStream = (
     let pendingBytes = 0;
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     let caughtUp = false;
+    let drainQuietTimer: ReturnType<typeof setTimeout> | null = null;
+    let hardCapTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearCatchUpTimers = () => {
+      if (drainQuietTimer) {
+        clearTimeout(drainQuietTimer);
+        drainQuietTimer = null;
+      }
+      if (hardCapTimer) {
+        clearTimeout(hardCapTimer);
+        hardCapTimer = null;
+      }
+    };
 
     const markCaughtUp = () => {
       if (caughtUp) return;
       caughtUp = true;
+      clearCatchUpTimers();
+      // Stale-stream guard (codex review on 696680a, finding 3): if
+      // this stream was already replaced (note switch, reconnect)
+      // before we hit caught-up, the active stream now belongs to a
+      // different `replayRequest`. Sending `replayReady` here would
+      // race with the new replay and could open the client's send
+      // gate against the wrong note.
+      if (ctx.streamAbort !== abort) {
+        log.debug("Suppressing replayReady for stopped stream", { noteId });
+        return;
+      }
       // Flush any sync events we accumulated during catch-up before
       // signalling ready, so the client's first applyUpdate sequence
       // is contiguous with the eventual replayReady.
@@ -603,11 +635,25 @@ const startLiveStream = (
       }
     };
 
-    // Fallback: if no events arrive within CATCH_UP_MAX_MS, assume
-    // we're caught up. Required for fresh notes where the topic is
-    // empty AND for dormant notes whose only events are old enough
-    // that none of them trip the live-edge check.
-    const catchUpTimer = setTimeout(markCaughtUp, CATCH_UP_MAX_MS);
+    /**
+     * Reset the drain-quiet timer. Called after every forwarded
+     * event during catch-up. If no further event arrives within
+     * `CATCH_UP_DRAIN_QUIET_MS`, the topic backlog has drained
+     * (XREAD BLOCK returned empty) and we're at head.
+     */
+    const armDrainQuietTimer = () => {
+      if (drainQuietTimer) clearTimeout(drainQuietTimer);
+      drainQuietTimer = setTimeout(markCaughtUp, CATCH_UP_DRAIN_QUIET_MS);
+    };
+
+    // Hard cap: continuous streams (multi-tab session, bots) might
+    // never go quiet. At 2 s we've replayed plenty of backlog and
+    // call it live.
+    hardCapTimer = setTimeout(markCaughtUp, CATCH_UP_MAX_MS);
+    // Initial arm — handles the empty-topic case where no events
+    // ever arrive: the drain-quiet timer fires after 150 ms and we
+    // mark caught-up immediately.
+    armDrainQuietTimer();
 
     const flush = () => {
       if (flushTimer) {
@@ -644,29 +690,19 @@ const startLiveStream = (
         if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
 
         // Phase 1 — catch-up: replay retained sync history into the
-        // client's Y.Doc but DROP retained awareness events. Awareness
-        // (cursor positions, user presence) is ephemeral by design;
-        // resurrecting awareness from past sessions paints "ghost"
-        // remote cursors at stale positions until the next awareness
-        // timeout. Once we hit a live-edge event (or the fallback
-        // timer expires), we've drained backlog and let awareness
-        // flow again.
-        let triggerCatchUpAfterFlush = false;
-        if (!caughtUp) {
-          const eventMs = parseStreamCursor(event.cursor)?.ms ?? Date.now();
-          const isLiveEdge = eventMs >= Date.now() - CATCH_UP_LIVE_EDGE_MS;
-          if (event.data.kind === "awareness" && !isLiveEdge) {
-            continue; // stale awareness — drop
-          }
-          if (isLiveEdge) {
-            // Defer the actual `markCaughtUp` until after the event
-            // we're processing is in `pending` (and possibly flushed),
-            // so the wire order stays: trigger-event → replayReady →
-            // future events. Otherwise the client would see
-            // replayReady BEFORE the live-edge event that justified
-            // releasing the gate.
-            triggerCatchUpAfterFlush = true;
-          }
+        // client's Y.Doc but DROP retained awareness events.
+        // Awareness (cursor positions, user presence) is ephemeral
+        // by design; resurrecting awareness from past sessions
+        // paints "ghost" remote cursors at stale positions until
+        // the next awareness timeout. Once `caughtUp` flips
+        // (drain-quiet timer fires after silence on the stream, OR
+        // hard-cap fallback), retained-feel awareness flows again.
+        if (!caughtUp && event.data.kind === "awareness") {
+          // Don't reset the drain-quiet timer for skipped events —
+          // we want to converge on "no real events for 150 ms",
+          // not "no events at all". A flood of stale awareness
+          // alone shouldn't keep us out of catch-up forever.
+          continue;
         }
 
         const update = toPushUpdate(event);
@@ -691,16 +727,12 @@ const startLiveStream = (
           scheduleFlush();
         }
 
-        if (triggerCatchUpAfterFlush) {
-          clearTimeout(catchUpTimer);
-          markCaughtUp(); // internally flushes pending then sends replayReady
-        }
+        if (!caughtUp) armDrainQuietTimer();
       }
-      clearTimeout(catchUpTimer);
-      // If the loop exited before the catch-up timer fired (e.g. the
-      // socket closed during replay), still resolve the gate so any
-      // upstream cleanup that hangs on `caughtUp` doesn't deadlock.
-      markCaughtUp();
+      // Loop exited normally (signal aborted / topic ended). The
+      // `finally` clause below handles `markCaughtUp` — but only
+      // for the active stream. A stopped/replaced stream's gate
+      // resolution is suppressed by the stale-stream guard.
       flush();
     } catch (error) {
       if (!abort.signal.aborted) {
@@ -711,9 +743,12 @@ const startLiveStream = (
         await fatal(ctx, ERROR_CODE.internalError, "Live sync stream failed", noteId);
       }
     } finally {
-      clearTimeout(catchUpTimer);
-      // Last-ditch: even on error/abort, signal caught-up so the call
-      // site doesn't sit waiting for `replayReady` forever.
+      clearCatchUpTimers();
+      // Last-ditch resolve — but `markCaughtUp` itself drops the
+      // call when this stream isn't the active one anymore (note
+      // switch, fatal error mid-replay), so a stopped/failed
+      // stream doesn't fire a stale `replayReady` for the next
+      // note's connection on the same socket.
       markCaughtUp();
       if (flushTimer) clearTimeout(flushTimer);
       flush();
