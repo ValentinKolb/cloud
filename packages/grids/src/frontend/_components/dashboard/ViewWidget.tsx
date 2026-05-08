@@ -6,15 +6,17 @@ import type { WidgetData } from "./widget-data";
 type Props = {
   widget: Extract<Widget, { kind: "view" }>;
   data: WidgetData;
-  /** Slug of the parent base — used to build the "Open full view" link. */
+  /** Slug of the parent base — prepended to the view-deep-link in
+   *  the header. Only used when `data.fullViewLink` is non-null. */
   baseSlug: string;
 };
 
 /**
- * Embedded view widget — renders the first 25 records of a saved view
- * inline on the dashboard. Read-only on purpose: drilldown happens via
- * the "Open full view →" header link to the records page, where the
- * user gets the full toolbar / pagination / record-detail panel.
+ * Embedded view widget — renders the first 25 records of either a
+ * saved view OR a raw table inline on the dashboard. Read-only on
+ * purpose: drilldown happens via the "Open full view →" header link
+ * to the records page (only available for saved-view sources; raw-
+ * table sources don't have a natural drilldown destination).
  *
  * We deliberately don't mount the full RecordsView island here. Three
  * reasons: (a) RecordsView depends on URL-driven query state which
@@ -23,16 +25,25 @@ type Props = {
  * dashboard cell, (c) every embedded view would hydrate as its own
  * island, multiplying client bundle cost on big dashboards. A simple
  * read-only table is the right shape for this surface.
+ *
+ * The `data` resolver upstream abstracts over both source kinds — by
+ * the time it lands here, we just have a title, fields, records,
+ * and an optional drilldown link. No source-kind branching needed
+ * in the renderer.
  */
 export default function ViewWidget(props: Props) {
-  const titleOf = () =>
-    props.widget.title ?? (props.data.kind === "view" ? props.data.view.name : "View");
+  const isView = (
+    d: WidgetData,
+  ): d is Extract<WidgetData, { kind: "view" }> => d.kind === "view";
 
   const fullViewHref = () => {
-    if (props.data.kind !== "view") return null;
-    const v = props.data.view;
-    return `/app/grids/${props.baseSlug}?table=${v.tableId}&view=${v.slug}`;
+    if (!isView(props.data) || !props.data.fullViewLink) return null;
+    const { tableSlug, viewSlug } = props.data.fullViewLink;
+    return `/app/grids/${props.baseSlug}?table=${tableSlug}&view=${viewSlug}`;
   };
+
+  const titleOf = () =>
+    props.widget.title ?? (isView(props.data) ? props.data.title : "View");
 
   return (
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
@@ -49,9 +60,8 @@ export default function ViewWidget(props: Props) {
         </Show>
       </header>
 
-      {/* Body */}
       <Show
-        when={props.data.kind === "view"}
+        when={isView(props.data)}
         fallback={
           <div class="flex-1 flex items-center justify-center text-xs text-dimmed">
             <Show
@@ -72,21 +82,17 @@ export default function ViewWidget(props: Props) {
 }
 
 function ViewTable(props: { data: Extract<WidgetData, { kind: "view" }> }) {
-  // Honour the view's column ordering when present; otherwise fall
-  // back to the default-visibility set sorted by position. Same logic
-  // RecordsGrid uses, simplified for read-only.
-  const visibleFields = () => {
-    const cols = props.data.view.query.columns;
-    if (cols && cols.length > 0) {
-      const byId = new Map(props.data.fields.map((f) => [f.id, f]));
-      return cols
-        .map((c) => byId.get(c.fieldId))
-        .filter((f): f is NonNullable<typeof f> => !!f && !f.deletedAt);
-    }
-    return props.data.fields
+  // Default-visibility column set sorted by position. Saved-view
+  // column ordering used to be honoured here too; that lives in the
+  // view's `query.columns` and isn't present in the WidgetData shape
+  // anymore (the resolver picks records but not the column spec).
+  // For raw-table sources there's no column spec to honour anyway.
+  // P2 idea: thread `view.query.columns` through if it ever differs
+  // from default-visibility.
+  const visibleFields = () =>
+    props.data.fields
       .filter((f) => !f.deletedAt && !f.hideInTable)
       .sort((a, b) => a.position - b.position);
-  };
 
   return (
     <div class="flex-1 min-h-0 overflow-auto">

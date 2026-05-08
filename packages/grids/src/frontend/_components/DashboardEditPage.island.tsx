@@ -64,7 +64,10 @@ const defaultStatWidget = (tableId: string): StatWidget => ({
 const defaultViewWidget = (): ViewWidget => ({
   id: newId("w"),
   kind: "view",
-  viewId: "",
+  // New widgets default to a saved-view source with no view picked
+  // yet — the editor's first action is to fill in the viewId. Users
+  // who want a raw table flip the toggle in the cell editor.
+  source: { kind: "view", viewId: "" },
 });
 
 const defaultStatsRow = (tableId: string): StatsRowType => ({
@@ -818,8 +821,27 @@ function ViewCellEditor(props: {
   });
 
   const summary = () => {
-    const v = allViews().find((x) => x.view.id === props.widget.viewId);
-    return v ? `${v.tableName} · ${v.view.name}` : "(pick a view)";
+    const src = props.widget.source;
+    if (src.kind === "table") {
+      const t = props.tables.find((x) => x.id === src.tableId);
+      return t ? `table · ${t.name}` : "(pick a table)";
+    }
+    const v = allViews().find((x) => x.view.id === src.viewId);
+    return v ? `view · ${v.tableName} · ${v.view.name}` : "(pick a view)";
+  };
+
+  // Toggle source kind without losing the title or id. When switching,
+  // we reset the inner ref since `viewId` and `tableId` aren't
+  // interchangeable.
+  const setSourceKind = (kind: "view" | "table") => {
+    if (props.widget.source.kind === kind) return;
+    props.onUpdate({
+      ...props.widget,
+      source:
+        kind === "view"
+          ? { kind: "view", viewId: "" }
+          : { kind: "table", tableId: props.tables[0]?.id ?? "" },
+    });
   };
 
   return (
@@ -860,7 +882,36 @@ function ViewCellEditor(props: {
       </div>
 
       <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2">
+        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
+          {/* Source-kind toggle. Plain segmented buttons rather than a
+              Select — only two options, the visual choice itself
+              communicates the binary. */}
+          <div class="flex items-center gap-2 text-[11px]">
+            <span class="text-dimmed">Source:</span>
+            <button
+              type="button"
+              class={`px-2 py-0.5 rounded ${
+                props.widget.source.kind === "view"
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              }`}
+              onClick={() => setSourceKind("view")}
+            >
+              Saved view
+            </button>
+            <button
+              type="button"
+              class={`px-2 py-0.5 rounded ${
+                props.widget.source.kind === "table"
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              }`}
+              onClick={() => setSourceKind("table")}
+            >
+              Table
+            </button>
+          </div>
+
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             <TextInput
               label="Title (optional override)"
@@ -868,23 +919,61 @@ function ViewCellEditor(props: {
               onInput={(v) =>
                 props.onUpdate({ ...props.widget, title: v || undefined })
               }
-              placeholder="Defaults to the view's name"
+              placeholder={
+                props.widget.source.kind === "view"
+                  ? "Defaults to the view's name"
+                  : "Defaults to the table's name"
+              }
             />
-            <Select
-              label="View"
-              value={() => props.widget.viewId}
-              onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-              options={[
-                { id: "", label: "(pick a view)" },
-                ...allViews().map(({ view, tableName }) => ({
-                  id: view.id,
-                  label: `${tableName} · ${view.name}`,
-                })),
-              ]}
-            />
+            <Show
+              when={props.widget.source.kind === "view"}
+              fallback={
+                <Select
+                  label="Table"
+                  value={() =>
+                    props.widget.source.kind === "table"
+                      ? props.widget.source.tableId
+                      : ""
+                  }
+                  onChange={(v) =>
+                    props.onUpdate({
+                      ...props.widget,
+                      source: { kind: "table", tableId: v },
+                    })
+                  }
+                  options={[
+                    { id: "", label: "(pick a table)" },
+                    ...props.tables.map((t) => ({ id: t.id, label: t.name })),
+                  ]}
+                />
+              }
+            >
+              <Select
+                label="View"
+                value={() =>
+                  props.widget.source.kind === "view"
+                    ? props.widget.source.viewId
+                    : ""
+                }
+                onChange={(v) =>
+                  props.onUpdate({
+                    ...props.widget,
+                    source: { kind: "view", viewId: v },
+                  })
+                }
+                options={[
+                  { id: "", label: "(pick a view)" },
+                  ...allViews().map(({ view, tableName }) => ({
+                    id: view.id,
+                    label: `${tableName} · ${view.name}`,
+                  })),
+                ]}
+              />
+            </Show>
             <div class="md:col-span-2 text-[11px] text-dimmed">
-              Embedded views show 25 records inline with an "Open full view →"
-              link to the records page.
+              {props.widget.source.kind === "view"
+                ? 'Embedded views show 25 records with the saved view\'s filter and sort plus an "Open full view →" link to the records page.'
+                : "Raw-table source shows the latest 25 records, no filter applied. Save a view if you need filtering."}
             </div>
           </div>
         </div>

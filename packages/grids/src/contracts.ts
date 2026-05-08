@@ -523,13 +523,35 @@ export const ChartWidgetSchema = z.object({
   format: WidgetFormatSchema.optional(),
 });
 
+/** Embedded-table source for a `view` widget. Two kinds:
+ *
+ *  - `view`: read records via a saved View (filter / sort / columns
+ *    apply). The original behaviour.
+ *  - `table`: read records of a table directly, no filter, default-
+ *    visibility columns. Use when a saved view is overkill — the
+ *    user just wants the latest 25 rows of some table on a
+ *    dashboard. Filtering is intentionally not configurable here;
+ *    if you need a filter, save a view.
+ *
+ *  Permission gate is the same in both cases: dashboard-level read.
+ *  The settings page warns shared-dashboard authors that this can
+ *  surface data the viewer wouldn't see directly. */
+export const ViewWidgetSourceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("view"),
+    viewId: z.string().uuid(),
+  }),
+  z.object({
+    kind: z.literal("table"),
+    tableId: z.string().uuid(),
+  }),
+]);
+export type ViewWidgetSource = z.infer<typeof ViewWidgetSourceSchema>;
+
 export const ViewWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("view"),
-  /** Embedded view id. Must belong to a table the viewer can read —
-   *  enforced at SSR-render time, not at save time, so a permission
-   *  change doesn't break a saved dashboard. */
-  viewId: z.string().uuid(),
+  source: ViewWidgetSourceSchema,
   title: z.string().max(200).optional(),
 });
 

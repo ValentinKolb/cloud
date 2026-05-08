@@ -1,4 +1,11 @@
-import { gridsService, type Widget, type WidgetSource, type Field, type GridRecord, type View } from "../../../service";
+import {
+  gridsService,
+  type Widget,
+  type WidgetSource,
+  type ViewWidgetSource,
+  type Field,
+  type GridRecord,
+} from "../../../service";
 
 /**
  * Runtime data shape for a rendered widget — what the SSR pipeline
@@ -11,11 +18,25 @@ import { gridsService, type Widget, type WidgetSource, type Field, type GridReco
  * Errors are surfaced as a `kind: "error"` discriminant so the cell
  * renderer can paint a small "couldn't load" badge in red without the
  * page-level fetcher having to bubble exceptions through Promise.all.
+ *
+ * The view variant abstracts over both source kinds (saved view OR
+ * raw table) — the renderer only cares about records + fields + an
+ * optional "Open full view" deep-link. The link is only present when
+ * the source is a saved view; raw-table sources don't have a natural
+ * destination, so the header link is suppressed by the renderer.
  */
 export type WidgetData =
   | { kind: "stat"; value: unknown }
   | { kind: "chart"; buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }> }
-  | { kind: "view"; view: View; fields: Field[]; records: GridRecord[] }
+  | {
+      kind: "view";
+      title: string;
+      fields: Field[];
+      records: GridRecord[];
+      /** Deep-link target when source is a saved view; null for raw
+       *  table sources so the "Open full view" header link is hidden. */
+      fullViewLink: { tableSlug: string; viewSlug: string } | null;
+    }
   | { kind: "error"; reason: string };
 
 /** Fixed pagesize for embedded views — agreed in the dashboard plan
@@ -31,10 +52,11 @@ export const EMBEDDED_VIEW_PAGESIZE = 25;
  * compilation, and computed-projection enrichment happen the same way
  * the records page does them.
  *
- * Caller is expected to have already verified that the viewer can read
- * the dashboard (the per-widget permission check happens at the source
- * level — a viewer who can't read the source table gets `error: "no
- * permission"` rather than a tracked exception).
+ * Per the agreed permission model, the dashboard's base-read gate is
+ * the only access check; this function does not re-cascade per-source.
+ * If a viewer of a shared dashboard can't read the underlying view or
+ * table, that's a configuration choice surfaced in the settings hint
+ * card — not something the renderer should soften.
  */
 export const resolveWidgetData = async (
   widget: Widget,
@@ -47,7 +69,7 @@ export const resolveWidgetData = async (
     if (widget.kind === "chart") {
       return await resolveChart(widget.source);
     }
-    return await resolveView(widget.viewId, viewer);
+    return await resolveView(widget);
   } catch (e) {
     // Last-ditch catch: anything thrown becomes a renderable error
     // sentinel so a single bad widget doesn't crash the whole dashboard.
@@ -71,14 +93,12 @@ const resolveStat = async (source: WidgetSource): Promise<WidgetData> => {
 };
 
 const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {
-  // Chart widgets need groupBy. If groupBy is empty we fall back to a
-  // synthetic single-bucket so the stub renderer can still surface a
-  // meaningful preview during P0.
   // Chart widgets use AggregationSpec which carries the wider agg
   // kind union (median/earliest/latest) — record.group only accepts
-  // the narrower GroupAggregationSpec. P1 (chart renderer) will narrow
-  // this at the schema level; for now we strip the extra label and
-  // let the compiler reject any chart that picks an unsupported agg.
+  // the narrower GroupAggregationSpec. P1 (chart renderer) will
+  // narrow this at the schema level; for now we strip the extra
+  // label and let the compiler reject any chart that picks an
+  // unsupported agg.
   const result = await gridsService.record.group({
     tableId: source.tableId,
     filter: source.filter ?? null,
@@ -93,21 +113,25 @@ const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {
   return { kind: "chart", buckets: result.data.buckets };
 };
 
-const resolveView = async (
+const resolveView = async (widget: {
+  source: ViewWidgetSource;
+  title?: string;
+}): Promise<WidgetData> => {
+  if (widget.source.kind === "view") {
+    return resolveSavedView(widget.source.viewId, widget.title);
+  }
+  return resolveRawTable(widget.source.tableId, widget.title);
+};
+
+const resolveSavedView = async (
   viewId: string,
-  viewer: { userId: string | null; userGroups: string[] },
+  titleOverride: string | undefined,
 ): Promise<WidgetData> => {
   const view = await gridsService.view.get(viewId);
   if (!view) return { kind: "error", reason: "view not found" };
-  // Permission cascade: the dashboard already gated on base-read; here
-  // we additionally verify the embedded view's parent table is readable.
-  // A dashboard author can still embed a personal view they own — the
-  // viewer needs base-read AND either the view is shared or the viewer
-  // is the owner.
   const fields = await gridsService.field.listByTable(view.tableId);
-  if (view.ownerUserId !== null && view.ownerUserId !== viewer.userId) {
-    return { kind: "error", reason: "view is private" };
-  }
+  const table = await gridsService.table.get(view.tableId);
+  if (!table) return { kind: "error", reason: "view's parent table not found" };
   const records = await gridsService.record.list({
     tableId: view.tableId,
     filter: view.query.filter ?? null,
@@ -115,5 +139,34 @@ const resolveView = async (
     limit: EMBEDDED_VIEW_PAGESIZE,
   });
   if (!records.ok) return { kind: "error", reason: records.error.message };
-  return { kind: "view", view, fields, records: records.data.items };
+  return {
+    kind: "view",
+    title: titleOverride ?? view.name,
+    fields,
+    records: records.data.items,
+    fullViewLink: { tableSlug: table.slug, viewSlug: view.slug },
+  };
+};
+
+const resolveRawTable = async (
+  tableId: string,
+  titleOverride: string | undefined,
+): Promise<WidgetData> => {
+  const table = await gridsService.table.get(tableId);
+  if (!table) return { kind: "error", reason: "table not found" };
+  const fields = await gridsService.field.listByTable(tableId);
+  // No filter/sort — raw-table source intentionally shows the latest
+  // 25 records as-is. Users wanting filtering should save a view.
+  const records = await gridsService.record.list({
+    tableId,
+    limit: EMBEDDED_VIEW_PAGESIZE,
+  });
+  if (!records.ok) return { kind: "error", reason: records.error.message };
+  return {
+    kind: "view",
+    title: titleOverride ?? table.name,
+    fields,
+    records: records.data.items,
+    fullViewLink: null,
+  };
 };
