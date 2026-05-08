@@ -55,6 +55,21 @@ export default function BaseSettingsPanel(props: Props) {
           initial={props.base.defaultDashboardId}
           dashboards={props.dashboards}
         />
+        {/* Source-permission caveat — dashboards have their own ACL,
+            but the data they pull from views/tables is checked at
+            render time without an extra cascade. A shared dashboard
+            built on a view the grantee can't read directly will still
+            show that view's data inline. Surfaced here once so the
+            base-admin sees it in context with permission-related
+            settings. */}
+        <div class="info-block-warning text-xs flex items-start gap-2 mt-3">
+          <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
+          <span>
+            Shared dashboards can surface data from views/tables a viewer
+            can't read directly. Make sure the source views match the
+            dashboard's audience.
+          </span>
+        </div>
       </SectionCard>
 
       <SectionCard title="Permissions" subtitle="Base-level grants apply to every table by default.">

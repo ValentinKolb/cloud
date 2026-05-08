@@ -142,6 +142,7 @@ export type {
   ChartWidget,
   ViewWidget,
   ViewWidgetSource,
+  StatSource,
   WidgetSource,
   WidgetFormat,
 } from "../contracts";

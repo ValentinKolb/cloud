@@ -3,6 +3,8 @@ import {
   type Widget,
   type WidgetSource,
   type ViewWidgetSource,
+  type StatSource,
+  type StatWidget,
   type Field,
   type GridRecord,
 } from "../../../service";
@@ -61,10 +63,11 @@ export const EMBEDDED_VIEW_PAGESIZE = 25;
 export const resolveWidgetData = async (
   widget: Widget,
   viewer: { userId: string | null; userGroups: string[] },
+  viewCellCache?: ViewCellCache,
 ): Promise<WidgetData> => {
   try {
     if (widget.kind === "stat") {
-      return await resolveStat(widget.source);
+      return await resolveStat(widget.source, viewCellCache);
     }
     if (widget.kind === "chart") {
       return await resolveChart(widget.source);
@@ -77,7 +80,19 @@ export const resolveWidgetData = async (
   }
 };
 
-const resolveStat = async (source: WidgetSource): Promise<WidgetData> => {
+const resolveStat = async (
+  source: StatSource,
+  viewCellCache?: ViewCellCache,
+): Promise<WidgetData> => {
+  if (source.kind === "table-aggregate") {
+    return resolveTableAggregate(source);
+  }
+  return resolveViewCell(source, viewCellCache);
+};
+
+const resolveTableAggregate = async (
+  source: Extract<StatSource, { kind: "table-aggregate" }>,
+): Promise<WidgetData> => {
   // Stat widgets carry exactly one aggregation (enforced at edit time).
   const agg = source.aggregations[0];
   if (!agg) return { kind: "error", reason: "stat widget has no aggregation" };
@@ -90,6 +105,149 @@ const resolveStat = async (source: WidgetSource): Promise<WidgetData> => {
   const key = `${agg.fieldId}__${agg.agg}`;
   const value = result.data[key];
   return { kind: "stat", value: value ?? null };
+};
+
+/**
+ * Cache of pre-fetched view results, keyed by viewId. Built once per
+ * dashboard render in `prefetchViewCells` and threaded through
+ * `resolveStat` so multiple stats sourcing from the same view share a
+ * single DB query. Each entry holds whatever shape the view query
+ * produced — records for ungrouped views, buckets for grouped ones.
+ */
+export type ViewCellCache = Map<
+  string,
+  | { kind: "records"; records: GridRecord[]; fields: Field[] }
+  | {
+      kind: "buckets";
+      buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }>;
+    }
+  | { kind: "error"; reason: string }
+>;
+
+/**
+ * Pre-fetches every unique source view referenced by a `view-cell`
+ * stat across the dashboard. Returns a cache the per-stat resolver
+ * reads from instead of re-querying. Net effect: N stats sourcing
+ * from the same view = 1 DB query, not N.
+ *
+ * The cache key is just the viewId; identical filter/sort sets in
+ * the view's saved query mean the same result, so no extra hashing
+ * is needed.
+ */
+export const prefetchViewCells = async (
+  widgets: StatWidget[],
+): Promise<ViewCellCache> => {
+  const cache: ViewCellCache = new Map();
+  const viewIds = new Set<string>();
+  for (const w of widgets) {
+    if (w.source.kind === "view-cell") viewIds.add(w.source.viewId);
+  }
+  await Promise.all(
+    [...viewIds].map(async (viewId) => {
+      try {
+        const view = await gridsService.view.get(viewId);
+        if (!view) {
+          cache.set(viewId, { kind: "error", reason: "view not found" });
+          return;
+        }
+        const isGrouped = (view.query.groupBy ?? []).length > 0;
+        if (isGrouped) {
+          const result = await gridsService.record.group({
+            tableId: view.tableId,
+            filter: view.query.filter ?? null,
+            groupBy: view.query.groupBy ?? [],
+            // Same agg-kind narrowing as resolveChart — group-compiler
+            // doesn't accept median/earliest/latest. Views in the
+            // current product can only be saved with the narrower
+            // set, so this cast is safe in practice.
+            aggregations: (view.query.aggregations ?? []).map((a) => ({
+              fieldId: a.fieldId,
+              agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
+            })),
+            limit: view.query.limit,
+          });
+          if (!result.ok) {
+            cache.set(viewId, { kind: "error", reason: result.error.message });
+            return;
+          }
+          cache.set(viewId, { kind: "buckets", buckets: result.data.buckets });
+        } else {
+          const fields = await gridsService.field.listByTable(view.tableId);
+          const result = await gridsService.record.list({
+            tableId: view.tableId,
+            filter: view.query.filter ?? null,
+            sort: view.query.sort ?? [],
+            limit: view.query.limit ?? 1000,
+          });
+          if (!result.ok) {
+            cache.set(viewId, { kind: "error", reason: result.error.message });
+            return;
+          }
+          cache.set(viewId, {
+            kind: "records",
+            records: result.data.items,
+            fields,
+          });
+        }
+      } catch (e) {
+        cache.set(viewId, {
+          kind: "error",
+          reason: e instanceof Error ? e.message : "unknown error",
+        });
+      }
+    }),
+  );
+  return cache;
+};
+
+const resolveViewCell = async (
+  source: Extract<StatSource, { kind: "view-cell" }>,
+  cache: ViewCellCache | undefined,
+): Promise<WidgetData> => {
+  const cached = cache?.get(source.viewId);
+  if (!cached) {
+    // Fallback path when the caller didn't pre-fetch — happens for
+    // unit tests and one-off widget renders. Builds a single-entry
+    // cache on the fly.
+    const oneShot = await prefetchViewCells([
+      { id: "_", kind: "stat", source } as StatWidget,
+    ]);
+    return resolveViewCell(source, oneShot);
+  }
+  if (cached.kind === "error") {
+    return { kind: "error", reason: cached.reason };
+  }
+  const ref = source.cellRef;
+  if (ref.kind === "record" && cached.kind === "records") {
+    const rec = cached.records.find((r) => r.id === ref.recordId);
+    if (!rec) return { kind: "error", reason: "row removed" };
+    return { kind: "stat", value: rec.data[ref.fieldId] ?? null };
+  }
+  if (ref.kind === "bucket" && cached.kind === "buckets") {
+    const bucket = cached.buckets.find((b) => keysEqual(b.keys, ref.groupKey));
+    if (!bucket) return { kind: "error", reason: "no data for that group" };
+    return { kind: "stat", value: bucket.values[ref.aggregationKey] ?? null };
+  }
+  // Shape mismatch: cell-ref kind doesn't match the view's actual
+  // shape (e.g. a record cell on a now-grouped view). Surface as an
+  // error so the dashboard author notices and reconfigures.
+  return {
+    kind: "error",
+    reason: "cell ref doesn't match the view's current shape",
+  };
+};
+
+const keysEqual = (a: unknown[], b: unknown[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    // Loose equality covers number-vs-string drift in JSONB; the
+    // group compiler can return numerics either way depending on
+    // the projection. Anything more rigorous would need per-field
+    // type knowledge here.
+    // eslint-disable-next-line eqeqeq
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 };
 
 const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {

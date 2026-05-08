@@ -496,6 +496,59 @@ export type WidgetSource = z.infer<typeof WidgetSourceSchema>;
 export const WidgetFormatSchema = z.enum(["plain", "currency", "percent", "integer"]);
 export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
 
+/** Stat source — discriminated union. Two shapes:
+ *
+ *  - `table-aggregate`: classic table query — pick a table, optional
+ *    filter, exactly one aggregation. Self-contained.
+ *  - `view-cell`: pick a saved view, then identify a single cell of
+ *    its result. Lets stats reuse aggregations defined inside a
+ *    view (e.g. a grouped view with `sum(price) by genre` → a stat
+ *    can pull "sum of price for genre=sci-fi" without redefining
+ *    the query).
+ *
+ *  Cell identity is by stable refs only (record id + field id for
+ *  ungrouped views; group-key tuple + agg key for grouped). Position
+ *  is never used — sorting can move rows around without breaking
+ *  saved widgets.
+ *
+ *  Failure mode (cell vanishes, view deleted, etc.) is graceful
+ *  null at render time; no schema-level validation here.
+ */
+export const StatSourceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("table-aggregate"),
+    tableId: z.string().uuid(),
+    filter: FilterTreeSchema.optional(),
+    /** Exactly one aggregation. Enforced by stat semantics, not by
+     *  the schema (Zod's `.length(1)` would reject the other kinds
+     *  if added later, so we leave it loose). */
+    aggregations: z.array(AggregationSpecSchema).min(1),
+  }),
+  z.object({
+    kind: z.literal("view-cell"),
+    viewId: z.string().uuid(),
+    cellRef: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("record"),
+        recordId: z.string().uuid(),
+        fieldId: z.string().uuid(),
+      }),
+      z.object({
+        kind: z.literal("bucket"),
+        /** Tuple of group-by values, parallel to the view's
+         *  `groupBy` order. Element types match what the group
+         *  compiler emits (string, number, ISO date, etc.). */
+        groupKey: z.array(z.unknown()),
+        /** `<fieldId>__<aggKind>` — the same key the aggregate
+         *  compiler builds for grouped queries. */
+        aggregationKey: z.string().min(1),
+      }),
+    ]),
+  }),
+]);
+export type StatSource = z.infer<typeof StatSourceSchema>;
+export type CellRef = StatSource extends { cellRef: infer C } ? C : never;
+
 // Per-kind widget schemas. Split out so the row-discriminant can
 // constrain `cells` to a single kind: stats-rows take only stat
 // widgets, widget-rows take only views (and later charts). The
@@ -505,7 +558,7 @@ export const StatWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("stat"),
   title: z.string().max(200).optional(),
-  source: WidgetSourceSchema,
+  source: StatSourceSchema,
   icon: z.string().max(60).optional(),
   format: WidgetFormatSchema.optional(),
   /** Optional small-text sub-line under the value. Mirrors the

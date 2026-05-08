@@ -446,6 +446,7 @@ const main = async () => {
                 icon: "ti ti-shopping-cart",
                 format: "integer",
                 source: {
+                  kind: "table-aggregate",
                   tableId: ordersTable,
                   aggregations: [{ fieldId: "*", agg: "count" }],
                 },
@@ -458,6 +459,7 @@ const main = async () => {
                 icon: "ti ti-currency-euro",
                 format: "currency",
                 source: {
+                  kind: "table-aggregate",
                   tableId: ordersTable,
                   aggregations: [{ fieldId: O_TOTAL, agg: "sum" }],
                 },
@@ -470,6 +472,7 @@ const main = async () => {
                 icon: "ti ti-users",
                 format: "integer",
                 source: {
+                  kind: "table-aggregate",
                   tableId: customersTable,
                   aggregations: [{ fieldId: "*", agg: "count" }],
                 },
@@ -482,6 +485,7 @@ const main = async () => {
                 icon: "ti ti-tag",
                 format: "currency",
                 source: {
+                  kind: "table-aggregate",
                   tableId: booksTable,
                   aggregations: [{ fieldId: B_PRICE, agg: "avg" }],
                 },

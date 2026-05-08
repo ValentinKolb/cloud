@@ -14,11 +14,11 @@ import type {
   DashboardConfig,
   DashboardRow,
   Field,
+  StatSource,
   StatWidget,
   StatsRow as StatsRowType,
   View,
   ViewWidget,
-  WidgetSource,
   WidgetsRow as WidgetsRowType,
 } from "../../service";
 import type { AggregationSpec } from "../../contracts";
@@ -58,7 +58,9 @@ const defaultStatWidget = (tableId: string): StatWidget => ({
   kind: "stat",
   title: "New stat",
   format: "plain",
-  source: { tableId, aggregations: [DEFAULT_AGG] },
+  // Default to table-aggregate — works on day 1 without needing an
+  // existing view. Power users flip to view-cell via the editor.
+  source: { kind: "table-aggregate", tableId, aggregations: [DEFAULT_AGG] },
 });
 
 const defaultViewWidget = (): ViewWidget => ({
@@ -333,6 +335,7 @@ function LayoutEditor(props: {
                 rowCount={props.config().rows.length}
                 tables={props.tables}
                 fieldsByTable={props.fieldsByTable}
+                viewsByTable={props.viewsByTable}
                 onUpdate={(next) => updateRow(rowIdx(), next)}
                 onMoveRow={(dir) => moveRow(rowIdx(), dir)}
                 onRemoveRow={() => removeRow(rowIdx())}
@@ -383,6 +386,7 @@ function StatsRowCard(props: {
   rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
+  viewsByTable: Record<string, View[]>;
   onUpdate: (row: StatsRowType) => void;
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
@@ -438,6 +442,7 @@ function StatsRowCard(props: {
               onRemove={() => removeCell(cellIdx())}
               tables={props.tables}
               fieldsByTable={props.fieldsByTable}
+              viewsByTable={props.viewsByTable}
             />
           )}
         </For>
@@ -652,29 +657,48 @@ function StatCellEditor(props: {
   onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
+  /** All views readable on this base, grouped by table — needed for
+   *  the view-cell source flow. */
+  viewsByTable: Record<string, View[]>;
 }) {
-  const fields = () =>
-    (props.fieldsByTable[props.widget.source.tableId] ?? []).filter(
-      (f) => !f.deletedAt,
-    );
-
-  const updateAgg = (patch: Partial<AggregationSpec>) => {
-    const current = props.widget.source.aggregations[0] ?? DEFAULT_AGG;
-    const nextSource: WidgetSource = {
-      ...props.widget.source,
-      aggregations: [{ ...current, ...patch }],
-    };
-    props.onUpdate({ ...props.widget, source: nextSource });
+  const summary = () => {
+    const src = props.widget.source;
+    if (src.kind === "table-aggregate") {
+      const agg = src.aggregations[0];
+      if (!agg) return "?";
+      const fieldName =
+        agg.fieldId === "*"
+          ? "*"
+          : (props.fieldsByTable[src.tableId] ?? []).find((f) => f.id === agg.fieldId)
+              ?.name ?? "?";
+      return `${agg.agg}(${fieldName})`;
+    }
+    return "view cell";
   };
 
-  const summary = () => {
-    const agg = props.widget.source.aggregations[0];
-    if (!agg) return "?";
-    const fieldName =
-      agg.fieldId === "*"
-        ? "*"
-        : fields().find((f) => f.id === agg.fieldId)?.name ?? "?";
-    return `${agg.agg}(${fieldName})`;
+  // Source-kind toggle. Switching kinds resets the inner shape since
+  // the two forms have nothing in common.
+  const setSourceKind = (kind: "table-aggregate" | "view-cell") => {
+    if (props.widget.source.kind === kind) return;
+    if (kind === "table-aggregate") {
+      props.onUpdate({
+        ...props.widget,
+        source: {
+          kind: "table-aggregate",
+          tableId: props.tables[0]?.id ?? "",
+          aggregations: [DEFAULT_AGG],
+        },
+      });
+      return;
+    }
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        kind: "view-cell",
+        viewId: "",
+        cellRef: { kind: "record", recordId: "", fieldId: "" },
+      },
+    });
   };
 
   return (
@@ -713,7 +737,8 @@ function StatCellEditor(props: {
       </div>
 
       <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2">
+        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
+          {/* Title / sub / icon / format — common to both source kinds */}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             <TextInput
               label="Title"
@@ -729,36 +754,6 @@ function StatCellEditor(props: {
                 props.onUpdate({ ...props.widget, sub: v || undefined })
               }
               placeholder="e.g. last 24h"
-            />
-            <Select
-              label="Source table"
-              value={() => props.widget.source.tableId}
-              onChange={(v) =>
-                props.onUpdate({
-                  ...props.widget,
-                  source: {
-                    ...props.widget.source,
-                    tableId: v,
-                    aggregations: [DEFAULT_AGG],
-                  },
-                })
-              }
-              options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
-            />
-            <Select
-              label="Aggregation"
-              value={() => props.widget.source.aggregations[0]?.agg ?? "count"}
-              onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
-              options={AGG_OPTIONS}
-            />
-            <Select
-              label="Field"
-              value={() => props.widget.source.aggregations[0]?.fieldId ?? "*"}
-              onChange={(v) => updateAgg({ fieldId: v })}
-              options={[
-                { id: "*", label: "* (records)" },
-                ...fields().map((f) => ({ id: f.id, label: f.name })),
-              ]}
             />
             <Select
               label="Format"
@@ -779,15 +774,336 @@ function StatCellEditor(props: {
               }
               placeholder="e.g. ti ti-shopping-cart"
             />
-            <div class="md:col-span-2 text-[11px] text-dimmed">
-              Preview:{" "}
-              <code class="font-mono">
-                {formatWidgetValue(0, props.widget.format)}
-              </code>{" "}
-              (style only — real value resolves at render time)
-            </div>
+          </div>
+
+          {/* Source-kind toggle. Plain segmented buttons — only two
+              options, the visual choice itself communicates the binary. */}
+          <div class="flex items-center gap-2 text-[11px] pt-1">
+            <span class="text-dimmed">Source:</span>
+            <button
+              type="button"
+              class={`px-2 py-0.5 rounded ${
+                props.widget.source.kind === "table-aggregate"
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              }`}
+              onClick={() => setSourceKind("table-aggregate")}
+            >
+              Table aggregate
+            </button>
+            <button
+              type="button"
+              class={`px-2 py-0.5 rounded ${
+                props.widget.source.kind === "view-cell"
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              }`}
+              onClick={() => setSourceKind("view-cell")}
+            >
+              View cell
+            </button>
+          </div>
+
+          <Show when={props.widget.source.kind === "table-aggregate"}>
+            <TableAggregateEditor
+              widget={props.widget}
+              tables={props.tables}
+              fieldsByTable={props.fieldsByTable}
+              onUpdate={props.onUpdate}
+            />
+          </Show>
+          <Show when={props.widget.source.kind === "view-cell"}>
+            <ViewCellPicker
+              widget={props.widget}
+              tables={props.tables}
+              viewsByTable={props.viewsByTable}
+              fieldsByTable={props.fieldsByTable}
+              onUpdate={props.onUpdate}
+            />
+          </Show>
+
+          <div class="text-[11px] text-dimmed">
+            Preview:{" "}
+            <code class="font-mono">
+              {formatWidgetValue(0, props.widget.format)}
+            </code>{" "}
+            (style only — real value resolves at render time)
           </div>
         </div>
+      </Show>
+    </div>
+  );
+}
+
+// Table-aggregate editor — the original stat shape factored out so
+// the parent can dispatch on source kind without nesting the form.
+function TableAggregateEditor(props: {
+  widget: StatWidget;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  fieldsByTable: Record<string, Field[]>;
+  onUpdate: (w: StatWidget) => void;
+}) {
+  const source = () =>
+    props.widget.source as Extract<StatSource, { kind: "table-aggregate" }>;
+
+  const fields = () =>
+    (props.fieldsByTable[source().tableId] ?? []).filter((f) => !f.deletedAt);
+
+  const updateAgg = (patch: Partial<AggregationSpec>) => {
+    const current = source().aggregations[0] ?? DEFAULT_AGG;
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        ...source(),
+        aggregations: [{ ...current, ...patch }],
+      },
+    });
+  };
+
+  return (
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+      <Select
+        label="Source table"
+        value={() => source().tableId}
+        onChange={(v) =>
+          props.onUpdate({
+            ...props.widget,
+            source: {
+              kind: "table-aggregate",
+              tableId: v,
+              aggregations: [DEFAULT_AGG],
+            },
+          })
+        }
+        options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
+      />
+      <Select
+        label="Aggregation"
+        value={() => source().aggregations[0]?.agg ?? "count"}
+        onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
+        options={AGG_OPTIONS}
+      />
+      <Select
+        label="Field"
+        value={() => source().aggregations[0]?.fieldId ?? "*"}
+        onChange={(v) => updateAgg({ fieldId: v })}
+        options={[
+          { id: "*", label: "* (records)" },
+          ...fields().map((f) => ({ id: f.id, label: f.name })),
+        ]}
+      />
+    </div>
+  );
+}
+
+// View-cell picker — view dropdown then row+column dropdowns.
+//
+// Row identification: stable IDs only. Ungrouped views → recordId
+// + fieldId. Grouped views → groupKey tuple + aggregationKey
+// (`<fieldId>__<aggKind>`). No positional row indices — sort
+// changes can't break a saved widget.
+//
+// Row labels: ungrouped uses presentable fields concatenated with
+// " · " (same logic as relation pickers); grouped uses the group-
+// key tuple stringified. Column labels: ungrouped uses field
+// names; grouped uses agg label or `agg(field)` fallback.
+function ViewCellPicker(props: {
+  widget: StatWidget;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  viewsByTable: Record<string, View[]>;
+  fieldsByTable: Record<string, Field[]>;
+  onUpdate: (w: StatWidget) => void;
+}) {
+  const source = () =>
+    props.widget.source as Extract<StatSource, { kind: "view-cell" }>;
+
+  const allViews = createMemo(() => {
+    const flat: { view: View; tableName: string }[] = [];
+    for (const t of props.tables) {
+      for (const v of props.viewsByTable[t.id] ?? []) {
+        flat.push({ view: v, tableName: t.name });
+      }
+    }
+    flat.sort((a, b) =>
+      a.view.name.localeCompare(b.view.name, undefined, { sensitivity: "base" }),
+    );
+    return flat;
+  });
+
+  const selectedView = createMemo(() => {
+    const id = source().viewId;
+    return allViews().find((x) => x.view.id === id)?.view ?? null;
+  });
+
+  const isGrouped = createMemo(() => {
+    const v = selectedView();
+    return v ? (v.query.groupBy ?? []).length > 0 : false;
+  });
+
+  // Field list of the view's parent table — drives the column
+  // picker for ungrouped views and label resolution.
+  const tableFields = createMemo(() => {
+    const v = selectedView();
+    if (!v) return [];
+    return (props.fieldsByTable[v.tableId] ?? []).filter((f) => !f.deletedAt);
+  });
+
+  // Row dropdown options. For ungrouped: stub (caller picks from a
+  // live preview which we DON'T fetch in v1 for KISS — instead we
+  // ask the user to type the recordId). For grouped: bucket keys.
+  //
+  // Simplification commitment: we don't run the view query from the
+  // editor. That'd require a server endpoint or a per-edit-open
+  // fetch. v1 expects the user to know their data; the row field
+  // takes a recordId for ungrouped (the editor surfaces a hint) and
+  // a comma-separated group-key for grouped. The ergonomic upgrade
+  // (live preview + click) lands as a polish pass after we see how
+  // the picker actually gets used.
+  const setView = (viewId: string) => {
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        kind: "view-cell",
+        viewId,
+        // Reset cellRef to ungrouped-shaped on view change. Once the
+        // user picks a grouped view they fill the bucket fields and
+        // the cellRef updates accordingly.
+        cellRef: { kind: "record", recordId: "", fieldId: "" },
+      },
+    });
+  };
+
+  const setRecordRef = (recordId: string, fieldId: string) => {
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        kind: "view-cell",
+        viewId: source().viewId,
+        cellRef: { kind: "record", recordId, fieldId },
+      },
+    });
+  };
+
+  const setBucketRef = (groupKeyCsv: string, aggregationKey: string) => {
+    // Group key is a tuple — for the picker we accept comma-
+    // separated values and split. Element types are unknown at
+    // edit-time; the resolver compares loosely (== not ===) so
+    // numeric-vs-string drift is forgiven.
+    const groupKey: unknown[] = groupKeyCsv
+      .split(",")
+      .map((s) => {
+        const t = s.trim();
+        if (t === "") return "";
+        const asNumber = Number(t);
+        return Number.isFinite(asNumber) && t === String(asNumber) ? asNumber : t;
+      });
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        kind: "view-cell",
+        viewId: source().viewId,
+        cellRef: { kind: "bucket", groupKey, aggregationKey },
+      },
+    });
+  };
+
+  // Aggregation options for grouped views — derived from the view's
+  // saved aggregations list. Each entry's key is `<fieldId>__<agg>`
+  // matching what the group compiler emits at runtime.
+  const groupedAggOptions = createMemo(() => {
+    const v = selectedView();
+    if (!v || !isGrouped()) return [];
+    const aggs = v.query.aggregations ?? [];
+    const fmap = new Map(tableFields().map((f) => [f.id, f.name]));
+    return aggs.map((a) => {
+      const fieldName = a.fieldId === "*" ? "*" : fmap.get(a.fieldId) ?? a.fieldId;
+      const key = `${a.fieldId}__${a.agg}`;
+      return { id: key, label: a.label ?? `${a.agg}(${fieldName})` };
+    });
+  });
+
+  return (
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+      <Select
+        label="View"
+        value={() => source().viewId}
+        onChange={setView}
+        options={[
+          { id: "", label: "(pick a view)" },
+          ...allViews().map(({ view, tableName }) => ({
+            id: view.id,
+            label: `${tableName} · ${view.name}`,
+          })),
+        ]}
+      />
+
+      <Show when={selectedView()}>
+        <Show
+          when={isGrouped()}
+          fallback={
+            // Ungrouped view — recordId + fieldId
+            <>
+              <TextInput
+                label="Record ID"
+                value={() => {
+                  const r = source().cellRef;
+                  return r.kind === "record" ? r.recordId : "";
+                }}
+                onInput={(v) => {
+                  const r = source().cellRef;
+                  setRecordRef(v, r.kind === "record" ? r.fieldId : "");
+                }}
+                placeholder="UUID of the row"
+                description="Find via the records page address bar (?record=...)"
+              />
+              <Select
+                label="Field"
+                value={() => {
+                  const r = source().cellRef;
+                  return r.kind === "record" ? r.fieldId : "";
+                }}
+                onChange={(v) => {
+                  const r = source().cellRef;
+                  setRecordRef(r.kind === "record" ? r.recordId : "", v);
+                }}
+                options={[
+                  { id: "", label: "(pick a field)" },
+                  ...tableFields().map((f) => ({ id: f.id, label: f.name })),
+                ]}
+              />
+            </>
+          }
+        >
+          {/* Grouped view — group-key tuple + aggregation key */}
+          <TextInput
+            label="Group key"
+            value={() => {
+              const r = source().cellRef;
+              return r.kind === "bucket" ? r.groupKey.map((k) => String(k)).join(", ") : "";
+            }}
+            onInput={(v) => {
+              const r = source().cellRef;
+              setBucketRef(v, r.kind === "bucket" ? r.aggregationKey : "");
+            }}
+            placeholder="e.g. sci-fi"
+            description="Comma-separated for multi-key groupBy"
+          />
+          <Select
+            label="Aggregation"
+            value={() => {
+              const r = source().cellRef;
+              return r.kind === "bucket" ? r.aggregationKey : "";
+            }}
+            onChange={(v) => {
+              const r = source().cellRef;
+              setBucketRef(r.kind === "bucket" ? r.groupKey.map((k) => String(k)).join(", ") : "", v);
+            }}
+            options={[
+              { id: "", label: "(pick an aggregation)" },
+              ...groupedAggOptions(),
+            ]}
+          />
+        </Show>
       </Show>
     </div>
   );

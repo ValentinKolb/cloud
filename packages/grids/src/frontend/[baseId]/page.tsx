@@ -6,6 +6,7 @@ import { gridsService } from "../../service";
 import RecordsView from "../_components/records-view/RecordsView.island";
 import DashboardLayout from "../_components/dashboard/DashboardLayout";
 import {
+  prefetchViewCells,
   resolveWidgetData,
   type WidgetData,
 } from "../_components/dashboard/widget-data";
@@ -303,16 +304,25 @@ export default ssr<AuthContext>(async (c) => {
     // synthesises a fresh inferred union — flat-mapping into a typed
     // array via a per-row branch keeps each call site narrow.
     const widgets: Array<StatWidget | ChartWidget | ViewWidget> = [];
+    const stats: StatWidget[] = [];
     for (const r of renderDashboard.config.rows) {
-      if (r.kind === "stats") widgets.push(...r.cells);
-      else widgets.push(...r.cells);
+      if (r.kind === "stats") {
+        widgets.push(...r.cells);
+        stats.push(...r.cells);
+      } else {
+        widgets.push(...r.cells);
+      }
     }
+    // Pre-fetch unique view-cell sources before per-widget resolution
+    // so N stats reading from the same saved view share one DB query.
+    const viewCellCache = await prefetchViewCells(stats);
     const results = await Promise.all(
       widgets.map((w) =>
-        resolveWidgetData(w, {
-          userId: user.id,
-          userGroups: user.memberofGroupIds,
-        }).then((data) => [w.id, data] as const),
+        resolveWidgetData(
+          w,
+          { userId: user.id, userGroups: user.memberofGroupIds },
+          viewCellCache,
+        ).then((data) => [w.id, data] as const),
       ),
     );
     for (const [id, data] of results) widgetData[id] = data;
