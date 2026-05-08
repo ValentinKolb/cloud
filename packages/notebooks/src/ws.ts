@@ -11,7 +11,7 @@ import { notebooksService } from "./service";
 import { PRESENCE_HEARTBEAT_INTERVAL_MS } from "./service/presence";
 import { yjsSnapshotWorker } from "./service/yjs-snapshot-worker";
 import type { YjsTopicEvent } from "./service/yjs-sync";
-import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yjs-sync";
+import { createYjsTopic, maxStreamCursor, NODE_ID, parseStreamCursor, toBase64 } from "./service/yjs-sync";
 
 /**
  * Notebooks realtime websocket (chat-style declarative flow):
@@ -538,7 +538,42 @@ const toPushUpdate = (event: TopicLiveEvent<YjsTopicEvent>): PushUpdate => ({
 const pushTypeForKind = (kind: YjsTopicEvent["kind"]): typeof WS_TYPE.syncPush | typeof WS_TYPE.awarenessPush =>
   kind === "sync" ? WS_TYPE.syncPush : WS_TYPE.awarenessPush;
 
-const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | null) => {
+/**
+ * Time window inside which an event's cursor counts as "live edge" —
+ * i.e. so recent that we've effectively caught up to head and the
+ * client may safely receive `replayReady`. Picked at 1s because
+ * publish→consume latency on a healthy local Redis is sub-100ms; a
+ * full second leaves plenty of slack for a busy server / network
+ * jitter without keeping the client waiting noticeably.
+ */
+const CATCH_UP_LIVE_EDGE_MS = 1000;
+
+/**
+ * Hard cap on the catch-up phase. Even on a totally dormant note (no
+ * inbound events to use as a "live edge" signal), we must release the
+ * gate eventually so the user can start typing. Picked at 2s because
+ * topic.live's BLOCK timeout is much shorter (200ms) — by 2s we've
+ * almost certainly drained any retained backlog.
+ */
+const CATCH_UP_MAX_MS = 2000;
+
+const startLiveStream = (
+  ctx: WsContext,
+  noteId: string,
+  afterCursor: string | null,
+  /**
+   * Fired exactly once when the catch-up phase ends — either because
+   * we hit a "live edge" event (within `CATCH_UP_LIVE_EDGE_MS` of
+   * now) or the `CATCH_UP_MAX_MS` fallback timer expires. The caller
+   * should send `replayReady` from this callback so the client only
+   * opens its send gate AFTER all retained sync events have been
+   * forwarded. Critical for the fresh-note path (`afterCursor === null`):
+   * without this, the user could reload, type, and the resulting
+   * publish would be merged on top of an incomplete document — see
+   * codex review on commit d87df13.
+   */
+  onCaughtUp: () => void,
+) => {
   stopLiveStream(ctx);
   const abort = new AbortController();
   ctx.streamAbort = abort;
@@ -549,6 +584,30 @@ const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | n
     let pendingEvents = 0;
     let pendingBytes = 0;
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    let caughtUp = false;
+
+    const markCaughtUp = () => {
+      if (caughtUp) return;
+      caughtUp = true;
+      // Flush any sync events we accumulated during catch-up before
+      // signalling ready, so the client's first applyUpdate sequence
+      // is contiguous with the eventual replayReady.
+      flush();
+      try {
+        onCaughtUp();
+      } catch (error) {
+        log.warn("onCaughtUp callback threw", {
+          noteId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+
+    // Fallback: if no events arrive within CATCH_UP_MAX_MS, assume
+    // we're caught up. Required for fresh notes where the topic is
+    // empty AND for dormant notes whose only events are old enough
+    // that none of them trip the live-edge check.
+    const catchUpTimer = setTimeout(markCaughtUp, CATCH_UP_MAX_MS);
 
     const flush = () => {
       if (flushTimer) {
@@ -583,6 +642,33 @@ const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | n
         signal: abort.signal,
       })) {
         if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
+
+        // Phase 1 — catch-up: replay retained sync history into the
+        // client's Y.Doc but DROP retained awareness events. Awareness
+        // (cursor positions, user presence) is ephemeral by design;
+        // resurrecting awareness from past sessions paints "ghost"
+        // remote cursors at stale positions until the next awareness
+        // timeout. Once we hit a live-edge event (or the fallback
+        // timer expires), we've drained backlog and let awareness
+        // flow again.
+        let triggerCatchUpAfterFlush = false;
+        if (!caughtUp) {
+          const eventMs = parseStreamCursor(event.cursor)?.ms ?? Date.now();
+          const isLiveEdge = eventMs >= Date.now() - CATCH_UP_LIVE_EDGE_MS;
+          if (event.data.kind === "awareness" && !isLiveEdge) {
+            continue; // stale awareness — drop
+          }
+          if (isLiveEdge) {
+            // Defer the actual `markCaughtUp` until after the event
+            // we're processing is in `pending` (and possibly flushed),
+            // so the wire order stays: trigger-event → replayReady →
+            // future events. Otherwise the client would see
+            // replayReady BEFORE the live-edge event that justified
+            // releasing the gate.
+            triggerCatchUpAfterFlush = true;
+          }
+        }
+
         const update = toPushUpdate(event);
         const type = pushTypeForKind(event.data.kind);
 
@@ -604,7 +690,17 @@ const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | n
         } else {
           scheduleFlush();
         }
+
+        if (triggerCatchUpAfterFlush) {
+          clearTimeout(catchUpTimer);
+          markCaughtUp(); // internally flushes pending then sends replayReady
+        }
       }
+      clearTimeout(catchUpTimer);
+      // If the loop exited before the catch-up timer fired (e.g. the
+      // socket closed during replay), still resolve the gate so any
+      // upstream cleanup that hangs on `caughtUp` doesn't deadlock.
+      markCaughtUp();
       flush();
     } catch (error) {
       if (!abort.signal.aborted) {
@@ -615,6 +711,10 @@ const startLiveStream = (ctx: WsContext, noteId: string, afterCursor: string | n
         await fatal(ctx, ERROR_CODE.internalError, "Live sync stream failed", noteId);
       }
     } finally {
+      clearTimeout(catchUpTimer);
+      // Last-ditch: even on error/abort, signal caught-up so the call
+      // site doesn't sit waiting for `replayReady` forever.
+      markCaughtUp();
       if (flushTimer) clearTimeout(flushTimer);
       flush();
       if (ctx.streamAbort === abort) {
@@ -711,9 +811,17 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     replayCursor = snapshot?.streamCursor ?? null;
   }
 
-  startLiveStream(ctx, dbNoteId, replayCursor);
+  // `replayReady` is now deferred until the live-stream's catch-up
+  // phase ends — see `startLiveStream` for the gate logic. Sending it
+  // immediately would let the client publish edits while retained
+  // history is still being delivered, producing wonky merge order
+  // (codex review on commit d87df13). Catch-up usually resolves in
+  // <100ms on a healthy local Redis; the hard cap is `CATCH_UP_MAX_MS`
+  // (2 s) so dormant notes don't hang.
+  startLiveStream(ctx, dbNoteId, replayCursor, () => {
+    send(ctx.socket, WS_TYPE.replayReady, { noteId: dbNoteId });
+  });
   startAccessRefresh(ctx);
-  send(ctx.socket, WS_TYPE.replayReady, { noteId: dbNoteId });
   log.debug("Replay stream started", {
     noteId: dbNoteId,
     peerId: ctx.peerId,
