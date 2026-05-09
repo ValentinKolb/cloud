@@ -6,8 +6,9 @@ import { gridsService } from "../../service";
 import RecordsView from "../_components/records-view/RecordsView.island";
 import DashboardLayout from "../_components/dashboard/DashboardLayout";
 import {
-  prefetchViewCells,
+  resolveViewStatsRow,
   resolveWidgetData,
+  type ViewStatsRowData,
   type WidgetData,
 } from "../_components/dashboard/widget-data";
 import type { GroupBucket } from "../_components/GroupedTable";
@@ -296,36 +297,46 @@ export default ssr<AuthContext>(async (c) => {
   // chart, list+25 for view); fan-out via Promise.all so the slowest
   // widget caps the total render time, not the sum.
   const widgetData: Record<string, WidgetData> = {};
+  const viewStatsData: Record<string, ViewStatsRowData> = {};
   if (renderDashboard) {
-    // The discriminated row union (`stats` vs `widgets`) keeps cell
-    // arrays typed as their per-row narrow set (StatWidget[] for
-    // stats, (ChartWidget|ViewWidget)[] for widgets). Concatenating
-    // them as Widget[] loses the discriminant narrowing and TS
-    // synthesises a fresh inferred union — flat-mapping into a typed
-    // array via a per-row branch keeps each call site narrow.
+    // The discriminated row union (`stats` / `view-stats` / `widgets`)
+    // keeps cell arrays narrow per row kind. Flatten widget-bearing
+    // cells into one list for parallel `resolveWidgetData` fan-out;
+    // view-stats rows have no widget cells, so they get a separate
+    // resolver that returns derived ViewStatsCell entries keyed by
+    // row id.
     const widgets: Array<StatWidget | ChartWidget | ViewWidget> = [];
-    const stats: StatWidget[] = [];
+    const viewStatsRows: typeof renderDashboard.config.rows = [];
     for (const r of renderDashboard.config.rows) {
       if (r.kind === "stats") {
         widgets.push(...r.cells);
-        stats.push(...r.cells);
-      } else {
+      } else if (r.kind === "widgets") {
         widgets.push(...r.cells);
+      } else {
+        viewStatsRows.push(r);
       }
     }
-    // Pre-fetch unique view-cell sources before per-widget resolution
-    // so N stats reading from the same saved view share one DB query.
-    const viewCellCache = await prefetchViewCells(stats);
-    const results = await Promise.all(
-      widgets.map((w) =>
-        resolveWidgetData(
-          w,
-          { userId: user.id, userGroups: user.memberofGroupIds },
-          viewCellCache,
-        ).then((data) => [w.id, data] as const),
+    const [widgetResults, viewStatsResults] = await Promise.all([
+      Promise.all(
+        widgets.map((w) =>
+          resolveWidgetData(w, {
+            userId: user.id,
+            userGroups: user.memberofGroupIds,
+          }).then((data) => [w.id, data] as const),
+        ),
       ),
-    );
-    for (const [id, data] of results) widgetData[id] = data;
+      Promise.all(
+        viewStatsRows.map((r) =>
+          r.kind === "view-stats"
+            ? resolveViewStatsRow(r).then((data) => [r.id, data] as const)
+            : Promise.resolve([r.id, null] as const),
+        ),
+      ),
+    ]);
+    for (const [id, data] of widgetResults) widgetData[id] = data;
+    for (const [id, data] of viewStatsResults) {
+      if (data) viewStatsData[id] = data;
+    }
   }
 
   // Sidebar listing — readable dashboards across the base. Same shape
@@ -926,6 +937,7 @@ export default ssr<AuthContext>(async (c) => {
             <DashboardLayout
               dashboard={renderDashboard}
               widgetData={widgetData}
+              viewStatsData={viewStatsData}
               baseSlug={baseSlug}
             />
           ) : activeTable ? (

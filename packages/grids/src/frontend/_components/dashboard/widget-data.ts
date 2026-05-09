@@ -3,29 +3,23 @@ import {
   type Widget,
   type WidgetSource,
   type ViewWidgetSource,
-  type StatSource,
-  type StatWidget,
+  type ViewStatsRow,
   type Field,
   type GridRecord,
+  type WidgetFormat,
 } from "../../../service";
 
 /**
  * Runtime data shape for a rendered widget — what the SSR pipeline
  * computes once per widget and threads through to the cell components.
- * The stat / chart variants carry already-evaluated numbers so the
- * frontend doesn't re-call the API; the view variant carries enough
- * pre-fetched state for the embedded RecordsView to mount without a
- * client-side roundtrip on first paint.
+ * Stat / chart variants carry already-evaluated values; the view
+ * variant carries pre-fetched records + fields for the embedded
+ * read-only table. View-stats rows have their own resolver
+ * (`resolveViewStatsRow`) that returns derived cells, keyed by row
+ * id rather than widget id.
  *
- * Errors are surfaced as a `kind: "error"` discriminant so the cell
- * renderer can paint a small "couldn't load" badge in red without the
- * page-level fetcher having to bubble exceptions through Promise.all.
- *
- * The view variant abstracts over both source kinds (saved view OR
- * raw table) — the renderer only cares about records + fields + an
- * optional "Open full view" deep-link. The link is only present when
- * the source is a saved view; raw-table sources don't have a natural
- * destination, so the header link is suppressed by the renderer.
+ * Errors surface as a `kind: "error"` discriminant so a single bad
+ * widget doesn't crash the whole dashboard.
  */
 export type WidgetData =
   | { kind: "stat"; value: unknown }
@@ -35,16 +29,32 @@ export type WidgetData =
       title: string;
       fields: Field[];
       records: GridRecord[];
-      /** Deep-link target when source is a saved view; null for raw
-       *  table sources so the "Open full view" header link is hidden. */
       fullViewLink: { tableSlug: string; viewSlug: string } | null;
     }
   | { kind: "error"; reason: string };
 
-/** Fixed pagesize for embedded views — agreed in the dashboard plan
- *  ("kein scrolling, drilldown via Open full view link"). Enough rows
- *  to feel useful on a wide desktop, not so many that loading three
- *  view widgets on one dashboard becomes slow. */
+/** Cells produced by `resolveViewStatsRow` — one entry per derived
+ *  stat. Format is inferred from the source field type or the agg
+ *  kind, so the user does no per-cell configuration. */
+export type ViewStatsCell = {
+  label: string;
+  value: unknown;
+  format: WidgetFormat;
+};
+
+/** Resolved view-stats payload threaded through to the renderer.
+ *  When the source view is empty / missing / mis-shaped, `cells` is
+ *  empty and `notice` carries a one-liner the renderer surfaces
+ *  inline. */
+export type ViewStatsRowData = {
+  title: string;
+  cells: ViewStatsCell[];
+  notice: string | null;
+  /** Drilldown link to the source view's full records page. Null
+   *  when the source view was deleted (no slug to link to). */
+  fullViewLink: { tableSlug: string; viewSlug: string } | null;
+};
+
 export const EMBEDDED_VIEW_PAGESIZE = 25;
 
 /**
@@ -56,44 +66,25 @@ export const EMBEDDED_VIEW_PAGESIZE = 25;
  *
  * Per the agreed permission model, the dashboard's base-read gate is
  * the only access check; this function does not re-cascade per-source.
- * If a viewer of a shared dashboard can't read the underlying view or
- * table, that's a configuration choice surfaced in the settings hint
- * card — not something the renderer should soften.
  */
 export const resolveWidgetData = async (
   widget: Widget,
   viewer: { userId: string | null; userGroups: string[] },
-  viewCellCache?: ViewCellCache,
 ): Promise<WidgetData> => {
   try {
     if (widget.kind === "stat") {
-      return await resolveStat(widget.source, viewCellCache);
+      return await resolveStat(widget.source);
     }
     if (widget.kind === "chart") {
       return await resolveChart(widget.source);
     }
     return await resolveView(widget);
   } catch (e) {
-    // Last-ditch catch: anything thrown becomes a renderable error
-    // sentinel so a single bad widget doesn't crash the whole dashboard.
     return { kind: "error", reason: e instanceof Error ? e.message : "unknown error" };
   }
 };
 
-const resolveStat = async (
-  source: StatSource,
-  viewCellCache?: ViewCellCache,
-): Promise<WidgetData> => {
-  if (source.kind === "table-aggregate") {
-    return resolveTableAggregate(source);
-  }
-  return resolveViewCell(source, viewCellCache);
-};
-
-const resolveTableAggregate = async (
-  source: Extract<StatSource, { kind: "table-aggregate" }>,
-): Promise<WidgetData> => {
-  // Stat widgets carry exactly one aggregation (enforced at edit time).
+const resolveStat = async (source: WidgetSource): Promise<WidgetData> => {
   const agg = source.aggregations[0];
   if (!agg) return { kind: "error", reason: "stat widget has no aggregation" };
   const result = await gridsService.record.aggregate({
@@ -103,160 +94,10 @@ const resolveTableAggregate = async (
   });
   if (!result.ok) return { kind: "error", reason: result.error.message };
   const key = `${agg.fieldId}__${agg.agg}`;
-  const value = result.data[key];
-  return { kind: "stat", value: value ?? null };
-};
-
-/**
- * Cache of pre-fetched view results, keyed by viewId. Built once per
- * dashboard render in `prefetchViewCells` and threaded through
- * `resolveStat` so multiple stats sourcing from the same view share a
- * single DB query. Each entry holds whatever shape the view query
- * produced — records for ungrouped views, buckets for grouped ones.
- */
-export type ViewCellCache = Map<
-  string,
-  | { kind: "records"; records: GridRecord[]; fields: Field[] }
-  | {
-      kind: "buckets";
-      buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }>;
-    }
-  | { kind: "error"; reason: string }
->;
-
-/**
- * Pre-fetches every unique source view referenced by a `view-cell`
- * stat across the dashboard. Returns a cache the per-stat resolver
- * reads from instead of re-querying. Net effect: N stats sourcing
- * from the same view = 1 DB query, not N.
- *
- * The cache key is just the viewId; identical filter/sort sets in
- * the view's saved query mean the same result, so no extra hashing
- * is needed.
- */
-export const prefetchViewCells = async (
-  widgets: StatWidget[],
-): Promise<ViewCellCache> => {
-  const cache: ViewCellCache = new Map();
-  const viewIds = new Set<string>();
-  for (const w of widgets) {
-    if (w.source.kind === "view-cell") viewIds.add(w.source.viewId);
-  }
-  await Promise.all(
-    [...viewIds].map(async (viewId) => {
-      try {
-        const view = await gridsService.view.get(viewId);
-        if (!view) {
-          cache.set(viewId, { kind: "error", reason: "view not found" });
-          return;
-        }
-        const isGrouped = (view.query.groupBy ?? []).length > 0;
-        if (isGrouped) {
-          const result = await gridsService.record.group({
-            tableId: view.tableId,
-            filter: view.query.filter ?? null,
-            groupBy: view.query.groupBy ?? [],
-            // Same agg-kind narrowing as resolveChart — group-compiler
-            // doesn't accept median/earliest/latest. Views in the
-            // current product can only be saved with the narrower
-            // set, so this cast is safe in practice.
-            aggregations: (view.query.aggregations ?? []).map((a) => ({
-              fieldId: a.fieldId,
-              agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
-            })),
-            limit: view.query.limit,
-          });
-          if (!result.ok) {
-            cache.set(viewId, { kind: "error", reason: result.error.message });
-            return;
-          }
-          cache.set(viewId, { kind: "buckets", buckets: result.data.buckets });
-        } else {
-          const fields = await gridsService.field.listByTable(view.tableId);
-          const result = await gridsService.record.list({
-            tableId: view.tableId,
-            filter: view.query.filter ?? null,
-            sort: view.query.sort ?? [],
-            limit: view.query.limit ?? 1000,
-          });
-          if (!result.ok) {
-            cache.set(viewId, { kind: "error", reason: result.error.message });
-            return;
-          }
-          cache.set(viewId, {
-            kind: "records",
-            records: result.data.items,
-            fields,
-          });
-        }
-      } catch (e) {
-        cache.set(viewId, {
-          kind: "error",
-          reason: e instanceof Error ? e.message : "unknown error",
-        });
-      }
-    }),
-  );
-  return cache;
-};
-
-const resolveViewCell = async (
-  source: Extract<StatSource, { kind: "view-cell" }>,
-  cache: ViewCellCache | undefined,
-): Promise<WidgetData> => {
-  const cached = cache?.get(source.viewId);
-  if (!cached) {
-    // Fallback path when the caller didn't pre-fetch — happens for
-    // unit tests and one-off widget renders. Builds a single-entry
-    // cache on the fly.
-    const oneShot = await prefetchViewCells([
-      { id: "_", kind: "stat", source } as StatWidget,
-    ]);
-    return resolveViewCell(source, oneShot);
-  }
-  if (cached.kind === "error") {
-    return { kind: "error", reason: cached.reason };
-  }
-  const ref = source.cellRef;
-  if (ref.kind === "record" && cached.kind === "records") {
-    const rec = cached.records.find((r) => r.id === ref.recordId);
-    if (!rec) return { kind: "error", reason: "row removed" };
-    return { kind: "stat", value: rec.data[ref.fieldId] ?? null };
-  }
-  if (ref.kind === "bucket" && cached.kind === "buckets") {
-    const bucket = cached.buckets.find((b) => keysEqual(b.keys, ref.groupKey));
-    if (!bucket) return { kind: "error", reason: "no data for that group" };
-    return { kind: "stat", value: bucket.values[ref.aggregationKey] ?? null };
-  }
-  // Shape mismatch: cell-ref kind doesn't match the view's actual
-  // shape (e.g. a record cell on a now-grouped view). Surface as an
-  // error so the dashboard author notices and reconfigures.
-  return {
-    kind: "error",
-    reason: "cell ref doesn't match the view's current shape",
-  };
-};
-
-const keysEqual = (a: unknown[], b: unknown[]): boolean => {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    // Loose equality covers number-vs-string drift in JSONB; the
-    // group compiler can return numerics either way depending on
-    // the projection. Anything more rigorous would need per-field
-    // type knowledge here.
-    // eslint-disable-next-line eqeqeq
-    if (a[i] != b[i]) return false;
-  }
-  return true;
+  return { kind: "stat", value: result.data[key] ?? null };
 };
 
 const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {
-  // Chart widgets use AggregationSpec which carries the wider agg
-  // kind union (median/earliest/latest) — record.group only accepts
-  // the narrower GroupAggregationSpec. P1 (chart renderer) will
-  // narrow this at the schema level; for now we strip the extra
-  // label and let the compiler reject any chart that picks an
-  // unsupported agg.
   const result = await gridsService.record.group({
     tableId: source.tableId,
     filter: source.filter ?? null,
@@ -313,8 +154,6 @@ const resolveRawTable = async (
   const table = await gridsService.table.get(tableId);
   if (!table) return { kind: "error", reason: "table not found" };
   const fields = await gridsService.field.listByTable(tableId);
-  // No filter/sort — raw-table source intentionally shows the latest
-  // 25 records as-is. Users wanting filtering should save a view.
   const records = await gridsService.record.list({
     tableId,
     limit: EMBEDDED_VIEW_PAGESIZE,
@@ -327,4 +166,169 @@ const resolveRawTable = async (
     records: records.data.items,
     fullViewLink: null,
   };
+};
+
+// =============================================================================
+// view-stats row resolver
+// =============================================================================
+
+/**
+ * Resolves a `view-stats` row into a list of cells. Auto-detects the
+ * view's shape from `view.query.groupBy.length`:
+ *
+ *  - ungrouped → take first record, render one cell per visible field
+ *    of the parent table. Cell label = field name, value = record
+ *    cell, format = inferred from field type.
+ *  - grouped → take first bucket, render one cell per aggregation in
+ *    `view.query.aggregations`. Label = `agg.label` or
+ *    `<agg>(<field>)`, value = bucket value, format = inferred from
+ *    agg kind + target field type.
+ *
+ *  When the source has no rows / buckets, `cells` is empty and
+ *  `notice` carries a short reason for the renderer to display
+ *  inline. `fullViewLink` is null only when the source view doesn't
+ *  exist (so the drilldown link is hidden); a present-but-empty view
+ *  keeps the link so the user can fix it.
+ */
+export const resolveViewStatsRow = async (
+  row: ViewStatsRow,
+): Promise<ViewStatsRowData> => {
+  const titleFallback = row.title ?? "View stats";
+  try {
+    const view = await gridsService.view.get(row.viewId);
+    if (!view) {
+      return {
+        title: titleFallback,
+        cells: [],
+        notice: "view not found",
+        fullViewLink: null,
+      };
+    }
+    const table = await gridsService.table.get(view.tableId);
+    if (!table) {
+      return {
+        title: row.title ?? view.name,
+        cells: [],
+        notice: "view's parent table not found",
+        fullViewLink: null,
+      };
+    }
+    const link = { tableSlug: table.slug, viewSlug: view.slug };
+    const title = row.title ?? view.name;
+    const isGrouped = (view.query.groupBy ?? []).length > 0;
+    if (isGrouped) {
+      return resolveGroupedViewStats(view, title, link);
+    }
+    return resolveUngroupedViewStats(view, title, link);
+  } catch (e) {
+    return {
+      title: titleFallback,
+      cells: [],
+      notice: e instanceof Error ? e.message : "unknown error",
+      fullViewLink: null,
+    };
+  }
+};
+
+const resolveUngroupedViewStats = async (
+  view: NonNullable<Awaited<ReturnType<typeof gridsService.view.get>>>,
+  title: string,
+  link: { tableSlug: string; viewSlug: string },
+): Promise<ViewStatsRowData> => {
+  const fields = await gridsService.field.listByTable(view.tableId);
+  const visible = fields
+    .filter((f) => !f.deletedAt && !f.hideInTable)
+    .sort((a, b) => a.position - b.position);
+  if (visible.length === 0) {
+    return { title, cells: [], notice: "view has no visible fields", fullViewLink: link };
+  }
+  const result = await gridsService.record.list({
+    tableId: view.tableId,
+    filter: view.query.filter ?? null,
+    sort: view.query.sort ?? [],
+    limit: 1,
+  });
+  if (!result.ok) {
+    return { title, cells: [], notice: result.error.message, fullViewLink: link };
+  }
+  const first = result.data.items[0];
+  if (!first) {
+    return { title, cells: [], notice: "view has no records", fullViewLink: link };
+  }
+  const cells: ViewStatsCell[] = visible.map((f) => ({
+    label: f.name,
+    value: first.data[f.id] ?? null,
+    format: inferFormatFromField(f),
+  }));
+  return { title, cells, notice: null, fullViewLink: link };
+};
+
+const resolveGroupedViewStats = async (
+  view: NonNullable<Awaited<ReturnType<typeof gridsService.view.get>>>,
+  title: string,
+  link: { tableSlug: string; viewSlug: string },
+): Promise<ViewStatsRowData> => {
+  const aggs = view.query.aggregations ?? [];
+  if (aggs.length === 0) {
+    return { title, cells: [], notice: "view has no aggregations", fullViewLink: link };
+  }
+  const fields = await gridsService.field.listByTable(view.tableId);
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+  const result = await gridsService.record.group({
+    tableId: view.tableId,
+    filter: view.query.filter ?? null,
+    groupBy: view.query.groupBy ?? [],
+    aggregations: aggs.map((a) => ({
+      fieldId: a.fieldId,
+      agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
+    })),
+    limit: 1,
+  });
+  if (!result.ok) {
+    return { title, cells: [], notice: result.error.message, fullViewLink: link };
+  }
+  const first = result.data.buckets[0];
+  if (!first) {
+    return { title, cells: [], notice: "view has no buckets", fullViewLink: link };
+  }
+  const cells: ViewStatsCell[] = aggs.map((a) => {
+    const key = `${a.fieldId}__${a.agg}`;
+    const targetField = a.fieldId === "*" ? null : fieldsById.get(a.fieldId) ?? null;
+    const fallbackLabel =
+      a.fieldId === "*"
+        ? `${a.agg}(*)`
+        : `${a.agg}(${targetField?.name ?? "?"})`;
+    return {
+      label: a.label ?? fallbackLabel,
+      value: first.values[key] ?? null,
+      format: inferFormatFromAgg(a.agg, targetField),
+    };
+  });
+  return { title, cells, notice: null, fullViewLink: link };
+};
+
+/** Maps a field's type to the matching widget format. Currency,
+ *  percent, integer-only number map directly; everything else falls
+ *  back to plain. */
+const inferFormatFromField = (field: Field): WidgetFormat => {
+  if (field.type === "currency") return "currency";
+  if (field.type === "percent") return "percent";
+  if (field.type === "rating") return "integer";
+  if (field.type === "number") {
+    const cfg = field.config as { integerOnly?: boolean };
+    return cfg.integerOnly ? "integer" : "plain";
+  }
+  return "plain";
+};
+
+/** Same heuristic for grouped aggs. Counts are always integer; sum/
+ *  avg/min/max inherit from the target field. */
+const inferFormatFromAgg = (
+  agg: string,
+  targetField: Field | null,
+): WidgetFormat => {
+  if (agg === "count" || agg === "countEmpty" || agg === "countUnique") {
+    return "integer";
+  }
+  return targetField ? inferFormatFromField(targetField) : "plain";
 };

@@ -345,7 +345,7 @@ const main = async () => {
   // 2 — Books grouped by genre with count + sum of prices.
   //    The price column is currency, which the aggregate compiler
   //    handles via the nested `amount` projection.
-  await mkView(booksTable, "By genre · revenue", {
+  const vGenreRevenue = await mkView(booksTable, "By genre · revenue", {
     groupBy: [{ fieldId: B_GENRE, direction: "asc" }],
     aggregations: [
       { fieldId: "*",     agg: "count" },
@@ -446,7 +446,6 @@ const main = async () => {
                 icon: "ti ti-shopping-cart",
                 format: "integer",
                 source: {
-                  kind: "table-aggregate",
                   tableId: ordersTable,
                   aggregations: [{ fieldId: "*", agg: "count" }],
                 },
@@ -459,7 +458,6 @@ const main = async () => {
                 icon: "ti ti-currency-euro",
                 format: "currency",
                 source: {
-                  kind: "table-aggregate",
                   tableId: ordersTable,
                   aggregations: [{ fieldId: O_TOTAL, agg: "sum" }],
                 },
@@ -472,7 +470,6 @@ const main = async () => {
                 icon: "ti ti-users",
                 format: "integer",
                 source: {
-                  kind: "table-aggregate",
                   tableId: customersTable,
                   aggregations: [{ fieldId: "*", agg: "count" }],
                 },
@@ -485,12 +482,23 @@ const main = async () => {
                 icon: "ti ti-tag",
                 format: "currency",
                 source: {
-                  kind: "table-aggregate",
                   tableId: booksTable,
                   aggregations: [{ fieldId: B_PRICE, agg: "avg" }],
                 },
               },
             ],
+          },
+          // View-stats row — auto-derived from the "By genre · revenue"
+          // view's first bucket. Demonstrates zero-config composition:
+          // view defines `count(*)`, `sum(price)`, `avg(price)` over
+          // genre groups; this row picks up all three as cells of the
+          // first bucket. If the underlying view changes, the row
+          // follows automatically.
+          {
+            id: "row-genre-stats",
+            kind: "view-stats",
+            viewId: vGenreRevenue,
+            title: "Top genre at a glance",
           },
           // View row: each cell is its own paper card with the lg
           // height tier so the embedded record table has breathing room.

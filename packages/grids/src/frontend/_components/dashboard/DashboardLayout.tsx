@@ -6,17 +6,21 @@ import type {
   WidgetsRow,
 } from "../../../service";
 import StatsRow from "./StatsRow";
+import ViewStatsRow from "./ViewStatsRow";
 import EmbeddedViewWidget from "./ViewWidget";
 import ChartWidgetStub from "./ChartWidgetStub";
-import type { WidgetData } from "./widget-data";
+import type { WidgetData, ViewStatsRowData } from "./widget-data";
 
 type Props = {
   dashboard: Dashboard;
-  /** Pre-resolved per-widget data, keyed by `widget.id`. The SSR
-   *  page fetches every widget in parallel via `Promise.all` and
-   *  threads the result map down. */
+  /** Pre-resolved per-widget data for `stats` and `widgets` rows,
+   *  keyed by `widget.id`. */
   widgetData: Record<string, WidgetData>;
-  /** Slug of the parent base — needed by the View-widget header link. */
+  /** Pre-resolved per-row data for `view-stats` rows, keyed by
+   *  `row.id`. Cells are derived by the resolver from the source
+   *  view's first row / first bucket. */
+  viewStatsData: Record<string, ViewStatsRowData>;
+  /** Slug of the parent base — needed by the view-link header. */
   baseSlug: string;
 };
 
@@ -64,17 +68,29 @@ export default function DashboardLayout(props: Props) {
         fallback={<EmptyDashboardState />}
       >
         <For each={props.dashboard.config.rows}>
-          {(row) =>
-            row.kind === "stats" ? (
-              <StatsRow row={row} widgetData={props.widgetData} />
-            ) : (
+          {(row) => {
+            if (row.kind === "stats") {
+              return <StatsRow row={row} widgetData={props.widgetData} />;
+            }
+            if (row.kind === "view-stats") {
+              const data = props.viewStatsData[row.id];
+              if (!data) {
+                return (
+                  <div class="paper px-4 py-3 text-xs text-dimmed">
+                    View stats row had no resolved data
+                  </div>
+                );
+              }
+              return <ViewStatsRow data={data} baseSlug={props.baseSlug} />;
+            }
+            return (
               <WidgetsRowRender
                 row={row}
                 widgetData={props.widgetData}
                 baseSlug={props.baseSlug}
               />
-            )
-          }
+            );
+          }}
         </For>
       </Show>
     </div>

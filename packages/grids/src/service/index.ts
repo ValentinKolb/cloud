@@ -136,6 +136,7 @@ export type {
   DashboardConfig,
   DashboardRow,
   StatsRow,
+  ViewStatsRow,
   WidgetsRow,
   Widget,
   StatWidget,

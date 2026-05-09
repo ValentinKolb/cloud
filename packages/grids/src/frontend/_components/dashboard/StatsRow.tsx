@@ -60,15 +60,10 @@ export default function StatsRow(props: Props) {
 function StatCell(props: { widget: StatWidget; data: WidgetData | undefined }) {
   const labelOf = () => {
     if (props.widget.title) return props.widget.title;
-    const src = props.widget.source;
-    if (src.kind === "table-aggregate") {
-      const agg = src.aggregations[0];
-      if (!agg) return "Stat";
-      if (agg.fieldId === "*") return `${agg.agg}(*)`;
-      return agg.label ?? agg.agg;
-    }
-    // view-cell — no clean fallback; prompt the user to set a title.
-    return "Stat";
+    const agg = props.widget.source.aggregations[0];
+    if (!agg) return "Stat";
+    if (agg.fieldId === "*") return `${agg.agg}(*)`;
+    return agg.label ?? agg.agg;
   };
 
   const data = (): WidgetData =>
