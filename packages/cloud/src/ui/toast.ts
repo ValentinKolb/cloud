@@ -68,31 +68,35 @@ const MAX_VISIBLE_TOASTS = 5;
 const ANIMATION_MS = 200;
 const CONTAINER_ID = "ui-toast-container";
 
-/** Variant → palette + default icon. Tailwind classes only — no
- *  bespoke CSS to avoid drift with the rest of the app. */
-const VARIANT_STYLES: Record<ToastVariant, { container: string; iconClass: string }> = {
+/** Variant → palette + default icon.
+ *
+ * Visual language: minimal + borderless. The variant signal is
+ * carried by the (subtle) tinted background and the (saturated)
+ * icon color only. The TEXT stays neutral zinc in both light and
+ * dark mode — light text on dark bg / dark text on light bg —
+ * because saturated colored body text reads as "alert" and the
+ * point of these is "noticeable but not loud."
+ */
+const VARIANT_STYLES: Record<ToastVariant, { bgClass: string; iconClass: string; iconColorClass: string }> = {
   default: {
-    container:
-      "bg-blue-50 dark:bg-blue-950/40 " +
-      "border border-blue-200 dark:border-blue-800 " +
-      "text-blue-900 dark:text-blue-200",
+    bgClass: "bg-blue-50 dark:bg-blue-950/40",
     iconClass: "ti-info-circle",
+    iconColorClass: "text-blue-600 dark:text-blue-300",
   },
   success: {
-    container:
-      "bg-green-50 dark:bg-green-950/40 " +
-      "border border-green-200 dark:border-green-800 " +
-      "text-green-900 dark:text-green-200",
+    bgClass: "bg-green-50 dark:bg-green-950/40",
     iconClass: "ti-check",
+    iconColorClass: "text-green-600 dark:text-green-300",
   },
   error: {
-    container:
-      "bg-red-50 dark:bg-red-950/40 " +
-      "border border-red-200 dark:border-red-800 " +
-      "text-red-900 dark:text-red-200",
+    bgClass: "bg-red-50 dark:bg-red-950/40",
     iconClass: "ti-alert-circle",
+    iconColorClass: "text-red-600 dark:text-red-300",
   },
 };
+
+/** Helper: split a Tailwind class string into individual tokens. */
+const splitClasses = (cls: string): string[] => cls.split(/\s+/).filter(Boolean);
 
 // All currently-mounted toasts. Used for `dismissAll`.
 const liveToasts = new Set<ToastHandle>();
@@ -122,31 +126,33 @@ const ensureContainer = (): HTMLElement | null => {
 // =============================================================================
 
 /** Apply variant + iconClass to a toast element. Used both at create
- *  time and on `update()` to swap palette mid-life. */
+ *  time and on `update()` to swap palette mid-life.
+ *
+ *  We strip every variant's bg + icon-color classes before applying
+ *  the new variant's, so repeated `update()` calls don't accumulate
+ *  stacked palettes. Text-color is fixed (zinc-900 / dark:zinc-100)
+ *  and added once at create time — no swap needed. */
 const applyStyle = (
   toastEl: HTMLElement,
   iconEl: HTMLElement,
   variant: ToastVariant,
   iconClassOverride?: string,
 ) => {
-  const style = VARIANT_STYLES[variant];
-  // Strip any prior variant classes so update() doesn't accumulate
-  // stacked palettes. We track them by re-resolving from the
-  // VARIANT_STYLES values rather than carrying state on the element.
+  const next = VARIANT_STYLES[variant];
+
   for (const v of Object.values(VARIANT_STYLES)) {
-    for (const cls of v.container.split(/\s+/)) {
-      if (cls) toastEl.classList.remove(cls);
-    }
+    for (const cls of splitClasses(v.bgClass)) toastEl.classList.remove(cls);
+    for (const cls of splitClasses(v.iconColorClass)) iconEl.classList.remove(cls);
   }
-  for (const cls of style.container.split(/\s+/)) {
-    if (cls) toastEl.classList.add(cls);
-  }
-  // Icon: remove every `ti-*` modifier class, keep the `ti` family
+  for (const cls of splitClasses(next.bgClass)) toastEl.classList.add(cls);
+  for (const cls of splitClasses(next.iconColorClass)) iconEl.classList.add(cls);
+
+  // Icon: remove any prior `ti-*` modifier, keep the `ti` family
   // class so the font is still applied.
   for (const cls of Array.from(iconEl.classList)) {
     if (cls.startsWith("ti-")) iconEl.classList.remove(cls);
   }
-  iconEl.classList.add(iconClassOverride ?? style.iconClass);
+  iconEl.classList.add(iconClassOverride ?? next.iconClass);
 };
 
 // =============================================================================
@@ -168,7 +174,11 @@ const showToast = (message: string, options?: ToastOptions): ToastHandle => {
   const toastEl = document.createElement("div");
   toastEl.className =
     "pointer-events-auto cursor-pointer flex items-start gap-2 " +
-    "px-3 py-2 rounded-md text-sm shadow-lg " +
+    "px-3 py-2 rounded-md text-sm shadow-md " +
+    // Neutral text color — variant signal lives in bg + icon, not in
+    // the body copy. Inverted in dark mode (light text on tinted-dark
+    // bg). See VARIANT_STYLES for the bg / icon-color rules.
+    "text-zinc-900 dark:text-zinc-100 " +
     "transition-all duration-200 ease-out " +
     // Initial off-screen state — we flip it on the next frame so
     // the browser renders the entry frame and animates the change.
