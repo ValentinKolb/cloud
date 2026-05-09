@@ -28,8 +28,6 @@ export type ReadModeScriptsConfig = {
   scriptsEnabled: boolean;
   /** Title of the note these blocks live in — feeds `kit.note.title`. */
   noteTitle: string;
-  /** Optional toast surface. */
-  toast?: (message: string) => void;
 };
 
 /**
@@ -67,7 +65,6 @@ export const enhanceReadModeScripts = (container: HTMLElement, config: ReadModeS
     const kit = createKit({
       noteTitle: config.noteTitle,
       outputEl,
-      toast: config.toast,
     });
     void runScript(source, kit, outputEl);
   }

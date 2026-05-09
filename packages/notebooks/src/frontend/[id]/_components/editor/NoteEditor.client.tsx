@@ -165,9 +165,6 @@ export default function NoteEditor(props: Props) {
           editor.scriptsExtension({
             scriptsEnabled: () => props.scriptsEnabled,
             noteTitle: () => props.noteTitle,
-            // TODO(phase-3): wire `prompts.toast` (or the platform
-            // toast surface) here so kit.ui.toast renders consistently
-            // with other in-app notifications.
           }),
         ]
       : [],

@@ -8,6 +8,8 @@ export { SettingsField, SettingsSaveBar, sameSettingValue, readSettingsError } f
 export type { SettingsFieldProps, SettingsSaveBarProps } from "./admin-settings";
 export { prompts, DialogHeader, createFormState } from "./prompts";
 export type { PromptSearchItem, PromptSearchInput, PromptSearchOptions } from "./prompts";
+export { toast } from "./toast";
+export type { ToastFn, ToastHandle, ToastOptions, ToastVariant } from "./toast";
 export { dialogCore, createDialogCore } from "./dialog-core";
 export type { DialogClose, OpenDialogOptions, DialogRender, DialogCore } from "./dialog-core";
 export { default as SidebarLayout, SidebarFromSpec } from "./sidebar";

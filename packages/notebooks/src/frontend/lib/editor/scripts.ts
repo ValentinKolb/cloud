@@ -39,8 +39,6 @@ import { runScript } from "../script/runner";
 export type ScriptsConfig = {
   scriptsEnabled: () => boolean;
   noteTitle: () => string;
-  /** Optional toast surface — when omitted the kit logs to console. */
-  toast?: (message: string) => void;
 };
 
 /** Debounce window for re-runs after a source change. Picked at
@@ -124,7 +122,6 @@ class ScriptOutputWidget extends WidgetType {
     const kit = createKit({
       noteTitle: this.config.noteTitle(),
       outputEl: this.container,
-      toast: this.config.toast,
     });
     void runScript(this.source, kit, this.container);
   }
