@@ -28,6 +28,7 @@
 import { syntaxTree } from "@codemirror/language";
 import { RangeSet, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
+import type { SyntaxNode } from "@lezer/common";
 import { createKit } from "../script/kit";
 import { runScript } from "../script/runner";
 
@@ -145,34 +146,36 @@ class ScriptOutputWidget extends WidgetType {
  * read-mode (marked sees them as `lang: "script"`) but skipped by
  * the editor — silent drift between authoring and rendering.
  *
+ * `node` MUST be the `FencedCode` node itself — not a cursor /
+ * resolved position. Resolving via `tree.cursorAt(from, 1)` would
+ * land on the opening `CodeMark` (no children), which would make
+ * `firstChild()` return false and silently skip every block. We pull
+ * the SyntaxNode straight from `iterate`'s `nodeRef.node` to avoid
+ * that trap (codex review on commit 972e16e).
+ *
  * Returns null when the fence isn't a `script` block.
  */
 type FenceParts = { body: string };
 
-const parseScriptFence = (state: EditorState, fenceFrom: number, fenceTo: number): FenceParts | null => {
+const parseScriptFence = (state: EditorState, node: SyntaxNode): FenceParts | null => {
   let info: string | null = null;
-  // Body spans from end-of-info to start-of-closing-fence (or end of
-  // node when there's no closer). We accumulate text from `CodeText`
-  // child nodes directly.
+  // Body spans the union of every `CodeText` child range. The grammar
+  // emits one `CodeText` per body line in some variants, so we have
+  // to collect the full span from the first to the last.
   let bodyFrom: number | null = null;
   let bodyTo: number | null = null;
 
-  const tree = syntaxTree(state);
-  const cursor = tree.cursorAt(fenceFrom, 1);
-  // `cursorAt(pos, 1)` lands inside the fence node; `firstChild()`
-  // descends to the first child (`CodeMark`).
-  if (!cursor.firstChild()) return null;
-  do {
-    const name = cursor.name;
+  let child: SyntaxNode | null = node.firstChild;
+  while (child) {
+    const name = child.name;
     if (name === "CodeInfo" && info === null) {
-      info = state.doc.sliceString(cursor.from, cursor.to).trim().toLowerCase();
+      info = state.doc.sliceString(child.from, child.to).trim().toLowerCase();
     } else if (name === "CodeText") {
-      // Multiple `CodeText` children can appear (one per line in some
-      // grammar variants). Span from the first to the last.
-      if (bodyFrom === null) bodyFrom = cursor.from;
-      bodyTo = cursor.to;
+      if (bodyFrom === null) bodyFrom = child.from;
+      bodyTo = child.to;
     }
-  } while (cursor.nextSibling() && cursor.from < fenceTo);
+    child = child.nextSibling;
+  }
 
   if (info !== "script") return null;
   // Empty body (just `\`\`\`script\n\`\`\``) — let the runner render
@@ -192,12 +195,12 @@ const decorate = (state: EditorState, config: ScriptsConfig): DecorationSet => {
 
   const widgets: Range<Decoration>[] = [];
   syntaxTree(state).iterate({
-    enter: ({ type, from, to }) => {
-      if (type.name !== "FencedCode") return;
-      const parts = parseScriptFence(state, from, to);
+    enter: (nodeRef) => {
+      if (nodeRef.type.name !== "FencedCode") return;
+      const parts = parseScriptFence(state, nodeRef.node);
       if (!parts) return;
       const widget = new ScriptOutputWidget(parts.body, config);
-      const blockEnd = state.doc.lineAt(to).to;
+      const blockEnd = state.doc.lineAt(nodeRef.to).to;
       widgets.push(
         Decoration.widget({
           widget,
