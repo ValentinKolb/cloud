@@ -107,10 +107,11 @@ const ANIMATION_MS = 200;
 const CONTAINER_ID = "ui-toast-container";
 
 /** Fixed width for every toast — all toasts in the stack line up at
- *  this exact width regardless of content length. `w-96` = 24 rem ≈
- *  384 px; matches Mantine's default and reads comfortably at typical
- *  viewport sizes. To make this configurable later, lift to an option. */
-const TOAST_WIDTH_CLASS = "w-96";
+ *  this exact width regardless of content length. `w-80` = 20 rem ≈
+ *  320 px; intentionally narrower than Mantine's default so toasts
+ *  don't dominate the right rail. To make this configurable later,
+ *  lift to an option. */
+const TOAST_WIDTH_CLASS = "w-80";
 
 /** Per-variant rendering recipe. The lead element is a thin colored
  *  bar for `default` (no icon — quiet visual treatment) and a solid
