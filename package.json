@@ -28,6 +28,7 @@
     "dev": "docker compose -f compose.dev.yml up --build",
     "dev:full": "docker compose -f compose.dev.yml --profile extra up --build",
     "dev:down": "docker compose -f compose.dev.yml --profile extra down --remove-orphans",
+    "dev:rebuild": "docker compose -f compose.dev.yml --profile extra up --build -d",
     "dev:app": "bun run scripts/dev-app.ts",
     "format": "bun run scripts/run-biome.ts format",
     "format:check": "bun run scripts/run-biome.ts format:check",
