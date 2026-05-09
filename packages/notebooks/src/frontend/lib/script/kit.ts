@@ -28,23 +28,25 @@ export type KitNote = {
 };
 
 /** Options forwarded to `kit.ui.toast`. Mirrors `ToastOptions` in
- *  `cloud/ui/toast.ts` minus the things scripts shouldn't be touching
- *  (e.g. raw DOM `iconClass` is fine, but no internal handles). */
+ *  `cloud/ui/toast.ts` — the first positional arg is the
+ *  description (the body line); `title` is an optional override
+ *  on top of the variant-default ("Info" / "Success" / "Error"). */
 export type KitToastOptions = {
   variant?: "default" | "success" | "error";
   duration?: number;
   iconClass?: string;
-  /** Optional second line, dimmed under the title. */
-  desc?: string;
+  /** Override the variant-default title. Pass `""` for an empty
+   *  title row. */
+  title?: string;
 };
 
 /** UI helpers — every method mounts to the script block's output slot.
  *  Multiple ```script blocks in a note each have their own slot. */
 export type KitUI = {
-  /** Show a transient toast notification. Forwards `options` to the
-   *  platform `toast()` so script authors can use `desc`, `variant`,
-   *  `duration`, `iconClass` directly. */
-  toast: (title: string, options?: KitToastOptions) => void;
+  /** Show a transient toast notification. The first arg is the
+   *  description (body line); the title defaults to the variant
+   *  name and can be overridden via `options.title`. */
+  toast: (description: string, options?: KitToastOptions) => void;
   /**
    * Append a button to the script's output slot. The button persists
    * across re-runs only if the source is unchanged; on source-change
@@ -83,12 +85,13 @@ export const createKit = (ctx: KitContext): Kit => ({
     },
   },
   ui: {
-    // Pass-through to the platform toast. Options forwarded as-is so
-    // script authors can use `desc`, `variant`, `duration`, `iconClass`
-    // (anything `cloud/ui` exposes). Phase 2/3 may add
-    // `kit.ui.toast.success/error` shorthands if scripts need them.
-    toast: (title, options) => {
-      toast(title, options);
+    // Pass-through to the platform toast. Description is positional;
+    // options forwarded as-is so script authors can use `title`,
+    // `variant`, `duration`, `iconClass` (anything `cloud/ui` exposes).
+    // Phase 2/3 may add `kit.ui.toast.success/error` shorthands if
+    // scripts need them.
+    toast: (description, options) => {
+      toast(description, options);
     },
     button: (label, onClick) => {
       const btn = document.createElement("button");
