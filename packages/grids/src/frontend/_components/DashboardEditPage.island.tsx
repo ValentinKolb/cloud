@@ -277,6 +277,22 @@ function LayoutEditor(props: {
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
 }) {
+  // Single source of truth for which cell editor is expanded —
+  // keyed by stable widget.id (not array index), so it survives
+  // the row-object recreations that Solid's <For> would otherwise
+  // unmount when `setConfig` produces a fresh row reference. A
+  // local signal in each row card was the original design, but a
+  // change anywhere in that row → new row object → component
+  // remount → state reset → user re-opens the panel after every
+  // edit, which is exactly what the user reported.
+  //
+  // One global signal keeps the model trivial (only one cell open
+  // at a time across the whole editor; opening a new one collapses
+  // the previous). Multi-open felt like a YAGNI complication.
+  const [expandedCellId, setExpandedCellId] = createSignal<string | null>(null);
+  const toggleCell = (id: string) =>
+    setExpandedCellId(expandedCellId() === id ? null : id);
+
   const updateRow = (rowIdx: number, next: DashboardRow) => {
     const cfg = props.config();
     props.setConfig({
@@ -345,6 +361,8 @@ function LayoutEditor(props: {
                   rowCount={props.config().rows.length}
                   tables={props.tables}
                   fieldsByTable={props.fieldsByTable}
+                  expandedCellId={expandedCellId}
+                  toggleCell={toggleCell}
                   onUpdate={(next) => updateRow(rowIdx(), next)}
                   onMoveRow={(dir) => moveRow(rowIdx(), dir)}
                   onRemoveRow={() => removeRow(rowIdx())}
@@ -372,6 +390,8 @@ function LayoutEditor(props: {
                 rowCount={props.config().rows.length}
                 tables={props.tables}
                 viewsByTable={props.viewsByTable}
+                expandedCellId={expandedCellId}
+                toggleCell={toggleCell}
                 onUpdate={(next) => updateRow(rowIdx(), next)}
                 onMoveRow={(dir) => moveRow(rowIdx(), dir)}
                 onRemoveRow={() => removeRow(rowIdx())}
@@ -418,12 +438,15 @@ function StatsRowCard(props: {
   rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
+  /** Hoisted expansion state — keyed by stable widget.id so it
+   *  survives the row-object recreations triggered by every cell
+   *  edit. See LayoutEditor for the rationale. */
+  expandedCellId: () => string | null;
+  toggleCell: (id: string) => void;
   onUpdate: (row: StatsRowType) => void;
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
 }) {
-  const [expanded, setExpanded] = createSignal<number | null>(null);
-
   const updateCell = (cellIdx: number, widget: StatWidget) => {
     props.onUpdate({
       ...props.row,
@@ -464,11 +487,9 @@ function StatsRowCard(props: {
           {(cell, cellIdx) => (
             <StatCellEditor
               widget={cell}
-              isExpanded={expanded() === cellIdx()}
+              isExpanded={props.expandedCellId() === cell.id}
               canRemove={props.row.cells.length > 1}
-              onToggle={() =>
-                setExpanded(expanded() === cellIdx() ? null : cellIdx())
-              }
+              onToggle={() => props.toggleCell(cell.id)}
               onUpdate={(w) => updateCell(cellIdx(), w)}
               onRemove={() => removeCell(cellIdx())}
               tables={props.tables}
@@ -507,12 +528,13 @@ function WidgetsRowCard(props: {
   rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
+  /** Hoisted expansion state — see StatsRowCard for the rationale. */
+  expandedCellId: () => string | null;
+  toggleCell: (id: string) => void;
   onUpdate: (row: WidgetsRowType) => void;
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
 }) {
-  const [expanded, setExpanded] = createSignal<number | null>(null);
-
   // Chart variant exists in the schema but the render stub ships in P1.
   // The editor only offers `view` cells until then; an existing chart
   // cell on a saved dashboard is preserved via the `cell.kind` check
@@ -566,11 +588,9 @@ function WidgetsRowCard(props: {
             cell.kind === "view" ? (
               <ViewCellEditor
                 widget={cell}
-                isExpanded={expanded() === cellIdx()}
+                isExpanded={props.expandedCellId() === cell.id}
                 canRemove={props.row.cells.length > 1}
-                onToggle={() =>
-                  setExpanded(expanded() === cellIdx() ? null : cellIdx())
-                }
+                onToggle={() => props.toggleCell(cell.id)}
                 onUpdate={(w) => updateCell(cellIdx(), w)}
                 onRemove={() => removeCell(cellIdx())}
                 viewsByTable={props.viewsByTable}
