@@ -223,9 +223,11 @@ const showToast = (title: string, options?: ToastOptions): ToastHandle => {
 
   // Toast card. White / zinc-900 body, neutral text, soft shadow,
   // no border (the lead element is the only color affordance).
+  // Click-anywhere dismisses — there's no explicit close button, so
+  // any click on the card kills the toast.
   const toastEl = document.createElement("div");
   toastEl.className =
-    "pointer-events-auto flex items-stretch gap-3 " +
+    "pointer-events-auto cursor-pointer flex items-stretch gap-3 " +
     "p-3 rounded-md shadow-md " +
     "bg-white dark:bg-zinc-900 " +
     "transition-all duration-200 ease-out " +
@@ -240,8 +242,11 @@ const showToast = (title: string, options?: ToastOptions): ToastHandle => {
   const contentEl = document.createElement("div");
   contentEl.className = "flex-1 min-w-0 self-center flex flex-col gap-0.5";
 
+  // Subtle title — `font-medium` (not bold) and a tone shy of full
+  // zinc-900/100 contrast. Toasts are peripheral feedback; loud body
+  // text reads as "alert" and we want polite.
   const titleEl = document.createElement("div");
-  titleEl.className = "text-sm font-semibold text-zinc-900 dark:text-zinc-100 leading-tight";
+  titleEl.className = "text-sm font-medium text-zinc-800 dark:text-zinc-200 leading-tight";
   titleEl.textContent = title;
 
   // Desc element is always in the DOM but `hidden` when empty —
@@ -257,22 +262,8 @@ const showToast = (title: string, options?: ToastOptions): ToastHandle => {
   contentEl.appendChild(titleEl);
   contentEl.appendChild(descEl);
 
-  // Close button — explicit X so the user has an obvious dismiss
-  // affordance. The whole toast was clickable in the borderless
-  // variant; the Mantine pattern reserves dismissal for this button
-  // so accidental body clicks don't kill the toast mid-read.
-  const closeEl = document.createElement("button");
-  closeEl.type = "button";
-  closeEl.className =
-    "shrink-0 self-start w-6 h-6 -m-1 flex items-center justify-center " +
-    "rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 " +
-    "cursor-pointer transition-colors";
-  closeEl.setAttribute("aria-label", "Dismiss notification");
-  closeEl.innerHTML = '<i class="ti ti-x text-base"></i>';
-
   toastEl.appendChild(leadEl);
   toastEl.appendChild(contentEl);
-  toastEl.appendChild(closeEl);
 
   // ----- timer + dismiss -----
 
@@ -334,10 +325,7 @@ const showToast = (title: string, options?: ToastOptions): ToastHandle => {
     armDismissTimer(nextOptions?.duration ?? DEFAULT_DURATION_MS);
   };
 
-  closeEl.addEventListener("click", (e) => {
-    e.stopPropagation();
-    dismiss();
-  });
+  toastEl.addEventListener("click", dismiss);
 
   const handle: ToastHandle = { dismiss, update };
   liveToasts.add(handle);

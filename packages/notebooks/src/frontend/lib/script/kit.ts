@@ -27,11 +27,24 @@ export type KitNote = {
   readonly title: string;
 };
 
+/** Options forwarded to `kit.ui.toast`. Mirrors `ToastOptions` in
+ *  `cloud/ui/toast.ts` minus the things scripts shouldn't be touching
+ *  (e.g. raw DOM `iconClass` is fine, but no internal handles). */
+export type KitToastOptions = {
+  variant?: "default" | "success" | "error";
+  duration?: number;
+  iconClass?: string;
+  /** Optional second line, dimmed under the title. */
+  desc?: string;
+};
+
 /** UI helpers — every method mounts to the script block's output slot.
  *  Multiple ```script blocks in a note each have their own slot. */
 export type KitUI = {
-  /** Show a transient toast notification. */
-  toast: (message: string) => void;
+  /** Show a transient toast notification. Forwards `options` to the
+   *  platform `toast()` so script authors can use `desc`, `variant`,
+   *  `duration`, `iconClass` directly. */
+  toast: (title: string, options?: KitToastOptions) => void;
   /**
    * Append a button to the script's output slot. The button persists
    * across re-runs only if the source is unchanged; on source-change
@@ -70,11 +83,12 @@ export const createKit = (ctx: KitContext): Kit => ({
     },
   },
   ui: {
-    // `kit.ui.toast` is a thin re-export of the platform toast — V1
-    // exposes only the default variant; Phase 2/3 may broaden this
-    // to `kit.ui.toast.success/error/...` if scripts need them.
-    toast: (message) => {
-      toast(message);
+    // Pass-through to the platform toast. Options forwarded as-is so
+    // script authors can use `desc`, `variant`, `duration`, `iconClass`
+    // (anything `cloud/ui` exposes). Phase 2/3 may add
+    // `kit.ui.toast.success/error` shorthands if scripts need them.
+    toast: (title, options) => {
+      toast(title, options);
     },
     button: (label, onClick) => {
       const btn = document.createElement("button");
