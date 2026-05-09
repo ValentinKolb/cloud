@@ -84,6 +84,80 @@ function GeneralSection(props: { notebook: Notebook }) {
 }
 
 // =============================================================================
+// Scripting (admin-only) — toggles the per-notebook opt-in for
+// `\`\`\`script` block execution. Off by default. Toggling triggers a
+// PATCH /:id with `scriptsEnabled` which the API gates to admin only.
+// =============================================================================
+
+function ScriptingSection(props: { notebook: Notebook }) {
+  const [enabled, setEnabled] = createSignal(props.notebook.scriptsEnabled);
+
+  const mutation = mutations.create({
+    mutation: async (next: boolean) => {
+      const res = await apiClient[":id"].$patch({
+        param: { id: props.notebook.id },
+        json: { scriptsEnabled: next },
+      });
+      if (!res.ok) throw new Error("Failed to update scripting setting");
+      return res.json();
+    },
+    onSuccess: () => refreshCurrentPath(),
+    onError: (err) => {
+      // Revert on failure so the toggle reflects the persisted state.
+      setEnabled(props.notebook.scriptsEnabled);
+      prompts.error(err.message);
+    },
+  });
+
+  const handleToggle = async () => {
+    const next = !enabled();
+    if (next) {
+      // Confirm before turning ON — the warning copy needs an
+      // explicit "yes I understand" gesture, not just a tap.
+      const confirmed = await prompts.confirm(
+        `Scripts in this notebook can read your notes, modify content, and call any browser API on your behalf — only enable for notebooks you trust.\n\nEnable scripting in "${props.notebook.name}"?`,
+        {
+          title: "Enable scripting",
+          icon: "ti ti-alert-triangle",
+          variant: "danger",
+          confirmText: "Enable",
+        },
+      );
+      if (!confirmed) return;
+    }
+    setEnabled(next);
+    mutation.mutate(next);
+  };
+
+  return (
+    <div class="flex flex-col gap-3">
+      <h3 class="section-label mb-0 flex items-center gap-2">
+        <i class="ti ti-code text-dimmed" />
+        Scripting
+      </h3>
+      <p class="text-xs text-dimmed">
+        When enabled, fenced code blocks tagged{" "}
+        <code class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[11px]">```script</code>{" "}
+        evaluate as JavaScript in the editor. Scripts run with the same permissions as your browser session — only enable for notebooks you trust.
+      </p>
+      <label class="flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={enabled()}
+          disabled={mutation.loading()}
+          onChange={handleToggle}
+          class="h-4 w-4 rounded border-zinc-300 dark:border-zinc-600"
+        />
+        <span class="text-sm">
+          Enable scripting in this notebook
+          {mutation.loading() && <i class="ti ti-loader-2 animate-spin ml-2 text-xs" />}
+        </span>
+      </label>
+    </div>
+  );
+}
+
+// =============================================================================
 // Danger Zone
 // =============================================================================
 
@@ -152,6 +226,9 @@ export default function NotebookSettingsPanel(props: Props) {
 
         {/* General */}
         {props.canWrite && <GeneralSection notebook={props.notebook} />}
+
+        {/* Scripting (admin-only opt-in for `\`\`\`script` blocks) */}
+        {props.isAdmin && <ScriptingSection notebook={props.notebook} />}
 
         {/* Permissions */}
         {props.isAdmin && (

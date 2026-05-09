@@ -294,6 +294,7 @@ export default ssr<AuthContext>(async (c) => {
                 noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
+                scriptsEnabled={notebook.scriptsEnabled}
                 renderedHtml={selectedNote.renderedHtml ?? ""}
                 isLocked={!!selectedNote.lockedAt}
               />
@@ -302,6 +303,7 @@ export default ssr<AuthContext>(async (c) => {
                 noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
+                scriptsEnabled={notebook.scriptsEnabled}
                 appUrl={appUrl}
                 sessionToken={sessionToken!}
                 userId={user.id}

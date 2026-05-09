@@ -17,6 +17,10 @@ export type Notebook = {
   name: string;
   description: string | null;
   icon: string | null;
+  /** Per-notebook opt-in for the JS scripting feature. Default false.
+   *  Only notebook admins can flip this; the editor consults this flag
+   *  before evaluating any `\`\`\`script` blocks. */
+  scriptsEnabled: boolean;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -32,6 +36,7 @@ export type UpdateNotebook = {
   name?: string;
   description?: string | null;
   icon?: string | null;
+  scriptsEnabled?: boolean;
 };
 
 type DbNotebook = {
@@ -40,6 +45,7 @@ type DbNotebook = {
   name: string;
   description: string | null;
   icon: string | null;
+  scripts_enabled: boolean;
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
@@ -74,6 +80,7 @@ const mapToNotebook = (row: DbNotebook): Notebook => ({
   name: row.name,
   description: row.description,
   icon: row.icon,
+  scriptsEnabled: row.scripts_enabled,
   createdBy: row.created_by,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -136,6 +143,7 @@ export const list = async (params: {
             n.name,
             n.description,
             n.icon,
+            n.scripts_enabled,
             n.created_by,
             n.created_at,
             n.updated_at
@@ -166,6 +174,7 @@ export const list = async (params: {
             n.name,
             n.description,
             n.icon,
+            n.scripts_enabled,
             n.created_by,
             n.created_at,
             n.updated_at
@@ -237,6 +246,7 @@ export const listAdmin = async (params: {
       n.name,
       n.description,
       n.icon,
+      n.scripts_enabled,
       n.created_by,
       n.created_at,
       n.updated_at,
@@ -247,7 +257,7 @@ export const listAdmin = async (params: {
       ${pattern}::text IS NULL
       OR LOWER(n.name) LIKE ${pattern}
     )
-    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.created_by, n.created_at, n.updated_at
+    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.scripts_enabled, n.created_by, n.created_at, n.updated_at
     ORDER BY LOWER(n.name) ASC, n.created_at ASC
     LIMIT ${params.pagination.limit}
     OFFSET ${params.pagination.offset}
@@ -307,7 +317,7 @@ export const adminSummary = async (params: { search?: string }): Promise<{
  */
 export const get = async (params: { id: string }): Promise<Notebook | null> => {
   const [row] = await sql<DbNotebook[]>`
-    SELECT id, short_id, name, description, icon, created_by, created_at, updated_at
+    SELECT id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
     FROM notebooks.notebooks
     WHERE id = ${params.id}::uuid
   `;
@@ -325,7 +335,7 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
   const v = params.idOrShortId;
   if (isShortId(v)) {
     const [row] = await sql<DbNotebook[]>`
-      SELECT id, short_id, name, description, icon, created_by, created_at, updated_at
+      SELECT id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
       FROM notebooks.notebooks
       WHERE short_id = ${v}
     `;
@@ -345,7 +355,7 @@ export const create = async (params: { data: CreateNotebook; creatorId: string }
   const [row] = await sql<DbNotebook[]>`
     INSERT INTO notebooks.notebooks (short_id, name, description, icon, created_by)
     VALUES (${shortId}, ${data.name}, ${data.description ?? null}, ${data.icon ?? null}, ${creatorId}::uuid)
-    RETURNING id, short_id, name, description, icon, created_by, created_at, updated_at
+    RETURNING id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
   `;
 
   if (!row) {
@@ -400,12 +410,17 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
   const name = data.name ?? existing.name;
   const description = data.description === undefined ? existing.description : data.description;
   const icon = data.icon === undefined ? existing.icon : data.icon;
+  const scriptsEnabled = data.scriptsEnabled ?? existing.scriptsEnabled;
 
   const [row] = await sql<DbNotebook[]>`
     UPDATE notebooks.notebooks
-    SET name = ${name}, description = ${description}, icon = ${icon}, updated_at = now()
+    SET name = ${name},
+        description = ${description},
+        icon = ${icon},
+        scripts_enabled = ${scriptsEnabled},
+        updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, short_id, name, description, icon, created_by, created_at, updated_at
+    RETURNING id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
   `;
 
   if (!row) {

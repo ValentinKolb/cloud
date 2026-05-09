@@ -39,6 +39,10 @@ type Props = {
   noteId: string;
   noteTitle: string;
   notebookId: string;
+  /** Per-notebook opt-in flag for the JS scripting feature. When true,
+   *  fenced ` ```script ` blocks evaluate in the editor; when false,
+   *  they render as inert code-fences. Toggled in NotebookSettingsPanel. */
+  scriptsEnabled: boolean;
   appUrl: string;
   sessionToken: string;
   userId: string;
@@ -155,6 +159,16 @@ export default function NoteEditor(props: Props) {
           editor.katexExtension(),
           editor.codeFontExtension(),
           editor.tagPillExtension(props.notebookId),
+          // Scripts: per-notebook opt-in (admin toggles in settings).
+          // When OFF, the extension emits no decorations and the
+          // ```script fence renders as a normal code block.
+          editor.scriptsExtension({
+            scriptsEnabled: () => props.scriptsEnabled,
+            noteTitle: () => props.noteTitle,
+            // TODO(phase-3): wire `prompts.toast` (or the platform
+            // toast surface) here so kit.ui.toast renders consistently
+            // with other in-app notifications.
+          }),
         ]
       : [],
   );

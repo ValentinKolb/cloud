@@ -28,6 +28,7 @@ const NotebookSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   icon: z.string().nullable(),
+  scriptsEnabled: z.boolean().describe("Per-notebook opt-in for `\`\`\`script` block execution"),
   createdBy: z.uuid().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -43,6 +44,9 @@ const UpdateNotebookSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
+  // Toggling scripts_enabled is admin-only — see the PATCH handler
+  // for the role check. Schema-level it's just a boolean field.
+  scriptsEnabled: z.boolean().optional(),
 });
 
 const NoteSchema = z.object({
@@ -359,7 +363,10 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const data = c.req.valid("json");
 
-      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id"), "write");
+      // Toggling `scriptsEnabled` requires admin (it gates execution
+      // of arbitrary JS in the editor). Other fields only need write.
+      const requiredLevel = data.scriptsEnabled !== undefined ? "admin" : "write";
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id"), requiredLevel);
       if (error) return error;
       return respond(c, notebooksService.notebook.update({ id: notebook!.id, data }));
     },

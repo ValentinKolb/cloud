@@ -9,6 +9,7 @@ import { markExtension } from "./mark";
 import { markdownExtension } from "./markdown";
 import { markupExtension } from "./markup";
 import { mermaidExtension } from "./mermaid";
+import { scriptsExtension } from "./scripts";
 import { searchTheme } from "./search-theme";
 import { subSupExtension } from "./sub-sup";
 import { tablesExtension } from "./tables";
@@ -27,6 +28,7 @@ export {
   markdownExtension,
   markupExtension,
   mermaidExtension,
+  scriptsExtension,
   searchTheme,
   subSupExtension,
   tablesExtension,
@@ -49,6 +51,7 @@ export const editor = {
   markdownExtension,
   markupExtension,
   mermaidExtension,
+  scriptsExtension,
   searchTheme,
   subSupExtension,
   tablesExtension,

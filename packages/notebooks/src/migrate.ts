@@ -22,6 +22,12 @@ export const migrate = async (): Promise<void> => {
   // and `service/notebooks.ts` always sets it on INSERT going forward.
   await sql`ALTER TABLE notebooks.notebooks ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notebooks_short_id ON notebooks.notebooks(short_id)`.simple();
+  // Per-notebook opt-in for the JS scripting feature (`\`\`\`script`
+  // blocks evaluate in the editor). Off by default — admins flip it
+  // in the notebook settings panel after acknowledging the warning.
+  // Without this gate the scripting engine renders the source as an
+  // inert code-fence so legacy notebooks can't execute anything new.
+  await sql`ALTER TABLE notebooks.notebooks ADD COLUMN IF NOT EXISTS scripts_enabled BOOLEAN NOT NULL DEFAULT FALSE`.simple();
   console.log("  ✓ notebooks.notebooks table");
 
   await sql`

@@ -1,11 +1,15 @@
 import { onMount } from "solid-js";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { enhanceReadModeScripts } from "../../../lib/script/read-mode";
 
 type Props = {
   noteId: string;
   noteTitle: string;
   notebookId: string;
+  /** Per-notebook opt-in for `\`\`\`script` block execution. When
+   *  false the enhancer is a no-op and the source stays visible. */
+  scriptsEnabled: boolean;
   renderedHtml: string;
   isLocked?: boolean;
 };
@@ -21,6 +25,14 @@ export default function ReadonlyNote(props: Props) {
   onMount(() => {
     if (containerRef) {
       markdown.client.initMarkdownEnhancements(containerRef);
+      // Run after the generic markdown enhancements so attachment-URL
+      // rewriting / heading-id injection happen first; scripts may
+      // depend on the post-enhanced DOM (Phase 2+ kit may surface
+      // attachment metadata).
+      enhanceReadModeScripts(containerRef, {
+        scriptsEnabled: props.scriptsEnabled,
+        noteTitle: props.noteTitle,
+      });
     }
   });
 

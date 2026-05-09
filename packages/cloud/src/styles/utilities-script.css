@@ -1,0 +1,50 @@
+/* `\`\`\`script` block styling — both edit-mode (CodeMirror widget)
+   and read-mode (rendered HTML).
+
+   Markup contract:
+     <div class="md-script-block" data-script-source="<base64>">  ← read-mode wrapper
+       <pre class="md-script-source"> ... source ... </pre>
+       <div class="md-script-output"></div>
+     </div>
+
+   In edit-mode the CM6 extension just emits a bare
+   `<div class="md-script-output">` (no wrapper); the source stays
+   visible as the underlying fenced code.
+
+   Read-mode-active state: when `enhanceReadModeScripts` runs the
+   block, it adds `.md-script-active` to the wrapper, which hides
+   the source `<pre>` so the user only sees the widget output. The
+   source is preserved for view-source / a11y. */
+
+.md-script-block.md-script-active .md-script-source {
+  display: none;
+}
+
+/* The output container itself — used by both edit + read modes.
+   Slight padding so widgets don't touch the surrounding text /
+   code-fence edges; no border (the rendered widget supplies its
+   own affordances). */
+.md-script-output {
+  margin-top: 0.25rem;
+  margin-bottom: 0.5rem;
+  padding: 0.25rem 0;
+  /* Empty output (e.g. a script that only does background work)
+     should collapse to zero height — no minimum height here. */
+}
+
+/* Error path — `runner.ts:renderError` adds the `md-script-error`
+   class to the output container alongside the rendered error
+   block. The class is just a marker today (the inline error block
+   carries its own styles) but reserved for future use, e.g. a
+   notification dot in the script-block frame. */
+.md-script-output.md-script-error {
+  /* No additional rules yet; reserved. */
+}
+
+/* `kit.ui.button` mounts these — same blue palette as the
+   note-link pills for visual consistency, slightly different
+   icon-less default. */
+.md-script-button:focus-visible {
+  outline: 2px solid rgb(59 130 246); /* blue-500 */
+  outline-offset: 1px;
+}
