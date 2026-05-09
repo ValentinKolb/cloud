@@ -111,12 +111,13 @@ function StatCell(props: { widget: StatWidget; data: WidgetData | undefined }) {
             </span>
           </Show>
           <Show when={props.widget.icon && !errorReason()}>
-            {/* widget.icon stores the option id from ICON_OPTIONS
-                (e.g. "ti-shopping-cart") — same convention notebooks
-                use for their settings. Prepend the `ti` family class
-                at render time. */}
+            {/* widget.icon stores the full Tabler class (e.g.
+                "ti ti-shopping-cart") — render directly. Older
+                values that lack the family prefix still render
+                correctly in browsers that tolerate duplicate class
+                tokens, which Tabler's CSS does. */}
             <i
-              class={`ti ${props.widget.icon} text-[12px] text-blue-600 dark:text-blue-400 shrink-0`}
+              class={`${props.widget.icon} text-[12px] text-blue-600 dark:text-blue-400 shrink-0`}
             />
           </Show>
         </div>

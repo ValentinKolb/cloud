@@ -1,6 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { icons } from "@valentinkolb/cloud/shared";
-import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { IconInput, navigateTo, PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -66,14 +65,11 @@ function GeneralSection(props: { notebook: Notebook }) {
         icon="ti ti-align-left"
       />
 
-      <SelectInput
+      <IconInput
         label="Icon"
         value={() => icon()}
         onChange={setIcon}
-        placeholder="Select an icon..."
-        options={icons.ICON_OPTIONS}
-        clearable
-        icon="ti ti-icons"
+        placeholder="Search icons…"
       />
 
       <button type="button" onClick={handleSave} disabled={mutation.loading() || !hasChanges()} class="btn-primary btn-md self-start">

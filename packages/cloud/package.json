@@ -41,7 +41,7 @@
     "@tabler/icons-webfont": "^3.36.1",
     "@tailwindcss/typography": "^0.5.19",
     "@valentinkolb/ssr": "0.9.0",
-    "@valentinkolb/stdlib": "0.3.0",
+    "@valentinkolb/stdlib": "^0.7.0",
     "@valentinkolb/sync": "^5.0.0",
     "bun-plugin-tailwind": "^0.1.2",
     "hono": "^4.11.1",

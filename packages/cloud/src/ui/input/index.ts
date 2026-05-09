@@ -12,4 +12,5 @@ export { default as ColorInput } from "./ColorInput";
 export { default as TagsInput } from "./TagsInput";
 export { default as PinInput } from "./PinInput";
 export { default as ImageInput } from "./ImageInput";
+export { default as IconInput } from "./IconInput";
 export { default as Slider } from "./Slider";

@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
-    "@valentinkolb/stdlib": "0.3.0",
+    "@valentinkolb/stdlib": "^0.7.0",
     "decimal.js": "^10.6.0",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

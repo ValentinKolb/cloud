@@ -443,7 +443,7 @@ const main = async () => {
                 kind: "stat",
                 title: "Orders",
                 sub: "all-time",
-                icon: "ti-shopping-cart",
+                icon: "ti ti-shopping-cart",
                 format: "integer",
                 source: {
                   tableId: ordersTable,
@@ -455,7 +455,7 @@ const main = async () => {
                 kind: "stat",
                 title: "Revenue",
                 sub: "line totals",
-                icon: "ti-currency-euro",
+                icon: "ti ti-currency-euro",
                 format: "currency",
                 source: {
                   tableId: ordersTable,
@@ -467,7 +467,7 @@ const main = async () => {
                 kind: "stat",
                 title: "Customers",
                 sub: "registered",
-                icon: "ti-users",
+                icon: "ti ti-users",
                 format: "integer",
                 source: {
                   tableId: customersTable,
@@ -479,7 +479,7 @@ const main = async () => {
                 kind: "stat",
                 title: "Avg. price",
                 sub: "all books",
-                icon: "ti-tag",
+                icon: "ti ti-tag",
                 format: "currency",
                 source: {
                   tableId: booksTable,
