@@ -19,6 +19,7 @@
  *  - Stack traces / tooltips read better with a semantic name
  *  - Continuity with the existing `kit` API on the homepage app
  */
+import { showToast } from "./toast";
 
 /** Read-only handle on the current note. */
 export type KitNote = {
@@ -55,7 +56,10 @@ export type KitContext = {
   noteTitle: string;
   /** The DOM container `kit.ui.*` mounts into. */
   outputEl: HTMLElement;
-  /** Platform toast — falls back to `console.log` if not wired. */
+  /** Platform toast — falls back to the local `showToast` helper if
+   *  not wired. Phase 3 will swap in the platform-wide toast surface
+   *  once one exists; for now the hand-rolled helper renders a
+   *  fixed-position bottom-right notification. */
   toast?: (message: string) => void;
 };
 
@@ -72,10 +76,15 @@ export const createKit = (ctx: KitContext): Kit => ({
   },
   ui: {
     toast: (message) => {
-      if (ctx.toast) ctx.toast(message);
-      // Fallback: log to console so script authors at least see SOMETHING
-      // when running in environments without a toast surface (e.g. tests).
-      else console.log("[kit.ui.toast]", message);
+      if (ctx.toast) {
+        ctx.toast(message);
+        return;
+      }
+      // No platform toast wired — render via the local helper so the
+      // user sees the notification in the UI, not just the console.
+      // Phase 3 will replace this fallback with `prompts.toast` (or
+      // equivalent) once the platform ships one.
+      showToast(message);
     },
     button: (label, onClick) => {
       const btn = document.createElement("button");
