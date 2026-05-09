@@ -1,9 +1,11 @@
 import type { AccessEntry, Principal, PermissionLevel } from "@valentinkolb/cloud/contracts/shared";
+import { icons } from "@valentinkolb/cloud/shared";
 import {
   navigateTo,
   PermissionEditor,
   prompts,
   Select,
+  SelectInput,
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -828,13 +830,16 @@ function StatCellEditor(props: {
               }
               options={FORMAT_OPTIONS}
             />
-            <TextInput
-              label="Icon (Tabler class)"
+            <SelectInput
+              label="Icon"
               value={() => props.widget.icon ?? ""}
-              onInput={(v) =>
+              onChange={(v) =>
                 props.onUpdate({ ...props.widget, icon: v || undefined })
               }
-              placeholder="e.g. ti ti-shopping-cart"
+              placeholder="Pick an icon…"
+              options={icons.ICON_OPTIONS}
+              clearable
+              icon="ti ti-icons"
             />
             <div class="md:col-span-2 text-[11px] text-dimmed">
               Preview:{" "}

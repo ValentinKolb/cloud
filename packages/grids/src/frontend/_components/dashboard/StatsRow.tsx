@@ -111,8 +111,12 @@ function StatCell(props: { widget: StatWidget; data: WidgetData | undefined }) {
             </span>
           </Show>
           <Show when={props.widget.icon && !errorReason()}>
+            {/* widget.icon stores the option id from ICON_OPTIONS
+                (e.g. "ti-shopping-cart") — same convention notebooks
+                use for their settings. Prepend the `ti` family class
+                at render time. */}
             <i
-              class={`${props.widget.icon} text-[12px] text-blue-600 dark:text-blue-400 shrink-0`}
+              class={`ti ${props.widget.icon} text-[12px] text-blue-600 dark:text-blue-400 shrink-0`}
             />
           </Show>
         </div>
