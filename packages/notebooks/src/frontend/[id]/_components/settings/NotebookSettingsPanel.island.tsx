@@ -109,7 +109,14 @@ function ScriptingSection(props: { notebook: Notebook }) {
     },
   });
 
-  const handleToggle = async () => {
+  const handleToggle = async (event: Event) => {
+    // The browser already flipped the native checkbox by the time
+    // this fires. Capture the input element so we can revert the DOM
+    // when the user cancels — Solid won't re-render `checked` if the
+    // signal value didn't change, so the visual state would otherwise
+    // diverge from the persisted setting (codex review on commit
+    // 14642fc).
+    const input = event.currentTarget as HTMLInputElement;
     const next = !enabled();
     if (next) {
       // Confirm before turning ON — the warning copy needs an
@@ -123,7 +130,10 @@ function ScriptingSection(props: { notebook: Notebook }) {
           confirmText: "Enable",
         },
       );
-      if (!confirmed) return;
+      if (!confirmed) {
+        input.checked = false;
+        return;
+      }
     }
     setEnabled(next);
     mutation.mutate(next);

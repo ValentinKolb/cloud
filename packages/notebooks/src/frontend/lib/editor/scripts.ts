@@ -130,6 +130,58 @@ class ScriptOutputWidget extends WidgetType {
 }
 
 /**
+ * Extract the language tag and body of a `FencedCode` node by walking
+ * its Lezer-markdown children. This is the same lexer the markdown
+ * preview pipeline uses, so accepts every variant `marked` accepts:
+ *   - 3+ backtick fences  (` ``` `, ` ```` `, …)
+ *   - 3+ tilde fences     (`~~~`, `~~~~`, …)
+ *   - up to 3 leading spaces of indentation
+ *   - missing closing fence (mid-edit) — body extends to EOF
+ *
+ * Why not string-split: codex review on commit 14642fc flagged that
+ * CM's `state.doc.sliceString(from, to)` + a hand-rolled
+ * `replace(/^```/, '')` only handles the most common form. Variants
+ * like `~~~script` or `    \`\`\`\`script` would be evaluated by
+ * read-mode (marked sees them as `lang: "script"`) but skipped by
+ * the editor — silent drift between authoring and rendering.
+ *
+ * Returns null when the fence isn't a `script` block.
+ */
+type FenceParts = { body: string };
+
+const parseScriptFence = (state: EditorState, fenceFrom: number, fenceTo: number): FenceParts | null => {
+  let info: string | null = null;
+  // Body spans from end-of-info to start-of-closing-fence (or end of
+  // node when there's no closer). We accumulate text from `CodeText`
+  // child nodes directly.
+  let bodyFrom: number | null = null;
+  let bodyTo: number | null = null;
+
+  const tree = syntaxTree(state);
+  const cursor = tree.cursorAt(fenceFrom, 1);
+  // `cursorAt(pos, 1)` lands inside the fence node; `firstChild()`
+  // descends to the first child (`CodeMark`).
+  if (!cursor.firstChild()) return null;
+  do {
+    const name = cursor.name;
+    if (name === "CodeInfo" && info === null) {
+      info = state.doc.sliceString(cursor.from, cursor.to).trim().toLowerCase();
+    } else if (name === "CodeText") {
+      // Multiple `CodeText` children can appear (one per line in some
+      // grammar variants). Span from the first to the last.
+      if (bodyFrom === null) bodyFrom = cursor.from;
+      bodyTo = cursor.to;
+    }
+  } while (cursor.nextSibling() && cursor.from < fenceTo);
+
+  if (info !== "script") return null;
+  // Empty body (just `\`\`\`script\n\`\`\``) — let the runner render
+  // an empty output. No filter here.
+  const body = bodyFrom !== null && bodyTo !== null ? state.doc.sliceString(bodyFrom, bodyTo) : "";
+  return { body };
+};
+
+/**
  * Walk the document syntax tree, find every `\`\`\`script` block, and
  * emit a block widget below each one. Synchronous — runs on every
  * doc-changed transaction. The widget's `eq()` keeps DOM stable
@@ -142,20 +194,9 @@ const decorate = (state: EditorState, config: ScriptsConfig): DecorationSet => {
   syntaxTree(state).iterate({
     enter: ({ type, from, to }) => {
       if (type.name !== "FencedCode") return;
-      const text = state.doc.sliceString(from, to);
-      const lines = text.split("\n");
-      // First line is `\`\`\`<lang>` — strip the fence chars and any info-string flags.
-      const lang = lines[0]?.replace(/^```/, "").trim().toLowerCase() ?? "";
-      if (lang !== "script") return;
-
-      // Last line is the closing `\`\`\`` fence; everything between is body.
-      // If the closing fence is missing (mid-edit), `lines.slice(1, -1)`
-      // would drop the last source line. Fall back to slice(1) when the
-      // last line doesn't look like a fence-close.
-      const last = lines.at(-1) ?? "";
-      const body = (last.trim() === "```" ? lines.slice(1, -1) : lines.slice(1)).join("\n");
-
-      const widget = new ScriptOutputWidget(body, config);
+      const parts = parseScriptFence(state, from, to);
+      if (!parts) return;
+      const widget = new ScriptOutputWidget(parts.body, config);
       const blockEnd = state.doc.lineAt(to).to;
       widgets.push(
         Decoration.widget({
