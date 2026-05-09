@@ -1,28 +1,39 @@
 /**
- * Toast — transient bottom-right notifications.
+ * Toast — transient bottom-right notifications, Mantine-style.
  *
  * Sits next to `prompts` as the platform's lightweight messaging
  * surface: where `prompts.alert/confirm/form` are blocking modals,
  * `toast()` is fire-and-forget feedback that the user doesn't have
- * to dismiss. Three visual variants (`default` blue, `success` green,
- * `error` red) cover the common cases; `iconClass` overrides the
- * variant default when callers want something specific.
+ * to dismiss.
+ *
+ * Visual language
+ * ---------------
+ * White card body, dark zinc title, dimmed gray description. The
+ * variant signal lives in a small leading element:
+ *   - `default` → 3 px wide blue vertical bar (no icon)
+ *   - `success` → solid green circle with white check icon
+ *   - `error`   → solid red circle with white X icon
+ *
+ * Dark mode mirrors with `zinc-900` body, `zinc-100` title,
+ * `zinc-400` desc; circle / bar colors stay saturated so the
+ * variant signal reads at a glance regardless of theme.
  *
  * Usage
  * -----
  * ```ts
  * import { toast } from "@valentinkolb/cloud/ui";
  *
- * toast("Note saved");                                  // default (blue)
- * toast.success("Note saved");                          // green
- * toast.error("Save failed");                           // red
+ * toast("Note saved");
+ * toast("Note saved", { desc: "All changes synced" });
+ * toast.success("Note created", { desc: "Untitled-3" });
+ * toast.error("Save failed", { desc: "Network unreachable" });
  * toast("Heads up", { duration: 5000, iconClass: "ti-bell" });
  *
- * const t = toast("Uploading…", { duration: 0 });       // sticky
- * t.update("Uploading 50%");                            // mutate in place
- * t.update("Done", { variant: "success", duration: 2000 });
+ * const t = toast("Uploading", { desc: "0%", duration: 0 });
+ * t.update("Uploading", { desc: "50%" });
+ * t.update("Done", { variant: "success", desc: "", duration: 2000 });
  *
- * toast.dismissAll();                                    // e.g. on route change
+ * toast.dismissAll();
  * ```
  *
  * SSR-safe: every entry point bails when `document` is unavailable.
@@ -31,31 +42,44 @@
 export type ToastVariant = "default" | "success" | "error";
 
 export type ToastOptions = {
-  /** Visual style. Default `"default"` (blue). */
+  /** Visual style. Default `"default"` (blue left-bar). */
   variant?: ToastVariant;
   /** Auto-dismiss after this many ms. Default `3000`. `0` = sticky
    *  (only manual `t.dismiss()` removes it). */
   duration?: number;
-  /** `ti-…` icon class to override the variant default. */
+  /** `ti-…` icon class to override the variant default. Only
+   *  applies to `success` / `error` variants — the `default`
+   *  variant doesn't render an icon. */
   iconClass?: string;
+  /** Optional second line, dimmed. Omit for title-only toast. */
+  desc?: string;
 };
 
 export type ToastHandle = {
   /** Animate out and remove. No-op if already dismissed. */
   dismiss: () => void;
-  /** Mutate the visible toast in place — message, variant, icon,
-   *  and duration are all live. The auto-dismiss timer resets to
-   *  the (new or existing) `duration`; pass `duration: 0` to make
-   *  the toast sticky from this point on. */
-  update: (message: string, options?: ToastOptions) => void;
+  /**
+   * Mutate the visible toast in place. Only present option keys
+   * change; missing keys leave the existing values alone.
+   *  - `update("X")` → title becomes "X", everything else unchanged
+   *  - `update("X", { desc: "" })` → also clears the desc line
+   *  - `update("X", { variant: "success" })` → swaps the leading
+   *    element (bar → circle) without touching the desc
+   *
+   * The auto-dismiss timer resets to the (new or existing)
+   * `duration` so a near-expired toast doesn't disappear right
+   * after a fresh update.
+   */
+  update: (title: string, options?: ToastOptions) => void;
 };
 
 export interface ToastFn {
-  (message: string, options?: ToastOptions): ToastHandle;
-  success: (message: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
-  error: (message: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
-  /** Dismiss every currently visible toast. Useful for route changes /
-   *  major UI transitions where stale notifications are confusing. */
+  (title: string, options?: ToastOptions): ToastHandle;
+  success: (title: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
+  error: (title: string, options?: Omit<ToastOptions, "variant">) => ToastHandle;
+  /** Dismiss every currently visible toast. Useful for route
+   *  changes / major UI transitions where stale notifications are
+   *  confusing. */
   dismissAll: () => void;
 }
 
@@ -68,34 +92,41 @@ const MAX_VISIBLE_TOASTS = 5;
 const ANIMATION_MS = 200;
 const CONTAINER_ID = "ui-toast-container";
 
-/** Variant → palette + default icon.
- *
- * Visual language: minimal + borderless. The variant signal is
- * carried by the (subtle) tinted background and the (saturated)
- * icon color only. The TEXT stays neutral zinc in both light and
- * dark mode — light text on dark bg / dark text on light bg —
- * because saturated colored body text reads as "alert" and the
- * point of these is "noticeable but not loud."
- */
-const VARIANT_STYLES: Record<ToastVariant, { bgClass: string; iconClass: string; iconColorClass: string }> = {
+/** Per-variant rendering recipe. The lead element is a thin colored
+ *  bar for `default` (no icon — quiet visual treatment) and a solid
+ *  colored circle with a white icon for `success` / `error` (loud
+ *  affordance). Saturation stays high in both light + dark so the
+ *  variant signal doesn't get washed out by theme. */
+type VariantStyle = {
+  /** `lead` element kind. `bar` is a 3 px vertical pill that
+   *  stretches to the toast's full height; `circle` is a 36 px
+   *  filled disc with a white icon inside. */
+  lead: "bar" | "circle";
+  /** Tailwind classes for the lead element's background. */
+  leadBgClass: string;
+  /** Default `ti-…` class for the circle's icon (ignored when
+   *  `lead === "bar"`). Overridable via `options.iconClass`. */
+  iconClass: string;
+};
+
+const VARIANT_STYLES: Record<ToastVariant, VariantStyle> = {
   default: {
-    bgClass: "bg-blue-50 dark:bg-blue-950/40",
+    lead: "bar",
+    leadBgClass: "bg-blue-500 dark:bg-blue-400",
     iconClass: "ti-info-circle",
-    iconColorClass: "text-blue-600 dark:text-blue-300",
   },
   success: {
-    bgClass: "bg-green-50 dark:bg-green-950/40",
+    lead: "circle",
+    leadBgClass: "bg-green-500 dark:bg-green-500",
     iconClass: "ti-check",
-    iconColorClass: "text-green-600 dark:text-green-300",
   },
   error: {
-    bgClass: "bg-red-50 dark:bg-red-950/40",
-    iconClass: "ti-alert-circle",
-    iconColorClass: "text-red-600 dark:text-red-300",
+    lead: "circle",
+    leadBgClass: "bg-red-500 dark:bg-red-500",
+    iconClass: "ti-x",
   },
 };
 
-/** Helper: split a Tailwind class string into individual tokens. */
 const splitClasses = (cls: string): string[] => cls.split(/\s+/).filter(Boolean);
 
 // All currently-mounted toasts. Used for `dismissAll`.
@@ -125,44 +156,60 @@ const ensureContainer = (): HTMLElement | null => {
 // Internals — element construction + style swap
 // =============================================================================
 
-/** Apply variant + iconClass to a toast element. Used both at create
- *  time and on `update()` to swap palette mid-life.
+/** Strip every variant's lead-bg classes from an element. Used in
+ *  the variant swap path so repeated `update()` calls don't
+ *  accumulate stacked palettes. */
+const stripAllLeadBg = (el: HTMLElement): void => {
+  for (const v of Object.values(VARIANT_STYLES)) {
+    for (const cls of splitClasses(v.leadBgClass)) el.classList.remove(cls);
+  }
+};
+
+/** Reset an element's classes to a fresh class list. Used so swap
+ *  logic doesn't have to track what was there before. */
+const setClasses = (el: HTMLElement, cls: string): void => {
+  el.className = cls;
+};
+
+/** Build / rebuild the lead element (the leftmost variant signal).
+ *  For `bar`: a self-stretching vertical pill. For `circle`: a
+ *  filled disc containing a white `<i>` icon. The DOM shape differs
+ *  between the two; on variant swap we replace the lead's children
+ *  + classes wholesale rather than try to morph in place.
  *
- *  We strip every variant's bg + icon-color classes before applying
- *  the new variant's, so repeated `update()` calls don't accumulate
- *  stacked palettes. Text-color is fixed (zinc-900 / dark:zinc-100)
- *  and added once at create time — no swap needed. */
-const applyStyle = (
-  toastEl: HTMLElement,
-  iconEl: HTMLElement,
+ *  Returns the icon element (or null for `bar`) so the caller can
+ *  override the icon-class later via `update({ iconClass: ... })`. */
+const renderLead = (
+  leadEl: HTMLElement,
   variant: ToastVariant,
   iconClassOverride?: string,
-) => {
-  const next = VARIANT_STYLES[variant];
-
-  for (const v of Object.values(VARIANT_STYLES)) {
-    for (const cls of splitClasses(v.bgClass)) toastEl.classList.remove(cls);
-    for (const cls of splitClasses(v.iconColorClass)) iconEl.classList.remove(cls);
+): HTMLElement | null => {
+  const style = VARIANT_STYLES[variant];
+  leadEl.replaceChildren();
+  if (style.lead === "bar") {
+    // `self-stretch` makes the bar match the toast's full height.
+    setClasses(leadEl, "self-stretch w-1 rounded-full shrink-0");
+    for (const cls of splitClasses(style.leadBgClass)) leadEl.classList.add(cls);
+    return null;
   }
-  for (const cls of splitClasses(next.bgClass)) toastEl.classList.add(cls);
-  for (const cls of splitClasses(next.iconColorClass)) iconEl.classList.add(cls);
-
-  // Icon: remove any prior `ti-*` modifier, keep the `ti` family
-  // class so the font is still applied.
-  for (const cls of Array.from(iconEl.classList)) {
-    if (cls.startsWith("ti-")) iconEl.classList.remove(cls);
-  }
-  iconEl.classList.add(iconClassOverride ?? next.iconClass);
+  // Circle variant — solid filled disc, white icon centered.
+  setClasses(
+    leadEl,
+    "shrink-0 self-start w-9 h-9 rounded-full flex items-center justify-center",
+  );
+  for (const cls of splitClasses(style.leadBgClass)) leadEl.classList.add(cls);
+  const iconEl = document.createElement("i");
+  iconEl.className = `ti ${iconClassOverride ?? style.iconClass} text-white text-base`;
+  leadEl.appendChild(iconEl);
+  return iconEl;
 };
 
 // =============================================================================
 // Public API
 // =============================================================================
 
-const showToast = (message: string, options?: ToastOptions): ToastHandle => {
+const showToast = (title: string, options?: ToastOptions): ToastHandle => {
   const container = ensureContainer();
-  // SSR / no-DOM environment — return a noop handle so callers can
-  // ignore platform availability.
   if (!container) {
     const noop = () => {};
     return { dismiss: noop, update: noop };
@@ -170,32 +217,62 @@ const showToast = (message: string, options?: ToastOptions): ToastHandle => {
 
   let dismissed = false;
   let dismissTimer: ReturnType<typeof setTimeout> | null = null;
+  let currentVariant: ToastVariant = options?.variant ?? "default";
 
+  // ----- DOM scaffolding -----
+
+  // Toast card. White / zinc-900 body, neutral text, soft shadow,
+  // no border (the lead element is the only color affordance).
   const toastEl = document.createElement("div");
   toastEl.className =
-    "pointer-events-auto cursor-pointer flex items-start gap-2 " +
-    "px-3 py-2 rounded-md text-sm shadow-md " +
-    // Neutral text color — variant signal lives in bg + icon, not in
-    // the body copy. Inverted in dark mode (light text on tinted-dark
-    // bg). See VARIANT_STYLES for the bg / icon-color rules.
-    "text-zinc-900 dark:text-zinc-100 " +
+    "pointer-events-auto flex items-stretch gap-3 " +
+    "p-3 rounded-md shadow-md " +
+    "bg-white dark:bg-zinc-900 " +
     "transition-all duration-200 ease-out " +
-    // Initial off-screen state — we flip it on the next frame so
-    // the browser renders the entry frame and animates the change.
+    // Initial off-screen state — flipped on the next frame so the
+    // browser renders the entry frame and animates the change.
     "translate-x-2 opacity-0";
 
-  const iconEl = document.createElement("i");
-  iconEl.className = "ti text-base shrink-0 mt-0.5";
+  const leadEl = document.createElement("div");
+  let leadIconEl = renderLead(leadEl, currentVariant, options?.iconClass);
 
-  const messageEl = document.createElement("span");
-  messageEl.className = "flex-1";
-  messageEl.textContent = message;
+  // Content column — title + (optional) desc.
+  const contentEl = document.createElement("div");
+  contentEl.className = "flex-1 min-w-0 self-center flex flex-col gap-0.5";
 
-  toastEl.appendChild(iconEl);
-  toastEl.appendChild(messageEl);
+  const titleEl = document.createElement("div");
+  titleEl.className = "text-sm font-semibold text-zinc-900 dark:text-zinc-100 leading-tight";
+  titleEl.textContent = title;
 
-  const initialVariant = options?.variant ?? "default";
-  applyStyle(toastEl, iconEl, initialVariant, options?.iconClass);
+  // Desc element is always in the DOM but `hidden` when empty —
+  // simpler than mount/unmount on update().
+  const descEl = document.createElement("div");
+  descEl.className = "text-xs text-zinc-500 dark:text-zinc-400 leading-snug";
+  if (options?.desc) {
+    descEl.textContent = options.desc;
+  } else {
+    descEl.hidden = true;
+  }
+
+  contentEl.appendChild(titleEl);
+  contentEl.appendChild(descEl);
+
+  // Close button — explicit X so the user has an obvious dismiss
+  // affordance. The whole toast was clickable in the borderless
+  // variant; the Mantine pattern reserves dismissal for this button
+  // so accidental body clicks don't kill the toast mid-read.
+  const closeEl = document.createElement("button");
+  closeEl.type = "button";
+  closeEl.className =
+    "shrink-0 self-start w-6 h-6 -m-1 flex items-center justify-center " +
+    "rounded text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 " +
+    "cursor-pointer transition-colors";
+  closeEl.setAttribute("aria-label", "Dismiss notification");
+  closeEl.innerHTML = '<i class="ti ti-x text-base"></i>';
+
+  toastEl.appendChild(leadEl);
+  toastEl.appendChild(contentEl);
+  toastEl.appendChild(closeEl);
 
   // ----- timer + dismiss -----
 
@@ -224,24 +301,43 @@ const showToast = (message: string, options?: ToastOptions): ToastHandle => {
     setTimeout(() => toastEl.remove(), ANIMATION_MS);
   };
 
-  const update = (nextMessage: string, nextOptions?: ToastOptions) => {
+  const update = (nextTitle: string, nextOptions?: ToastOptions) => {
     if (dismissed) return;
-    messageEl.textContent = nextMessage;
-    if (nextOptions?.variant !== undefined || nextOptions?.iconClass !== undefined) {
-      applyStyle(
-        toastEl,
-        iconEl,
-        nextOptions.variant ?? initialVariant,
-        nextOptions.iconClass,
-      );
+
+    titleEl.textContent = nextTitle;
+
+    // `desc` semantics: present key (including empty string) overrides;
+    // missing key leaves the existing value alone. Empty string clears
+    // the visible desc line.
+    if (nextOptions && Object.prototype.hasOwnProperty.call(nextOptions, "desc")) {
+      const nextDesc = nextOptions.desc ?? "";
+      descEl.textContent = nextDesc;
+      descEl.hidden = nextDesc.length === 0;
     }
-    // Re-arm the dismiss timer using the new (or existing) duration.
-    // Without this, an `update` to a near-expired toast would still
-    // disappear ~immediately even if the user wanted fresh feedback.
+
+    // Variant swap: re-render the lead element wholesale (bar↔circle
+    // is a DOM-shape change). Strip stale bg classes first so we
+    // don't blend the previous variant's tint into the new one.
+    if (nextOptions?.variant !== undefined && nextOptions.variant !== currentVariant) {
+      currentVariant = nextOptions.variant;
+      stripAllLeadBg(leadEl);
+      leadIconEl = renderLead(leadEl, currentVariant, nextOptions.iconClass);
+    } else if (nextOptions?.iconClass !== undefined && leadIconEl) {
+      // Same variant, new iconClass — just swap the modifier on the
+      // existing icon node. Only meaningful for circle variants.
+      for (const cls of Array.from(leadIconEl.classList)) {
+        if (cls.startsWith("ti-")) leadIconEl.classList.remove(cls);
+      }
+      leadIconEl.classList.add(nextOptions.iconClass);
+    }
+
     armDismissTimer(nextOptions?.duration ?? DEFAULT_DURATION_MS);
   };
 
-  toastEl.addEventListener("click", dismiss);
+  closeEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dismiss();
+  });
 
   const handle: ToastHandle = { dismiss, update };
   liveToasts.add(handle);
@@ -265,10 +361,10 @@ const showToast = (message: string, options?: ToastOptions): ToastHandle => {
   return handle;
 };
 
-const toastFn = ((message: string, options?: ToastOptions) => showToast(message, options)) as ToastFn;
+const toastFn = ((title: string, options?: ToastOptions) => showToast(title, options)) as ToastFn;
 
-toastFn.success = (message, options) => showToast(message, { ...options, variant: "success" });
-toastFn.error = (message, options) => showToast(message, { ...options, variant: "error" });
+toastFn.success = (title, options) => showToast(title, { ...options, variant: "success" });
+toastFn.error = (title, options) => showToast(title, { ...options, variant: "error" });
 toastFn.dismissAll = () => {
   // Snapshot — `dismiss()` mutates `liveToasts`.
   for (const handle of Array.from(liveToasts)) handle.dismiss();
