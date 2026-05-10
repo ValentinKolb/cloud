@@ -29,16 +29,33 @@ import { syntaxTree } from "@codemirror/language";
 import { RangeSet, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
+import type * as Y from "yjs";
 import { createKit } from "../script/kit";
+import type { KitNoteSnapshot } from "../script/kit";
 import { runScript } from "../script/runner";
 
 /** Per-notebook config the extension needs to run scripts. The
  *  fields are functions (rather than values) so the extension picks
  *  up changes — `scriptsEnabled` flips at runtime via the settings
- *  panel; `noteTitle` updates when the user renames the note. */
+ *  panel; the snapshot getter reflects the current note metadata
+ *  at the moment a script is run.
+ *
+ *  `notebookId` is the user-visible short-id (6-char base62). The
+ *  kit uses it both as the `:id` param for API calls (notebooks
+ *  API accepts either UUID or short-id) and as the value of
+ *  `kit.note.notebook.id` exposed to script authors. */
 export type ScriptsConfig = {
   scriptsEnabled: () => boolean;
-  noteTitle: () => string;
+  notebookId: string;
+  /** Snapshot of the current note at script-run time. The factory
+   *  re-reads this getter every run, so renames / locks are picked
+   *  up on the next debounced re-evaluation. */
+  noteSnapshot: () => KitNoteSnapshot;
+  /** Live Y.Text for the current note's content — kit writes
+   *  mutate this directly. */
+  ytext: Y.Text;
+  /** Y.Doc for the current note — feeds `kit.state.*`. */
+  ydoc: Y.Doc;
 };
 
 /** Debounce window for re-runs after a source change. Picked at
@@ -120,7 +137,11 @@ class ScriptOutputWidget extends WidgetType {
     // duplicate output. (No-op on first run.)
     this.container.replaceChildren();
     const kit = createKit({
-      noteTitle: this.config.noteTitle(),
+      mode: "edit",
+      notebookId: this.config.notebookId,
+      note: this.config.noteSnapshot(),
+      ytext: this.config.ytext,
+      ydoc: this.config.ydoc,
       outputEl: this.container,
     });
     void runScript(this.source, kit, this.container);

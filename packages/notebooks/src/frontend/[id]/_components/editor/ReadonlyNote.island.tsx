@@ -10,6 +10,17 @@ type Props = {
   /** Per-notebook opt-in for `\`\`\`script` block execution. When
    *  false the enhancer is a no-op and the source stays visible. */
   scriptsEnabled: boolean;
+  // ---- script-kit metadata snapshot (mirrors NoteEditor.client.tsx).
+  // Read-mode is no-Y.Doc, so every kit.note.* read returns this
+  // snapshot's value at script-run time.
+  noteShortId: string;
+  noteContent: string;
+  noteCreatedAt: string;
+  noteUpdatedAt: string;
+  noteLockedAt: string | null;
+  noteParentId: string | null;
+  notebookName: string;
+  // ---- end script-kit metadata
   renderedHtml: string;
   isLocked?: boolean;
 };
@@ -31,7 +42,17 @@ export default function ReadonlyNote(props: Props) {
       // attachment metadata).
       enhanceReadModeScripts(containerRef, {
         scriptsEnabled: props.scriptsEnabled,
-        noteTitle: props.noteTitle,
+        notebookId: props.notebookId,
+        note: {
+          shortId: props.noteShortId,
+          title: props.noteTitle,
+          content: props.noteContent,
+          notebookName: props.notebookName,
+          parentId: props.noteParentId,
+          createdAt: props.noteCreatedAt,
+          updatedAt: props.noteUpdatedAt,
+          lockedAt: props.noteLockedAt,
+        },
       });
     }
   });

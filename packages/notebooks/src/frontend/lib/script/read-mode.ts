@@ -21,13 +21,19 @@
  * fence stays visible exactly as the markdown renderer produced it.
  */
 import { createKit } from "./kit";
+import type { KitNoteSnapshot } from "./kit";
 import { runScript } from "./runner";
 
 export type ReadModeScriptsConfig = {
   /** Per-notebook opt-in. When false this entire pass is a no-op. */
   scriptsEnabled: boolean;
-  /** Title of the note these blocks live in — feeds `kit.note.title`. */
-  noteTitle: string;
+  /** Notebook short-id — used both as the `kit.note.notebook.id`
+   *  value and as the `:id` API param for kit-driven calls. */
+  notebookId: string;
+  /** Snapshot of the note these blocks live in — feeds the
+   *  read-only kit getters (no Y.Doc in read-mode, so all reads
+   *  are point-in-time at script-run). */
+  note: KitNoteSnapshot;
 };
 
 /**
@@ -63,7 +69,9 @@ export const enhanceReadModeScripts = (container: HTMLElement, config: ReadModeS
     block.dataset.scriptState = "active";
 
     const kit = createKit({
-      noteTitle: config.noteTitle,
+      mode: "read",
+      notebookId: config.notebookId,
+      note: config.note,
       outputEl,
     });
     void runScript(source, kit, outputEl);

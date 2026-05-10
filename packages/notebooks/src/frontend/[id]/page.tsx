@@ -104,6 +104,7 @@ export default ssr<AuthContext>(async (c) => {
     contentMd: string | null;
     renderedHtml: string | null;
     lockedAt: string | null;
+    parentId: string | null;
     createdAt: string;
     updatedAt: string;
     createdBy: string | null;
@@ -126,6 +127,7 @@ export default ssr<AuthContext>(async (c) => {
           contentMd: noteMeta.contentMd,
           renderedHtml: null,
           lockedAt: noteMeta.lockedAt,
+          parentId: noteMeta.parentId,
           createdAt: noteMeta.createdAt,
           updatedAt: noteMeta.updatedAt,
           createdBy: noteMeta.createdBy,
@@ -187,6 +189,7 @@ export default ssr<AuthContext>(async (c) => {
           contentMd: noteWithContent.contentMd,
           renderedHtml,
           lockedAt: noteWithContent.lockedAt,
+          parentId: noteWithContent.parentId,
           createdAt: noteWithContent.createdAt,
           updatedAt: noteWithContent.updatedAt,
           createdBy: noteWithContent.createdBy,
@@ -295,6 +298,13 @@ export default ssr<AuthContext>(async (c) => {
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
                 scriptsEnabled={notebook.scriptsEnabled}
+                noteShortId={selectedNote.shortId}
+                noteContent={selectedNote.contentMd ?? ""}
+                noteCreatedAt={selectedNote.createdAt}
+                noteUpdatedAt={selectedNote.updatedAt}
+                noteLockedAt={selectedNote.lockedAt}
+                noteParentId={selectedNote.parentId}
+                notebookName={notebook.name}
                 renderedHtml={selectedNote.renderedHtml ?? ""}
                 isLocked={!!selectedNote.lockedAt}
               />
@@ -304,6 +314,12 @@ export default ssr<AuthContext>(async (c) => {
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
                 scriptsEnabled={notebook.scriptsEnabled}
+                noteShortId={selectedNote.shortId}
+                noteCreatedAt={selectedNote.createdAt}
+                noteUpdatedAt={selectedNote.updatedAt}
+                noteLockedAt={selectedNote.lockedAt}
+                noteParentId={selectedNote.parentId}
+                notebookName={notebook.name}
                 appUrl={appUrl}
                 sessionToken={sessionToken!}
                 userId={user.id}

@@ -43,6 +43,19 @@ type Props = {
    *  fenced ` ```script ` blocks evaluate in the editor; when false,
    *  they render as inert code-fences. Toggled in NotebookSettingsPanel. */
   scriptsEnabled: boolean;
+  // ---- script-kit metadata snapshot (Phase 2 kit.note read-only fields)
+  // These mirror the SSR-rendered `selectedNote` / `notebook` shapes
+  // and feed `kit.note.*` getters for fields that don't live in the
+  // Y.Doc itself. The Y.Text content is the live source for body /
+  // tags / tasks; everything else (title, timestamps, lockedAt,
+  // parentId, notebookName) updates only on full page render.
+  noteShortId: string;
+  noteCreatedAt: string;
+  noteUpdatedAt: string;
+  noteLockedAt: string | null;
+  noteParentId: string | null;
+  notebookName: string;
+  // ---- end script-kit metadata
   appUrl: string;
   sessionToken: string;
   userId: string;
@@ -164,7 +177,22 @@ export default function NoteEditor(props: Props) {
           // ```script fence renders as a normal code block.
           editor.scriptsExtension({
             scriptsEnabled: () => props.scriptsEnabled,
-            noteTitle: () => props.noteTitle,
+            notebookId: props.notebookId,
+            noteSnapshot: () => ({
+              shortId: props.noteShortId,
+              title: props.noteTitle,
+              // Live content snapshot — kit's `note.content` getter
+              // re-reads ytext on every access, but the snapshot
+              // here covers any code path that bypasses the getter.
+              content: ytext.toString(),
+              notebookName: props.notebookName,
+              parentId: props.noteParentId,
+              createdAt: props.noteCreatedAt,
+              updatedAt: props.noteUpdatedAt,
+              lockedAt: props.noteLockedAt,
+            }),
+            ytext,
+            ydoc: doc,
           }),
         ]
       : [],
