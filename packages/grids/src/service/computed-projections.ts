@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import type { Field } from "./types";
 import { storageOf } from "./field-storage";
+import { get as getField } from "./fields";
 
 /**
  * Per-row SELECT-list projections for lookup and rollup fields.
@@ -45,10 +46,28 @@ const rollupAlias = (fieldId: string): string => `rlp_${fieldId.replace(/-/g, ""
  * relationFieldId / targetFieldId / agg) are silently skipped — the
  * UI lets users add the field first and configure later, so a partial
  * config is a normal intermediate state, not an error.
+ *
+ * Async because rollup/lookup `targetFieldId` lives on a DIFFERENT
+ * table (the relation's target). The source-field list passed in only
+ * has the current table's fields; we fetch missing target fields
+ * one by one. Cross-table targets are common in real schemas, so
+ * resolving them is necessary for the Wave 4.1 storage descriptor
+ * (currency → amount projection) to work for them at all — without
+ * this lookup, the descriptor saw `undefined` field, returned `null`
+ * projection, and the rollup column was silently skipped.
  */
-export const buildComputedProjections = (fields: Field[]): ComputedProjection[] => {
+export const buildComputedProjections = async (fields: Field[]): Promise<ComputedProjection[]> => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const out: ComputedProjection[] = [];
+
+  const targetFieldCache = new Map<string, Field | null>();
+  const resolveTargetField = async (id: string): Promise<Field | null> => {
+    if (fieldsById.has(id)) return fieldsById.get(id)!;
+    if (targetFieldCache.has(id)) return targetFieldCache.get(id)!;
+    const f = await getField(id);
+    targetFieldCache.set(id, f);
+    return f;
+  };
 
   for (const field of fields) {
     if (field.deletedAt) continue;
@@ -125,8 +144,8 @@ export const buildComputedProjections = (fields: Field[]): ComputedProjection[] 
       : null;
     if (!aggFn) continue;
 
-    const targetField = fieldsById.get(cfg.targetFieldId);
-    if (!targetField) continue;
+    const targetField = await resolveTargetField(cfg.targetFieldId);
+    if (!targetField || targetField.deletedAt) continue;
     const targetProjection = storageOf(targetField).project(targetField, "t");
     if (!targetProjection) {
       // Target type is non-projectable (relation/lookup/rollup/formula/

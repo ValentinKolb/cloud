@@ -230,7 +230,7 @@ export const list = async (params: {
   // v3 Slice 4: lookup / rollup values are computed in the main query
   // as correlated subqueries over record_links instead of a JS-side
   // batch-fetch pass. Single source of truth, single round-trip.
-  const computed = buildComputedProjections(fields);
+  const computed = await buildComputedProjections(fields);
   const projectionFragments = computed.length > 0
     ? computed
         .map((p) => sql`, ${p.fragment}`)
@@ -407,7 +407,7 @@ export const aggregate = async (params: {
  */
 export const get = async (tableId: string, recordId: string): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
-  const computed = buildComputedProjections(fields);
+  const computed = await buildComputedProjections(fields);
   const projectionFragments = computed.length > 0
     ? computed
         .map((p) => sql`, ${p.fragment}`)

@@ -282,12 +282,18 @@ export default ssr<AuthContext>(async (c) => {
   type FormLike = Awaited<ReturnType<typeof gridsService.form.listForTable>>[number];
   const viewsByTable: Record<string, ViewLike[]> = {};
   const formsByTable: Record<string, FormLike[]> = {};
-  // Effective groupBy / aggregations get computed inside the
-  // `if (activeTable)` block — declared here so the footer-aggregate
-  // block (also inside that if) can read them, and the renderer below
-  // can read them after the block closes.
+  // Effective query state lifted to outer scope so the renderer (which
+  // hands these to the records-view island) sees the SAME values SSR
+  // used to fetch records. Without this, the island's initialState
+  // carried `parsedFilter`/`parsedSort` (URL only), so the first
+  // refetch / pagination after a clean `?view=` URL load reverted to
+  // unfiltered rows even though SSR painted the filtered ones (chunk 8
+  // critical, post-cleanup review caught this regression).
+  let effectiveFilter: FilterTree | null = null;
+  let effectiveSort: SortSpec[] = [];
   let effectiveGroupBy: GroupByRaw[] = [];
   let effectiveAggregations: AggregationRaw[] = [];
+  let effectiveIncludeDeleted = false;
   let activeTableLevel = level;
   let selectedRecord: import("../../service").GridRecord | null = null;
   let relationLabels: Record<string, string> = {};
@@ -341,12 +347,20 @@ export default ssr<AuthContext>(async (c) => {
       activeView,
     );
 
-    const effectiveFilter = mergeSearchIntoFilter(
-      effective.filter ?? null,
-      rawQ,
-      qFieldIds,
-      fields,
-    );
+    // Lift effective filter/sort/etc into outer scope so SSR list/
+    // aggregate/group AND the renderer (island initialState) all see
+    // the SAME values. Without this, the island's source signal seeded
+    // from `parsedFilter`/`parsedSort` (URL only) and silently reverted
+    // to unfiltered rows on the first refetch.
+    //
+    // We deliberately store the filter WITHOUT search merged in. SSR
+    // calls below build their own merge inline; the island carries
+    // `query.search` separately and the server applies the merge once.
+    // Storing search-merged here would cause double-merge on refetch.
+    effectiveFilter = effective.filter ?? null;
+    effectiveSort = (effective.sort ?? []) as SortSpec[];
+    effectiveIncludeDeleted = effective.includeDeleted ?? false;
+    const filterWithSearch = mergeSearchIntoFilter(effectiveFilter, rawQ, qFieldIds, fields);
     const viewLimit = effective.limit;
     const effectiveLimit = viewLimit !== undefined ? Math.min(100, viewLimit) : 100;
 
@@ -365,8 +379,8 @@ export default ssr<AuthContext>(async (c) => {
         tableId: activeTable.id,
         limit: effectiveLimit,
         includeDeleted: trashMode,
-        filter: effectiveFilter,
-        sort: effective.sort,
+        filter: filterWithSearch,
+        sort: effectiveSort,
         cursor: rawCursor,
       }),
       resolveLevel(user, baseId, activeTable.id),
@@ -420,9 +434,10 @@ export default ssr<AuthContext>(async (c) => {
     ) {
       const aggResult = await gridsService.record.aggregate({
         tableId: activeTable.id,
-        // Aggregates honour the search too — otherwise the footer count
-        // wouldn't match the visible rows once a query is typed.
-        filter: mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields),
+        // Aggregates use the SAME effective filter (view ?? URL) +
+        // search that the list path used. Was passing parsedFilter
+        // which silently ignored saved-view filter.
+        filter: mergeSearchIntoFilter(effectiveFilter, rawQ, qFieldIds, fields),
         requests: effectiveAggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
       });
       if (aggResult.ok) aggregates = aggResult.data;
@@ -498,23 +513,14 @@ export default ssr<AuthContext>(async (c) => {
   let groupedBuckets: GroupBucket[] = [];
   let groupedExplode = false;
   if (activeTable && effectiveGroupBy.length > 0 && !trashMode) {
-    // Group dispatch: same effective filter logic as list/aggregate —
-    // saved-view filter merged with URL filter merged with search.
-    // We cannot reach `effective` here (declared inside the if-block),
-    // so re-apply the merge to keep behaviour identical. Refactoring
-    // to hoist `effective` to outer scope would be cleaner; tracked
-    // as a follow-up if Wave 4+ ends up touching this path again.
-    const groupedFilter = mergeSearchIntoFilter(
-      activeView?.query.filter ?? parsedFilter,
-      rawQ,
-      qFieldIds,
-      fields,
-    );
+    // Group dispatch reads the SAME effective filter list/aggregate use
+    // — saved-view filter ?? URL filter, merged with search. Was passing
+    // parsedFilter which dropped both view filter AND search.
     const groupResult = await gridsService.record.group({
       tableId: activeTable.id,
       groupBy: effectiveGroupBy,
       aggregations: effectiveAggregations,
-      filter: groupedFilter,
+      filter: mergeSearchIntoFilter(effectiveFilter, rawQ, qFieldIds, fields),
       limit: 1000,
     });
     if (groupResult.ok) {
@@ -885,12 +891,20 @@ export default ssr<AuthContext>(async (c) => {
                 trashMode={trashMode}
                 viewMode={activeViewId !== null}
                 initialState={{
+                  // The island's source-signal seeds from these fields
+                  // and refetches when they change. Hand it the SAME
+                  // effective query (saved-view + URL overrides) SSR
+                  // used to fetch initial rows; otherwise the first
+                  // refetch / pagination silently reverts to URL-only.
+                  // includeDeleted is `trashMode` here — trash mode is
+                  // a top-level URL flag (`?trash=1`), independent of
+                  // the saved view's includeDeleted bit.
                   query: {
-                    filter: parsedFilter ?? undefined,
-                    sort: parsedSort,
+                    filter: effectiveFilter ?? undefined,
+                    sort: effectiveSort,
                     groupBy: effectiveGroupBy,
                     aggregations: effectiveAggregations,
-                    includeDeleted: trashMode,
+                    includeDeleted: trashMode || effectiveIncludeDeleted,
                   },
                   cursor: rawCursor,
                   selectedRecordId,
