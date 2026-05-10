@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import type { Field } from "./types";
+import { storageOf } from "./field-storage";
 
 export type AggKind =
   | "count"
@@ -38,15 +39,19 @@ const NESTED_NUMERIC_TYPES = new Set(["currency"]);
 const NUMERIC_TYPES = new Set([...FLAT_NUMERIC_TYPES, ...NESTED_NUMERIC_TYPES]);
 const DATE_TYPES = new Set(["date"]);
 
-/** SQL fragment that extracts a numeric value for the given field type.
- *  Routed through grids.try_numeric so corrupt JSONB values produce NULL
- *  instead of crashing the aggregate. */
-const numericProjection = (fieldId: string, type: string): any => {
-  if (NESTED_NUMERIC_TYPES.has(type)) {
-    // Currency: nested under `amount`.
-    return sql`grids.try_numeric(data->${fieldId}->>'amount')`;
-  }
-  return sql`grids.try_numeric(data->>${fieldId})`;
+/** SQL fragment that extracts a numeric value for the given field.
+ *  Delegates to the shared storage descriptor so currency (nested under
+ *  `amount`) projects correctly across every compiler — chunk 3
+ *  identified that the rollup compiler was reading `data->>fieldId`
+ *  for currency targets, returning the JSON-stringified blob instead
+ *  of the amount. The descriptor is now the single source of truth. */
+const numericProjection = (field: Field): any => {
+  const expr = storageOf(field).project(field, "r");
+  // For numeric/decimal/rating/autonumber/percent/duration the descriptor
+  // returns try_numeric(data->>id); for currency it returns
+  // try_numeric(data->fieldId->>'amount'). Both are NULL-on-corrupt-data
+  // so corrupt JSONB doesn't crash the aggregate.
+  return expr ?? sql`NULL::numeric`;
 };
 
 const isCompatible = (agg: AggKind, type: string): boolean => {
@@ -122,21 +127,21 @@ export const compileAggregates = (
         expr = sql`COUNT(DISTINCT data->>${fieldId}) FILTER (WHERE data->>${fieldId} IS NOT NULL AND data->>${fieldId} <> '')`;
         break;
       case "sum":
-        expr = sql`SUM(${numericProjection(fieldId, field.type)})`;
+        expr = sql`SUM(${numericProjection(field)})`;
         break;
       case "avg":
-        expr = sql`AVG(${numericProjection(fieldId, field.type)})`;
+        expr = sql`AVG(${numericProjection(field)})`;
         break;
       case "median":
         // PERCENTILE_CONT(0.5) — Postgres returns the linear-interpolated
         // 50th percentile, which is the median.
-        expr = sql`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${numericProjection(fieldId, field.type)})`;
+        expr = sql`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ${numericProjection(field)})`;
         break;
       case "min":
       case "max": {
         const fn = req.agg === "min" ? sql`MIN` : sql`MAX`;
         if (NUMERIC_TYPES.has(field.type)) {
-          expr = sql`${fn}(${numericProjection(fieldId, field.type)})`;
+          expr = sql`${fn}(${numericProjection(field)})`;
         } else if (DATE_TYPES.has(field.type)) {
           // Safe-cast: corrupt date data → NULL → ignored by MIN/MAX,
           // not a query crash.

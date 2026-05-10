@@ -19,24 +19,18 @@
 
 import type { FilterTree } from "../contracts";
 import type { Field } from "./types";
+import { canSearch } from "./field-storage";
 
-/** Field types the free-text search will apply `contains` against. Mirrors
- *  the TEXT_OPS family in filter-ops.ts: anything that's a text-shaped JSONB
- *  scalar. select / boolean / number etc. are intentionally excluded —
- *  searching them as text would be misleading at best. */
-const SEARCHABLE_TYPES = new Set([
-  "text",
-  "longtext",
-  "email",
-  "url",
-  "phone",
-  "slug",
-  "barcode",
-  "isbn",
-]);
-
+/**
+ * Searchable fields = alive fields whose storage descriptor flags them
+ * as `searchable`. The descriptor (service/field-storage.ts) is the
+ * single source of truth — text-family types (text, longtext, email,
+ * url, phone, slug, barcode, isbn) are searchable, every other type
+ * is not. Using the descriptor avoids the parallel SEARCHABLE_TYPES
+ * set drifting from the filter compiler's text-op family.
+ */
 export const filterSearchableFields = (fields: Field[]): Field[] =>
-  fields.filter((f) => !f.deletedAt && SEARCHABLE_TYPES.has(f.type));
+  fields.filter((f) => !f.deletedAt && canSearch(f));
 
 export const mergeSearchIntoFilter = (
   userFilter: FilterTree | null,

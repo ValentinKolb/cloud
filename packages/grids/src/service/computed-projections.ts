@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import type { Field } from "./types";
+import { storageOf } from "./field-storage";
 
 /**
  * Per-row SELECT-list projections for lookup and rollup fields.
@@ -109,11 +110,13 @@ export const buildComputedProjections = (fields: Field[]): ComputedProjection[] 
 
     if (!cfg.targetFieldId || !cfg.agg) continue;
 
-    // sum / avg / min / max — numeric only. Routed through grids.try_numeric
-    // so corrupt rows don't blow up the aggregate. min/max could also work
-    // on dates, but configuring rollup-on-date is rare and the UI doesn't
-    // expose it yet; keep numeric for v3 and revisit if a real use case
-    // shows up.
+    // sum / avg / min / max — numeric only. Resolves the target field's
+    // storage descriptor so currency targets project the nested `amount`
+    // (not the JSON-stringified blob). Closes chunk 3's "currency
+    // rollups coerced differently from aggregates" critical: without
+    // the descriptor, this path used `data->>${targetFieldId}` which
+    // returned the JSON object as a text and try_numeric coerced to
+    // NULL. Now currency rollups produce real amounts.
     const aggFn =
       cfg.agg === "sum" ? sql`SUM`
       : cfg.agg === "avg" ? sql`AVG`
@@ -122,12 +125,24 @@ export const buildComputedProjections = (fields: Field[]): ComputedProjection[] 
       : null;
     if (!aggFn) continue;
 
+    const targetField = fieldsById.get(cfg.targetFieldId);
+    if (!targetField) continue;
+    const targetProjection = storageOf(targetField).project(targetField, "t");
+    if (!targetProjection) {
+      // Target type is non-projectable (relation/lookup/rollup/formula/
+      // multi-select/json/system-without-numeric). Skip silently — the
+      // UI's lookup/rollup config editor should validate this at
+      // save-time (Wave 5.2). Until then, a partial / nonsensical config
+      // produces no rollup column rather than a crash.
+      continue;
+    }
+
     out.push({
       fieldId: field.id,
       alias: rollupAlias(field.id),
       outputType: "numeric",
       fragment: sql`
-        (SELECT ${aggFn}(grids.try_numeric(t.data->>${cfg.targetFieldId}))
+        (SELECT ${aggFn}(${targetProjection})
          FROM grids.record_links rl
          JOIN grids.records t ON t.id = rl.to_record_id
          WHERE rl.from_record_id = r.id

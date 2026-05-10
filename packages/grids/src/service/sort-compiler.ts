@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import type { Field } from "./types";
+import { storageOf, type ProjectionKind } from "./field-storage";
 
 export type SortSpec = {
   fieldId: string;
@@ -20,20 +21,48 @@ export type CompiledSort = {
 
 type CastKind = "numeric" | "date" | "boolean" | "text";
 
-const projectionForType = (fieldId: string, type: string): { sql: any; cast: CastKind } => {
-  // Safe-cast wrappers (Slice 7): NULL on parse failure instead of
-  // raising — a corrupt JSONB value used to crash the whole listing.
-  switch (type) {
-    case "number": case "decimal": case "rating": case "autonumber":
-    case "percent": case "duration":
-      return { sql: sql`grids.try_numeric(data->>${fieldId})`, cast: "numeric" };
+/**
+ * Maps the storage descriptor's projection kind onto the cast kind used
+ * by sort cursors. Both currency and decimal/numeric/percent/duration
+ * project as numeric — currency does so via `data->fieldId->>'amount'`
+ * but the cursor still encodes as a numeric. text/date/boolean carry
+ * through directly. Anything non-orderable (relation/computed/multi-
+ * select/json/system-without-projection) reports as `null` here so the
+ * caller can reject it with a clean compile error.
+ */
+const cursorCastFor = (kind: ProjectionKind): CastKind | null => {
+  switch (kind) {
+    case "numeric":
+    case "decimal":
+    case "currencyAmount":
+      return "numeric";
     case "date":
-      return { sql: sql`grids.try_date(data->>${fieldId})`, cast: "date" };
+    case "datetime":
+      return "date";
     case "boolean":
-      return { sql: sql`grids.try_boolean(data->>${fieldId})`, cast: "boolean" };
+      return "boolean";
+    case "text":
+    case "selectId":
+    case "system":
+      return "text";
     default:
-      return { sql: sql`data->>${fieldId}`, cast: "text" };
+      return null;
   }
+};
+
+const projectionForField = (field: Field): { sql: any; cast: CastKind } | null => {
+  // Storage descriptor is the source of truth for "how does this field
+  // type project into SQL?" Non-projectable kinds (relation/computed/
+  // multi-select/json/unknown) return null here so the compiler can
+  // reject them with a clean error rather than silently emitting a
+  // text fallback that sorts everything to NULL.
+  const desc = storageOf(field);
+  if (!desc.sortable) return null;
+  const projected = desc.project(field, "r");
+  if (!projected) return null;
+  const cast = cursorCastFor(desc.kind);
+  if (!cast) return null;
+  return { sql: projected as any, cast };
 };
 
 const castedValue = (cast: CastKind, value: unknown): any => {
@@ -119,11 +148,18 @@ export const compileSort = (
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const effective = specs.length > 0 ? specs : [];
 
-  // Validate fields exist + not deleted.
+  // Validate fields exist + not deleted + sortable. Storage descriptor
+  // is the source of truth for sortability — relation/lookup/rollup/
+  // formula/multi-select/json all return null from projectionForField,
+  // and we reject them with a clean compile error rather than silently
+  // sorting all rows to NULL via a text fallback.
   for (const s of effective) {
     const f = fieldsById.get(s.fieldId);
     if (!f) return { ok: false, error: `unknown sort field "${s.fieldId}"` };
     if (f.deletedAt) return { ok: false, error: `sort field "${f.name}" is deleted` };
+    if (!projectionForField(f)) {
+      return { ok: false, error: `field "${f.name}" (type "${f.type}") is not sortable` };
+    }
   }
 
   // Resolve effective nullsFirst per column (default = nulls-first asc, last desc).
@@ -135,7 +171,7 @@ export const compileSort = (
 
   // Build ORDER BY parts.
   const orderParts = resolved.map(({ spec, field, nullsFirst }) => {
-    const proj = projectionForType(spec.fieldId, field.type);
+    const proj = projectionForField(field)!;
     const dir = spec.direction === "desc" ? sql`DESC` : sql`ASC`;
     const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
     return sql`${proj.sql} ${dir} ${nulls}`;
@@ -169,13 +205,13 @@ export const compileSort = (
 
       const branches: any[] = [];
       for (let i = 0; i < resolved.length; i++) {
-        const proj = projectionForType(resolved[i]!.spec.fieldId, resolved[i]!.field.type);
+        const proj = projectionForField(resolved[i]!.field)!;
         const value = cursor.values[i];
         const gt = orderGt(proj.sql, proj.cast, resolved[i]!.spec.direction, resolved[i]!.nullsFirst, value);
         // Equality prefix: all earlier columns equal.
         let prefix: any = sql`TRUE`;
         for (let j = 0; j < i; j++) {
-          const pj = projectionForType(resolved[j]!.spec.fieldId, resolved[j]!.field.type);
+          const pj = projectionForField(resolved[j]!.field)!;
           const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
           prefix = sql`${prefix} AND ${eq}`;
         }
@@ -184,7 +220,7 @@ export const compileSort = (
       // Final branch: all sort cols equal AND id past cursor_id.
       let allEqPrefix: any = sql`TRUE`;
       for (let j = 0; j < resolved.length; j++) {
-        const pj = projectionForType(resolved[j]!.spec.fieldId, resolved[j]!.field.type);
+        const pj = projectionForField(resolved[j]!.field)!;
         const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
         allEqPrefix = sql`${allEqPrefix} AND ${eq}`;
       }
@@ -207,7 +243,7 @@ export const compileSort = (
       fieldIds: effective.map((s) => s.fieldId),
       projections: resolved.map(({ spec, field }) => ({
         fieldId: spec.fieldId,
-        sqlCast: projectionForType(spec.fieldId, field.type).cast,
+        sqlCast: projectionForField(field)!.cast,
       })),
     },
   };
