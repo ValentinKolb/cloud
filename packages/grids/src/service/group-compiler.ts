@@ -4,6 +4,7 @@ import type { CompiledClause } from "./filter-compiler";
 import { renderClause } from "./filter-compiler";
 import { compileFilter } from "./filter-compiler";
 import type { FilterTree } from "./filter-compiler";
+import { storageOf, type ProjectionKind } from "./field-storage";
 
 // =============================================================================
 // Group-by + aggregations compiler (v3 Slice 8)
@@ -78,39 +79,39 @@ export type CompiledGroup = {
 };
 
 // ──────────────────────────────────────────────────────────────────
-// Type helpers
+// Type helpers — every capability check + SQL projection goes through
+// the storage descriptor (field-storage.ts) so this compiler stops
+// re-spelling rules already encoded once. The descriptor knows that
+// currency stores under nested `amount`, that numeric/decimal/percent/
+// duration/rating cast through try_numeric, and that system fields are
+// real columns not JSONB. Touching the descriptor adds the new shape
+// in one place instead of n compilers.
 // ──────────────────────────────────────────────────────────────────
 
-const SCALAR_GROUPABLE_TYPES = new Set([
-  "text", "longtext", "number", "decimal", "currency", "percent", "duration",
-  "rating", "autonumber", "boolean", "date",
-  "single-select", "email", "url", "phone", "slug", "barcode", "isbn",
+/** Projection kinds whose SQL value is numeric-shaped. sum/avg work
+ *  over these; min/max work over these plus date / datetime / text. */
+const NUMERIC_KINDS: ReadonlySet<ProjectionKind> = new Set([
+  "numeric",
+  "decimal",
+  "currencyAmount",
 ]);
+const DATE_KINDS: ReadonlySet<ProjectionKind> = new Set(["date", "datetime"]);
 
 /** Field-types that can appear in groupBy. multi-select is excluded
  *  for v3 (would require an extra LATERAL unnest step similar to
- *  relation explode); lookup/rollup deferred (see module header). */
+ *  relation explode); lookup/rollup deferred (see module header).
+ *
+ *  Routes through the descriptor's `groupable` flag, so adding a new
+ *  field type only requires registering it in field-storage.ts. */
 export const isGroupable = (field: Field): boolean => {
   if (field.deletedAt) return false;
-  if (field.type === "relation") return true;
-  return SCALAR_GROUPABLE_TYPES.has(field.type);
+  return storageOf(field).groupable;
 };
 
-const NUMERIC_TYPES = new Set([
-  "number", "decimal", "currency", "percent", "duration",
-  "rating", "autonumber",
-]);
-const DATE_TYPES = new Set(["date"]);
-/**
- * Numeric-castable types when used as a groupBy KEY. Mirrors NUMERIC_TYPES
- * but exists separately because some types are aggregable but not
- * groupable (and vice versa, in future). Currency and percent get the
- * same treatment as number/decimal — uniform semantics with the
- * aggregate compiler.
- */
-const NUMERIC_GROUPABLE_TYPES = NUMERIC_TYPES;
-
-/** Returns whether `agg` makes sense over `field`. count* always do. */
+/** Returns whether `agg` makes sense over `field`. count* always do for
+ *  any non-deleted field. Routes the type→aggregate compatibility through
+ *  the descriptor's projection kind; previously this had its own
+ *  NUMERIC_TYPES set that could drift from the aggregate-compiler's. */
 export const isAggregatable = (
   field: Field | null,
   agg: AggKindForGroup,
@@ -119,8 +120,11 @@ export const isAggregatable = (
   if (isStarField) return agg === "count";
   if (!field || field.deletedAt) return false;
   if (agg === "count" || agg === "countEmpty" || agg === "countUnique") return true;
-  if (agg === "sum" || agg === "avg") return NUMERIC_TYPES.has(field.type);
-  if (agg === "min" || agg === "max") return NUMERIC_TYPES.has(field.type) || DATE_TYPES.has(field.type) || field.type === "text" || field.type === "longtext";
+  const kind = storageOf(field).kind;
+  if (agg === "sum" || agg === "avg") return NUMERIC_KINDS.has(kind);
+  if (agg === "min" || agg === "max") {
+    return NUMERIC_KINDS.has(kind) || DATE_KINDS.has(kind) || kind === "text";
+  }
   return false;
 };
 
@@ -176,9 +180,14 @@ const resolveGroupBy = (
 
     const alias = groupAlias(i);
 
-    if (field.type === "relation") {
+    const desc = storageOf(field);
+
+    if (desc.kind === "relationLink") {
       // Explode-mode: each link contributes one row. The JOIN alias
-      // exposes the to_record_id; we use that as the group key.
+      // exposes the to_record_id; we use that as the group key. The
+      // descriptor reports relation as groupable but with project=null;
+      // we provide the SQL fragment ourselves since it depends on a
+      // JOIN that doesn't exist in any other compiler path.
       const jIdx = relationJoinCounter++;
       resolved.push({
         spec,
@@ -191,10 +200,12 @@ const resolveGroupBy = (
     }
 
     if (field.type === "date" && spec.granularity) {
-      // Server-side bucketing. Cast goes through grids.try_date so
-      // corrupt values produce NULL instead of crashing the GROUP BY.
+      // Server-side bucketing. Cast goes through grids.try_timestamptz
+      // so corrupt values produce NULL instead of crashing the GROUP BY.
+      // Bypasses the descriptor's date projection because we want the
+      // pre-truncation timestamptz so date_trunc handles week/quarter/
+      // year correctly — date_trunc('quarter', date) doesn't exist.
       const gran = spec.granularity;
-      // date_trunc returns timestamptz; cast to date for clean grouping.
       resolved.push({
         spec,
         field,
@@ -204,46 +215,24 @@ const resolveGroupBy = (
       continue;
     }
 
-    // Type-aware scalar projection (Slice 8 follow-up): without the cast,
-    // numeric-shaped JSONB values group / sort lexicographically — "10"
-    // before "2", "100" before "9". Cast goes through the safe-cast
-    // wrappers so corrupt rows fall to NULL instead of crashing.
-    if (NUMERIC_GROUPABLE_TYPES.has(field.type)) {
-      // Currency stores under nested `amount`. Mirror the aggregate-
-      // compiler convention so numeric semantics are consistent.
-      const expr = field.type === "currency"
-        ? sql`grids.try_numeric(r.data->${field.id}->>'amount')`
-        : sql`grids.try_numeric(r.data->>${field.id})`;
-      resolved.push({ spec, field, alias, expr });
-      continue;
+    // Every other groupable type routes through the descriptor — currency
+    // gets its amount projection, numeric/date/boolean get their typed
+    // casts, single-select/text/system fields get the right shape. Drops
+    // the duplicated currency / NUMERIC_GROUPABLE_TYPES / date / boolean
+    // branches that used to live here.
+    const projected = desc.project(field, "r");
+    if (!projected) {
+      // Defensive: descriptor reported groupable but no projection.
+      // Currently unreachable — every groupable kind has a project()
+      // implementation — but keeping this branch keeps the compiler
+      // honest if a future descriptor adds groupable=true without
+      // project=non-null.
+      return {
+        ok: false,
+        error: `field "${field.name}" (type "${field.type}") has no group projection`,
+      };
     }
-    if (field.type === "date") {
-      // No granularity → group by exact day.
-      resolved.push({
-        spec,
-        field,
-        alias,
-        expr: sql`grids.try_date(r.data->>${field.id})`,
-      });
-      continue;
-    }
-    if (field.type === "boolean") {
-      resolved.push({
-        spec,
-        field,
-        alias,
-        expr: sql`grids.try_boolean(r.data->>${field.id})`,
-      });
-      continue;
-    }
-
-    // Text-shaped default: data->>fid is already text.
-    resolved.push({
-      spec,
-      field,
-      alias,
-      expr: sql`r.data->>${field.id}`,
-    });
+    resolved.push({ spec, field, alias, expr: projected as any });
   }
 
   return { ok: true, resolved };
@@ -264,43 +253,58 @@ const buildAggExpr = (
     return { ok: false, error: `agg "${req.agg}" not compatible with field type "${field.type}"` };
   }
 
-  // Currency stores under a nested JSON object — the aggregate-compiler
-  // already centralised this; replicate the same projection rule here
-  // rather than reaching across module boundaries.
-  const numProj = field.type === "currency"
-    ? sql`grids.try_numeric(r.data->${field.id}->>'amount')`
-    : sql`grids.try_numeric(r.data->>${field.id})`;
+  // Typed projection from the storage descriptor — currency uses its
+  // nested amount path, numerics cast through try_numeric, dates
+  // through try_date, system columns reference the column directly.
+  // count* still operate on the raw "is this slot populated" text
+  // because we want to count rows where the user wrote ANYTHING (even
+  // an unparseable number), not rows where the typed projection
+  // happens to be non-null.
+  const desc = storageOf(field);
+  const typedProj = desc.project(field, "r") as any;
+  // Existence-shaped reference used by count*. For JSONB-backed kinds
+  // we read the raw text; for system kinds we use the column itself
+  // (no '' check — columns are typed, "" is meaningless).
+  const existsRef =
+    desc.kind === "system"
+      ? typedProj
+      : sql`r.data->>${field.id}`;
+  const isSystem = desc.kind === "system";
 
   switch (req.agg) {
     case "count":
       return {
         ok: true,
-        expr: sql`count(r.data->>${field.id}) FILTER (WHERE r.data->>${field.id} IS NOT NULL AND r.data->>${field.id} <> '')::bigint`,
+        expr: isSystem
+          ? sql`count(${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL)::bigint`
+          : sql`count(${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL AND ${existsRef} <> '')::bigint`,
       };
     case "countEmpty":
       return {
         ok: true,
-        expr: sql`count(*) FILTER (WHERE r.data->>${field.id} IS NULL OR r.data->>${field.id} = '')::bigint`,
+        expr: isSystem
+          ? sql`count(*) FILTER (WHERE ${existsRef} IS NULL)::bigint`
+          : sql`count(*) FILTER (WHERE ${existsRef} IS NULL OR ${existsRef} = '')::bigint`,
       };
     case "countUnique":
       return {
         ok: true,
-        expr: sql`count(DISTINCT r.data->>${field.id}) FILTER (WHERE r.data->>${field.id} IS NOT NULL AND r.data->>${field.id} <> '')::bigint`,
+        expr: isSystem
+          ? sql`count(DISTINCT ${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL)::bigint`
+          : sql`count(DISTINCT ${existsRef}) FILTER (WHERE ${existsRef} IS NOT NULL AND ${existsRef} <> '')::bigint`,
       };
     case "sum":
-      return { ok: true, expr: sql`SUM(${numProj})` };
+      return { ok: true, expr: sql`SUM(${typedProj})` };
     case "avg":
-      return { ok: true, expr: sql`AVG(${numProj})` };
+      return { ok: true, expr: sql`AVG(${typedProj})` };
     case "min":
     case "max": {
       const fn = req.agg === "min" ? sql`MIN` : sql`MAX`;
-      if (NUMERIC_TYPES.has(field.type)) {
-        return { ok: true, expr: sql`${fn}(${numProj})` };
-      }
-      if (DATE_TYPES.has(field.type)) {
-        return { ok: true, expr: sql`${fn}(grids.try_date(r.data->>${field.id}))` };
-      }
-      return { ok: true, expr: sql`${fn}(r.data->>${field.id})` };
+      // min/max routes through the typed projection for every
+      // kind. For text fields the descriptor projection IS `data->>id`
+      // so min/max gives lexicographic order on raw text — identical
+      // to what the old hard-coded fallback emitted.
+      return { ok: true, expr: sql`${fn}(${typedProj})` };
     }
   }
 };

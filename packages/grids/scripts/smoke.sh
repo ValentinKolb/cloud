@@ -159,6 +159,16 @@ http POST /api/grids/fields/by-table/$ORDERS_TABLE_ID "{\"name\":\"item\",\"type
 expect_status 201 "POST fields/orders.item (relation) → 201"
 RELATION_FIELD_ID=$(json '.id')
 
+# Cross-table rollup on orders → SUM(items.price). Exercises
+# buildComputedProjections.resolveTargetField — the price field lives
+# on a DIFFERENT table than the rollup, so the projection has to
+# fetch it via getField() instead of finding it in the source-table
+# field list. Pre-final-review this silently dropped the projection
+# and rollups across relations returned NULL.
+http POST /api/grids/fields/by-table/$ORDERS_TABLE_ID "{\"name\":\"item_price_sum\",\"type\":\"rollup\",\"config\":{\"relationFieldId\":\"$RELATION_FIELD_ID\",\"targetFieldId\":\"$PRICE_FIELD_ID\",\"agg\":\"sum\"}}"
+expect_status 201 "POST fields/orders.item_price_sum (cross-table rollup) → 201"
+ROLLUP_FIELD_ID=$(json '.id')
+
 # ────────────────────────────────────────────────────────────────────
 # Slug invariant (Wave 1.1): every entity got a 5-char alphanumeric slug.
 # ────────────────────────────────────────────────────────────────────
@@ -228,6 +238,17 @@ HYDRATED=$(json ".items[] | select(.id==\"$ORDER_REC_ID\") | .data[\"$RELATION_F
 [[ "$HYDRATED" == "$ITEM_REC_ID" ]] && pass "relation hydrated on list" \
   || fail "relation hydration" "expected '$ITEM_REC_ID', got '$HYDRATED'"
 
+# Cross-table rollup: the rollup column on orders should expose the
+# price of the linked item (99.99 — only one item linked from this
+# order). Pre-fix this returned null because buildComputedProjections
+# couldn't resolve the target field's storage descriptor across tables.
+ROLLUP=$(json ".items[] | select(.id==\"$ORDER_REC_ID\") | .data[\"$ROLLUP_FIELD_ID\"]")
+if [[ "$ROLLUP" == "99.99" || "$ROLLUP" == "99.990000" ]]; then
+  pass "cross-table rollup projects target value"
+else
+  fail "cross-table rollup" "expected 99.99, got '$ROLLUP'"
+fi
+
 # ────────────────────────────────────────────────────────────────────
 # Audit cross-table leak (Wave 2.4)
 # ────────────────────────────────────────────────────────────────────
@@ -249,6 +270,42 @@ expect_status 200 "GET audit (wrong-table guess) → 200"
 LEAKED=$(json '.items | length')
 [[ "$LEAKED" == "0" ]] && pass "audit empty for wrong-table guess (no leak)" \
   || fail "audit cross-table leak" "got $LEAKED entries instead of 0"
+
+# ────────────────────────────────────────────────────────────────────
+# Group-by + aggregations: currency sum across records (group-compiler
+# storage-descriptor adoption). Two items with prices that should sum
+# via SUM(try_numeric(data->fld->>'amount')). Pre-refactor this was
+# wired up inline; the descriptor now owns it and the smoke test pins
+# the SQL contract.
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ group-by + aggregations ━━━"
+
+# Add a second item so SUM has something non-trivial to aggregate.
+http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"gadget\",\"$PRICE_FIELD_ID\":150}"
+expect_status 201 "POST second item record → 201"
+
+# Group-by on a scalar (name field) with sum(price) — the simplest path
+# that hits both resolveGroupBy and buildAggExpr through the descriptor.
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"groupBy\":[{\"fieldId\":\"$NAME_FIELD_ID\"}],\"aggregations\":[{\"fieldId\":\"$PRICE_FIELD_ID\",\"agg\":\"sum\"}]}}"
+expect_status 200 "POST grouped query (sum) → 200"
+BUCKETS=$(json '.buckets | length')
+[[ "$BUCKETS" -ge 2 ]] && pass "grouped query returns ≥2 buckets" \
+  || fail "grouped query bucket count" "expected ≥2, got $BUCKETS"
+
+# Footer aggregate path (no groupBy) — exercises the same buildAggExpr
+# logic via aggregate-compiler. Total over both records.
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"aggregations\":[{\"fieldId\":\"$PRICE_FIELD_ID\",\"agg\":\"sum\"}]}}"
+expect_status 200 "POST footer aggregate (sum) → 200"
+SUM=$(json ".aggregates[\"${PRICE_FIELD_ID}__sum\"]")
+# The first item was 99.99, second 150 → 249.99. Accept either string
+# or number form (bun-sql may return numeric as string for big values).
+if [[ "$SUM" == "249.99" || "$SUM" == "249.990000" || "$SUM" == "249.99000000000000" ]]; then
+  pass "footer sum produces 249.99"
+else
+  fail "footer sum value" "expected 249.99, got '$SUM'"
+fi
 
 # ────────────────────────────────────────────────────────────────────
 # Field-dependents + saved-view cleanup on delete (Critical #11)
@@ -276,6 +333,13 @@ JSON
 http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$VIEW_QUERY"
 expect_status 201 "POST view with price filter+sort+search → 201"
 VIEW_ID=$(json '.id')
+
+# Drop the rollup first — it references price as a BLOCKING dependent
+# (the dependents scanner rightly refuses to auto-cleanup
+# rollup/lookup/formula refs since they have computed-cell semantics).
+# Without this, the price-delete below would 409 instead of testing
+# the view-cleanup auto-strip path.
+cleanup_delete /api/grids/fields/$ROLLUP_FIELD_ID
 
 http DELETE /api/grids/fields/$PRICE_FIELD_ID
 expect_status 204 "DELETE price field → 204"
