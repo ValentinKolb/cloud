@@ -141,17 +141,34 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      // Personal view: only the owner can edit. Shared view: base-admin.
       const user = c.get("user");
+      const body = c.req.valid("json");
       const isOwner = view.ownerUserId === user.id;
-      const gate = view.ownerUserId === null
-        ? await gateAt(c, { baseId: table.baseId }, "admin")
-        : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      if (view.ownerUserId !== null && !isOwner) {
-        return c.json({ message: "Only the owner can edit a personal view" }, 403);
+
+      // Ownership transitions (publish / unpublish) require base-admin
+      // regardless of who owns the view today. Without this gate, a
+      // table-reader who happens to own a personal view could flip
+      // shared:true and publish to the whole base — an obvious privilege
+      // escalation we shipped to alpha (chunk 7 critical).
+      const isPublishing = body.shared === true && view.ownerUserId !== null;
+      const isUnpublishing = body.shared === false && view.ownerUserId === null;
+
+      let gate;
+      if (isPublishing || isUnpublishing) {
+        gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      } else if (view.ownerUserId === null) {
+        // Editing an existing shared view: base-admin only.
+        gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      } else if (isOwner) {
+        // Editing one's own personal view: just need parent table-read.
+        gate = await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
+      } else {
+        // Editing someone else's personal view: base-admin only.
+        gate = await gateAt(c, { baseId: table.baseId }, "admin");
       }
-      return respond(c, () => gridsService.view.update(viewId, c.req.valid("json"), user.id));
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      return respond(c, () => gridsService.view.update(viewId, body, user.id));
     },
   )
 
@@ -173,13 +190,16 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
+      // Same gate shape as PATCH (minus the ownership-transition case,
+      // which doesn't apply to delete). Shared view ⇒ base-admin.
+      // Own personal view ⇒ table-read. Someone else's personal view
+      // ⇒ base-admin.
       const gate = view.ownerUserId === null
         ? await gateAt(c, { baseId: table.baseId }, "admin")
-        : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
+        : isOwner
+          ? await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read")
+          : await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      if (view.ownerUserId !== null && !isOwner) {
-        return c.json({ message: "Only the owner can delete a personal view" }, 403);
-      }
       const result = await gridsService.view.remove(viewId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);

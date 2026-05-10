@@ -74,8 +74,14 @@ export type AuditEntryWithUser = AuditEntry & {
  * Per-record audit history with the actor's display name resolved.
  * Used by the record detail panel's History tab — the join keeps the
  * UI from having to fetch users separately.
+ *
+ * Scoped to (tableId, recordId): a guessed recordId from another table
+ * never resolves here. Without the table_id filter, a user with read
+ * on table A could request /records/<tableA>/<recordFromTableB>/audit
+ * and read table B's audit history (chunk 7 critical leak).
  */
 export const listByRecord = async (
+  tableId: string,
   recordId: string,
   limit = 50,
 ): Promise<AuditEntryWithUser[]> => {
@@ -86,7 +92,8 @@ export const listByRecord = async (
            COALESCE(u.uid, NULL) AS user_display_name
     FROM grids.audit_log al
     LEFT JOIN auth.users u ON u.id = al.user_id
-    WHERE al.record_id = ${recordId}::uuid
+    WHERE al.table_id = ${tableId}::uuid
+      AND al.record_id = ${recordId}::uuid
     ORDER BY al.created_at DESC, al.id DESC
     LIMIT ${cap}
   `;

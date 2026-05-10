@@ -301,7 +301,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const items = await gridsService.audit.listByRecord(recordId, 50);
+      const items = await gridsService.audit.listByRecord(tableId, recordId, 50);
       return c.json({ items });
     },
   );
