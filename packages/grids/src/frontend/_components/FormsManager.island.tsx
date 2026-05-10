@@ -1,5 +1,13 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { PermissionEditor, prompts, SegmentedControl, Select, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  DialogHeader,
+  dialogCore,
+  PermissionEditor,
+  prompts,
+  SegmentedControl,
+  Select,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { FieldInput } from "./form-fields";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Index, Show } from "solid-js";
@@ -38,7 +46,45 @@ type Props = {
  */
 export default function FormsManager(props: Props) {
   const [forms, setForms] = createSignal<Form[]>(props.initialForms.filter((f) => !f.isDefault));
-  const [expandedId, setExpandedId] = createSignal<string | null>(null);
+
+  /**
+   * Open the form editor inside a centered modal. Previously each form
+   * expanded inline below its row; with several forms the page grew to
+   * multiple screens. The modal keeps the row list compact and gives
+   * the editor a fixed viewport — same UX as the field editor.
+   */
+  const openFormEditor = (form: Form) =>
+    dialogCore.open<void>(
+      (close) => (
+        <div class="flex flex-col gap-4">
+          <DialogHeader
+            title={`Edit form — ${form.name}`}
+            icon="ti ti-forms"
+            close={() => close()}
+          />
+          <FormEditor
+            form={form}
+            tableFields={props.fields}
+            initialAccessEntries={props.initialFormAccessEntries?.[form.id] ?? []}
+            canManageAccess={props.canManage}
+            onSaved={(next) => {
+              setForms(forms().map((f) => (f.id === next.id ? next : f)));
+              close();
+            }}
+            onDelete={async () => {
+              await handleDelete(form);
+              close();
+            }}
+            onCancel={() => close()}
+          />
+        </div>
+      ),
+      {
+        // Match the field-edit modal's sizing pattern.
+        panelClassName:
+          "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 w-[min(96vw,48rem)] max-h-[86vh] overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60 backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm",
+      },
+    );
 
   // ---- Create ----------------------------------------------------------
   const handleCreate = async () => {
@@ -71,7 +117,9 @@ export default function FormsManager(props: Props) {
     }
     const created = (await res.json()) as Form;
     setForms([...forms(), created]);
-    setExpandedId(created.id);
+    // Open the editor modal immediately so the user can configure the
+    // newly created form. Mirrors the pre-modal auto-expand behaviour.
+    openFormEditor(created);
   };
 
   // ---- Delete ----------------------------------------------------------
@@ -95,45 +143,31 @@ export default function FormsManager(props: Props) {
       <Show when={forms().length > 0} fallback={<p class="text-xs text-dimmed py-2">No custom forms yet.</p>}>
         <ul class="flex flex-col gap-2">
           <For each={forms()}>
-            {(form) => {
-              const isExpanded = () => expandedId() === form.id;
-              return (
-                <li class={`paper transition-colors ${isExpanded() ? "border-blue-500! dark:border-blue-400!" : ""}`}>
-                  <button
-                    type="button"
-                    class="flex w-full items-center gap-2 px-3 py-2 text-left"
-                    onClick={() => setExpandedId(isExpanded() ? null : form.id)}
-                    aria-expanded={isExpanded()}
-                  >
-                    <i
-                      class={`ti ${form.publicToken ? "ti-world" : "ti-lock"} text-sm ${
-                        form.publicToken ? "text-emerald-600" : "text-dimmed"
-                      }`}
-                    />
-                    <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                      <span class="text-sm font-semibold text-primary truncate">{form.name}</span>
-                      <span class="text-[10px] text-dimmed">
-                        {form.config.fields.length} field
-                        {form.config.fields.length === 1 ? "" : "s"}
-                      </span>
-                      <span class="text-[10px] text-dimmed">· {form.publicToken ? "public" : "private"}</span>
+            {(form) => (
+              <li class="paper">
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 rounded-lg"
+                  onClick={() => openFormEditor(form)}
+                  aria-label={`Edit form ${form.name}`}
+                >
+                  <i
+                    class={`ti ${form.publicToken ? "ti-world" : "ti-lock"} text-sm ${
+                      form.publicToken ? "text-emerald-600" : "text-dimmed"
+                    }`}
+                  />
+                  <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                    <span class="text-sm font-semibold text-primary truncate">{form.name}</span>
+                    <span class="text-[10px] text-dimmed">
+                      {form.config.fields.length} field
+                      {form.config.fields.length === 1 ? "" : "s"}
                     </span>
-                    <i class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${isExpanded() ? "rotate-180" : ""}`} />
-                  </button>
-
-                  <Show when={isExpanded()}>
-                    <FormEditor
-                      form={form}
-                      tableFields={props.fields}
-                      initialAccessEntries={props.initialFormAccessEntries?.[form.id] ?? []}
-                      canManageAccess={props.canManage}
-                      onSaved={(next) => setForms(forms().map((f) => (f.id === next.id ? next : f)))}
-                      onDelete={() => handleDelete(form)}
-                    />
-                  </Show>
-                </li>
-              );
-            }}
+                    <span class="text-[10px] text-dimmed">· {form.publicToken ? "public" : "private"}</span>
+                  </span>
+                  <i class="ti ti-edit text-sm text-dimmed" />
+                </button>
+              </li>
+            )}
           </For>
         </ul>
       </Show>
@@ -158,6 +192,9 @@ function FormEditor(props: {
   canManageAccess: boolean;
   onSaved: (next: Form) => void;
   onDelete: () => void;
+  /** Cancel handler — only set when the editor lives inside a dialog.
+   *  Footer adds a Cancel button so users have a clear no-op exit. */
+  onCancel?: () => void;
 }) {
   const [name, setName] = createSignal(props.form.name);
   const [isPublic, setIsPublic] = createSignal(Boolean(props.form.publicToken));
@@ -628,11 +665,25 @@ function FormEditor(props: {
         <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDelete}>
           <i class="ti ti-trash" /> Delete form
         </button>
-        <Show when={dirty()}>
-          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={updateMut.loading()}>
+        <div class="flex items-center gap-2">
+          <Show when={props.onCancel}>
+            <button
+              type="button"
+              class="btn-input btn-sm"
+              onClick={() => props.onCancel?.()}
+            >
+              Cancel
+            </button>
+          </Show>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            onClick={handleSave}
+            disabled={!dirty() || updateMut.loading()}
+          >
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
-        </Show>
+        </div>
       </div>
     </div>
   );

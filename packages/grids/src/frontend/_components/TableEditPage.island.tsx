@@ -2,6 +2,8 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   Checkbox,
   CopyButton,
+  DialogHeader,
+  dialogCore,
   navigateTo,
   PermissionEditor,
   prompts,
@@ -121,7 +123,6 @@ export default function TableEditPage(props: Props) {
   const [fields, setFields] = createSignal<Field[]>(
     [...props.initialFields].sort((a, b) => a.position - b.position)
   );
-  const [expandedId, setExpandedId] = createSignal<string | null>(null);
 
   const reorderMut = mutations.create<void, string[]>({
     mutation: async (fieldIds) => {
@@ -194,7 +195,20 @@ export default function TableEditPage(props: Props) {
     }
     const created = (await res.json()) as Field;
     setFields([...fields(), created]);
-    setExpandedId(created.id);
+    // Open the edit modal immediately so the user can configure the
+    // freshly created field without an extra click. Mirrors the
+    // pre-modal behaviour where the new card auto-expanded.
+    openFieldEditDialog({
+      field: created,
+      otherTables: props.otherTables,
+      fieldsByTable: props.fieldsByTable,
+      onSaved: (updated) => {
+        setFields(fields().map((f) => (f.id === updated.id ? updated : f)));
+      },
+      onDeleted: async () => {
+        await handleDeleteField(created);
+      },
+    });
   };
 
   const handleDeleteField = async (field: Field) => {
@@ -326,7 +340,7 @@ export default function TableEditPage(props: Props) {
 
       <SectionCard
         title="Fields"
-        subtitle="Use the arrows to reorder. Click a field to edit its details."
+        subtitle="Use the arrows to reorder. Click a field to open its editor."
         meta={`${fields().length} field${fields().length === 1 ? "" : "s"}`}
       >
         <Show
@@ -340,25 +354,31 @@ export default function TableEditPage(props: Props) {
           <ul class="flex flex-col gap-2">
             <For each={fields()}>
               {(field, index) => {
-                const isExpanded = () => expandedId() === field.id;
                 const total = () => fields().length;
+                const openEditor = () => {
+                  openFieldEditDialog({
+                    field,
+                    otherTables: props.otherTables,
+                    fieldsByTable: props.fieldsByTable,
+                    onSaved: (updated) => {
+                      setFields(
+                        fields().map((f) =>
+                          f.id === updated.id ? updated : f
+                        )
+                      );
+                    },
+                    onDeleted: async () => {
+                      await handleDeleteField(field);
+                    },
+                  });
+                };
                 return (
-                  <li
-                    class={`rounded-lg border transition-colors ${
-                      isExpanded()
-                        ? "border-blue-500 dark:border-blue-400"
-                        : "border-zinc-200 dark:border-zinc-700"
-                    }`}
-                  >
-                    {/* Card header — toggle button + copy-id button as
-                        flex siblings so we can nest a real <button>
-                        for CopyButton (would be invalid HTML inside
-                        the toggle button).
-                        Reorder is up/down arrows on the left (mirrors
-                        the FormsManager pattern). The hitbox is the
-                        whole 16×16 chevron tap target, much larger
-                        than the previous drag-grip — works on every
-                        input device. */}
+                  <li class="rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    {/* Card row — arrows + click-to-edit + copy-ref.
+                        The whole row is compact (single line); clicking
+                        the name area opens the field editor in a modal
+                        rather than expanding the card inline. Reorder
+                        is up/down arrows on the left (mirrors FormsManager). */}
                     <div class="flex items-center">
                       <div class="flex flex-col gap-0.5 pl-2 shrink-0">
                         <button
@@ -384,11 +404,9 @@ export default function TableEditPage(props: Props) {
                       </div>
                       <button
                         type="button"
-                        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
-                        onClick={() =>
-                          setExpandedId(isExpanded() ? null : field.id)
-                        }
-                        aria-expanded={isExpanded()}
+                        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 rounded-r-lg"
+                        onClick={openEditor}
+                        aria-label={`Edit field ${field.name}`}
                       >
                         <span class="flex-1 min-w-0 flex items-baseline gap-2">
                           <span class="text-sm font-semibold text-primary truncate">
@@ -408,11 +426,7 @@ export default function TableEditPage(props: Props) {
                             {field.description}
                           </span>
                         </Show>
-                        <i
-                          class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
-                            isExpanded() ? "rotate-180" : ""
-                          }`}
-                        />
+                        <i class="ti ti-edit text-sm text-dimmed" />
                       </button>
                       {/* Power-user hook: copy the field's `#short_id`
                           token so users can paste it straight into a
@@ -423,24 +437,8 @@ export default function TableEditPage(props: Props) {
                         class="btn-simple btn-sm mr-2 shrink-0"
                       />
                     </div>
-
-                      <Show when={isExpanded()}>
-                        <FieldEditor
-                          field={field}
-                          otherTables={props.otherTables}
-                          fieldsByTable={props.fieldsByTable}
-                          onSaved={(updated) => {
-                            setFields(
-                              fields().map((f) =>
-                                f.id === updated.id ? updated : f
-                              )
-                            );
-                          }}
-                          onDeleted={() => handleDeleteField(field)}
-                        />
-                      </Show>
-                    </li>
-                  );
+                  </li>
+                );
               }}
             </For>
           </ul>
@@ -508,7 +506,64 @@ export default function TableEditPage(props: Props) {
 }
 
 // =============================================================================
-// FieldEditor — body of an expanded field card
+// openFieldEditDialog — open FieldEditor inside a centered modal
+// =============================================================================
+//
+// Previously the field editor expanded inline below each card. With many
+// fields configured, the page grew to several screens tall and the user
+// lost track of where they were while scrolling through configs. A modal
+// gives clear focus, a fixed viewport, and a single visible thing at a
+// time — matches Airtable's mental model.
+//
+// The dialog body re-uses the existing `FieldEditor` component verbatim;
+// only the chrome (header, panel sizing, backdrop) lives here. Save /
+// delete close the dialog after the parent's state-update callbacks
+// fire, so the page list reflects the change immediately.
+
+type OpenFieldEditArgs = {
+  field: Field;
+  otherTables: Array<{ id: string; name: string }>;
+  fieldsByTable: Record<string, Field[]>;
+  onSaved: (next: Field) => void;
+  onDeleted: () => Promise<void> | void;
+};
+
+const openFieldEditDialog = (args: OpenFieldEditArgs): Promise<void> =>
+  dialogCore.open<void>(
+    (close) => (
+      <div class="flex flex-col gap-4">
+        <DialogHeader
+          title={`Edit field — ${args.field.name}`}
+          icon="ti ti-edit"
+          close={() => close()}
+        />
+        <FieldEditor
+          field={args.field}
+          otherTables={args.otherTables}
+          fieldsByTable={args.fieldsByTable}
+          onSaved={(next) => {
+            args.onSaved(next);
+            close();
+          }}
+          onDeleted={async () => {
+            await args.onDeleted();
+            close();
+          }}
+          onCancel={() => close()}
+        />
+      </div>
+    ),
+    {
+      // Same panel sizing pattern as CreateRecordDialog: 48rem wide,
+      // 86vh tall cap with internal scroll, opaque tint + blurred
+      // backdrop so the page behind reads as muted not visible.
+      panelClassName:
+        "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 w-[min(96vw,48rem)] max-h-[86vh] overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60 backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm",
+    },
+  );
+
+// =============================================================================
+// FieldEditor — body of the field-edit modal
 // =============================================================================
 
 function FieldEditor(props: {
@@ -517,6 +572,10 @@ function FieldEditor(props: {
   fieldsByTable: Record<string, Field[]>;
   onSaved: (next: Field) => void;
   onDeleted: () => void;
+  /** Optional cancel handler — only set when the editor is rendered
+   *  inside a dialog. The footer adds a "Cancel" button next to Save
+   *  so users have a clear way out without triggering a save. */
+  onCancel?: () => void;
 }) {
   const [name, setName] = createSignal(props.field.name);
   const [description, setDescription] = createSignal(
@@ -723,20 +782,27 @@ function FieldEditor(props: {
           <i class="ti ti-trash" /> Delete field
         </button>
         <div class="flex items-center gap-2">
-          <Show when={dirty()}>
+          <Show when={props.onCancel}>
             <button
               type="button"
-              class="btn-primary btn-sm"
-              onClick={handleSave}
-              disabled={updateMut.loading()}
+              class="btn-input btn-sm"
+              onClick={() => props.onCancel?.()}
             >
-              {updateMut.loading() ? (
-                <i class="ti ti-loader-2 animate-spin" />
-              ) : (
-                "Save"
-              )}
+              Cancel
             </button>
           </Show>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            onClick={handleSave}
+            disabled={!dirty() || updateMut.loading()}
+          >
+            {updateMut.loading() ? (
+              <i class="ti ti-loader-2 animate-spin" />
+            ) : (
+              "Save"
+            )}
+          </button>
         </div>
       </div>
     </div>
