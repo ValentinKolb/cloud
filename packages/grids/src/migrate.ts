@@ -634,24 +634,35 @@ const backfillSlugs = async (): Promise<void> => {
 
   // After all rows are filled, tighten the schema: NOT NULL + CHECK so
   // the contract layer's SlugSchema and the DB row state cannot drift.
-  // Idempotent: ALTER COLUMN ... SET NOT NULL is a no-op when the column
-  // already disallows NULL; ADD CONSTRAINT IF NOT EXISTS guards the CHECK.
+  //
+  // Both branches are idempotent at the SQL layer:
+  //   - ALTER COLUMN ... SET NOT NULL is a no-op when the column
+  //     already disallows NULL (Postgres accepts the redundant ALTER).
+  //   - The CHECK constraint is guarded by a SELECT against pg_constraint
+  //     in a DO block. We use this rather than a JS-side try/catch
+  //     because Bun.sql buries the Postgres SQLSTATE in `errno`, not
+  //     `code` (which gets set to `ERR_POSTGRES_SERVER_ERROR`); a naive
+  //     `if (e.code === "42710")` therefore re-throws and aborts boot
+  //     after the first successful migration. The DO block also avoids
+  //     the drop-and-recreate antipattern — every run is a single
+  //     idempotent SQL statement, no schema churn.
   for (const table of ["bases", "tables", "fields", "forms", "views", "dashboards"] as const) {
     await sql.unsafe(`ALTER TABLE grids.${table} ALTER COLUMN slug SET NOT NULL`).simple();
     await sql
       .unsafe(`
-        ALTER TABLE grids.${table}
-        ADD CONSTRAINT ${table}_slug_format_chk
-        CHECK (slug ~ '^[A-Za-z0-9]{5}$')
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = '${table}_slug_format_chk'
+              AND conrelid = 'grids.${table}'::regclass
+          ) THEN
+            ALTER TABLE grids.${table}
+            ADD CONSTRAINT ${table}_slug_format_chk
+            CHECK (slug ~ '^[A-Za-z0-9]{5}$');
+          END IF;
+        END $$;
       `)
-      .simple()
-      .catch((e: unknown) => {
-        // Re-run safety: ADD CONSTRAINT does not support IF NOT EXISTS in
-        // PostgreSQL < 16. Catch the duplicate-object error code (42710)
-        // and accept it; rethrow anything else.
-        const code = (e as { code?: string })?.code;
-        if (code === "42710") return; // constraint already exists
-        throw e;
-      });
+      .simple();
   }
 };
