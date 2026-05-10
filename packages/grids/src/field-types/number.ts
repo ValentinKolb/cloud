@@ -1,11 +1,23 @@
 import { z } from "zod";
 import { fail, ok, type FieldTypeHandler } from "./types";
 
-const NumberConfigSchema = z.object({
-  min: z.number().optional(),
-  max: z.number().optional(),
-  integerOnly: z.boolean().optional(),
-});
+const NumberConfigSchema = z
+  .object({
+    min: z.number().optional(),
+    max: z.number().optional(),
+    integerOnly: z.boolean().optional(),
+  })
+  // min must not exceed max. Otherwise every value fails validation
+  // and the field is permanently broken until the config is fixed.
+  .superRefine((data, ctx) => {
+    if (data.min !== undefined && data.max !== undefined && data.min > data.max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "min cannot exceed max",
+        path: ["min"],
+      });
+    }
+  });
 
 export const numberHandler: FieldTypeHandler = {
   type: "number",

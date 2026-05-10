@@ -1,11 +1,24 @@
 import { z } from "zod";
 import { fail, ok, type FieldTypeHandler } from "./types";
 
-const DateConfigSchema = z.object({
-  includeTime: z.boolean().optional(),
-  min: z.string().optional(),
-  max: z.string().optional(),
-});
+const DateConfigSchema = z
+  .object({
+    includeTime: z.boolean().optional(),
+    min: z.string().optional(),
+    max: z.string().optional(),
+  })
+  // min must not exceed max. Pure string compare on ISO date strings
+  // is order-correct (lexical = chronological for the date-only / full
+  // ISO timestamp shapes we accept), so no parsing needed.
+  .superRefine((data, ctx) => {
+    if (data.min !== undefined && data.max !== undefined && data.min > data.max) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "min cannot exceed max",
+        path: ["min"],
+      });
+    }
+  });
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 

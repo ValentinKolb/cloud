@@ -2,12 +2,26 @@ import { z } from "zod";
 import Decimal from "decimal.js";
 import { fail, ok, type FieldTypeHandler } from "./types";
 
-const DecimalConfigSchema = z.object({
-  precision: z.number().int().min(1).max(38),
-  scale: z.number().int().min(0).max(20),
-  min: z.string().optional(),
-  max: z.string().optional(),
-});
+const DecimalConfigSchema = z
+  .object({
+    precision: z.number().int().min(1).max(38),
+    scale: z.number().int().min(0).max(20),
+    min: z.string().optional(),
+    max: z.string().optional(),
+  })
+  // Cross-field invariant: scale must not exceed precision. Without this
+  // refinement the schema accepted impossible configs (e.g. precision=5,
+  // scale=10) and the rejection only happened when a user tried to write
+  // a value, leaving the field permanently broken (chunk 5 critical).
+  .superRefine((data, ctx) => {
+    if (data.scale > data.precision) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "scale cannot exceed precision",
+        path: ["scale"],
+      });
+    }
+  });
 
 export const decimalHandler: FieldTypeHandler = {
   type: "decimal",

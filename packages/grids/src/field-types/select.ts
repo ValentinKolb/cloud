@@ -11,11 +11,35 @@ const SingleSelectConfigSchema = z.object({
   options: z.array(SelectOptionSchema),
 });
 
-const MultiSelectConfigSchema = z.object({
-  options: z.array(SelectOptionSchema),
-  minSelected: z.number().int().min(0).optional(),
-  maxSelected: z.number().int().min(1).optional(),
-});
+const MultiSelectConfigSchema = z
+  .object({
+    options: z.array(SelectOptionSchema),
+    minSelected: z.number().int().min(0).optional(),
+    maxSelected: z.number().int().min(1).optional(),
+  })
+  // Cross-field invariants: minSelected ≤ maxSelected, and minSelected
+  // must not exceed the number of options (otherwise the field is
+  // unreachable). Without these refinements the schema accepted
+  // impossible configs and the rejection only happened at value-write
+  // time (chunk 5 critical).
+  .superRefine((data, ctx) => {
+    if (data.minSelected !== undefined && data.maxSelected !== undefined) {
+      if (data.minSelected > data.maxSelected) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "minSelected cannot exceed maxSelected",
+          path: ["minSelected"],
+        });
+      }
+    }
+    if (data.minSelected !== undefined && data.minSelected > data.options.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `minSelected (${data.minSelected}) exceeds number of options (${data.options.length})`,
+        path: ["minSelected"],
+      });
+    }
+  });
 
 export const singleSelectHandler: FieldTypeHandler = {
   type: "single-select",

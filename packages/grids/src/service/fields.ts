@@ -116,8 +116,98 @@ const validateFieldConfig = (type: string, config: Record<string, unknown>): Res
   const handler = getHandler(type);
   if (!handler) return fail(err.badInput(`unknown field type "${type}"`));
   const parsed = handler.configSchema.safeParse(config);
-  if (!parsed.success) return fail(err.badInput(`invalid config for type "${type}"`));
+  if (!parsed.success) {
+    // Surface the first issue's message so users see WHY the config was
+    // rejected (e.g. "scale cannot exceed precision") instead of a
+    // generic "invalid config".
+    const firstIssue = parsed.error.issues[0];
+    const detail = firstIssue?.message ?? "invalid config";
+    return fail(err.badInput(`invalid config for type "${type}": ${detail}`));
+  }
   return ok(parsed.data);
+};
+
+/**
+ * DB-context validation for relation / lookup / rollup configs. Only
+ * the field service knows the source field's table + base, so this
+ * lives here rather than in the per-handler configSchema (which is
+ * shape-only). Closes chunk 5 critical "Relation configs can point
+ * across base boundaries" — a base-admin who knew another base's
+ * table UUID could wire a relation at it and exfiltrate data through
+ * lookup/labels.
+ *
+ * Same-base only: target table must share the source field's base.
+ * Cross-table consistency: displayFieldId on a relation must belong
+ * to the relation's target table; lookup/rollup relationFieldId must
+ * be a relation on the source table; targetFieldId must belong to
+ * that relation's target table.
+ */
+const validateLinkOrComputedConfig = async (
+  type: string,
+  config: Record<string, unknown>,
+  sourceTableId: string,
+): Promise<Result<void>> => {
+  if (type !== "relation" && type !== "lookup" && type !== "rollup") return ok();
+
+  // Resolve source table's base scope once.
+  const [sourceTable] = await sql<{ base_id: string }[]>`
+    SELECT base_id::text AS base_id FROM grids.tables WHERE id = ${sourceTableId}::uuid AND deleted_at IS NULL
+  `;
+  if (!sourceTable) return fail(err.badInput("source table not found"));
+  const baseId = sourceTable.base_id;
+
+  if (type === "relation") {
+    const cfg = config as { targetTableId?: string; displayFieldId?: string };
+    if (!cfg.targetTableId) return ok(); // pre-config; field can be created and wired up later.
+
+    const [target] = await sql<{ base_id: string }[]>`
+      SELECT base_id::text AS base_id FROM grids.tables
+      WHERE id = ${cfg.targetTableId}::uuid AND deleted_at IS NULL
+    `;
+    if (!target) return fail(err.badInput("relation target table not found"));
+    if (target.base_id !== baseId) {
+      return fail(err.badInput("relation target must be in the same base as the source"));
+    }
+    if (cfg.displayFieldId) {
+      const [display] = await sql<{ table_id: string }[]>`
+        SELECT table_id::text AS table_id FROM grids.fields
+        WHERE id = ${cfg.displayFieldId}::uuid AND deleted_at IS NULL
+      `;
+      if (!display || display.table_id !== cfg.targetTableId) {
+        return fail(err.badInput("displayFieldId must belong to the target table"));
+      }
+    }
+    return ok();
+  }
+
+  // lookup / rollup
+  const cfg = config as { relationFieldId?: string; targetFieldId?: string };
+  if (!cfg.relationFieldId || !cfg.targetFieldId) return ok(); // pre-config
+
+  const [relField] = await sql<{ table_id: string; type: string; config: unknown }[]>`
+    SELECT table_id::text AS table_id, type, config
+    FROM grids.fields WHERE id = ${cfg.relationFieldId}::uuid AND deleted_at IS NULL
+  `;
+  if (!relField) return fail(err.badInput("relationFieldId not found"));
+  if (relField.type !== "relation") {
+    return fail(err.badInput("relationFieldId must point to a relation field"));
+  }
+  if (relField.table_id !== sourceTableId) {
+    return fail(err.badInput("relationFieldId must be on the same table as this lookup/rollup"));
+  }
+  const relTargetTableId = (relField.config as { targetTableId?: string } | null)?.targetTableId;
+  if (!relTargetTableId) {
+    return fail(err.badInput("the chosen relation has no target table configured yet"));
+  }
+  const [targetField] = await sql<{ table_id: string }[]>`
+    SELECT table_id::text AS table_id FROM grids.fields
+    WHERE id = ${cfg.targetFieldId}::uuid AND deleted_at IS NULL
+  `;
+  if (!targetField) return fail(err.badInput("targetFieldId not found"));
+  if (targetField.table_id !== relTargetTableId) {
+    return fail(err.badInput("targetFieldId must belong to the relation's target table"));
+  }
+  return ok();
 };
 
 export const create = async (input: CreateFieldInput, actorId: string | null): Promise<Result<Field>> => {
@@ -128,6 +218,12 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   const config = input.config ?? {};
   const cfgValidation = validateFieldConfig(input.type, config);
   if (!cfgValidation.ok) return cfgValidation;
+  // DB-context validation: same-base relation + cross-table consistency.
+  // Runs after Zod (so we know the shape's right) but before any DB
+  // writes. Closes chunk 5 critical "Relation configs can point across
+  // base boundaries".
+  const linkValidation = await validateLinkOrComputedConfig(input.type, config, input.tableId);
+  if (!linkValidation.ok) return linkValidation;
 
   // Validate the default value against the type, if provided.
   if (input.defaultValue !== undefined && input.defaultValue !== null) {
@@ -218,6 +314,12 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const config = input.config !== undefined ? input.config : existing.config;
   const cfgValidation = validateFieldConfig(existing.type, config);
   if (!cfgValidation.ok) return cfgValidation;
+  // Same-base + cross-table consistency on every update path. Important:
+  // the user can't change `tableId` after creation, so the source-table
+  // scope is stable, but config keys (targetTableId / displayFieldId /
+  // relationFieldId / targetFieldId) ARE editable — re-validate.
+  const linkValidation = await validateLinkOrComputedConfig(existing.type, config as Record<string, unknown>, existing.tableId);
+  if (!linkValidation.ok) return linkValidation;
 
   if (input.defaultValue !== undefined && input.defaultValue !== null) {
     const handler = getHandler(existing.type);
