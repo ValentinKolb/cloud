@@ -65,8 +65,19 @@ const toAggregationRows = (
  */
 
 type Props = {
+  /** UUID of the base — for API calls. */
   baseId: string;
+  /** UUID of the active table — for API calls (POST /api/grids/.../by-table/<uuid>). */
   tableId: string;
+  /** Short-id of the base — for the path-based URL builder. Threaded
+   *  through buildRecordsUrl so pagination / detail-open writes the
+   *  right path. */
+  baseShortId: string;
+  /** Short-id of the active table — same rationale as baseShortId. */
+  tableShortId: string;
+  /** Short-id of the active saved view, or null when no view. Drives
+   *  the `/view/<short>` URL segment. */
+  viewShortId: string | null;
   fields: Field[];
   canWrite: boolean;
   trashMode: boolean;
@@ -202,14 +213,17 @@ export default function RecordsView(props: Props) {
     query: query(),
     cursor: cursor(),
     selectedRecordId: selectedRecordId(),
-    activeViewId: props.initialState.activeViewId,
     search: search(),
   });
 
   const syncUrl = (opts: { replace: boolean }) => {
     if (typeof history === "undefined") return;
     const next = buildRecordsUrl(
-      { baseId: props.baseId, tableId: props.tableId },
+      {
+        baseShortId: props.baseShortId,
+        tableShortId: props.tableShortId,
+        viewShortId: props.viewShortId,
+      },
       currentUrlState(),
       props.activeViewQuery,
     );
@@ -402,7 +416,7 @@ export default function RecordsView(props: Props) {
             when={!props.trashMode}
             fallback={
               <a
-                href={`/app/grids/${props.baseId}?table=${props.tableId}`}
+                href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`}
                 class="btn-input btn-input-sm"
               >
                 <i class="ti ti-arrow-back" />
@@ -436,7 +450,7 @@ export default function RecordsView(props: Props) {
                 {
                   icon: "ti ti-archive",
                   label: "Show deleted",
-                  href: `/app/grids/${props.baseId}?table=${props.tableId}&trash=1`,
+                  href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
                 },
               ]}
             />

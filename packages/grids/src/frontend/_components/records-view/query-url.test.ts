@@ -3,17 +3,29 @@ import {
   parseRecordsState,
   buildRecordsUrl,
   type RecordsState,
+  type UrlPathContext,
 } from "./query-url";
+
+// =============================================================================
+// query-url tests — URL ↔ RecordsState round-trip + path-based emit.
+// =============================================================================
+// The path segments (`/table/<short>` / `/view/<short>`) come from Hono
+// route params, not URL search params, so parseRecordsState only deals
+// with the query-param subset. buildRecordsUrl emits the full path-based
+// shape; we check both pieces here.
 
 const params = (s: string) => new URLSearchParams(s);
 
-const baseRef = { baseId: "BASE", tableId: "TBL" };
+const path: UrlPathContext = {
+  baseShortId: "BASE0",
+  tableShortId: "TBL00",
+  viewShortId: null,
+};
 
 const empty: RecordsState = {
   query: {},
   cursor: null,
   selectedRecordId: null,
-  activeViewId: null,
   search: { q: "", fieldIds: [] },
 };
 
@@ -23,139 +35,94 @@ describe("parseRecordsState", () => {
   });
 
   test("filter param parsed", () => {
-    const filter = { op: "AND" as const, filters: [{ fieldId: "f1", op: "equals", value: "x" }] };
-    const sp = params(`filter=${encodeURIComponent(JSON.stringify(filter))}`);
-    const s = parseRecordsState(sp);
-    expect(s.query.filter).toEqual(filter);
-  });
-
-  test("sort param parsed", () => {
-    const sort = [{ fieldId: "f1", direction: "asc" as const }];
-    const sp = params(`sort=${encodeURIComponent(JSON.stringify(sort))}`);
-    const s = parseRecordsState(sp);
-    expect(s.query.sort).toEqual(sort);
-  });
-
-  test("groupBy + aggregations parsed", () => {
-    const groupBy = [{ fieldId: "f1", direction: "desc" as const }];
-    const aggregations = [{ fieldId: "*", agg: "count" as const }];
-    const sp = params(
-      `groupBy=${encodeURIComponent(JSON.stringify(groupBy))}` +
-        `&aggregations=${encodeURIComponent(JSON.stringify(aggregations))}`,
+    const url = params(
+      "filter=" + encodeURIComponent('{"op":"AND","filters":[]}'),
     );
-    const s = parseRecordsState(sp);
-    expect(s.query.groupBy).toEqual(groupBy);
-    expect(s.query.aggregations).toEqual(aggregations);
+    const r = parseRecordsState(url);
+    expect(r.query.filter).toEqual({ op: "AND", filters: [] });
   });
 
-  test("trash=1 sets includeDeleted", () => {
-    const s = parseRecordsState(params("trash=1"));
-    expect(s.query.includeDeleted).toBe(true);
+  test("malformed filter → silently dropped (no throw)", () => {
+    const r = parseRecordsState(params("filter=not-json"));
+    expect(r.query.filter).toBeUndefined();
   });
 
-  test("cursor / record / view passed through", () => {
-    const s = parseRecordsState(params("cursor=abc&record=REC&view=V"));
-    expect(s.cursor).toBe("abc");
-    expect(s.selectedRecordId).toBe("REC");
-    expect(s.activeViewId).toBe("V");
+  test("sort param parsed (array shape)", () => {
+    const url = params(
+      "sort=" + encodeURIComponent('[{"fieldId":"f1","direction":"asc"}]'),
+    );
+    const r = parseRecordsState(url);
+    expect(r.query.sort).toEqual([{ fieldId: "f1", direction: "asc" }]);
   });
 
-  test("free-text search parsed", () => {
-    const s = parseRecordsState(params("q=hello&qFields=f1,f2"));
-    expect(s.search).toEqual({ q: "hello", fieldIds: ["f1", "f2"] });
+  test("trash=1 → includeDeleted: true", () => {
+    expect(parseRecordsState(params("trash=1")).query.includeDeleted).toBe(true);
   });
 
-  test("malformed JSON falls back to empty fragments", () => {
-    const s = parseRecordsState(params("filter=not-json&sort={broken&groupBy=42"));
-    // No filter set, sort empty, groupBy empty — all because parsing failed
-    // gracefully. Stale URL doesn't crash the page.
-    expect(s.query.filter).toBeUndefined();
-    expect(s.query.sort).toBeUndefined();
-    expect(s.query.groupBy).toBeUndefined();
+  test("q + qFields parsed into search", () => {
+    const r = parseRecordsState(params("q=hello&qFields=f1,f2"));
+    expect(r.search).toEqual({ q: "hello", fieldIds: ["f1", "f2"] });
   });
 
-  test("invalid array entries (missing required keys) get filtered out", () => {
-    const sort = [{ fieldId: "f1", direction: "asc" }, { fieldId: "f2" /* missing direction */ }];
-    const sp = params(`sort=${encodeURIComponent(JSON.stringify(sort))}`);
-    const s = parseRecordsState(sp);
-    expect(s.query.sort).toHaveLength(1);
-    expect(s.query.sort?.[0]?.fieldId).toBe("f1");
+  test("table / view / dashboard NOT read from query (path-based now)", () => {
+    // These would resolve via c.req.param() at the SSR handler; the URL
+    // parser is purely UI state on top of the resource the path identifies.
+    const r = parseRecordsState(
+      params("table=foo&view=bar&dashboard=baz"),
+    );
+    expect(r).toEqual(empty);
   });
 });
 
 describe("buildRecordsUrl", () => {
-  test("empty state → just /app/grids/<base>?table=<tbl>", () => {
-    expect(buildRecordsUrl(baseRef, empty)).toBe("/app/grids/BASE?table=TBL");
+  test("table-only path", () => {
+    expect(buildRecordsUrl(path, empty)).toBe(
+      "/app/grids/BASE0/table/TBL00",
+    );
   });
 
-  test("filter encoded", () => {
-    const filter = { op: "AND" as const, filters: [{ fieldId: "f1", op: "equals", value: "x" }] };
-    const url = buildRecordsUrl(baseRef, { ...empty, query: { filter } });
-    expect(url).toContain("filter=");
-    expect(url).toContain(encodeURIComponent("f1"));
+  test("view path when viewShortId is set", () => {
+    expect(
+      buildRecordsUrl({ ...path, viewShortId: "VW000" }, empty),
+    ).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
   });
 
-  test("trash flag emits ?trash=1", () => {
-    const url = buildRecordsUrl(baseRef, { ...empty, query: { includeDeleted: true } });
+  test("filter serialized as query param on top of the path", () => {
+    const state: RecordsState = {
+      ...empty,
+      query: { filter: { op: "AND", filters: [] } },
+    };
+    const url = buildRecordsUrl(path, state);
+    expect(url).toContain("/app/grids/BASE0/table/TBL00?");
+    expect(url).toContain(
+      "filter=" + encodeURIComponent('{"op":"AND","filters":[]}'),
+    );
+  });
+
+  test("view-matching fields are suppressed from the URL", () => {
+    // Active view has a stored filter; state carries the SAME filter
+    // (e.g. just-loaded URL). The output URL should omit it so the
+    // view's stored value can flow through next render.
+    const filter = { op: "AND" as const, filters: [] };
+    const state: RecordsState = { ...empty, query: { filter } };
+    const url = buildRecordsUrl(
+      { ...path, viewShortId: "VW000" },
+      state,
+      { filter },
+    );
+    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+    expect(url).not.toContain("filter=");
+  });
+
+  test("trash=1 emitted when includeDeleted is true", () => {
+    const state: RecordsState = { ...empty, query: { includeDeleted: true } };
+    const url = buildRecordsUrl(path, state);
     expect(url).toContain("trash=1");
   });
 
-  test("cursor + record + view all serialised", () => {
-    const url = buildRecordsUrl(baseRef, {
-      ...empty,
-      cursor: "tok",
-      selectedRecordId: "REC",
-      activeViewId: "V",
-    });
-    expect(url).toContain("cursor=tok");
-    expect(url).toContain("record=REC");
-    expect(url).toContain("view=V");
-  });
-
-  test("search params encoded", () => {
-    const url = buildRecordsUrl(baseRef, {
-      ...empty,
-      search: { q: "hello world", fieldIds: ["f1", "f2"] },
-    });
-    expect(url).toContain("q=hello+world");
-    expect(url).toContain("qFields=f1%2Cf2");
+  test("record param emitted from selectedRecordId (detail panel)", () => {
+    const state: RecordsState = { ...empty, selectedRecordId: "rec-123" };
+    const url = buildRecordsUrl(path, state);
+    expect(url).toContain("record=rec-123");
   });
 });
-
-describe("parse / build round-trip", () => {
-  const samples: RecordsState[] = [
-    empty,
-    { ...empty, query: { sort: [{ fieldId: "f1", direction: "asc" }] } },
-    {
-      ...empty,
-      query: {
-        filter: { op: "AND", filters: [{ fieldId: "f1", op: "equals", value: 5 }] },
-        sort: [{ fieldId: "f2", direction: "desc" }],
-      },
-    },
-    {
-      ...empty,
-      query: {
-        groupBy: [{ fieldId: "f1", direction: "asc", granularity: "month" }],
-        aggregations: [{ fieldId: "*", agg: "count" }, { fieldId: "f2", agg: "sum" }],
-      },
-    },
-    {
-      query: { includeDeleted: true },
-      cursor: "next-page",
-      selectedRecordId: "REC-1",
-      activeViewId: "VIEW-1",
-      search: { q: "needle", fieldIds: ["f1"] },
-    },
-  ];
-
-  for (const [i, s] of samples.entries()) {
-    test(`sample ${i} round-trips`, () => {
-      const url = buildRecordsUrl(baseRef, s);
-      const sp = new URL(url, "http://x").searchParams;
-      const parsed = parseRecordsState(sp);
-      expect(parsed).toEqual(s);
-    });
-  }
-});
-

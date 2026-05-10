@@ -8,8 +8,11 @@
  * the empty fragment for that field rather than throwing. A stale
  * URL doesn't lock the user out of their data.
  *
- * URL params (kept as separate JSON-encoded strings — easier to
- * bookmark, debug, and selectively edit than a single ?q=<base64>):
+ * URL shape (path-based, mirrors notebooks; query params are reserved
+ * for UI state on top of the resource identified by the path):
+ *
+ *   /app/grids/<base>/table/<table>                 — records page
+ *   /app/grids/<base>/table/<table>/view/<view>     — saved-view page
  *
  *   ?filter=<FilterTree JSON>
  *   ?sort=<SortSpec[] JSON>
@@ -17,9 +20,13 @@
  *   ?aggregations=<AggregationSpec[] JSON>
  *   ?cursor=<JSON-encoded keyset cursor token>
  *   ?record=<UUID — selected detail-panel record>
- *   ?view=<UUID — currently active saved view, drives sidebar highlight>
  *   ?trash=1                                — trash mode
  *   ?q=<text>&qFields=<csv UUIDs>           — free-text search
+ *
+ * Note: `table` / `view` / `dashboard` are NO LONGER query params —
+ * they live in the path. Old links carrying them still work because
+ * the SSR handler reads them as a fallback (see [baseId]/page.tsx),
+ * but new code emits only the path form.
  */
 
 import type { ViewQuery } from "../../../contracts";
@@ -40,9 +47,6 @@ export type RecordsState = {
   query: RecordsUrlQuery;
   cursor: string | null;
   selectedRecordId: string | null;
-  /** ID of the currently-active saved view (if any). Drives sidebar
-   *  highlight + the "is the URL diverged from the view?" indicator. */
-  activeViewId: string | null;
   /** Free-text search params — kept separate from `query.search` so
    *  SSR's mergeSearchIntoFilter can still build the OR-group across
    *  searchable fields the same way it does today. */
@@ -76,6 +80,11 @@ const tryParseArray = <T extends Record<string, unknown>>(
 /**
  * Reads URLSearchParams and produces a typed RecordsState. Bad / missing
  * params produce empty fragments — never throws.
+ *
+ * Pure UI state only — the active table / view / dashboard live in the
+ * URL path now (path-based routing) and are read at the SSR handler
+ * boundary via `c.req.param("tableId" / "viewId" / "dashboardId")`, not
+ * here.
  */
 export const parseRecordsState = (params: URLSearchParams): RecordsState => {
   const query: RecordsUrlQuery = {};
@@ -118,18 +127,28 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
     query,
     cursor: params.get("cursor") || null,
     selectedRecordId: params.get("record") || null,
-    activeViewId: params.get("view") || null,
     search: { q, fieldIds },
   };
 };
 
 /**
+ * Path-based URL context for `buildRecordsUrl`. The values are SHORT
+ * IDS (not UUIDs) because they're what live in URL segments. The page
+ * boundary resolves short_ids → UUIDs for service calls; the island
+ * keeps both around.
+ */
+export type UrlPathContext = {
+  baseShortId: string;
+  tableShortId: string;
+  /** When set, the URL goes `/table/<t>/view/<v>` instead of just
+   *  `/table/<t>`. Drives the sidebar's "active view" highlight too. */
+  viewShortId: string | null;
+};
+
+/**
  * Builds the URL representation for the records page. Inverse of
- * parseRecordsState: parse(build(s)) === s for every well-formed s.
- *
- * Always emits the `table` param so the records page knows which table
- * to render. Other params are conditional — empty values get omitted
- * to keep URLs minimal and compare-friendly.
+ * parseRecordsState + the path-based routes registered in
+ * [baseId]/table/[tableId][/view/[viewId]]/page.tsx.
  *
  * `viewQuery` is the active view's stored query (or null when no view
  * is active). When passed, query fields whose value exactly matches
@@ -138,29 +157,27 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
  * the URL stays a pure list of "user overrides on top of the view".
  *
  * Why this matters: without the suppression, opening a clean view URL
- * (only ?table=&view=) and then paginating would write the merged
- * effective query — including the view's filter — back into the URL.
- * Bookmarking that result freezes the view's filter at navigation time,
- * so a later edit to the saved view stays invisible to the bookmark.
- * Suppressing matches keeps view URLs symbolic ("the view, as it stands")
- * rather than denormalized snapshots (post-cleanup #4).
+ * (e.g. `/grids/X/table/Y/view/Z`) and then paginating would write the
+ * merged effective query — including the view's filter — into the
+ * query string. Bookmarking that result freezes the view's filter at
+ * navigation time, so a later edit to the saved view stays invisible
+ * to the bookmark. Suppressing matches keeps view URLs symbolic
+ * ("the view, as it stands") rather than denormalized snapshots.
  */
 export const buildRecordsUrl = (
-  base: { baseId: string; tableId: string },
+  path: UrlPathContext,
   state: RecordsState,
   viewQuery?: ViewQuery | null,
 ): string => {
-  const url = new URL(`/app/grids/${base.baseId}`, "http://x");
-  url.searchParams.set("table", base.tableId);
+  const base = path.viewShortId
+    ? `/app/grids/${path.baseShortId}/table/${path.tableShortId}/view/${path.viewShortId}`
+    : `/app/grids/${path.baseShortId}/table/${path.tableShortId}`;
+  const url = new URL(base, "http://x");
 
   const { query, search } = state;
 
-  if (state.activeViewId) url.searchParams.set("view", state.activeViewId);
-
-  // Stable JSON.stringify is fine for equality here — the URL serializes
-  // these via JSON.stringify too, so any mismatch in key order would also
-  // mismatch the URL itself. Both sides come from the same Zod-validated
-  // shapes, so key order is stable in practice.
+  // Stable JSON.stringify is fine for equality here — both sides come
+  // from the same Zod-validated shapes, so key order is stable in practice.
   const matchesView = (key: keyof RecordsUrlQuery): boolean => {
     if (!viewQuery) return false;
     return JSON.stringify(query[key]) === JSON.stringify(viewQuery[key]);
@@ -194,4 +211,3 @@ export const buildRecordsUrl = (
 
   return `${url.pathname}${url.search}`;
 };
-
