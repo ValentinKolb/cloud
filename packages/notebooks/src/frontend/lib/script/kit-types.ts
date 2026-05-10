@@ -65,6 +65,16 @@ export type KitContext = {
   ydoc?: Y.Doc;
   /** DOM container `kit.ui.*` mounts into. */
   outputEl: HTMLElement;
+  /**
+   * Register a teardown function to run when the script is about
+   * to re-evaluate (debounced doc change in edit-mode) or the
+   * widget is destroyed. Used by `kit.state.observe` to drop its
+   * Y.Map listener so the old script run's callback doesn't keep
+   * firing into a detached output slot. Optional: in read-mode
+   * (no re-run) the runner doesn't need to track these — calls
+   * are just dropped on the floor.
+   */
+  registerDisposer?: (fn: () => void) => void;
 };
 
 // =============================================================================

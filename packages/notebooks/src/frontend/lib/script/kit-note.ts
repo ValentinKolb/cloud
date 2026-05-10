@@ -8,24 +8,12 @@
  * `kit.note.tags` returns matches what the user sees in the UI.
  */
 import { apiClient } from "../../../api/client";
+import { extractTags } from "../tag-extract";
 import type { KitContext, KitCurrentNote, KitTask } from "./kit-types";
 
 // =============================================================================
-// Tag + task extraction
+// Task extraction
 // =============================================================================
-
-/** Inline `#tag` regex — matches lowercase / mixed-case tags after a
- *  word boundary. Mirrors the platform's tag extractor. */
-const TAG_REGEX = /(?:^|\s)#([\p{L}\p{N}_-]+)/gu;
-
-const extractTags = (content: string): string[] => {
-  if (!content) return [];
-  const set = new Set<string>();
-  for (const match of content.matchAll(TAG_REGEX)) {
-    if (match[1]) set.add(match[1].toLowerCase());
-  }
-  return [...set];
-};
 
 /** Markdown task checkbox: optional indent + bullet (`-` or `*`) +
  *  space + `[ ]` or `[x]` + space + body. */

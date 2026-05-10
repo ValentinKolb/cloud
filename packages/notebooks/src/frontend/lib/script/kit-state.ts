@@ -87,7 +87,18 @@ export const createKitStateAPI = (ctx: KitContext): KitStateAPI => {
       cb(get<T>(key));
     };
     ymap.observe(handler);
-    return () => ymap.unobserve(handler);
+    let disposed = false;
+    const unsub = () => {
+      if (disposed) return;
+      disposed = true;
+      ymap.unobserve(handler);
+    };
+    // Auto-cleanup on script re-run / widget destroy. Without this,
+    // every debounced re-run leaks a Y.Map handler — codex review
+    // on commit 7ee5fdc, finding 6. The returned `unsub` still
+    // works for explicit cleanup; running it twice is a no-op.
+    ctx.registerDisposer?.(unsub);
+    return unsub;
   };
 
   return { get, set, delete: del, keys, observe };

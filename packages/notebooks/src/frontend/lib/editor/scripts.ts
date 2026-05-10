@@ -88,6 +88,12 @@ const RERUN_DEBOUNCE_MS = 500;
 class ScriptOutputWidget extends WidgetType {
   private container: HTMLElement | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Per-run teardown functions — `kit.state.observe` and any
+   *  future kit method that registers external listeners pushes
+   *  here via `KitContext.registerDisposer`. We invoke them on
+   *  re-run / widget destroy so handlers don't leak across runs.
+   *  Codex review on commit 7ee5fdc, finding 6. */
+  private disposers: Array<() => void> = [];
 
   constructor(
     private readonly source: string,
@@ -113,7 +119,21 @@ class ScriptOutputWidget extends WidgetType {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.runDisposers();
     this.container = null;
+  }
+
+  private runDisposers(): void {
+    for (const fn of this.disposers) {
+      try {
+        fn();
+      } catch (err) {
+        // Disposer failures shouldn't prevent the others from
+        // running. Surface in console rather than swallow silently.
+        console.error("[kit dispose]", err);
+      }
+    }
+    this.disposers = [];
   }
 
   /** Schedule a debounced run. Replaces any pending run on the same
@@ -133,6 +153,8 @@ class ScriptOutputWidget extends WidgetType {
     // firing — the widget got destroyed but the timer somehow
     // survived (defensive; `destroy` clears it).
     if (!this.container.isConnected) return;
+    // Tear down any disposers from the previous run before clearing.
+    this.runDisposers();
     // Clear previous render so re-runs don't accumulate buttons /
     // duplicate output. (No-op on first run.)
     this.container.replaceChildren();
@@ -143,6 +165,7 @@ class ScriptOutputWidget extends WidgetType {
       ytext: this.config.ytext,
       ydoc: this.config.ydoc,
       outputEl: this.container,
+      registerDisposer: (fn) => this.disposers.push(fn),
     });
     void runScript(this.source, kit, this.container);
   }

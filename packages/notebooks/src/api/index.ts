@@ -1364,8 +1364,15 @@ app.get(
   }),
   async (c) => {
     let notebookId = c.req.param("id");
-    const { error } = await checkNotebookAccess(c, notebookId);
+    // Canonicalize: `checkNotebookAccess` accepts either short-id
+    // or UUID; the service layer needs the UUID for the SQL cast.
+    // Without this re-assignment, callers passing a short-id (kit
+    // scripts and any cross-notebook-tolerant frontend) would get
+    // an empty result or a `invalid input syntax for type uuid`
+    // error from Postgres.
+    const { notebook, error } = await checkNotebookAccess(c, notebookId);
     if (error) return error;
+    notebookId = notebook!.id;
     return respond(c, ok(await notebooksService.tag.listForNotebook({ notebookId })));
   },
 );

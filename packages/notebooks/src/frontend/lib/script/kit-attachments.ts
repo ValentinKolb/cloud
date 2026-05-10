@@ -66,10 +66,14 @@ const apiBase = (notebookId: string): string =>
 
 export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   const list = async (): Promise<KitAttachment[]> => {
-    const res = await fetch(`${apiBase(ctx.notebookId)}?per_page=200`);
+    // The non-paginated `/:id/attachments` endpoint returns a flat
+    // `Attachment[]` (via `respond(c, ok(...))`). The paginated
+    // overview endpoint is a different route — we use the flat one
+    // here because the kit doesn't paginate attachments.
+    const res = await fetch(apiBase(ctx.notebookId));
     if (!res.ok) throw new Error("kit.attachments.list: API call failed");
-    const payload = (await res.json()) as { data: ApiAttachment[] };
-    return payload.data.map(toKitAttachment);
+    const payload = (await res.json()) as ApiAttachment[];
+    return payload.map(toKitAttachment);
   };
 
   const listInNote = async (): Promise<KitAttachment[]> => {
