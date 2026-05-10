@@ -7,9 +7,9 @@ import BaseSettingsPanel from "../../_components/BaseSettingsPanel.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseSlug = c.req.param("baseId");
+  const baseShortId = c.req.param("baseId");
 
-  const base = await gridsService.base.getByIdOrSlug(baseSlug);
+  const base = await gridsService.base.getByIdOrShortId(baseShortId);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -35,7 +35,7 @@ export default ssr<AuthContext>(async (c) => {
         { baseId },
       );
   if (!gridsService.permission.hasAtLeast(level, "admin")) {
-    return c.redirect(`/app/grids/${baseSlug}`, 302);
+    return c.redirect(`/app/grids/${baseShortId}`, 302);
   }
 
   const accessEntries = await gridsService.access.listForBase(baseId);
@@ -54,7 +54,7 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseSlug}` },
+        { title: base.name, href: `/app/grids/${baseShortId}` },
         { title: "Settings" },
       ]}
     >

@@ -1,16 +1,16 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
-import { insertWithSlug } from "./slug";
+import { insertWithShortId } from "./short-id";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, slug, base_id, name, description, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, base_id, name, description, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
-  slug: row.slug as string,
+  shortId: row.short_id as string,
   baseId: row.base_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
@@ -106,39 +106,39 @@ export const get = async (
  * to resolve URL slugs to UUIDs. Returns null for soft-deleted tables
  * AND for any table whose parent base is trashed (live-parent invariant).
  */
-export const getBySlug = async (baseId: string, slug: string): Promise<Table | null> => {
+export const getByShortId = async (baseId: string, shortId: string): Promise<Table | null> => {
   // SELECT t.* — see listByBase for rationale.
   const [row] = await sql<DbRow[]>`
     SELECT t.*
     FROM grids.tables t
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE t.base_id = ${baseId}::uuid AND t.slug = ${slug} AND t.deleted_at IS NULL
+    WHERE t.base_id = ${baseId}::uuid AND t.short_id = ${shortId} AND t.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
 
 /**
  * Tolerant lookup. Accepts either a UUID (36 chars) or a slug (5 chars).
- * Mirrors `bases.getByIdOrSlug` — see the rationale there.
+ * Mirrors `bases.getByIdOrShortId` — see the rationale there.
  */
-export const getByIdOrSlug = async (baseId: string, idOrSlug: string): Promise<Table | null> => {
+export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promise<Table | null> => {
   if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
     const t = await get(idOrSlug);
     // Verify base scope so a leaked UUID can't address a table from another base.
     return t && t.baseId === baseId ? t : null;
   }
-  return getBySlug(baseId, idOrSlug);
+  return getByShortId(baseId, idOrSlug);
 };
 
 export const create = async (input: CreateTableInput, actorId: string | null): Promise<Result<Table>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
-  const row = await insertWithSlug<DbRow>(async (slug) => {
+  const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.tables (slug, base_id, name, description, position)
+      INSERT INTO grids.tables (short_id, base_id, name, description, position)
       VALUES (
-        ${slug},
+        ${shortId},
         ${input.baseId}::uuid,
         ${name},
         ${input.description ?? null},
@@ -148,7 +148,7 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
-  }, "idx_grids_tables_slug");
+  }, "idx_grids_tables_short_id");
   const table = mapRow(row);
   await logAudit({ baseId: input.baseId, tableId: table.id, userId: actorId, action: "created" });
   return ok(table);

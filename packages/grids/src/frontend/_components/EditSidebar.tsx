@@ -12,7 +12,7 @@ type Props = {
   /** Parent base UUID — needed by `CreateTableButton` for its API call
    *  (the create endpoint still keys by UUID; only URLs use slugs). */
   baseId: string;
-  baseSlug: string;
+  baseShortId: string;
   /**
    * URL-friendly slug for the active table (used to build the "Back to
    * records" href). Provided alongside the UUID-based `active` so we
@@ -94,15 +94,15 @@ export default function EditSidebar(props: Props) {
   const backHref = (() => {
     const a = props.active;
     if (a.kind === "view") {
-      return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}&view=${props.activeViewSlug ?? ""}`;
+      return `/app/grids/${props.baseShortId}?table=${props.activeTableSlug}&view=${props.activeViewSlug ?? ""}`;
     }
     if (a.kind === "dashboard") {
-      const slug = props.dashboards.find((d) => d.id === a.dashboardId)?.slug;
+      const slug = props.dashboards.find((d) => d.id === a.dashboardId)?.shortId;
       return slug
-        ? `/app/grids/${props.baseSlug}?dashboard=${slug}`
-        : `/app/grids/${props.baseSlug}`;
+        ? `/app/grids/${props.baseShortId}?dashboard=${slug}`
+        : `/app/grids/${props.baseShortId}`;
     }
-    return `/app/grids/${props.baseSlug}?table=${props.activeTableSlug}`;
+    return `/app/grids/${props.baseShortId}?table=${props.activeTableSlug}`;
   })();
 
   // Flat alphabetical view list — same UX as the records page sidebar.
@@ -154,7 +154,7 @@ export default function EditSidebar(props: Props) {
             <For each={props.tables}>
               {(t) => (
                 <a
-                  href={`/app/grids/${props.baseSlug}/tables/${t.slug}/edit`}
+                  href={`/app/grids/${props.baseShortId}/tables/${t.shortId}/edit`}
                   class={`sidebar-item ${isActiveTable(t.id) ? "sidebar-item-active" : ""}`}
                 >
                   <i class="ti ti-table text-sm shrink-0" />
@@ -163,7 +163,7 @@ export default function EditSidebar(props: Props) {
               )}
             </For>
             <Show when={props.canCreateTables}>
-              <CreateTableButton baseId={props.baseId} baseSlug={props.baseSlug} />
+              <CreateTableButton baseId={props.baseId} baseShortId={props.baseShortId} />
             </Show>
           </section>
 
@@ -173,7 +173,7 @@ export default function EditSidebar(props: Props) {
               <For each={allViews}>
                 {({ view, table: t }) => (
                   <a
-                    href={`/app/grids/${props.baseSlug}/tables/${t.slug}/views/${view.slug}/edit`}
+                    href={`/app/grids/${props.baseShortId}/tables/${t.shortId}/views/${view.shortId}/edit`}
                     class={`sidebar-item ${isActiveView(view.id) ? "sidebar-item-active" : ""}`}
                   >
                     <i class="ti ti-table-spark text-sm shrink-0" />
@@ -190,7 +190,7 @@ export default function EditSidebar(props: Props) {
               <For each={sortedDashboards()}>
                 {(d) => (
                   <a
-                    href={`/app/grids/${props.baseSlug}/dashboards/${d.slug}/edit`}
+                    href={`/app/grids/${props.baseShortId}/dashboards/${d.shortId}/edit`}
                     class={`sidebar-item ${isActiveDashboard(d.id) ? "sidebar-item-active" : ""}`}
                   >
                     <i class="ti ti-layout-dashboard text-sm shrink-0" />
@@ -204,7 +204,7 @@ export default function EditSidebar(props: Props) {
                 )}
               </For>
               <Show when={props.canCreateTables}>
-                <CreateDashboardButton baseId={props.baseId} baseSlug={props.baseSlug} />
+                <CreateDashboardButton baseId={props.baseId} baseShortId={props.baseShortId} />
               </Show>
             </section>
           </Show>

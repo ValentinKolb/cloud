@@ -259,7 +259,7 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
   // can reference any field by slug.
   const slugToId: Record<string, string> = {};
   for (const f of fields) {
-    if (!f.deletedAt && f.slug) slugToId[f.slug] = f.id;
+    if (!f.deletedAt && f.shortId) slugToId[f.shortId] = f.id;
   }
 
   const { ordered, cycle } = orderFormulasByDeps(formulaFields, slugToId);

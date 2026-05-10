@@ -4,12 +4,12 @@ import type { Field, GridRecord } from "./types";
 
 // =============================================================================
 // enrichRecordsWithFormulas — pure in-memory function. Tests the dependency
-// ordering, cycle detection, slug resolution, and currency-precision
+// ordering, cycle detection, shortId resolution, and currency-precision
 // integration that powers every records read.
 // =============================================================================
 
 const mkField = (overrides: Partial<Field> & Pick<Field, "id" | "type">): Field => ({
-  slug: overrides.id.slice(0, 5),
+  shortId: overrides.id.slice(0, 5),
   tableId: "00000000-0000-0000-0000-000000000000",
   name: overrides.id,
   description: null,
@@ -27,10 +27,10 @@ const mkField = (overrides: Partial<Field> & Pick<Field, "id" | "type">): Field 
   ...overrides,
 });
 
-const mkFormula = (id: string, slug: string, expression: string): Field =>
+const mkFormula = (id: string, shortId: string, expression: string): Field =>
   mkField({
     id,
-    slug,
+    shortId,
     type: "formula",
     config: { expression },
   });
@@ -48,8 +48,8 @@ const mkRecord = (id: string, data: Record<string, unknown>): GridRecord => ({
 });
 
 describe("enrichRecordsWithFormulas — basic evaluation", () => {
-  test("computes a single formula referencing a #slug", () => {
-    const price = mkField({ id: "fld-price", slug: "PRICE", type: "currency" });
+  test("computes a single formula referencing a #shortId", () => {
+    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "currency" });
     const total = mkFormula("fld-total", "TOTAL", "#PRICE * 1.19");
     const rec = mkRecord("rec-1", {
       "fld-price": { amount: "24.50", currency: "EUR" },
@@ -95,7 +95,7 @@ describe("enrichRecordsWithFormulas — dependency ordering", () => {
     // base = 10, doubled = base * 2, plusOne = doubled + 1
     // Declaration order is intentionally reversed from dep order so the
     // test fails if the topo sort regresses.
-    const base = mkField({ id: "fld-base", slug: "BASE", type: "number" });
+    const base = mkField({ id: "fld-base", shortId: "BASE", type: "number" });
     const plusOne = mkFormula("fld-plus", "PLUS", "#DBLED + 1");
     const doubled = mkFormula("fld-dbl", "DBLED", "#BASE * 2");
     const rec = mkRecord("rec-1", { "fld-base": 10 });
@@ -109,7 +109,7 @@ describe("enrichRecordsWithFormulas — dependency ordering", () => {
     // Slugs are alphanumeric only (matches readableId(5) charset); the
     // tokenizer stops at any non-alnum char, so we can't use underscore-
     // padded names here.
-    const a = mkField({ id: "fld-a", slug: "alpha", type: "number" });
+    const a = mkField({ id: "fld-a", shortId: "alpha", type: "number" });
     const b = mkFormula("fld-b", "bravo", "#alpha + 1");
     const c = mkFormula("fld-c", "charl", "#bravo + 1");
     const d = mkFormula("fld-d", "delta", "#charl + 1");
@@ -166,34 +166,34 @@ describe("enrichRecordsWithFormulas — cycle detection", () => {
   });
 });
 
-describe("enrichRecordsWithFormulas — slug map", () => {
-  test("slug map is built across all alive non-formula fields, not just formulas", () => {
-    // The formula references a non-formula field by slug. If the slug map
+describe("enrichRecordsWithFormulas — shortId map", () => {
+  test("shortId map is built across all alive non-formula fields, not just formulas", () => {
+    // The formula references a non-formula field by shortId. If the shortId map
     // skipped non-formulas, this would fail to resolve and return null.
-    const price = mkField({ id: "fld-price", slug: "Pr1cE", type: "currency" });
+    const price = mkField({ id: "fld-price", shortId: "Pr1cE", type: "currency" });
     const total = mkFormula("fld-total", "TOTAL", "#Pr1cE * 2");
     const rec = mkRecord("rec-1", { "fld-price": "5" });
     enrichRecordsWithFormulas([rec], [price, total]);
     expect(rec.data["fld-total"]).toBe("10");
   });
 
-  test("deleted fields are excluded from the slug map", () => {
-    const live = mkField({ id: "fld-live", slug: "alive", type: "number" });
+  test("deleted fields are excluded from the shortId map", () => {
+    const live = mkField({ id: "fld-live", shortId: "alive", type: "number" });
     const dead = {
-      ...mkField({ id: "fld-dead", slug: "deadx", type: "number" }),
+      ...mkField({ id: "fld-dead", shortId: "deadx", type: "number" }),
       deletedAt: "2026-01-02T00:00:00Z",
     };
-    // Formula references the deleted field's slug — should resolve to null
-    // (slug not in the map), not to the deleted field's record value.
+    // Formula references the deleted field's shortId — should resolve to null
+    // (shortId not in the map), not to the deleted field's record value.
     const f = mkFormula("fld-f", "FFFFF", "#deadx + 1");
     const rec = mkRecord("rec-1", { "fld-live": 10, "fld-dead": 99 });
     enrichRecordsWithFormulas([rec], [live, dead, f]);
     expect(rec.data["fld-f"]).toBeNull();
   });
 
-  test("legacy {uuid} syntax still resolves alongside #slug refs", () => {
-    const a = mkField({ id: "fld-a", slug: "AAAAA", type: "number" });
-    const b = mkField({ id: "fld-b", slug: "BBBBB", type: "number" });
+  test("legacy {uuid} syntax still resolves alongside #shortId refs", () => {
+    const a = mkField({ id: "fld-a", shortId: "AAAAA", type: "number" });
+    const b = mkField({ id: "fld-b", shortId: "BBBBB", type: "number" });
     const f = mkFormula("fld-f", "FFFFF", "{fld-a} + #BBBBB");
     const rec = mkRecord("rec-1", { "fld-a": 3, "fld-b": 7 });
     enrichRecordsWithFormulas([rec], [a, b, f]);
@@ -203,7 +203,7 @@ describe("enrichRecordsWithFormulas — slug map", () => {
 
 describe("enrichRecordsWithFormulas — multiple records", () => {
   test("evaluates per-record without leaking state between rows", () => {
-    const x = mkField({ id: "fld-x", slug: "XXXXX", type: "number" });
+    const x = mkField({ id: "fld-x", shortId: "XXXXX", type: "number" });
     const f = mkFormula("fld-f", "FFFFF", "#XXXXX * 2");
     const r1 = mkRecord("r-1", { "fld-x": 1 });
     const r2 = mkRecord("r-2", { "fld-x": 5 });

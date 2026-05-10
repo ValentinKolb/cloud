@@ -3,7 +3,7 @@ import { csvQuote, formatCellForExport } from "./export";
 import type { Field } from "./types";
 
 const mkField = (overrides: Partial<Field> & Pick<Field, "id" | "type">): Field => ({
-  slug: overrides.id.slice(0, 5),
+  shortId: overrides.id.slice(0, 5),
   tableId: "00000000-0000-0000-0000-000000000000",
   name: overrides.id,
   description: null,

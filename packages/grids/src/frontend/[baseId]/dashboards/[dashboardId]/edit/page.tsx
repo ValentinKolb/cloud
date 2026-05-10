@@ -35,10 +35,10 @@ const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) =>
  */
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseSlug = c.req.param("baseId");
-  const dashboardSlug = c.req.param("dashboardId");
+  const baseShortId = c.req.param("baseId");
+  const dashboardShortId = c.req.param("dashboardId");
 
-  const base = await gridsService.base.getByIdOrSlug(baseSlug);
+  const base = await gridsService.base.getByIdOrShortId(baseShortId);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -50,7 +50,7 @@ export default ssr<AuthContext>(async (c) => {
   }
   const baseId = base.id;
 
-  const dashboard = await gridsService.dashboard.getByIdOrSlug(baseId, dashboardSlug);
+  const dashboard = await gridsService.dashboard.getByIdOrShortId(baseId, dashboardShortId);
   if (!dashboard || dashboard.baseId !== baseId) {
     return () => (
       <Layout c={c} title="Not found">
@@ -68,7 +68,7 @@ export default ssr<AuthContext>(async (c) => {
     ? gridsService.permission.hasAtLeast(baseLevel, "admin")
     : isOwner;
   if (!canEdit) {
-    return c.redirect(`/app/grids/${baseSlug}?dashboard=${dashboardSlug}`, 302);
+    return c.redirect(`/app/grids/${baseShortId}?dashboard=${dashboardShortId}`, 302);
   }
 
   // Source data the editor needs to populate widget pickers without
@@ -125,8 +125,8 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseSlug}` },
-        { title: dashboard.name, href: `/app/grids/${baseSlug}?dashboard=${dashboardSlug}` },
+        { title: base.name, href: `/app/grids/${baseShortId}` },
+        { title: dashboard.name, href: `/app/grids/${baseShortId}?dashboard=${dashboardShortId}` },
         { title: "Edit" },
       ]}
     >
@@ -148,7 +148,7 @@ export default ssr<AuthContext>(async (c) => {
             </summary>
             <div class="sidebar-mobile-actions">
               <a
-                href={`/app/grids/${baseSlug}?dashboard=${dashboardSlug}`}
+                href={`/app/grids/${baseShortId}?dashboard=${dashboardShortId}`}
                 class="sidebar-item-mobile"
               >
                 <i class="ti ti-arrow-left" />
@@ -160,8 +160,8 @@ export default ssr<AuthContext>(async (c) => {
 
         <EditSidebar
           baseId={baseId}
-          baseSlug={baseSlug}
-          activeTableSlug={tables[0]?.slug ?? ""}
+          baseShortId={baseShortId}
+          activeTableSlug={tables[0]?.shortId ?? ""}
           tables={tables}
           viewsByTable={viewsByTable}
           dashboards={dashboards}
@@ -172,10 +172,10 @@ export default ssr<AuthContext>(async (c) => {
 
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           <DashboardEditPage
-            baseSlug={baseSlug}
+            baseShortId={baseShortId}
             initialDashboard={dashboard}
             isBaseDefault={base.defaultDashboardId === dashboard.id}
-            tables={tables.map((t) => ({ id: t.id, name: t.name, slug: t.slug }))}
+            tables={tables.map((t) => ({ id: t.id, name: t.name, slug: t.shortId }))}
             fieldsByTable={fieldsByTable}
             viewsByTable={viewsByTable}
             initialAccessEntries={accessEntries}

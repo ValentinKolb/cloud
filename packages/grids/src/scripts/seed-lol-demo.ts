@@ -528,7 +528,7 @@ const main = async () => {
   );
   if (!dashboardRes.ok) throw new Error(`dashboard.create: ${dashboardRes.error.message}`);
   const dashboard = dashboardRes.data;
-  log(`dashboard: ${dashboard.name} (slug=${dashboard.slug})`);
+  log(`dashboard: ${dashboard.name} (slug=${dashboard.shortId})`);
 
   // Set as base default so opening the base lands on the dashboard.
   const setDefaultRes = await gridsService.base.update(
@@ -544,7 +544,7 @@ const main = async () => {
   console.log("");
   console.log("✓ Demo seeded.");
   console.log(`  open: /app/grids/${baseId}`);
-  console.log(`  dashboard: /app/grids/${baseId}?dashboard=${dashboard.slug}`);
+  console.log(`  dashboard: /app/grids/${baseId}?dashboard=${dashboard.shortId}`);
   console.log(`  public form: /share/grids/forms/${formToken}`);
 
   await sql.end();

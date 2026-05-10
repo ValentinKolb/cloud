@@ -31,10 +31,10 @@ const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) =>
  */
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseSlug = c.req.param("baseId");
-  const tableSlug = c.req.param("tableId");
+  const baseShortId = c.req.param("baseId");
+  const tableShortId = c.req.param("tableId");
 
-  const base = await gridsService.base.getByIdOrSlug(baseSlug);
+  const base = await gridsService.base.getByIdOrShortId(baseShortId);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -46,7 +46,7 @@ export default ssr<AuthContext>(async (c) => {
   }
   const baseId = base.id;
 
-  const table = await gridsService.table.getByIdOrSlug(baseId, tableSlug);
+  const table = await gridsService.table.getByIdOrShortId(baseId, tableShortId);
   if (!table || table.baseId !== baseId) {
     return () => (
       <Layout c={c} title="Not found">
@@ -60,7 +60,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const tableLevel = await resolveLevel(user, baseId, tableId);
   if (!gridsService.permission.hasAtLeast(tableLevel, "admin")) {
-    return c.redirect(`/app/grids/${baseSlug}?table=${tableSlug}`, 302);
+    return c.redirect(`/app/grids/${baseShortId}?table=${tableShortId}`, 302);
   }
 
   // Base-level permission drives the "New table" affordance in the edit
@@ -131,8 +131,8 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseSlug}` },
-        { title: table.name, href: `/app/grids/${baseSlug}?table=${tableSlug}` },
+        { title: base.name, href: `/app/grids/${baseShortId}` },
+        { title: table.name, href: `/app/grids/${baseShortId}?table=${tableShortId}` },
         { title: "Edit" },
       ]}
     >
@@ -153,7 +153,7 @@ export default ssr<AuthContext>(async (c) => {
               </span>
             </summary>
             <div class="sidebar-mobile-actions">
-              <a href={`/app/grids/${baseSlug}?table=${tableSlug}`} class="sidebar-item-mobile">
+              <a href={`/app/grids/${baseShortId}?table=${tableShortId}`} class="sidebar-item-mobile">
                 <i class="ti ti-arrow-left" />
                 Back to records
               </a>
@@ -161,7 +161,7 @@ export default ssr<AuthContext>(async (c) => {
                 const isActive = t.id === tableId;
                 return (
                   <a
-                    href={`/app/grids/${baseSlug}/tables/${t.slug}/edit`}
+                    href={`/app/grids/${baseShortId}/tables/${t.shortId}/edit`}
                     class={`sidebar-item-mobile ${
                       isActive
                         ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
@@ -182,8 +182,8 @@ export default ssr<AuthContext>(async (c) => {
             doesn't see two different navigations. */}
         <EditSidebar
           baseId={baseId}
-          baseSlug={baseSlug}
-          activeTableSlug={tableSlug}
+          baseShortId={baseShortId}
+          activeTableSlug={tableShortId}
           tables={tables}
           viewsByTable={viewsByTable}
           dashboards={dashboards}
@@ -198,8 +198,8 @@ export default ssr<AuthContext>(async (c) => {
             table={{
               id: table.id,
               baseId,
-              baseSlug,
-              slug: table.slug,
+              baseShortId,
+              shortId: table.shortId,
               name: table.name,
               description: table.description ?? null,
               disableDirectInsert: table.disableDirectInsert,

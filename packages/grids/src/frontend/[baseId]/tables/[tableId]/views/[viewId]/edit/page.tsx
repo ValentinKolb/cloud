@@ -34,11 +34,11 @@ const resolveLevel = async (user: AuthUser, baseId: string, tableId?: string) =>
  */
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseSlug = c.req.param("baseId");
-  const tableSlug = c.req.param("tableId");
-  const viewSlug = c.req.param("viewId");
+  const baseShortId = c.req.param("baseId");
+  const tableShortId = c.req.param("tableId");
+  const viewShortId = c.req.param("viewId");
 
-  const base = await gridsService.base.getByIdOrSlug(baseSlug);
+  const base = await gridsService.base.getByIdOrShortId(baseShortId);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -49,7 +49,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   const baseId = base.id;
-  const table = await gridsService.table.getByIdOrSlug(baseId, tableSlug);
+  const table = await gridsService.table.getByIdOrShortId(baseId, tableShortId);
   if (!table || table.baseId !== baseId) {
     return () => (
       <Layout c={c} title="Not found">
@@ -60,7 +60,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   const tableId = table.id;
-  const view = await gridsService.view.getByIdOrSlug(tableId, viewSlug);
+  const view = await gridsService.view.getByIdOrShortId(tableId, viewShortId);
   if (!view || view.tableId !== tableId) {
     return () => (
       <Layout c={c} title="Not found">
@@ -77,10 +77,10 @@ export default ssr<AuthContext>(async (c) => {
   const isShared = view.ownerUserId === null;
   const requiredLevel = isShared ? "write" : "read";
   if (!gridsService.permission.hasAtLeast(tableLevel, requiredLevel)) {
-    return c.redirect(`/app/grids/${baseSlug}?table=${tableSlug}`, 302);
+    return c.redirect(`/app/grids/${baseShortId}?table=${tableShortId}`, 302);
   }
   if (!isShared && !isOwner) {
-    return c.redirect(`/app/grids/${baseSlug}?table=${tableSlug}`, 302);
+    return c.redirect(`/app/grids/${baseShortId}?table=${tableShortId}`, 302);
   }
 
   const fields = await gridsService.field.listByTable(tableId);
@@ -132,9 +132,9 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseSlug}` },
-        { title: table.name, href: `/app/grids/${baseSlug}?table=${tableSlug}` },
-        { title: view.name, href: `/app/grids/${baseSlug}?table=${tableSlug}&view=${viewSlug}` },
+        { title: base.name, href: `/app/grids/${baseShortId}` },
+        { title: table.name, href: `/app/grids/${baseShortId}?table=${tableShortId}` },
+        { title: view.name, href: `/app/grids/${baseShortId}?table=${tableShortId}&view=${viewShortId}` },
         { title: "Edit" },
       ]}
     >
@@ -156,7 +156,7 @@ export default ssr<AuthContext>(async (c) => {
             </summary>
             <div class="sidebar-mobile-actions">
               <a
-                href={`/app/grids/${baseSlug}?table=${tableSlug}&view=${viewSlug}`}
+                href={`/app/grids/${baseShortId}?table=${tableShortId}&view=${viewShortId}`}
                 class="sidebar-item-mobile"
               >
                 <i class="ti ti-arrow-left" />
@@ -166,7 +166,7 @@ export default ssr<AuthContext>(async (c) => {
                 const isActive = v.id === viewId;
                 return (
                   <a
-                    href={`/app/grids/${baseSlug}/tables/${tableSlug}/views/${v.slug}/edit`}
+                    href={`/app/grids/${baseShortId}/tables/${tableShortId}/views/${v.shortId}/edit`}
                     class={`sidebar-item-mobile ${
                       isActive
                         ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
@@ -187,9 +187,9 @@ export default ssr<AuthContext>(async (c) => {
             view being edited. */}
         <EditSidebar
           baseId={baseId}
-          baseSlug={baseSlug}
-          activeTableSlug={tableSlug}
-          activeViewSlug={viewSlug}
+          baseShortId={baseShortId}
+          activeTableSlug={tableShortId}
+          activeViewSlug={viewShortId}
           tables={tables}
           viewsByTable={viewsByTable}
           dashboards={dashboards}
@@ -200,9 +200,9 @@ export default ssr<AuthContext>(async (c) => {
 
         <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
           <ViewEditPage
-            baseSlug={baseSlug}
-            tableSlug={tableSlug}
-            viewSlug={viewSlug}
+            baseShortId={baseShortId}
+            tableShortId={tableShortId}
+            viewShortId={viewShortId}
             initialView={view}
             fields={fields}
             initialAccessEntries={accessEntries}

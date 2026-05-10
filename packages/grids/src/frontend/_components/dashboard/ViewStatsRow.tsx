@@ -4,7 +4,7 @@ import type { ViewStatsRowData } from "./widget-data";
 
 type Props = {
   data: ViewStatsRowData;
-  baseSlug: string;
+  baseShortId: string;
 };
 
 /** Same responsive grid as StatsRow — capped at 6 visible columns
@@ -34,8 +34,8 @@ const GRID_CLASS: Record<number, string> = {
 export default function ViewStatsRow(props: Props) {
   const fullViewHref = () => {
     if (!props.data.fullViewLink) return null;
-    const { tableSlug, viewSlug } = props.data.fullViewLink;
-    return `/app/grids/${props.baseSlug}?table=${tableSlug}&view=${viewSlug}`;
+    const { tableShortId, viewShortId } = props.data.fullViewLink;
+    return `/app/grids/${props.baseShortId}?table=${tableShortId}&view=${viewShortId}`;
   };
 
   // Cell-count cap matches GRID_CLASS keys. Excess cells stack into

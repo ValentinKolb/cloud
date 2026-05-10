@@ -15,12 +15,12 @@ export {
  * read `row.slug` directly; if a row lacks the column the throw bubbles
  * up rather than getting silently coerced to "" (we hit that bug once).
  */
-export const SlugSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
+export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
 
 // ── Base ──────────────────────────────────────────────────────────────────
 export const BaseSchema = z.object({
   id: z.string().uuid(),
-  slug: SlugSchema,
+  shortId: ShortIdSchema,
   name: z.string(),
   description: z.string().nullable(),
   createdBy: z.string().uuid().nullable(),
@@ -54,7 +54,7 @@ export type UpdateBaseInput = z.infer<typeof UpdateBaseSchema>;
 // ── Table ─────────────────────────────────────────────────────────────────
 export const TableSchema = z.object({
   id: z.string().uuid(),
-  slug: SlugSchema,
+  shortId: ShortIdSchema,
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -80,7 +80,7 @@ export const UpdateTableSchema = z.object({
 // ── Field ─────────────────────────────────────────────────────────────────
 export const FieldSchema = z.object({
   id: z.string().uuid(),
-  slug: SlugSchema,
+  shortId: ShortIdSchema,
   tableId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -431,7 +431,7 @@ export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
 // ── View entity ───────────────────────────────────────────────────────────
 export const ViewSchema = z.object({
   id: z.string().uuid(),
-  slug: SlugSchema,
+  shortId: ShortIdSchema,
   tableId: z.string().uuid(),
   name: z.string(),
   /** Canonical query — replaces the old loose `config: unknown` blob. */
@@ -667,7 +667,7 @@ export type DashboardConfig = z.infer<typeof DashboardConfigSchema>;
 // Dashboard entity — same row shape as views, scoped per-base.
 export const DashboardSchema = z.object({
   id: z.string().uuid(),
-  slug: SlugSchema,
+  shortId: ShortIdSchema,
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),

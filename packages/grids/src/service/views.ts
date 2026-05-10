@@ -3,7 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
-import { insertWithSlug } from "./slug";
+import { insertWithShortId } from "./short-id";
 import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type FormatSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
@@ -25,7 +25,7 @@ const mapRow = (row: DbRow): View => {
   const parsed = ViewQuerySchema.safeParse(rawQuery);
   return {
     id: row.id as string,
-    slug: row.slug as string,
+    shortId: row.short_id as string,
     tableId: row.table_id as string,
     name: row.name as string,
     query: parsed.success ? parsed.data : {},
@@ -43,28 +43,28 @@ const mapRow = (row: DbRow): View => {
  * soft-deleted views AND for views whose parent table or base is
  * trashed (live-parent invariant).
  */
-export const getBySlug = async (tableId: string, slug: string): Promise<View | null> => {
+export const getByShortId = async (tableId: string, shortId: string): Promise<View | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT v.*
     FROM grids.views v
     JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE v.table_id = ${tableId}::uuid AND v.slug = ${slug} AND v.deleted_at IS NULL
+    WHERE v.table_id = ${tableId}::uuid AND v.short_id = ${shortId} AND v.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
 
 /**
  * Tolerant lookup — accepts either UUID or slug. Same length-based
- * heuristic as `bases.getByIdOrSlug` / `tables.getByIdOrSlug`.
+ * heuristic as `bases.getByIdOrShortId` / `tables.getByIdOrShortId`.
  */
-export const getByIdOrSlug = async (tableId: string, idOrSlug: string): Promise<View | null> => {
+export const getByIdOrShortId = async (tableId: string, idOrSlug: string): Promise<View | null> => {
   if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
     const v = await get(idOrSlug);
     // Scope-check: a leaked UUID from another table must not resolve here.
     return v && v.tableId === tableId ? v : null;
   }
-  return getBySlug(tableId, idOrSlug);
+  return getByShortId(tableId, idOrSlug);
 };
 
 /**
@@ -103,7 +103,7 @@ export const listForTable = async (params: {
     auth_rank: number | null;
     public_rank: number | null;
   })[]>`
-    SELECT v.id, v.slug, v.table_id, v.name, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
+    SELECT v.id, v.short_id, v.table_id, v.name, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
       (
         SELECT CASE
           WHEN COUNT(*) = 0 THEN NULL
@@ -238,22 +238,22 @@ export const create = async (
     return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
   }
 
-  const row = await insertWithSlug<DbRow>(async (slug) => {
+  const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.views (slug, table_id, name, query, owner_user_id, position)
+      INSERT INTO grids.views (short_id, table_id, name, query, owner_user_id, position)
       VALUES (
-        ${slug},
+        ${shortId},
         ${input.tableId}::uuid,
         ${name},
         ${queryParsed.data}::jsonb,
         ${input.ownerUserId ?? null}::uuid,
         COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
       )
-      RETURNING id, slug, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+      RETURNING id, short_id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
-  }, "idx_grids_views_slug");
+  }, "idx_grids_views_short_id");
   const view = mapRow(row);
   await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { view: { old: null, new: { id: view.id, name: view.name } } } });
   return ok(view);
@@ -309,7 +309,7 @@ export const update = async (
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, slug, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
@@ -336,7 +336,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, slug, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);

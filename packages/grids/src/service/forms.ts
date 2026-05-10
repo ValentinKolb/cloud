@@ -3,7 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { listByTable as listFields } from "./fields";
-import { insertWithSlug } from "./slug";
+import { insertWithShortId } from "./short-id";
 import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -59,8 +59,8 @@ export type Form = {
   id: string;
   /** Short readable handle (5 chars), unique per table. Empty string
    *  for the virtual default form (which is identified by its prefix
-   *  in the id, not by a slug). */
-  slug: string;
+   *  in the id, not by a short_id). */
+  shortId: string;
   tableId: string;
   name: string;
   config: FormConfig;
@@ -75,7 +75,7 @@ export type Form = {
   updatedAt: string;
 };
 
-const COLS = sql`id, slug, table_id, name, config, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, table_id, name, config, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
 
 /**
  * Normalises a raw FormFieldEntry, defaulting `kind` to "user_input"
@@ -119,7 +119,7 @@ const normalizeFormConfig = (raw: unknown): FormConfig => {
 
 const mapRow = (row: DbRow): Form => ({
   id: row.id as string,
-  slug: row.slug as string,
+  shortId: row.short_id as string,
   tableId: row.table_id as string,
   name: row.name as string,
   config: normalizeFormConfig(row.config),
@@ -138,13 +138,13 @@ const mapRow = (row: DbRow): Form => ({
  * Look up a form by (tableId, slug). Used for slug-based URL routing.
  * Returns null for soft-deleted forms.
  */
-export const getBySlug = async (tableId: string, slug: string): Promise<Form | null> => {
+export const getByShortId = async (tableId: string, shortId: string): Promise<Form | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+    SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
     FROM grids.forms f
     JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE f.table_id = ${tableId}::uuid AND f.slug = ${slug} AND f.deleted_at IS NULL
+    WHERE f.table_id = ${tableId}::uuid AND f.short_id = ${shortId} AND f.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -190,9 +190,9 @@ export const buildDefaultForm = async (tableId: string): Promise<Form> => {
   };
   return {
     id: `default-${tableId}`,
-    // Virtual default form has no real slug — never appears in URLs
+    // Virtual default form has no real short_id — never appears in URLs
     // since it's accessed by the always-derived `default-<tableId>` id.
-    slug: "",
+    shortId: "",
     tableId,
     name: "Quick add",
     config,
@@ -218,7 +218,7 @@ export const listForTable = async (
   // Live-parent invariant: forms under a trashed table or base never list.
   const rows = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
         FROM grids.forms f
         JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
@@ -226,7 +226,7 @@ export const listForTable = async (
         ORDER BY f.position, f.created_at
       `
     : await sql<DbRow[]>`
-        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
         FROM grids.forms f
         JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
@@ -243,7 +243,7 @@ export const listForTable = async (
  */
 export const listTrashedByBase = async (baseId: string): Promise<Form[]> => {
   const rows = await sql<DbRow[]>`
-    SELECT ${sql`f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
+    SELECT ${sql`f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at`}
     FROM grids.forms f
     JOIN grids.tables t ON t.id = f.table_id
     WHERE t.base_id = ${baseId}::uuid
@@ -260,14 +260,14 @@ export const get = async (
 ): Promise<Form | null> => {
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
         FROM grids.forms f
         JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE f.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
         FROM grids.forms f
         JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
@@ -289,7 +289,7 @@ export const get = async (
  */
 export const getByPublicToken = async (token: string): Promise<Form | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT f.id, f.slug, f.table_id, f.name, f.config,
+    SELECT f.id, f.short_id, f.table_id, f.name, f.config,
            f.public_token, f.is_active, f.owner_user_id, f.position,
            f.deleted_at, f.created_at, f.updated_at
     FROM grids.forms f
@@ -321,11 +321,11 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
   if (name.length === 0) return fail(err.badInput("name required"));
   const config = input.config ?? { fields: [] };
   const publicToken = input.isPublic ? generatePublicToken() : null;
-  const row = await insertWithSlug<DbRow>(async (slug) => {
+  const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.forms (slug, table_id, name, config, public_token, owner_user_id, position)
+      INSERT INTO grids.forms (short_id, table_id, name, config, public_token, owner_user_id, position)
       VALUES (
-        ${slug},
+        ${shortId},
         ${input.tableId}::uuid,
         ${name},
         ${config}::jsonb,
@@ -337,7 +337,7 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
-  }, "idx_grids_forms_slug");
+  }, "idx_grids_forms_short_id");
   const form = mapRow(row);
   await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { form: { old: null, new: { id: form.id, name: form.name } } } });
   return ok(form);

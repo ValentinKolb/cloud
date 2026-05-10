@@ -59,7 +59,7 @@ export default ssr<AuthContext>(async (c) => {
   // URL params carry slugs (`/app/grids/k3Mp9?table=x4kP9&view=y9Qb2`).
   // Resolve each to the underlying entity once at the page boundary —
   // the rest of the page works with UUIDs as before.
-  const baseSlug = c.req.param("baseId");
+  const baseShortId = c.req.param("baseId");
   const activeTableSlug = c.req.query("table") ?? null;
   const trashMode = c.req.query("trash") === "1";
   const activeViewSlug = c.req.query("view") ?? null;
@@ -110,7 +110,7 @@ export default ssr<AuthContext>(async (c) => {
         )
       : [];
 
-  const base = await gridsService.base.getByIdOrSlug(baseSlug);
+  const base = await gridsService.base.getByIdOrShortId(baseShortId);
   if (!base) {
     return () => (
       <Layout c={c} title="Not found">
@@ -128,11 +128,11 @@ export default ssr<AuthContext>(async (c) => {
   // inline-render) keeps the user's URL share-able and the default
   // state explicit. A stale default_dashboard_id (referenced row got
   // soft-deleted) silently falls through to the existing first-table
-  // behaviour — `getByIdOrSlug` returns null in that case.
+  // behaviour — `getByIdOrShortId` returns null in that case.
   if (!activeTableSlug && !activeDashboardSlug && base.defaultDashboardId) {
     const defaultDashboard = await gridsService.dashboard.get(base.defaultDashboardId);
     if (defaultDashboard && defaultDashboard.deletedAt === null) {
-      return c.redirect(`/app/grids/${baseSlug}?dashboard=${defaultDashboard.slug}`, 302);
+      return c.redirect(`/app/grids/${baseShortId}?dashboard=${defaultDashboard.shortId}`, 302);
     }
   }
 
@@ -141,7 +141,7 @@ export default ssr<AuthContext>(async (c) => {
   // below will additionally narrow to readable tables, so a slug for a
   // table the user can't read still resolves to "no active table".
   const activeTableFromSlug = activeTableSlug
-    ? await gridsService.table.getByIdOrSlug(baseId, activeTableSlug)
+    ? await gridsService.table.getByIdOrShortId(baseId, activeTableSlug)
     : null;
   const activeTableId = activeTableFromSlug?.id ?? null;
 
@@ -150,7 +150,7 @@ export default ssr<AuthContext>(async (c) => {
   // happens via listForBase in dashboard mode (only readable dashboards
   // hit the page).
   const activeDashboard = activeDashboardSlug
-    ? await gridsService.dashboard.getByIdOrSlug(baseId, activeDashboardSlug)
+    ? await gridsService.dashboard.getByIdOrShortId(baseId, activeDashboardSlug)
     : null;
 
   const level = await resolveLevel(user, baseId);
@@ -259,7 +259,7 @@ export default ssr<AuthContext>(async (c) => {
   // the user can't see this view per ACL (visibility check happens
   // below once viewsForTable is loaded).
   const candidateView = activeTable && activeViewSlug
-    ? await gridsService.view.getByIdOrSlug(activeTable.id, activeViewSlug)
+    ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug)
     : null;
 
   type RecordsPage = {
@@ -303,7 +303,7 @@ export default ssr<AuthContext>(async (c) => {
   const fieldsByTable: Record<string, Field[]> = {};
 
   // activeView is visibility-filtered: a candidate view from
-  // getByIdOrSlug is only adopted when listForTable (which applies
+  // getByIdOrShortId is only adopted when listForTable (which applies
   // the view ACL) actually surfaces it for this user. Otherwise we
   // fall back to "no active view" rather than leaking name/columns
   // for a view the user can't see (chunk 8 critical).
@@ -316,7 +316,7 @@ export default ssr<AuthContext>(async (c) => {
     fields = await gridsService.field.listByTable(activeTable.id);
     fieldsByTable[activeTable.id] = fields;
 
-    // Visibility-aware view list. The candidate from getByIdOrSlug only
+    // Visibility-aware view list. The candidate from getByIdOrShortId only
     // adopts as `activeView` when listForTable surfaces it.
     viewsForTable = await gridsService.view.listForTable({
       tableId: activeTable.id,
@@ -547,14 +547,14 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Grids", href: "/app/grids" },
-        { title: base.name, href: `/app/grids/${baseSlug}` },
+        { title: base.name, href: `/app/grids/${baseShortId}` },
         // Active table is the second-to-last crumb when a view is open;
         // becomes the leaf when no view. The view name (when set) takes
         // the leaf so the user sees exactly which preset they're on.
         ...(activeTable
           ? activeView
             ? [
-                { title: activeTable.name, href: `/app/grids/${baseSlug}?table=${activeTable.slug}` },
+                { title: activeTable.name, href: `/app/grids/${baseShortId}?table=${activeTable.shortId}` },
                 { title: activeView.name },
               ]
             : [{ title: activeTable.name }]
@@ -581,7 +581,7 @@ export default ssr<AuthContext>(async (c) => {
             </summary>
             <div class="sidebar-mobile-actions">
               {canManageBase && (
-                <a href={`/app/grids/${baseSlug}/settings`} class="sidebar-item-mobile">
+                <a href={`/app/grids/${baseShortId}/settings`} class="sidebar-item-mobile">
                   <i class="ti ti-settings" />
                   Settings
                 </a>
@@ -594,7 +594,7 @@ export default ssr<AuthContext>(async (c) => {
                 const isActive = activeTable?.id === t.id;
                 return (
                   <a
-                    href={`/app/grids/${baseSlug}?table=${t.slug}`}
+                    href={`/app/grids/${baseShortId}?table=${t.shortId}`}
                     class={`sidebar-item-mobile ${
                       isActive
                         ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
@@ -622,7 +622,7 @@ export default ssr<AuthContext>(async (c) => {
               </div>
               {canManageBase && (
                 <a
-                  href={`/app/grids/${baseSlug}/settings`}
+                  href={`/app/grids/${baseShortId}/settings`}
                   class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
                   title="Settings"
                 >
@@ -661,7 +661,7 @@ export default ssr<AuthContext>(async (c) => {
                         }`}
                       >
                         <a
-                          href={`/app/grids/${baseSlug}?table=${t.slug}`}
+                          href={`/app/grids/${baseShortId}?table=${t.shortId}`}
                           class="flex min-w-0 flex-1 items-center gap-2"
                           aria-current={isActive ? "page" : undefined}
                         >
@@ -676,7 +676,7 @@ export default ssr<AuthContext>(async (c) => {
                         </a>
                         {gridsService.permission.hasAtLeast(tableLevels[t.id] ?? "none", "admin") && (
                           <a
-                            href={`/app/grids/${baseSlug}/tables/${t.slug}/edit`}
+                            href={`/app/grids/${baseShortId}/tables/${t.shortId}/edit`}
                             class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                             aria-label={`Edit table ${t.name}`}
                             title="Edit table"
@@ -688,7 +688,7 @@ export default ssr<AuthContext>(async (c) => {
                     );
                   })
                 )}
-                {canCreateTables && <CreateTableButton baseId={baseId} baseSlug={baseSlug} />}
+                {canCreateTables && <CreateTableButton baseId={baseId} baseShortId={baseShortId} />}
               </section>
 
               {/* Dashboards — flat alphabetical list scoped to this base.
@@ -715,7 +715,7 @@ export default ssr<AuthContext>(async (c) => {
                           class={`sidebar-item group ${isActive ? "sidebar-item-active" : ""}`}
                         >
                           <a
-                            href={`/app/grids/${baseSlug}?dashboard=${d.slug}`}
+                            href={`/app/grids/${baseShortId}?dashboard=${d.shortId}`}
                             class="flex min-w-0 flex-1 items-center gap-2"
                             aria-current={isActive ? "page" : undefined}
                           >
@@ -733,7 +733,7 @@ export default ssr<AuthContext>(async (c) => {
                           </a>
                           {canEdit && (
                             <a
-                              href={`/app/grids/${baseSlug}/dashboards/${d.slug}/edit`}
+                              href={`/app/grids/${baseShortId}/dashboards/${d.shortId}/edit`}
                               class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                               aria-label={`Edit dashboard ${d.name}`}
                               title="Dashboard settings"
@@ -745,7 +745,7 @@ export default ssr<AuthContext>(async (c) => {
                       );
                     })}
                     {canCreateTables && (
-                      <CreateDashboardButton baseId={baseId} baseSlug={baseSlug} />
+                      <CreateDashboardButton baseId={baseId} baseShortId={baseShortId} />
                     )}
                   </section>
                 );
@@ -781,7 +781,7 @@ export default ssr<AuthContext>(async (c) => {
                         // (post-cleanup #4). Toolbar edits still write
                         // their own URL params on top, which then act as
                         // explicit overrides via the same merge.
-                        const u = new URL(`/app/grids/${baseSlug}`, "http://x");
+                        const u = new URL(`/app/grids/${baseShortId}`, "http://x");
                         u.searchParams.set("table", t.id);
                         u.searchParams.set("view", view.id);
                         return `${u.pathname}${u.search}`;
@@ -810,7 +810,7 @@ export default ssr<AuthContext>(async (c) => {
                           </a>
                           {canEdit && (
                             <a
-                              href={`/app/grids/${baseSlug}/tables/${t.slug}/views/${view.slug}/edit`}
+                              href={`/app/grids/${baseShortId}/tables/${t.shortId}/views/${view.shortId}/edit`}
                               class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                               aria-label={`Edit view ${view.name}`}
                               title="View settings"
@@ -874,7 +874,7 @@ export default ssr<AuthContext>(async (c) => {
               dashboard={renderDashboard}
               widgetData={widgetData}
               viewStatsData={viewStatsData}
-              baseSlug={baseSlug}
+              baseShortId={baseShortId}
             />
           ) : activeTable ? (
             <div class="flex flex-col gap-2">

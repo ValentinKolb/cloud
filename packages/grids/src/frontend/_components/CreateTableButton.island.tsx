@@ -4,7 +4,7 @@ import { apiClient } from "@/api/client";
 import type { Table } from "../../service";
 import { errorMessage } from "./api-helpers";
 
-export default function CreateTableButton(props: { baseId: string; baseSlug: string }) {
+export default function CreateTableButton(props: { baseId: string; baseShortId: string }) {
   const createMutation = mutations.create<Table, { name: string }>({
     mutation: async (input) => {
       const res = await apiClient.tables["by-base"][":baseId"].$post({
@@ -14,7 +14,7 @@ export default function CreateTableButton(props: { baseId: string; baseSlug: str
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create table"));
       return (await res.json()) as Table;
     },
-    onSuccess: (table) => navigateTo(`/app/grids/${props.baseSlug}?table=${table.slug}`),
+    onSuccess: (table) => navigateTo(`/app/grids/${props.baseShortId}?table=${table.shortId}`),
     onError: (e) => prompts.error(e.message),
   });
 

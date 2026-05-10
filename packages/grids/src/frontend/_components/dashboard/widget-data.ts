@@ -29,7 +29,7 @@ export type WidgetData =
       title: string;
       fields: Field[];
       records: GridRecord[];
-      fullViewLink: { tableSlug: string; viewSlug: string } | null;
+      fullViewLink: { tableShortId: string; viewShortId: string } | null;
     }
   | { kind: "error"; reason: string };
 
@@ -52,7 +52,7 @@ export type ViewStatsRowData = {
   notice: string | null;
   /** Drilldown link to the source view's full records page. Null
    *  when the source view was deleted (no slug to link to). */
-  fullViewLink: { tableSlug: string; viewSlug: string } | null;
+  fullViewLink: { tableShortId: string; viewShortId: string } | null;
 };
 
 export const EMBEDDED_VIEW_PAGESIZE = 25;
@@ -143,7 +143,7 @@ const resolveSavedView = async (
     title: titleOverride ?? view.name,
     fields,
     records: records.data.items,
-    fullViewLink: { tableSlug: table.slug, viewSlug: view.slug },
+    fullViewLink: { tableShortId: table.shortId, viewShortId: view.shortId },
   };
 };
 
@@ -213,7 +213,7 @@ export const resolveViewStatsRow = async (
         fullViewLink: null,
       };
     }
-    const link = { tableSlug: table.slug, viewSlug: view.slug };
+    const link = { tableShortId: table.shortId, viewShortId: view.shortId };
     const title = row.title ?? view.name;
     const isGrouped = (view.query.groupBy ?? []).length > 0;
     if (isGrouped) {
@@ -233,7 +233,7 @@ export const resolveViewStatsRow = async (
 const resolveUngroupedViewStats = async (
   view: NonNullable<Awaited<ReturnType<typeof gridsService.view.get>>>,
   title: string,
-  link: { tableSlug: string; viewSlug: string },
+  link: { tableShortId: string; viewShortId: string },
 ): Promise<ViewStatsRowData> => {
   const fields = await gridsService.field.listByTable(view.tableId);
   const visible = fields
@@ -266,7 +266,7 @@ const resolveUngroupedViewStats = async (
 const resolveGroupedViewStats = async (
   view: NonNullable<Awaited<ReturnType<typeof gridsService.view.get>>>,
   title: string,
-  link: { tableSlug: string; viewSlug: string },
+  link: { tableShortId: string; viewShortId: string },
 ): Promise<ViewStatsRowData> => {
   const aggs = view.query.aggregations ?? [];
   if (aggs.length === 0) {

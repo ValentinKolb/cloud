@@ -3,7 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
-import { insertWithSlug } from "./slug";
+import { insertWithShortId } from "./short-id";
 import {
   DashboardConfigSchema,
   type Dashboard,
@@ -40,7 +40,7 @@ const mapRow = (row: DbRow): Dashboard => {
   const parsed = DashboardConfigSchema.safeParse(rawConfig);
   return {
     id: row.id as string,
-    slug: row.slug as string,
+    shortId: row.short_id as string,
     baseId: row.base_id as string,
     name: row.name as string,
     description: (row.description as string | null) ?? null,
@@ -58,12 +58,12 @@ const mapRow = (row: DbRow): Dashboard => {
  * to resolve `?dashboard=<slug>` URL params. Returns null for soft-deleted
  * dashboards.
  */
-export const getBySlug = async (baseId: string, slug: string): Promise<Dashboard | null> => {
+export const getByShortId = async (baseId: string, shortId: string): Promise<Dashboard | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
+    SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
     FROM grids.dashboards d
     JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
-    WHERE d.base_id = ${baseId}::uuid AND d.slug = ${slug} AND d.deleted_at IS NULL
+    WHERE d.base_id = ${baseId}::uuid AND d.short_id = ${shortId} AND d.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -73,7 +73,7 @@ export const getBySlug = async (baseId: string, slug: string): Promise<Dashboard
  * heuristic the other Grids services use. UUIDs in URLs are rare (only
  * deep-links from cell-link components), but free to support.
  */
-export const getByIdOrSlug = async (
+export const getByIdOrShortId = async (
   baseId: string,
   idOrSlug: string,
 ): Promise<Dashboard | null> => {
@@ -81,7 +81,7 @@ export const getByIdOrSlug = async (
     const d = await get(idOrSlug);
     return d && d.baseId === baseId ? d : null;
   }
-  return getBySlug(baseId, idOrSlug);
+  return getByShortId(baseId, idOrSlug);
 };
 
 export const get = async (
@@ -92,13 +92,13 @@ export const get = async (
   // outside the top-down restore flow.
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
+        SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
         FROM grids.dashboards d
         JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
         WHERE d.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
+        SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
         FROM grids.dashboards d
         JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
         WHERE d.id = ${id}::uuid AND d.deleted_at IS NULL
@@ -134,7 +134,7 @@ export const listForBase = async (params: {
     auth_rank: number | null;
     public_rank: number | null;
   })[]>`
-    SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at,
+    SELECT d.id, d.short_id, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at,
       (
         SELECT CASE
           WHEN COUNT(*) = 0 THEN NULL
@@ -216,11 +216,11 @@ export const create = async (
 
   const description = input.description?.trim() || null;
 
-  const row = await insertWithSlug<DbRow>(async (slug) => {
+  const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.dashboards (slug, base_id, name, description, config, owner_user_id, position)
+      INSERT INTO grids.dashboards (short_id, base_id, name, description, config, owner_user_id, position)
       VALUES (
-        ${slug},
+        ${shortId},
         ${input.baseId}::uuid,
         ${name},
         ${description}::text,
@@ -228,11 +228,11 @@ export const create = async (
         ${input.ownerUserId ?? null}::uuid,
         COALESCE((SELECT MAX(position) + 1 FROM grids.dashboards WHERE base_id = ${input.baseId}::uuid), 0)
       )
-      RETURNING id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
+      RETURNING id, short_id, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
-  }, "idx_grids_dashboards_slug");
+  }, "idx_grids_dashboards_short_id");
   const dashboard = mapRow(row);
   await logAudit({
     baseId: input.baseId,
@@ -301,7 +301,7 @@ export const update = async (
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const dashboard = mapRow(row);
@@ -346,7 +346,7 @@ export const restore = async (
   const [row] = await sql<DbRow[]>`
     UPDATE grids.dashboards SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("restore failed"));
   const dashboard = mapRow(row);

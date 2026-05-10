@@ -170,22 +170,24 @@ expect_status 201 "POST fields/orders.item_price_sum (cross-table rollup) → 20
 ROLLUP_FIELD_ID=$(json '.id')
 
 # ────────────────────────────────────────────────────────────────────
-# Slug invariant (Wave 1.1): every entity got a 5-char alphanumeric slug.
+# short_id invariant: every entity got a 5-char alphanumeric short_id.
+# (Renamed from slug to match the notebooks naming convention; the wire
+# field is `shortId`.)
 # ────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "━━━ slug invariant ━━━"
+echo "━━━ short_id invariant ━━━"
 
 http GET /api/grids/bases/$BASE_ID
 expect_status 200 "GET base"
-SLUG=$(json '.slug')
-[[ "$SLUG" =~ ^[A-Za-z0-9]{5}$ ]] && pass "base slug matches /^[A-Za-z0-9]{5}\$/" \
-  || fail "base slug shape" "got '$SLUG'"
+BASE_SHORT_ID=$(json '.shortId')
+[[ "$BASE_SHORT_ID" =~ ^[A-Za-z0-9]{5}$ ]] && pass "base shortId matches /^[A-Za-z0-9]{5}\$/" \
+  || fail "base shortId shape" "got '$BASE_SHORT_ID'"
 
 http GET /api/grids/tables/$ITEMS_TABLE_ID
-TABLE_SLUG=$(json '.slug')
-[[ "$TABLE_SLUG" =~ ^[A-Za-z0-9]{5}$ ]] && pass "table slug matches /^[A-Za-z0-9]{5}\$/" \
-  || fail "table slug shape" "got '$TABLE_SLUG'"
+TABLE_SHORT_ID=$(json '.shortId')
+[[ "$TABLE_SHORT_ID" =~ ^[A-Za-z0-9]{5}$ ]] && pass "table shortId matches /^[A-Za-z0-9]{5}\$/" \
+  || fail "table shortId shape" "got '$TABLE_SHORT_ID'"
 
 # ────────────────────────────────────────────────────────────────────
 # Cross-base relation rejection (Wave 5.2 critical)

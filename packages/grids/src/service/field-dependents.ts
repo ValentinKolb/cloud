@@ -152,14 +152,14 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   const ensureSlugMap = async (tableId: string): Promise<Record<string, string>> => {
     let map = slugMapsByTable.get(tableId);
     if (map) return map;
-    const rows = await sql<{ id: string; slug: string }[]>`
-      SELECT id::text AS id, slug
+    const rows = await sql<{ id: string; short_id: string }[]>`
+      SELECT id::text AS id, short_id
       FROM grids.fields
-      WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL AND slug IS NOT NULL
+      WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL AND short_id IS NOT NULL
     `;
-    map = Object.fromEntries(rows.map((r) => [r.slug, r.id]));
+    map = Object.fromEntries(rows.map((r) => [r.short_id, r.id]));
     slugMapsByTable.set(tableId, map);
-    return map;
+    return map ?? {};
   };
 
   for (const row of candidateFields) {

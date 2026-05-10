@@ -8,7 +8,7 @@ type Props = {
   data: WidgetData;
   /** Slug of the parent base — prepended to the view-deep-link in
    *  the header. Only used when `data.fullViewLink` is non-null. */
-  baseSlug: string;
+  baseShortId: string;
 };
 
 /**
@@ -38,8 +38,8 @@ export default function ViewWidget(props: Props) {
 
   const fullViewHref = () => {
     if (!isView(props.data) || !props.data.fullViewLink) return null;
-    const { tableSlug, viewSlug } = props.data.fullViewLink;
-    return `/app/grids/${props.baseSlug}?table=${tableSlug}&view=${viewSlug}`;
+    const { tableShortId, viewShortId } = props.data.fullViewLink;
+    return `/app/grids/${props.baseShortId}?table=${tableShortId}&view=${viewShortId}`;
   };
 
   const titleOf = () =>

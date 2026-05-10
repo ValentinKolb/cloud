@@ -383,48 +383,85 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids.forms.field_snapshot (dropped)");
 
   // ──────────────────────────────────────────────────────────────────
-  // Short slugs alongside UUIDs
+  // Short ids alongside UUIDs
   // ──────────────────────────────────────────────────────────────────
-  // Every base/table/field/form/view gets a 5-char readable slug used
-  // for URLs (`/app/grids/k3Mp9`) and formula references (`#a3X8b`).
-  // UUIDs stay as PKs and FKs — slugs are surface-level only. Records
-  // are not slugged (high cardinality; UUIDv7 stays).
+  // Every base/table/field/form/view/dashboard gets a 5-char readable
+  // `short_id` used for URLs (`/app/grids/k3Mp9/table/8sk2X/edit`) and
+  // formula references (`#a3X8b`). UUIDs stay as PKs and FKs —
+  // short_ids are surface-level only. Records are not short-id'd
+  // (high cardinality; UUIDv7 stays).
   //
-  // The column is added NULL-tolerant here so old DBs survive the
-  // migration; backfillSlugs() runs at the end of migrate() to fill
-  // every row, then ALTER COLUMN ... SET NOT NULL plus a CHECK regex
-  // make the invariant authoritative (Wave 1.1). The partial unique
-  // index is alive-rows-only so a soft-deleted row's slug doesn't
-  // block restoring under a freshly-generated identical slug — though
-  // backfillSlugs picks slugs unique across alive AND trashed to keep
-  // restore safe in the common case.
-  await sql`ALTER TABLE grids.bases  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
-  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
-  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
-  await sql`ALTER TABLE grids.forms  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
-  await sql`ALTER TABLE grids.views  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
+  // Naming matches the `short_id` convention notebooks uses (single
+  // global concept, single name across packages). The 5-char length
+  // is grids-specific because uniqueness is per-scope (table within
+  // base, field within table, etc) — at 62^5 ≈ 916M slots per scope
+  // the birthday collision rate is negligible. Notebooks uses 6 chars
+  // because its scope is global.
+  //
+  // Idempotent rename block — for environments that ran an older
+  // migration where the column was called `slug`. Pure rename, no
+  // data loss; the existing 5-char base62 values transfer 1:1. The
+  // information_schema check makes this a no-op once the rename has
+  // landed. The accompanying index/constraint renames live further
+  // down (after the create blocks) so a clean fresh install creates
+  // them under the new name from the start.
+  for (const table of ["bases", "tables", "fields", "forms", "views", "dashboards"] as const) {
+    await sql
+      .unsafe(`
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'grids' AND table_name = '${table}'
+              AND column_name = 'slug'
+          ) AND NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'grids' AND table_name = '${table}'
+              AND column_name = 'short_id'
+          ) THEN
+            ALTER TABLE grids.${table} RENAME COLUMN slug TO short_id;
+          END IF;
+        END $$;
+      `)
+      .simple();
+  }
+
+  await sql`ALTER TABLE grids.bases      ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE grids.tables     ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE grids.fields     ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE grids.forms      ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE grids.views      ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+
+  // Drop the old slug-named indexes if they still exist (only on DBs
+  // that ran the pre-rename migration). The new short_id indexes are
+  // created in the block below.
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_bases_slug`.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_tables_slug`.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_fields_slug`.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_forms_slug`.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_views_slug`.simple();
 
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_slug
-    ON grids.bases(slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_short_id
+    ON grids.bases(short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_slug
-    ON grids.tables(base_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_short_id
+    ON grids.tables(base_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_fields_slug
-    ON grids.fields(table_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_fields_short_id
+    ON grids.fields(table_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_slug
-    ON grids.forms(table_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_short_id
+    ON grids.forms(table_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_slug
-    ON grids.views(table_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_short_id
+    ON grids.views(table_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
-  console.log("  ✓ grids.{bases,tables,fields,forms,views}.slug + unique indexes");
+  console.log("  ✓ grids.{bases,tables,fields,forms,views}.short_id + unique indexes");
 
   // ──────────────────────────────────────────────────────────────────
   // dashboards (P0 — stat cards + embedded views; chart widgets ship
@@ -439,7 +476,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.dashboards (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      slug TEXT,
+      short_id TEXT,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
@@ -456,11 +493,12 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_dashboards_base_live
     ON grids.dashboards(base_id, position) WHERE deleted_at IS NULL
   `.simple();
-  // Slug uniqueness scoped per base, alive rows only — same partial-
-  // index pattern as the other slug-bearing tables.
+  // short_id uniqueness scoped per base, alive rows only — same
+  // partial-index pattern as the other short-id-bearing tables.
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_dashboards_slug`.simple();
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_dashboards_slug
-    ON grids.dashboards(base_id, slug) WHERE deleted_at IS NULL AND slug IS NOT NULL
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_dashboards_short_id
+    ON grids.dashboards(base_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
   console.log("  ✓ grids.dashboards");
 
@@ -488,178 +526,180 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids.bases.default_dashboard_id");
 
   // ──────────────────────────────────────────────────────────────────
-  // Slug backfill for rows that pre-date the slug column
+  // short_id backfill for rows that pre-date the column
   // ──────────────────────────────────────────────────────────────────
   // ALTER TABLE ADD COLUMN above is NULL-tolerant so old rows survive
-  // the migration. The service layer assigns slugs on insert, but rows
-  // created before that migration ran sit at NULL forever unless we
-  // backfill — and the SSR URL builders interpolate the
-  // (NULL-coerced-to-empty) slug straight into hrefs, producing
-  // `/views//edit` and similar dead links. Generate one slug per alive
-  // row, scoped per parent so the partial unique index is honored.
-  // Runs every boot; no-op once all rows are filled.
-  await backfillSlugs();
-  console.log("  ✓ grids.{bases,tables,fields,forms,views,dashboards}.slug backfill");
+  // the migration. The service layer assigns short_ids on insert, but
+  // rows created before that migration ran sit at NULL forever unless
+  // we backfill — and the SSR URL builders interpolate the
+  // (NULL-coerced-to-empty) short_id straight into hrefs, producing
+  // `/table//edit` and similar dead links. Generate one short_id per
+  // alive row, scoped per parent so the partial unique index is
+  // honored. Runs every boot; no-op once all rows are filled.
+  await backfillShortIds();
+  console.log("  ✓ grids.{bases,tables,fields,forms,views,dashboards}.short_id backfill");
 };
 
 // =============================================================================
-// Slug backfill helpers
+// short_id backfill helpers
 // =============================================================================
 
-/** Generate a unique slug within (table, scope), checking ALL rows
+/** Generate a unique short_id within (table, scope), checking ALL rows
  *  (alive + trashed) to keep restore paths safe — a trashed row that
- *  shares a slug with an alive row would conflict on restore. 10 attempts
+ *  shares an id with an alive row would conflict on restore. 10 attempts
  *  is overkill for 62^5 ≈ 916M slots; even at 1000 items per scope the
  *  birthday-paradox single-try collision rate is ~0.054%. */
-const generateSlug = async (
+const generateShortId = async (
   query: (cand: string) => Promise<boolean>,
 ): Promise<string> => {
   for (let attempt = 0; attempt < 10; attempt++) {
     const cand = crypto.common.readableId(5);
     if (!(await query(cand))) return cand;
   }
-  throw new Error("backfill: failed to generate unique slug after 10 attempts");
+  throw new Error("backfill: failed to generate unique short_id after 10 attempts");
 };
 
-const backfillSlugs = async (): Promise<void> => {
+const backfillShortIds = async (): Promise<void> => {
   // We backfill ALL rows (alive + trashed). The partial unique index only
   // covers alive rows, but trashed rows still serve URL/audit references
-  // and can be restored — they need slugs too, and those slugs must not
-  // collide with any other row in the same scope or restore breaks.
+  // and can be restored — they need short_ids too, and those ids must
+  // not collide with any other row in the same scope or restore breaks.
   // Hence the EXISTS check has no `deleted_at IS NULL` filter either.
 
   // bases — global scope
   {
-    const rows = await sql<{ id: string }[]>`SELECT id::text AS id FROM grids.bases WHERE slug IS NULL`;
+    const rows = await sql<{ id: string }[]>`SELECT id::text AS id FROM grids.bases WHERE short_id IS NULL`;
     for (const row of rows) {
-      const slug = await generateSlug(async (cand) => {
+      const shortId = await generateShortId(async (cand) => {
         const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(SELECT 1 FROM grids.bases WHERE slug = ${cand}) AS exists
+          SELECT EXISTS(SELECT 1 FROM grids.bases WHERE short_id = ${cand}) AS exists
         `;
         return Boolean(r?.exists);
       });
-      await sql`UPDATE grids.bases SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+      await sql`UPDATE grids.bases SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
     }
   }
   // tables — scoped per base
   {
     const rows = await sql<{ id: string; base_id: string }[]>`
-      SELECT id::text AS id, base_id::text AS base_id FROM grids.tables WHERE slug IS NULL
+      SELECT id::text AS id, base_id::text AS base_id FROM grids.tables WHERE short_id IS NULL
     `;
     for (const row of rows) {
-      const slug = await generateSlug(async (cand) => {
+      const shortId = await generateShortId(async (cand) => {
         const [r] = await sql<{ exists: boolean }[]>`
           SELECT EXISTS(
             SELECT 1 FROM grids.tables
-            WHERE base_id = ${row.base_id}::uuid AND slug = ${cand}
+            WHERE base_id = ${row.base_id}::uuid AND short_id = ${cand}
           ) AS exists
         `;
         return Boolean(r?.exists);
       });
-      await sql`UPDATE grids.tables SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+      await sql`UPDATE grids.tables SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
     }
   }
   // fields — scoped per table
   {
     const rows = await sql<{ id: string; table_id: string }[]>`
-      SELECT id::text AS id, table_id::text AS table_id FROM grids.fields WHERE slug IS NULL
+      SELECT id::text AS id, table_id::text AS table_id FROM grids.fields WHERE short_id IS NULL
     `;
     for (const row of rows) {
-      const slug = await generateSlug(async (cand) => {
+      const shortId = await generateShortId(async (cand) => {
         const [r] = await sql<{ exists: boolean }[]>`
           SELECT EXISTS(
             SELECT 1 FROM grids.fields
-            WHERE table_id = ${row.table_id}::uuid AND slug = ${cand}
+            WHERE table_id = ${row.table_id}::uuid AND short_id = ${cand}
           ) AS exists
         `;
         return Boolean(r?.exists);
       });
-      await sql`UPDATE grids.fields SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+      await sql`UPDATE grids.fields SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
     }
   }
   // forms — scoped per table
   {
     const rows = await sql<{ id: string; table_id: string }[]>`
-      SELECT id::text AS id, table_id::text AS table_id FROM grids.forms WHERE slug IS NULL
+      SELECT id::text AS id, table_id::text AS table_id FROM grids.forms WHERE short_id IS NULL
     `;
     for (const row of rows) {
-      const slug = await generateSlug(async (cand) => {
+      const shortId = await generateShortId(async (cand) => {
         const [r] = await sql<{ exists: boolean }[]>`
           SELECT EXISTS(
             SELECT 1 FROM grids.forms
-            WHERE table_id = ${row.table_id}::uuid AND slug = ${cand}
+            WHERE table_id = ${row.table_id}::uuid AND short_id = ${cand}
           ) AS exists
         `;
         return Boolean(r?.exists);
       });
-      await sql`UPDATE grids.forms SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+      await sql`UPDATE grids.forms SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
     }
   }
   // views — scoped per table
   {
     const rows = await sql<{ id: string; table_id: string }[]>`
-      SELECT id::text AS id, table_id::text AS table_id FROM grids.views WHERE slug IS NULL
+      SELECT id::text AS id, table_id::text AS table_id FROM grids.views WHERE short_id IS NULL
     `;
     for (const row of rows) {
-      const slug = await generateSlug(async (cand) => {
+      const shortId = await generateShortId(async (cand) => {
         const [r] = await sql<{ exists: boolean }[]>`
           SELECT EXISTS(
             SELECT 1 FROM grids.views
-            WHERE table_id = ${row.table_id}::uuid AND slug = ${cand}
+            WHERE table_id = ${row.table_id}::uuid AND short_id = ${cand}
           ) AS exists
         `;
         return Boolean(r?.exists);
       });
-      await sql`UPDATE grids.views SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+      await sql`UPDATE grids.views SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
     }
   }
   // dashboards — scoped per base
   {
     const rows = await sql<{ id: string; base_id: string }[]>`
-      SELECT id::text AS id, base_id::text AS base_id FROM grids.dashboards WHERE slug IS NULL
+      SELECT id::text AS id, base_id::text AS base_id FROM grids.dashboards WHERE short_id IS NULL
     `;
     for (const row of rows) {
-      const slug = await generateSlug(async (cand) => {
+      const shortId = await generateShortId(async (cand) => {
         const [r] = await sql<{ exists: boolean }[]>`
           SELECT EXISTS(
             SELECT 1 FROM grids.dashboards
-            WHERE base_id = ${row.base_id}::uuid AND slug = ${cand}
+            WHERE base_id = ${row.base_id}::uuid AND short_id = ${cand}
           ) AS exists
         `;
         return Boolean(r?.exists);
       });
-      await sql`UPDATE grids.dashboards SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+      await sql`UPDATE grids.dashboards SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
     }
   }
 
   // After all rows are filled, tighten the schema: NOT NULL + CHECK so
-  // the contract layer's SlugSchema and the DB row state cannot drift.
+  // the contract-layer ShortIdSchema and DB row state cannot drift.
   //
   // Both branches are idempotent at the SQL layer:
   //   - ALTER COLUMN ... SET NOT NULL is a no-op when the column
-  //     already disallows NULL (Postgres accepts the redundant ALTER).
+  //     already disallows NULL.
   //   - The CHECK constraint is guarded by a SELECT against pg_constraint
   //     in a DO block. We use this rather than a JS-side try/catch
   //     because Bun.sql buries the Postgres SQLSTATE in `errno`, not
-  //     `code` (which gets set to `ERR_POSTGRES_SERVER_ERROR`); a naive
-  //     `if (e.code === "42710")` therefore re-throws and aborts boot
-  //     after the first successful migration. The DO block also avoids
-  //     the drop-and-recreate antipattern — every run is a single
-  //     idempotent SQL statement, no schema churn.
+  //     `code` (which gets set to `ERR_POSTGRES_SERVER_ERROR`).
+  //   - Old environments may have `<table>_slug_format_chk` from the
+  //     pre-rename migration; we DROP IF EXISTS that one first so the
+  //     CHECK regex isn't enforced under the old name forever.
   for (const table of ["bases", "tables", "fields", "forms", "views", "dashboards"] as const) {
-    await sql.unsafe(`ALTER TABLE grids.${table} ALTER COLUMN slug SET NOT NULL`).simple();
+    await sql.unsafe(`ALTER TABLE grids.${table} ALTER COLUMN short_id SET NOT NULL`).simple();
+    await sql
+      .unsafe(`ALTER TABLE grids.${table} DROP CONSTRAINT IF EXISTS ${table}_slug_format_chk`)
+      .simple();
     await sql
       .unsafe(`
         DO $$
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM pg_constraint
-            WHERE conname = '${table}_slug_format_chk'
+            WHERE conname = '${table}_short_id_format_chk'
               AND conrelid = 'grids.${table}'::regclass
           ) THEN
             ALTER TABLE grids.${table}
-            ADD CONSTRAINT ${table}_slug_format_chk
-            CHECK (slug ~ '^[A-Za-z0-9]{5}$');
+            ADD CONSTRAINT ${table}_short_id_format_chk
+            CHECK (short_id ~ '^[A-Za-z0-9]{5}$');
           END IF;
         END $$;
       `)

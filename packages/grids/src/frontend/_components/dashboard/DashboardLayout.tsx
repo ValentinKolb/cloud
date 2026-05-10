@@ -21,7 +21,7 @@ type Props = {
    *  view's first row / first bucket. */
   viewStatsData: Record<string, ViewStatsRowData>;
   /** Slug of the parent base — needed by the view-link header. */
-  baseSlug: string;
+  baseShortId: string;
 };
 
 /** Minimum cell heights for widget rows (sm/md/lg tier on
@@ -81,13 +81,13 @@ export default function DashboardLayout(props: Props) {
                   </div>
                 );
               }
-              return <ViewStatsRow data={data} baseSlug={props.baseSlug} />;
+              return <ViewStatsRow data={data} baseShortId={props.baseShortId} />;
             }
             return (
               <WidgetsRowRender
                 row={row}
                 widgetData={props.widgetData}
-                baseSlug={props.baseSlug}
+                baseShortId={props.baseShortId}
               />
             );
           }}
@@ -100,7 +100,7 @@ export default function DashboardLayout(props: Props) {
 function WidgetsRowRender(props: {
   row: WidgetsRow;
   widgetData: Record<string, WidgetData>;
-  baseSlug: string;
+  baseShortId: string;
 }) {
   return (
     <div
@@ -115,7 +115,7 @@ function WidgetsRowRender(props: {
             <WidgetCell
               widget={widget}
               data={props.widgetData[widget.id]}
-              baseSlug={props.baseSlug}
+              baseShortId={props.baseShortId}
             />
           </div>
         )}
@@ -127,7 +127,7 @@ function WidgetsRowRender(props: {
 function WidgetCell(props: {
   widget: ViewWidget | ChartWidget;
   data: WidgetData | undefined;
-  baseSlug: string;
+  baseShortId: string;
 }) {
   const data = (): WidgetData =>
     props.data ?? { kind: "error", reason: "no data resolved for this widget" };
@@ -136,7 +136,7 @@ function WidgetCell(props: {
       <EmbeddedViewWidget
         widget={props.widget}
         data={data()}
-        baseSlug={props.baseSlug}
+        baseShortId={props.baseShortId}
       />
     );
   }

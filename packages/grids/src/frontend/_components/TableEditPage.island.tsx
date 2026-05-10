@@ -33,9 +33,9 @@ type TableHeader = {
   /** UUID of the parent base. Kept for API calls that still take UUIDs. */
   baseId: string;
   /** URL-safe slug of the parent base. Used for href construction. */
-  baseSlug: string;
+  baseShortId: string;
   /** URL-safe slug of this table. Used for href construction. */
-  slug: string;
+  shortId: string;
   name: string;
   description: string | null;
   disableDirectInsert: boolean;
@@ -299,7 +299,7 @@ export default function TableEditPage(props: Props) {
       if (res.status >= 400)
         throw new Error(await errorMessage(res, "Failed to delete table"));
     },
-    onSuccess: () => navigateTo(`/app/grids/${props.table.baseSlug}`),
+    onSuccess: () => navigateTo(`/app/grids/${props.table.baseShortId}`),
     onError: (e) => prompts.error(e.message),
   });
 
@@ -322,7 +322,7 @@ export default function TableEditPage(props: Props) {
       <header class="flex items-center justify-between gap-3">
         <h1 class="text-xl font-semibold text-primary">Edit table</h1>
         <a
-          href={`/app/grids/${props.table.baseSlug}?table=${props.table.slug}`}
+          href={`/app/grids/${props.table.baseShortId}?table=${props.table.shortId}`}
           class="btn-input btn-input-sm"
         >
           <i class="ti ti-arrow-left" /> Back to records
@@ -478,7 +478,7 @@ export default function TableEditPage(props: Props) {
                             check-mark feedback so users actually notice
                             the copy happened. */}
                         <CopyButton
-                          text={`#${field.slug}`}
+                          text={`#${field.shortId}`}
                           label="Copy ref"
                           class="btn-simple btn-sm mr-2 shrink-0"
                         />

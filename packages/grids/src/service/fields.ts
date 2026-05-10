@@ -12,14 +12,14 @@ import {
 } from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
 import { getHandler, isKnownFieldType } from "../field-types";
-import { insertWithSlug } from "./slug";
+import { insertWithShortId } from "./short-id";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
 const mapRow = (row: DbRow): Field => ({
   id: row.id as string,
-  slug: row.slug as string,
+  shortId: row.short_id as string,
   tableId: row.table_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
@@ -43,13 +43,13 @@ const mapRow = (row: DbRow): Field => ({
  * AND for any field whose parent table or base is trashed (live-parent
  * invariant).
  */
-export const getBySlug = async (tableId: string, slug: string): Promise<Field | null> => {
+export const getByShortId = async (tableId: string, shortId: string): Promise<Field | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT f.*
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE f.table_id = ${tableId}::uuid AND f.slug = ${slug} AND f.deleted_at IS NULL
+    WHERE f.table_id = ${tableId}::uuid AND f.short_id = ${shortId} AND f.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -243,14 +243,14 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     input.defaultValue === undefined || input.defaultValue === null
       ? null
       : JSON.stringify(input.defaultValue);
-  const row = await insertWithSlug<DbRow>(async (slug) => {
+  const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
       INSERT INTO grids.fields (
-        slug, table_id, name, description, type, config, position, required,
+        short_id, table_id, name, description, type, config, position, required,
         presentable, hide_in_table, default_value, indexed, unique_constraint
       )
       VALUES (
-        ${slug},
+        ${shortId},
         ${input.tableId}::uuid,
         ${name},
         -- bun.sql can't infer the type of a literal NULL; cast keeps the
@@ -270,7 +270,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
-  }, "idx_grids_fields_slug");
+  }, "idx_grids_fields_short_id");
   const field = mapRow(row);
 
   await logAudit({

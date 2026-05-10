@@ -2,7 +2,7 @@ export type Base = {
   id: string;
   /** Short readable handle (5 chars). Used in URLs and as a stable
    *  alias next to the UUID PK. Random + immutable per spec. */
-  slug: string;
+  shortId: string;
   name: string;
   description: string | null;
   createdBy: string | null;
@@ -21,7 +21,7 @@ export type Table = {
   id: string;
   /** Short readable handle (5 chars), unique per base. URL routing
    *  uses this; the UUID stays internal. */
-  slug: string;
+  shortId: string;
   baseId: string;
   name: string;
   description: string | null;
@@ -44,7 +44,7 @@ export type Field = {
   /** Short readable handle (5 chars), unique per table. Surfaces in
    *  formula references as `#abc12` and in the field-row CopyButton.
    *  Internal storage + FKs still use the UUID id. */
-  slug: string;
+  shortId: string;
   tableId: string;
   name: string;
   /** Optional helper text shown beside the field in the edit modal and

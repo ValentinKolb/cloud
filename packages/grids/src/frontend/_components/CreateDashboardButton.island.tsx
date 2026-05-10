@@ -11,7 +11,7 @@ import { errorMessage } from "./api-helpers";
  * to the new dashboard's edit page so the user lands on a workable
  * surface immediately rather than at an empty viewer.
  */
-export default function CreateDashboardButton(props: { baseId: string; baseSlug: string }) {
+export default function CreateDashboardButton(props: { baseId: string; baseShortId: string }) {
   const createMutation = mutations.create<
     Dashboard,
     { name: string; shared: boolean }
@@ -27,7 +27,7 @@ export default function CreateDashboardButton(props: { baseId: string; baseSlug:
     // After creation: open the editor. A fresh dashboard has no widgets,
     // so dropping the user on the viewer would just show the empty
     // state — the editor is the next-step destination.
-    onSuccess: (d) => navigateTo(`/app/grids/${props.baseSlug}/dashboards/${d.slug}/edit`),
+    onSuccess: (d) => navigateTo(`/app/grids/${props.baseShortId}/dashboards/${d.shortId}/edit`),
     onError: (e) => prompts.error(e.message),
   });
 

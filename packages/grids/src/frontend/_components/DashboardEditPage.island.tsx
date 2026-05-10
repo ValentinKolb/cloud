@@ -37,7 +37,7 @@ import { formatWidgetValue } from "./dashboard/widget-format";
 // =============================================================================
 
 type Props = {
-  baseSlug: string;
+  baseShortId: string;
   initialDashboard: Dashboard;
   /** Whether this dashboard is the base's default — surfaces as a
    *  read-only badge with a link to base settings. */
@@ -120,7 +120,7 @@ export default function DashboardEditPage(props: Props) {
           </h1>
           <Show when={props.isBaseDefault}>
             <a
-              href={`/app/grids/${props.baseSlug}/settings`}
+              href={`/app/grids/${props.baseShortId}/settings`}
               class="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/50"
               title="This dashboard opens when no specific table or dashboard is set in the URL"
             >
@@ -129,7 +129,7 @@ export default function DashboardEditPage(props: Props) {
           </Show>
         </div>
         <a
-          href={`/app/grids/${props.baseSlug}?dashboard=${props.initialDashboard.slug}`}
+          href={`/app/grids/${props.baseShortId}?dashboard=${props.initialDashboard.shortId}`}
           class="btn-input btn-input-sm"
         >
           <i class="ti ti-arrow-left" /> Back to dashboard
@@ -190,7 +190,7 @@ export default function DashboardEditPage(props: Props) {
       >
         <DeleteButton
           dashboardId={props.initialDashboard.id}
-          baseSlug={props.baseSlug}
+          baseShortId={props.baseShortId}
           name={props.initialDashboard.name}
         />
       </SectionCard>
@@ -1206,7 +1206,7 @@ function DashboardPermissions(props: {
 // Delete button
 // =============================================================================
 
-function DeleteButton(props: { dashboardId: string; baseSlug: string; name: string }) {
+function DeleteButton(props: { dashboardId: string; baseShortId: string; name: string }) {
   const mut = mutations.create<void, void>({
     mutation: async () => {
       const res = await apiClient.dashboards[":dashboardId"].$delete({
@@ -1214,7 +1214,7 @@ function DeleteButton(props: { dashboardId: string; baseSlug: string; name: stri
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to delete dashboard"));
     },
-    onSuccess: () => navigateTo(`/app/grids/${props.baseSlug}`),
+    onSuccess: () => navigateTo(`/app/grids/${props.baseShortId}`),
     onError: (e) => prompts.error(e.message),
   });
 

@@ -2,16 +2,16 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { grantAccess } from "./access";
-import { insertWithSlug } from "./slug";
+import { insertWithShortId } from "./short-id";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, slug, name, description, created_by, default_dashboard_id, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, name, description, created_by, default_dashboard_id, deleted_at, created_at, updated_at`;
 
 const mapRow = (row: DbRow): Base => ({
   id: row.id as string,
-  slug: row.slug as string,
+  shortId: row.short_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
   createdBy: (row.created_by as string | null) ?? null,
@@ -67,10 +67,10 @@ export const get = async (
  * resolve URL slugs (`/app/grids/k3Mp9`) to UUIDs that the rest of the
  * service layer + API works with. Returns null for soft-deleted bases.
  */
-export const getBySlug = async (slug: string): Promise<Base | null> => {
+export const getByShortId = async (shortId: string): Promise<Base | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT ${COLS}
-    FROM grids.bases WHERE slug = ${slug} AND deleted_at IS NULL
+    FROM grids.bases WHERE short_id = ${shortId} AND deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -83,26 +83,26 @@ export const getBySlug = async (slug: string): Promise<Base | null> => {
  * UUIDs from `field.config.targetTableId`. Cheap to support both — slugs
  * and UUIDs are length-distinguishable so no DB round-trip is wasted.
  */
-export const getByIdOrSlug = async (idOrSlug: string): Promise<Base | null> => {
+export const getByIdOrShortId = async (idOrSlug: string): Promise<Base | null> => {
   if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
     return get(idOrSlug);
   }
-  return getBySlug(idOrSlug);
+  return getByShortId(idOrSlug);
 };
 
 export const create = async (input: CreateBaseInput, actorId: string | null): Promise<Result<Base>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
-  const row = await insertWithSlug<DbRow>(async (slug) => {
+  const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.bases (slug, name, description, created_by)
-      VALUES (${slug}, ${name}, ${input.description ?? null}, ${actorId}::uuid)
+      INSERT INTO grids.bases (short_id, name, description, created_by)
+      VALUES (${shortId}, ${name}, ${input.description ?? null}, ${actorId}::uuid)
       RETURNING ${COLS}
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
-  }, "idx_grids_bases_slug");
+  }, "idx_grids_bases_short_id");
   const base = mapRow(row);
 
   // Auto-grant admin to the creator so they can immediately use the new base.
@@ -266,7 +266,7 @@ export const adminList = async (params: {
 
   const rows = await sql<DbRow[]>`
     SELECT
-      b.id, b.slug, b.name, b.description, b.created_by, b.default_dashboard_id, b.deleted_at, b.created_at, b.updated_at,
+      b.id, b.short_id, b.name, b.description, b.created_by, b.default_dashboard_id, b.deleted_at, b.created_at, b.updated_at,
       (SELECT COUNT(*)::int FROM grids.tables WHERE base_id = b.id) AS table_count,
       (SELECT COUNT(*)::int FROM grids.records r JOIN grids.tables t ON t.id = r.table_id WHERE t.base_id = b.id AND r.deleted_at IS NULL) AS record_count,
       (SELECT COUNT(*)::int FROM grids.base_access WHERE base_id = b.id) AS access_count
