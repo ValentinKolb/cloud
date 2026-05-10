@@ -62,19 +62,28 @@ const API_PER_PAGE_MAX = 100;
  *  path when no post-filter is in use). */
 const SEARCH_FETCH_CAP = 1000;
 
-/** Walk through paginated `/:id/notes` until either the response
- *  runs dry OR `maxItems` is reached. Used by:
- *   - `list()` — wants every note up to `SEARCH_FETCH_CAP`
- *   - search slow path — same
- *   - search fast path — wants `userOffset + userLimit` notes
- *  Server-side `q` is forwarded when given. */
+/** Walk through paginated `/:id/notes` starting at `startPage` and
+ *  collect at most `maxItems` notes (or until the response runs
+ *  dry). Used by:
+ *   - `list()` — full notebook scan, startPage = 1, max = SEARCH_FETCH_CAP
+ *   - search slow path — same as list (we filter, then slice)
+ *   - search fast path — startPage seeked to the page containing
+ *     `userOffset` so we don't refetch every prior page (codex
+ *     review on commit 40ee626: fast-path offset pagination must
+ *     be O(limit), not O(offset)).
+ *  Server-side `q` is forwarded when given.
+ *
+ *  Returns the contiguous slice STARTING AT `startPage` — the
+ *  caller is responsible for `out.slice(withinPageOffset, ...)` when
+ *  they seeked into the middle of a page. */
 const fetchPagesUpTo = async (
   notebookId: string,
   maxItems: number,
   searchQuery?: string,
+  startPage = 1,
 ): Promise<KitNote[]> => {
   const out: KitNote[] = [];
-  let page = 1;
+  let page = startPage;
   while (out.length < maxItems) {
     const apiQuery: Record<string, string> = {
       per_page: String(API_PER_PAGE_MAX),
@@ -163,15 +172,17 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       q.updatedBefore !== undefined;
 
     if (!hasPostFilter) {
-      // Fast path: API can answer this query natively. Walk pages
-      // until we have `userOffset + userLimit` notes, then slice.
-      // Old code asked the API for `per_page=userLimit` which the
-      // server clamps at `API_PER_PAGE_MAX=100` — so a search with
-      // limit > 100 would silently truncate (codex review on
-      // commit 6978ae7, finding 2). Walking pages avoids that.
-      const needed = userOffset + userLimit;
-      const slice = await fetchPagesUpTo(ctx.notebookId, needed, q.search);
-      return slice.slice(userOffset, userOffset + userLimit);
+      // Fast path: API can answer this query natively. Seek to the
+      // API page containing `userOffset` rather than re-fetching
+      // every prior page (codex review on commit 40ee626: offset
+      // pagination must stay O(limit), not O(offset)). Within-
+      // page slice handles the residual when `userOffset` falls
+      // mid-page.
+      const startPage = Math.floor(userOffset / API_PER_PAGE_MAX) + 1;
+      const withinPageOffset = userOffset % API_PER_PAGE_MAX;
+      const needed = withinPageOffset + userLimit;
+      const slice = await fetchPagesUpTo(ctx.notebookId, needed, q.search, startPage);
+      return slice.slice(withinPageOffset, withinPageOffset + userLimit);
     }
 
     // Slow path: tags / date filters aren't server-side, so we
