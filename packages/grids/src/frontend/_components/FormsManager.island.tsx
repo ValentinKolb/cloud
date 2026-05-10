@@ -2,7 +2,7 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { PermissionEditor, prompts, SegmentedControl, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { FieldInput } from "./form-fields";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../service";
 import type { FormConfig, FormFieldEntry } from "../../service/forms";
@@ -432,117 +432,140 @@ function FormEditor(props: {
           fallback={<p class="text-xs text-dimmed py-1">No fields included. Pick one from the list below to start.</p>}
         >
           <ul class="flex flex-col gap-2">
-            <For each={entries()}>
+            {/* Index (not For) — keys by position. Each keystroke in
+                label/help-text writes a fresh entries array with a
+                replaced entry object at idx, which a reference-keyed
+                For interprets as "row replaced", remounting the inputs
+                and stealing focus. Index keeps the row stable. */}
+            <Index each={entries()}>
               {(entry, idx) => {
-                const f = fieldById().get(entry.fieldId);
-                if (!f) return null;
-                if (entry.kind === "form_value") {
-                  // Server-applied value tile — the visitor never sees
-                  // this field but every submission gets stamped with
-                  // the configured value (e.g. "source = website" on a
-                  // public lead form). The value editor renders the
-                  // platform input matching the field type via the
-                  // shared FieldInput, with a synthetic minimal entry
-                  // since we don't want overrides for label/help/etc.
-                  return (
-                    <li class="paper p-3 flex flex-col gap-2">
-                      <div class="flex items-center gap-2">
-                        <i class="ti ti-lock text-dimmed shrink-0" />
-                        <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                          <span class="text-sm font-medium text-primary truncate">{f.name}</span>
-                          <span class="text-[10px] text-dimmed shrink-0">{TYPE_LABELS[f.type] ?? f.type} · server-applied</span>
-                        </span>
-                        <button
-                          type="button"
-                          class="text-dimmed hover:text-red-500 px-1"
-                          onClick={() => removeEntry(idx())}
-                          title="Remove from form"
-                          aria-label="Remove from form"
-                        >
-                          <i class="ti ti-x" />
-                        </button>
-                      </div>
-                      <FieldInput
-                        field={f}
-                        entry={{ kind: "user_input", fieldId: f.id, required: false }}
-                        value={entry.value}
-                        onChange={(v) => updateFormValue(idx(), v)}
-                      />
-                      <p class="text-[11px] text-dimmed leading-snug">
-                        Every submission to this form gets stamped with this value. Visitors don't see this field — and any payload they submit for it is rejected by the server.
-                      </p>
-                    </li>
-                  );
-                }
-                // entry.kind === "user_input"
-                const required = () => entry.required ?? f.required;
+                const f = () => fieldById().get(entry().fieldId);
+                // Narrow accessors per kind. The actual `entry().kind`
+                // doesn't toggle during a typing session (the kind is
+                // chosen at add-time), so the Show branch below is
+                // stable enough to avoid focus loss inside it.
+                const valueEntry = () =>
+                  entry().kind === "form_value"
+                    ? (entry() as Extract<FormFieldEntry, { kind: "form_value" }>)
+                    : null;
+                const userEntry = () =>
+                  entry().kind === "user_input"
+                    ? (entry() as Extract<FormFieldEntry, { kind: "user_input" }>)
+                    : null;
+                const required = () => userEntry()?.required ?? f()?.required ?? false;
                 return (
-                  <li class="paper p-3 flex flex-col gap-2">
-                    <div class="flex items-center gap-2">
-                      <div class="flex flex-col gap-0.5">
-                        <button
-                          type="button"
-                          class="text-dimmed hover:text-primary disabled:opacity-30"
-                          onClick={() => moveEntry(idx(), -1)}
-                          disabled={idx() === 0}
-                          title="Move up"
-                          aria-label="Move up"
-                        >
-                          <i class="ti ti-chevron-up text-xs" />
-                        </button>
-                        <button
-                          type="button"
-                          class="text-dimmed hover:text-primary disabled:opacity-30"
-                          onClick={() => moveEntry(idx(), 1)}
-                          disabled={idx() === entries().length - 1}
-                          title="Move down"
-                          aria-label="Move down"
-                        >
-                          <i class="ti ti-chevron-down text-xs" />
-                        </button>
-                      </div>
-                      <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                        <span class="text-sm font-medium text-primary truncate">{f.name}</span>
-                        <span class="text-[10px] text-dimmed">{TYPE_LABELS[f.type] ?? f.type}</span>
-                      </span>
-                      <label class="inline-flex items-center gap-1.5 text-[11px] text-secondary">
-                        <input
-                          type="checkbox"
-                          checked={required()}
-                          onChange={(e) => updateEntry(idx(), { required: e.currentTarget.checked })}
-                        />
-                        Required
-                      </label>
-                      <button
-                        type="button"
-                        class="text-dimmed hover:text-red-500 px-1"
-                        onClick={() => removeEntry(idx())}
-                        title="Remove from form"
-                        aria-label="Remove from form"
+                  <Show when={f()}>
+                    {(field) => (
+                      <Show
+                        when={valueEntry()}
+                        fallback={
+                          <li class="paper p-3 flex flex-col gap-2">
+                            <div class="flex items-center gap-2">
+                              <div class="flex flex-col gap-0.5">
+                                <button
+                                  type="button"
+                                  class="text-dimmed hover:text-primary disabled:opacity-30"
+                                  onClick={() => moveEntry(idx, -1)}
+                                  disabled={idx === 0}
+                                  title="Move up"
+                                  aria-label="Move up"
+                                >
+                                  <i class="ti ti-chevron-up text-xs" />
+                                </button>
+                                <button
+                                  type="button"
+                                  class="text-dimmed hover:text-primary disabled:opacity-30"
+                                  onClick={() => moveEntry(idx, 1)}
+                                  disabled={idx === entries().length - 1}
+                                  title="Move down"
+                                  aria-label="Move down"
+                                >
+                                  <i class="ti ti-chevron-down text-xs" />
+                                </button>
+                              </div>
+                              <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                                <span class="text-sm font-medium text-primary truncate">{field().name}</span>
+                                <span class="text-[10px] text-dimmed">{TYPE_LABELS[field().type] ?? field().type}</span>
+                              </span>
+                              <label class="inline-flex items-center gap-1.5 text-[11px] text-secondary">
+                                <input
+                                  type="checkbox"
+                                  checked={required()}
+                                  onChange={(e) => updateEntry(idx, { required: e.currentTarget.checked })}
+                                />
+                                Required
+                              </label>
+                              <button
+                                type="button"
+                                class="text-dimmed hover:text-red-500 px-1"
+                                onClick={() => removeEntry(idx)}
+                                title="Remove from form"
+                                aria-label="Remove from form"
+                              >
+                                <i class="ti ti-x" />
+                              </button>
+                            </div>
+                            <TextInput
+                              label="Label override (optional)"
+                              icon="ti ti-tag"
+                              value={() => userEntry()?.label ?? ""}
+                              onInput={(v) => updateEntry(idx, { label: v.trim() === "" ? undefined : v })}
+                              placeholder={field().name}
+                            />
+                            <TextInput
+                              label="Help text (optional)"
+                              icon="ti ti-info-circle"
+                              value={() => userEntry()?.helpText ?? ""}
+                              onInput={(v) => updateEntry(idx, { helpText: v.trim() === "" ? undefined : v })}
+                              placeholder="Shown under the input in the form"
+                              multiline
+                              lines={2}
+                            />
+                          </li>
+                        }
                       >
-                        <i class="ti ti-x" />
-                      </button>
-                    </div>
-                    <TextInput
-                      label="Label override (optional)"
-                      icon="ti ti-tag"
-                      value={() => entry.label ?? ""}
-                      onInput={(v) => updateEntry(idx(), { label: v.trim() === "" ? undefined : v })}
-                      placeholder={f.name}
-                    />
-                    <TextInput
-                      label="Help text (optional)"
-                      icon="ti ti-info-circle"
-                      value={() => entry.helpText ?? ""}
-                      onInput={(v) => updateEntry(idx(), { helpText: v.trim() === "" ? undefined : v })}
-                      placeholder="Shown under the input in the form"
-                      multiline
-                      lines={2}
-                    />
-                  </li>
+                        {(ve) => (
+                          // Server-applied value tile — the visitor never sees
+                          // this field but every submission gets stamped with
+                          // the configured value (e.g. "source = website" on a
+                          // public lead form). FieldInput renders the platform
+                          // input matching the field type with a synthetic
+                          // entry; we don't want overrides for label/help on a
+                          // hidden server-side stamp.
+                          <li class="paper p-3 flex flex-col gap-2">
+                            <div class="flex items-center gap-2">
+                              <i class="ti ti-lock text-dimmed shrink-0" />
+                              <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                                <span class="text-sm font-medium text-primary truncate">{field().name}</span>
+                                <span class="text-[10px] text-dimmed shrink-0">{TYPE_LABELS[field().type] ?? field().type} · server-applied</span>
+                              </span>
+                              <button
+                                type="button"
+                                class="text-dimmed hover:text-red-500 px-1"
+                                onClick={() => removeEntry(idx)}
+                                title="Remove from form"
+                                aria-label="Remove from form"
+                              >
+                                <i class="ti ti-x" />
+                              </button>
+                            </div>
+                            <FieldInput
+                              field={field()}
+                              entry={{ kind: "user_input", fieldId: field().id, required: false }}
+                              value={ve().value}
+                              onChange={(v) => updateFormValue(idx, v)}
+                            />
+                            <p class="text-[11px] text-dimmed leading-snug">
+                              Every submission to this form gets stamped with this value. Visitors don't see this field — and any payload they submit for it is rejected by the server.
+                            </p>
+                          </li>
+                        )}
+                      </Show>
+                    )}
+                  </Show>
                 );
               }}
-            </For>
+            </Index>
           </ul>
         </Show>
 

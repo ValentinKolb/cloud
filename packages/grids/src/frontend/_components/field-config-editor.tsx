@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Index, Show } from "solid-js";
 import { ColorInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 
@@ -509,34 +509,39 @@ function SelectConstraints(props: {
             <span class="w-40 shrink-0">Value</span>
             <span class="w-5 shrink-0" />
           </div>
-          <For each={options()}>
+          {/* Index (not For) — keys by position. Each keystroke writes
+              a fresh options array with new object identities, which a
+              reference-keyed For interprets as "row replaced", remounting
+              the inputs and stealing focus mid-typing. Index keeps the
+              row stable; only the bound accessors update. */}
+          <Index each={options()}>
             {(opt, i) => (
               <div class="flex items-center gap-2">
                 <ColorInput
                   compact
-                  value={() => opt.color ?? "#3b82f6"}
-                  onChange={(c) => updateOption(i(), { color: c })}
+                  value={() => opt().color ?? "#3b82f6"}
+                  onChange={(c) => updateOption(i, { color: c })}
                 />
                 <div class="flex-1">
                   <TextInput
                     placeholder="Label"
                     icon="ti ti-tag"
-                    value={() => opt.label}
-                    onInput={(v) => onLabelChange(i(), v)}
+                    value={() => opt().label}
+                    onInput={(v) => onLabelChange(i, v)}
                   />
                 </div>
                 <div class="w-40 shrink-0">
                   <TextInput
                     placeholder="value"
                     icon="ti ti-id"
-                    value={() => opt.id}
-                    onInput={(v) => updateOption(i(), { id: v })}
+                    value={() => opt().id}
+                    onInput={(v) => updateOption(i, { id: v })}
                   />
                 </div>
                 <button
                   type="button"
                   class="text-dimmed hover:text-red-500 p-1 shrink-0"
-                  onClick={() => removeOption(i())}
+                  onClick={() => removeOption(i)}
                   title="Remove"
                   aria-label="Remove option"
                 >
@@ -544,7 +549,7 @@ function SelectConstraints(props: {
                 </button>
               </div>
             )}
-          </For>
+          </Index>
         </div>
       </Show>
       <Show when={props.multi}>

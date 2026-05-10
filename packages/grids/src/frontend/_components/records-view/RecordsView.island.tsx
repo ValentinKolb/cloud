@@ -110,8 +110,18 @@ export default function RecordsView(props: Props) {
   // We adapt the fetcher to that signature; in-flight cancellation is left
   // to Solid's own stale-resolution discarding (good enough for the rapid-
   // fire filter case — server work is cheap).
+  //
+  // Search is a peer of filter/sort/group/agg in the wire query. We fold
+  // the SearchBar's `{q, fieldIds}` signal into `query.search` here so a
+  // keystroke updates the source signal and the API request body in one
+  // step — the server-side merger in api/tables.ts compiles it into SQL.
+  const queryWithSearch = (): ViewQuery => {
+    const q = search().q.trim();
+    if (!q) return query();
+    return { ...query(), search: { q, fieldIds: search().fieldIds } };
+  };
   const [data, { refetch }] = createResource(
-    () => ({ tableId: props.tableId, query: query(), cursor: cursor() }),
+    () => ({ tableId: props.tableId, query: queryWithSearch(), cursor: cursor() }),
     (args) => fetchTableQuery(args),
     { initialValue: props.initialData },
   );
@@ -120,6 +130,16 @@ export default function RecordsView(props: Props) {
   const buckets = () => (data()?.buckets ?? []) as GroupBucket[];
   const aggregates = () => data()?.aggregates ?? {};
   const nextCursor = () => data()?.nextCursor ?? null;
+
+  // Relation labels: SSR seeded a static prop, the API endpoint now
+  // also emits `relationLabels` for group-mode bucket keys. Merge both
+  // so the GroupedTable / RecordsGrid see one consistent UUID→label
+  // map regardless of which data path filled it. Server-side labels
+  // take precedence (newer ground truth).
+  const mergedRelationLabels = () => ({
+    ...props.relationLabels,
+    ...(data()?.relationLabels ?? {}),
+  });
 
   // ── Selected record resolution ─────────────────────────────────────
   // Prefer the row from the visible page (cheap, no network). Fall back
@@ -448,18 +468,20 @@ export default function RecordsView(props: Props) {
               selectedId={selectedRecordId()}
               onSelectRecord={onSelectRecord}
               viewColumns={props.viewColumns}
-              relationLabels={props.relationLabels}
+              relationLabels={mergedRelationLabels()}
               aggregates={props.trashMode ? {} : aggregates()}
               aggregationSpecs={props.trashMode ? [] : aggregations()}
             />
           }
         >
           <GroupedTable
+            baseId={props.baseId}
             fields={props.fields}
             groupBy={groupBy()}
             aggregations={aggregations()}
             buckets={buckets()}
             explode={props.groupedExplode}
+            relationLabels={mergedRelationLabels()}
           />
         </Show>
 
@@ -487,7 +509,7 @@ export default function RecordsView(props: Props) {
             record={selectedRecord}
             mode={detailMode}
             canWrite={props.canWrite}
-            relationLabels={props.relationLabels}
+            relationLabels={mergedRelationLabels()}
             onClose={onCloseDetail}
             onUpdated={onRecordUpdated}
             onRemoved={onRecordRemoved}

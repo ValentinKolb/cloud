@@ -1,5 +1,6 @@
 import { For, Show } from "solid-js";
 import type { Field } from "../../service";
+import { RecordLink } from "./RecordLink";
 
 /**
  * Server-rendered shape of a group bucket. Mirrors the API contract
@@ -24,6 +25,10 @@ type AggCol = {
 };
 
 type Props = {
+  /** Base id (UUID or slug — same value the parent page uses) so the
+   *  relation-group-key links can navigate to `/app/grids/<base>?table=…&record=…`,
+   *  matching the row-mode relation cell behavior. */
+  baseId: string;
   fields: Field[];
   groupBy: GroupByCol[];
   aggregations: AggCol[];
@@ -32,6 +37,11 @@ type Props = {
    *  record with N links contributes to N buckets and `*__count` counts
    *  pair occurrences, not unique records. UI surfaces a hint when set. */
   explode?: boolean;
+  /** UUID → presentable label for relation-typed group keys. Same map
+   *  the row-mode grid uses to render relation cells; the API endpoint
+   *  resolves it server-side for grouped responses so the keys column
+   *  doesn't show raw UUIDs. */
+  relationLabels?: Record<string, string>;
 };
 
 /**
@@ -59,12 +69,22 @@ export default function GroupedTable(props: Props) {
     return `${a.agg} ${name}`;
   };
 
-  const formatGroupKey = (val: unknown, _g: GroupByCol): string => {
+  /** Plain-text fallback for non-relation cells. Relation cells render
+   *  via RecordLink in the JSX path so they get cross-table navigation —
+   *  same UX as the row-mode grid. */
+  const formatScalarKey = (val: unknown): string => {
     if (val === null || val === undefined) return "—";
     if (typeof val === "string") return val;
     if (typeof val === "number" || typeof val === "boolean") return String(val);
     return String(val);
   };
+
+  /** Label resolution shared by RecordLink + the dash-fallback case.
+   *  Server resolves bucket-key UUIDs to presentable labels; if a stale
+   *  id ever slips through we show an 8-char prefix rather than 36
+   *  characters of UUID noise. */
+  const relationLabelFor = (val: string): string =>
+    props.relationLabels?.[val] ?? val.slice(0, 8);
 
   // Always include the implicit `*__count` column even if the user
   // didn't configure it — the server adds it for every group query
@@ -130,11 +150,30 @@ export default function GroupedTable(props: Props) {
                 {(b) => (
                   <tr class="border-b border-zinc-50 last:border-0 dark:border-zinc-800/50">
                     <For each={props.groupBy}>
-                      {(g, idx) => (
-                        <td class="px-3 py-2 text-primary">
-                          {formatGroupKey(b.keys[idx()], g)}
-                        </td>
-                      )}
+                      {(g, idx) => {
+                        const f = fieldsById.get(g.fieldId);
+                        const val = b.keys[idx()];
+                        // Relation groupBy: render as RecordLink so the
+                        // user can jump to the linked record the same
+                        // way they would from a row-mode relation cell.
+                        // The arrow icon + hover-underline match exactly.
+                        if (f && f.type === "relation" && typeof val === "string") {
+                          const cfg = f.config as { targetTableId?: string };
+                          return (
+                            <td class="px-3 py-2 text-primary">
+                              <RecordLink
+                                baseId={props.baseId}
+                                targetTableId={cfg.targetTableId}
+                                targetRecordId={val}
+                                label={relationLabelFor(val)}
+                              />
+                            </td>
+                          );
+                        }
+                        return (
+                          <td class="px-3 py-2 text-primary">{formatScalarKey(val)}</td>
+                        );
+                      }}
                     </For>
                     <For each={aggColsWithCount()}>
                       {(a) => (

@@ -292,6 +292,23 @@ export const buildRelationLabelCache = async (
     idsByTargetTable.set(cfg.targetTableId, set);
   }
 
+  return resolveLabelsByTargetTable(idsByTargetTable, fieldsByTargetTable);
+};
+
+/**
+ * Resolve presentable labels for a batch of (targetTable, recordId)
+ * pairs. Same labelling rules as buildRelationLabelCache: presentable
+ * fields joined by " · ", fall back to the relation's `displayFieldId`,
+ * then to an 8-char id prefix. ONE SQL round-trip per target table.
+ *
+ * Splits out so that callers operating on group buckets (whose keys are
+ * already raw target-record UUIDs, not records on the source table)
+ * can reuse the lookup without manufacturing a fake `GridRecord[]`.
+ */
+export const resolveLabelsByTargetTable = async (
+  idsByTargetTable: Map<string, Set<string>>,
+  fieldsByTargetTable: Map<string, { displayFieldId?: string }>,
+): Promise<Record<string, string>> => {
   const cache: Record<string, string> = {};
   if (idsByTargetTable.size === 0) return cache;
 
@@ -328,6 +345,38 @@ export const buildRelationLabelCache = async (
     }
   }
   return cache;
+};
+
+/**
+ * Resolve labels for the relation-typed columns of a grouped result.
+ * Each bucket carries `keys: unknown[]` parallel to the groupBy spec —
+ * for relation groupBy, the key is the linked record's UUID. We collect
+ * those UUIDs per target table (one set per relation column), then run
+ * the shared label resolver. Empty input → empty map.
+ */
+export const buildLabelCacheForGroupedKeys = async (
+  buckets: Array<{ keys: unknown[] }>,
+  groupByFieldIds: string[],
+  fields: Field[],
+): Promise<Record<string, string>> => {
+  if (buckets.length === 0) return {};
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+  const idsByTargetTable = new Map<string, Set<string>>();
+  const fieldsByTargetTable = new Map<string, { displayFieldId?: string }>();
+  for (let i = 0; i < groupByFieldIds.length; i++) {
+    const f = fieldsById.get(groupByFieldIds[i]!);
+    if (!f || f.type !== "relation" || f.deletedAt) continue;
+    const cfg = f.config as { targetTableId?: string; displayFieldId?: string };
+    if (!cfg.targetTableId) continue;
+    fieldsByTargetTable.set(cfg.targetTableId, { displayFieldId: cfg.displayFieldId });
+    const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
+    for (const b of buckets) {
+      const k = b.keys[i];
+      if (typeof k === "string" && k.length > 0) set.add(k);
+    }
+    idsByTargetTable.set(cfg.targetTableId, set);
+  }
+  return resolveLabelsByTargetTable(idsByTargetTable, fieldsByTargetTable);
 };
 
 /**

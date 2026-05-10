@@ -13,6 +13,7 @@ import {
   RelationLookupResponseSchema,
 } from "../contracts";
 import type { GroupAggregationSpec } from "../service/group-compiler";
+import { mergeSearchIntoFilter } from "../service/search";
 import { gateAt } from "./permissions";
 
 const app = new Hono<AuthContext>()
@@ -170,6 +171,23 @@ const app = new Hono<AuthContext>()
 
       const { query, cursor } = c.req.valid("json");
 
+      // Free-text search merge. The client sends `query.search` as a
+      // separate concept (so saved-view filters and ad-hoc typing layer
+      // cleanly), and the server compiles it into the filter the same
+      // way the SSR initial render does — single source of truth in
+      // service/search.ts. Without this merge the typed query would
+      // never reach SQL: the records.list/aggregate/group calls below
+      // only consume `filter`, never `search`.
+      const tableFields = await gridsService.field.listByTable(tableId);
+      const effectiveFilter = query.search?.q
+        ? mergeSearchIntoFilter(
+            query.filter ?? null,
+            query.search.q,
+            query.search.fieldIds ?? [],
+            tableFields,
+          )
+        : query.filter ?? null;
+
       // Group-mode dispatch. The contract's AggregateKind is wider than
       // the group compiler's AggKindForGroup (no median/earliest/latest
       // in group-by mode — those are SQL-only on the flat aggregate
@@ -183,16 +201,26 @@ const app = new Hono<AuthContext>()
           tableId,
           groupBy: query.groupBy,
           aggregations: groupAggregations,
-          filter: query.filter ?? null,
+          filter: effectiveFilter,
           cursor: cursor ?? null,
           limit: query.limit,
           includeDeleted: query.includeDeleted,
         });
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+        // Resolve presentable labels for relation-typed group keys so
+        // the UI doesn't render raw UUIDs in the bucket-key column.
+        // Same labelling rules as the row-mode relation cell renderer
+        // (see service/relations.ts → buildRelationLabelCache).
+        const relationLabels = await gridsService.relations.buildLabelCacheForGroupedKeys(
+          result.data.buckets,
+          query.groupBy.map((g) => g.fieldId),
+          tableFields,
+        );
         return c.json({
           buckets: result.data.buckets,
           nextCursor: result.data.nextCursor,
           explode: result.data.explode,
+          relationLabels,
         });
       }
 
@@ -202,7 +230,7 @@ const app = new Hono<AuthContext>()
         cursor: cursor ?? null,
         limit: query.limit,
         includeDeleted: query.includeDeleted,
-        filter: query.filter ?? null,
+        filter: effectiveFilter,
         sort: query.sort,
       });
       if (!listResult.ok) return c.json({ message: listResult.error.message }, listResult.error.status);
@@ -214,7 +242,7 @@ const app = new Hono<AuthContext>()
       if (query.aggregations && query.aggregations.length > 0) {
         const aggResult = await gridsService.record.aggregate({
           tableId,
-          filter: query.filter ?? null,
+          filter: effectiveFilter,
           requests: query.aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
         });
         if (aggResult.ok) aggregates = aggResult.data;

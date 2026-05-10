@@ -125,6 +125,7 @@ export const gridsService = {
   },
   relations: {
     buildLabelCache: relationsModule.buildRelationLabelCache,
+    buildLabelCacheForGroupedKeys: relationsModule.buildLabelCacheForGroupedKeys,
     lookup: relationsModule.lookupRecords,
   },
 };

@@ -23,82 +23,11 @@ import type {
   ChartWidget,
   ViewWidget,
 } from "../../service";
+import { filterSearchableFields, mergeSearchIntoFilter } from "../../service/search";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
   memberofGroupIds: string[];
-};
-
-// Field types the free-text search will apply `contains` against. Mirrors
-// the TEXT_OPS family in filter-ops.ts: anything that's a text-shaped
-// JSONB scalar. select / boolean / number etc. are intentionally excluded
-// — searching them as text would be misleading at best.
-const SEARCHABLE_TYPES = new Set([
-  "text",
-  "longtext",
-  "email",
-  "url",
-  "phone",
-  "slug",
-  "barcode",
-  "isbn",
-]);
-
-const filterSearchableFields = (fields: Field[]): Field[] =>
-  fields.filter((f) => !f.deletedAt && SEARCHABLE_TYPES.has(f.type));
-
-/**
- * Combines the user's filter (from the URL) with a free-text search
- * predicate. The search becomes an OR across `contains q` for every
- * scoped field; that group is then AND'd into the user's filter so
- * `filter ∧ (any of the searchable cols matches q)` holds.
- *
- * - empty q → returns the original filter unchanged (no search applied)
- * - empty qFieldIds → defaults to every searchable field on the table
- * - a non-AND user filter is wrapped: `{op:AND, filters:[F, search]}`
- */
-const mergeSearchIntoFilter = (
-  userFilter: FilterTree | null,
-  q: string,
-  qFieldIds: string[],
-  fields: Field[],
-): FilterTree | null => {
-  const query = q.trim();
-  if (!query) return userFilter;
-  const searchable = filterSearchableFields(fields);
-  if (searchable.length === 0) return userFilter;
-
-  // Honour an explicit column-scope (drop unknown ids); otherwise search every
-  // searchable column on the table.
-  const scopedIds =
-    qFieldIds.length > 0
-      ? qFieldIds.filter((id) => searchable.some((f) => f.id === id))
-      : searchable.map((f) => f.id);
-  if (scopedIds.length === 0) return userFilter;
-
-  const searchGroup: FilterTree = {
-    op: "OR",
-    filters: scopedIds.map((fid) => ({
-      fieldId: fid,
-      op: "contains",
-      value: query,
-      caseInsensitive: true,
-    })),
-  };
-
-  if (!userFilter) return searchGroup;
-  if (
-    typeof userFilter === "object" &&
-    "op" in userFilter &&
-    userFilter.op === "AND" &&
-    Array.isArray((userFilter as { filters: FilterTree[] }).filters)
-  ) {
-    return {
-      op: "AND",
-      filters: [...(userFilter as { filters: FilterTree[] }).filters, searchGroup],
-    };
-  }
-  return { op: "AND", filters: [userFilter, searchGroup] };
 };
 
 const resolveLevel = async (
@@ -601,6 +530,17 @@ export default ssr<AuthContext>(async (c) => {
     if (groupResult.ok) {
       groupedBuckets = groupResult.data.buckets as GroupBucket[];
       groupedExplode = groupResult.data.explode;
+      // Resolve labels for relation-typed bucket keys. The flat-list
+      // path's buildLabelCache only sees `records.items` — empty in
+      // group mode — so without this step a relation groupBy column
+      // would render raw UUIDs. Merge into the existing relationLabels
+      // map so the same prop covers both list and group rendering.
+      const groupLabels = await gridsService.relations.buildLabelCacheForGroupedKeys(
+        groupedBuckets,
+        effectiveGroupBy.map((g) => g.fieldId),
+        fields,
+      );
+      relationLabels = { ...relationLabels, ...groupLabels };
     }
   }
 
