@@ -140,8 +140,11 @@ const mapRow = (row: DbRow): Form => ({
  */
 export const getBySlug = async (tableId: string, slug: string): Promise<Form | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT ${COLS} FROM grids.forms
-    WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+    FROM grids.forms f
+    JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE f.table_id = ${tableId}::uuid AND f.slug = ${slug} AND f.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -212,16 +215,23 @@ export const listForTable = async (
   tableId: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<Form[]> => {
+  // Live-parent invariant: forms under a trashed table or base never list.
   const rows = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT ${COLS}
-        FROM grids.forms WHERE table_id = ${tableId}::uuid
-        ORDER BY position, created_at
+        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE f.table_id = ${tableId}::uuid
+        ORDER BY f.position, f.created_at
       `
     : await sql<DbRow[]>`
-        SELECT ${COLS}
-        FROM grids.forms WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
-        ORDER BY position, created_at
+        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE f.table_id = ${tableId}::uuid AND f.deleted_at IS NULL
+        ORDER BY f.position, f.created_at
       `;
   return rows.map(mapRow);
 };
@@ -249,8 +259,20 @@ export const get = async (
   opts: { includeDeleted?: boolean } = {},
 ): Promise<Form | null> => {
   const [row] = opts.includeDeleted
-    ? await sql<DbRow[]>`SELECT ${COLS} FROM grids.forms WHERE id = ${id}::uuid`
-    : await sql<DbRow[]>`SELECT ${COLS} FROM grids.forms WHERE id = ${id}::uuid AND deleted_at IS NULL`;
+    ? await sql<DbRow[]>`
+        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE f.id = ${id}::uuid
+      `
+    : await sql<DbRow[]>`
+        SELECT f.id, f.slug, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+        FROM grids.forms f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE f.id = ${id}::uuid AND f.deleted_at IS NULL
+      `;
   return row ? mapRow(row) : null;
 };
 

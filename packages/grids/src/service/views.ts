@@ -40,12 +40,16 @@ const mapRow = (row: DbRow): View => {
 /**
  * Look up a view by (tableId, slug). Used at the SSR-route boundary
  * to resolve the `?view=<slug>` URL param to a UUID. Returns null for
- * soft-deleted views.
+ * soft-deleted views AND for views whose parent table or base is
+ * trashed (live-parent invariant).
  */
 export const getBySlug = async (tableId: string, slug: string): Promise<View | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT * FROM grids.views
-    WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    SELECT v.*
+    FROM grids.views v
+    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE v.table_id = ${tableId}::uuid AND v.slug = ${slug} AND v.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -140,6 +144,8 @@ export const listForTable = async (params: {
           AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
       ) AS public_rank
     FROM grids.views v
+    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
     ORDER BY v.position, v.created_at
   `;
@@ -187,14 +193,23 @@ export const get = async (
   id: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<View | null> => {
+  // SELECT v.* — slug must be in the projection or mapRow throws (see
+  // Wave 1.1's slug invariant). Live-parent invariant: parent table +
+  // base must be alive; trashed views require explicit `includeDeleted`.
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
-        FROM grids.views WHERE id = ${id}::uuid
+        SELECT v.*
+        FROM grids.views v
+        JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE v.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
-        FROM grids.views WHERE id = ${id}::uuid AND deleted_at IS NULL
+        SELECT v.*
+        FROM grids.views v
+        JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE v.id = ${id}::uuid AND v.deleted_at IS NULL
       `;
   return row ? mapRow(row) : null;
 };

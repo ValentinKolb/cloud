@@ -29,57 +29,81 @@ export const listByBase = async (
   baseId: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<Table[]> => {
+  // Live-parent invariant: tables of a trashed base never list (the trash
+  // flow operates top-down — restore the base first to access its tables).
   const rows = opts.includeDeleted
     ? await sql<DbRow[]>`
         SELECT ${COLS}
-        FROM grids.tables WHERE base_id = ${baseId}::uuid
-        ORDER BY position, created_at
+        FROM grids.tables t
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE t.base_id = ${baseId}::uuid
+        ORDER BY t.position, t.created_at
       `
     : await sql<DbRow[]>`
         SELECT ${COLS}
-        FROM grids.tables WHERE base_id = ${baseId}::uuid AND deleted_at IS NULL
-        ORDER BY position, created_at
+        FROM grids.tables t
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL
+        ORDER BY t.position, t.created_at
       `;
   return rows.map(mapRow);
 };
 
 /**
  * Soft-deleted tables for a base, newest-deletion first. Used by
- * the base-settings trash view to surface restorable resources.
+ * the base-settings trash view to surface restorable resources. Returns
+ * empty if the parent base itself is trashed (top-down restore: act on
+ * the base first).
  */
 export const listTrashedByBase = async (baseId: string): Promise<Table[]> => {
   const rows = await sql<DbRow[]>`
     SELECT ${COLS}
-    FROM grids.tables
-    WHERE base_id = ${baseId}::uuid AND deleted_at IS NOT NULL
-    ORDER BY deleted_at DESC
+    FROM grids.tables t
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NOT NULL
+    ORDER BY t.deleted_at DESC
   `;
   return rows.map(mapRow);
 };
 
+/**
+ * Reads a single table. Live-parent invariant: the parent base must be
+ * alive (b.deleted_at IS NULL); a leaked UUID under a trashed base never
+ * resolves outside the trash flow. Pass `includeDeleted: true` to allow
+ * trashed *table* rows (used by the trash listing's restore path); the
+ * parent base must still be alive — restore is top-down only.
+ */
 export const get = async (
   id: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<Table | null> => {
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT ${COLS} FROM grids.tables WHERE id = ${id}::uuid
+        SELECT ${COLS}
+        FROM grids.tables t
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE t.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT ${COLS} FROM grids.tables WHERE id = ${id}::uuid AND deleted_at IS NULL
+        SELECT ${COLS}
+        FROM grids.tables t
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE t.id = ${id}::uuid AND t.deleted_at IS NULL
       `;
   return row ? mapRow(row) : null;
 };
 
 /**
  * Look up a table by (baseId, slug). Used at the SSR-route boundary
- * to resolve URL slugs to UUIDs. Returns null for soft-deleted tables.
+ * to resolve URL slugs to UUIDs. Returns null for soft-deleted tables
+ * AND for any table whose parent base is trashed (live-parent invariant).
  */
 export const getBySlug = async (baseId: string, slug: string): Promise<Table | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT ${COLS}
-    FROM grids.tables
-    WHERE base_id = ${baseId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    FROM grids.tables t
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE t.base_id = ${baseId}::uuid AND t.slug = ${slug} AND t.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };

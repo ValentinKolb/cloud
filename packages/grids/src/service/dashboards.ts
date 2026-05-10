@@ -60,9 +60,10 @@ const mapRow = (row: DbRow): Dashboard => {
  */
 export const getBySlug = async (baseId: string, slug: string): Promise<Dashboard | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
-    FROM grids.dashboards
-    WHERE base_id = ${baseId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
+    FROM grids.dashboards d
+    JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
+    WHERE d.base_id = ${baseId}::uuid AND d.slug = ${slug} AND d.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -87,14 +88,20 @@ export const get = async (
   id: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<Dashboard | null> => {
+  // Live-parent invariant: dashboards under a trashed base never resolve
+  // outside the top-down restore flow.
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
-        FROM grids.dashboards WHERE id = ${id}::uuid
+        SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
+        FROM grids.dashboards d
+        JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
+        WHERE d.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
-        FROM grids.dashboards WHERE id = ${id}::uuid AND deleted_at IS NULL
+        SELECT d.id, d.slug, d.base_id, d.name, d.description, d.config, d.owner_user_id, d.position, d.deleted_at, d.created_at, d.updated_at
+        FROM grids.dashboards d
+        JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
+        WHERE d.id = ${id}::uuid AND d.deleted_at IS NULL
       `;
   return row ? mapRow(row) : null;
 };
@@ -168,6 +175,7 @@ export const listForBase = async (params: {
           AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
       ) AS public_rank
     FROM grids.dashboards d
+    JOIN grids.bases b ON b.id = d.base_id AND b.deleted_at IS NULL
     WHERE d.base_id = ${params.baseId}::uuid AND d.deleted_at IS NULL
     ORDER BY d.position, d.created_at
   `;

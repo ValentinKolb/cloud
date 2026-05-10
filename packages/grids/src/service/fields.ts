@@ -39,26 +39,39 @@ const mapRow = (row: DbRow): Field => ({
 
 /**
  * Look up a field by (tableId, slug). Used by the formula evaluator
- * when resolving #slug references. Returns null for deleted fields.
+ * when resolving #slug references. Returns null for deleted fields,
+ * AND for any field whose parent table or base is trashed (live-parent
+ * invariant).
  */
 export const getBySlug = async (tableId: string, slug: string): Promise<Field | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT * FROM grids.fields
-    WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
+    SELECT f.*
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE f.table_id = ${tableId}::uuid AND f.slug = ${slug} AND f.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
 
 export const listByTable = async (tableId: string, includeDeleted = false): Promise<Field[]> => {
+  // Live-parent invariant: fields under a trashed table or base never list.
   const rows = includeDeleted
     ? await sql<DbRow[]>`
-        SELECT * FROM grids.fields WHERE table_id = ${tableId}::uuid
-        ORDER BY position, created_at
+        SELECT f.*
+        FROM grids.fields f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE f.table_id = ${tableId}::uuid
+        ORDER BY f.position, f.created_at
       `
     : await sql<DbRow[]>`
-        SELECT * FROM grids.fields
-        WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
-        ORDER BY position, created_at
+        SELECT f.*
+        FROM grids.fields f
+        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+        WHERE f.table_id = ${tableId}::uuid AND f.deleted_at IS NULL
+        ORDER BY f.position, f.created_at
       `;
   return rows.map(mapRow);
 };
@@ -82,8 +95,20 @@ export const listTrashedByBase = async (baseId: string): Promise<Field[]> => {
   return rows.map(mapRow);
 };
 
+/**
+ * Reads a single field. Live-parent invariant: parent table AND base
+ * must be alive. Soft-deleted fields ARE returned because restore /
+ * trash flows need them; the caller decides whether to act on a
+ * trashed field row by inspecting `field.deletedAt`.
+ */
 export const get = async (id: string): Promise<Field | null> => {
-  const [row] = await sql<DbRow[]>`SELECT * FROM grids.fields WHERE id = ${id}::uuid`;
+  const [row] = await sql<DbRow[]>`
+    SELECT f.*
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE f.id = ${id}::uuid
+  `;
   return row ? mapRow(row) : null;
 };
 

@@ -2,6 +2,7 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
+import { requireTableAlive } from "./parent-checks";
 import { listByTable as listFields } from "./fields";
 import { getHandler } from "../field-types";
 import { compileFilter, renderClause, type FilterTree } from "./filter-compiler";
@@ -340,6 +341,11 @@ export const aggregate = async (params: {
   return ok(parseJsonbRow<Record<string, unknown>>(rows[0]?.result, {}));
 };
 
+/**
+ * Reads a single record. Live-parent invariant: parent table AND base
+ * must be alive. Also enforces `r.deleted_at IS NULL` (a trashed record
+ * never resolves through this path; trash listings are explicit).
+ */
 export const get = async (tableId: string, recordId: string): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
   const computed = buildComputedProjections(fields);
@@ -352,7 +358,11 @@ export const get = async (tableId: string, recordId: string): Promise<GridRecord
   const [row] = await sql<DbRow[]>`
     SELECT r.*${projectionFragments}
     FROM grids.records r
-    WHERE r.id = ${recordId}::uuid AND r.table_id = ${tableId}::uuid
+    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE r.id = ${recordId}::uuid
+      AND r.table_id = ${tableId}::uuid
+      AND r.deleted_at IS NULL
   `;
   if (!row) return null;
   const record = mapRow(row);
@@ -563,6 +573,12 @@ export const restore = async (
   recordId: string,
   actorId: string | null,
 ): Promise<Result<void>> => {
+  // Top-down restore: the parent table + base must be alive. Refusing
+  // the restore here is more honest than UPDATEing a record that the
+  // user can't read afterward (live-parent invariant).
+  const parentAlive = await requireTableAlive(tableId);
+  if (!parentAlive.ok) return parentAlive;
+
   const result = await sql`
     UPDATE grids.records SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
     WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NOT NULL
