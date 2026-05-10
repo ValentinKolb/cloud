@@ -18,16 +18,6 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
  * trashed (the API layer translates conflict to 409).
  */
 
-/** Verify the base is alive. */
-export const requireBaseAlive = async (baseId: string): Promise<Result<void>> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(SELECT 1 FROM grids.bases WHERE id = ${baseId}::uuid AND deleted_at IS NULL) AS exists
-  `;
-  return row?.exists
-    ? ok()
-    : fail(err.conflict("parent base is trashed; restore the base first"));
-};
-
 /** Verify the table is alive AND its base is alive. */
 export const requireTableAlive = async (tableId: string): Promise<Result<void>> => {
   const [row] = await sql<{ exists: boolean }[]>`

@@ -400,16 +400,9 @@ export const compileGroupQuery = (
   const whereParts: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
   if (!params.includeDeleted) whereParts.push(sql`r.deleted_at IS NULL`);
   whereParts.push(renderedFilter);
-  // Cursor predicate over the group-key tuple — keyset pagination.
-  if (params.cursor && params.cursor.keys.length === groups.resolved.length) {
-    // Lexicographic comparison: gk_0 > c0 OR (gk_0 = c0 AND gk_1 > c1) OR ...
-    // Mixed direction support follows the sort-compiler approach: each
-    // column compares per its own direction. This shows up as part of
-    // the HAVING clause because the keys are aggregate expressions that
-    // can only be referenced post-grouping.
-    // For v3 we apply the cursor in the OUTER select (wrapping the
-    // group query) — keeps the inner compile simple.
-  }
+  // Cursor predicate is applied in the HAVING clause below — group keys
+  // are aggregate expressions and can't be referenced from WHERE before
+  // grouping happens.
   const where = whereParts.reduce((acc, cur) => sql`${acc} AND ${cur}`);
 
   // GROUP BY (positional — references the SELECT list aliases)

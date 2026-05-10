@@ -594,17 +594,21 @@ export type StatWidget = z.infer<typeof StatWidgetSchema>;
 export type ChartWidget = z.infer<typeof ChartWidgetSchema>;
 export type ViewWidget = z.infer<typeof ViewWidgetSchema>;
 
-// Two row types, period:
+// Three row types — `kind` discriminator picks rendering + cell shape:
 //
-//   - StatsRow:  1-N stat cells rendered as one paper container with
-//                hairline-separated cells (the ui-lab "Small grid
-//                only" pattern). No height tier — the small-grid has
-//                its natural padded height. No mixing with views/
-//                charts; those are too tall to share a row visually.
-//   - WidgetsRow: 1-4 larger widgets (views; charts later) rendered
-//                as separate paper cards with `gap-3` between them.
-//                Carries an explicit sm/md/lg height tier because
-//                embedded views need vertical breathing room.
+//   - StatsRow ("stats"):  1-N stat cells rendered as one paper
+//                container with hairline-separated cells (ui-lab
+//                "Small grid only" pattern). No height tier — the
+//                small-grid has its natural padded height.
+//   - ViewStatsRow ("view-stats"): a saved view's footer aggregates
+//                surfaced as the same hairline-cell stat row. Source
+//                is one viewId; cells auto-derive from the view's
+//                stored aggregations.
+//   - WidgetsRow ("widgets"): 1-4 larger widgets (views; charts
+//                later) rendered as separate paper cards with
+//                `gap-3` between them. Carries an explicit sm/md/lg
+//                height tier because embedded views need vertical
+//                breathing room.
 //
 // Splitting at the row level (vs. inferring from cell contents)
 // keeps the editor's add-row affordance unambiguous and avoids the

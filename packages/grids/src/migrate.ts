@@ -390,10 +390,14 @@ export const migrate = async (): Promise<void> => {
   // UUIDs stay as PKs and FKs — slugs are surface-level only. Records
   // are not slugged (high cardinality; UUIDv7 stays).
   //
-  // NULL is allowed at column level — the service layer enforces
-  // not-null at write time via the slug-gen helper. The unique index
-  // is partial (alive rows only) so soft-deleted rows don't block new
-  // ones from re-using the slug.
+  // The column is added NULL-tolerant here so old DBs survive the
+  // migration; backfillSlugs() runs at the end of migrate() to fill
+  // every row, then ALTER COLUMN ... SET NOT NULL plus a CHECK regex
+  // make the invariant authoritative (Wave 1.1). The partial unique
+  // index is alive-rows-only so a soft-deleted row's slug doesn't
+  // block restoring under a freshly-generated identical slug — though
+  // backfillSlugs picks slugs unique across alive AND trashed to keep
+  // restore safe in the common case.
   await sql`ALTER TABLE grids.bases  ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
   await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
   await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS slug TEXT`.simple();
