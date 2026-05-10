@@ -8,7 +8,6 @@ import { getHandler } from "../field-types";
 import { compileFilter, renderClause, type FilterTree } from "./filter-compiler";
 import {
   compileSort,
-  encodeCursor,
   decodeCursor,
   type SortSpec,
 } from "./sort-compiler";
@@ -208,14 +207,19 @@ export const list = async (params: {
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
 
-  // Sort compilation (with cursor decoding when present)
-  const decodedCursor = params.cursor ? decodeCursor(params.cursor) : null;
+  // Sort compilation (with cursor decoding when present). Cursor length
+  // is validated against the active sort spec — a stale cursor from a
+  // different sort length now returns 400 instead of misaligning page 2.
+  const expectedCursorLength = params.sort?.length ?? 0;
+  const decodedCursor = params.cursor
+    ? decodeCursor(params.cursor, expectedCursorLength)
+    : null;
   if (params.cursor && !decodedCursor) {
     return fail(err.badInput("invalid cursor"));
   }
   const sortCompiled = compileSort(params.sort ?? [], fields, decodedCursor);
   if (!sortCompiled.ok) return fail(err.badInput(`sort: ${sortCompiled.error}`));
-  const { orderBy, cursorWhere, projections } = sortCompiled.result;
+  const { orderBy, cursorWhere, cursorSelect, encodeCursorFromRow } = sortCompiled.result;
 
   const conditions: any[] = [sql`table_id = ${params.tableId}::uuid`];
   if (!params.includeDeleted) conditions.push(sql`deleted_at IS NULL`);
@@ -239,7 +243,7 @@ export const list = async (params: {
   // row is uniquely identified — Postgres treats this as a cheap
   // semi-join.
   const rows = await sql<DbRow[]>`
-    SELECT r.*${projectionFragments}
+    SELECT r.*${projectionFragments}${cursorSelect}
     FROM grids.records r
     JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
@@ -259,9 +263,11 @@ export const list = async (params: {
 
   let nextCursor: string | null = null;
   if (hasMore) {
-    const last = items[items.length - 1]!;
-    const sortValues = projections.map((p) => last.data[p.fieldId] ?? null);
-    nextCursor = encodeCursor({ sortValues, id: last.id });
+    // Cursor encodes from the SQL `__sort_<i>` aliases (null-safe via
+    // try_*) instead of `record.data[fieldId]` (raw JSONB) — so corrupt
+    // values produce NULL in the cursor instead of crashing page 2.
+    const lastRow = rows[limit - 1] as Record<string, unknown>;
+    nextCursor = encodeCursorFromRow(lastRow);
   }
   // Formulas still run in JS — they reference computed and base values
   // alike, and the formula engine is not SQL-projectable yet.

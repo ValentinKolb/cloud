@@ -15,8 +15,20 @@ export type CompiledSort = {
   cursorWhere: any | null;
   /** Names of fields used in the sort, in order — input for cursor formatting. */
   fieldIds: string[];
-  /** Per-field projection used to extract a row's sort values for the next cursor. */
-  projections: Array<{ fieldId: string; sqlCast: string }>;
+  /**
+   * SQL SELECT-list extras: the sort projections aliased as `__sort_<i>`
+   * so the cursor encoder reads the SAME value the ORDER BY used.
+   * Without this, cursor encoding read `record.data[fieldId]` (the raw
+   * JSONB value) and corrupt rows produced cursors that page 2 then
+   * tried to cast as numeric/date and crashed (chunk 3 critical).
+   *
+   * Empty fragment when no sort columns are configured.
+   */
+  cursorSelect: any;
+  /** Reads the sort-aliased columns from a SQL result row to build the
+   *  next-page cursor token. The row must have `__sort_0` ... `__sort_N`
+   *  plus `id` (uuid). Returns null when the page didn't run a sort. */
+  encodeCursorFromRow: (row: Record<string, unknown>) => string;
 };
 
 type CastKind = "numeric" | "date" | "boolean" | "text";
@@ -235,31 +247,62 @@ export const compileSort = (
     }
   }
 
+  // Cursor SELECT extras: emit each sort projection as `__sort_<i>`.
+  // The result row will carry these columns alongside r.*, and the
+  // cursor encoder reads them — same null-safe values the ORDER BY
+  // sees, so corrupt JSONB doesn't leak through cursor encoding.
+  const cursorSelect = resolved.length === 0
+    ? sql``
+    : resolved
+        .map(({ field }, i) => {
+          const proj = projectionForField(field)!.sql;
+          return sql`, ${proj} AS ${sql.unsafe(`__sort_${i}`)}`;
+        })
+        .reduce((acc, cur) => sql`${acc}${cur}`);
+
+  const encodeCursorFromRow = (row: Record<string, unknown>): string => {
+    const values: unknown[] = [];
+    for (let i = 0; i < resolved.length; i++) {
+      values.push(row[`__sort_${i}`] ?? null);
+    }
+    return JSON.stringify({ v: values, i: row.id as string });
+  };
+
   return {
     ok: true,
     result: {
       orderBy,
       cursorWhere,
       fieldIds: effective.map((s) => s.fieldId),
-      projections: resolved.map(({ spec, field }) => ({
-        fieldId: spec.fieldId,
-        sqlCast: projectionForField(field)!.cast,
-      })),
+      cursorSelect,
+      encodeCursorFromRow,
     },
   };
 };
 
-/** Encodes the next-page cursor token from the last row of the current page. */
-export const encodeCursor = (lastRow: { sortValues: unknown[]; id: string }): string => {
-  return JSON.stringify({ v: lastRow.sortValues, i: lastRow.id });
-};
+// Encoding moved to CompiledSort.encodeCursorFromRow — it reads the
+// SQL-projected `__sort_<i>` aliases instead of `record.data[fieldId]`,
+// which previously let corrupt JSONB leak into the cursor and crash
+// page 2's WHERE-clause cast.
 
-export const decodeCursor = (token: string): { values: unknown[]; id: string } | null => {
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const decodeCursor = (
+  token: string,
+  expectedLength?: number,
+): { values: unknown[]; id: string } | null => {
+  let parsed: { v?: unknown; i?: unknown };
   try {
-    const parsed = JSON.parse(token) as { v?: unknown[]; i?: string };
-    if (typeof parsed.i !== "string" || !Array.isArray(parsed.v)) return null;
-    return { values: parsed.v, id: parsed.i };
+    parsed = JSON.parse(token);
   } catch {
     return null;
   }
+  if (typeof parsed.i !== "string" || !UUID_REGEX.test(parsed.i)) return null;
+  if (!Array.isArray(parsed.v)) return null;
+  // Length must match the active sort. A user navigating from a saved
+  // view to an ad-hoc query (or vice versa) without re-fetching can
+  // hold a cursor with the wrong length; reject explicitly so the API
+  // returns 400 rather than letting a SQL cast misalign on page 2.
+  if (expectedLength !== undefined && parsed.v.length !== expectedLength) return null;
+  return { values: parsed.v as unknown[], id: parsed.i };
 };

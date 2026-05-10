@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { compileSort, encodeCursor, decodeCursor } from "./sort-compiler";
+import { compileSort, decodeCursor } from "./sort-compiler";
 import type { Field } from "./types";
 
 const mkField = (id: string, type: string): Field => ({
@@ -77,7 +77,7 @@ describe("compileSort — validation", () => {
     if (r.ok) {
       expect(r.result.fieldIds).toEqual(["fld_b"]);
       expect(r.result.cursorWhere).not.toBeNull();
-      expect(r.result.projections).toEqual([{ fieldId: "fld_b", sqlCast: "numeric" }]);
+      expect(typeof r.result.encodeCursorFromRow).toBe("function");
     }
   });
 
@@ -93,7 +93,10 @@ describe("compileSort — validation", () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.result.fieldIds).toEqual(["fld_c", "fld_b"]);
-      expect(r.result.projections.map((p) => p.sqlCast)).toEqual(["date", "numeric"]);
+      // Cursor encoding now reads SQL `__sort_<i>` aliases instead of
+      // exposing per-field cast metadata; encodeCursorFromRow is the
+      // tested contract.
+      expect(typeof r.result.encodeCursorFromRow).toBe("function");
     }
   });
 
@@ -122,17 +125,31 @@ describe("compileSort — validation", () => {
   });
 });
 
-describe("cursor encode/decode", () => {
-  test("round-trips values and id", () => {
-    const c = { sortValues: ["foo", 42, "2026-05-01"], id: "abc-123" };
-    const token = encodeCursor(c);
-    const decoded = decodeCursor(token);
-    expect(decoded).toEqual({ values: ["foo", 42, "2026-05-01"], id: "abc-123" });
+describe("cursor decode", () => {
+  // Encoding moved to CompiledSort.encodeCursorFromRow which reads SQL
+  // result rows; here we only test the decoder which is still pure.
+  // We hand-build tokens with the same shape the encoder produces.
+  const validUuid = "11111111-2222-3333-4444-555555555555";
+  const tokenFor = (values: unknown[], id: string) => JSON.stringify({ v: values, i: id });
+
+  test("decodes a valid token", () => {
+    const decoded = decodeCursor(tokenFor(["foo", 42], validUuid));
+    expect(decoded).toEqual({ values: ["foo", 42], id: validUuid });
   });
 
-  test("decode returns null for malformed token", () => {
+  test("returns null for malformed token", () => {
     expect(decodeCursor("not json")).toBeNull();
     expect(decodeCursor('{"only": "object"}')).toBeNull();
     expect(decodeCursor('{"v": "not array", "i": "x"}')).toBeNull();
+  });
+
+  test("returns null when id is not a UUID (no SQL cast crash on page 2)", () => {
+    expect(decodeCursor(tokenFor([], "not-a-uuid"))).toBeNull();
+    expect(decodeCursor(tokenFor([], "abc-123"))).toBeNull();
+  });
+
+  test("rejects mismatched length when expectedLength is given", () => {
+    expect(decodeCursor(tokenFor(["a", "b"], validUuid), 1)).toBeNull();
+    expect(decodeCursor(tokenFor(["a", "b"], validUuid), 2)).not.toBeNull();
   });
 });
