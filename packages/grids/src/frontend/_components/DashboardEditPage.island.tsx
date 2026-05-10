@@ -8,7 +8,7 @@ import {
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type {
   Dashboard,
@@ -351,55 +351,66 @@ function LayoutEditor(props: {
           </div>
         }
       >
-        <For each={props.config().rows}>
+        {/* Index (not For) — keys by position. updateRow replaces the
+            row object at index `rowIdx`, which a reference-keyed For
+            interprets as "row replaced", remounting the row card and
+            stealing focus from any input the user is typing in. Index
+            keeps the row card mounted; only the bound `row()` accessor
+            updates. JSX prop bindings (`row={row()}`) stay reactive
+            via Solid's compiled getter wrappers, so child components
+            still see the current row value through `props.row`. The
+            kind discriminant is stable in practice (you don't change
+            a stats row to a view-stats row), so the Switch/Match
+            doesn't churn on edits. */}
+        <Index each={props.config().rows}>
           {(row, rowIdx) => {
-            const r = row;
-            if (r.kind === "stats") {
-              return (
-                <StatsRowCard
-                  row={r}
-                  rowIdx={rowIdx()}
-                  rowCount={props.config().rows.length}
-                  tables={props.tables}
-                  fieldsByTable={props.fieldsByTable}
-                  expandedCellId={expandedCellId}
-                  toggleCell={toggleCell}
-                  onUpdate={(next) => updateRow(rowIdx(), next)}
-                  onMoveRow={(dir) => moveRow(rowIdx(), dir)}
-                  onRemoveRow={() => removeRow(rowIdx())}
-                />
-              );
-            }
-            if (r.kind === "view-stats") {
-              return (
-                <ViewStatsRowCard
-                  row={r}
-                  rowIdx={rowIdx()}
-                  rowCount={props.config().rows.length}
-                  tables={props.tables}
-                  viewsByTable={props.viewsByTable}
-                  onUpdate={(next) => updateRow(rowIdx(), next)}
-                  onMoveRow={(dir) => moveRow(rowIdx(), dir)}
-                  onRemoveRow={() => removeRow(rowIdx())}
-                />
-              );
-            }
+            const kind = () => row().kind;
             return (
-              <WidgetsRowCard
-                row={r}
-                rowIdx={rowIdx()}
-                rowCount={props.config().rows.length}
-                tables={props.tables}
-                viewsByTable={props.viewsByTable}
-                expandedCellId={expandedCellId}
-                toggleCell={toggleCell}
-                onUpdate={(next) => updateRow(rowIdx(), next)}
-                onMoveRow={(dir) => moveRow(rowIdx(), dir)}
-                onRemoveRow={() => removeRow(rowIdx())}
-              />
+              <>
+                <Show when={kind() === "stats"}>
+                  <StatsRowCard
+                    row={row() as import("../../service").StatsRow}
+                    rowIdx={rowIdx}
+                    rowCount={props.config().rows.length}
+                    tables={props.tables}
+                    fieldsByTable={props.fieldsByTable}
+                    expandedCellId={expandedCellId}
+                    toggleCell={toggleCell}
+                    onUpdate={(next) => updateRow(rowIdx, next)}
+                    onMoveRow={(dir) => moveRow(rowIdx, dir)}
+                    onRemoveRow={() => removeRow(rowIdx)}
+                  />
+                </Show>
+                <Show when={kind() === "view-stats"}>
+                  <ViewStatsRowCard
+                    row={row() as import("../../service").ViewStatsRow}
+                    rowIdx={rowIdx}
+                    rowCount={props.config().rows.length}
+                    tables={props.tables}
+                    viewsByTable={props.viewsByTable}
+                    onUpdate={(next) => updateRow(rowIdx, next)}
+                    onMoveRow={(dir) => moveRow(rowIdx, dir)}
+                    onRemoveRow={() => removeRow(rowIdx)}
+                  />
+                </Show>
+                <Show when={kind() === "widgets"}>
+                  <WidgetsRowCard
+                    row={row() as import("../../service").WidgetsRow}
+                    rowIdx={rowIdx}
+                    rowCount={props.config().rows.length}
+                    tables={props.tables}
+                    viewsByTable={props.viewsByTable}
+                    expandedCellId={expandedCellId}
+                    toggleCell={toggleCell}
+                    onUpdate={(next) => updateRow(rowIdx, next)}
+                    onMoveRow={(dir) => moveRow(rowIdx, dir)}
+                    onRemoveRow={() => removeRow(rowIdx)}
+                  />
+                </Show>
+              </>
             );
           }}
-        </For>
+        </Index>
       </Show>
       <div class="flex items-center gap-2 flex-wrap">
         <button
@@ -484,20 +495,25 @@ function StatsRowCard(props: {
       />
 
       <div class="flex flex-col gap-2">
-        <For each={props.row.cells}>
+        {/* Index — same focus-loss-prevention story as the outer rows
+            loop: typing in StatCellEditor's title/sub TextInput would
+            otherwise replace the cell object in row.cells, which a
+            ref-keyed For would interpret as "cell replaced" → remount
+            → focus lost. */}
+        <Index each={props.row.cells}>
           {(cell, cellIdx) => (
             <StatCellEditor
-              widget={cell}
-              isExpanded={props.expandedCellId() === cell.id}
+              widget={cell()}
+              isExpanded={props.expandedCellId() === cell().id}
               canRemove={props.row.cells.length > 1}
-              onToggle={() => props.toggleCell(cell.id)}
-              onUpdate={(w) => updateCell(cellIdx(), w)}
-              onRemove={() => removeCell(cellIdx())}
+              onToggle={() => props.toggleCell(cell().id)}
+              onUpdate={(w) => updateCell(cellIdx, w)}
+              onRemove={() => removeCell(cellIdx)}
               tables={props.tables}
               fieldsByTable={props.fieldsByTable}
             />
           )}
-        </For>
+        </Index>
       </div>
 
       <Show when={props.row.cells.length < 6}>
@@ -584,27 +600,31 @@ function WidgetsRowCard(props: {
       />
 
       <div class="flex flex-col gap-2">
-        <For each={props.row.cells}>
-          {(cell, cellIdx) =>
-            cell.kind === "view" ? (
+        {/* Index — same rationale as StatsRowCard's cells loop. */}
+        <Index each={props.row.cells}>
+          {(cell, cellIdx) => (
+            <Show
+              when={cell().kind === "view"}
+              fallback={
+                <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md p-2 text-xs text-dimmed">
+                  Chart widget — renderer ships in P1. Stays in the saved
+                  config; can't be edited from here yet.
+                </div>
+              }
+            >
               <ViewCellEditor
-                widget={cell}
-                isExpanded={props.expandedCellId() === cell.id}
+                widget={cell() as import("../../service").ViewWidget}
+                isExpanded={props.expandedCellId() === cell().id}
                 canRemove={props.row.cells.length > 1}
-                onToggle={() => props.toggleCell(cell.id)}
-                onUpdate={(w) => updateCell(cellIdx(), w)}
-                onRemove={() => removeCell(cellIdx())}
+                onToggle={() => props.toggleCell(cell().id)}
+                onUpdate={(w) => updateCell(cellIdx, w)}
+                onRemove={() => removeCell(cellIdx)}
                 viewsByTable={props.viewsByTable}
                 tables={props.tables}
               />
-            ) : (
-              <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md p-2 text-xs text-dimmed">
-                Chart widget — renderer ships in P1. Stays in the saved
-                config; can't be edited from here yet.
-              </div>
-            )
-          }
-        </For>
+            </Show>
+          )}
+        </Index>
       </div>
 
       <Show when={props.row.cells.length < 4}>
