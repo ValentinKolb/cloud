@@ -257,24 +257,39 @@ function TextConstraints(props: {
   const maxLen = () => (typeof cfg().maxLength === "number" ? String(cfg().maxLength) : "");
   const regex = () => (typeof cfg().regex === "string" ? (cfg().regex as string) : "");
 
-  const onMin = (v: string) => {
-    const n = v.trim() === "" ? undefined : Number(v);
-    if (n !== undefined && (!Number.isInteger(n) || n < 0)) return;
-    update({ minLength: n });
-  };
-  const onMax = (v: string) => {
-    const n = v.trim() === "" ? undefined : Number(v);
-    if (n !== undefined && (!Number.isInteger(n) || n < 1)) return;
-    update({ maxLength: n });
+  // Constraints are TextInputs (not NumberField/NumberInput) because the
+  // optional semantics need an empty state — NumberInput clamps to its
+  // `min` prop and has no way to represent "no constraint". Parse on
+  // input, ignore non-numeric or negative input; empty string clears.
+  // Matches DecimalConstraints' pattern for the same reason.
+  const onLength = (key: "minLength" | "maxLength", v: string) => {
+    const t = v.trim();
+    if (t === "") return update({ [key]: undefined });
+    const n = Number(t);
+    if (!Number.isInteger(n) || n < 0) return;
+    update({ [key]: n });
   };
 
   return (
     <div class="grid grid-cols-2 gap-3">
-      <NumberField label="Min length (optional)" value={minLen} onInput={onMin} min={0} />
-      <NumberField label="Max length (optional)" value={maxLen} onInput={onMax} min={1} />
+      <TextInput
+        label="Min length (optional)"
+        description="Empty = no minimum."
+        value={minLen}
+        onInput={(v) => onLength("minLength", v)}
+        placeholder="e.g. 3"
+      />
+      <TextInput
+        label="Max length (optional)"
+        description="Empty = no maximum."
+        value={maxLen}
+        onInput={(v) => onLength("maxLength", v)}
+        placeholder="e.g. 50"
+      />
       <div class="col-span-2">
         <TextInput
           label="Pattern (regex, optional)"
+          description="Empty = no pattern check."
           value={regex}
           onInput={(v) => update({ regex: v.trim() === "" ? undefined : v })}
           placeholder="e.g. ^[A-Z]{3}-\\d+$"
@@ -296,17 +311,32 @@ function NumberConstraints(props: {
   const max = () => (typeof cfg().max === "number" ? String(cfg().max) : "");
   const integerOnly = () => Boolean(cfg().integerOnly);
 
+  // TextInput (not NumberField) for the same reason as TextConstraints —
+  // optional needs a clearable empty state. Accepts decimals here
+  // because the field type is "number", not integer-only.
+  const onBound = (key: "min" | "max", v: string) => {
+    const t = v.trim();
+    if (t === "") return update({ [key]: undefined });
+    const n = Number(t);
+    if (!Number.isFinite(n)) return;
+    update({ [key]: n });
+  };
+
   return (
     <div class="grid grid-cols-2 gap-3">
-      <NumberField
+      <TextInput
         label="Min (optional)"
+        description="Empty = no minimum."
         value={min}
-        onInput={(v) => update({ min: v.trim() === "" ? undefined : Number(v) })}
+        onInput={(v) => onBound("min", v)}
+        placeholder="e.g. 0"
       />
-      <NumberField
+      <TextInput
         label="Max (optional)"
+        description="Empty = no maximum."
         value={max}
-        onInput={(v) => update({ max: v.trim() === "" ? undefined : Number(v) })}
+        onInput={(v) => onBound("max", v)}
+        placeholder="e.g. 100"
       />
       <label class="col-span-2 inline-flex items-center gap-2 text-xs text-secondary">
         <input
@@ -357,12 +387,14 @@ function DecimalConstraints(props: {
       />
       <TextInput
         label="Min (optional)"
+        description="Empty = no minimum."
         value={min}
         onInput={(v) => update({ min: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 0"
       />
       <TextInput
         label="Max (optional)"
+        description="Empty = no maximum."
         value={max}
         onInput={(v) => update({ max: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 9999.99"
@@ -417,12 +449,14 @@ function DateConstraints(props: {
       </label>
       <TextInput
         label="Min date (optional, YYYY-MM-DD)"
+        description="Empty = no minimum."
         value={min}
         onInput={(v) => update({ min: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 2020-01-01"
       />
       <TextInput
         label="Max date (optional, YYYY-MM-DD)"
+        description="Empty = no maximum."
         value={max}
         onInput={(v) => update({ max: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 2099-12-31"

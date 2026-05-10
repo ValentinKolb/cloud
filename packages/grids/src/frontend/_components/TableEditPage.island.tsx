@@ -373,12 +373,13 @@ export default function TableEditPage(props: Props) {
                   });
                 };
                 return (
-                  <li class="rounded-lg border border-zinc-200 dark:border-zinc-700">
+                  <li class="group rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
                     {/* Card row — arrows + click-to-edit + copy-ref.
-                        The whole row is compact (single line); clicking
-                        the name area opens the field editor in a modal
-                        rather than expanding the card inline. Reorder
-                        is up/down arrows on the left (mirrors FormsManager). */}
+                        Hover bg lives on the whole <li> (via `group`)
+                        so the entire row darkens uniformly instead of
+                        just the click-target middle section. The
+                        pencil icon turns blue-500 on group-hover as
+                        an affordance cue. */}
                     <div class="flex items-center">
                       <div class="flex flex-col gap-0.5 pl-2 shrink-0">
                         <button
@@ -404,7 +405,7 @@ export default function TableEditPage(props: Props) {
                       </div>
                       <button
                         type="button"
-                        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 rounded-r-lg"
+                        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
                         onClick={openEditor}
                         aria-label={`Edit field ${field.name}`}
                       >
@@ -426,7 +427,7 @@ export default function TableEditPage(props: Props) {
                             {field.description}
                           </span>
                         </Show>
-                        <i class="ti ti-edit text-sm text-dimmed" />
+                        <i class="ti ti-pencil text-sm text-dimmed group-hover:text-blue-500 transition-colors" />
                       </button>
                       {/* Power-user hook: copy the field's `#short_id`
                           token so users can paste it straight into a
@@ -534,7 +535,7 @@ const openFieldEditDialog = (args: OpenFieldEditArgs): Promise<void> =>
       <div class="flex flex-col gap-4">
         <DialogHeader
           title={`Edit field — ${args.field.name}`}
-          icon="ti ti-edit"
+          icon="ti ti-pencil"
           close={() => close()}
         />
         <FieldEditor
@@ -660,7 +661,7 @@ function FieldEditor(props: {
             before, which made the Datatype row taller by ~1 text line). */}
         <TextInput
           label="Name"
-          description="Shown as the column header in the records grid and as the default label on forms."
+          description="Used as the column header and default form label."
           value={name}
           onInput={wrap(setName)}
           icon="ti ti-typography"

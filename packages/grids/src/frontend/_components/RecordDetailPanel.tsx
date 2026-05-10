@@ -108,7 +108,7 @@ export default function RecordDetailPanel(props: Props) {
     // "large"; large gives the form noticeable breathing room.
     const result = await prompts.form({
       title: "Edit record",
-      icon: "ti ti-edit",
+      icon: "ti ti-pencil",
       fields: formFields,
       confirmText: "Save",
       size: "large",

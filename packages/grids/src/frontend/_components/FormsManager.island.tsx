@@ -144,10 +144,10 @@ export default function FormsManager(props: Props) {
         <ul class="flex flex-col gap-2">
           <For each={forms()}>
             {(form) => (
-              <li class="paper">
+              <li class="group paper hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
                 <button
                   type="button"
-                  class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40 rounded-lg"
+                  class="flex w-full items-center gap-2 px-3 py-2 text-left rounded-lg"
                   onClick={() => openFormEditor(form)}
                   aria-label={`Edit form ${form.name}`}
                 >
@@ -164,7 +164,7 @@ export default function FormsManager(props: Props) {
                     </span>
                     <span class="text-[10px] text-dimmed">· {form.publicToken ? "public" : "private"}</span>
                   </span>
-                  <i class="ti ti-edit text-sm text-dimmed" />
+                  <i class="ti ti-pencil text-sm text-dimmed group-hover:text-blue-500 transition-colors" />
                 </button>
               </li>
             )}
