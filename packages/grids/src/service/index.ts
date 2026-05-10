@@ -11,7 +11,7 @@ import * as exporter from "./export";
 import * as maintenance from "./maintenance";
 import * as relationsModule from "./relations";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
-import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast } from "./permission-resolver";
+import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast, hasGrantsForResource } from "./permission-resolver";
 
 export const gridsService = {
   base: {
@@ -69,6 +69,7 @@ export const gridsService = {
     resolve: resolveEffectivePermission,
     loadGrants: loadGrantsForUser,
     hasAtLeast,
+    hasGrantsForResource,
   },
   fieldDependents: {
     get: getFieldDependents,

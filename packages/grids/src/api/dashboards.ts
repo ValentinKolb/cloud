@@ -8,8 +8,9 @@ import {
   CreateDashboardSchema,
   UpdateDashboardSchema,
 } from "../contracts";
+import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
-import { gateAt } from "./permissions";
+import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
 
 // =============================================================================
 // /api/grids/dashboards
@@ -105,13 +106,26 @@ const app = new Hono<AuthContext>()
       const dashboardId = c.req.param("dashboardId");
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
-      const gate = await gateAt(c, { baseId: dashboard.baseId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      // Personal dashboards: only the owner can read directly. Explicit
-      // dashboard_access grants are surfaced via listForBase, not GET-by-id
-      // (matches view behaviour — kept consistent intentionally).
+
+      // Gate at the dashboard scope (most specific). The Wave 2.1
+      // resolver honours dashboard-level deny grants. Failures land as
+      // 404 rather than 403 to avoid leaking the resource's existence.
       const user = c.get("user");
-      if (dashboard.ownerUserId !== null && dashboard.ownerUserId !== user.id) {
+      const { level, grants } = await resolveWithGrants(c, {
+        baseId: dashboard.baseId,
+        dashboardId: dashboard.id,
+      });
+      if (!gridsService.permission.hasAtLeast(level, "read")) {
+        return c.json({ message: "Dashboard not found" }, 404);
+      }
+
+      // Personal dashboards: visible to the owner OR via an explicit
+      // dashboard-level grant. Inherited base-read alone does NOT make
+      // a personal dashboard visible to a non-owner.
+      const isAdmin = hasRole(user, "admin");
+      const isOwner = dashboard.ownerUserId === user.id;
+      const explicitGrant = hasExplicitGrant(grants, isAdmin, "dashboard", dashboard.id);
+      if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) {
         return c.json({ message: "Dashboard not found" }, 404);
       }
       return c.json(dashboard);

@@ -111,6 +111,21 @@ export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarge
 export const hasAtLeast = (level: PermissionLevel, required: PermissionLevel): boolean =>
   LEVEL_RANK[level] >= LEVEL_RANK[required];
 
+/**
+ * Returns true when `grants` has any entry for the (resourceType,
+ * resourceId) pair. Lets API direct-GET handlers distinguish "explicit
+ * grant on this resource" from "inherited from parent" — useful for
+ * personal-resource visibility (a personal view is visible to a
+ * non-owner only via an explicit view-level grant; inherited table
+ * access is not enough).
+ */
+export const hasGrantsForResource = (
+  grants: Grant[],
+  resourceType: ResourceType,
+  resourceId: string,
+): boolean =>
+  grants.some((g) => g.resourceType === resourceType && g.resourceId === resourceId);
+
 // ──────────────────────────────────────────────────────────────────
 // DB-fetching half
 // ──────────────────────────────────────────────────────────────────

@@ -8,8 +8,9 @@ import {
   CreateViewSchema,
   UpdateViewSchema,
 } from "../contracts";
+import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
-import { gateAt } from "./permissions";
+import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -95,11 +96,28 @@ const app = new Hono<AuthContext>()
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId: view.tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      // Personal views: only the owner can read
+
+      // Gate at the view scope (most specific). The Wave 2.1 resolver
+      // honours view-level deny grants here. We translate gate failure
+      // to 404 instead of 403 so the deny semantics don't leak the
+      // resource's existence — same policy listings already use.
       const user = c.get("user");
-      if (view.ownerUserId !== null && view.ownerUserId !== user.id) {
+      const { level, grants } = await resolveWithGrants(c, {
+        baseId: table.baseId,
+        tableId: view.tableId,
+        viewId: view.id,
+      });
+      if (!gridsService.permission.hasAtLeast(level, "read")) {
+        return c.json({ message: "View not found" }, 404);
+      }
+
+      // Personal views: visible to the owner OR via an explicit view-
+      // level grant. Inherited table-read alone does NOT make a personal
+      // view visible to a non-owner.
+      const isAdmin = hasRole(user, "admin");
+      const isOwner = view.ownerUserId === user.id;
+      const explicitGrant = hasExplicitGrant(grants, isAdmin, "view", view.id);
+      if (view.ownerUserId !== null && !isOwner && !explicitGrant) {
         return c.json({ message: "View not found" }, 404);
       }
       return c.json(view);
