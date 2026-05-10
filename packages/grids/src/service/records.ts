@@ -81,6 +81,49 @@ const splitRelationsFromData = (
 };
 
 /**
+ * Pre-flight relation-target existence, batched per targetTableId. The
+ * naive shape (one validateRelationTargets call per relation field)
+ * makes N round-trips when N fields point at the same target table; the
+ * batched shape collapses to one call per distinct target table. The FK
+ * inside the write transaction is the actual safety net — this just
+ * gives a clean 400 with a useful "missing target records" message
+ * instead of letting a 23503 leak through.
+ */
+const preflightRelationTargets = async (
+  relations: Map<string, string[]>, // fieldId -> toIds
+  fieldsById: Map<string, Field>,
+): Promise<Result<void>> => {
+  // Group all (fieldId, toIds) by their relation field's targetTableId.
+  // Track which fields contributed to each group so we can attribute
+  // missing-target errors back to the right field name in the message.
+  const groups = new Map<string, { ids: Set<string>; fieldNames: string[] }>();
+  for (const [fieldId, toIds] of relations) {
+    const f = fieldsById.get(fieldId);
+    const targetTableId = (f?.config as { targetTableId?: string } | undefined)?.targetTableId;
+    if (!targetTableId) continue;
+    const g = groups.get(targetTableId) ?? { ids: new Set<string>(), fieldNames: [] };
+    for (const id of toIds) g.ids.add(id);
+    if (toIds.length > 0 && f) g.fieldNames.push(f.name);
+    groups.set(targetTableId, g);
+  }
+
+  for (const [targetTableId, group] of groups) {
+    const ids = [...group.ids];
+    if (ids.length === 0) continue;
+    const check = await validateRelationTargets(targetTableId, ids);
+    if (!check.ok) {
+      const fieldNamePart = group.fieldNames.length === 1
+        ? `field "${group.fieldNames[0]}"`
+        : `fields [${group.fieldNames.map((n) => `"${n}"`).join(", ")}]`;
+      return fail(err.badInput(
+        `${fieldNamePart}: missing target records ${check.missing.join(", ")}`,
+      ));
+    }
+  }
+  return ok();
+};
+
+/**
  * Create-path validation: every user-writable field is materialized using
  * either the provided value or the field's default. Required-checks apply.
  * Autonumber fields receive a sequence value derived from the existing rows.
@@ -412,57 +455,61 @@ export const create = async (
   const split = splitRelationsFromData(validated.data, fields);
 
   // Pre-flight: every relation-target must exist in the configured
-  // target table. Without this we'd write the records row, then the
-  // record_links INSERT would fail on FK and leave an orphan record.
+  // target table. Batched per target table so 50 relation fields pointing
+  // at <5 distinct tables make 5 round-trips, not 50. This sits OUTSIDE
+  // the transaction; the inner FK is the actual safety net — the
+  // preflight just gives a friendlier "missing target" 400 instead of
+  // the FK failure message.
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  for (const [fieldId, toIds] of split.relations) {
-    const f = fieldsById.get(fieldId);
-    const targetTableId = (f?.config as { targetTableId?: string } | undefined)?.targetTableId;
-    if (!targetTableId) continue; // Slice 1 allows incomplete relation config; nothing to validate against
-    const check = await validateRelationTargets(targetTableId, toIds);
-    if (!check.ok) {
-      return fail(err.badInput(
-        `field "${f?.name}": missing target records ${check.missing.join(", ")}`,
-      ));
-    }
-  }
+  const preflight = await preflightRelationTargets(split.relations, fieldsById);
+  if (!preflight.ok) return preflight;
 
+  // ATOMIC: record-row INSERT + per-field record_links writes + audit
+  // run in one transaction. A FK race (target deleted between preflight
+  // and link write) or a transient DB hiccup either commits the whole
+  // record or none of it — no orphan records, no half-written links.
   const id = Bun.randomUUIDv7();
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
-    VALUES (
-      ${id}::uuid,
-      ${tableId}::uuid,
-      ${split.data}::jsonb,
-      1,
-      ${actorId}::uuid,
-      ${actorId}::uuid
-    )
-    RETURNING *
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await sql.begin(async (tx) => {
+    const [r] = await tx<DbRow[]>`
+      INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
+      VALUES (
+        ${id}::uuid,
+        ${tableId}::uuid,
+        ${split.data}::jsonb,
+        1,
+        ${actorId}::uuid,
+        ${actorId}::uuid
+      )
+      RETURNING *
+    `;
+    if (!r) throw new Error("insert returned no row");
 
-  // Write each relation field's link list. Empty list = no links (the
-  // helper does nothing in that case but the round-trip is preserved
-  // for diff/audit consistency).
-  for (const [fieldId, toIds] of split.relations) {
-    await writeRecordLinks(id, fieldId, toIds);
-  }
+    // Write each relation field's link list. Empty list = no links (the
+    // helper does nothing in that case but the round-trip is preserved
+    // for diff/audit consistency).
+    for (const [fieldId, toIds] of split.relations) {
+      await writeRecordLinks(id, fieldId, toIds, tx);
+    }
+
+    await logAudit(
+      {
+        tableId,
+        recordId: id,
+        userId: actorId,
+        action: "created",
+        diff: Object.fromEntries(
+          Object.entries(validated.data).map(([k, v]) => [k, { old: null, new: v }]),
+        ),
+      },
+      tx,
+    );
+    return r;
+  });
 
   const record = mapRow(row);
   // Hydrate so the returned record carries the relation arrays the
   // caller just sent — keeps the API contract stable.
   await hydrateRelationsFromLinks([record], fields);
-
-  await logAudit({
-    tableId,
-    recordId: record.id,
-    userId: actorId,
-    action: "created",
-    diff: Object.fromEntries(
-      Object.entries(validated.data).map(([k, v]) => [k, { old: null, new: v }]),
-    ),
-  });
   return ok(record);
 };
 
@@ -486,18 +533,10 @@ export const update = async (
   const split = splitRelationsFromData(validated.data, fields);
 
   // Pre-flight relation-target existence check (same reasoning as create).
+  // Batched per target table; runs outside the write transaction.
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  for (const [fieldId, toIds] of split.relations) {
-    const f = fieldsById.get(fieldId);
-    const targetTableId = (f?.config as { targetTableId?: string } | undefined)?.targetTableId;
-    if (!targetTableId) continue;
-    const check = await validateRelationTargets(targetTableId, toIds);
-    if (!check.ok) {
-      return fail(err.badInput(
-        `field "${f?.name}": missing target records ${check.missing.join(", ")}`,
-      ));
-    }
-  }
+  const preflight = await preflightRelationTargets(split.relations, fieldsById);
+  if (!preflight.ok) return preflight;
 
   // Merge: existing JSONB data + only the validated NON-RELATION fields.
   // Relations are managed exclusively via record_links — they MUST NOT
@@ -517,29 +556,7 @@ export const update = async (
     if (v === null) delete merged[k];
   }
 
-  const [row] = await sql<DbRow[]>`
-    UPDATE grids.records
-    SET data = ${merged}::jsonb,
-        version = version + 1,
-        updated_by = ${actorId}::uuid,
-        updated_at = now()
-    WHERE id = ${recordId}::uuid
-      AND table_id = ${tableId}::uuid
-      AND deleted_at IS NULL
-      AND version = ${existing.version}
-    RETURNING *
-  `;
-  if (!row) return fail(err.conflict("Record was modified concurrently"));
-
-  // Apply the relation diffs AFTER the version bump succeeded, so a
-  // concurrent-modify error doesn't leave links in an inconsistent state.
-  for (const [fieldId, toIds] of split.relations) {
-    await writeRecordLinks(recordId, fieldId, toIds);
-  }
-
-  const record = mapRow(row);
-  await hydrateRelationsFromLinks([record], fields);
-
+  // Build the diff up front so we can pass it into the transaction.
   const diff: Record<string, { old: unknown; new: unknown }> = {};
   for (const key of Object.keys(validated.data)) {
     const oldVal = existing.data[key] ?? null;
@@ -548,9 +565,48 @@ export const update = async (
       diff[key] = { old: oldVal, new: newVal };
     }
   }
-  if (Object.keys(diff).length > 0) {
-    await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff });
-  }
+
+  // ATOMIC: row UPDATE + relation link writes + audit in one transaction.
+  // The version-check WHERE clause still gives us the optimistic-lock
+  // semantics; if it fires, no link writes happen.
+  const txResult = await sql.begin(async (tx) => {
+    const [r] = await tx<DbRow[]>`
+      UPDATE grids.records
+      SET data = ${merged}::jsonb,
+          version = version + 1,
+          updated_by = ${actorId}::uuid,
+          updated_at = now()
+      WHERE id = ${recordId}::uuid
+        AND table_id = ${tableId}::uuid
+        AND deleted_at IS NULL
+        AND version = ${existing.version}
+      RETURNING *
+    `;
+    if (!r) {
+      // Trigger rollback by throwing a sentinel; caller catches it and
+      // converts to err.conflict. (`fail(...)` from inside a tx would
+      // commit because bun.sql treats only thrown errors as rollback.)
+      const e = new Error("VERSION_CONFLICT");
+      (e as Error & { __versionConflict: true }).__versionConflict = true;
+      throw e;
+    }
+
+    for (const [fieldId, toIds] of split.relations) {
+      await writeRecordLinks(recordId, fieldId, toIds, tx);
+    }
+
+    if (Object.keys(diff).length > 0) {
+      await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, tx);
+    }
+    return r;
+  }).catch((e: unknown) => {
+    if ((e as { __versionConflict?: true })?.__versionConflict) return null;
+    throw e;
+  });
+  if (!txResult) return fail(err.conflict("Record was modified concurrently"));
+
+  const record = mapRow(txResult);
+  await hydrateRelationsFromLinks([record], fields);
   return ok(record);
 };
 

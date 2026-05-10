@@ -108,6 +108,12 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
   // Auto-grant admin to the creator so they can immediately use the new base.
   // Without this, no ACL row exists and the resolver returns "none" — the
   // creator would lock themselves out at the moment of creation.
+  //
+  // grantAccess reaches into cloud/services/accounts (auth.access table)
+  // so threading a transaction across both apps is a bigger refactor;
+  // instead, on failure we rollback the just-created base manually.
+  // Imperfect (the cleanup DELETE could itself fail) but strictly better
+  // than today's behaviour of leaving the orphan and returning fail.
   if (actorId) {
     const granted = await grantAccess({
       resourceType: "base",
@@ -115,7 +121,12 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
       principal: { type: "user", userId: actorId },
       permission: "admin",
     });
-    if (!granted.ok) return fail(granted.error);
+    if (!granted.ok) {
+      // Hard delete (not soft) — there's no audit value in keeping a
+      // base that was never visible to anyone.
+      await sql`DELETE FROM grids.bases WHERE id = ${base.id}::uuid`.catch(() => {});
+      return fail(granted.error);
+    }
   }
 
   await logAudit({ baseId: base.id, userId: actorId, action: "created" });

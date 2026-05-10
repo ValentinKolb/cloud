@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
+import type { SqlClient } from "./audit";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { evaluate, renderResult } from "../formula/evaluator";
 import { formulaError } from "../formula/types";
@@ -62,26 +63,41 @@ export const writeRecordLinks = async (
   fromRecordId: string,
   fromFieldId: string,
   toRecordIds: string[],
+  client?: SqlClient,
 ): Promise<void> => {
-  await sql.begin(async (tx) => {
-    await tx`
-      DELETE FROM grids.record_links
-      WHERE from_record_id = ${fromRecordId}::uuid
-        AND from_field_id = ${fromFieldId}::uuid
-    `;
-    if (toRecordIds.length === 0) return;
-    // Build a single VALUES tuple list so the INSERT runs in one round-trip.
-    // Position preserves the user-ordered cardinality:multiple semantic.
-    const values = toRecordIds
-      .map((id, i) => tx`(${fromRecordId}::uuid, ${fromFieldId}::uuid, ${id}::uuid, ${i})`)
-      .reduce((acc, cur) => tx`${acc}, ${cur}`);
-    await tx`
-      INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
-      VALUES ${values}
-      ON CONFLICT (from_record_id, from_field_id, to_record_id) DO UPDATE
-        SET position = EXCLUDED.position
-    `;
-  });
+  // When a tx client is supplied, run inside the caller's transaction so
+  // record-row + link writes are atomic. When called bare (no tx), open
+  // our own transaction so DELETE+INSERT remain atomic for that pair.
+  if (client) {
+    await runInClient(client, fromRecordId, fromFieldId, toRecordIds);
+    return;
+  }
+  await sql.begin((tx) => runInClient(tx, fromRecordId, fromFieldId, toRecordIds));
+};
+
+const runInClient = async (
+  client: SqlClient,
+  fromRecordId: string,
+  fromFieldId: string,
+  toRecordIds: string[],
+): Promise<void> => {
+  await client`
+    DELETE FROM grids.record_links
+    WHERE from_record_id = ${fromRecordId}::uuid
+      AND from_field_id = ${fromFieldId}::uuid
+  `;
+  if (toRecordIds.length === 0) return;
+  // Build a single VALUES tuple list so the INSERT runs in one round-trip.
+  // Position preserves the user-ordered cardinality:multiple semantic.
+  const values = toRecordIds
+    .map((id, i) => client`(${fromRecordId}::uuid, ${fromFieldId}::uuid, ${id}::uuid, ${i})`)
+    .reduce((acc, cur) => client`${acc}, ${cur}`);
+  await client`
+    INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
+    VALUES ${values}
+    ON CONFLICT (from_record_id, from_field_id, to_record_id) DO UPDATE
+      SET position = EXCLUDED.position
+  `;
 };
 
 /**

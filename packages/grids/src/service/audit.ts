@@ -4,6 +4,16 @@ import type { AuditAction, AuditEntry } from "./types";
 
 type DbRow = Record<string, unknown>;
 
+/**
+ * Bun.sql exposes both `sql` (pool-backed) and `tx` (transaction-backed,
+ * yielded inside `sql.begin(async (tx) => ...)`) with the same tagged-
+ * template call signature. We type both as `typeof sql` so transactional
+ * callers can pass their `tx` without a cast. Some bun-internal methods
+ * differ between the two (e.g. nested `.begin`), but every call we make
+ * here is the bare tagged-template form — assignment-compatible.
+ */
+export type SqlClient = typeof sql;
+
 const mapRow = (row: DbRow): AuditEntry => ({
   id: row.id as string,
   baseId: (row.base_id as string | null) ?? null,
@@ -28,8 +38,18 @@ export type LogAuditInput = {
   userAgent?: string | null;
 };
 
-export const logAudit = async (input: LogAuditInput): Promise<void> => {
-  await sql`
+/**
+ * Inserts one audit row. Required (not best-effort) — callers wrap this
+ * inside their record/field write transaction so that a failed audit
+ * insert rolls back the data write. Pass the transaction's `tx` as
+ * `client` to participate; otherwise falls back to the pool (logging
+ * outside any transaction).
+ */
+export const logAudit = async (
+  input: LogAuditInput,
+  client: SqlClient = sql,
+): Promise<void> => {
+  await client`
     INSERT INTO grids.audit_log (base_id, table_id, record_id, user_id, action, diff, ip, user_agent)
     VALUES (
       ${input.baseId ?? null}::uuid,
