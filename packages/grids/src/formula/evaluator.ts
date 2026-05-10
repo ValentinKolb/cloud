@@ -241,6 +241,26 @@ export const evaluate = (ast: Expr, ctx: EvalContext): unknown => {
         if (isFormulaError(cond)) return cond;
         return evaluate(ast.args[truthy(cond) ? 1 : 2]!, ctx);
       }
+      // AND / OR also short-circuit, mirroring the `&&` and `||`
+      // operators. Without this, AND(FALSE, 1/0) returned #DIV_ZERO
+      // even though the first arg is false (chunk 6 important — two
+      // boolean models in the same engine).
+      if (ast.fn === "AND") {
+        for (const a of ast.args) {
+          const v = evaluate(a, ctx);
+          if (isFormulaError(v)) return v;
+          if (!truthy(v)) return false;
+        }
+        return true;
+      }
+      if (ast.fn === "OR") {
+        for (const a of ast.args) {
+          const v = evaluate(a, ctx);
+          if (isFormulaError(v)) return v;
+          if (truthy(v)) return true;
+        }
+        return false;
+      }
       const fn = FN_LIBRARY[ast.fn];
       if (!fn) return formulaError(`UNKNOWN_FN:${ast.fn}`);
       const args: unknown[] = [];

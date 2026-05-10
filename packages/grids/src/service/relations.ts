@@ -205,28 +205,38 @@ const orderFormulasByDeps = (
   const idSet = new Set(compiled.map((c) => c.field.id));
   const byId = new Map(compiled.map((c) => [c.field.id, c]));
 
-  // DFS-based topological sort with cycle detection.
+  // DFS-based topological sort with cycle detection. Tracks the active
+  // stack as an ordered array (not just a Set) so that when we re-enter
+  // a node we can mark every member from that re-entry point onward —
+  // not just the re-entered node and the immediate unwinder. Previously
+  // a cycle A→B→C→A only marked {A, C} (B silently rendered as the
+  // last-iteration value, chunk 6 critical).
   const ordered: typeof compiled = [];
   const visited = new Set<string>();
-  const inStack = new Set<string>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
   const cycle = new Set<string>();
 
-  const visit = (id: string): boolean => {
-    if (visited.has(id)) return true;
-    if (inStack.has(id)) {
-      cycle.add(id);
-      return false;
+  const visit = (id: string): void => {
+    if (visited.has(id)) return;
+    if (onStack.has(id)) {
+      // Found a back-edge. Mark every stack frame from the first
+      // occurrence of `id` onward — these are the cycle members.
+      const startIdx = stack.indexOf(id);
+      for (let i = startIdx; i < stack.length; i++) cycle.add(stack[i]!);
+      return;
     }
     const node = byId.get(id);
-    if (!node) return true;
-    inStack.add(id);
+    if (!node) return;
+    stack.push(id);
+    onStack.add(id);
     for (const ref of node.refs) {
-      if (idSet.has(ref) && !visit(ref)) cycle.add(id);
+      if (idSet.has(ref)) visit(ref);
     }
-    inStack.delete(id);
+    stack.pop();
+    onStack.delete(id);
     visited.add(id);
     ordered.push(node);
-    return true;
   };
   for (const c of compiled) visit(c.field.id);
 
@@ -255,15 +265,32 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
   const { ordered, cycle } = orderFormulasByDeps(formulaFields, slugToId);
 
   for (const rec of records) {
-    // Mark cycle members first so dependents see the error sentinel
-    // instead of the previous-iteration's value.
+    // Two-pass evaluation. Previously we wrote the RENDERED display
+    // string into rec.data[fid] after each formula, so a downstream
+    // formula referencing the errored one saw "#DIV_ZERO" as a plain
+    // string and either nulled or concatenated it (chunk 6 critical).
+    //
+    // Now: build a scratch lookup that overlays raw evaluator results
+    // (FormulaError sentinels included) on top of rec.data. The
+    // evaluator still gets a plain Record<string, unknown>; isFormulaError
+    // checks in downstream formulas now hit the raw error. Render to
+    // display strings only after every formula has been evaluated.
+    const scratch: Record<string, unknown> = { ...rec.data };
     for (const id of cycle) {
-      rec.data[id] = renderResult(formulaError("CYCLE"));
+      scratch[id] = formulaError("CYCLE");
     }
     for (const { field, ast } of ordered) {
       if (cycle.has(field.id)) continue;
-      const value = evaluate(ast, { fields: rec.data, slugToId });
-      rec.data[field.id] = renderResult(value);
+      const value = evaluate(ast, { fields: scratch, slugToId });
+      scratch[field.id] = value;
+    }
+    // Render once at the end — every formula's display string is now
+    // computed against the final raw values, errors propagated honestly.
+    for (const { field } of ordered) {
+      rec.data[field.id] = renderResult(scratch[field.id]);
+    }
+    for (const id of cycle) {
+      rec.data[id] = renderResult(scratch[id]);
     }
   }
   return records;

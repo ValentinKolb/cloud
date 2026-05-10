@@ -31,11 +31,29 @@ const tokenize = (src: string): Token[] => {
       i++;
       continue;
     }
-    // numbers
+    // numbers — strict decimal grammar `\d+(\.\d+)?`. Previous lazy
+    // consumer (run of digits and dots) accepted "1..2" and produced
+    // Number("1..2") = NaN, which then renderResult happily passed
+    // through as a numeric value (chunk 6 important). The strict
+    // shape rejects malformed inputs at parse time. parseFormula's
+    // outer try/catch turns these throws into clean ParseResult.fail.
     if (c >= "0" && c <= "9") {
       let j = i + 1;
-      while (j < n && ((src[j]! >= "0" && src[j]! <= "9") || src[j] === ".")) j++;
-      tokens.push({ kind: "num", value: Number(src.slice(i, j)) });
+      while (j < n && src[j]! >= "0" && src[j]! <= "9") j++;
+      if (j < n && src[j] === ".") {
+        // Decimal portion: at least one digit must follow the dot.
+        // Reject "1." or "1..2" — better error here than NaN at eval.
+        if (j + 1 >= n || src[j + 1]! < "0" || src[j + 1]! > "9") {
+          throw new Error(`invalid number literal at offset ${i}`);
+        }
+        j++;
+        while (j < n && src[j]! >= "0" && src[j]! <= "9") j++;
+      }
+      const num = Number(src.slice(i, j));
+      if (!Number.isFinite(num)) {
+        throw new Error(`invalid number literal at offset ${i}`);
+      }
+      tokens.push({ kind: "num", value: num });
       i = j;
       continue;
     }
