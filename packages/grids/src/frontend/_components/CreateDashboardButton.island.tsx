@@ -27,7 +27,7 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
     // After creation: open the editor. A fresh dashboard has no widgets,
     // so dropping the user on the viewer would just show the empty
     // state — the editor is the next-step destination.
-    onSuccess: (d) => navigateTo(`/app/grids/${props.baseShortId}/dashboards/${d.shortId}/edit`),
+    onSuccess: (d) => navigateTo(`/app/grids/${props.baseShortId}/dashboard/${d.shortId}/edit`),
     onError: (e) => prompts.error(e.message),
   });
 

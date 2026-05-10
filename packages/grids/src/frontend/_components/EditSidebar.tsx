@@ -154,7 +154,7 @@ export default function EditSidebar(props: Props) {
             <For each={props.tables}>
               {(t) => (
                 <a
-                  href={`/app/grids/${props.baseShortId}/tables/${t.shortId}/edit`}
+                  href={`/app/grids/${props.baseShortId}/table/${t.shortId}/edit`}
                   class={`sidebar-item ${isActiveTable(t.id) ? "sidebar-item-active" : ""}`}
                 >
                   <i class="ti ti-table text-sm shrink-0" />
@@ -173,7 +173,7 @@ export default function EditSidebar(props: Props) {
               <For each={allViews}>
                 {({ view, table: t }) => (
                   <a
-                    href={`/app/grids/${props.baseShortId}/tables/${t.shortId}/views/${view.shortId}/edit`}
+                    href={`/app/grids/${props.baseShortId}/table/${t.shortId}/view/${view.shortId}/edit`}
                     class={`sidebar-item ${isActiveView(view.id) ? "sidebar-item-active" : ""}`}
                   >
                     <i class="ti ti-table-spark text-sm shrink-0" />
@@ -190,7 +190,7 @@ export default function EditSidebar(props: Props) {
               <For each={sortedDashboards()}>
                 {(d) => (
                   <a
-                    href={`/app/grids/${props.baseShortId}/dashboards/${d.shortId}/edit`}
+                    href={`/app/grids/${props.baseShortId}/dashboard/${d.shortId}/edit`}
                     class={`sidebar-item ${isActiveDashboard(d.id) ? "sidebar-item-active" : ""}`}
                   >
                     <i class="ti ti-layout-dashboard text-sm shrink-0" />

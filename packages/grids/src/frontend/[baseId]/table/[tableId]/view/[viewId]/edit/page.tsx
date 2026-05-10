@@ -166,7 +166,7 @@ export default ssr<AuthContext>(async (c) => {
                 const isActive = v.id === viewId;
                 return (
                   <a
-                    href={`/app/grids/${baseShortId}/tables/${tableShortId}/views/${v.shortId}/edit`}
+                    href={`/app/grids/${baseShortId}/table/${tableShortId}/view/${v.shortId}/edit`}
                     class={`sidebar-item-mobile ${
                       isActive
                         ? "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
