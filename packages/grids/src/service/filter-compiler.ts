@@ -123,6 +123,15 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
     return { ok: false, error: `op "${tree.op}" not supported for type "${field.type}"` };
   }
 
+  // Per-op value-shape validation. Without this, the renderer was
+  // coercing whatever it got: Boolean("false") → true, Number("abc")
+  // → NaN, ${nonStringValue}::date → SQL cast crash on page load.
+  // (chunk 3 important.)
+  const valueErr = validatePredicateValue(field.type, tree.op, tree.value);
+  if (valueErr) {
+    return { ok: false, error: `field "${field.name}" / op "${tree.op}": ${valueErr}` };
+  }
+
   return {
     ok: true,
     clause: {
@@ -134,6 +143,78 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
       caseInsensitive: tree.caseInsensitive,
     },
   };
+};
+
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+
+const validatePredicateValue = (
+  fieldType: string,
+  op: string,
+  value: unknown,
+): string | null => {
+  // Empty-checks don't read the value.
+  if (op === "isEmpty" || op === "isNotEmpty") return null;
+  // Date placeholders are value-less.
+  if (op === "today" || op === "thisWeek" || op === "thisMonth") return null;
+
+  if (fieldType === "boolean") {
+    if (typeof value !== "boolean") return "expected boolean";
+    return null;
+  }
+  if (fieldType === "date") {
+    if (op === "lastNDays") {
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+        return "lastNDays expects a non-negative integer";
+      }
+      return null;
+    }
+    if (op === "between") {
+      if (!Array.isArray(value) || value.length !== 2) return "between expects [from, to]";
+      for (const v of value) {
+        if (typeof v !== "string" || !ISO_DATE_REGEX.test(v)) {
+          return "between bounds must be ISO date strings";
+        }
+      }
+      return null;
+    }
+    // =, before, after
+    if (typeof value !== "string" || !ISO_DATE_REGEX.test(value)) {
+      return "expected ISO date string";
+    }
+    return null;
+  }
+  if (fieldType === "number" || fieldType === "decimal" || fieldType === "rating" ||
+      fieldType === "autonumber" || fieldType === "percent" || fieldType === "duration") {
+    if (op === "between") {
+      if (!Array.isArray(value) || value.length !== 2) return "between expects [from, to]";
+      for (const v of value) {
+        if (typeof v !== "number" || !Number.isFinite(v)) return "between bounds must be finite numbers";
+      }
+      return null;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) return "expected finite number";
+    return null;
+  }
+  if (fieldType === "single-select") {
+    if (op === "isAnyOf" || op === "isNoneOf") {
+      if (!Array.isArray(value)) return "expected array of option ids";
+      for (const v of value) if (typeof v !== "string") return "option ids must be strings";
+      return null;
+    }
+    if (typeof value !== "string") return "expected option id";
+    return null;
+  }
+  if (fieldType === "multi-select") {
+    if (op === "containsAll" || op === "containsAny" || op === "doesNotContain") {
+      if (!Array.isArray(value)) return "expected array of option ids";
+      for (const v of value) if (typeof v !== "string") return "option ids must be strings";
+      return null;
+    }
+    return null;
+  }
+  // Text family: regex / contains / startsWith / endsWith / equals / etc
+  if (typeof value !== "string") return "expected string";
+  return null;
 };
 
 // ──────────────────────────────────────────────────────────────────

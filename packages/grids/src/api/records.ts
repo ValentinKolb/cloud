@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
@@ -12,8 +13,58 @@ import {
   AggregateResponseSchema,
   GroupBodySchema,
   GroupResponseSchema,
+  FilterTreeSchema,
+  SortSpecSchema,
 } from "../contracts";
 import { gateAt } from "./permissions";
+
+/**
+ * Query-param schema for `GET /records/by-table/:tableId/export`. Adds
+ * up-front validation so a malformed `filter` / `sort` / `fields` returns
+ * a clean 400 instead of being parsed deep inside the service layer
+ * (chunk 7 important). Format is restricted to csv|json; filter and
+ * sort go through the same FilterTreeSchema / SortSpecSchema as the
+ * unified query endpoint; fields is a comma-separated UUID list.
+ */
+const ExportQuerySchema = z.object({
+  format: z.enum(["csv", "json"]).optional().default("csv"),
+  filter: z
+    .string()
+    .optional()
+    .transform((s, ctx) => {
+      if (!s) return null;
+      try {
+        return JSON.parse(s) as unknown;
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "filter is not valid JSON" });
+        return z.NEVER;
+      }
+    })
+    .pipe(FilterTreeSchema.nullable()),
+  sort: z
+    .string()
+    .optional()
+    .transform((s, ctx) => {
+      if (!s) return [];
+      try {
+        const parsed = JSON.parse(s);
+        if (!Array.isArray(parsed)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sort must be a JSON array" });
+          return z.NEVER;
+        }
+        return parsed as unknown[];
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sort is not valid JSON" });
+        return z.NEVER;
+      }
+    })
+    .pipe(z.array(SortSpecSchema)),
+  fields: z
+    .string()
+    .optional()
+    .transform((s) => (s ? s.split(",").map((p) => p.trim()).filter(Boolean) : []))
+    .pipe(z.array(z.string().uuid())),
+});
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -154,6 +205,7 @@ const app = new Hono<AuthContext>()
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
       },
     }),
+    v("query", ExportQuerySchema),
     async (c) => {
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
@@ -161,32 +213,13 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const format = (c.req.query("format") ?? "csv").toLowerCase() === "json" ? "json" : "csv";
-      const rawFilter = c.req.query("filter");
-      const rawSort = c.req.query("sort");
-      let filter: any = null;
-      let sort: any[] = [];
-      try {
-        if (rawFilter) filter = JSON.parse(rawFilter);
-      } catch {
-        return c.json({ message: "Invalid filter JSON" }, 400);
-      }
-      try {
-        if (rawSort) {
-          const s = JSON.parse(rawSort);
-          if (Array.isArray(s)) sort = s;
-        }
-      } catch {
-        return c.json({ message: "Invalid sort JSON" }, 400);
-      }
-      const visibleFieldIds = c.req.query("fields")?.split(",").filter(Boolean);
-
+      const { format, filter, sort, fields } = c.req.valid("query");
       const result = await gridsService.exporter.exportRecords({
         tableId,
         format,
         filter,
         sort,
-        visibleFieldIds,
+        visibleFieldIds: fields.length > 0 ? fields : undefined,
       });
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
 

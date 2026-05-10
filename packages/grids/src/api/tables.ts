@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
@@ -266,10 +267,28 @@ const app = new Hono<AuthContext>()
       summary: "Search records of this table for the relation picker",
       responses: {
         200: jsonResponse(RelationLookupResponseSchema, "Lookup results"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid query"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Table not found"),
       },
     }),
+    // Validated query schema. Prior code parsed every param manually
+    // (limit=abc → NaN, excludeIds split into unchecked strings cast as
+    // uuid[] → 500 instead of 400). Zod coerces / validates up front so
+    // bad inputs surface as clean 400s.
+    v(
+      "query",
+      z.object({
+        q: z.string().optional().default(""),
+        limit: z.coerce.number().int().min(1).max(50).optional().default(10),
+        excludeIds: z
+          .string()
+          .optional()
+          .default("")
+          .transform((s) => s.split(",").map((p) => p.trim()).filter(Boolean))
+          .pipe(z.array(z.string().uuid())),
+      }),
+    ),
     async (c) => {
       const tableId = c.req.param("tableId");
       const table = await gridsService.table.get(tableId);
@@ -277,14 +296,7 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const q = c.req.query("q") ?? "";
-      const limitRaw = c.req.query("limit");
-      const limit = limitRaw ? Math.min(50, Math.max(1, parseInt(limitRaw, 10))) : 10;
-      const excludeRaw = c.req.query("excludeIds") ?? "";
-      const excludeIds = excludeRaw
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+      const { q, limit, excludeIds } = c.req.valid("query");
 
       const result = await gridsService.relations.lookup({
         targetTableId: tableId,

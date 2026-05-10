@@ -41,21 +41,19 @@ describe("parseJsonbRow", () => {
     expect(parseJsonbRow<string>('"hello"', "")).toBe("hello");
   });
 
-  test("JSON literals true / false / null are parsed", () => {
-    expect(parseJsonbRow<boolean>("true", false)).toBe(true);
-    expect(parseJsonbRow<boolean>("false", true)).toBe(false);
-    // `null` parses to JS null, but the helper has its own null-check first;
-    // a string "null" hits the JSON path.
-    expect(parseJsonbRow<unknown>("null", "fallback")).toBeNull();
-  });
-
-  test("JSON-encoded number string parses to number", () => {
-    expect(parseJsonbRow<number>("42", 0)).toBe(42);
-    expect(parseJsonbRow<number>("-3.14", 0)).toBe(-3.14);
-    // ".5" leads with a dot — looksLikeJson says yes, but JSON.parse
-    // rejects (spec requires a digit before the dot). The helper's
-    // try/catch catches that and returns the original string unchanged.
-    expect(parseJsonbRow<unknown>(".5", null)).toBe(".5");
+  test('bare-literal strings ("42", "true", "null") pass through as strings', () => {
+    // Chunk 3 review: previous behaviour parsed these as numbers/
+    // booleans/null. That corrupts JSONB string scalars whose value
+    // happens to be the text of a number/boolean. Document-shaped
+    // call sites (record.data, *.config, audit.diff) never hold bare
+    // literals at the top level, so the narrower "document only"
+    // trigger is safe and removes the type-coercion footgun.
+    expect(parseJsonbRow<string>("42", "")).toBe("42");
+    expect(parseJsonbRow<string>("-3.14", "")).toBe("-3.14");
+    expect(parseJsonbRow<string>("true", "")).toBe("true");
+    expect(parseJsonbRow<string>("false", "")).toBe("false");
+    expect(parseJsonbRow<string>("null", "")).toBe("null");
+    expect(parseJsonbRow<string>(".5", "")).toBe(".5");
   });
 
   test("plain scalar string (already-parsed JSONB scalar) passes through", () => {
@@ -65,13 +63,14 @@ describe("parseJsonbRow", () => {
     expect(parseJsonbRow<string>("hello", "")).toBe("hello");
   });
 
-  test("looks-like-JSON but invalid → falls back to the original string", () => {
-    // Starts with `{` → looksLikeJson true, but JSON.parse fails. The
-    // helper returns the original (no throw, no data loss).
-    expect(parseJsonbRow<string>("{not json", "fallback")).toBe("{not json");
+  test("looks-like-JSON-document but invalid → falls back", () => {
+    // Starts with `{` → looksLikeJsonDocument true, but JSON.parse
+    // fails. Document-shaped consumers expect an object/array; a
+    // half-parsed string would be a worse surprise than the fallback.
+    expect(parseJsonbRow<{ x: number }>("{not json", { x: 0 })).toEqual({ x: 0 });
   });
 
-  test("empty string passes through (looksLikeJson is false on empty)", () => {
+  test("empty string passes through", () => {
     expect(parseJsonbRow<string>("", "fb")).toBe("");
   });
 
