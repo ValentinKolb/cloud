@@ -203,6 +203,7 @@ export default ssr<AuthContext>(async (c) => {
             baseShortId={baseShortId}
             tableShortId={tableShortId}
             viewShortId={viewShortId}
+            tableName={table.name}
             initialView={view}
             fields={fields}
             initialAccessEntries={accessEntries}

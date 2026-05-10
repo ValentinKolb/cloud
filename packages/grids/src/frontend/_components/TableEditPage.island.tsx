@@ -7,12 +7,8 @@ import {
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import {
-  type DndBuildIntentContext,
-  dnd,
-  mutation as mutations,
-} from "@valentinkolb/stdlib/solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form, Table } from "../../service";
 import { errorMessage } from "./api-helpers";
@@ -55,10 +51,6 @@ type Props = {
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
 };
-
-type DragMeta = { fieldId: string };
-type DropMeta = { kind: "field"; index: number };
-type DropIntent = { insertIndex: number };
 
 /**
  * Full-screen table editor. Three sections stacked top-to-bottom:
@@ -124,16 +116,13 @@ export default function TableEditPage(props: Props) {
   };
 
   // -------------------------------------------------------------------
-  // Fields section — reorderable cards with expand/collapse
+  // Fields section — reorderable cards, edit on click
   // -------------------------------------------------------------------
   const [fields, setFields] = createSignal<Field[]>(
     [...props.initialFields].sort((a, b) => a.position - b.position)
   );
   const [expandedId, setExpandedId] = createSignal<string | null>(null);
 
-  // -------------------------------------------------------------------
-  // DnD: single list, item-on-item drop targets compute insert index.
-  // -------------------------------------------------------------------
   const reorderMut = mutations.create<void, string[]>({
     mutation: async (fieldIds) => {
       const res = await apiClient.fields["by-table"][":tableId"].reorder.$post({
@@ -146,61 +135,25 @@ export default function TableEditPage(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const buildIntent = (
-    ctx: DndBuildIntentContext<DragMeta, DropMeta, DropIntent>
-  ): DropIntent | null => {
-    if (!ctx.over) return null;
-    // Pointer below midpoint of the over-card → insert AFTER it.
-    const insertIndex =
-      ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2
-        ? ctx.over.meta.index
-        : ctx.over.meta.index + 1;
-    return { insertIndex };
-  };
-
-  const fieldDnd = dnd.create<DragMeta, DropMeta, DropIntent>({
-    buildIntent,
-    onDrop: ({ active, intent }) => {
-      if (!intent) return;
-      const list = fields();
-      const sourceIdx = list.findIndex((f) => f.id === active.meta.fieldId);
-      if (sourceIdx < 0) return;
-      // Adjust insert index when moving down within the same list.
-      let target = intent.insertIndex;
-      if (sourceIdx < target) target -= 1;
-      if (target === sourceIdx) return;
-
-      const next = [...list];
-      const [moved] = next.splice(sourceIdx, 1);
-      next.splice(target, 0, moved!);
-      setFields(next);
-      reorderMut.mutate(next.map((f) => f.id));
-    },
-  });
-
-  onCleanup(() => fieldDnd.destroy());
-
-  // True when an indicator should appear BEFORE the `index`-th card. We
-  // suppress no-op positions (right before / right after the dragged
-  // card itself) so the user only sees the indicator at meaningful
-  // landing slots. The active drag id is `drag:field:<fieldId>`; we
-  // parse it back out to locate the source row.
-  const sourceIndex = () => {
-    const id = fieldDnd.activeId();
-    if (!id) return -1;
-    const fid = id.startsWith("drag:field:")
-      ? id.slice("drag:field:".length)
-      : null;
-    return fid ? fields().findIndex((f) => f.id === fid) : -1;
-  };
-
-  const isDropIndicatorVisible = (index: number) => {
-    if (!fieldDnd.isDragging()) return false;
-    const intent = fieldDnd.intent();
-    if (!intent || intent.insertIndex !== index) return false;
-    const src = sourceIndex();
-    if (src < 0) return true;
-    return src !== index && src !== index - 1;
+  /**
+   * Move a field one slot up (-1) or down (+1) and persist the new order.
+   *
+   * Replaces the previous DnD reorder: the drag-handle hitbox was small
+   * (the grip icon area), poorly discoverable, and finicky on
+   * trackpads / touch. Arrow buttons are KISS — always discoverable,
+   * accessible by default, work on every input device. Same wire-shape
+   * (POST /fields/by-table/:t/reorder with the full id list), only the
+   * trigger changes. Mirrors the existing FormsManager pattern so the
+   * two reorder surfaces feel the same.
+   */
+  const moveField = (index: number, direction: -1 | 1) => {
+    if (reorderMut.loading()) return;
+    const next = [...fields()];
+    const target = index + direction;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    setFields(next);
+    reorderMut.mutate(next.map((f) => f.id));
   };
 
   // -------------------------------------------------------------------
@@ -373,7 +326,7 @@ export default function TableEditPage(props: Props) {
 
       <SectionCard
         title="Fields"
-        subtitle="Drag to reorder. Click a field to edit its details."
+        subtitle="Use the arrows to reorder. Click a field to edit its details."
         meta={`${fields().length} field${fields().length === 1 ? "" : "s"}`}
       >
         <Show
@@ -387,102 +340,89 @@ export default function TableEditPage(props: Props) {
           <ul class="flex flex-col gap-2">
             <For each={fields()}>
               {(field, index) => {
-                const dragId = `drag:field:${field.id}`;
-                const dropId = `drop:field:${field.id}`;
-                const isDragging = () => fieldDnd.activeId() === dragId;
                 const isExpanded = () => expandedId() === field.id;
+                const total = () => fields().length;
                 return (
-                  <>
-                    {/* Drop indicator BEFORE this card. Only visible when
-                        the drag's intent points to this slot AND landing
-                        here wouldn't be a no-op. */}
-                    <Show when={isDropIndicatorVisible(index())}>
-                      <div class="relative h-2">
-                        <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-md bg-blue-500/80 dark:bg-blue-400/80" />
-                      </div>
-                    </Show>
-                    <li
-                      ref={(el) => {
-                        fieldDnd.draggable(el, () => ({
-                          id: dragId,
-                          disabled: reorderMut.loading() || isExpanded(),
-                          focusable: false,
-                          keyboard: false,
-                          handleSelector: "[data-dnd-handle]",
-                          meta: { fieldId: field.id },
-                        }));
-                        fieldDnd.droppable(el, () => ({
-                          id: dropId,
-                          disabled: reorderMut.loading(),
-                          meta: { kind: "field", index: index() },
-                        }));
-                      }}
-                      data-card-index={index()}
-                      class={`rounded-lg border transition-colors ${
-                        isDragging() ? "opacity-40" : ""
-                      } ${
-                        isExpanded()
-                          ? "border-blue-500 dark:border-blue-400"
-                          : "border-zinc-200 dark:border-zinc-700"
-                      }`}
-                    >
-                      {/* Card header — toggle button + copy-id button as
-                          flex siblings so we can nest a real <button>
-                          for CopyButton (would be invalid HTML inside
-                          the toggle button). */}
-                      <div class="flex items-center">
+                  <li
+                    class={`rounded-lg border transition-colors ${
+                      isExpanded()
+                        ? "border-blue-500 dark:border-blue-400"
+                        : "border-zinc-200 dark:border-zinc-700"
+                    }`}
+                  >
+                    {/* Card header — toggle button + copy-id button as
+                        flex siblings so we can nest a real <button>
+                        for CopyButton (would be invalid HTML inside
+                        the toggle button).
+                        Reorder is up/down arrows on the left (mirrors
+                        the FormsManager pattern). The hitbox is the
+                        whole 16×16 chevron tap target, much larger
+                        than the previous drag-grip — works on every
+                        input device. */}
+                    <div class="flex items-center">
+                      <div class="flex flex-col gap-0.5 pl-2 shrink-0">
                         <button
                           type="button"
-                          class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
-                          onClick={() =>
-                            setExpandedId(isExpanded() ? null : field.id)
-                          }
-                          aria-expanded={isExpanded()}
+                          class="text-dimmed hover:text-primary disabled:opacity-30 leading-none"
+                          onClick={() => moveField(index(), -1)}
+                          disabled={index() === 0 || reorderMut.loading()}
+                          title="Move up"
+                          aria-label="Move up"
                         >
-                          <span
-                            data-dnd-handle
-                            class="cursor-grab active:cursor-grabbing text-dimmed hover:text-primary p-1 -ml-1"
-                            aria-label="Drag to reorder"
-                            title="Drag to reorder"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <i class="ti ti-grip-vertical" />
+                          <i class="ti ti-chevron-up text-xs" />
+                        </button>
+                        <button
+                          type="button"
+                          class="text-dimmed hover:text-primary disabled:opacity-30 leading-none"
+                          onClick={() => moveField(index(), 1)}
+                          disabled={index() === total() - 1 || reorderMut.loading()}
+                          title="Move down"
+                          aria-label="Move down"
+                        >
+                          <i class="ti ti-chevron-down text-xs" />
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
+                        onClick={() =>
+                          setExpandedId(isExpanded() ? null : field.id)
+                        }
+                        aria-expanded={isExpanded()}
+                      >
+                        <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                          <span class="text-sm font-semibold text-primary truncate">
+                            {field.name}
                           </span>
-                          <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                            <span class="text-sm font-semibold text-primary truncate">
-                              {field.name}
-                            </span>
-                            <span class="text-[10px] text-dimmed">
-                              {TYPE_LABELS[field.type] ?? field.type}
-                            </span>
-                            <Show when={field.required}>
-                              <span class="text-[10px] text-amber-600 dark:text-amber-400">
-                                required
-                              </span>
-                            </Show>
+                          <span class="text-[10px] text-dimmed">
+                            {TYPE_LABELS[field.type] ?? field.type}
                           </span>
-                          <Show when={field.description}>
-                            <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
-                              {field.description}
+                          <Show when={field.required}>
+                            <span class="text-[10px] text-amber-600 dark:text-amber-400">
+                              required
                             </span>
                           </Show>
-                          <i
-                            class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
-                              isExpanded() ? "rotate-180" : ""
-                            }`}
-                          />
-                        </button>
-                        {/* Power-user hook: copy the field's `#slug` token
-                            so users can paste it straight into a formula
-                            (`#abc12 + 1`). Real CopyButton with debounced
-                            check-mark feedback so users actually notice
-                            the copy happened. */}
-                        <CopyButton
-                          text={`#${field.shortId}`}
-                          label="Copy ref"
-                          class="btn-simple btn-sm mr-2 shrink-0"
+                        </span>
+                        <Show when={field.description}>
+                          <span class="text-xs text-dimmed truncate hidden md:inline max-w-[20rem]">
+                            {field.description}
+                          </span>
+                        </Show>
+                        <i
+                          class={`ti ti-chevron-down text-sm text-dimmed transition-transform ${
+                            isExpanded() ? "rotate-180" : ""
+                          }`}
                         />
-                      </div>
+                      </button>
+                      {/* Power-user hook: copy the field's `#short_id`
+                          token so users can paste it straight into a
+                          formula (`#abc12 + 1`). */}
+                      <CopyButton
+                        text={`#${field.shortId}`}
+                        label="Copy ref"
+                        class="btn-simple btn-sm mr-2 shrink-0"
+                      />
+                    </div>
 
                       <Show when={isExpanded()}>
                         <FieldEditor
@@ -500,15 +440,9 @@ export default function TableEditPage(props: Props) {
                         />
                       </Show>
                     </li>
-                  </>
-                );
+                  );
               }}
             </For>
-            <Show when={isDropIndicatorVisible(fields().length)}>
-              <div class="relative h-2">
-                <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-md bg-blue-500/80 dark:bg-blue-400/80" />
-              </div>
-            </Show>
           </ul>
         </Show>
 
@@ -662,17 +596,19 @@ function FieldEditor(props: {
       </Show>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Name + Datatype side by side. Symmetric description on both so
+            the two columns visually align (Name's description was missing
+            before, which made the Datatype row taller by ~1 text line). */}
         <TextInput
           label="Name"
+          description="Shown as the column header in the records grid and as the default label on forms."
           value={name}
           onInput={wrap(setName)}
           icon="ti ti-typography"
           required
         />
-        {/* Type display — uses the same TextInput visual the Name input
-            uses (with disabled styling) so heights line up. */}
         <TextInput
-          label="Type (immutable)"
+          label="Datatype"
           description="Field types can't be changed after creation."
           icon="ti ti-category"
           value={() => typeLabel}

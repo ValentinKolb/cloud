@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { NumberInput, navigateTo, PermissionEditor, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo, PermissionEditor, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { type DndBuildIntentContext, dnd, mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -13,6 +13,11 @@ type Props = {
   baseShortId: string;
   tableShortId: string;
   viewShortId: string;
+  /** Display name of the table this view scopes to. Surfaces in the
+   *  Shared-toggle's explanation so the user reads concretely *which*
+   *  table grants read access ("anyone who can read Books") instead
+   *  of an abstract "this table". */
+  tableName: string;
   initialView: View;
   fields: Field[];
   /** Pre-fetched ACL entries for this view (server-side load). The
@@ -55,7 +60,10 @@ export default function ViewEditPage(props: Props) {
     <div class="flex flex-col gap-4 p-6">
       <header class="flex items-center justify-between gap-3">
         <h1 class="text-xl font-semibold text-primary">View settings</h1>
-        <a href={`/app/grids/${props.baseShortId}?table=${props.tableShortId}&view=${props.viewShortId}`} class="btn-input btn-input-sm">
+        <a
+          href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}/view/${props.viewShortId}`}
+          class="btn-input btn-input-sm"
+        >
           <i class="ti ti-arrow-left" /> Back to records
         </a>
       </header>
@@ -65,7 +73,11 @@ export default function ViewEditPage(props: Props) {
         page, adjust filter/sort/group/aggregate in the toolbar, and save as a new view.
       </div>
 
-      <GeneralSection viewId={props.initialView.id} initial={props.initialView} />
+      <GeneralSection
+        viewId={props.initialView.id}
+        initial={props.initialView}
+        tableName={props.tableName}
+      />
 
       {/* Columns editor — only when the view is in flat (non-grouped)
           mode. In grouped mode, the displayed columns are derived
@@ -75,7 +87,10 @@ export default function ViewEditPage(props: Props) {
         <ColumnsSection viewId={props.initialView.id} fields={props.fields} initialColumns={props.initialView.query.columns} />
       </Show>
 
-      <LimitSection viewId={props.initialView.id} initial={props.initialView.query.limit} />
+      {/* LimitSection removed — the top-N limit feature had no active
+          use case (Top-N use cases are better served via a dedicated
+          dashboard widget). Existing views with a stored `limit` keep
+          honoring it server-side; it just can't be edited from here. */}
 
       {/* Permissions section — only meaningful for shared views (a
           personal view's grants would be invisible to anyone but the
@@ -129,7 +144,7 @@ const patchViewQuery = async (viewId: string, patch: Partial<ViewQuery>): Promis
 // General — name + shared
 // =============================================================================
 
-function GeneralSection(props: { viewId: string; initial: View }) {
+function GeneralSection(props: { viewId: string; initial: View; tableName: string }) {
   const [name, setName] = createSignal(props.initial.name);
   const [shared, setShared] = createSignal(props.initial.ownerUserId === null);
   const [dirty, setDirty] = createSignal(false);
@@ -159,7 +174,7 @@ function GeneralSection(props: { viewId: string; initial: View }) {
       <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
       <label class="inline-flex items-center gap-2 text-xs text-secondary">
         <input type="checkbox" checked={shared()} onChange={(e) => wrap(setShared)(e.currentTarget.checked)} />
-        Shared — visible to everyone with read access on this table
+        Shared — visible to everyone who can read <span class="font-medium">{props.tableName}</span>
       </label>
       <Show when={dirty()}>
         <button
@@ -409,55 +424,6 @@ function ColumnsSection(props: { viewId: string; fields: Field[]; initialColumns
 }
 
 // =============================================================================
-// Limit — top-N
-// =============================================================================
-
-function LimitSection(props: { viewId: string; initial: number | undefined }) {
-  // The platform NumberInput is strictly numeric (no null/empty
-  // state) — so we treat 0 as the sentinel for "no limit". The user
-  // hint in the section subtitle calls that out. On save we convert
-  // 0 → undefined so the contract's `limit: int().min(1)` accepts it.
-  const [value, setValue] = createSignal<number>(props.initial ?? 0);
-  const [dirty, setDirty] = createSignal(false);
-
-  const mut = mutations.create<View, void>({
-    mutation: async () => {
-      const n = value();
-      const limit = n > 0 ? n : undefined;
-      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) {
-        throw new Error("Limit must be a positive integer or 0 for unlimited");
-      }
-      return await patchViewQuery(props.viewId, { limit });
-    },
-    onSuccess: () => setDirty(false),
-    onError: (e) => prompts.error(e.message),
-  });
-
-  return (
-    <SectionCard title="Limit" subtitle="Show at most N records. Use 0 for unlimited.">
-      <div class="flex items-center gap-2 max-w-sm">
-        <div class="flex-1">
-          <NumberInput
-            min={0}
-            max={10000}
-            value={value}
-            onChange={(v) => {
-              setValue(v);
-              setDirty(true);
-            }}
-          />
-        </div>
-        <Show when={dirty()}>
-          <button type="button" class="btn-primary btn-sm" onClick={() => mut.mutate(undefined)} disabled={mut.loading()}>
-            {mut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-          </button>
-        </Show>
-      </div>
-    </SectionCard>
-  );
-}
-
-// =============================================================================
 // Delete
 // =============================================================================
 
@@ -469,7 +435,7 @@ function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId
       });
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete view"));
     },
-    onSuccess: () => navigateTo(`/app/grids/${props.baseShortId}?table=${props.tableShortId}`),
+    onSuccess: () => navigateTo(`/app/grids/${props.baseShortId}/table/${props.tableShortId}`),
     onError: (e) => prompts.error(e.message),
   });
 
