@@ -257,23 +257,50 @@ LEAKED=$(json '.items | length')
 echo ""
 echo "━━━ field-dependents + view cleanup ━━━"
 
-# Create a saved view that filters by price. Deleting price should
-# auto-strip the filter from the view's stored query.
-http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "{\"name\":\"expensive\",\"shared\":true,\"query\":{\"filter\":{\"op\":\"AND\",\"filters\":[{\"fieldId\":\"$PRICE_FIELD_ID\",\"op\":\">\",\"value\":50}]}}}"
-expect_status 201 "POST view with price filter → 201"
+# Save a view that touches the price field via filter, sort, AND
+# search.fieldIds — deleting the field should strip ALL three. The
+# search-fieldIds path was missed by the original cleanup (post-cleanup
+# #11 extension).
+VIEW_QUERY=$(cat <<JSON
+{
+  "name": "expensive",
+  "shared": true,
+  "query": {
+    "filter": {"op": "AND", "filters": [{"fieldId": "$PRICE_FIELD_ID", "op": ">", "value": 50}]},
+    "sort": [{"fieldId": "$PRICE_FIELD_ID", "direction": "desc"}],
+    "search": {"q": "x", "fieldIds": ["$PRICE_FIELD_ID", "$NAME_FIELD_ID"]}
+  }
+}
+JSON
+)
+http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$VIEW_QUERY"
+expect_status 201 "POST view with price filter+sort+search → 201"
 VIEW_ID=$(json '.id')
 
 http DELETE /api/grids/fields/$PRICE_FIELD_ID
 expect_status 204 "DELETE price field → 204"
 
-# View now exists and the filter has the price ref stripped.
+# View now exists and the price ref has been stripped from filter,
+# sort, AND search.fieldIds. The whole stored query is checked because
+# stale refs in any of the three would break list/aggregate at compile
+# time with `unknown field "X"`.
 http GET /api/grids/views/$VIEW_ID
 expect_status 200 "GET view after price delete → 200"
-FILTER_REFS=$(json '.query.filter // empty | tostring')
-if [[ "$FILTER_REFS" != *"$PRICE_FIELD_ID"* ]]; then
-  pass "view filter no longer references deleted field"
+QUERY_BLOB=$(json '.query | tostring')
+if [[ "$QUERY_BLOB" != *"$PRICE_FIELD_ID"* ]]; then
+  pass "view query no longer references deleted field (filter+sort+search)"
 else
-  fail "view cleanup" "filter still mentions $PRICE_FIELD_ID: $FILTER_REFS"
+  fail "view cleanup" "query still mentions $PRICE_FIELD_ID: $QUERY_BLOB"
+fi
+# search.fieldIds had two ids — only the deleted one should drop;
+# name should survive. Empty-array handling: if both ids had been
+# deleted, search.fieldIds should be removed entirely (so search
+# reverts to "all fields") instead of degenerating into [].
+SEARCH_FIELDS=$(json '.query.search.fieldIds // empty | tostring')
+if [[ "$SEARCH_FIELDS" == *"$NAME_FIELD_ID"* ]]; then
+  pass "search.fieldIds keeps surviving field id"
+else
+  fail "search.fieldIds cleanup" "expected to keep $NAME_FIELD_ID, got: $SEARCH_FIELDS"
 fi
 
 # ────────────────────────────────────────────────────────────────────

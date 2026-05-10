@@ -1,37 +1,25 @@
-import { For, Show, createSignal } from "solid-js";
-import {
-  CheckboxInput,
-  DateTimeInput,
-  DialogHeader,
-  NumberInput,
-  SelectInput,
-  TagsInput,
-  TextInput,
-  dialogCore,
-} from "@valentinkolb/cloud/ui";
+import { For, createSignal } from "solid-js";
+import { DialogHeader, dialogCore } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 import { isUserEditable } from "./field-prompt-schema";
-import RelationPicker from "./RelationPicker";
+import { FieldInput, type UserInputEntry } from "./form-fields";
 
 /**
  * Custom create-record dialog for grids tables.
  *
- * Why we don't reuse `prompts.form` from cloud-ui: that platform-wide
- * form has a fixed set of field types (text, number, select, tags,
- * boolean, datetime, info) and no extension slot. We need to render
- * relation fields with an inline `RelationPicker` so the user can pick
- * linked records in the SAME dialog as the rest of the row — Airtable-
- * style single-step create. So this file owns its own dialog.
- *
- * The renderer mirrors `prompts.form`'s look (DialogHeader, gap-4
- * flex-col, btn-primary footer) so it doesn't visually diverge from
- * the rest of the platform's dialogs. The only thing that differs is
- * the field-type coverage — relations are a first-class citizen here.
+ * Why a custom dialog (not `prompts.form` from cloud-ui): the platform-
+ * wide form has a fixed set of field types and no relation extension
+ * slot. We need a single-step create where every grids field type —
+ * including relations — renders inline. The dialog plumbing
+ * (DialogHeader, validation, submit) lives here; the actual field
+ * rendering delegates to {@link FieldInput} so create / form-submit /
+ * field-designer-default all show the same widget per type
+ * (post-cleanup #7).
  *
  * Required-field check is client-side (block submit + show error per
- * field), but the SERVER also enforces required relations via the
- * relation field-type handler — so a malicious / racy client can't
- * sneak through.
+ * field), but the SERVER also enforces required + per-type validation
+ * via field-type handlers — so a malicious / racy client can't sneak
+ * through.
  */
 
 /** Fields the dialog skips entirely — server-managed (autonumber,
@@ -122,187 +110,30 @@ export const openCreateRecordDialog = (args: OpenArgs): Promise<Record<string, u
         close(out);
       };
 
-      // Field renderer. One switch handles every editable type — the
-      // map is small enough that a switch reads better than a registry.
+      // Field renderer. Synthesizes a UserInputEntry from the field
+      // (label/required from the field itself, no per-form override)
+      // and hands it to FieldInput — the platform's single field
+      // renderer. Everything that diverged here (currency widget,
+      // multi-select widget, relation widget) now matches what
+      // PublicFormSubmit, FormSubmitModal, and the field-designer's
+      // default-value editor render for the same type.
       const renderField = (f: Field) => {
-        const error = () => errors()[f.id];
-        const label = f.name + (f.required ? " *" : "");
-        const description = f.description ?? undefined;
-
-        switch (f.type) {
-          case "text":
-          case "email":
-          case "url":
-          case "phone":
-          case "slug":
-          case "barcode":
-          case "isbn":
-          case "currency":
-          case "duration":
-            return (
-              <TextInput
-                label={label}
-                description={description}
-                placeholder={
-                  f.type === "currency"
-                    ? "12.34 EUR"
-                    : f.type === "email"
-                      ? "name@example.com"
-                      : f.type === "url"
-                        ? "https://…"
-                        : f.type === "duration"
-                          ? "HH:MM:SS or seconds"
-                          : undefined
-                }
-                value={() => String(values()[f.id] ?? "")}
-                onInput={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          case "longtext":
-          case "json":
-            return (
-              <TextInput
-                label={label}
-                description={description}
-                multiline
-                lines={f.type === "json" ? 6 : 4}
-                value={() => String(values()[f.id] ?? "")}
-                onInput={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          case "number":
-          case "decimal":
-            return (
-              <NumberInput
-                label={label}
-                description={description}
-                value={() => Number(values()[f.id] ?? 0)}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          case "rating": {
-            const scale = (f.config as { scale?: number }).scale ?? 5;
-            return (
-              <NumberInput
-                label={label}
-                description={description}
-                min={0}
-                max={scale}
-                value={() => Number(values()[f.id] ?? 0)}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          }
-          case "percent":
-            return (
-              <NumberInput
-                label={label}
-                description={description}
-                min={0}
-                max={100}
-                value={() => Number(values()[f.id] ?? 0)}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          case "boolean":
-            return (
-              <CheckboxInput
-                label={label}
-                description={description}
-                value={() => Boolean(values()[f.id])}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          case "date": {
-            const includeTime = (f.config as { includeTime?: boolean }).includeTime ?? false;
-            return (
-              <DateTimeInput
-                label={label}
-                description={description}
-                dateOnly={!includeTime}
-                value={() => String(values()[f.id] ?? "")}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          }
-          case "single-select": {
-            const options = ((f.config as { options?: Array<{ id: string; label: string }> }).options ?? []).map((o) => ({
-              id: o.id,
-              label: o.label,
-            }));
-            return (
-              <SelectInput
-                label={label}
-                description={description}
-                options={options}
-                clearable={!f.required}
-                value={() => String(values()[f.id] ?? "")}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          }
-          case "multi-select":
-            return (
-              <TagsInput
-                label={label}
-                description={description}
-                value={() => (values()[f.id] as string[]) ?? []}
-                onChange={(v) => update(f.id, v)}
-                error={error}
-              />
-            );
-          case "relation": {
-            const cfg = f.config as { targetTableId?: string; cardinality?: "single" | "multiple" };
-            if (!cfg.targetTableId) {
-              // Misconfigured relation — show a placeholder rather than
-              // crash. The user can still create the row without it.
-              return (
-                <div class="flex flex-col gap-0.5">
-                  <span class="text-xs font-medium text-secondary">{label}</span>
-                  <p class="text-xs text-amber-600 dark:text-amber-400">
-                    Relation has no target table configured — skipping.
-                  </p>
-                </div>
-              );
-            }
-            const multi = cfg.cardinality !== "single";
-            return (
-              <div class="flex flex-col gap-0.5">
-                <span class="text-xs font-medium text-secondary">{label}</span>
-                <Show when={description}>
-                  <p class="text-[11px] text-dimmed leading-snug">{description}</p>
-                </Show>
-                <RelationPicker
-                  targetTableId={cfg.targetTableId}
-                  multi={multi}
-                  value={() => (values()[f.id] as string[]) ?? []}
-                  labels={() => ({})}
-                  onChange={(v) => update(f.id, v)}
-                />
-                <Show when={error()}>
-                  <p class="text-[11px] text-red-500">{error()}</p>
-                </Show>
-              </div>
-            );
-          }
-          default:
-            // Unhandled type (shouldn't reach — filter excludes computed
-            // types and isUserEditable gates the rest). Render a tiny
-            // hint so a misconfig doesn't silently swallow data.
-            return (
-              <div class="text-xs text-dimmed">
-                <span class="font-medium">{label}</span>: type "{f.type}" not supported in create form
-              </div>
-            );
-        }
+        const entry: UserInputEntry = {
+          kind: "user_input",
+          fieldId: f.id,
+          required: f.required,
+          helpText: f.description ?? undefined,
+        };
+        return (
+          <FieldInput
+            field={f}
+            entry={entry}
+            value={values()[f.id]}
+            onChange={(v) => update(f.id, v)}
+            error={() => errors()[f.id]}
+            baseId={args.baseId}
+          />
+        );
       };
 
       return (

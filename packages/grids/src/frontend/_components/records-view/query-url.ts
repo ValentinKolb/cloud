@@ -130,10 +130,25 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
  * Always emits the `table` param so the records page knows which table
  * to render. Other params are conditional — empty values get omitted
  * to keep URLs minimal and compare-friendly.
+ *
+ * `viewQuery` is the active view's stored query (or null when no view
+ * is active). When passed, query fields whose value exactly matches
+ * the view's stored value are OMITTED from the URL — they fall through
+ * to `view.query` at the next render via `resolveEffectiveQuery`, so
+ * the URL stays a pure list of "user overrides on top of the view".
+ *
+ * Why this matters: without the suppression, opening a clean view URL
+ * (only ?table=&view=) and then paginating would write the merged
+ * effective query — including the view's filter — back into the URL.
+ * Bookmarking that result freezes the view's filter at navigation time,
+ * so a later edit to the saved view stays invisible to the bookmark.
+ * Suppressing matches keeps view URLs symbolic ("the view, as it stands")
+ * rather than denormalized snapshots (post-cleanup #4).
  */
 export const buildRecordsUrl = (
   base: { baseId: string; tableId: string },
   state: RecordsState,
+  viewQuery?: ViewQuery | null,
 ): string => {
   const url = new URL(`/app/grids/${base.baseId}`, "http://x");
   url.searchParams.set("table", base.tableId);
@@ -142,14 +157,29 @@ export const buildRecordsUrl = (
 
   if (state.activeViewId) url.searchParams.set("view", state.activeViewId);
 
-  if (query.filter) url.searchParams.set("filter", JSON.stringify(query.filter));
-  if (query.sort && query.sort.length > 0) {
+  // Stable JSON.stringify is fine for equality here — the URL serializes
+  // these via JSON.stringify too, so any mismatch in key order would also
+  // mismatch the URL itself. Both sides come from the same Zod-validated
+  // shapes, so key order is stable in practice.
+  const matchesView = (key: keyof RecordsUrlQuery): boolean => {
+    if (!viewQuery) return false;
+    return JSON.stringify(query[key]) === JSON.stringify(viewQuery[key]);
+  };
+
+  if (query.filter && !matchesView("filter")) {
+    url.searchParams.set("filter", JSON.stringify(query.filter));
+  }
+  if (query.sort && query.sort.length > 0 && !matchesView("sort")) {
     url.searchParams.set("sort", JSON.stringify(query.sort));
   }
-  if (query.groupBy && query.groupBy.length > 0) {
+  if (query.groupBy && query.groupBy.length > 0 && !matchesView("groupBy")) {
     url.searchParams.set("groupBy", JSON.stringify(query.groupBy));
   }
-  if (query.aggregations && query.aggregations.length > 0) {
+  if (
+    query.aggregations &&
+    query.aggregations.length > 0 &&
+    !matchesView("aggregations")
+  ) {
     url.searchParams.set("aggregations", JSON.stringify(query.aggregations));
   }
   if (query.includeDeleted) url.searchParams.set("trash", "1");

@@ -544,6 +544,7 @@ const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<v
 
   type Q = {
     filter?: unknown;
+    search?: { q?: string; fieldIds?: string[] };
     sort?: Array<{ fieldId?: string }>;
     groupBy?: Array<{ fieldId?: string }>;
     aggregations?: Array<{ fieldId?: string }>;
@@ -589,6 +590,18 @@ const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<v
           else (q as Record<string, unknown>)[key] = next;
           changed = true;
         }
+      }
+    }
+    // search.fieldIds is the explicit search-scope list (when omitted,
+    // search hits every text-ish field). Strip the deleted id; if that
+    // empties the array, drop it so search reverts to "all fields"
+    // rather than degenerating into an always-empty match list.
+    if (q.search && Array.isArray(q.search.fieldIds)) {
+      const next = q.search.fieldIds.filter((id) => id !== fieldId);
+      if (next.length !== q.search.fieldIds.length) {
+        if (next.length === 0) delete q.search.fieldIds;
+        else q.search.fieldIds = next;
+        changed = true;
       }
     }
 

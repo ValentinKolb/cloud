@@ -89,6 +89,14 @@ type Props = {
   viewColumns: ColumnSpec[] | undefined;
   searchableFields: Field[];
   groupedExplode: boolean;
+  /**
+   * Stored query of the currently active saved view, or null when the
+   * URL has no `?view=` (ad-hoc records mode). Passed through to
+   * `buildRecordsUrl` so query fields that match the view's stored
+   * value get omitted from the URL — keeps view URLs symbolic instead
+   * of freezing the view's snapshot at navigation time. See post-cleanup #4.
+   */
+  activeViewQuery: ViewQuery | null;
 };
 
 export default function RecordsView(props: Props) {
@@ -203,6 +211,7 @@ export default function RecordsView(props: Props) {
     const next = buildRecordsUrl(
       { baseId: props.baseId, tableId: props.tableId },
       currentUrlState(),
+      props.activeViewQuery,
     );
     if (next === location.pathname + location.search) return;
     if (opts.replace) history.replaceState(null, "", next);

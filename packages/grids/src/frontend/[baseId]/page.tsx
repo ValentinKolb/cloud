@@ -773,17 +773,17 @@ export default ssr<AuthContext>(async (c) => {
                     <p class="sidebar-section-title">Views</p>
                     {allViews.map(({ view, table: t }) => {
                       const url = (() => {
+                        // Only carry table + view id. resolveEffectiveQuery
+                        // pulls filter/sort/groupBy/aggregations from
+                        // `view.query` on every render — encoding them in
+                        // the URL would freeze them at link-creation time
+                        // and silently override edits to the saved view
+                        // (post-cleanup #4). Toolbar edits still write
+                        // their own URL params on top, which then act as
+                        // explicit overrides via the same merge.
                         const u = new URL(`/app/grids/${baseSlug}`, "http://x");
                         u.searchParams.set("table", t.id);
                         u.searchParams.set("view", view.id);
-                        if (view.query.filter)
-                          u.searchParams.set("filter", JSON.stringify(view.query.filter));
-                        if (view.query.sort)
-                          u.searchParams.set("sort", JSON.stringify(view.query.sort));
-                        if (view.query.groupBy && view.query.groupBy.length > 0)
-                          u.searchParams.set("groupBy", JSON.stringify(view.query.groupBy));
-                        if (view.query.aggregations && view.query.aggregations.length > 0)
-                          u.searchParams.set("aggregations", JSON.stringify(view.query.aggregations));
                         return `${u.pathname}${u.search}`;
                       })();
                       const canEdit =
@@ -923,6 +923,7 @@ export default ssr<AuthContext>(async (c) => {
                 viewColumns={activeViewColumns}
                 searchableFields={filterSearchableFields(fields)}
                 groupedExplode={groupedExplode}
+                activeViewQuery={activeView?.query ?? null}
               />
             </div>
           ) : (
