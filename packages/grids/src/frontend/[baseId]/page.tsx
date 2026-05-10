@@ -24,6 +24,7 @@ import type {
   ViewWidget,
 } from "../../service";
 import { filterSearchableFields, mergeSearchIntoFilter } from "../../service/search";
+import { parseRecordsState } from "../_components/records-view/query-url";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -66,47 +67,14 @@ export default ssr<AuthContext>(async (c) => {
   // Sidebar (Tables/Views/Dashboards) stays the same so the user can
   // hop back to a table in one click.
   const activeDashboardSlug = c.req.query("dashboard") ?? null;
-  const rawCursor = c.req.query("cursor") ?? null;
 
-  // Parse the filter query — bad input is treated as empty rather than a
-  // hard error so a stale URL doesn't lock the user out of their data.
-  let parsedFilter: FilterTree | null = null;
-  let filterLeaves: Array<{ fieldId: string; op: string; value?: unknown }> =
-    [];
-  const rawFilter = c.req.query("filter");
-  if (rawFilter) {
-    try {
-      const parsed = JSON.parse(rawFilter);
-      parsedFilter = parsed;
-      if (parsed && parsed.op === "AND" && Array.isArray(parsed.filters)) {
-        filterLeaves = parsed.filters.filter(
-          (f: unknown): f is { fieldId: string; op: string; value?: unknown } =>
-            typeof f === "object" && f !== null && "fieldId" in f && "op" in f
-        );
-      }
-    } catch {}
-  }
-
-  let parsedSort: SortSpec[] = [];
-  const rawSort = c.req.query("sort");
-  if (rawSort) {
-    try {
-      const parsed = JSON.parse(rawSort);
-      if (Array.isArray(parsed)) {
-        parsedSort = parsed.filter(
-          (s: unknown): s is SortSpec =>
-            typeof s === "object" &&
-            s !== null &&
-            "fieldId" in s &&
-            "direction" in s
-        );
-      }
-    } catch {}
-  }
-
-  // Group-by + aggregations URL params (Slice 8 inline UI). Same
-  // tolerant-parse strategy as filter / sort: bad JSON → empty so a
-  // stale URL doesn't 500 the page.
+  // URL state — single source of truth via parseRecordsState. The SSR
+  // page used to hand-parse every URL param, which drifted from the
+  // island's parser (e.g. group-mode dropped `q`). Now both sides go
+  // through the same code.
+  const recordsState = parseRecordsState(new URL(c.req.url).searchParams);
+  const parsedFilter = (recordsState.query.filter ?? null) as FilterTree | null;
+  const parsedSort: SortSpec[] = (recordsState.query.sort ?? []) as SortSpec[];
   type GroupByRaw = {
     fieldId: string;
     direction?: "asc" | "desc";
@@ -117,44 +85,29 @@ export default ssr<AuthContext>(async (c) => {
     agg: "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
     label?: string;
   };
-  let parsedGroupBy: GroupByRaw[] = [];
-  const rawGroupBy = c.req.query("groupBy");
-  if (rawGroupBy) {
-    try {
-      const parsed = JSON.parse(rawGroupBy);
-      if (Array.isArray(parsed)) {
-        parsedGroupBy = parsed.filter(
-          (g: unknown): g is GroupByRaw =>
-            typeof g === "object" && g !== null && typeof (g as { fieldId?: unknown }).fieldId === "string",
-        );
-      }
-    } catch {}
-  }
-  let parsedAggregations: AggregationRaw[] = [];
-  const rawAggregations = c.req.query("aggregations");
-  if (rawAggregations) {
-    try {
-      const parsed = JSON.parse(rawAggregations);
-      if (Array.isArray(parsed)) {
-        parsedAggregations = parsed.filter(
-          (a: unknown): a is AggregationRaw =>
-            typeof a === "object" && a !== null && "fieldId" in a && "agg" in a,
-        );
-      }
-    } catch {}
-  }
+  const parsedGroupBy = (recordsState.query.groupBy ?? []) as GroupByRaw[];
+  const parsedAggregations = (recordsState.query.aggregations ?? []).filter(
+    (a): a is AggregationRaw =>
+      a.agg !== "median" && a.agg !== "earliest" && a.agg !== "latest",
+  );
+  const rawQ = recordsState.search.q.trim();
+  const qFieldIds = recordsState.search.fieldIds;
+  const rawCursor = recordsState.cursor;
+  const selectedRecordId = recordsState.selectedRecordId;
 
-  // Free-text search params. `q` is the text; `qFields` (CSV) optionally
-  // narrows the search to a subset of text-shaped fields. Empty `qFields`
-  // means "search all searchable text fields".
-  const rawQ = (c.req.query("q") ?? "").trim();
-  const rawQFields = c.req.query("qFields") ?? "";
-  const qFieldIds = rawQFields ? rawQFields.split(",").filter(Boolean) : [];
-
-  // Selected record for the detail panel — `?record=<id>` query param.
-  // We fetch the full record SSR-side so deep links land with the panel
-  // already populated (no client-side spinner on first paint).
-  const selectedRecordId = c.req.query("record") ?? null;
+  // FilterPanel's initial state expects a flat leaf list. The URL filter
+  // is allowed to be any FilterTree shape (AND/OR/NOT/leaf); we pull
+  // the leaves out of an AND root for the panel's seed. Other shapes
+  // produce an empty leaf list — the panel still renders, just without
+  // pre-populated rows.
+  const filterLeaves: Array<{ fieldId: string; op: string; value?: unknown }> =
+    parsedFilter && typeof parsedFilter === "object" && "op" in parsedFilter &&
+    parsedFilter.op === "AND" && Array.isArray((parsedFilter as { filters?: unknown[] }).filters)
+      ? (parsedFilter as { filters: unknown[] }).filters.filter(
+          (f): f is { fieldId: string; op: string; value?: unknown } =>
+            typeof f === "object" && f !== null && "fieldId" in f && "op" in f,
+        )
+      : [];
 
   const base = await gridsService.base.getByIdOrSlug(baseSlug);
   if (!base) {
@@ -520,11 +473,14 @@ export default ssr<AuthContext>(async (c) => {
   let groupedBuckets: GroupBucket[] = [];
   let groupedExplode = false;
   if (activeTable && effectiveGroupBy.length > 0 && !trashMode) {
+    // Apply the same filter+search merge the list / aggregate paths use,
+    // so typing into the search bar narrows grouped buckets too.
+    // (Previously this dispatch silently dropped `q`.)
     const groupResult = await gridsService.record.group({
       tableId: activeTable.id,
       groupBy: effectiveGroupBy,
       aggregations: effectiveAggregations,
-      filter: parsedFilter,
+      filter: mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields),
       limit: 1000,
     });
     if (groupResult.ok) {

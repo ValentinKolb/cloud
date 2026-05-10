@@ -2,7 +2,6 @@ import { test, expect, describe } from "bun:test";
 import {
   parseRecordsState,
   buildRecordsUrl,
-  recordsStatesEqual,
   type RecordsState,
 } from "./query-url";
 
@@ -160,11 +159,3 @@ describe("parse / build round-trip", () => {
   }
 });
 
-describe("recordsStatesEqual", () => {
-  test("structurally equal returns true", () => {
-    expect(recordsStatesEqual(empty, { ...empty })).toBe(true);
-  });
-  test("any field different returns false", () => {
-    expect(recordsStatesEqual(empty, { ...empty, cursor: "x" })).toBe(false);
-  });
-});

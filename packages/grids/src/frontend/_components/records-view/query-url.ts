@@ -24,8 +24,20 @@
 
 import type { ViewQuery } from "../../../contracts";
 
+/**
+ * URL-owned subset of ViewQuery. The full ViewQuery additionally
+ * includes `limit`, `columns`, and `search` — those are NEVER URL state:
+ * `limit`/`columns` are saved-view metadata only, `search` lives on the
+ * sibling `search` field. Narrowing the type makes the round-trip
+ * `parse(build(s)) === s` actually hold for every well-formed state.
+ */
+export type RecordsUrlQuery = Pick<
+  ViewQuery,
+  "filter" | "sort" | "groupBy" | "aggregations" | "includeDeleted"
+>;
+
 export type RecordsState = {
-  query: ViewQuery;
+  query: RecordsUrlQuery;
   cursor: string | null;
   selectedRecordId: string | null;
   /** ID of the currently-active saved view (if any). Drives sidebar
@@ -66,7 +78,7 @@ const tryParseArray = <T extends Record<string, unknown>>(
  * params produce empty fragments — never throws.
  */
 export const parseRecordsState = (params: URLSearchParams): RecordsState => {
-  const query: ViewQuery = {};
+  const query: RecordsUrlQuery = {};
 
   // Filter
   const filterParsed = tryParseJson<ViewQuery["filter"]>(params.get("filter"));
@@ -83,14 +95,14 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
     params.get("groupBy"),
     ["fieldId"],
   );
-  if (groupBy.length > 0) query.groupBy = groupBy as ViewQuery["groupBy"];
+  if (groupBy.length > 0) query.groupBy = groupBy as RecordsUrlQuery["groupBy"];
 
   const aggregations = tryParseArray<{ fieldId: string; agg: string }>(
     params.get("aggregations"),
     ["fieldId", "agg"],
   );
   if (aggregations.length > 0) {
-    query.aggregations = aggregations as ViewQuery["aggregations"];
+    query.aggregations = aggregations as RecordsUrlQuery["aggregations"];
   }
 
   if (params.get("trash") === "1") query.includeDeleted = true;
@@ -153,10 +165,3 @@ export const buildRecordsUrl = (
   return `${url.pathname}${url.search}`;
 };
 
-/**
- * Compares two RecordsStates for equality at the URL-meaningful level.
- * Used by RecordsView to detect no-op commits (skip navigation when
- * the URL would be identical).
- */
-export const recordsStatesEqual = (a: RecordsState, b: RecordsState): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
