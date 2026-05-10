@@ -3,7 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
-import { generateUniqueSlug } from "./slug";
+import { insertWithSlug } from "./slug";
 import {
   DashboardConfigSchema,
   type Dashboard,
@@ -35,22 +35,12 @@ type DbRow = Record<string, unknown>;
 // same defensive pattern used by views.ts.
 // =============================================================================
 
-const slugTakenInBase = (baseId: string) => async (slug: string): Promise<boolean> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1 FROM grids.dashboards
-      WHERE base_id = ${baseId}::uuid AND slug = ${slug} AND deleted_at IS NULL
-    ) AS exists
-  `;
-  return Boolean(row?.exists);
-};
-
 const mapRow = (row: DbRow): Dashboard => {
   const rawConfig = parseJsonbRow<unknown>(row.config, { rows: [] });
   const parsed = DashboardConfigSchema.safeParse(rawConfig);
   return {
     id: row.id as string,
-    slug: (row.slug as string | null) ?? "",
+    slug: row.slug as string,
     baseId: row.base_id as string,
     name: row.name as string,
     description: (row.description as string | null) ?? null,
@@ -216,23 +206,25 @@ export const create = async (
     return fail(err.badInput(`invalid dashboard config: ${configParsed.error.message}`));
   }
 
-  const slug = await generateUniqueSlug(slugTakenInBase(input.baseId));
   const description = input.description?.trim() || null;
 
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.dashboards (slug, base_id, name, description, config, owner_user_id, position)
-    VALUES (
-      ${slug},
-      ${input.baseId}::uuid,
-      ${name},
-      ${description}::text,
-      ${configParsed.data}::jsonb,
-      ${input.ownerUserId ?? null}::uuid,
-      COALESCE((SELECT MAX(position) + 1 FROM grids.dashboards WHERE base_id = ${input.baseId}::uuid), 0)
-    )
-    RETURNING id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await insertWithSlug<DbRow>(async (slug) => {
+    const [r] = await sql<DbRow[]>`
+      INSERT INTO grids.dashboards (slug, base_id, name, description, config, owner_user_id, position)
+      VALUES (
+        ${slug},
+        ${input.baseId}::uuid,
+        ${name},
+        ${description}::text,
+        ${configParsed.data}::jsonb,
+        ${input.ownerUserId ?? null}::uuid,
+        COALESCE((SELECT MAX(position) + 1 FROM grids.dashboards WHERE base_id = ${input.baseId}::uuid), 0)
+      )
+      RETURNING id, slug, base_id, name, description, config, owner_user_id, position, deleted_at, created_at, updated_at
+    `;
+    if (!r) throw new Error("insert returned no row");
+    return r;
+  }, "idx_grids_dashboards_slug");
   const dashboard = mapRow(row);
   await logAudit({
     baseId: input.baseId,

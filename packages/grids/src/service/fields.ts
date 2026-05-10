@@ -12,7 +12,7 @@ import {
 } from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
 import { getHandler, isKnownFieldType } from "../field-types";
-import { generateUniqueSlug } from "./slug";
+import { insertWithSlug } from "./slug";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -36,16 +36,6 @@ const mapRow = (row: DbRow): Field => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
-
-const slugTakenInTable = (tableId: string) => async (slug: string): Promise<boolean> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1 FROM grids.fields
-      WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
-    ) AS exists
-  `;
-  return Boolean(row?.exists);
-};
 
 /**
  * Look up a field by (tableId, slug). Used by the formula evaluator
@@ -132,32 +122,34 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
     input.defaultValue === undefined || input.defaultValue === null
       ? null
       : JSON.stringify(input.defaultValue);
-  const slug = await generateUniqueSlug(slugTakenInTable(input.tableId));
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.fields (
-      slug, table_id, name, description, type, config, position, required,
-      presentable, hide_in_table, default_value, indexed, unique_constraint
-    )
-    VALUES (
-      ${slug},
-      ${input.tableId}::uuid,
-      ${name},
-      -- bun.sql can't infer the type of a literal NULL; cast keeps the
-      -- INSERT working when the user creates a field without a description.
-      ${description}::text,
-      ${input.type},
-      ${config}::jsonb,
-      COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
-      ${input.required ?? false},
-      ${input.presentable ?? false},
-      ${input.hideInTable ?? false},
-      ${defaultValueJsonb}::jsonb,
-      ${input.indexed ?? false},
-      ${input.uniqueConstraint ?? false}
-    )
-    RETURNING *
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await insertWithSlug<DbRow>(async (slug) => {
+    const [r] = await sql<DbRow[]>`
+      INSERT INTO grids.fields (
+        slug, table_id, name, description, type, config, position, required,
+        presentable, hide_in_table, default_value, indexed, unique_constraint
+      )
+      VALUES (
+        ${slug},
+        ${input.tableId}::uuid,
+        ${name},
+        -- bun.sql can't infer the type of a literal NULL; cast keeps the
+        -- INSERT working when the user creates a field without a description.
+        ${description}::text,
+        ${input.type},
+        ${config}::jsonb,
+        COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
+        ${input.required ?? false},
+        ${input.presentable ?? false},
+        ${input.hideInTable ?? false},
+        ${defaultValueJsonb}::jsonb,
+        ${input.indexed ?? false},
+        ${input.uniqueConstraint ?? false}
+      )
+      RETURNING *
+    `;
+    if (!r) throw new Error("insert returned no row");
+    return r;
+  }, "idx_grids_fields_slug");
   const field = mapRow(row);
 
   await logAudit({

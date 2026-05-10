@@ -3,20 +3,10 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
-import { generateUniqueSlug } from "./slug";
+import { insertWithSlug } from "./slug";
 import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type FormatSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
-
-const slugTakenInTable = (tableId: string) => async (slug: string): Promise<boolean> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1 FROM grids.views
-      WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
-    ) AS exists
-  `;
-  return Boolean(row?.exists);
-};
 
 // View / ViewQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
 // re-export so consumers can keep importing them from the service layer.
@@ -35,7 +25,7 @@ const mapRow = (row: DbRow): View => {
   const parsed = ViewQuerySchema.safeParse(rawQuery);
   return {
     id: row.id as string,
-    slug: (row.slug as string | null) ?? "",
+    slug: row.slug as string,
     tableId: row.table_id as string,
     name: row.name as string,
     query: parsed.success ? parsed.data : {},
@@ -109,7 +99,7 @@ export const listForTable = async (params: {
     auth_rank: number | null;
     public_rank: number | null;
   })[]>`
-    SELECT v.id, v.table_id, v.name, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
+    SELECT v.id, v.slug, v.table_id, v.name, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
       (
         SELECT CASE
           WHEN COUNT(*) = 0 THEN NULL
@@ -233,21 +223,22 @@ export const create = async (
     return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
   }
 
-  const slug = await generateUniqueSlug(slugTakenInTable(input.tableId));
-
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.views (slug, table_id, name, query, owner_user_id, position)
-    VALUES (
-      ${slug},
-      ${input.tableId}::uuid,
-      ${name},
-      ${queryParsed.data}::jsonb,
-      ${input.ownerUserId ?? null}::uuid,
-      COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
-    )
-    RETURNING id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await insertWithSlug<DbRow>(async (slug) => {
+    const [r] = await sql<DbRow[]>`
+      INSERT INTO grids.views (slug, table_id, name, query, owner_user_id, position)
+      VALUES (
+        ${slug},
+        ${input.tableId}::uuid,
+        ${name},
+        ${queryParsed.data}::jsonb,
+        ${input.ownerUserId ?? null}::uuid,
+        COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
+      )
+      RETURNING id, slug, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    `;
+    if (!r) throw new Error("insert returned no row");
+    return r;
+  }, "idx_grids_views_slug");
   const view = mapRow(row);
   await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { view: { old: null, new: { id: view.id, name: view.name } } } });
   return ok(view);
@@ -303,7 +294,7 @@ export const update = async (
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, slug, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
@@ -330,7 +321,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, slug, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);

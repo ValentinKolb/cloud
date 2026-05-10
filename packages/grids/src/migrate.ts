@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { crypto } from "@valentinkolb/stdlib";
 
 /**
  * Schema for the Grids app: bases → tables → (fields, records, views, forms).
@@ -481,4 +482,172 @@ export const migrate = async (): Promise<void> => {
   // or hard-deleted) as "no default" and falls back to first table.
   await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS default_dashboard_id UUID`.simple();
   console.log("  ✓ grids.bases.default_dashboard_id");
+
+  // ──────────────────────────────────────────────────────────────────
+  // Slug backfill for rows that pre-date the slug column
+  // ──────────────────────────────────────────────────────────────────
+  // ALTER TABLE ADD COLUMN above is NULL-tolerant so old rows survive
+  // the migration. The service layer assigns slugs on insert, but rows
+  // created before that migration ran sit at NULL forever unless we
+  // backfill — and the SSR URL builders interpolate the
+  // (NULL-coerced-to-empty) slug straight into hrefs, producing
+  // `/views//edit` and similar dead links. Generate one slug per alive
+  // row, scoped per parent so the partial unique index is honored.
+  // Runs every boot; no-op once all rows are filled.
+  await backfillSlugs();
+  console.log("  ✓ grids.{bases,tables,fields,forms,views,dashboards}.slug backfill");
+};
+
+// =============================================================================
+// Slug backfill helpers
+// =============================================================================
+
+/** Generate a unique slug within (table, scope), checking ALL rows
+ *  (alive + trashed) to keep restore paths safe — a trashed row that
+ *  shares a slug with an alive row would conflict on restore. 10 attempts
+ *  is overkill for 62^5 ≈ 916M slots; even at 1000 items per scope the
+ *  birthday-paradox single-try collision rate is ~0.054%. */
+const generateSlug = async (
+  query: (cand: string) => Promise<boolean>,
+): Promise<string> => {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const cand = crypto.common.readableId(5);
+    if (!(await query(cand))) return cand;
+  }
+  throw new Error("backfill: failed to generate unique slug after 10 attempts");
+};
+
+const backfillSlugs = async (): Promise<void> => {
+  // We backfill ALL rows (alive + trashed). The partial unique index only
+  // covers alive rows, but trashed rows still serve URL/audit references
+  // and can be restored — they need slugs too, and those slugs must not
+  // collide with any other row in the same scope or restore breaks.
+  // Hence the EXISTS check has no `deleted_at IS NULL` filter either.
+
+  // bases — global scope
+  {
+    const rows = await sql<{ id: string }[]>`SELECT id::text AS id FROM grids.bases WHERE slug IS NULL`;
+    for (const row of rows) {
+      const slug = await generateSlug(async (cand) => {
+        const [r] = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS(SELECT 1 FROM grids.bases WHERE slug = ${cand}) AS exists
+        `;
+        return Boolean(r?.exists);
+      });
+      await sql`UPDATE grids.bases SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+    }
+  }
+  // tables — scoped per base
+  {
+    const rows = await sql<{ id: string; base_id: string }[]>`
+      SELECT id::text AS id, base_id::text AS base_id FROM grids.tables WHERE slug IS NULL
+    `;
+    for (const row of rows) {
+      const slug = await generateSlug(async (cand) => {
+        const [r] = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS(
+            SELECT 1 FROM grids.tables
+            WHERE base_id = ${row.base_id}::uuid AND slug = ${cand}
+          ) AS exists
+        `;
+        return Boolean(r?.exists);
+      });
+      await sql`UPDATE grids.tables SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+    }
+  }
+  // fields — scoped per table
+  {
+    const rows = await sql<{ id: string; table_id: string }[]>`
+      SELECT id::text AS id, table_id::text AS table_id FROM grids.fields WHERE slug IS NULL
+    `;
+    for (const row of rows) {
+      const slug = await generateSlug(async (cand) => {
+        const [r] = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS(
+            SELECT 1 FROM grids.fields
+            WHERE table_id = ${row.table_id}::uuid AND slug = ${cand}
+          ) AS exists
+        `;
+        return Boolean(r?.exists);
+      });
+      await sql`UPDATE grids.fields SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+    }
+  }
+  // forms — scoped per table
+  {
+    const rows = await sql<{ id: string; table_id: string }[]>`
+      SELECT id::text AS id, table_id::text AS table_id FROM grids.forms WHERE slug IS NULL
+    `;
+    for (const row of rows) {
+      const slug = await generateSlug(async (cand) => {
+        const [r] = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS(
+            SELECT 1 FROM grids.forms
+            WHERE table_id = ${row.table_id}::uuid AND slug = ${cand}
+          ) AS exists
+        `;
+        return Boolean(r?.exists);
+      });
+      await sql`UPDATE grids.forms SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+    }
+  }
+  // views — scoped per table
+  {
+    const rows = await sql<{ id: string; table_id: string }[]>`
+      SELECT id::text AS id, table_id::text AS table_id FROM grids.views WHERE slug IS NULL
+    `;
+    for (const row of rows) {
+      const slug = await generateSlug(async (cand) => {
+        const [r] = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS(
+            SELECT 1 FROM grids.views
+            WHERE table_id = ${row.table_id}::uuid AND slug = ${cand}
+          ) AS exists
+        `;
+        return Boolean(r?.exists);
+      });
+      await sql`UPDATE grids.views SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+    }
+  }
+  // dashboards — scoped per base
+  {
+    const rows = await sql<{ id: string; base_id: string }[]>`
+      SELECT id::text AS id, base_id::text AS base_id FROM grids.dashboards WHERE slug IS NULL
+    `;
+    for (const row of rows) {
+      const slug = await generateSlug(async (cand) => {
+        const [r] = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS(
+            SELECT 1 FROM grids.dashboards
+            WHERE base_id = ${row.base_id}::uuid AND slug = ${cand}
+          ) AS exists
+        `;
+        return Boolean(r?.exists);
+      });
+      await sql`UPDATE grids.dashboards SET slug = ${slug} WHERE id = ${row.id}::uuid`;
+    }
+  }
+
+  // After all rows are filled, tighten the schema: NOT NULL + CHECK so
+  // the contract layer's SlugSchema and the DB row state cannot drift.
+  // Idempotent: ALTER COLUMN ... SET NOT NULL is a no-op when the column
+  // already disallows NULL; ADD CONSTRAINT IF NOT EXISTS guards the CHECK.
+  for (const table of ["bases", "tables", "fields", "forms", "views", "dashboards"] as const) {
+    await sql.unsafe(`ALTER TABLE grids.${table} ALTER COLUMN slug SET NOT NULL`).simple();
+    await sql
+      .unsafe(`
+        ALTER TABLE grids.${table}
+        ADD CONSTRAINT ${table}_slug_format_chk
+        CHECK (slug ~ '^[A-Za-z0-9]{5}$')
+      `)
+      .simple()
+      .catch((e: unknown) => {
+        // Re-run safety: ADD CONSTRAINT does not support IF NOT EXISTS in
+        // PostgreSQL < 16. Catch the duplicate-object error code (42710)
+        // and accept it; rethrow anything else.
+        const code = (e as { code?: string })?.code;
+        if (code === "42710") return; // constraint already exists
+        throw e;
+      });
+  }
 };

@@ -3,7 +3,7 @@ export { accounts } from "./accounts";
 export { accountsAppService } from "./accounts";
 export { providers } from "./providers";
 export { authFlows } from "./auth-flows";
-export { toPgTextArray, toPgUuidArray, escapeLikePattern } from "./postgres";
+export { toPgTextArray, toPgUuidArray, escapeLikePattern, isUniqueViolation } from "./postgres";
 
 export { logger, logging } from "./logging";
 export type { LogEntry } from "./logging";

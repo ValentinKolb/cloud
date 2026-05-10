@@ -3,6 +3,7 @@ import { z } from "zod";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { SlugSchema } from "../contracts";
 import { gridsService } from "../service";
 import { gateAt } from "./permissions";
 
@@ -43,7 +44,10 @@ const FormConfigSchema = z.object({
 
 const FormSchema = z.object({
   id: z.string(),
-  slug: z.string(),
+  // Persisted forms carry a 5-char slug; the virtual "default form"
+  // (id = `default-<tableId>`) has slug: "" because it never appears in
+  // URLs. Allow either to keep the virtual representable in the API.
+  slug: z.union([SlugSchema, z.literal("")]),
   tableId: z.string().uuid(),
   name: z.string(),
   config: FormConfigSchema,

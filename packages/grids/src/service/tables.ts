@@ -1,7 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
-import { generateUniqueSlug } from "./slug";
+import { insertWithSlug } from "./slug";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -20,16 +20,6 @@ const mapRow = (row: DbRow): Table => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
-
-const slugTakenInBase = (baseId: string) => async (slug: string): Promise<boolean> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1 FROM grids.tables
-      WHERE base_id = ${baseId}::uuid AND slug = ${slug} AND deleted_at IS NULL
-    ) AS exists
-  `;
-  return Boolean(row?.exists);
-};
 
 /**
  * Lists active tables of a base. Pass `includeDeleted` to include
@@ -111,20 +101,21 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
-  const slug = await generateUniqueSlug(slugTakenInBase(input.baseId));
-
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.tables (slug, base_id, name, description, position)
-    VALUES (
-      ${slug},
-      ${input.baseId}::uuid,
-      ${name},
-      ${input.description ?? null},
-      COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
-    )
-    RETURNING ${COLS}
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await insertWithSlug<DbRow>(async (slug) => {
+    const [r] = await sql<DbRow[]>`
+      INSERT INTO grids.tables (slug, base_id, name, description, position)
+      VALUES (
+        ${slug},
+        ${input.baseId}::uuid,
+        ${name},
+        ${input.description ?? null},
+        COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
+      )
+      RETURNING ${COLS}
+    `;
+    if (!r) throw new Error("insert returned no row");
+    return r;
+  }, "idx_grids_tables_slug");
   const table = mapRow(row);
   await logAudit({ baseId: input.baseId, tableId: table.id, userId: actorId, action: "created" });
   return ok(table);

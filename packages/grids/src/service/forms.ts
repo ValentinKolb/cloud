@@ -3,7 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { listByTable as listFields } from "./fields";
-import { generateUniqueSlug } from "./slug";
+import { insertWithSlug } from "./slug";
 import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -119,7 +119,7 @@ const normalizeFormConfig = (raw: unknown): FormConfig => {
 
 const mapRow = (row: DbRow): Form => ({
   id: row.id as string,
-  slug: (row.slug as string | null) ?? "",
+  slug: row.slug as string,
   tableId: row.table_id as string,
   name: row.name as string,
   config: normalizeFormConfig(row.config),
@@ -133,15 +133,6 @@ const mapRow = (row: DbRow): Form => ({
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-const slugTakenInTable = (tableId: string) => async (slug: string): Promise<boolean> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(
-      SELECT 1 FROM grids.forms
-      WHERE table_id = ${tableId}::uuid AND slug = ${slug} AND deleted_at IS NULL
-    ) AS exists
-  `;
-  return Boolean(row?.exists);
-};
 
 /**
  * Look up a form by (tableId, slug). Used for slug-based URL routing.
@@ -308,22 +299,23 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
   if (name.length === 0) return fail(err.badInput("name required"));
   const config = input.config ?? { fields: [] };
   const publicToken = input.isPublic ? generatePublicToken() : null;
-  const slug = await generateUniqueSlug(slugTakenInTable(input.tableId));
-
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.forms (slug, table_id, name, config, public_token, owner_user_id, position)
-    VALUES (
-      ${slug},
-      ${input.tableId}::uuid,
-      ${name},
-      ${config}::jsonb,
-      ${publicToken},
-      ${actorId}::uuid,
-      COALESCE((SELECT MAX(position) + 1 FROM grids.forms WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL), 0)
-    )
-    RETURNING ${COLS}
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await insertWithSlug<DbRow>(async (slug) => {
+    const [r] = await sql<DbRow[]>`
+      INSERT INTO grids.forms (slug, table_id, name, config, public_token, owner_user_id, position)
+      VALUES (
+        ${slug},
+        ${input.tableId}::uuid,
+        ${name},
+        ${config}::jsonb,
+        ${publicToken},
+        ${actorId}::uuid,
+        COALESCE((SELECT MAX(position) + 1 FROM grids.forms WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL), 0)
+      )
+      RETURNING ${COLS}
+    `;
+    if (!r) throw new Error("insert returned no row");
+    return r;
+  }, "idx_grids_forms_slug");
   const form = mapRow(row);
   await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { form: { old: null, new: { id: form.id, name: form.name } } } });
   return ok(form);

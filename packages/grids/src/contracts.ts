@@ -8,10 +8,19 @@ export {
   createPagination,
 } from "@valentinkolb/cloud/contracts";
 
+/**
+ * Persisted slug for grids resources: 5-character base62 alphanumeric.
+ * Mirrors the DB CHECK constraint (`slug ~ '^[A-Za-z0-9]{5}$'`) so the
+ * contract layer and the storage layer cannot disagree. Service mappers
+ * read `row.slug` directly; if a row lacks the column the throw bubbles
+ * up rather than getting silently coerced to "" (we hit that bug once).
+ */
+export const SlugSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
+
 // ── Base ──────────────────────────────────────────────────────────────────
 export const BaseSchema = z.object({
   id: z.string().uuid(),
-  slug: z.string(),
+  slug: SlugSchema,
   name: z.string(),
   description: z.string().nullable(),
   createdBy: z.string().uuid().nullable(),
@@ -45,7 +54,7 @@ export type UpdateBaseInput = z.infer<typeof UpdateBaseSchema>;
 // ── Table ─────────────────────────────────────────────────────────────────
 export const TableSchema = z.object({
   id: z.string().uuid(),
-  slug: z.string(),
+  slug: SlugSchema,
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -71,7 +80,7 @@ export const UpdateTableSchema = z.object({
 // ── Field ─────────────────────────────────────────────────────────────────
 export const FieldSchema = z.object({
   id: z.string().uuid(),
-  slug: z.string(),
+  slug: SlugSchema,
   tableId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -409,6 +418,12 @@ export const TableQueryResponseSchema = z.object({
   nextCursor: z.string().nullable(),
   /** Group-mode flag (only set when groupBy is non-empty). */
   explode: z.boolean().optional(),
+  /** UUID → presentable label for relation-typed bucket keys (group
+   *  mode) or relation-cell values (list mode). The UI reads this map
+   *  before falling back to UUID-prefix or "—" so a grouped relation
+   *  column doesn't show raw ids the way it would without a label
+   *  resolver step on the response side. */
+  relationLabels: z.record(z.string(), z.string()).optional(),
 });
 export type TableQueryBody = z.infer<typeof TableQueryBodySchema>;
 export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
@@ -416,7 +431,7 @@ export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
 // ── View entity ───────────────────────────────────────────────────────────
 export const ViewSchema = z.object({
   id: z.string().uuid(),
-  slug: z.string(),
+  slug: SlugSchema,
   tableId: z.string().uuid(),
   name: z.string(),
   /** Canonical query — replaces the old loose `config: unknown` blob. */
@@ -648,7 +663,7 @@ export type DashboardConfig = z.infer<typeof DashboardConfigSchema>;
 // Dashboard entity — same row shape as views, scoped per-base.
 export const DashboardSchema = z.object({
   id: z.string().uuid(),
-  slug: z.string(),
+  slug: SlugSchema,
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),

@@ -2,7 +2,7 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { grantAccess } from "./access";
-import { generateUniqueSlug } from "./slug";
+import { insertWithSlug } from "./slug";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -20,13 +20,6 @@ const mapRow = (row: DbRow): Base => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
-
-const slugTaken = async (slug: string): Promise<boolean> => {
-  const [row] = await sql<{ exists: boolean }[]>`
-    SELECT EXISTS(SELECT 1 FROM grids.bases WHERE slug = ${slug} AND deleted_at IS NULL) AS exists
-  `;
-  return Boolean(row?.exists);
-};
 
 /**
  * Lists active (non-soft-deleted) bases. Pass `includeDeleted: true`
@@ -101,14 +94,15 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
 
-  const slug = await generateUniqueSlug(slugTaken);
-
-  const [row] = await sql<DbRow[]>`
-    INSERT INTO grids.bases (slug, name, description, created_by)
-    VALUES (${slug}, ${name}, ${input.description ?? null}, ${actorId}::uuid)
-    RETURNING ${COLS}
-  `;
-  if (!row) return fail(err.internal("insert failed"));
+  const row = await insertWithSlug<DbRow>(async (slug) => {
+    const [r] = await sql<DbRow[]>`
+      INSERT INTO grids.bases (slug, name, description, created_by)
+      VALUES (${slug}, ${name}, ${input.description ?? null}, ${actorId}::uuid)
+      RETURNING ${COLS}
+    `;
+    if (!r) throw new Error("insert returned no row");
+    return r;
+  }, "idx_grids_bases_slug");
   const base = mapRow(row);
 
   // Auto-grant admin to the creator so they can immediately use the new base.
