@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { parseFormula, collectFieldRefs } from "../formula/parser";
 
 export type FieldDependent = {
   /** Kind of resource that references the field. */
@@ -51,16 +52,42 @@ export const findFieldRefContexts = (config: Record<string, unknown>, fieldId: s
  * before mutating or deleting the field. Mutation paths consume the result
  * to either auto-cleanup non-blocking refs or surface a "remove dependent
  * first" error to the user.
+ *
+ * Cross-table awareness: a field can be referenced by lookup/rollup
+ * fields on a DIFFERENT table (via a relation that points at the source
+ * table) — those count as blocking deps too. Previously the scan was
+ * limited to fields on the same table, so deleting a target-table field
+ * referenced by another table's rollup/displayFieldId silently left
+ * stale config (chunk 4 important).
+ *
+ * Formula references are extracted via the formula parser, not a regex,
+ * so both `{uuid}` and `#slug` syntaxes resolve correctly (chunk 6
+ * important — slug is the canonical persisted form per locked decision).
  */
 export const getFieldDependents = async (fieldId: string): Promise<FieldDependent[]> => {
   const dependents: FieldDependent[] = [];
 
-  // ── views ─────────────────────────────────────────────
-  const viewRows = await sql<DbRow[]>`
-    SELECT v.id, v.name, v.config
-    FROM grids.views v
-    JOIN grids.fields f ON f.table_id = v.table_id
+  // Fetch the source field once so we know its table + base scope. We
+  // also need the table's other fields' slug→id map to resolve `#slug`
+  // formula refs, and the other tables in the same base for the cross-
+  // table relation/lookup/rollup scan.
+  const [sourceRow] = await sql<DbRow[]>`
+    SELECT f.id::text AS id, f.table_id::text AS table_id, t.base_id::text AS base_id
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id
     WHERE f.id = ${fieldId}::uuid
+  `;
+  if (!sourceRow) return dependents;
+  const sourceTableId = sourceRow.table_id as string;
+  const sourceBaseId = sourceRow.base_id as string;
+
+  // ── views ─────────────────────────────────────────────
+  // v3 renamed views.config → views.query. The previous SELECT used
+  // `v.config` and 500'd at runtime (chunk 4 critical).
+  const viewRows = await sql<DbRow[]>`
+    SELECT v.id, v.name, v.query AS config
+    FROM grids.views v
+    WHERE v.table_id = ${sourceTableId}::uuid AND v.deleted_at IS NULL
   `;
   for (const row of viewRows) {
     const config = (row.config as Record<string, unknown>) ?? {};
@@ -82,8 +109,7 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   const formRows = await sql<DbRow[]>`
     SELECT fo.id, fo.name, fo.config
     FROM grids.forms fo
-    JOIN grids.fields f ON f.table_id = fo.table_id
-    WHERE f.id = ${fieldId}::uuid
+    WHERE fo.table_id = ${sourceTableId}::uuid AND fo.deleted_at IS NULL
   `;
   for (const row of formRows) {
     const config = (row.config as { fields?: Array<{ fieldId?: string }> }) ?? {};
@@ -99,27 +125,66 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     }
   }
 
-  // ── lookup / rollup / formula / relation-display field configs ─────
-  // Computed fields reference other fields by ID inside their config
-  // blob. Deleting a referenced field MUST block — silently leaving a
-  // stale fieldId would render the computed field permanently empty.
-  const fieldRows = await sql<DbRow[]>`
-    SELECT id, name, type, config
+  // ── computed / link field configs across the WHOLE base ──────
+  // Lookup/rollup on table B can reference fields on table A through
+  // a relation that points at A. relation.displayFieldId likewise
+  // points across tables. Without scanning the whole base we'd miss
+  // these (chunk 4 important).
+  const candidateFields = await sql<DbRow[]>`
+    SELECT id, name, type, table_id::text AS table_id, config
     FROM grids.fields
-    WHERE table_id IN (SELECT table_id FROM grids.fields WHERE id = ${fieldId}::uuid)
-      AND deleted_at IS NULL
-      AND id <> ${fieldId}::uuid
-      AND type IN ('lookup', 'rollup', 'formula', 'relation')
+    JOIN grids.tables ON grids.tables.id = grids.fields.table_id
+    WHERE grids.tables.base_id = ${sourceBaseId}::uuid
+      AND grids.fields.deleted_at IS NULL
+      AND grids.fields.id <> ${fieldId}::uuid
+      AND grids.fields.type IN ('lookup', 'rollup', 'formula', 'relation')
   `;
-  for (const row of fieldRows) {
+
+  // For each candidate, decide if it references our fieldId. Formula
+  // refs need parser-level resolution (slug map) — we build the slug
+  // map per source table (the candidate's table, since formulas
+  // reference fields on their OWN table).
+  const slugMapsByTable = new Map<string, Record<string, string>>();
+  const ensureSlugMap = async (tableId: string): Promise<Record<string, string>> => {
+    let map = slugMapsByTable.get(tableId);
+    if (map) return map;
+    const rows = await sql<{ id: string; slug: string }[]>`
+      SELECT id::text AS id, slug
+      FROM grids.fields
+      WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL AND slug IS NOT NULL
+    `;
+    map = Object.fromEntries(rows.map((r) => [r.slug, r.id]));
+    slugMapsByTable.set(tableId, map);
+    return map;
+  };
+
+  for (const row of candidateFields) {
     const config = (row.config as Record<string, unknown>) ?? {};
+    const candidateTableId = row.table_id as string;
     const refs: string[] = [];
+
+    // Direct-id refs are flat strings in config — the same shape on
+    // every table.
     if (typeof config.relationFieldId === "string") refs.push(config.relationFieldId);
     if (typeof config.targetFieldId === "string") refs.push(config.targetFieldId);
     if (typeof config.displayFieldId === "string") refs.push(config.displayFieldId);
+
+    // Formula refs go through the parser so both `{uuid}` and `#slug`
+    // work. The resolved fieldId set goes into `refs` alongside the
+    // direct-id refs above.
     if (typeof config.expression === "string") {
-      for (const m of config.expression.matchAll(/\{([^}]+)\}/g)) refs.push(m[1]!.trim());
+      const parsed = parseFormula(config.expression);
+      if (parsed.ok) {
+        const slugMap = await ensureSlugMap(candidateTableId);
+        for (const ref of collectFieldRefs(parsed.ast)) {
+          // collectFieldRefs returns the raw string after `#` or
+          // inside `{}`. Resolve through the slug map; if it's a UUID
+          // it passes through unchanged.
+          refs.push(slugMap[ref] ?? ref);
+        }
+      }
     }
+
     if (refs.includes(fieldId)) {
       const type = row.type as string;
       dependents.push({
