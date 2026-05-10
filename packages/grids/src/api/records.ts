@@ -7,12 +7,6 @@ import { gridsService } from "../service";
 import {
   GridRecordSchema,
   RecordPayloadSchema,
-  RecordListQuerySchema,
-  RecordListResponseSchema,
-  AggregateBodySchema,
-  AggregateResponseSchema,
-  GroupBodySchema,
-  GroupResponseSchema,
   FilterTreeSchema,
   SortSpecSchema,
 } from "../contracts";
@@ -69,36 +63,10 @@ const ExportQuerySchema = z.object({
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
-  .get(
-    "/by-table/:tableId",
-    describeRoute({
-      tags: ["Grids:Record"],
-      summary: "List records of a table (keyset paginated)",
-      responses: {
-        200: jsonResponse(RecordListResponseSchema, "Records page"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-      },
-    }),
-    v("query", RecordListQuerySchema),
-    async (c) => {
-      const tableId = c.req.param("tableId");
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const query = c.req.valid("query");
-      return respond(c, () =>
-        gridsService.record.list({
-          tableId,
-          cursor: query.cursor ?? null,
-          limit: query.limit,
-          includeDeleted: query.includeDeleted,
-          filter: query.filter ?? null,
-          sort: query.sort,
-        }),
-      );
-    },
-  )
+  // GET /by-table/:tableId (list) deleted in Wave 6.1.
+  // The unified POST /tables/:id/query (api/tables.ts) supersedes it
+  // with the same filter/sort/cursor semantics plus search merging.
+  // No frontend callers remained at the time of removal.
 
   .post(
     "/by-table/:tableId",
@@ -235,66 +203,10 @@ const app = new Hono<AuthContext>()
     },
   )
 
-  .post(
-    "/aggregate/:tableId",
-    describeRoute({
-      tags: ["Grids:Record"],
-      summary: "Compute footer aggregates over a (filtered) table",
-      responses: {
-        200: jsonResponse(AggregateResponseSchema, "Aggregate values keyed by <fieldId>__<agg>"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
-      },
-    }),
-    v("json", AggregateBodySchema),
-    async (c) => {
-      const tableId = c.req.param("tableId");
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const body = c.req.valid("json");
-      const result = await gridsService.record.aggregate({
-        tableId,
-        filter: body.filter ?? null,
-        requests: body.requests,
-      });
-      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
-      return c.json({ results: result.data });
-    },
-  )
-
-  .post(
-    "/group/:tableId",
-    describeRoute({
-      tags: ["Grids:Record"],
-      summary:
-        "Group records by 1–3 keys and emit per-bucket aggregations (classic SQL GROUP BY)",
-      responses: {
-        200: jsonResponse(GroupResponseSchema, "Grouped buckets with cursor"),
-        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
-      },
-    }),
-    v("json", GroupBodySchema),
-    async (c) => {
-      const tableId = c.req.param("tableId");
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const body = c.req.valid("json");
-      const result = await gridsService.record.group({
-        tableId,
-        filter: body.filter ?? null,
-        groupBy: body.groupBy,
-        aggregations: body.aggregations ?? [],
-        cursor: body.cursor ?? null,
-        limit: body.limit,
-        includeDeleted: body.includeDeleted,
-      });
-      if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
-      return c.json(result.data); // { buckets, nextCursor, explode }
-    },
-  )
+  // POST /aggregate/:tableId and POST /group/:tableId deleted in Wave
+  // 6.1. The unified POST /tables/:id/query (api/tables.ts) handles
+  // both group and footer-aggregate dispatch. No frontend callers
+  // remained at the time of removal.
 
   .post(
     "/:tableId/:recordId/restore",
