@@ -397,6 +397,33 @@ if [[ -n "${RELATION_FIELD_ID:-}" ]]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────
+# Path-based SSR routes — verify Hono dispatches `/table/<x>`,
+# `/dashboard/<x>` etc. without 404. We don't follow redirects /
+# render HTML; a 200 is enough to confirm the route is registered.
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ path-based SSR routes ━━━"
+
+http GET /app/grids/$BASE_SHORT_ID
+expect_status 200 "GET /app/grids/<base>"
+
+http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID
+expect_status 200 "GET /app/grids/<base>/table/<table>"
+
+http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID/edit
+expect_status 200 "GET /app/grids/<base>/table/<table>/edit"
+
+http GET /app/grids/$BASE_SHORT_ID/settings
+expect_status 200 "GET /app/grids/<base>/settings"
+
+# Old query-param URL should also still work (the SSR handler falls
+# back to query params when path params are absent). Acceptance gate
+# for ad-hoc bookmarks the user might still have around.
+http GET "/app/grids/$BASE_SHORT_ID?table=$TABLE_SHORT_ID"
+expect_status 200 "legacy query-param URL still resolves"
+
+# ────────────────────────────────────────────────────────────────────
 # Cleanup
 # ────────────────────────────────────────────────────────────────────
 

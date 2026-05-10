@@ -220,16 +220,12 @@ const main = async () => {
   }
   log(`books × ${bookIds.length}`);
 
-  // Mark genre & author back-references as a rollup demo on the AUTHOR side.
-  const A_BOOK_COUNT = await mkField(
-    authorsTable,
-    "book_count",
-    "rollup",
-    { relationFieldId: B_AUTHOR, targetFieldId: B_TITLE, agg: "count" },
-  );
-  // Note: authors-side rollup follows the REVERSE relation. Slice 4's
-  // computed-projections only handles forward relations; the reverse
-  // case lands in v3.1. For now the rollup field exists but renders 0.
+  // Note: an inverse rollup (books-per-author on the authors table)
+  // would require the relation field to live on the authors table,
+  // which it doesn't — it's on books, pointing at authors. Reverse-
+  // relation rollups land in v3.1. Skipped here so the seed completes;
+  // the books table itself still demonstrates the forward rollup case
+  // (rollup over a relation that LIVES on the same table) below.
 
   // ──────────────────────────────────────────────────────────────────
   // CUSTOMERS
@@ -543,8 +539,8 @@ const main = async () => {
 
   console.log("");
   console.log("✓ Demo seeded.");
-  console.log(`  open: /app/grids/${baseId}`);
-  console.log(`  dashboard: /app/grids/${baseId}?dashboard=${dashboard.shortId}`);
+  console.log(`  open:      /app/grids/${baseRes.data.shortId}`);
+  console.log(`  dashboard: /app/grids/${baseRes.data.shortId}/dashboard/${dashboard.shortId}`);
   console.log(`  public form: /share/grids/forms/${formToken}`);
 
   await sql.end();

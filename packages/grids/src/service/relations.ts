@@ -340,9 +340,27 @@ export const buildRelationLabelCache = async (
 
 /**
  * Resolve presentable labels for a batch of (targetTable, recordId)
- * pairs. Same labelling rules as buildRelationLabelCache: presentable
- * fields joined by " · ", fall back to the relation's `displayFieldId`,
- * then to an 8-char id prefix. ONE SQL round-trip per target table.
+ * pairs. ONE SQL round-trip per target table.
+ *
+ * Label-resolution rule (single source of truth, evaluated top-down):
+ *
+ *   1. relation.config.displayFieldId — the relation-owner's explicit
+ *      per-relation override. Wins over everything when set AND points
+ *      at a non-empty value on the target row.
+ *   2. presentable fields on the target table, joined by " · " in
+ *      position order. The table-owner's "what represents a row in
+ *      this table" decision.
+ *   3. First non-deleted text-shaped field on the target table.
+ *      Defensive fallback so a relation always renders something
+ *      readable even when nobody configured anything.
+ *   4. 8-char id prefix. Last resort.
+ *
+ * Why displayFieldId now beats presentable (was the other way around
+ * pre-cleanup): an explicit per-relation setting was being silently
+ * overridden by the table's presentable flags, which surprised users
+ * who configured displayFieldId expecting it to take effect. The new
+ * order matches "more specific config wins" — table-level convention
+ * provides the default, relation-level override applies on top.
  *
  * Splits out so that callers operating on group buckets (whose keys are
  * already raw target-record UUIDs, not records on the source table)
@@ -355,12 +373,28 @@ export const resolveLabelsByTargetTable = async (
   const cache: Record<string, string> = {};
   if (idsByTargetTable.size === 0) return cache;
 
+  const TEXT_KINDS = new Set([
+    "text",
+    "longtext",
+    "email",
+    "url",
+    "phone",
+    "slug",
+    "barcode",
+    "isbn",
+  ]);
+
   for (const [targetTableId, idSet] of idsByTargetTable) {
     if (idSet.size === 0) continue;
     const targetFields = await listFields(targetTableId);
-    const presentable = targetFields
-      .filter((f) => !f.deletedAt && f.presentable)
+    const alive = targetFields.filter((f) => !f.deletedAt);
+    const presentable = alive
+      .filter((f) => f.presentable)
       .sort((a, b) => a.position - b.position);
+    const firstText = alive
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .find((f) => TEXT_KINDS.has(f.type));
     const displayFieldId = fieldsByTargetTable.get(targetTableId)?.displayFieldId;
     const idArr = `{${[...idSet].join(",")}}`;
     const rows = await sql<DbRow[]>`
@@ -373,18 +407,27 @@ export const resolveLabelsByTargetTable = async (
     for (const row of rows) {
       const id = row.id as string;
       const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
-      let label: string;
-      if (presentable.length > 0) {
+      let label: string | null = null;
+
+      // 1. per-relation displayFieldId override
+      if (displayFieldId && data[displayFieldId] != null) {
+        const v = formatLabelPart(data[displayFieldId]);
+        if (v.length > 0) label = v;
+      }
+      // 2. presentable fields joined
+      if (label === null && presentable.length > 0) {
         const parts = presentable
           .map((f) => formatLabelPart(data[f.id]))
           .filter((s) => s.length > 0);
-        label = parts.length > 0 ? parts.join(" · ") : id.slice(0, 8);
-      } else if (displayFieldId && data[displayFieldId] != null) {
-        label = formatLabelPart(data[displayFieldId]) || id.slice(0, 8);
-      } else {
-        label = id.slice(0, 8);
+        if (parts.length > 0) label = parts.join(" · ");
       }
-      cache[id] = label;
+      // 3. first text-shaped field
+      if (label === null && firstText && data[firstText.id] != null) {
+        const v = formatLabelPart(data[firstText.id]);
+        if (v.length > 0) label = v;
+      }
+      // 4. id prefix fallback
+      cache[id] = label ?? id.slice(0, 8);
     }
   }
   return cache;
