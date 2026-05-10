@@ -94,6 +94,14 @@ class ScriptOutputWidget extends WidgetType {
    *  re-run / widget destroy so handlers don't leak across runs.
    *  Codex review on commit 7ee5fdc, finding 6. */
   private disposers: Array<() => void> = [];
+  /** Set true once the widget is permanently torn down (CM
+   *  destroyed it because the source changed and a new widget
+   *  replaces it). Late `registerDisposer` calls after this point
+   *  must invoke their teardown immediately, otherwise async
+   *  scripts that `await` before calling `kit.state.observe`
+   *  would leak observers into the old (already-disposed) widget
+   *  — codex review on commit 6978ae7, finding 1. */
+  private disposed = false;
 
   constructor(
     private readonly source: string,
@@ -115,6 +123,7 @@ class ScriptOutputWidget extends WidgetType {
   }
 
   override destroy(): void {
+    this.disposed = true;
     if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -165,7 +174,24 @@ class ScriptOutputWidget extends WidgetType {
       ytext: this.config.ytext,
       ydoc: this.config.ydoc,
       outputEl: this.container,
-      registerDisposer: (fn) => this.disposers.push(fn),
+      registerDisposer: (fn) => {
+        // Late registration race (codex review on commit 6978ae7,
+        // finding 1): an async script may `await` before calling
+        // `kit.state.observe`. If the widget was destroyed during
+        // that await, the disposer list has already been drained
+        // and pushing now would leak the handler forever. When
+        // already disposed, invoke the teardown immediately so
+        // it's never tied to the dead widget.
+        if (this.disposed) {
+          try {
+            fn();
+          } catch (err) {
+            console.error("[kit dispose late]", err);
+          }
+          return;
+        }
+        this.disposers.push(fn);
+      },
     });
     void runScript(this.source, kit, this.container);
   }

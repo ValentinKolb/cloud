@@ -62,19 +62,20 @@ const API_PER_PAGE_MAX = 100;
  *  path when no post-filter is in use). */
 const SEARCH_FETCH_CAP = 1000;
 
-/** Walk through paginated `/:id/notes` until exhausted (or until
- *  `SEARCH_FETCH_CAP` is reached). Used by the slow path of
- *  `search()` and by `list()` (which wants every note in the
- *  notebook). Server-side `q` is forwarded when given. */
-const fetchAllPages = async (
+/** Walk through paginated `/:id/notes` until either the response
+ *  runs dry OR `maxItems` is reached. Used by:
+ *   - `list()` — wants every note up to `SEARCH_FETCH_CAP`
+ *   - search slow path — same
+ *   - search fast path — wants `userOffset + userLimit` notes
+ *  Server-side `q` is forwarded when given. */
+const fetchPagesUpTo = async (
   notebookId: string,
+  maxItems: number,
   searchQuery?: string,
 ): Promise<KitNote[]> => {
   const out: KitNote[] = [];
   let page = 1;
-  // The fast-path callers cap at the user's `limit` already; this
-  // helper is only used when we need EVERYTHING.
-  while (out.length < SEARCH_FETCH_CAP) {
+  while (out.length < maxItems) {
     const apiQuery: Record<string, string> = {
       per_page: String(API_PER_PAGE_MAX),
       page: String(page),
@@ -129,7 +130,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     // Walk every page so callers see the full notebook, not just
     // the first 100. Capped at SEARCH_FETCH_CAP to avoid runaway
     // fetches; document if anyone needs more.
-    return fetchAllPages(ctx.notebookId);
+    return fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP);
   };
 
   const get = async (shortId: string): Promise<KitNote | null> => {
@@ -162,29 +163,21 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       q.updatedBefore !== undefined;
 
     if (!hasPostFilter) {
-      // Fast path: API can answer this query natively. Translate the
-      // user's offset/limit into page/per_page directly.
-      const perPage = Math.min(userLimit, API_PER_PAGE_MAX);
-      const apiQuery: Record<string, string> = {
-        per_page: String(perPage),
-        page: String(Math.floor(userOffset / perPage) + 1),
-      };
-      if (q.search) apiQuery.q = q.search;
-      const res = await apiClient[":id"].notes.$get({
-        param: { id: ctx.notebookId },
-        query: apiQuery,
-      });
-      if (!res.ok) throw new Error("kit.notes.search: API call failed");
-      const payload = (await res.json()) as { data: ApiNote[] };
-      return payload.data.map(toKitNote);
+      // Fast path: API can answer this query natively. Walk pages
+      // until we have `userOffset + userLimit` notes, then slice.
+      // Old code asked the API for `per_page=userLimit` which the
+      // server clamps at `API_PER_PAGE_MAX=100` — so a search with
+      // limit > 100 would silently truncate (codex review on
+      // commit 6978ae7, finding 2). Walking pages avoids that.
+      const needed = userOffset + userLimit;
+      const slice = await fetchPagesUpTo(ctx.notebookId, needed, q.search);
+      return slice.slice(userOffset, userOffset + userLimit);
     }
 
     // Slow path: tags / date filters aren't server-side, so we
     // have to fetch, filter, then paginate client-side. Walk the
-    // pages until exhausted or until the safety cap. Codex review
-    // on commit 7ee5fdc flagged the previous order (paginate →
-    // filter) as miss-on-page-boundary; this fixes that.
-    const all = await fetchAllPages(ctx.notebookId, q.search);
+    // pages until exhausted or until the safety cap.
+    const all = await fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP, q.search);
     const filtered = postFilter(all, q);
     return filtered.slice(userOffset, userOffset + userLimit);
   };
