@@ -194,7 +194,11 @@ export const compileSort = (
   // the user's primary intent (newest/oldest reading direction).
   const pageDirection: "asc" | "desc" = effective[0]?.direction ?? "asc";
   const idDirSql = pageDirection === "desc" ? sql`DESC` : sql`ASC`;
-  const orderBy = (orderParts.length > 0 ? [...orderParts, sql`id ${idDirSql}`] : [sql`id ${idDirSql}`])
+  // r.id (not bare id) — records.list now JOINs grids.tables and
+  // grids.bases for the live-parent invariant, and all three tables
+  // carry an `id` column. An unqualified reference raises 42702
+  // "column reference 'id' is ambiguous" at runtime.
+  const orderBy = (orderParts.length > 0 ? [...orderParts, sql`r.id ${idDirSql}`] : [sql`r.id ${idDirSql}`])
     .reduce((acc, cur) => sql`${acc}, ${cur}`);
 
   // Build cursor where clause if a cursor is present.
@@ -203,8 +207,8 @@ export const compileSort = (
     if (resolved.length === 0) {
       // ID-only paging.
       cursorWhere = pageDirection === "desc"
-        ? sql`id < ${cursor.id}::uuid`
-        : sql`id > ${cursor.id}::uuid`;
+        ? sql`r.id < ${cursor.id}::uuid`
+        : sql`r.id > ${cursor.id}::uuid`;
     } else {
       // Lexicographic null-aware comparison:
       //   gt(c1, v1)
@@ -212,8 +216,8 @@ export const compileSort = (
       //   OR ...
       //   OR (eq(...) AND id (>|<) cursor_id)
       const idCompare = pageDirection === "desc"
-        ? sql`id < ${cursor.id}::uuid`
-        : sql`id > ${cursor.id}::uuid`;
+        ? sql`r.id < ${cursor.id}::uuid`
+        : sql`r.id > ${cursor.id}::uuid`;
 
       const branches: any[] = [];
       for (let i = 0; i < resolved.length; i++) {

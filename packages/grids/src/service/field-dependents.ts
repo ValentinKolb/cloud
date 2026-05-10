@@ -130,14 +130,18 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
   // a relation that points at A. relation.displayFieldId likewise
   // points across tables. Without scanning the whole base we'd miss
   // these (chunk 4 important).
+  // Both `grids.fields` and `grids.tables` carry an `id` column, so
+  // every projection has to be qualified — without aliases Postgres
+  // raises 42702 "column reference 'id' is ambiguous". Aliasing both
+  // tables also keeps the WHERE legible.
   const candidateFields = await sql<DbRow[]>`
-    SELECT id, name, type, table_id::text AS table_id, config
-    FROM grids.fields
-    JOIN grids.tables ON grids.tables.id = grids.fields.table_id
-    WHERE grids.tables.base_id = ${sourceBaseId}::uuid
-      AND grids.fields.deleted_at IS NULL
-      AND grids.fields.id <> ${fieldId}::uuid
-      AND grids.fields.type IN ('lookup', 'rollup', 'formula', 'relation')
+    SELECT f.id, f.name, f.type, f.table_id::text AS table_id, f.config
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id
+    WHERE t.base_id = ${sourceBaseId}::uuid
+      AND f.deleted_at IS NULL
+      AND f.id <> ${fieldId}::uuid
+      AND f.type IN ('lookup', 'rollup', 'formula', 'relation')
   `;
 
   // For each candidate, decide if it references our fieldId. Formula

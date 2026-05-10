@@ -221,8 +221,12 @@ export const list = async (params: {
   if (!sortCompiled.ok) return fail(err.badInput(`sort: ${sortCompiled.error}`));
   const { orderBy, cursorWhere, cursorSelect, encodeCursorFromRow } = sortCompiled.result;
 
-  const conditions: any[] = [sql`table_id = ${params.tableId}::uuid`];
-  if (!params.includeDeleted) conditions.push(sql`deleted_at IS NULL`);
+  // table_id / deleted_at must be qualified — both `r.records`,
+  // `t.tables`, and `b.bases` (joined for live-parent) carry these
+  // column names. An unqualified ref raises 42702 (chunk: 1.2 JOIN
+  // regression).
+  const conditions: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
+  if (!params.includeDeleted) conditions.push(sql`r.deleted_at IS NULL`);
   conditions.push(filterClause);
   if (cursorWhere) conditions.push(cursorWhere);
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);

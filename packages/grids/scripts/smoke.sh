@@ -1,0 +1,321 @@
+#!/usr/bin/env bash
+# Grids API smoke tests against a running local dev stack.
+#
+# What this exercises:
+#   - admin-login → session token
+#   - the wire paths most likely to surface migration / live-parent
+#     bugs (the "column ambiguous" we hit, the slug NOT-NULL+CHECK,
+#     the parent-liveness JOINs)
+#   - relation field create → record write → relation hydration on
+#     read (Wave 1.3 transactional paths)
+#   - field delete with view-config cleanup (Wave 4.6 + final-review
+#     fix)
+#   - permission edge cases (Wave 2.1/2.2/2.3)
+#
+# Each step prints PASS / FAIL with a one-line context. Set DEBUG=1
+# to also dump response bodies.
+#
+# Usage:
+#   bun run scripts/smoke.sh
+#   DEBUG=1 bun run scripts/smoke.sh
+#   BASE_URL=http://localhost:3001 bun run scripts/smoke.sh
+
+set -u  # unset-var = bug
+
+BASE_URL="${BASE_URL:-http://localhost:3000}"
+ADMIN_TOKEN="${ADMIN_TOKEN:-dev-admin}"
+DEBUG="${DEBUG:-0}"
+
+# Colour the output a little so failures pop in long logs. NO_COLOR
+# turns it off (e.g. for CI logs).
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  C_PASS=$'\033[32m'
+  C_FAIL=$'\033[31m'
+  C_DIM=$'\033[2m'
+  C_RESET=$'\033[0m'
+else
+  C_PASS=""; C_FAIL=""; C_DIM=""; C_RESET=""
+fi
+
+PASS=0
+FAIL=0
+RESPONSE_BODY=""
+RESPONSE_STATUS=""
+
+# Run a curl request. Captures status + body separately so callers can
+# assert on both. The body is read with -o so binary content (audit
+# pages with real diffs) doesn't break terminal mode.
+http() {
+  local method="$1" path="$2" body="${3:-}" extra="${4:-}"
+  local tmp
+  tmp=$(mktemp)
+  if [[ -n "$body" ]]; then
+    RESPONSE_STATUS=$(
+      curl -s -o "$tmp" -w "%{http_code}" \
+        -X "$method" "$BASE_URL$path" \
+        -H "Authorization: Bearer ${SESSION:-no-session}" \
+        -H "Content-Type: application/json" \
+        $extra \
+        --data "$body"
+    )
+  else
+    RESPONSE_STATUS=$(
+      curl -s -o "$tmp" -w "%{http_code}" \
+        -X "$method" "$BASE_URL$path" \
+        -H "Authorization: Bearer ${SESSION:-no-session}" \
+        $extra
+    )
+  fi
+  RESPONSE_BODY=$(cat "$tmp")
+  rm -f "$tmp"
+  [[ "$DEBUG" == "1" ]] && echo "  ${C_DIM}$method $path → $RESPONSE_STATUS${C_RESET}" >&2 \
+    && echo "  ${C_DIM}↳ ${RESPONSE_BODY:0:200}${C_RESET}" >&2
+}
+
+# pass <name> ; fail <name> <reason>
+pass() { PASS=$((PASS+1)); echo "${C_PASS}✓${C_RESET} $1"; }
+fail() {
+  FAIL=$((FAIL+1))
+  echo "${C_FAIL}✗${C_RESET} $1"
+  echo "  ${C_FAIL}reason:${C_RESET} $2"
+  echo "  ${C_FAIL}status:${C_RESET} $RESPONSE_STATUS"
+  echo "  ${C_FAIL}body:${C_RESET} ${RESPONSE_BODY:0:400}"
+}
+
+# Assert the last response status matches an expected code. On
+# mismatch records a FAIL with the body so the user sees what came
+# back instead of "expected 200 got 500" alone.
+expect_status() {
+  local expected="$1" name="$2"
+  if [[ "$RESPONSE_STATUS" == "$expected" ]]; then
+    pass "$name"
+  else
+    fail "$name" "expected $expected, got $RESPONSE_STATUS"
+  fi
+}
+
+# Pick a JSON value out of the last response body. jq required.
+json() { echo "$RESPONSE_BODY" | jq -r "$1"; }
+
+# Cleanup helper: tries to delete a resource but doesn't fail the
+# test run if the delete itself errors (the resource may already be
+# gone, e.g. when a previous step failed before creating it).
+cleanup_delete() {
+  local path="$1"
+  http DELETE "$path"
+  [[ "$DEBUG" == "1" ]] && echo "  ${C_DIM}cleanup: $path → $RESPONSE_STATUS${C_RESET}" >&2 || true
+}
+
+# ────────────────────────────────────────────────────────────────────
+# Setup: admin login
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ admin-login ━━━"
+http POST /api/auth/admin-login "{\"token\":\"$ADMIN_TOKEN\"}"
+if [[ "$RESPONSE_STATUS" != "200" ]]; then
+  echo "${C_FAIL}admin-login failed; bailing.${C_RESET}"
+  echo "status: $RESPONSE_STATUS"
+  echo "body:   $RESPONSE_BODY"
+  exit 1
+fi
+SESSION=$(json '.session_token')
+[[ -z "$SESSION" || "$SESSION" == "null" ]] && { echo "no session_token"; exit 1; }
+pass "admin-login → session"
+
+# ────────────────────────────────────────────────────────────────────
+# Setup: create a fresh base + table + fields for the run.
+# Each run picks a unique suffix so reruns don't collide.
+# ────────────────────────────────────────────────────────────────────
+
+SUFFIX="$(date +%s)$RANDOM"
+echo ""
+echo "━━━ setup ━━━"
+
+http POST /api/grids/bases "{\"name\":\"smoke-base-$SUFFIX\"}"
+expect_status 201 "POST /api/grids/bases → 201"
+BASE_ID=$(json '.id')
+[[ -z "$BASE_ID" || "$BASE_ID" == "null" ]] && { echo "no base id"; exit 1; }
+
+http POST /api/grids/tables/by-base/$BASE_ID "{\"name\":\"items\"}"
+expect_status 201 "POST /api/grids/tables/by-base/:base → 201"
+ITEMS_TABLE_ID=$(json '.id')
+
+http POST /api/grids/tables/by-base/$BASE_ID "{\"name\":\"orders\"}"
+expect_status 201 "POST /api/grids/tables/by-base/:base (second table) → 201"
+ORDERS_TABLE_ID=$(json '.id')
+
+# Add scalar fields on items: text + number.
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"name","type":"text","required":true}'
+expect_status 201 "POST fields/items.name (text) → 201"
+NAME_FIELD_ID=$(json '.id')
+
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"price","type":"number"}'
+expect_status 201 "POST fields/items.price (number) → 201"
+PRICE_FIELD_ID=$(json '.id')
+
+# Relation field on orders → items.
+http POST /api/grids/fields/by-table/$ORDERS_TABLE_ID "{\"name\":\"item\",\"type\":\"relation\",\"config\":{\"targetTableId\":\"$ITEMS_TABLE_ID\",\"cardinality\":\"single\"}}"
+expect_status 201 "POST fields/orders.item (relation) → 201"
+RELATION_FIELD_ID=$(json '.id')
+
+# ────────────────────────────────────────────────────────────────────
+# Slug invariant (Wave 1.1): every entity got a 5-char alphanumeric slug.
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ slug invariant ━━━"
+
+http GET /api/grids/bases/$BASE_ID
+expect_status 200 "GET base"
+SLUG=$(json '.slug')
+[[ "$SLUG" =~ ^[A-Za-z0-9]{5}$ ]] && pass "base slug matches /^[A-Za-z0-9]{5}\$/" \
+  || fail "base slug shape" "got '$SLUG'"
+
+http GET /api/grids/tables/$ITEMS_TABLE_ID
+TABLE_SLUG=$(json '.slug')
+[[ "$TABLE_SLUG" =~ ^[A-Za-z0-9]{5}$ ]] && pass "table slug matches /^[A-Za-z0-9]{5}\$/" \
+  || fail "table slug shape" "got '$TABLE_SLUG'"
+
+# ────────────────────────────────────────────────────────────────────
+# Cross-base relation rejection (Wave 5.2 critical)
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ cross-base relation rejected ━━━"
+
+http POST /api/grids/bases '{"name":"smoke-other-base"}'
+OTHER_BASE_ID=$(json '.id')
+http POST /api/grids/tables/by-base/$OTHER_BASE_ID '{"name":"strangers"}'
+OTHER_TABLE_ID=$(json '.id')
+
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID "{\"name\":\"bad\",\"type\":\"relation\",\"config\":{\"targetTableId\":\"$OTHER_TABLE_ID\",\"cardinality\":\"single\"}}"
+expect_status 400 "POST cross-base relation → 400"
+
+# Cleanup the other base — keeps the dev DB tidy across reruns.
+cleanup_delete /api/grids/bases/$OTHER_BASE_ID
+
+# ────────────────────────────────────────────────────────────────────
+# Decimal config invariant (Wave 5.2): scale > precision rejected.
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ decimal config invariant ━━━"
+
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"badnum","type":"decimal","config":{"precision":5,"scale":10}}'
+expect_status 400 "POST decimal scale>precision → 400"
+
+# ────────────────────────────────────────────────────────────────────
+# Record CRUD + transactional create + relation hydration (Wave 1.3)
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ records + relations ━━━"
+
+http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"widget\",\"$PRICE_FIELD_ID\":99.99}"
+expect_status 201 "POST item record → 201"
+ITEM_REC_ID=$(json '.id')
+
+http POST /api/grids/records/by-table/$ORDERS_TABLE_ID "{\"$RELATION_FIELD_ID\":[\"$ITEM_REC_ID\"]}"
+expect_status 201 "POST order with relation link → 201"
+ORDER_REC_ID=$(json '.id')
+
+# Read it back through the unified query endpoint — exercises records.list
+# + record_links hydration + the live-parent JOINs.
+http POST /api/grids/tables/$ORDERS_TABLE_ID/query '{"query":{}}'
+expect_status 200 "POST tables/:id/query (orders) → 200"
+HYDRATED=$(json ".items[] | select(.id==\"$ORDER_REC_ID\") | .data[\"$RELATION_FIELD_ID\"][0]")
+[[ "$HYDRATED" == "$ITEM_REC_ID" ]] && pass "relation hydrated on list" \
+  || fail "relation hydration" "expected '$ITEM_REC_ID', got '$HYDRATED'"
+
+# ────────────────────────────────────────────────────────────────────
+# Audit cross-table leak (Wave 2.4)
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ audit scoping ━━━"
+
+# Legitimate audit lookup returns the create entry.
+http GET /api/grids/records/$ITEMS_TABLE_ID/$ITEM_REC_ID/audit
+expect_status 200 "GET audit (legit table+record) → 200"
+AUDIT_COUNT=$(json '.items | length')
+[[ "$AUDIT_COUNT" -ge 1 ]] && pass "audit returns ≥1 entry for legit pair" \
+  || fail "audit legit count" "got $AUDIT_COUNT"
+
+# Wrong-table guess — record exists, but in a different table. Must
+# return empty (chunk 7 critical: was leaking).
+http GET /api/grids/records/$ORDERS_TABLE_ID/$ITEM_REC_ID/audit
+expect_status 200 "GET audit (wrong-table guess) → 200"
+LEAKED=$(json '.items | length')
+[[ "$LEAKED" == "0" ]] && pass "audit empty for wrong-table guess (no leak)" \
+  || fail "audit cross-table leak" "got $LEAKED entries instead of 0"
+
+# ────────────────────────────────────────────────────────────────────
+# Field-dependents + saved-view cleanup on delete (Critical #11)
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ field-dependents + view cleanup ━━━"
+
+# Create a saved view that filters by price. Deleting price should
+# auto-strip the filter from the view's stored query.
+http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "{\"name\":\"expensive\",\"shared\":true,\"query\":{\"filter\":{\"op\":\"AND\",\"filters\":[{\"fieldId\":\"$PRICE_FIELD_ID\",\"op\":\">\",\"value\":50}]}}}"
+expect_status 201 "POST view with price filter → 201"
+VIEW_ID=$(json '.id')
+
+http DELETE /api/grids/fields/$PRICE_FIELD_ID
+expect_status 204 "DELETE price field → 204"
+
+# View now exists and the filter has the price ref stripped.
+http GET /api/grids/views/$VIEW_ID
+expect_status 200 "GET view after price delete → 200"
+FILTER_REFS=$(json '.query.filter // empty | tostring')
+if [[ "$FILTER_REFS" != *"$PRICE_FIELD_ID"* ]]; then
+  pass "view filter no longer references deleted field"
+else
+  fail "view cleanup" "filter still mentions $PRICE_FIELD_ID: $FILTER_REFS"
+fi
+
+# ────────────────────────────────────────────────────────────────────
+# Permission resolver: explicit deny shadows inherited grant (Wave 2.1)
+# ────────────────────────────────────────────────────────────────────
+# The dev admin bypasses ACLs (platform admin), so we can't see deny
+# behaviour from this session — but we can at least exercise the gate
+# code path by hitting a 404 path consistent with non-existent ids.
+
+echo ""
+echo "━━━ negative paths ━━━"
+
+http GET /api/grids/views/00000000-0000-0000-0000-000000000000
+expect_status 404 "GET non-existent view → 404"
+
+http GET /api/grids/dashboards/00000000-0000-0000-0000-000000000000
+expect_status 404 "GET non-existent dashboard → 404"
+
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query '{"query":{"sort":[{"fieldId":"00000000-0000-0000-0000-000000000000","direction":"asc"}]}}'
+expect_status 400 "POST query with unknown sort field → 400"
+
+# Sort on a relation field — Wave 4.1 made this a clean 400 instead
+# of silently sorting all-NULL. Skip if we hit timing — relation
+# field id may not always populate; fail-soft.
+if [[ -n "${RELATION_FIELD_ID:-}" ]]; then
+  http POST /api/grids/tables/$ORDERS_TABLE_ID/query "{\"query\":{\"sort\":[{\"fieldId\":\"$RELATION_FIELD_ID\",\"direction\":\"asc\"}]}}"
+  expect_status 400 "POST query sort on relation field → 400"
+fi
+
+# ────────────────────────────────────────────────────────────────────
+# Cleanup
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ cleanup ━━━"
+cleanup_delete /api/grids/bases/$BASE_ID
+
+# ────────────────────────────────────────────────────────────────────
+# Summary
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ summary ━━━"
+echo "${C_PASS}PASS:${C_RESET} $PASS    ${C_FAIL}FAIL:${C_RESET} $FAIL"
+[[ "$FAIL" -eq 0 ]] && exit 0 || exit 1

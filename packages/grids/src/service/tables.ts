@@ -31,16 +31,19 @@ export const listByBase = async (
 ): Promise<Table[]> => {
   // Live-parent invariant: tables of a trashed base never list (the trash
   // flow operates top-down — restore the base first to access its tables).
+  // SELECT t.* (not the bare COLS list) — both `tables.id` and `bases.id`
+  // exist after the JOIN, so unqualified column names raise 42702. mapRow
+  // picks the columns it cares about by name; extras are ignored.
   const rows = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT ${COLS}
+        SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.base_id = ${baseId}::uuid
         ORDER BY t.position, t.created_at
       `
     : await sql<DbRow[]>`
-        SELECT ${COLS}
+        SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL
@@ -56,8 +59,11 @@ export const listByBase = async (
  * the base first).
  */
 export const listTrashedByBase = async (baseId: string): Promise<Table[]> => {
+  // SELECT t.* (not bare COLS) — see listByBase for rationale: both
+  // `tables.id` and `bases.id` exist after the JOIN, so unqualified
+  // column names in the projection raise 42702.
   const rows = await sql<DbRow[]>`
-    SELECT ${COLS}
+    SELECT t.*
     FROM grids.tables t
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NOT NULL
@@ -77,15 +83,17 @@ export const get = async (
   id: string,
   opts: { includeDeleted?: boolean } = {},
 ): Promise<Table | null> => {
+  // SELECT t.* — see listByBase. Bare COLS would be ambiguous after
+  // the JOIN to grids.bases (both carry `id`).
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
-        SELECT ${COLS}
+        SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.id = ${id}::uuid
       `
     : await sql<DbRow[]>`
-        SELECT ${COLS}
+        SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.id = ${id}::uuid AND t.deleted_at IS NULL
@@ -99,8 +107,9 @@ export const get = async (
  * AND for any table whose parent base is trashed (live-parent invariant).
  */
 export const getBySlug = async (baseId: string, slug: string): Promise<Table | null> => {
+  // SELECT t.* — see listByBase for rationale.
   const [row] = await sql<DbRow[]>`
-    SELECT ${COLS}
+    SELECT t.*
     FROM grids.tables t
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE t.base_id = ${baseId}::uuid AND t.slug = ${slug} AND t.deleted_at IS NULL

@@ -35,17 +35,32 @@ export const parsePgJsonRecord = (value: unknown): Record<string, unknown> | nul
 };
 
 /**
- * Classify a thrown Postgres error. Bun's sql driver surfaces the canonical
- * SQLSTATE on `.code`. Use this at service boundaries to turn
- * unique-constraint violations into typed 409 results instead of bubbling up
- * raw DB errors to API clients.
+ * Classify a thrown Postgres error. Use at service boundaries to turn
+ * unique-constraint violations into typed 409 results instead of bubbling
+ * up raw DB errors to API clients.
+ *
+ * Two driver shapes coexist in this repo:
+ *   - postgres.js: `e.code = "23505"` (the SQLSTATE directly)
+ *   - bun.sql:     `e.code = "ERR_POSTGRES_SERVER_ERROR"`, SQLSTATE on `e.errno`
+ *
+ * Checking only `e.code` silently fails on Bun (the Wave-1.1 migration
+ * idempotence bug had the same root cause). Treat either field carrying
+ * "23505" as a unique violation so the helper works regardless of which
+ * driver instantiated the error.
  */
-export type PgError = { code?: string; constraint_name?: string; detail?: string; message?: string };
+export type PgError = {
+  code?: string;
+  errno?: string;
+  constraint_name?: string;
+  detail?: string;
+  message?: string;
+};
 
 export const isUniqueViolation = (error: unknown, constraintName?: string): boolean => {
   if (!error || typeof error !== "object") return false;
   const e = error as PgError;
-  if (e.code !== "23505") return false;
+  const sqlstate = e.code === "23505" || e.errno === "23505";
+  if (!sqlstate) return false;
   if (!constraintName) return true;
   return e.constraint_name === constraintName;
 };
