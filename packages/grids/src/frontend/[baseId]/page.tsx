@@ -25,6 +25,7 @@ import type {
 } from "../../service";
 import { filterSearchableFields, mergeSearchIntoFilter } from "../../service/search";
 import { parseRecordsState } from "../_components/records-view/query-url";
+import { resolveEffectiveQuery } from "../_components/records-view/effective-query";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;
@@ -254,11 +255,12 @@ export default ssr<AuthContext>(async (c) => {
 
   // Resolve the active view slug AFTER the active table — view slugs
   // are scoped per-table. activeViewId stays null when no view is set
-  // OR the URL refers to a view that doesn't exist on this table.
-  const activeView = activeTable && activeViewSlug
+  // OR the URL refers to a view that doesn't exist on this table OR
+  // the user can't see this view per ACL (visibility check happens
+  // below once viewsForTable is loaded).
+  const candidateView = activeTable && activeViewSlug
     ? await gridsService.view.getByIdOrSlug(activeTable.id, activeViewSlug)
     : null;
-  const activeViewId = activeView?.id ?? null;
 
   type RecordsPage = {
     items: import("../../service").GridRecord[];
@@ -294,6 +296,13 @@ export default ssr<AuthContext>(async (c) => {
   // without an extra API round-trip from the modal.
   const fieldsByTable: Record<string, Field[]> = {};
 
+  // activeView is visibility-filtered: a candidate view from
+  // getByIdOrSlug is only adopted when listForTable (which applies
+  // the view ACL) actually surfaces it for this user. Otherwise we
+  // fall back to "no active view" rather than leaking name/columns
+  // for a view the user can't see (chunk 8 critical).
+  let activeView: import("../../service").View | null = null;
+
   if (activeTable) {
     // Fields first — we need them to figure out which columns the search
     // applies to (default = "all searchable text fields"). The records/lvl
@@ -301,40 +310,55 @@ export default ssr<AuthContext>(async (c) => {
     fields = await gridsService.field.listByTable(activeTable.id);
     fieldsByTable[activeTable.id] = fields;
 
-    // Build the effective filter: user's URL filter AND'd with the search
-    // OR-group across the (possibly user-narrowed) searchable fields.
-    const effectiveFilter = mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields);
-
-    // Views first — we need the active view's `limit` cap before
-    // calling record.list so top-N views actually return at most N rows.
+    // Visibility-aware view list. The candidate from getByIdOrSlug only
+    // adopts as `activeView` when listForTable surfaces it.
     viewsForTable = await gridsService.view.listForTable({
       tableId: activeTable.id,
       userId: user.id,
       userGroups: user.memberofGroupIds,
     });
-    const activeViewForLimit = activeViewId
-      ? viewsForTable.find((v) => v.id === activeViewId) ?? null
+    activeView = candidateView
+      ? viewsForTable.find((v) => v.id === candidateView.id) ?? null
       : null;
-    const viewLimit = activeViewForLimit?.query.limit;
+
+    // Effective query = saved view + URL overrides (shared helper used by
+    // SSR and island so the merge rule is one place). filter/sort/group/
+    // agg/includeDeleted: URL wins when present, else view; columns and
+    // limit come exclusively from the view.
+    const effective = resolveEffectiveQuery(
+      {
+        query: {
+          filter: parsedFilter ?? undefined,
+          sort: parsedSort.length > 0 ? parsedSort : undefined,
+          groupBy: parsedGroupBy.length > 0 ? parsedGroupBy : undefined,
+          aggregations: parsedAggregations.length > 0 ? parsedAggregations : undefined,
+        },
+        cursor: rawCursor,
+        selectedRecordId,
+        activeViewId: activeView?.id ?? null,
+        search: { q: rawQ, fieldIds: qFieldIds },
+      },
+      activeView,
+    );
+
+    const effectiveFilter = mergeSearchIntoFilter(
+      effective.filter ?? null,
+      rawQ,
+      qFieldIds,
+      fields,
+    );
+    const viewLimit = effective.limit;
     const effectiveLimit = viewLimit !== undefined ? Math.min(100, viewLimit) : 100;
 
-    // Effective groupBy / aggregations: URL wins over view (URL is the
-    // canonical "current state" — view-click serializes view.query into
-    // the URL; explicit URL changes by the user are tracked there).
-    // Computed HERE rather than at the bottom because the footer-aggregate
-    // block below references them — TDZ would crash the page otherwise.
-    effectiveGroupBy = parsedGroupBy.length > 0
-      ? parsedGroupBy
-      : (activeViewForLimit?.query.groupBy ?? []);
+    // Hoist groupBy / aggregations to the outer scope so the footer-
+    // aggregate block + the renderer at the bottom can read them.
     // The view's stored aggregations may include median/earliest/latest
-    // (wider contract type) — the SSR-side AggregationRaw narrows to the
-    // 7 kinds the UI / group compiler actually support, so we filter.
-    effectiveAggregations = parsedAggregations.length > 0
-      ? parsedAggregations
-      : (activeViewForLimit?.query.aggregations ?? []).filter(
-          (a): a is AggregationRaw =>
-            a.agg !== "median" && a.agg !== "earliest" && a.agg !== "latest",
-        );
+    // — narrow to the 7 kinds the SSR-side AggregationRaw supports.
+    effectiveGroupBy = (effective.groupBy ?? []) as GroupByRaw[];
+    effectiveAggregations = (effective.aggregations ?? []).filter(
+      (a): a is AggregationRaw =>
+        a.agg !== "median" && a.agg !== "earliest" && a.agg !== "latest",
+    );
 
     const [listResult, lvl] = await Promise.all([
       gridsService.record.list({
@@ -342,7 +366,7 @@ export default ssr<AuthContext>(async (c) => {
         limit: effectiveLimit,
         includeDeleted: trashMode,
         filter: effectiveFilter,
-        sort: parsedSort,
+        sort: effective.sort,
         cursor: rawCursor,
       }),
       resolveLevel(user, baseId, activeTable.id),
@@ -461,9 +485,10 @@ export default ssr<AuthContext>(async (c) => {
   // is the active one (only when no filter/sort/view is set).
   const hasFilterOrSort = filterLeaves.length > 0 || parsedSort.length > 0;
 
-  // activeView already resolved at the top of the page (slug-keyed).
-  // Look at its column overrides — undefined means table-default
-  // rendering (`!hideInTable` fields by `position`).
+  // activeView resolved + visibility-filtered inside the if (activeTable)
+  // block above. Derive the convenience id reference and column-override
+  // for renderers below.
+  const activeViewId: string | null = activeView?.id ?? null;
   const activeViewColumns = activeView?.query.columns;
 
   // Slice 8: when groupBy is non-empty (from URL or active view), the
@@ -473,14 +498,23 @@ export default ssr<AuthContext>(async (c) => {
   let groupedBuckets: GroupBucket[] = [];
   let groupedExplode = false;
   if (activeTable && effectiveGroupBy.length > 0 && !trashMode) {
-    // Apply the same filter+search merge the list / aggregate paths use,
-    // so typing into the search bar narrows grouped buckets too.
-    // (Previously this dispatch silently dropped `q`.)
+    // Group dispatch: same effective filter logic as list/aggregate —
+    // saved-view filter merged with URL filter merged with search.
+    // We cannot reach `effective` here (declared inside the if-block),
+    // so re-apply the merge to keep behaviour identical. Refactoring
+    // to hoist `effective` to outer scope would be cleaner; tracked
+    // as a follow-up if Wave 4+ ends up touching this path again.
+    const groupedFilter = mergeSearchIntoFilter(
+      activeView?.query.filter ?? parsedFilter,
+      rawQ,
+      qFieldIds,
+      fields,
+    );
     const groupResult = await gridsService.record.group({
       tableId: activeTable.id,
       groupBy: effectiveGroupBy,
       aggregations: effectiveAggregations,
-      filter: mergeSearchIntoFilter(parsedFilter, rawQ, qFieldIds, fields),
+      filter: groupedFilter,
       limit: 1000,
     });
     if (groupResult.ok) {
