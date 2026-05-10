@@ -163,6 +163,17 @@ const resolveGroupBy = (
       return { ok: false, error: `field "${field.name}" (type "${field.type}") is not groupable` };
     }
 
+    // Granularity is a date-only feature. Silently ignoring it on a
+    // numeric/text/select field would let saved views carry meaningless
+    // query state that confuses future readers and never has any
+    // observable effect on the bucket keys.
+    if (spec.granularity && field.type !== "date") {
+      return {
+        ok: false,
+        error: `granularity "${spec.granularity}" is only valid on date fields, not "${field.type}"`,
+      };
+    }
+
     const alias = groupAlias(i);
 
     if (field.type === "relation") {

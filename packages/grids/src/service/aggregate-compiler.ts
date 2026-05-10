@@ -55,6 +55,17 @@ const numericProjection = (field: Field): any => {
 };
 
 const isCompatible = (agg: AggKind, type: string): boolean => {
+  // Relation values live in record_links, NOT in JSONB. Aggregating
+  // relation fields via `data->>fieldId` returns 0 / "empty" silently
+  // (chunk 3 critical). Reject every agg kind on relation fields here;
+  // grouped relation queries (one bucket per linked record) keep
+  // working because they go through the group-compiler's record_links
+  // join, not this aggregate path.
+  if (type === "relation") return false;
+  // Computed fields (formula/lookup/rollup) are projected post-query;
+  // they're not in JSONB during aggregate compilation. Aggregating
+  // would silently see NULL for every row.
+  if (type === "formula" || type === "lookup" || type === "rollup") return false;
   switch (agg) {
     case "count":
     case "countEmpty":
@@ -92,8 +103,18 @@ export const compileAggregates = (
 ): CompileAggResult => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const columns: AggregateColumn[] = [];
+  // Reject duplicate (fieldId, agg) requests instead of silently
+  // emitting two SELECT columns with the same JSONB key (the second
+  // wins in jsonb_build_object). Group-compiler already dedupes by
+  // alias; aggregate-compiler now matches that behaviour.
+  const seen = new Set<string>();
 
   for (const req of requests) {
+    const dupKey = `${req.fieldId}__${req.agg}`;
+    if (seen.has(dupKey)) {
+      return { ok: false, error: `duplicate aggregate "${req.agg}" on the same field` };
+    }
+    seen.add(dupKey);
     // "*" — virtual "the row" field. Only count is defined (COUNT(*)).
     // The footer renders this under the leftmost column, Airtable-style.
     if (req.fieldId === "*") {

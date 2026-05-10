@@ -290,8 +290,21 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
           const parts = items.map((s) => sql`NOT ((data->${fieldId})::jsonb @> ${[s]}::jsonb)`);
           return parts.reduce((acc, cur) => sql`${acc} AND ${cur}`);
         }
-        case "isEmpty": return sql`(data->>${fieldId} IS NULL OR jsonb_array_length(COALESCE(data->${fieldId}, '[]'::jsonb)) = 0)`;
-        case "isNotEmpty": return sql`(data->>${fieldId} IS NOT NULL AND jsonb_array_length(COALESCE(data->${fieldId}, '[]'::jsonb)) > 0)`;
+        // jsonb_array_length raises on non-arrays; corrupt JSONB
+        // (scalar/object stored where the schema expects an array)
+        // would crash the filter. Guard via jsonb_typeof so non-arrays
+        // are treated as empty — symmetric with how try_numeric/etc
+        // treat corrupt scalars elsewhere in the compiler.
+        case "isEmpty": return sql`(
+          data->>${fieldId} IS NULL
+          OR jsonb_typeof(data->${fieldId}) <> 'array'
+          OR jsonb_array_length(data->${fieldId}) = 0
+        )`;
+        case "isNotEmpty": return sql`(
+          data->>${fieldId} IS NOT NULL
+          AND jsonb_typeof(data->${fieldId}) = 'array'
+          AND jsonb_array_length(data->${fieldId}) > 0
+        )`;
       }
       break;
   }
