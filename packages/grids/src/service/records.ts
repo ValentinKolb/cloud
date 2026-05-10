@@ -233,9 +233,16 @@ export const list = async (params: {
         .reduce((acc, cur) => sql`${acc}${cur}`)
     : sql``;
 
+  // Live-parent JOIN: records of a trashed table or base never list,
+  // even when the caller passes a leaked tableId UUID. The filter's
+  // predicate still pins r.table_id = ${tableId}, so the JOIN's table
+  // row is uniquely identified — Postgres treats this as a cheap
+  // semi-join.
   const rows = await sql<DbRow[]>`
     SELECT r.*${projectionFragments}
     FROM grids.records r
+    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE ${where}
     ORDER BY ${orderBy} LIMIT ${limit + 1}
   `;
@@ -374,11 +381,14 @@ export const aggregate = async (params: {
     .map((col) => sql`${col.key}::text, ${col.expr}`)
     .reduce((acc, cur) => sql`${acc}, ${cur}`);
 
+  // Live-parent JOIN — see records.list comment for rationale.
   const rows = await sql<{ result: Record<string, unknown> }[]>`
     SELECT jsonb_build_object(${jsonPairs}) AS result
-    FROM grids.records
-    WHERE table_id = ${params.tableId}::uuid
-      AND deleted_at IS NULL
+    FROM grids.records r
+    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE r.table_id = ${params.tableId}::uuid
+      AND r.deleted_at IS NULL
       AND ${filterClause}
   `;
   return ok(parseJsonbRow<Record<string, unknown>>(rows[0]?.result, {}));

@@ -371,12 +371,12 @@ export const reorder = async (
  * enough that the form/view re-add cost is acceptable.
  */
 export const restore = async (id: string, actorId: string | null): Promise<Result<Field>> => {
-  // We need the trashed row, so reach past listByTable's default filter.
-  const [row] = await sql<DbRow[]>`
-    SELECT * FROM grids.fields WHERE id = ${id}::uuid
-  `;
-  if (!row) return fail(err.notFound("Field"));
-  const existing = mapRow(row);
+  // get() now returns trashed rows but enforces the live-parent JOIN —
+  // a field whose parent table or base is trashed resolves to null
+  // here, which we surface as notFound (top-down restore: act on the
+  // parent first).
+  const existing = await get(id);
+  if (!existing) return fail(err.notFound("Field"));
   if (existing.deletedAt === null) return ok(existing);
   await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });

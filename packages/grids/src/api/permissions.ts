@@ -26,6 +26,7 @@ export const effectivePermission = async (
     tableId: "tableId" in target ? target.tableId : null,
     viewId: "viewId" in target ? target.viewId : null,
     formId: "formId" in target ? target.formId : null,
+    dashboardId: "dashboardId" in target ? target.dashboardId : null,
   });
   return gridsService.permission.resolve(grants, target);
 };

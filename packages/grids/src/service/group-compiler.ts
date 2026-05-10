@@ -372,8 +372,11 @@ export const compileGroupQuery = (
   }
   const selectList = selectParts.reduce((acc, cur) => sql`${acc}, ${cur}`);
 
-  // FROM + JOINs — one record_links join per relation group.
-  let from: any = sql`grids.records r`;
+  // FROM + JOINs — live-parent invariant (records of a trashed table or
+  // base never group), then one record_links join per relation group.
+  let from: any = sql`grids.records r
+    JOIN grids.tables _t ON _t.id = r.table_id AND _t.deleted_at IS NULL
+    JOIN grids.bases _b ON _b.id = _t.base_id AND _b.deleted_at IS NULL`;
   for (const g of groups.resolved) {
     if (g.relationJoinIndex === undefined) continue;
     const alias = `rl_${g.relationJoinIndex}`;
