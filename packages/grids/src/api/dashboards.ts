@@ -15,13 +15,14 @@ import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
 // =============================================================================
 // /api/grids/dashboards
 //
-// Permission rules mirror /api/grids/views:
-//   - Personal dashboard (ownerUserId = caller): caller can do anything.
-//   - Shared dashboard (ownerUserId = null): structural — gated to
-//     base-admin, just like shared views, since publishing one affects
-//     everyone with base-read.
-//   - Read access flows through service.dashboard.listForBase, which
-//     applies dashboard_access on top of default visibility.
+// Permission rules (locked Wave 2 product decision — diverges from views):
+//   - WRITE (POST/PATCH/DELETE/RESTORE) requires base-admin, regardless
+//     of ownership. Owners who lose admin role keep read access on
+//     their personal dashboard but cannot edit/delete it.
+//   - READ visibility follows the view-style "default-shared, grant
+//     overrides" rule: shared dashboards visible to base-readers,
+//     personal dashboards to owner-or-explicit-grant. The direct GET
+//     handler enforces this; listForBase mirrors it in SQL.
 // =============================================================================
 
 const app = new Hono<AuthContext>()
@@ -66,12 +67,12 @@ const app = new Hono<AuthContext>()
       const base = await gridsService.base.get(baseId);
       if (!base) return c.json({ message: "Base not found" }, 404);
       const body = c.req.valid("json");
-      // Shared dashboards are catalog-level changes (visible to every
-      // base-reader), gated to base-admin. Personal dashboards are
-      // user scratchpads — any base-reader can save their own.
-      const gate = body.shared
-        ? await gateAt(c, { baseId }, "admin")
-        : await gateAt(c, { baseId }, "read");
+      // Locked product rule: dashboard write requires base-admin
+      // regardless of ownership — same as PATCH/DELETE/RESTORE. A
+      // table-reader cannot create a personal dashboard they couldn't
+      // later edit anyway. Read access still has the usual personal-vs-
+      // shared visibility (see direct GET).
+      const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return respond(
