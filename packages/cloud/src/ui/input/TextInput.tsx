@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createSignal, Show, type JSX } from "solid-js";
 import { InputWrapper, createInputA11y } from "./util";
 
 type TextInputProps = {
@@ -33,6 +33,31 @@ type TextInputProps = {
   onSubmit?: () => void;
   /** Approximate visible lines for multiline mode. Overrides default height. */
   lines?: number;
+  /**
+   * Mobile keyboard hint. Pass-through to the underlying `<input>`.
+   * Use "numeric" for digits-only inputs, "decimal" for floats,
+   * "email"/"url"/"tel"/"search" mirror the platform hints. Doesn't
+   * change the rendered keyboard on desktop.
+   */
+  inputMode?: "text" | "numeric" | "decimal" | "tel" | "search" | "email" | "url" | "none";
+  /** Hard cap on input length. Pass-through to the underlying `<input>` / `<textarea>`. */
+  maxLength?: number;
+  /** Browser autocomplete hint, e.g. "email", "current-password", "off". */
+  autocomplete?: string;
+  /**
+   * JSX slot rendered between the (optional) left icon and the input.
+   * Use for short inline labels like a currency symbol or a unit
+   * prefix that shouldn't take the icon slot. Caller is responsible
+   * for keeping it short; long content crowds the input.
+   */
+  prefix?: JSX.Element;
+  /**
+   * JSX slot rendered between the input and the right-edge buttons
+   * (clear / password reveal). Use for unit suffixes ("kg", "/min").
+   * When `clearable` triggers the ✕ button, the suffix slides left
+   * to make room.
+   */
+  suffix?: JSX.Element;
 };
 
 /**
@@ -91,6 +116,18 @@ const TextInput = (props: TextInputProps) => {
           <i class={`${icon()} group-focus-within:hidden`} />
           <i class={`${activeIcon()} hidden text-blue-500 group-focus-within:block`} />
         </div>
+        {/* Prefix slot — rendered after the icon, before the input.
+            Adds left padding via the input's pl-12 (icon+prefix) or
+            pl-9 (prefix-only, no icon). Suffix slot mirrors this on
+            the right edge, sliding left when a clear / password
+            button takes the right-3 anchor. */}
+        <Show when={props.prefix}>
+          <span
+            class="absolute z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400 inset-y-0 left-9"
+          >
+            {props.prefix}
+          </span>
+        </Show>
         {multiline() ? (
           <textarea
             id={a11y.inputId}
@@ -108,6 +145,7 @@ const TextInput = (props: TextInputProps) => {
               }
             }}
             disabled={disabled()}
+            maxLength={props.maxLength}
             aria-label={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
             aria-describedby={a11y.ariaDescribedBy()}
             aria-invalid={!!props.error?.()}
@@ -119,12 +157,15 @@ const TextInput = (props: TextInputProps) => {
             id={a11y.inputId}
             name={props.name}
             type={props.password && !showPassword() ? "password" : (props.type ?? "text")}
-            class={`input w-full pl-9 ${props.password || canClear() ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
+            class={`input w-full ${props.prefix ? "pl-12" : "pl-9"} ${props.password || canClear() || props.suffix ? "pr-9" : ""} ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
             placeholder={props.placeholder}
             value={currentValue()}
             onChange={(e) => props.onChange?.(e.target.value)}
             onInput={(e) => props.onInput?.(e.target.value)}
             disabled={disabled()}
+            inputMode={props.inputMode}
+            maxLength={props.maxLength}
+            autocomplete={props.autocomplete}
             aria-label={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
             aria-describedby={a11y.ariaDescribedBy()}
             aria-invalid={!!props.error?.()}
@@ -132,15 +173,31 @@ const TextInput = (props: TextInputProps) => {
             aria-disabled={disabled()}
           />
         )}
+        {/* Right-edge stack — order: suffix → clear → password.
+            Each takes the right-3 anchor exclusively; siblings shift
+            left to right-9 (and right-15 for the rare triple) so
+            nothing overlaps. */}
+        <Show when={props.suffix && !canClear() && !props.password}>
+          <span class="absolute inset-y-0 right-3 z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
+            {props.suffix}
+          </span>
+        </Show>
         {canClear() && hasValue() && (
-          <button
-            type="button"
-            class="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-            onClick={handleClear}
-            aria-label={props.clearLabel ?? "Clear input"}
-          >
-            <i class="ti ti-x" />
-          </button>
+          <>
+            <Show when={props.suffix}>
+              <span class="absolute inset-y-0 right-9 z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
+                {props.suffix}
+              </span>
+            </Show>
+            <button
+              type="button"
+              class="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              onClick={handleClear}
+              aria-label={props.clearLabel ?? "Clear input"}
+            >
+              <i class="ti ti-x" />
+            </button>
+          </>
         )}
         {props.password && !multiline() && (
           <button

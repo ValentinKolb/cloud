@@ -1,5 +1,7 @@
 import {
   Checkbox,
+  CurrencyInput,
+  type CurrencyValue,
   DateTimeInput,
   NumberInput,
   SelectInput,
@@ -220,21 +222,54 @@ export function FieldInput(props: {
       );
 
     case "currency": {
-      // Currency renders as a text input so users can override the
-      // per-record currency code (e.g. "50 USD" on a EUR-default
-      // field). The server's `currencyHandler` accepts both forms;
-      // a NumberInput would be friendlier but silently strips the
-      // per-row currency override.
+      // Currency: real paired amount + currency-code picker via
+      // CurrencyInput. The platform widget emits `{amount, currency}`
+      // which matches the server-side `currencyHandler` storage shape
+      // exactly — no string parsing required. Tolerates legacy stored
+      // values (raw number or `"12.34 EUR"` string) by coercing on
+      // read so existing records render correctly.
       const defaultCcy =
         (props.field.config as { defaultCurrency?: string }).defaultCurrency ?? "EUR";
+      const currencyValue = (): CurrencyValue | null => {
+        const v = props.value;
+        if (v === null || v === undefined || v === "") return null;
+        if (typeof v === "object") {
+          const obj = v as { amount?: unknown; currency?: unknown };
+          const amountNum =
+            typeof obj.amount === "number"
+              ? obj.amount
+              : typeof obj.amount === "string"
+                ? Number(obj.amount)
+                : NaN;
+          const code = typeof obj.currency === "string" && obj.currency.length > 0
+            ? obj.currency.toUpperCase()
+            : defaultCcy;
+          return Number.isFinite(amountNum)
+            ? { amount: amountNum, currency: code }
+            : null;
+        }
+        if (typeof v === "number") return { amount: v, currency: defaultCcy };
+        if (typeof v === "string") {
+          // Tolerate "12.34" or "12.34 EUR" — same shapes the server
+          // `currencyHandler` accepts as input. The Select picks up
+          // the currency token if present.
+          const m = /^(-?\d+(?:\.\d+)?)\s*([A-Za-z]{3})?$/.exec(v.trim());
+          if (m) {
+            const amount = Number(m[1]);
+            const code = (m[2] ?? defaultCcy).toUpperCase();
+            return Number.isFinite(amount) ? { amount, currency: code } : null;
+          }
+        }
+        return null;
+      };
       return (
-        <TextInput
+        <CurrencyInput
           label={label}
           description={helpText}
           required={required}
-          placeholder={`12.34 ${defaultCcy}`}
-          value={stringValue}
-          onInput={(v) => props.onChange(v)}
+          value={currencyValue}
+          defaultCurrency={defaultCcy}
+          onChange={(v) => props.onChange(v)}
           error={error}
         />
       );

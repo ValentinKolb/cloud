@@ -1,7 +1,7 @@
 import { For, Show, createSignal, type JSX } from "solid-js";
 import type { BaseGroup, BaseUser } from "@valentinkolb/cloud/contracts";
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { NumberInput } from "@valentinkolb/cloud/ui";
+import { NumberInput, CurrencyInput, type CurrencyValue } from "@valentinkolb/cloud/ui";
 import { Checkbox } from "@valentinkolb/cloud/ui";
 import { Select } from "@valentinkolb/cloud/ui";
 import { Switch } from "@valentinkolb/cloud/ui";
@@ -190,7 +190,13 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
   const [markdownValue, setMarkdownValue] = createSignal(
     "## Hello\nThis is markdown text."
   );
-  const [numberValue, setNumberValue] = createSignal(42);
+  const [numberValue, setNumberValue] = createSignal<number | null>(42);
+  const [numberOptional, setNumberOptional] = createSignal<number | null>(null);
+  const [percentValue, setPercentValue] = createSignal<number | null>(25);
+  const [currencyValue, setCurrencyValue] = createSignal<CurrencyValue | null>({
+    amount: 12.34,
+    currency: "EUR",
+  });
   const [dateTimeValue, setDateTimeValue] = createSignal("2026-02-18T10:30");
   const [dateValue, setDateValue] = createSignal("2026-02-18");
   const [selectValue, setSelectValue] = createSignal("refined");
@@ -415,11 +421,39 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
           />
           <NumberInput
             label="Number Input"
+            description="Bounded 0–100 with +/- steppers."
             value={numberValue}
             onChange={setNumberValue}
             min={0}
             max={100}
             step={1}
+            integer
+          />
+          <NumberInput
+            label="Optional Number"
+            description="Empty / null = no value. Clear button + null pass-through."
+            placeholder="Type a number…"
+            value={numberOptional}
+            onChange={setNumberOptional}
+            clearable
+            showSteppers={false}
+          />
+          <NumberInput
+            label="Percent"
+            description="Suffix slot ('%'), float-parsing, half-step."
+            value={percentValue}
+            onChange={setPercentValue}
+            min={0}
+            max={100}
+            step={0.5}
+            suffix={<span class="font-mono">%</span>}
+          />
+          <CurrencyInput
+            label="Currency Input"
+            description="Paired amount + 3-letter currency code. Emits {amount, currency}."
+            value={currencyValue}
+            onChange={setCurrencyValue}
+            clearable
           />
           <DateTimeInput
             label="Date Time Input"
