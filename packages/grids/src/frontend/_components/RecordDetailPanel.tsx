@@ -434,9 +434,39 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
                     class={`ti ${ACTION_ICONS[entry.action] ?? "ti-circle"} ${ACTION_COLORS[entry.action] ?? "text-dimmed"} text-xs`}
                   />
                   <span class="capitalize text-secondary">{entry.action}</span>
-                  <span class="text-dimmed">
-                    by {entry.userDisplayName ?? "unknown"}
-                  </span>
+                  {/* Actor attribution. The audit row carries both a
+                      `userId` (UUID of the actor at write time, or
+                      null) and a `userDisplayName` resolved at read
+                      time via JOIN to auth.users (null when the user
+                      is gone OR when no user was ever associated).
+                      Three states, three distinct strings:
+                        - name resolved        → "by <name>"
+                        - userId null          → "via public form"
+                          (every null-actor audit on records comes
+                          from the anonymous form-submit path; see
+                          submitFormResponse in api/forms.ts)
+                        - userId set, name nil → "by deleted user"
+                          (italic to mark it as a phantom — the
+                          actor existed but is no longer in auth.users)
+                  */}
+                  <Show
+                    when={entry.userDisplayName}
+                    fallback={
+                      <Show
+                        when={entry.userId === null}
+                        fallback={
+                          <span class="text-dimmed italic">by deleted user</span>
+                        }
+                      >
+                        <span class="text-dimmed inline-flex items-center gap-1">
+                          <i class="ti ti-world text-[10px]" />
+                          via public form
+                        </span>
+                      </Show>
+                    }
+                  >
+                    {(name) => <span class="text-dimmed">by {name()}</span>}
+                  </Show>
                   <span class="ml-auto text-[10px] text-dimmed shrink-0" title={entry.createdAt}>
                     {formatRelativeTime(entry.createdAt)}
                   </span>
