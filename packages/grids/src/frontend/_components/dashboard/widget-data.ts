@@ -23,7 +23,15 @@ import {
  */
 export type WidgetData =
   | { kind: "stat"; value: unknown }
-  | { kind: "chart"; buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }> }
+  | {
+      kind: "chart";
+      buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }>;
+      /** Fields of the source table — threaded through so the chart
+       *  renderer can resolve agg labels (`sum(Amount)`) without a
+       *  second roundtrip. Listed by source table at resolve time;
+       *  small payload (one field record per column). */
+      fields: Field[];
+    }
   | {
       kind: "view";
       title: string;
@@ -98,18 +106,24 @@ const resolveStat = async (source: WidgetSource): Promise<WidgetData> => {
 };
 
 const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {
-  const result = await gridsService.record.group({
-    tableId: source.tableId,
-    filter: source.filter ?? null,
-    groupBy: source.groupBy ?? [],
-    aggregations: source.aggregations.map((a) => ({
-      fieldId: a.fieldId,
-      agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
-    })),
-    limit: source.limit,
-  });
+  const [result, fields] = await Promise.all([
+    gridsService.record.group({
+      tableId: source.tableId,
+      filter: source.filter ?? null,
+      groupBy: source.groupBy ?? [],
+      aggregations: source.aggregations.map((a) => ({
+        fieldId: a.fieldId,
+        agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
+      })),
+      limit: source.limit,
+    }),
+    // Fields lookup runs in parallel with the group query (cheap;
+    // one indexed read by table). The renderer needs them to label
+    // aggregations (`sum(Amount)`) and pick an x-axis format.
+    gridsService.field.listByTable(source.tableId),
+  ]);
   if (!result.ok) return { kind: "error", reason: result.error.message };
-  return { kind: "chart", buckets: result.data.buckets };
+  return { kind: "chart", buckets: result.data.buckets, fields };
 };
 
 const resolveView = async (widget: {

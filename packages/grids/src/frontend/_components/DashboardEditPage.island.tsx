@@ -607,8 +607,9 @@ function WidgetsRowCard(props: {
               when={cell().kind === "view"}
               fallback={
                 <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md p-2 text-xs text-dimmed">
-                  Chart widget — renderer ships in P1. Stays in the saved
-                  config; can't be edited from here yet.
+                  Chart widget — renders on the dashboard view, but the
+                  editor for chart sources lands in a follow-up (Phase 4).
+                  Existing config is preserved as-is.
                 </div>
               }
             >

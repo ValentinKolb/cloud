@@ -1,14 +1,14 @@
 import { For, Show } from "solid-js";
 import type {
   Dashboard,
-  ChartWidget,
+  ChartWidget as ChartWidgetType,
   ViewWidget,
   WidgetsRow,
 } from "../../../service";
 import StatsRow from "./StatsRow";
 import ViewStatsRow from "./ViewStatsRow";
 import EmbeddedViewWidget from "./ViewWidget";
-import ChartWidgetStub from "./ChartWidgetStub";
+import ChartWidget from "./ChartWidget";
 import type { WidgetData, ViewStatsRowData } from "./widget-data";
 
 type Props = {
@@ -125,7 +125,7 @@ function WidgetsRowRender(props: {
 }
 
 function WidgetCell(props: {
-  widget: ViewWidget | ChartWidget;
+  widget: ViewWidget | ChartWidgetType;
   data: WidgetData | undefined;
   baseShortId: string;
 }) {
@@ -140,7 +140,7 @@ function WidgetCell(props: {
       />
     );
   }
-  return <ChartWidgetStub widget={props.widget} data={data()} />;
+  return <ChartWidget widget={props.widget} data={data()} />;
 }
 
 function EmptyDashboardState() {
