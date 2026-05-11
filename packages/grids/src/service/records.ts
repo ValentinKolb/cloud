@@ -19,6 +19,7 @@ import {
   type GroupAggregationSpec,
 } from "./group-compiler";
 import {
+  attachRelationExpansion,
   enrichRecordsWithFormulas,
   hydrateRelationsFromLinks,
   validateRelationTargets,
@@ -198,6 +199,14 @@ export const list = async (params: {
   includeDeleted?: boolean;
   filter?: FilterTree | null;
   sort?: SortSpec[];
+  /**
+   * When true, populate each returned record's `expanded` field with
+   * the presentable-field subset of every record it links to via
+   * relation cells. One extra page-level batch (`O(target-tables)`
+   * roundtrips) — never N+1. Default false for backwards compat: old
+   * callers that don't know about expansion get the original shape.
+   */
+  includeRelations?: boolean;
 }): Promise<Result<{ items: GridRecord[]; nextCursor: string | null }>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
@@ -276,6 +285,14 @@ export const list = async (params: {
   // Formulas still run in JS — they reference computed and base values
   // alike, and the formula engine is not SQL-projectable yet.
   enrichRecordsWithFormulas(items, fields);
+
+  // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
+  // because it reads `record.data[fieldId]` to figure out which UUIDs
+  // each record actually references. Mutates the records in place.
+  if (params.includeRelations) {
+    await attachRelationExpansion(items, fields);
+  }
+
   return ok({ items, nextCursor });
 };
 
@@ -409,7 +426,11 @@ export const aggregate = async (params: {
  * must be alive. Also enforces `r.deleted_at IS NULL` (a trashed record
  * never resolves through this path; trash listings are explicit).
  */
-export const get = async (tableId: string, recordId: string): Promise<GridRecord | null> => {
+export const get = async (
+  tableId: string,
+  recordId: string,
+  opts: { includeRelations?: boolean } = {},
+): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
   const computed = await buildComputedProjections(fields);
   const projectionFragments = computed.length > 0
@@ -438,6 +459,9 @@ export const get = async (tableId: string, recordId: string): Promise<GridRecord
     computed,
   );
   enrichRecordsWithFormulas([record], fields);
+  if (opts.includeRelations) {
+    await attachRelationExpansion([record], fields);
+  }
   return record;
 };
 
@@ -445,7 +469,7 @@ export const create = async (
   tableId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
-  opts: { bypassDirectInsertCheck?: boolean } = {},
+  opts: { bypassDirectInsertCheck?: boolean; includeRelations?: boolean } = {},
 ): Promise<Result<GridRecord>> => {
   // Per-table QoL gate: a "submission inbox" table can mark
   // disable_direct_insert=true so records only flow in via a form.
@@ -530,6 +554,9 @@ export const create = async (
   // Hydrate so the returned record carries the relation arrays the
   // caller just sent — keeps the API contract stable.
   await hydrateRelationsFromLinks([record], fields);
+  if (opts.includeRelations) {
+    await attachRelationExpansion([record], fields);
+  }
   return ok(record);
 };
 
@@ -539,6 +566,7 @@ export const update = async (
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
+  opts: { includeRelations?: boolean } = {},
 ): Promise<Result<GridRecord>> => {
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
@@ -627,6 +655,9 @@ export const update = async (
 
   const record = mapRow(txResult);
   await hydrateRelationsFromLinks([record], fields);
+  if (opts.includeRelations) {
+    await attachRelationExpansion([record], fields);
+  }
   return ok(record);
 };
 

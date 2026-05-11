@@ -465,6 +465,184 @@ export const buildLabelCacheForGroupedKeys = async (
   return resolveLabelsByTargetTable(idsByTargetTable, fieldsByTargetTable);
 };
 
+// =============================================================================
+// Expansion (Phase 1 of the records-API refactor)
+// =============================================================================
+//
+// `buildRelationLabelCache` (above) returns Record<uuid, string> — the joined
+// label string ready to drop into the UI. That's been useful but rigid: it
+// commits the server to one specific label format.
+//
+// `buildRelationExpansionCache` returns the RAW presentable fields per linked
+// record instead: Record<uuid, Record<fieldId, unknown>>. The client can
+// render whichever subset it wants — primary label in a cell, full presentable
+// breakdown in a tooltip, custom join order, etc. This is the form embedded
+// in `record.expanded` when service calls are passed `includeRelations: true`.
+//
+// Both functions use the same batched roundtrip pattern:
+//   1× readRecordLinksBatch   (all links across all relation fields)
+//   T× SELECT id,data         (one per unique target table)
+// No N+1, regardless of record count or relation-cell count.
+// =============================================================================
+
+/**
+ * Identical signature to `buildRelationLabelCache` but returns raw
+ * presentable fields instead of a joined label string. Each entry in
+ * the returned map is the linked record's `data` filtered down to the
+ * fields the UI needs to render a label — the target table's
+ * presentable fields PLUS any per-relation `displayFieldId` override.
+ *
+ * Empty input → empty map. Records linking to nonexistent / soft-
+ * deleted targets are silently dropped (renderer falls back to a UUID
+ * prefix).
+ */
+export const buildRelationExpansionCache = async (
+  records: GridRecord[],
+  fields: Field[],
+): Promise<Record<string, Record<string, unknown>>> => {
+  const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
+  if (relationFields.length === 0 || records.length === 0) return {};
+
+  const links = await readRecordLinksBatch(
+    records.map((r) => r.id),
+    relationFields.map((rf) => rf.id),
+  );
+
+  const idsByTargetTable = new Map<string, Set<string>>();
+  const displayFieldByTargetTable = new Map<string, string | undefined>();
+  for (const rf of relationFields) {
+    const cfg = rf.config as { targetTableId?: string; displayFieldId?: string };
+    if (!cfg.targetTableId) continue;
+    // Record the displayFieldId for THIS target table. If two relation
+    // fields point at the same target table with different display
+    // overrides, the LAST one wins — same precedence as buildLabelCache
+    // (intentionally lossy here; the override is a table-level hint).
+    displayFieldByTargetTable.set(cfg.targetTableId, cfg.displayFieldId);
+    const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
+    for (const rec of records) {
+      const linked = links.get(rec.id)?.get(rf.id);
+      if (linked) for (const id of linked) set.add(id);
+    }
+    idsByTargetTable.set(cfg.targetTableId, set);
+  }
+
+  return resolveExpansionByTargetTable(idsByTargetTable, displayFieldByTargetTable);
+};
+
+/**
+ * Lower-level expansion resolver — input is already grouped by target
+ * table. ONE SQL round-trip per target table. Picks the field set
+ * needed for label rendering (presentable + displayFieldId), filters
+ * the linked records' data down to those, and stitches them into a
+ * single flat `uuid → fields` map keyed across all target tables.
+ *
+ * Splits out like `resolveLabelsByTargetTable` so the grouped-buckets
+ * path (whose keys are raw target-record UUIDs, not records on the
+ * source table) can call it directly when we wire group-bucket
+ * expansion in a later phase.
+ */
+export const resolveExpansionByTargetTable = async (
+  idsByTargetTable: Map<string, Set<string>>,
+  displayFieldByTargetTable: Map<string, string | undefined>,
+): Promise<Record<string, Record<string, unknown>>> => {
+  const out: Record<string, Record<string, unknown>> = {};
+  if (idsByTargetTable.size === 0) return out;
+
+  for (const [targetTableId, idSet] of idsByTargetTable) {
+    if (idSet.size === 0) continue;
+    const targetFields = await listFields(targetTableId);
+    const alive = targetFields.filter((f) => !f.deletedAt);
+    // The slice of fields we'll project into each row's expansion:
+    // presentable fields (table-level "what represents a row") + the
+    // optional per-relation displayFieldId. De-dup via Set so a
+    // presentable field that's also the displayFieldId only ships once.
+    const projectIds = new Set<string>();
+    for (const f of alive) if (f.presentable) projectIds.add(f.id);
+    const displayFieldId = displayFieldByTargetTable.get(targetTableId);
+    if (displayFieldId) projectIds.add(displayFieldId);
+    if (projectIds.size === 0) {
+      // Defensive: no presentable + no displayFieldId. We could fall
+      // back to "first text field" like the label resolver does, but
+      // the renderer can already do that by walking record.data of
+      // the linked record — IF expansion included data. Here we skip
+      // entirely; the renderer's UUID-prefix fallback kicks in. The
+      // alternative would bloat payloads for users who set up no
+      // presentable fields, which is a separate "fix your schema"
+      // problem rather than a render problem.
+      continue;
+    }
+    const idArr = `{${[...idSet].join(",")}}`;
+    const rows = await sql<DbRow[]>`
+      SELECT id, data
+      FROM grids.records
+      WHERE id = ANY(${idArr}::uuid[])
+        AND table_id = ${targetTableId}::uuid
+        AND deleted_at IS NULL
+    `;
+    for (const row of rows) {
+      const id = row.id as string;
+      const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
+      // Project down to the presentable + displayFieldId subset only.
+      // Trims payload by an order of magnitude on wide target tables
+      // (e.g. a "customers" table with 30 fields where only 1-2 are
+      // presentable).
+      const subset: Record<string, unknown> = {};
+      for (const fid of projectIds) {
+        if (data[fid] !== undefined) subset[fid] = data[fid];
+      }
+      out[id] = subset;
+    }
+  }
+  return out;
+};
+
+/**
+ * Service-internal helper used by every record-returning call when
+ * the caller passes `includeRelations: true`. Builds the page-level
+ * expansion map once, then walks the records and assigns the subset
+ * of UUIDs each record actually links to as `record.expanded`.
+ *
+ * Mutates the records in place — they're freshly constructed from
+ * `mapRow` and have no external observers at this point in the call
+ * chain. Returns void; the side-effected records are what callers
+ * already have a handle on.
+ */
+export const attachRelationExpansion = async (
+  records: GridRecord[],
+  fields: Field[],
+): Promise<void> => {
+  if (records.length === 0) return;
+  const expansion = await buildRelationExpansionCache(records, fields);
+  if (Object.keys(expansion).length === 0) return;
+  const relationFieldIds = fields
+    .filter((f) => f.type === "relation" && !f.deletedAt)
+    .map((f) => f.id);
+  if (relationFieldIds.length === 0) return;
+  // Per-record subset: only attach entries this record actually
+  // references. Avoids duplicating large shared maps across records
+  // that don't all touch the same linked rows. Reads the linked-id
+  // arrays directly from each record's data (already hydrated by
+  // hydrateRelationsFromLinks earlier in the pipeline).
+  for (const rec of records) {
+    const linkedIds: string[] = [];
+    for (const fid of relationFieldIds) {
+      const v = rec.data[fid];
+      if (Array.isArray(v)) {
+        for (const id of v) if (typeof id === "string") linkedIds.push(id);
+      } else if (typeof v === "string") {
+        linkedIds.push(v);
+      }
+    }
+    if (linkedIds.length === 0) continue;
+    const subset: Record<string, Record<string, unknown>> = {};
+    for (const id of linkedIds) {
+      const fields = expansion[id];
+      if (fields) subset[id] = fields;
+    }
+    if (Object.keys(subset).length > 0) rec.expanded = subset;
+  }
+};
+
 /**
  * Search records of a target table by free text on its presentable
  * fields, returning up-to-N `{ id, label }` pairs for the relation

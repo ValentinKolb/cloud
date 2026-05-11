@@ -75,6 +75,26 @@ export type GridRecord = {
   id: string;
   tableId: string;
   data: Record<string, unknown>;
+  /**
+   * Optional inline expansion of records this row links to via relation
+   * fields. Keyed by the linked record's UUID; the value is a subset of
+   * that record's `data` containing exactly the fields needed to render
+   * a label (the target table's `presentable` fields plus any explicit
+   * `displayFieldId` overrides).
+   *
+   * Populated only when a record-returning service call is passed
+   * `includeRelations: true`. Absent or `undefined` when expansion was
+   * not requested, when the record has no relation fields, or when the
+   * viewer can't read the target table (last case wired up by the
+   * upcoming permission-gate follow-up; for now expansion is unfiltered
+   * once requested).
+   *
+   * Renderers use it to render `<RecordLink>` with a presentable label
+   * instead of the raw UUID — zero extra DB calls at render time. The
+   * batched lookup that builds this map is O(unique-target-tables) SQL
+   * roundtrips per page, never N+1 per cell.
+   */
+  expanded?: Record<string, Record<string, unknown>>;
   version: number;
   deletedAt: string | null;
   createdBy: string | null;
