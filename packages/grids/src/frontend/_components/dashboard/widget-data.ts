@@ -60,6 +60,13 @@ export type WidgetData =
       kind: "form";
       form: Form;
       fields: Field[];
+      /** True when the viewer has form-write OR table-write on this
+       *  form's target — the same gate `/api/grids/forms/:formId/submit`
+       *  enforces. Resolved SSR-side so the renderer can swap to a
+       *  read-only placeholder without an extra client-side perm
+       *  fetch. Default true if no viewer context is supplied (legacy
+       *  callers / scripts that don't carry a user). */
+      canSubmit: boolean;
     }
   | { kind: "error"; reason: string };
 
@@ -75,18 +82,33 @@ export type ViewStatsCell = {
 export const EMBEDDED_VIEW_PAGESIZE = 25;
 
 /**
+ * Viewer context threaded into the widget resolvers — drives per-
+ * widget permission gates (form submit, relation expansion). `isAdmin`
+ * bypasses all gates so platform admins always see fully-rendered
+ * dashboards, mirroring the API's `gateAt` convention.
+ */
+export type ViewerContext = {
+  userId: string | null;
+  userGroups: string[];
+  /** True when the user has a platform-admin role. */
+  isAdmin?: boolean;
+};
+
+/**
  * Resolves the data for a single widget against the live DB. Pure
  * server-side helper — never imported into the client bundle. Pulls
  * from the existing record / view / form services so permission
  * gating, filter compilation, and computed-projection enrichment
  * happen the same way the records page does them.
  *
- * Per the agreed permission model, the dashboard's base-read gate is
- * the only access check; this function does not re-cascade per-source.
+ * The dashboard's base-read gate is the only top-level access check;
+ * per-widget gates (form submit, target-table read for relation
+ * expansion) are evaluated inside the per-kind resolvers using the
+ * viewer context.
  */
 export const resolveWidgetData = async (
   widget: Widget,
-  _viewer: { userId: string | null; userGroups: string[] },
+  viewer: ViewerContext,
 ): Promise<WidgetData> => {
   try {
     switch (widget.kind) {
@@ -99,7 +121,7 @@ export const resolveWidgetData = async (
       case "view-stats":
         return await resolveViewStats(widget);
       case "form":
-        return await resolveForm(widget);
+        return await resolveForm(widget, viewer);
     }
   } catch (e) {
     return { kind: "error", reason: e instanceof Error ? e.message : "unknown error" };
@@ -432,11 +454,50 @@ const resolveGroupedViewStats = async (
 
 const resolveForm = async (
   widget: Extract<Widget, { kind: "form" }>,
+  viewer: ViewerContext,
 ): Promise<WidgetData> => {
   const form = await gridsService.form.get(widget.formId);
   if (!form) return { kind: "error", reason: "form not found" };
-  const fields = await gridsService.field.listByTable(form.tableId);
-  return { kind: "form", form, fields };
+  // Need the parent table to (a) read its baseId for the perm
+  // resolution, and (b) hand the renderer the field schema.
+  const [table, fields] = await Promise.all([
+    gridsService.table.get(form.tableId),
+    gridsService.field.listByTable(form.tableId),
+  ]);
+  if (!table) return { kind: "error", reason: "form's parent table not found" };
+
+  // Submit gate — same rule the API enforces: form-write OR
+  // table-write (most-specific-wins resolution makes table-write
+  // automatically pass). Resolved SSR-side so the renderer can swap
+  // to a dimmed placeholder when the viewer lacks access, with zero
+  // extra client-side network calls.
+  const canSubmit = viewer.isAdmin
+    ? true
+    : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id);
+
+  return { kind: "form", form, fields, canSubmit };
+};
+
+/** Loads the viewer's grants for the form-target chain (base → table →
+ *  form) and resolves to a single effective level. Returns true when
+ *  that level is `write` or higher, false otherwise. One DB roundtrip
+ *  per form-cell — `loadGrantsForUser` already collapses the five
+ *  resource legs into a single UNION ALL query. */
+const resolveSubmitPermission = async (
+  viewer: ViewerContext,
+  baseId: string,
+  tableId: string,
+  formId: string,
+): Promise<boolean> => {
+  const grants = await gridsService.permission.loadGrants({
+    userId: viewer.userId,
+    userGroups: viewer.userGroups,
+    baseId,
+    tableId,
+    formId,
+  });
+  const level = gridsService.permission.resolve(grants, { baseId, tableId, formId });
+  return gridsService.permission.hasAtLeast(level, "write");
 };
 
 // =============================================================================

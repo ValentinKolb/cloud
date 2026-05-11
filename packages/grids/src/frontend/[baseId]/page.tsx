@@ -196,6 +196,7 @@ export default ssr<AuthContext>(async (c) => {
         resolveWidgetData(w, {
           userId: user.id,
           userGroups: user.memberofGroupIds,
+          isAdmin: hasRole(user, "admin"),
         }).then((data) => [w.id, data] as const),
       ),
     );

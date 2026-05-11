@@ -26,10 +26,12 @@ type Props = {
  * invalidation logic. Scroll position is lost — acceptable for a
  * dashboard's "punch in some data" surface.
  *
- * No-permission handling: filed as follow-up. v1 always renders the
- * form; if the viewer lacks form-write or table-write, the submit
- * request fails server-side and the error surfaces in the form's
- * error region.
+ * **Permission gating.** `data.canSubmit` is resolved SSR-side by
+ * the widget resolver — it carries the result of the same form-write
+ * OR table-write gate the submit API enforces. When false, the cell
+ * renders a tonal "no access" placeholder instead of the form, so
+ * users without submit perms see a stable layout and not a control
+ * they'd just bounce off of. Zero extra client-side perm fetches.
  */
 export default function FormCell(props: Props) {
   const isForm = (d: WidgetData): d is Extract<WidgetData, { kind: "form" }> =>
@@ -51,12 +53,41 @@ export default function FormCell(props: Props) {
       >
         {(() => {
           const d = props.data as Extract<WidgetData, { kind: "form" }>;
+          if (!d.canSubmit) {
+            return <NoAccessPlaceholder widget={props.widget} formName={d.form.name} />;
+          }
           return (
             <FormBody widget={props.widget} form={d.form} fields={d.fields} />
           );
         })()}
       </Show>
     </div>
+  );
+}
+
+/** Dimmed "no access" placeholder rendered when the viewer can't
+ *  submit this form. Keeps the cell's slot occupied so the dashboard
+ *  layout stays stable across users with different permission sets —
+ *  the alternative (collapse the cell) would make screenshots and
+ *  permalinks behave differently for different viewers. */
+function NoAccessPlaceholder(props: {
+  widget: FormWidget;
+  formName: string;
+}) {
+  const titleOf = () => props.widget.title ?? props.formName;
+  return (
+    <>
+      <header class="px-3 py-2 flex items-center gap-2">
+        <i class="ti ti-lock text-sm text-dimmed shrink-0" />
+        <span class="text-xs font-semibold text-dimmed truncate">{titleOf()}</span>
+      </header>
+      <div class="flex-1 flex flex-col items-center justify-center text-center px-4 py-6 gap-1">
+        <i class="ti ti-shield-lock text-2xl text-dimmed" />
+        <p class="text-xs text-dimmed">
+          You don't have permission to submit this form.
+        </p>
+      </div>
+    </>
   );
 }
 
