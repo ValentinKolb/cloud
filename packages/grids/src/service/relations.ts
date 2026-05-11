@@ -5,6 +5,12 @@ import type { SqlClient } from "./audit";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { evaluate, renderResult } from "../formula/evaluator";
 import { formulaError } from "../formula/types";
+import {
+  hasAtLeast,
+  loadGrantsForUser,
+  resolveEffectivePermission,
+} from "./permission-resolver";
+import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -486,6 +492,59 @@ export const buildLabelCacheForGroupedKeys = async (
 // =============================================================================
 
 /**
+ * Viewer context that gates relation expansion by per-target-table
+ * read permission. Pass to `attachRelationExpansion` /
+ * `buildRelationExpansionCache` to ensure links to records in tables
+ * the viewer can't read are NOT expanded — the renderer falls back
+ * to a UUID prefix for those, matching the access experience the
+ * user would have if they navigated to the target table directly.
+ */
+export type ExpansionViewer = {
+  userId: string | null;
+  userGroups: string[];
+  /** Platform admins bypass per-resource ACLs, same as the API gates. */
+  isAdmin?: boolean;
+};
+
+/**
+ * Filters the (targetTable → recordIds) map down to only the target
+ * tables the viewer has at least `read` on. Runs grant resolution in
+ * parallel — N targets cost ~N permission-resolver roundtrips (each
+ * a single UNION ALL query). Target tables that don't exist are
+ * dropped silently; the renderer falls back to UUID prefix.
+ *
+ * Cross-base relations work: each target's `baseId` is looked up
+ * independently, and grants are resolved within that target's base.
+ * Admins (`viewer.isAdmin`) bypass the check entirely.
+ */
+const filterTargetsByViewerPermission = async (
+  idsByTargetTable: Map<string, Set<string>>,
+  viewer: ExpansionViewer,
+): Promise<Map<string, Set<string>>> => {
+  if (viewer.isAdmin) return idsByTargetTable;
+  const entries = [...idsByTargetTable.entries()];
+  const verdicts = await Promise.all(
+    entries.map(async ([tableId, ids]) => {
+      const target = await getTable(tableId);
+      if (!target) return null;
+      const grants = await loadGrantsForUser({
+        userId: viewer.userId,
+        userGroups: viewer.userGroups,
+        baseId: target.baseId,
+        tableId,
+      });
+      const level = resolveEffectivePermission(grants, { baseId: target.baseId, tableId });
+      return hasAtLeast(level, "read") ? ([tableId, ids] as const) : null;
+    }),
+  );
+  const filtered = new Map<string, Set<string>>();
+  for (const entry of verdicts) {
+    if (entry) filtered.set(entry[0], entry[1]);
+  }
+  return filtered;
+};
+
+/**
  * Identical signature to `buildRelationLabelCache` but returns raw
  * presentable fields instead of a joined label string. Each entry in
  * the returned map is the linked record's `data` filtered down to the
@@ -495,10 +554,17 @@ export const buildLabelCacheForGroupedKeys = async (
  * Empty input → empty map. Records linking to nonexistent / soft-
  * deleted targets are silently dropped (renderer falls back to a UUID
  * prefix).
+ *
+ * Pass `viewer` to gate expansion by per-target-table read permission —
+ * tables the viewer can't read are dropped from the result, so a row
+ * referencing a forbidden record renders as a UUID prefix instead of
+ * leaking the linked row's data. Omit for unfiltered expansion (used
+ * by internal paths that already gated access elsewhere).
  */
 export const buildRelationExpansionCache = async (
   records: GridRecord[],
   fields: Field[],
+  viewer?: ExpansionViewer,
 ): Promise<Record<string, Record<string, unknown>>> => {
   const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
   if (relationFields.length === 0 || records.length === 0) return {};
@@ -526,7 +592,11 @@ export const buildRelationExpansionCache = async (
     idsByTargetTable.set(cfg.targetTableId, set);
   }
 
-  return resolveExpansionByTargetTable(idsByTargetTable, displayFieldByTargetTable);
+  const gated = viewer
+    ? await filterTargetsByViewerPermission(idsByTargetTable, viewer)
+    : idsByTargetTable;
+
+  return resolveExpansionByTargetTable(gated, displayFieldByTargetTable);
 };
 
 /**
@@ -612,6 +682,12 @@ export const resolveExpansionByTargetTable = async (
  * expansion map once, then walks the records and assigns the subset
  * of UUIDs each record actually links to as `record.expanded`.
  *
+ * Pass `viewer` to gate expansion by per-target-table read access —
+ * records the viewer can't reach contribute UUIDs that don't expand,
+ * and the renderer falls back to UUID prefix for those. Omit for
+ * unfiltered expansion (use only when the surrounding call site has
+ * already gated access).
+ *
  * Mutates the records in place — they're freshly constructed from
  * `mapRow` and have no external observers at this point in the call
  * chain. Returns void; the side-effected records are what callers
@@ -620,9 +696,10 @@ export const resolveExpansionByTargetTable = async (
 export const attachRelationExpansion = async (
   records: GridRecord[],
   fields: Field[],
+  viewer?: ExpansionViewer,
 ): Promise<void> => {
   if (records.length === 0) return;
-  const expansion = await buildRelationExpansionCache(records, fields);
+  const expansion = await buildRelationExpansionCache(records, fields, viewer);
   if (Object.keys(expansion).length === 0) return;
   const relationFieldIds = fields
     .filter((f) => f.type === "relation" && !f.deletedAt)

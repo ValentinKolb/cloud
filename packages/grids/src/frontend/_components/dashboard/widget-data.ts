@@ -117,7 +117,7 @@ export const resolveWidgetData = async (
       case "chart":
         return await resolveChart(widget);
       case "view":
-        return await resolveView(widget);
+        return await resolveView(widget, viewer);
       case "view-stats":
         return await resolveViewStats(widget);
       case "form":
@@ -239,29 +239,33 @@ const resolveChart = async (
 
 const resolveView = async (
   widget: Extract<Widget, { kind: "view" }>,
+  viewer: ViewerContext,
 ): Promise<WidgetData> => {
   if (widget.source.kind === "view") {
-    return resolveSavedView(widget.source.viewId, widget.title);
+    return resolveSavedView(widget.source.viewId, widget.title, viewer);
   }
-  return resolveRawTable(widget.source.tableId, widget.title);
+  return resolveRawTable(widget.source.tableId, widget.title, viewer);
 };
 
 const resolveSavedView = async (
   viewId: string,
   titleOverride: string | undefined,
+  viewer: ViewerContext,
 ): Promise<WidgetData> => {
   const view = await gridsService.view.get(viewId);
   if (!view) return { kind: "error", reason: "view not found" };
   const table = await gridsService.table.get(view.tableId);
   if (!table) return { kind: "error", reason: "view's parent table not found" };
-  // includeRelations=true asks the resolver to attach .expanded onto
-  // each record so DatabaseTable renders relations as clickable links.
+  // includeRelations=true with viewer ⇒ expansion is permission-gated:
+  // relation cells pointing at tables the viewer can't read aren't
+  // expanded, so DatabaseTable falls back to UUID prefix for those.
   const records = await gridsService.record.list({
     tableId: view.tableId,
     filter: view.query.filter ?? null,
     sort: view.query.sort ?? [],
     limit: EMBEDDED_VIEW_PAGESIZE,
     includeRelations: true,
+    viewer,
   });
   if (!records.ok) return { kind: "error", reason: records.error.message };
   return {
@@ -276,6 +280,7 @@ const resolveSavedView = async (
 const resolveRawTable = async (
   tableId: string,
   titleOverride: string | undefined,
+  viewer: ViewerContext,
 ): Promise<WidgetData> => {
   const table = await gridsService.table.get(tableId);
   if (!table) return { kind: "error", reason: "table not found" };
@@ -283,6 +288,7 @@ const resolveRawTable = async (
     tableId,
     limit: EMBEDDED_VIEW_PAGESIZE,
     includeRelations: true,
+    viewer,
   });
   if (!records.ok) return { kind: "error", reason: records.error.message };
   return {

@@ -24,6 +24,7 @@ import {
   hydrateRelationsFromLinks,
   validateRelationTargets,
   writeRecordLinks,
+  type ExpansionViewer,
 } from "./relations";
 import { nextAutonumberValue } from "./field-indexes";
 import {
@@ -207,6 +208,14 @@ export const list = async (params: {
    * callers that don't know about expansion get the original shape.
    */
   includeRelations?: boolean;
+  /**
+   * Viewer for per-target-table permission gating on expansion. When
+   * set together with `includeRelations: true`, relation links to
+   * records in tables the viewer can't read are NOT expanded — the
+   * renderer falls back to a UUID prefix. Omit to expand unfiltered
+   * (the call site has already gated access).
+   */
+  viewer?: ExpansionViewer;
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
@@ -289,8 +298,10 @@ export const list = async (params: {
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
   // because it reads `record.data[fieldId]` to figure out which UUIDs
   // each record actually references. Mutates the records in place.
+  // When a viewer is supplied, target tables the viewer can't read
+  // are skipped — the renderer falls back to a UUID prefix.
   if (params.includeRelations) {
-    await attachRelationExpansion(items, fields);
+    await attachRelationExpansion(items, fields, params.viewer);
   }
 
   // Echo fields back in the response — list is the table-page entry
@@ -433,7 +444,7 @@ export const aggregate = async (params: {
 export const get = async (
   tableId: string,
   recordId: string,
-  opts: { includeRelations?: boolean } = {},
+  opts: { includeRelations?: boolean; viewer?: ExpansionViewer } = {},
 ): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
   const computed = await buildComputedProjections(fields);
@@ -464,7 +475,7 @@ export const get = async (
   );
   enrichRecordsWithFormulas([record], fields);
   if (opts.includeRelations) {
-    await attachRelationExpansion([record], fields);
+    await attachRelationExpansion([record], fields, opts.viewer);
   }
   return record;
 };
@@ -473,7 +484,11 @@ export const create = async (
   tableId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
-  opts: { bypassDirectInsertCheck?: boolean; includeRelations?: boolean } = {},
+  opts: {
+    bypassDirectInsertCheck?: boolean;
+    includeRelations?: boolean;
+    viewer?: ExpansionViewer;
+  } = {},
 ): Promise<Result<GridRecord>> => {
   // Per-table QoL gate: a "submission inbox" table can mark
   // disable_direct_insert=true so records only flow in via a form.
@@ -559,7 +574,7 @@ export const create = async (
   // caller just sent — keeps the API contract stable.
   await hydrateRelationsFromLinks([record], fields);
   if (opts.includeRelations) {
-    await attachRelationExpansion([record], fields);
+    await attachRelationExpansion([record], fields, opts.viewer);
   }
   return ok(record);
 };
@@ -570,7 +585,7 @@ export const update = async (
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
-  opts: { includeRelations?: boolean } = {},
+  opts: { includeRelations?: boolean; viewer?: ExpansionViewer } = {},
 ): Promise<Result<GridRecord>> => {
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
@@ -660,7 +675,7 @@ export const update = async (
   const record = mapRow(txResult);
   await hydrateRelationsFromLinks([record], fields);
   if (opts.includeRelations) {
-    await attachRelationExpansion([record], fields);
+    await attachRelationExpansion([record], fields, opts.viewer);
   }
   return ok(record);
 };
