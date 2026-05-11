@@ -4,7 +4,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import CreateClientButton from "./_components/CreateClientButton.island";
 import ClientActions from "./_components/ClientActions.island";
-import { StatCell } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { oauthService } from "../service";
 
 /** Admin OAuth clients list page. */
@@ -35,13 +35,11 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-3 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-key" }} />
-              <StatCell label="Public" value={publicClients} sub="PKCE, no secret" />
-              <StatCell label="Confidential" value={confidentialClients} sub="with secret" accent={{ tone: "emerald", icon: "ti ti-lock" }} />
-            </div>
-          </div>
+          <StatGrid columns={3}>
+            <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-key" }} />
+            <StatCell label="Public" value={publicClients} sub="PKCE, no secret" />
+            <StatCell label="Confidential" value={confidentialClients} sub="with secret" accent={{ tone: "emerald", icon: "ti ti-lock" }} />
+          </StatGrid>
 
           <div class="flex justify-end">
             <CreateClientButton />
