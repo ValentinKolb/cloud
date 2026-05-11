@@ -756,7 +756,7 @@ function StatCellEditor(props: {
   };
 
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col">
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
       <div
         class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
         onClick={props.onToggle}
@@ -1003,7 +1003,7 @@ function ViewCellEditor(props: {
   };
 
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col">
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
       <div
         class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
         onClick={props.onToggle}
