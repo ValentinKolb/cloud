@@ -118,13 +118,14 @@ export default function GroupedTable(props: Props) {
           contributes to each bucket. Counts reflect (record × link) pairs.
         </div>
       </Show>
-      <div class="paper overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs">
-            {/* Sticky thead — mirrors RecordsGrid. Header stays pinned
-                while the records-view body scrolls the rows under it. */}
-            <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
-              <tr class="border-b border-zinc-100 dark:border-zinc-800">
+      {/* Single paper-and-scroll wrapper so sticky thead pins to the
+          paper top instead of an intermediate x-only scroll wrapper.
+          See RecordsGrid for the full rationale. */}
+      <div class="paper overflow-auto flex-1 min-h-0">
+        <table class="w-full text-xs">
+          {/* Sticky thead — mirrors RecordsGrid. */}
+          <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
+            <tr class="border-b border-zinc-100 dark:border-zinc-800">
                 <For each={props.groupBy}>
                   {(g) => (
                     <th class="px-3 py-2 text-left">
@@ -189,7 +190,6 @@ export default function GroupedTable(props: Props) {
               </For>
             </tbody>
           </table>
-        </div>
       </div>
     </Show>
   );

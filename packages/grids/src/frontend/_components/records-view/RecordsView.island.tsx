@@ -490,10 +490,16 @@ export default function RecordsView(props: Props) {
           </div>
         </Show>
 
-        {/* Scrollable body — owns the y-scroll context. Wraps the
-            grid (which itself adds the x-scroll wrapper + sticky
-            `<thead>`) plus the next-page footer. */}
-        <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+        {/* Body layout column — pure flex-col, NO overflow. The
+            scroll context lives one level deeper inside the grid's
+            `<div class="paper overflow-auto">` so the sticky `<thead>`
+            picks it as the nearest scroll-ancestor and pins correctly.
+            Pre-fix, this div had `overflow-y-auto` and the grid had
+            its own `overflow-x-auto` inside paper — two scroll
+            contexts, the inner one (x-only) won the sticky lookup
+            and the header never actually pinned during vertical
+            scroll. */}
+        <div class="flex-1 min-h-0 flex flex-col gap-2">
           <Show
             when={isGrouped()}
             fallback={

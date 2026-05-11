@@ -183,21 +183,30 @@ export default function RecordsGrid(props: Props) {
       }
     >
       {/*
-        Two-layer wrapper so wide tables (lots of fields, long values) scroll
-        horizontally inside the paper border without forcing the whole page
-        wider. Mirrors the spaces ItemsTable pattern.
+        Paper wrapper IS the scroll container — combines visual frame
+        (bg, border, radius) with both x and y overflow. Previously
+        we had two nested wrappers (`paper overflow-hidden` outside
+        `overflow-x-auto` inside) which created intermediate scroll
+        contexts; sticky thead sticks to the NEAREST scroll-ancestor,
+        which became the x-only inner wrapper — so the thead never
+        actually pinned to the records-view body scroll. With a
+        single wrapper, the thead's nearest scroll-ancestor IS the
+        element that scrolls vertically, and pinning works.
+
+        `flex-1 min-h-0` only engages when the parent is a flex-col
+        (which RecordsView's body wrapper now is) — outside that
+        context the wrapper takes its natural height and the parent
+        provides scroll, both fine.
       */}
-      <div class="paper overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs">
-            {/* `<thead>` is `sticky top-0` so the column-name row
-                stays pinned to the top of the records-view scroll
-                container while data rows scroll under it. The
-                background covers the rows behind it (otherwise they'd
-                show through during scroll). The records-view wrapper
-                owns the y-scroll context — see RecordsView.island. */}
-            <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
-              <tr class="border-b border-zinc-100 dark:border-zinc-800">
+      <div class="paper overflow-auto flex-1 min-h-0">
+        <table class="w-full text-xs">
+          {/* `<thead>` is `sticky top-0` so the column-name row
+              stays pinned to the top of the paper scroll container
+              while data rows scroll under it. The bg covers the
+              rows behind it (otherwise they'd show through during
+              scroll). Z-index keeps it above the rows. */}
+          <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
+            <tr class="border-b border-zinc-100 dark:border-zinc-800">
                 {/* Two-line headers — explicitly breaking the platform's
                     single-line table convention because grids tables are far
                     more dynamic (any field type, user-defined names) than
@@ -320,7 +329,6 @@ export default function RecordsGrid(props: Props) {
               </Show>
             </tbody>
           </table>
-        </div>
       </div>
     </Show>
   );
