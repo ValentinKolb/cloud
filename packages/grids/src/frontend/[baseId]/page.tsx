@@ -262,9 +262,17 @@ export default ssr<AuthContext>(async (c) => {
   const tableLevels: Record<string, "none" | "read" | "write" | "admin"> = {};
   for (const e of tableLevelEntries) tableLevels[e.table.id] = e.level;
 
+  // Fall back to the first table ONLY when neither a table nor a
+  // dashboard is pinned in the URL. Pre-fix, the fallback fired
+  // unconditionally and marked the first table as active in the
+  // sidebar even while the user was viewing a dashboard — so e.g.
+  // clicking "Bookshop overview" left "Genres" highlighted as if
+  // both routes were active simultaneously.
   const activeTable = activeTableId
     ? tables.find((t) => t.id === activeTableId) ?? null
-    : tables[0] ?? null;
+    : activeDashboard
+      ? null
+      : tables[0] ?? null;
 
   // Resolve the active view slug AFTER the active table — view slugs
   // are scoped per-table. activeViewId stays null when no view is set
@@ -662,19 +670,23 @@ export default ssr<AuthContext>(async (c) => {
                 ) : (
                   tables.map((t) => {
                     const isActive = activeTable?.id === t.id;
-                    // Contacts-style row: the whole div carries the
-                    // sidebar-item visual; the link fills the row, and
-                    // the per-row settings button lives inside as a
-                    // sidebar-item-action that fades in on hover.
+                    // Stretched-link pattern: the outer div carries the
+                    // visual (padding, hover bg, active state); the
+                    // main link grows a `::before` overlay (via
+                    // `before:absolute before:inset-0`) so a click
+                    // ANYWHERE on the row navigates, not just on the
+                    // text. The settings cog sits above the overlay
+                    // via `relative z-10` so its own click target
+                    // stays distinct.
                     return (
                       <div
-                        class={`sidebar-item group ${
+                        class={`sidebar-item group relative ${
                           isActive ? "sidebar-item-active" : ""
                         }`}
                       >
                         <a
                           href={`/app/grids/${baseShortId}/table/${t.shortId}`}
-                          class="flex min-w-0 flex-1 items-center gap-2"
+                          class="flex min-w-0 flex-1 items-center gap-2 before:absolute before:inset-0 before:content-['']"
                           aria-current={isActive ? "page" : undefined}
                         >
                           <i class="ti ti-table text-sm shrink-0" />
@@ -689,7 +701,7 @@ export default ssr<AuthContext>(async (c) => {
                         {gridsService.permission.hasAtLeast(tableLevels[t.id] ?? "none", "admin") && (
                           <a
                             href={`/app/grids/${baseShortId}/table/${t.shortId}/edit`}
-                            class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                            class="sidebar-item-action relative z-10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                             aria-label={`Edit table ${t.name}`}
                             title="Edit table"
                           >
@@ -724,11 +736,11 @@ export default ssr<AuthContext>(async (c) => {
                         (d.ownerUserId === null && canWriteRecords);
                       return (
                         <div
-                          class={`sidebar-item group ${isActive ? "sidebar-item-active" : ""}`}
+                          class={`sidebar-item group relative ${isActive ? "sidebar-item-active" : ""}`}
                         >
                           <a
                             href={`/app/grids/${baseShortId}/dashboard/${d.shortId}`}
-                            class="flex min-w-0 flex-1 items-center gap-2"
+                            class="flex min-w-0 flex-1 items-center gap-2 before:absolute before:inset-0 before:content-['']"
                             aria-current={isActive ? "page" : undefined}
                           >
                             <i class="ti ti-layout-dashboard text-sm shrink-0" />
@@ -746,7 +758,7 @@ export default ssr<AuthContext>(async (c) => {
                           {canEdit && (
                             <a
                               href={`/app/grids/${baseShortId}/dashboard/${d.shortId}/edit`}
-                              class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                              class="sidebar-item-action relative z-10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                               aria-label={`Edit dashboard ${d.name}`}
                               title="Dashboard settings"
                             >
@@ -803,11 +815,11 @@ export default ssr<AuthContext>(async (c) => {
                       // the box.
                       return (
                         <div
-                          class={`sidebar-item group ${isActive ? "sidebar-item-active" : ""}`}
+                          class={`sidebar-item group relative ${isActive ? "sidebar-item-active" : ""}`}
                         >
                           <a
                             href={url}
-                            class="flex min-w-0 flex-1 items-center gap-2"
+                            class="flex min-w-0 flex-1 items-center gap-2 before:absolute before:inset-0 before:content-['']"
                             aria-current={isActive ? "page" : undefined}
                           >
                             <i class="ti ti-table-spark text-sm shrink-0" />
@@ -816,7 +828,7 @@ export default ssr<AuthContext>(async (c) => {
                           {canEdit && (
                             <a
                               href={`/app/grids/${baseShortId}/table/${t.shortId}/view/${view.shortId}/edit`}
-                              class="sidebar-item-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                              class="sidebar-item-action relative z-10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                               aria-label={`Edit view ${view.name}`}
                               title="View settings"
                             >
