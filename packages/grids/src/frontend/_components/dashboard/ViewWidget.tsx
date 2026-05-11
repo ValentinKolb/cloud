@@ -1,13 +1,13 @@
-import { Show, For } from "solid-js";
+import { Show } from "solid-js";
 import type { Widget } from "../../../service";
-import { formatCell } from "../format-cell";
+import DatabaseTable from "../DatabaseTable";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
   widget: Extract<Widget, { kind: "view" }>;
   data: WidgetData;
-  /** Slug of the parent base — prepended to the view-deep-link in
-   *  the header. Only used when `data.fullViewLink` is non-null. */
+  /** Slug of the parent base — prepended to the view-deep-link in the
+   *  header. Only used when `data.fullViewLink` is non-null. */
   baseShortId: string;
 };
 
@@ -18,18 +18,17 @@ type Props = {
  * to the records page (only available for saved-view sources; raw-
  * table sources don't have a natural drilldown destination).
  *
- * We deliberately don't mount the full RecordsView island here. Three
- * reasons: (a) RecordsView depends on URL-driven query state which
- * doesn't exist on a dashboard, (b) it pulls in toolbar editors
- * (filter / sort / aggregations) we don't want surfaced from a
- * dashboard cell, (c) every embedded view would hydrate as its own
- * island, multiplying client bundle cost on big dashboards. A simple
- * read-only table is the right shape for this surface.
+ * Uses `<DatabaseTable>` for rendering — the same presentational
+ * component the records page uses. Relations show up as proper
+ * `<RecordLink>`s via the pre-fetched `record.expanded` map (no
+ * render-time DB calls; the resolver above sets `includeRelations:
+ * true` on the record.list call).
  *
- * The `data` resolver upstream abstracts over both source kinds — by
- * the time it lands here, we just have a title, fields, records,
- * and an optional drilldown link. No source-kind branching needed
- * in the renderer.
+ * We don't mount the full RecordsView island here: that would pull
+ * in toolbar editors (filter / sort / aggregations) we don't want
+ * surfaced from a dashboard cell, and every embedded view would
+ * hydrate as its own island, multiplying client bundle cost. The
+ * dumb table + header is the right shape for this surface.
  */
 export default function ViewWidget(props: Props) {
   const isView = (
@@ -75,61 +74,23 @@ export default function ViewWidget(props: Props) {
           </div>
         }
       >
-        <ViewTable data={props.data as Extract<WidgetData, { kind: "view" }>} />
-      </Show>
-    </div>
-  );
-}
-
-function ViewTable(props: { data: Extract<WidgetData, { kind: "view" }> }) {
-  // Default-visibility column set sorted by position. Saved-view
-  // column ordering used to be honoured here too; that lives in the
-  // view's `query.columns` and isn't present in the WidgetData shape
-  // anymore (the resolver picks records but not the column spec).
-  // For raw-table sources there's no column spec to honour anyway.
-  // P2 idea: thread `view.query.columns` through if it ever differs
-  // from default-visibility.
-  const visibleFields = () =>
-    props.data.fields
-      .filter((f) => !f.deletedAt && !f.hideInTable)
-      .sort((a, b) => a.position - b.position);
-
-  return (
-    <div class="flex-1 min-h-0 overflow-auto">
-      <Show
-        when={props.data.records.length > 0}
-        fallback={
-          <div class="px-3 py-6 text-center text-xs text-dimmed">No records</div>
-        }
-      >
-        <table class="w-full text-xs">
-          <thead class="sticky top-0 bg-zinc-50 dark:bg-zinc-900/60 z-10">
-            <tr>
-              <For each={visibleFields()}>
-                {(f) => (
-                  <th class="text-left px-2 py-1 font-medium text-dimmed border-b border-zinc-200 dark:border-zinc-800 truncate">
-                    {f.name}
-                  </th>
-                )}
-              </For>
-            </tr>
-          </thead>
-          <tbody>
-            <For each={props.data.records}>
-              {(rec) => (
-                <tr class="border-b border-zinc-100 dark:border-zinc-800/60 last:border-0">
-                  <For each={visibleFields()}>
-                    {(f) => (
-                      <td class="px-2 py-1 align-top truncate max-w-[220px]">
-                        {formatCell(rec.data[f.id], f.type, f.config)}
-                      </td>
-                    )}
-                  </For>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
+        {(() => {
+          // Pack the resolver's separate fields + records into the
+          // RecordList shape DatabaseTable expects. The resolver
+          // already requested includeRelations so each record carries
+          // its own .expanded map.
+          const viewData = props.data as Extract<WidgetData, { kind: "view" }>;
+          return (
+            <DatabaseTable
+              result={{
+                items: viewData.records,
+                fields: viewData.fields,
+                nextCursor: null,
+              }}
+              baseId={props.baseShortId}
+            />
+          );
+        })()}
       </Show>
     </div>
   );

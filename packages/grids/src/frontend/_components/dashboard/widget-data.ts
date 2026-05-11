@@ -207,20 +207,26 @@ const resolveSavedView = async (
 ): Promise<WidgetData> => {
   const view = await gridsService.view.get(viewId);
   if (!view) return { kind: "error", reason: "view not found" };
-  const fields = await gridsService.field.listByTable(view.tableId);
   const table = await gridsService.table.get(view.tableId);
   if (!table) return { kind: "error", reason: "view's parent table not found" };
+  // includeRelations=true asks the resolver to attach .expanded onto
+  // each record. Costs +1 batched roundtrip per unique relation target
+  // table; pays off the moment the embedded table contains a relation
+  // cell (renders as a clickable RecordLink instead of a raw UUID).
   const records = await gridsService.record.list({
     tableId: view.tableId,
     filter: view.query.filter ?? null,
     sort: view.query.sort ?? [],
     limit: EMBEDDED_VIEW_PAGESIZE,
+    includeRelations: true,
   });
   if (!records.ok) return { kind: "error", reason: records.error.message };
   return {
     kind: "view",
     title: titleOverride ?? view.name,
-    fields,
+    // RecordList already carries `fields` — no separate listByTable
+    // call needed. One round-trip saved per widget.
+    fields: records.data.fields,
     records: records.data.items,
     fullViewLink: { tableShortId: table.shortId, viewShortId: view.shortId },
   };
@@ -232,16 +238,16 @@ const resolveRawTable = async (
 ): Promise<WidgetData> => {
   const table = await gridsService.table.get(tableId);
   if (!table) return { kind: "error", reason: "table not found" };
-  const fields = await gridsService.field.listByTable(tableId);
   const records = await gridsService.record.list({
     tableId,
     limit: EMBEDDED_VIEW_PAGESIZE,
+    includeRelations: true,
   });
   if (!records.ok) return { kind: "error", reason: records.error.message };
   return {
     kind: "view",
     title: titleOverride ?? table.name,
-    fields,
+    fields: records.data.fields,
     records: records.data.items,
     fullViewLink: null,
   };
