@@ -568,24 +568,26 @@ export const StatWidgetSchema = z.object({
 });
 
 /**
- * Chart widget — visualizes the buckets produced by `record.group()`
- * as a donut, bar, line, or scatter SVG (rendered by the platform
- * `Chart` primitive in `cloud/ui`).
+ * Chart widget — visualizes a saved view's bucketed output as a
+ * donut, bar, line, or scatter SVG via the `<Chart>` primitive from
+ * `cloud/ui`.
  *
- * **Source-shape contract per chartType.** All four read from a
- * shared `WidgetSource` (table + filter + groupBy + aggregations);
- * the renderer interprets the resulting buckets differently:
+ * **Source: a viewId.** The view supplies the filter, sort, groupBy
+ * (with optional granularity), and aggregations. The widget just
+ * says HOW to render. This mirrors the symmetry with `view-stats`
+ * cells (also viewId-based) and means a single configured view —
+ * "Orders per month" — can be reused as a stat strip, a chart, and
+ * an embedded table without duplicating its query.
  *
- *  - `donut`: 1 groupBy → slice label, 1+ aggs → slice value (first agg wins).
- *  - `bar`:   1 groupBy → bar label,   1+ aggs → bar value   (first agg wins).
- *  - `line`:  1 groupBy → x-axis,      N aggs → 1 series per agg.
- *  - `scatter`: 1 groupBy → buckets,   ≥2 aggs → x=agg1, y=agg2 per point.
+ * **chartType → expected view shape:**
+ *  - `donut`/`bar`: view with 1 groupBy + ≥1 aggregation (first wins).
+ *  - `line`:        view with 1 groupBy + N aggregations (one series each).
+ *  - `scatter`:     view with 1 groupBy + ≥2 aggregations (agg1=x, agg2=y).
  *
- * x-axis formatting is inferred from the groupBy field type (date
- * → readable date; number → numeric; string → category label). The
- * widget's `format` applies to the y-axis (and to scalar slice
- * values). For most dashboards the defaults work — `format`/labels
- * are escape hatches, not required input.
+ * **`limit`** caps the most-recent N buckets — handy when a view holds
+ * a long history but the chart should only show e.g. "last 12 months".
+ * Applied after the view's own filter/sort, so it's a renderer trim,
+ * not a query change.
  */
 export const ChartWidgetSchema = z.object({
   id: z.string().min(1),
@@ -594,12 +596,53 @@ export const ChartWidgetSchema = z.object({
   /** Small grey line under the title in the chart frame. */
   subtitle: z.string().max(200).optional(),
   chartType: z.enum(["donut", "bar", "line", "scatter"]),
-  source: WidgetSourceSchema,
+  /** Saved view that supplies the buckets (filter / groupBy / aggs). */
+  viewId: z.string().uuid(),
+  /** Optional cap on bucket count — keeps the most-recent N. */
+  limit: z.number().int().min(1).max(1000).optional(),
   /** Y-axis / value format. Defaults inferred from the primary aggregation. */
   format: WidgetFormatSchema.optional(),
   /** Optional axis labels — passed through to the chart renderer. */
   xAxisLabel: z.string().max(60).optional(),
   yAxisLabel: z.string().max(60).optional(),
+});
+
+/**
+ * View-stats widget — derives a tiny 2×N stat-grid from a saved view's
+ * first row (ungrouped) or first bucket (grouped). Same auto-derivation
+ * as the deprecated view-stats row type, but now lives as a CELL inside
+ * a unified row, so it can sit next to other cell kinds in a single
+ * horizontal strip.
+ *
+ * Internal layout: when the cell renders, the auto-derived stats are
+ * arranged as a 2-column hairline grid within the cell's paper slot.
+ * Width comes from the row's cell-count division (1/N of the row);
+ * height fits the content.
+ */
+export const ViewStatsWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("view-stats"),
+  viewId: z.string().uuid(),
+  title: z.string().max(200).optional(),
+});
+
+/**
+ * Form widget — embeds a form for inline data entry on the dashboard.
+ * The form's submit POSTs through the existing form-submission path
+ * and triggers a full page reload so every other widget re-resolves
+ * with the freshly written record. No optimistic UI in v1 (KISS;
+ * the reload guarantees visible consistency across stat / chart /
+ * view cells without per-widget invalidation logic).
+ *
+ * Permission: when the viewer can't submit the form, the cell renders
+ * a dimmed "no access" placeholder so the dashboard layout stays
+ * stable across users with different permission sets.
+ */
+export const FormWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("form"),
+  formId: z.string().uuid(),
+  title: z.string().max(200).optional(),
 });
 
 /** Embedded-table source for a `view` widget. Two kinds:
@@ -638,76 +681,41 @@ export const WidgetSchema = z.discriminatedUnion("kind", [
   StatWidgetSchema,
   ChartWidgetSchema,
   ViewWidgetSchema,
+  ViewStatsWidgetSchema,
+  FormWidgetSchema,
 ]);
 export type Widget = z.infer<typeof WidgetSchema>;
 export type StatWidget = z.infer<typeof StatWidgetSchema>;
 export type ChartWidget = z.infer<typeof ChartWidgetSchema>;
 export type ViewWidget = z.infer<typeof ViewWidgetSchema>;
+export type ViewStatsWidget = z.infer<typeof ViewStatsWidgetSchema>;
+export type FormWidget = z.infer<typeof FormWidgetSchema>;
 
-// Three row types — `kind` discriminator picks rendering + cell shape:
+// Unified row — one type with any mix of cell kinds. Replaces the
+// previous three-row-type discriminated union (stats / view-stats /
+// widgets) that forced a user to pick a row type up-front.
 //
-//   - StatsRow ("stats"):  1-N stat cells rendered as one paper
-//                container with hairline-separated cells (ui-lab
-//                "Small grid only" pattern). No height tier — the
-//                small-grid has its natural padded height.
-//   - ViewStatsRow ("view-stats"): a saved view's footer aggregates
-//                surfaced as the same hairline-cell stat row. Source
-//                is one viewId; cells auto-derive from the view's
-//                stored aggregations.
-//   - WidgetsRow ("widgets"): 1-4 larger widgets (views; charts
-//                later) rendered as separate paper cards with
-//                `gap-3` between them. Carries an explicit sm/md/lg
-//                height tier because embedded views need vertical
-//                breathing room.
+// Layout rules (applied by the renderer, not the schema):
 //
-// Splitting at the row level (vs. inferring from cell contents)
-// keeps the editor's add-row affordance unambiguous and avoids the
-// "why does it suddenly look different" surprise when a user mixes
-// kinds.
-export const StatsRowSchema = z.object({
+//   - All cells of kind="stat" → render the row as one paper with
+//     hairline dividers between cells (the dense ui-lab "small grid"
+//     pattern). Stats belong together visually.
+//   - Anything else (mixed, or pure view/chart/view-stats/form) →
+//     each cell renders as its own paper-card; the row's `height`
+//     tier dictates the slot height; cells stretch to fill.
+//   - view-stats cells render as an internal 2-column hairline grid
+//     within their single paper slot.
+//   - Form cells render the form; viewer without submit perm sees a
+//     dimmed "no access" placeholder.
+//
+// 1-4 cells per row; each cell takes 1/N of the row width.
+export const DashboardRowSchema = z.object({
   id: z.string().min(1),
-  kind: z.literal("stats"),
-  cells: z.array(StatWidgetSchema).min(1).max(6),
-});
-
-/** View-stats row — point at a saved view, derive every cell
- *  automatically. Layout per view shape (renderer auto-detects):
- *
- *    - ungrouped → first record, one cell per visible field
- *    - grouped   → first bucket, one cell per aggregation
- *
- *  Zero per-cell config. Label, value, and format come from the view
- *  metadata. Users wanting per-cell overrides go back to a `stats`
- *  row with hand-rolled stat widgets — the two row types are not
- *  interchangeable. */
-export const ViewStatsRowSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("view-stats"),
-  viewId: z.string().uuid(),
-  /** Optional title shown above the row. Defaults to the view's name
-   *  at render time when missing. */
-  title: z.string().max(200).optional(),
-});
-
-export const WidgetsRowSchema = z.object({
-  id: z.string().min(1),
-  kind: z.literal("widgets"),
+  kind: z.literal("row"),
   height: z.enum(["sm", "md", "lg"]),
-  cells: z
-    .array(z.discriminatedUnion("kind", [ChartWidgetSchema, ViewWidgetSchema]))
-    .min(1)
-    .max(4),
+  cells: z.array(WidgetSchema).min(1).max(4),
 });
-
-export const DashboardRowSchema = z.discriminatedUnion("kind", [
-  StatsRowSchema,
-  ViewStatsRowSchema,
-  WidgetsRowSchema,
-]);
 export type DashboardRow = z.infer<typeof DashboardRowSchema>;
-export type StatsRow = z.infer<typeof StatsRowSchema>;
-export type ViewStatsRow = z.infer<typeof ViewStatsRowSchema>;
-export type WidgetsRow = z.infer<typeof WidgetsRowSchema>;
 
 export const DashboardConfigSchema = z.object({
   rows: z.array(DashboardRowSchema),

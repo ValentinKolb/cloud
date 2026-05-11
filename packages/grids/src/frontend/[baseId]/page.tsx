@@ -6,9 +6,7 @@ import { gridsService } from "../../service";
 import RecordsView from "../_components/records-view/RecordsView.island";
 import DashboardLayout from "../_components/dashboard/DashboardLayout";
 import {
-  resolveViewStatsRow,
   resolveWidgetData,
-  type ViewStatsRowData,
   type WidgetData,
 } from "../_components/dashboard/widget-data";
 import type { GroupBucket } from "../_components/GroupedTable";
@@ -19,9 +17,6 @@ import type {
   FilterTree,
   SortSpec,
   Field,
-  StatWidget,
-  ChartWidget,
-  ViewWidget,
 } from "../../service";
 import { filterSearchableFields, mergeSearchIntoFilter } from "../../service/search";
 import { parseRecordsState } from "../_components/records-view/query-url";
@@ -188,51 +183,23 @@ export default ssr<AuthContext>(async (c) => {
     (activeDashboard.ownerUserId === null || activeDashboard.ownerUserId === user.id);
   const renderDashboard = dashboardVisible ? activeDashboard : null;
 
-  // Pre-fetch widget data when dashboard mode is active. Each widget's
-  // source is a small server-side query (aggregate for stat, group for
-  // chart, list+25 for view); fan-out via Promise.all so the slowest
-  // widget caps the total render time, not the sum.
+  // Pre-fetch widget data when dashboard mode is active. The unified
+  // row schema means every cell is a Widget with its own kind — flat
+  // out into one fan-out, no per-row-kind branching. `resolveWidgetData`
+  // handles all five cell kinds (stat / view / chart / view-stats /
+  // form). Slowest widget caps the total render time, not the sum.
   const widgetData: Record<string, WidgetData> = {};
-  const viewStatsData: Record<string, ViewStatsRowData> = {};
   if (renderDashboard) {
-    // The discriminated row union (`stats` / `view-stats` / `widgets`)
-    // keeps cell arrays narrow per row kind. Flatten widget-bearing
-    // cells into one list for parallel `resolveWidgetData` fan-out;
-    // view-stats rows have no widget cells, so they get a separate
-    // resolver that returns derived ViewStatsCell entries keyed by
-    // row id.
-    const widgets: Array<StatWidget | ChartWidget | ViewWidget> = [];
-    const viewStatsRows: typeof renderDashboard.config.rows = [];
-    for (const r of renderDashboard.config.rows) {
-      if (r.kind === "stats") {
-        widgets.push(...r.cells);
-      } else if (r.kind === "widgets") {
-        widgets.push(...r.cells);
-      } else {
-        viewStatsRows.push(r);
-      }
-    }
-    const [widgetResults, viewStatsResults] = await Promise.all([
-      Promise.all(
-        widgets.map((w) =>
-          resolveWidgetData(w, {
-            userId: user.id,
-            userGroups: user.memberofGroupIds,
-          }).then((data) => [w.id, data] as const),
-        ),
+    const widgets = renderDashboard.config.rows.flatMap((r) => r.cells);
+    const results = await Promise.all(
+      widgets.map((w) =>
+        resolveWidgetData(w, {
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+        }).then((data) => [w.id, data] as const),
       ),
-      Promise.all(
-        viewStatsRows.map((r) =>
-          r.kind === "view-stats"
-            ? resolveViewStatsRow(r).then((data) => [r.id, data] as const)
-            : Promise.resolve([r.id, null] as const),
-        ),
-      ),
-    ]);
-    for (const [id, data] of widgetResults) widgetData[id] = data;
-    for (const [id, data] of viewStatsResults) {
-      if (data) viewStatsData[id] = data;
-    }
+    );
+    for (const [id, data] of results) widgetData[id] = data;
   }
 
   // Sidebar listing — readable dashboards across the base. Same shape
@@ -899,7 +866,6 @@ export default ssr<AuthContext>(async (c) => {
               <DashboardLayout
                 dashboard={renderDashboard}
                 widgetData={widgetData}
-                viewStatsData={viewStatsData}
                 baseShortId={baseShortId}
               />
             </div>

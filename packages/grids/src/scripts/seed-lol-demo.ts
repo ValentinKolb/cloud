@@ -427,12 +427,13 @@ const main = async () => {
       ownerUserId: null /* shared */,
       config: {
         rows: [
-          // Stats row: ui-lab small-grid pattern, one paper with
-          // hairline-separated cells. No height tier — small-grid
-          // sizes itself.
+          // Pure-stats row → renderer auto-detects all cells are stats
+          // and renders the dense StatGrid hairline pattern (one paper,
+          // hairline dividers between cells).
           {
             id: "row-stats",
-            kind: "stats",
+            kind: "row",
+            height: "sm",
             cells: [
               {
                 id: "w-orders-count",
@@ -484,25 +485,21 @@ const main = async () => {
               },
             ],
           },
-          // View-stats row — auto-derived from the "By genre · revenue"
-          // view's first bucket. Demonstrates zero-config composition:
-          // view defines `count(*)`, `sum(price)`, `avg(price)` over
-          // genre groups; this row picks up all three as cells of the
-          // first bucket. If the underlying view changes, the row
-          // follows automatically.
+          // Mixed row: a view-stats CELL (auto-derived 2×N grid inside
+          // its single slot) next to a regular view cell. Demonstrates
+          // the unified row's flexibility — any mix of cell kinds in
+          // a single horizontal strip.
           {
-            id: "row-genre-stats",
-            kind: "view-stats",
-            viewId: vGenreRevenue,
-            title: "Top genre at a glance",
-          },
-          // View row: each cell is its own paper card with the lg
-          // height tier so the embedded record table has breathing room.
-          {
-            id: "row-customers",
-            kind: "widgets",
+            id: "row-mixed",
+            kind: "row",
             height: "lg",
             cells: [
+              {
+                id: "w-genre-stats",
+                kind: "view-stats",
+                viewId: vGenreRevenue,
+                title: "Top genre at a glance",
+              },
               {
                 id: "w-newest-customers",
                 kind: "view",

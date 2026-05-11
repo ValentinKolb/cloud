@@ -77,7 +77,13 @@ function ChartBody(props: {
 }) {
   const fieldsById = () => new Map<string, Field>(props.data.fields.map((f) => [f.id, f]));
   const renderData = () =>
-    buildChartRenderData(props.widget, props.data.buckets, fieldsById());
+    buildChartRenderData({
+      widget: props.widget,
+      groupBy: props.data.viewQuery.groupBy,
+      aggregations: props.data.viewQuery.aggregations,
+      buckets: props.data.buckets,
+      fieldsById: fieldsById(),
+    });
 
   const yFormat = () => (v: number) => formatWidgetValue(v, props.widget.format);
 

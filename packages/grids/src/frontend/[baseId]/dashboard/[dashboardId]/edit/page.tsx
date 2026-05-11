@@ -90,6 +90,10 @@ export default ssr<AuthContext>(async (c) => {
 
   const fieldsByTable: Record<string, Awaited<ReturnType<typeof gridsService.field.listByTable>>> = {};
   const viewsByTable: Record<string, View[]> = {};
+  const formsByTable: Record<
+    string,
+    Awaited<ReturnType<typeof gridsService.form.listForTable>>
+  > = {};
   for (const t of tables) {
     fieldsByTable[t.id] = await gridsService.field.listByTable(t.id);
     viewsByTable[t.id] = await gridsService.view.listForTable({
@@ -97,6 +101,9 @@ export default ssr<AuthContext>(async (c) => {
       userId: user.id,
       userGroups: user.memberofGroupIds,
     });
+    // Forms-by-table feeds the form-cell editor's picker. Same loop as
+    // views since the editor surfaces a base-wide aggregate of both.
+    formsByTable[t.id] = await gridsService.form.listForTable(t.id);
   }
 
   // ACL entries for the Permissions section. listForDashboard returns
@@ -178,6 +185,7 @@ export default ssr<AuthContext>(async (c) => {
             tables={tables.map((t) => ({ id: t.id, name: t.name, slug: t.shortId }))}
             fieldsByTable={fieldsByTable}
             viewsByTable={viewsByTable}
+            formsByTable={formsByTable}
             initialAccessEntries={accessEntries}
             canEditAccess={canEditAccess}
           />

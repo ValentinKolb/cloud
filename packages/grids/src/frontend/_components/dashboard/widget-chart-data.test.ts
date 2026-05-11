@@ -260,32 +260,40 @@ describe("chartXAxisFormat", () => {
 // buildChartRenderData — top-level dispatcher used by the renderer
 // =============================================================================
 
-const widget = (chartType: ChartWidget["chartType"], aggs: AggregationSpec[]): ChartWidget => ({
+const widget = (chartType: ChartWidget["chartType"]): ChartWidget => ({
   id: "w1",
   kind: "chart",
   chartType,
-  source: {
-    tableId: "t1",
-    groupBy: [categoryGroupBy],
-    aggregations: aggs,
-  },
+  viewId: "11111111-1111-1111-1111-111111111111",
+});
+
+const renderInput = (
+  w: ChartWidget,
+  aggs: AggregationSpec[],
+  buckets: typeof sliceBuckets,
+) => ({
+  widget: w,
+  groupBy: [categoryGroupBy],
+  aggregations: aggs,
+  buckets,
+  fieldsById,
 });
 
 describe("buildChartRenderData", () => {
   test("donut → SliceItem[] (first agg only)", () => {
-    const out = buildChartRenderData(widget("donut", [countStar]), sliceBuckets, fieldsById);
+    const out = buildChartRenderData(renderInput(widget("donut"), [countStar], sliceBuckets));
     expect(out.kind).toBe("donut");
     if (out.kind !== "donut") throw new Error("unreachable");
     expect(out.data).toHaveLength(3);
   });
 
   test("bar → BarItem[]", () => {
-    const out = buildChartRenderData(widget("bar", [countStar]), sliceBuckets, fieldsById);
+    const out = buildChartRenderData(renderInput(widget("bar"), [countStar], sliceBuckets));
     expect(out.kind).toBe("bar");
   });
 
   test("line → series + xAxisFormat callback wired up", () => {
-    const out = buildChartRenderData(widget("line", [countStar, sumAmount]), lineBuckets, fieldsById);
+    const out = buildChartRenderData(renderInput(widget("line"), [countStar, sumAmount], lineBuckets));
     expect(out.kind).toBe("line");
     if (out.kind !== "line") throw new Error("unreachable");
     expect(out.series).toHaveLength(2);
@@ -293,7 +301,7 @@ describe("buildChartRenderData", () => {
   });
 
   test("scatter → series with bubble x/y points", () => {
-    const out = buildChartRenderData(widget("scatter", [countStar, sumAmount]), lineBuckets, fieldsById);
+    const out = buildChartRenderData(renderInput(widget("scatter"), [countStar, sumAmount], lineBuckets));
     expect(out.kind).toBe("scatter");
     if (out.kind !== "scatter") throw new Error("unreachable");
     expect(out.series).toHaveLength(1);

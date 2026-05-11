@@ -1,42 +1,36 @@
 import { For, Show } from "solid-js";
-import type {
-  Dashboard,
-  ChartWidget as ChartWidgetType,
-  ViewWidget,
-  WidgetsRow,
-} from "../../../service";
-import StatsRow from "./StatsRow";
-import ViewStatsRow from "./ViewStatsRow";
+import { StatGrid } from "@valentinkolb/cloud/ui";
+import type { Dashboard, DashboardRow, Widget } from "../../../service";
 import EmbeddedViewWidget from "./ViewWidget";
 import ChartWidget from "./ChartWidget";
-import type { WidgetData, ViewStatsRowData } from "./widget-data";
+import ViewStatsCell from "./ViewStatsCell";
+import FormCell from "./FormCell";
+import StatWidgetCell from "./StatWidgetCell";
+import type { WidgetData } from "./widget-data";
 
 type Props = {
   dashboard: Dashboard;
-  /** Pre-resolved per-widget data for `stats` and `widgets` rows,
-   *  keyed by `widget.id`. */
+  /** Pre-resolved per-widget data, keyed by `widget.id`. Includes every
+   *  cell across every row — the dashboard fan-out happens server-side
+   *  in [baseId]/page.tsx, one Promise.all per page render. */
   widgetData: Record<string, WidgetData>;
-  /** Pre-resolved per-row data for `view-stats` rows, keyed by
-   *  `row.id`. Cells are derived by the resolver from the source
-   *  view's first row / first bucket. */
-  viewStatsData: Record<string, ViewStatsRowData>;
-  /** Slug of the parent base — needed by the view-link header. */
+  /** Slug of the parent base — needed by view-cell / chart-cell links. */
   baseShortId: string;
 };
 
-/** Minimum cell heights for widget rows (sm/md/lg tier on
- *  `WidgetsRow`). Stats rows have no height tier — the small-grid
- *  has its natural padded height per the ui-lab spec. */
-const WIDGET_CELL_MIN_HEIGHT_PX = {
+/** Minimum cell heights per row's height tier. Stat-only rows ignore
+ *  this (they have their natural padded height); mixed and non-stat
+ *  rows use it to give views, charts, and forms vertical breathing room. */
+const ROW_MIN_HEIGHT_PX = {
   sm: 96,
   md: 192,
   lg: 360,
 } as const;
 
-/** Static `md:grid-cols-N` map. JIT can't resolve interpolated
- *  Tailwind classes; we keep literals so all four cell-count
- *  variants make it into the bundle. */
-const WIDGET_GRID_CLASS: Record<number, string> = {
+/** Static cell-count → grid-cols Tailwind classes. JIT can't resolve
+ *  interpolated `md:grid-cols-${n}`; explicit map keeps all variants
+ *  in the bundle. */
+const CELL_GRID_CLASS: Record<number, string> = {
   1: "md:grid-cols-1",
   2: "md:grid-cols-2",
   3: "md:grid-cols-3",
@@ -44,14 +38,17 @@ const WIDGET_GRID_CLASS: Record<number, string> = {
 };
 
 /**
- * Top-level read-only dashboard render. Dispatches each row by its
- * discriminant: `stats` rows go through the ui-lab small-grid
- * pattern (one paper, hairline cells); `widgets` rows render each
- * cell as its own paper card with a per-row sm/md/lg height tier
- * because views and (P1) charts need vertical breathing room.
+ * Top-level read-only dashboard render. Single row type with any mix
+ * of cell kinds — stat / view / chart / view-stats / form. Layout
+ * dispatch happens per row (not per cell):
  *
- * Empty dashboard: a friendly empty-state nudges the user toward
- * the editor instead of showing blank space.
+ *   - All cells of kind="stat" → render as ONE paper with hairline
+ *     dividers (StatGrid). Keeps the dense KPI rhythm when stats
+ *     belong together; matches the ui-lab "small-grid" pattern.
+ *   - Mixed or non-stat → each cell is its own paper-card in a
+ *     responsive grid, stretched to the row's height tier.
+ *
+ * Empty dashboard: friendly empty-state instead of blank space.
  */
 export default function DashboardLayout(props: Props) {
   return (
@@ -68,53 +65,87 @@ export default function DashboardLayout(props: Props) {
         fallback={<EmptyDashboardState />}
       >
         <For each={props.dashboard.config.rows}>
-          {(row) => {
-            if (row.kind === "stats") {
-              return <StatsRow row={row} widgetData={props.widgetData} />;
-            }
-            if (row.kind === "view-stats") {
-              const data = props.viewStatsData[row.id];
-              if (!data) {
-                return (
-                  <div class="paper px-4 py-3 text-xs text-dimmed">
-                    View stats row had no resolved data
-                  </div>
-                );
-              }
-              return <ViewStatsRow data={data} baseShortId={props.baseShortId} />;
-            }
-            return (
-              <WidgetsRowRender
-                row={row}
-                widgetData={props.widgetData}
-                baseShortId={props.baseShortId}
-              />
-            );
-          }}
+          {(row) => (
+            <RowRenderer
+              row={row}
+              widgetData={props.widgetData}
+              baseShortId={props.baseShortId}
+            />
+          )}
         </For>
       </Show>
     </div>
   );
 }
 
-function WidgetsRowRender(props: {
-  row: WidgetsRow;
+/** Per-row dispatcher — picks the all-stats layout (dense StatGrid)
+ *  vs the mixed-cells layout (paper-card per cell). */
+function RowRenderer(props: {
+  row: DashboardRow;
+  widgetData: Record<string, WidgetData>;
+  baseShortId: string;
+}) {
+  const isAllStats = () => props.row.cells.every((c) => c.kind === "stat");
+
+  return (
+    <Show
+      when={isAllStats()}
+      fallback={
+        <MixedRow
+          row={props.row}
+          widgetData={props.widgetData}
+          baseShortId={props.baseShortId}
+        />
+      }
+    >
+      <StatsOnlyRow row={props.row} widgetData={props.widgetData} />
+    </Show>
+  );
+}
+
+/** All-stats row → one paper with hairline dividers between cells.
+ *  Uses cloud/ui StatGrid + StatCell; the dense "small-grid" rhythm
+ *  matches the rest of the platform's KPI strips. */
+function StatsOnlyRow(props: {
+  row: DashboardRow;
+  widgetData: Record<string, WidgetData>;
+}) {
+  return (
+    <StatGrid columns={props.row.cells.length}>
+      <For each={props.row.cells}>
+        {(cell) => {
+          // The all-stats guard above means every cell here is "stat".
+          // Narrow explicitly so the StatWidgetCell prop type is happy.
+          if (cell.kind !== "stat") return null;
+          return <StatWidgetCell widget={cell} data={props.widgetData[cell.id]} />;
+        }}
+      </For>
+    </StatGrid>
+  );
+}
+
+/** Mixed / non-stat row → grid of paper-cards, one per cell, each
+ *  stretched to the row's height tier. */
+function MixedRow(props: {
+  row: DashboardRow;
   widgetData: Record<string, WidgetData>;
   baseShortId: string;
 }) {
   return (
     <div
-      class={`grid grid-cols-1 gap-3 ${WIDGET_GRID_CLASS[props.row.cells.length] ?? "md:grid-cols-4"}`}
+      class={`grid grid-cols-1 gap-3 ${
+        CELL_GRID_CLASS[props.row.cells.length] ?? "md:grid-cols-4"
+      }`}
     >
       <For each={props.row.cells}>
-        {(widget) => (
+        {(cell) => (
           <div
             class="min-w-0 flex flex-col"
-            style={`min-height: ${WIDGET_CELL_MIN_HEIGHT_PX[props.row.height]}px`}
+            style={`min-height: ${ROW_MIN_HEIGHT_PX[props.row.height]}px`}
           >
-            <WidgetCell
-              widget={widget}
-              data={props.widgetData[widget.id]}
+            <CellRenderer
+              widget={cell}
+              data={props.widgetData[cell.id]}
               baseShortId={props.baseShortId}
             />
           </div>
@@ -124,23 +155,51 @@ function WidgetsRowRender(props: {
   );
 }
 
-function WidgetCell(props: {
-  widget: ViewWidget | ChartWidgetType;
+/** Per-cell dispatcher inside a mixed row. Switches on kind and hands
+ *  off to the matching cell renderer. Missing data resolves to an
+ *  error sentinel so the cell shows a red notice instead of crashing. */
+function CellRenderer(props: {
+  widget: Widget;
   data: WidgetData | undefined;
   baseShortId: string;
 }) {
   const data = (): WidgetData =>
     props.data ?? { kind: "error", reason: "no data resolved for this widget" };
-  if (props.widget.kind === "view") {
-    return (
-      <EmbeddedViewWidget
-        widget={props.widget}
-        data={data()}
-        baseShortId={props.baseShortId}
-      />
-    );
+
+  switch (props.widget.kind) {
+    case "stat":
+      // A solo stat cell inside a mixed row gets its own paper-card
+      // (vs the dense StatGrid hairline look reserved for all-stats
+      // rows). Wrap StatWidgetCell in a paper so it visually matches
+      // the sibling view / chart / form cards.
+      return (
+        <div class="paper flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden">
+          <div class="w-full">
+            <StatWidgetCell widget={props.widget} data={props.data} />
+          </div>
+        </div>
+      );
+    case "view":
+      return (
+        <EmbeddedViewWidget
+          widget={props.widget}
+          data={data()}
+          baseShortId={props.baseShortId}
+        />
+      );
+    case "chart":
+      return <ChartWidget widget={props.widget} data={data()} />;
+    case "view-stats":
+      return (
+        <ViewStatsCell
+          widget={props.widget}
+          data={data()}
+          baseShortId={props.baseShortId}
+        />
+      );
+    case "form":
+      return <FormCell widget={props.widget} data={data()} />;
   }
-  return <ChartWidget widget={props.widget} data={data()} />;
 }
 
 function EmptyDashboardState() {
@@ -149,7 +208,7 @@ function EmptyDashboardState() {
       <i class="ti ti-layout-dashboard text-3xl text-dimmed" />
       <p class="text-sm text-dimmed">This dashboard has no rows yet.</p>
       <p class="text-xs text-dimmed">
-        Open the editor to add a stats row or embed a saved view.
+        Open the editor to add a row and configure cells.
       </p>
     </div>
   );

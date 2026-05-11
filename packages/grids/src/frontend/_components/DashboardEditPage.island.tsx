@@ -8,7 +8,7 @@ import {
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, Index, Show } from "solid-js";
+import { createMemo, createSignal, For, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type {
   ChartWidget,
@@ -16,12 +16,13 @@ import type {
   DashboardConfig,
   DashboardRow,
   Field,
+  Form,
+  FormWidget,
   StatWidget,
-  StatsRow as StatsRowType,
   View,
-  ViewStatsRow as ViewStatsRowType,
+  ViewStatsWidget,
   ViewWidget,
-  WidgetsRow as WidgetsRowType,
+  Widget,
 } from "../../service";
 import type { AggregationSpec, GroupBySpec } from "../../contracts";
 import { errorMessage } from "./api-helpers";
@@ -46,6 +47,7 @@ type Props = {
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
+  formsByTable: Record<string, Form[]>;
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
 };
@@ -54,6 +56,10 @@ const DEFAULT_AGG: AggregationSpec = { fieldId: "*", agg: "count" };
 
 const newId = (prefix: string) =>
   `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
+
+// ── Cell factories ────────────────────────────────────────────────
+// Each cell-kind has its own factory. The "Add cell" dropdown picks
+// the matching one and pushes a fresh cell into the row.
 
 const defaultStatWidget = (tableId: string): StatWidget => ({
   id: newId("w"),
@@ -69,36 +75,39 @@ const defaultViewWidget = (): ViewWidget => ({
   source: { kind: "view", viewId: "" },
 });
 
-/** Seed for a fresh chart widget. Bar + COUNT(*) is the safest
- *  default — works on any table, no field required, produces a
- *  visible chart the moment a groupBy field is picked. The empty
- *  groupBy array intentionally renders an empty-state chart so the
- *  user is nudged to configure one. */
-const defaultChartWidget = (tableId: string): ChartWidget => ({
+/** Seed for a fresh chart widget. Bar chart, no view picked yet —
+ *  the user fills in the viewId via the editor; before then the
+ *  renderer shows an empty-state. */
+const defaultChartWidget = (): ChartWidget => ({
   id: newId("w"),
   kind: "chart",
   chartType: "bar",
   title: "New chart",
-  source: { tableId, aggregations: [DEFAULT_AGG] },
+  viewId: "",
 });
 
-const defaultStatsRow = (tableId: string): StatsRowType => ({
-  id: newId("r"),
-  kind: "stats",
-  cells: [defaultStatWidget(tableId)],
-});
-
-const defaultViewStatsRow = (): ViewStatsRowType => ({
-  id: newId("r"),
+const defaultViewStatsWidget = (): ViewStatsWidget => ({
+  id: newId("w"),
   kind: "view-stats",
   viewId: "",
 });
 
-const defaultWidgetsRow = (): WidgetsRowType => ({
+const defaultFormWidget = (): FormWidget => ({
+  id: newId("w"),
+  kind: "form",
+  formId: "",
+});
+
+// ── Row factory ───────────────────────────────────────────────────
+// One row type for everything. The cells array is the only thing
+// that varies; "Add row" creates a row with a default-stat cell so
+// the user immediately sees content to configure.
+
+const defaultRow = (tableId: string): DashboardRow => ({
   id: newId("r"),
-  kind: "widgets",
-  height: "lg",
-  cells: [defaultViewWidget()],
+  kind: "row",
+  height: "md",
+  cells: [defaultStatWidget(tableId)],
 });
 
 export default function DashboardEditPage(props: Props) {
@@ -154,7 +163,7 @@ export default function DashboardEditPage(props: Props) {
 
       <SectionCard
         title="Layout"
-        subtitle="Stats rows render the small-grid pattern (one paper, hairline cells). View rows give each widget its own paper card with a height tier."
+        subtitle="One row, any mix of cells: stats / views / charts / view-stats / forms. All-stat rows auto-render as one hairline paper; mixed rows get one paper-card per cell."
       >
         <LayoutEditor
           config={config}
@@ -162,6 +171,7 @@ export default function DashboardEditPage(props: Props) {
           tables={props.tables}
           fieldsByTable={props.fieldsByTable}
           viewsByTable={props.viewsByTable}
+          formsByTable={props.formsByTable}
         />
         <div class="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 mt-3">
           <Show when={dirty()}>
@@ -291,19 +301,11 @@ function LayoutEditor(props: {
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
+  formsByTable: Record<string, Form[]>;
 }) {
-  // Single source of truth for which cell editor is expanded —
-  // keyed by stable widget.id (not array index), so it survives
-  // the row-object recreations that Solid's <For> would otherwise
-  // unmount when `setConfig` produces a fresh row reference. A
-  // local signal in each row card was the original design, but a
-  // change anywhere in that row → new row object → component
-  // remount → state reset → user re-opens the panel after every
-  // edit, which is exactly what the user reported.
-  //
-  // One global signal keeps the model trivial (only one cell open
-  // at a time across the whole editor; opening a new one collapses
-  // the previous). Multi-open felt like a YAGNI complication.
+  // Single source of truth for which cell editor is expanded across
+  // all rows — keyed by stable widget.id. Avoids the row-remount
+  // focus loss a per-row local signal would cause.
   const [expandedCellId, setExpandedCellId] = createSignal<string | null>(null);
   const toggleCell = (id: string) =>
     setExpandedCellId(expandedCellId() === id ? null : id);
@@ -333,25 +335,11 @@ function LayoutEditor(props: {
     });
   };
 
-  const addStatsRow = () => {
+  const addRow = () => {
     const tableId = props.tables[0]?.id ?? "";
     props.setConfig({
       ...props.config(),
-      rows: [...props.config().rows, defaultStatsRow(tableId)],
-    });
-  };
-
-  const addViewStatsRow = () => {
-    props.setConfig({
-      ...props.config(),
-      rows: [...props.config().rows, defaultViewStatsRow()],
-    });
-  };
-
-  const addWidgetsRow = () => {
-    props.setConfig({
-      ...props.config(),
-      rows: [...props.config().rows, defaultWidgetsRow()],
+      rows: [...props.config().rows, defaultRow(tableId)],
     });
   };
 
@@ -361,94 +349,40 @@ function LayoutEditor(props: {
         when={props.config().rows.length > 0}
         fallback={
           <div class="info-block-info text-xs text-center py-4">
-            No rows yet. Pick a row type below.
+            No rows yet. Add a row to get started.
           </div>
         }
       >
-        {/* Index (not For) — keys by position. updateRow replaces the
-            row object at index `rowIdx`, which a reference-keyed For
-            interprets as "row replaced", remounting the row card and
-            stealing focus from any input the user is typing in. Index
-            keeps the row card mounted; only the bound `row()` accessor
-            updates. JSX prop bindings (`row={row()}`) stay reactive
-            via Solid's compiled getter wrappers, so child components
-            still see the current row value through `props.row`. The
-            kind discriminant is stable in practice (you don't change
-            a stats row to a view-stats row), so the Switch/Match
-            doesn't churn on edits. */}
+        {/* Index (not For) — keys by position so updateRow's row-object
+            replacement doesn't remount the row card and steal focus
+            from an open inline input. */}
         <Index each={props.config().rows}>
-          {(row, rowIdx) => {
-            const kind = () => row().kind;
-            return (
-              <>
-                <Show when={kind() === "stats"}>
-                  <StatsRowCard
-                    row={row() as import("../../service").StatsRow}
-                    rowIdx={rowIdx}
-                    rowCount={props.config().rows.length}
-                    tables={props.tables}
-                    fieldsByTable={props.fieldsByTable}
-                    expandedCellId={expandedCellId}
-                    toggleCell={toggleCell}
-                    onUpdate={(next) => updateRow(rowIdx, next)}
-                    onMoveRow={(dir) => moveRow(rowIdx, dir)}
-                    onRemoveRow={() => removeRow(rowIdx)}
-                  />
-                </Show>
-                <Show when={kind() === "view-stats"}>
-                  <ViewStatsRowCard
-                    row={row() as import("../../service").ViewStatsRow}
-                    rowIdx={rowIdx}
-                    rowCount={props.config().rows.length}
-                    tables={props.tables}
-                    viewsByTable={props.viewsByTable}
-                    onUpdate={(next) => updateRow(rowIdx, next)}
-                    onMoveRow={(dir) => moveRow(rowIdx, dir)}
-                    onRemoveRow={() => removeRow(rowIdx)}
-                  />
-                </Show>
-                <Show when={kind() === "widgets"}>
-                  <WidgetsRowCard
-                    row={row() as import("../../service").WidgetsRow}
-                    rowIdx={rowIdx}
-                    rowCount={props.config().rows.length}
-                    tables={props.tables}
-                    viewsByTable={props.viewsByTable}
-                    fieldsByTable={props.fieldsByTable}
-                    expandedCellId={expandedCellId}
-                    toggleCell={toggleCell}
-                    onUpdate={(next) => updateRow(rowIdx, next)}
-                    onMoveRow={(dir) => moveRow(rowIdx, dir)}
-                    onRemoveRow={() => removeRow(rowIdx)}
-                  />
-                </Show>
-              </>
-            );
-          }}
+          {(row, rowIdx) => (
+            <RowCard
+              row={row()}
+              rowIdx={rowIdx}
+              rowCount={props.config().rows.length}
+              tables={props.tables}
+              fieldsByTable={props.fieldsByTable}
+              viewsByTable={props.viewsByTable}
+              formsByTable={props.formsByTable}
+              expandedCellId={expandedCellId}
+              toggleCell={toggleCell}
+              onUpdate={(next) => updateRow(rowIdx, next)}
+              onMoveRow={(dir) => moveRow(rowIdx, dir)}
+              onRemoveRow={() => removeRow(rowIdx)}
+            />
+          )}
         </Index>
       </Show>
       <div class="flex items-center gap-2 flex-wrap">
         <button
           type="button"
           class="btn-input btn-sm"
-          onClick={addStatsRow}
+          onClick={addRow}
           disabled={props.tables.length === 0}
         >
-          <i class="ti ti-number" /> Add stats row
-        </button>
-        <button
-          type="button"
-          class="btn-input btn-sm"
-          onClick={addViewStatsRow}
-        >
-          <i class="ti ti-table-spark" /> Add view stats row
-        </button>
-        <button
-          type="button"
-          class="btn-input btn-sm"
-          onClick={addWidgetsRow}
-        >
-          <i class="ti ti-layout-rows" /> Add view row
+          <i class="ti ti-plus" /> Add row
         </button>
       </div>
     </div>
@@ -456,37 +390,49 @@ function LayoutEditor(props: {
 }
 
 // =============================================================================
-// Stats row card — 1-6 stat cells (matches StatsRow renderer cap)
+// Row card — one editor for the unified row. Dispatches cell editors
+// by kind; "Add cell" button cycles through the five available kinds.
 // =============================================================================
 
-function StatsRowCard(props: {
-  row: StatsRowType;
+const HEIGHT_OPTIONS = [
+  { id: "sm", label: "Small (96px)" },
+  { id: "md", label: "Medium (192px)" },
+  { id: "lg", label: "Large (360px)" },
+];
+
+/** Cell-kind picker for the "Add cell" dropdown. Each entry maps to
+ *  its factory; the button picks the first non-disabled one. We use
+ *  segmented buttons (visible at a glance) rather than a Select. */
+const CELL_KIND_OPTIONS: Array<{
+  id: Widget["kind"];
+  label: string;
+  icon: string;
+}> = [
+  { id: "stat", label: "Stat", icon: "ti ti-number" },
+  { id: "view", label: "View", icon: "ti ti-table-spark" },
+  { id: "chart", label: "Chart", icon: "ti ti-chart-bar" },
+  { id: "view-stats", label: "View stats", icon: "ti ti-layout-2" },
+  { id: "form", label: "Form", icon: "ti ti-forms" },
+];
+
+function RowCard(props: {
+  row: DashboardRow;
   rowIdx: number;
   rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
-  /** Hoisted expansion state — keyed by stable widget.id so it
-   *  survives the row-object recreations triggered by every cell
-   *  edit. See LayoutEditor for the rationale. */
+  viewsByTable: Record<string, View[]>;
+  formsByTable: Record<string, Form[]>;
   expandedCellId: () => string | null;
   toggleCell: (id: string) => void;
-  onUpdate: (row: StatsRowType) => void;
+  onUpdate: (row: DashboardRow) => void;
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
 }) {
-  const updateCell = (cellIdx: number, widget: StatWidget) => {
+  const updateCell = (cellIdx: number, widget: Widget) => {
     props.onUpdate({
       ...props.row,
       cells: props.row.cells.map((c, i) => (i === cellIdx ? widget : c)),
-    });
-  };
-
-  const addCell = () => {
-    if (props.row.cells.length >= 6) return;
-    const tableId = props.tables[0]?.id ?? "";
-    props.onUpdate({
-      ...props.row,
-      cells: [...props.row.cells, defaultStatWidget(tableId)],
     });
   };
 
@@ -498,117 +444,35 @@ function StatsRowCard(props: {
     });
   };
 
-  return (
-    <div class="paper p-3 flex flex-col gap-3">
-      <RowHeader
-        kindLabel="Stats row"
-        kindIcon="ti ti-number"
-        rowIdx={props.rowIdx}
-        rowCount={props.rowCount}
-        onMoveRow={props.onMoveRow}
-        onRemoveRow={props.onRemoveRow}
-      />
-
-      <div class="flex flex-col gap-2">
-        {/* Index — same focus-loss-prevention story as the outer rows
-            loop: typing in StatCellEditor's title/sub TextInput would
-            otherwise replace the cell object in row.cells, which a
-            ref-keyed For would interpret as "cell replaced" → remount
-            → focus lost. */}
-        <Index each={props.row.cells}>
-          {(cell, cellIdx) => (
-            <StatCellEditor
-              widget={cell()}
-              isExpanded={props.expandedCellId() === cell().id}
-              canRemove={props.row.cells.length > 1}
-              onToggle={() => props.toggleCell(cell().id)}
-              onUpdate={(w) => updateCell(cellIdx, w)}
-              onRemove={() => removeCell(cellIdx)}
-              tables={props.tables}
-              fieldsByTable={props.fieldsByTable}
-            />
-          )}
-        </Index>
-      </div>
-
-      <Show when={props.row.cells.length < 6}>
-        <button
-          type="button"
-          class="btn-input btn-sm self-start"
-          onClick={addCell}
-        >
-          <i class="ti ti-plus" /> Add stat
-        </button>
-      </Show>
-    </div>
-  );
-}
-
-// =============================================================================
-// Widgets row card — 1-4 view cells (chart later) with sm/md/lg height
-// =============================================================================
-
-const HEIGHT_OPTIONS = [
-  { id: "sm", label: "Small (96px)" },
-  { id: "md", label: "Medium (192px)" },
-  { id: "lg", label: "Large (360px)" },
-];
-
-function WidgetsRowCard(props: {
-  row: WidgetsRowType;
-  rowIdx: number;
-  rowCount: number;
-  tables: Array<{ id: string; name: string; slug: string }>;
-  viewsByTable: Record<string, View[]>;
-  fieldsByTable: Record<string, Field[]>;
-  /** Hoisted expansion state — see StatsRowCard for the rationale. */
-  expandedCellId: () => string | null;
-  toggleCell: (id: string) => void;
-  onUpdate: (row: WidgetsRowType) => void;
-  onMoveRow: (dir: -1 | 1) => void;
-  onRemoveRow: () => void;
-}) {
-  // Widgets-row cells are a `view | chart` union — both routed through
-  // a single onUpdate callback. The cell index is the position; we
-  // splice in the new widget without touching siblings to keep the
-  // For/Index reconciler stable.
-  const updateCell = (cellIdx: number, widget: ViewWidget | ChartWidget) => {
-    props.onUpdate({
-      ...props.row,
-      cells: props.row.cells.map((c, i) => (i === cellIdx ? widget : c)),
-    });
-  };
-
-  const addView = () => {
-    if (props.row.cells.length >= 4) return;
-    props.onUpdate({
-      ...props.row,
-      cells: [...props.row.cells, defaultViewWidget()],
-    });
-  };
-
-  const addChart = () => {
+  const addCell = (kind: Widget["kind"]) => {
     if (props.row.cells.length >= 4) return;
     const tableId = props.tables[0]?.id ?? "";
-    props.onUpdate({
-      ...props.row,
-      cells: [...props.row.cells, defaultChartWidget(tableId)],
-    });
-  };
-
-  const removeCell = (cellIdx: number) => {
-    if (props.row.cells.length <= 1) return;
-    props.onUpdate({
-      ...props.row,
-      cells: props.row.cells.filter((_, i) => i !== cellIdx),
-    });
+    let cell: Widget;
+    switch (kind) {
+      case "stat":
+        cell = defaultStatWidget(tableId);
+        break;
+      case "view":
+        cell = defaultViewWidget();
+        break;
+      case "chart":
+        cell = defaultChartWidget();
+        break;
+      case "view-stats":
+        cell = defaultViewStatsWidget();
+        break;
+      case "form":
+        cell = defaultFormWidget();
+        break;
+    }
+    props.onUpdate({ ...props.row, cells: [...props.row.cells, cell] });
   };
 
   return (
     <div class="paper p-3 flex flex-col gap-3">
       <RowHeader
-        kindLabel="Widget row"
-        kindIcon="ti ti-table-spark"
+        kindLabel="Row"
+        kindIcon="ti ti-layout-rows"
         rowIdx={props.rowIdx}
         rowCount={props.rowCount}
         onMoveRow={props.onMoveRow}
@@ -625,62 +489,129 @@ function WidgetsRowCard(props: {
       />
 
       <div class="flex flex-col gap-2">
-        {/* Index — same rationale as StatsRowCard's cells loop. The
-            cell-kind switch picks the matching editor; both update
-            paths flow through the same `updateCell` so the parent
-            row only sees one source of truth. */}
+        {/* Index keys cells by position so per-keystroke updates don't
+            remount the cell editor and steal focus. */}
         <Index each={props.row.cells}>
           {(cell, cellIdx) => (
-            <Show
-              when={cell().kind === "view"}
-              fallback={
-                <ChartCellEditor
-                  widget={cell() as ChartWidget}
-                  isExpanded={props.expandedCellId() === cell().id}
-                  canRemove={props.row.cells.length > 1}
-                  onToggle={() => props.toggleCell(cell().id)}
-                  onUpdate={(w) => updateCell(cellIdx, w)}
-                  onRemove={() => removeCell(cellIdx)}
-                  tables={props.tables}
-                  fieldsByTable={props.fieldsByTable}
-                />
-              }
-            >
-              <ViewCellEditor
-                widget={cell() as ViewWidget}
-                isExpanded={props.expandedCellId() === cell().id}
-                canRemove={props.row.cells.length > 1}
-                onToggle={() => props.toggleCell(cell().id)}
-                onUpdate={(w) => updateCell(cellIdx, w)}
-                onRemove={() => removeCell(cellIdx)}
-                viewsByTable={props.viewsByTable}
-                tables={props.tables}
-              />
-            </Show>
+            <CellEditor
+              widget={cell()}
+              isExpanded={props.expandedCellId() === cell().id}
+              canRemove={props.row.cells.length > 1}
+              onToggle={() => props.toggleCell(cell().id)}
+              onUpdate={(w) => updateCell(cellIdx, w)}
+              onRemove={() => removeCell(cellIdx)}
+              tables={props.tables}
+              fieldsByTable={props.fieldsByTable}
+              viewsByTable={props.viewsByTable}
+              formsByTable={props.formsByTable}
+            />
           )}
         </Index>
       </div>
 
       <Show when={props.row.cells.length < 4}>
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={addView}
-          >
-            <i class="ti ti-table-spark" /> Add view
-          </button>
-          <button
-            type="button"
-            class="btn-input btn-sm"
-            onClick={addChart}
-          >
-            <i class="ti ti-chart-bar" /> Add chart
-          </button>
+        <div class="flex items-center gap-1 flex-wrap">
+          <span class="text-[11px] text-dimmed mr-1">Add cell:</span>
+          <For each={CELL_KIND_OPTIONS}>
+            {(opt) => (
+              <button
+                type="button"
+                class="btn-input btn-sm"
+                onClick={() => addCell(opt.id)}
+              >
+                <i class={opt.icon} /> {opt.label}
+              </button>
+            )}
+          </For>
         </div>
       </Show>
     </div>
   );
+}
+
+/** Per-cell dispatcher inside RowCard. Picks the matching editor
+ *  based on widget.kind. Each editor is a self-contained inline-
+ *  expand card with its own header (collapsed summary) + expanded
+ *  body (configuration fields). */
+function CellEditor(props: {
+  widget: Widget;
+  isExpanded: boolean;
+  canRemove: boolean;
+  onToggle: () => void;
+  onUpdate: (w: Widget) => void;
+  onRemove: () => void;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  fieldsByTable: Record<string, Field[]>;
+  viewsByTable: Record<string, View[]>;
+  formsByTable: Record<string, Form[]>;
+}) {
+  switch (props.widget.kind) {
+    case "stat":
+      return (
+        <StatCellEditor
+          widget={props.widget}
+          isExpanded={props.isExpanded}
+          canRemove={props.canRemove}
+          onToggle={props.onToggle}
+          onUpdate={props.onUpdate}
+          onRemove={props.onRemove}
+          tables={props.tables}
+          fieldsByTable={props.fieldsByTable}
+        />
+      );
+    case "view":
+      return (
+        <ViewCellEditor
+          widget={props.widget}
+          isExpanded={props.isExpanded}
+          canRemove={props.canRemove}
+          onToggle={props.onToggle}
+          onUpdate={props.onUpdate}
+          onRemove={props.onRemove}
+          tables={props.tables}
+          viewsByTable={props.viewsByTable}
+        />
+      );
+    case "chart":
+      return (
+        <ChartCellEditor
+          widget={props.widget}
+          isExpanded={props.isExpanded}
+          canRemove={props.canRemove}
+          onToggle={props.onToggle}
+          onUpdate={props.onUpdate}
+          onRemove={props.onRemove}
+          tables={props.tables}
+          viewsByTable={props.viewsByTable}
+        />
+      );
+    case "view-stats":
+      return (
+        <ViewStatsCellEditor
+          widget={props.widget}
+          isExpanded={props.isExpanded}
+          canRemove={props.canRemove}
+          onToggle={props.onToggle}
+          onUpdate={props.onUpdate}
+          onRemove={props.onRemove}
+          tables={props.tables}
+          viewsByTable={props.viewsByTable}
+        />
+      );
+    case "form":
+      return (
+        <FormCellEditor
+          widget={props.widget}
+          isExpanded={props.isExpanded}
+          canRemove={props.canRemove}
+          onToggle={props.onToggle}
+          onUpdate={props.onUpdate}
+          onRemove={props.onRemove}
+          tables={props.tables}
+          formsByTable={props.formsByTable}
+        />
+      );
+  }
 }
 
 // Shared row-header strip — rendered above both stats and widgets cards
@@ -1057,15 +988,19 @@ function StatTrendSection(props: {
 // only job is choosing the source view + an optional title override.
 // =============================================================================
 
-function ViewStatsRowCard(props: {
-  row: ViewStatsRowType;
-  rowIdx: number;
-  rowCount: number;
+// ── ViewStats cell editor ─────────────────────────────────────────
+// Cell-level version of the deprecated view-stats row. Picks a view;
+// the cell renders the auto-derived 2×N stat grid at runtime.
+
+function ViewStatsCellEditor(props: {
+  widget: ViewStatsWidget;
+  isExpanded: boolean;
+  canRemove: boolean;
+  onToggle: () => void;
+  onUpdate: (w: ViewStatsWidget) => void;
+  onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
-  onUpdate: (row: ViewStatsRowType) => void;
-  onMoveRow: (dir: -1 | 1) => void;
-  onRemoveRow: () => void;
 }) {
   const allViews = createMemo(() => {
     const flat: { view: View; tableName: string }[] = [];
@@ -1081,52 +1016,175 @@ function ViewStatsRowCard(props: {
   });
 
   const summary = () => {
-    const v = allViews().find((x) => x.view.id === props.row.viewId);
-    return v ? `view · ${v.tableName} · ${v.view.name}` : "(pick a view)";
+    const v = allViews().find((x) => x.view.id === props.widget.viewId);
+    return v ? `${v.tableName} · ${v.view.name}` : "(pick a view)";
   };
 
   return (
-    <div class="paper p-3 flex flex-col gap-3">
-      <RowHeader
-        kindLabel="View stats row"
-        kindIcon="ti ti-table-spark"
-        rowIdx={props.rowIdx}
-        rowCount={props.rowCount}
-        onMoveRow={props.onMoveRow}
-        onRemoveRow={props.onRemoveRow}
-      />
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-        <TextInput
-          label="Title (optional override)"
-          value={() => props.row.title ?? ""}
-          onInput={(v) =>
-            props.onUpdate({ ...props.row, title: v || undefined })
-          }
-          placeholder="Defaults to the view's name"
-        />
-        <Select
-          label="View"
-          value={() => props.row.viewId}
-          onChange={(v) => props.onUpdate({ ...props.row, viewId: v })}
-          options={[
-            { id: "", label: "(pick a view)" },
-            ...allViews().map(({ view, tableName }) => ({
-              id: view.id,
-              label: `${tableName} · ${view.name}`,
-            })),
-          ]}
-        />
-        <div class="md:col-span-2 text-[11px] text-dimmed">
-          Cells are derived from the view automatically. Ungrouped views
-          render the first record's columns; grouped views render the
-          first bucket's aggregations. Need per-cell control? Use a
-          regular Stats row instead.
-          <Show when={summary()}>
-            <span class="block mt-1 text-dimmed">→ {summary()}</span>
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
+      <div
+        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+        onClick={props.onToggle}
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="ti ti-layout-2 text-sm shrink-0 text-dimmed" />
+          <span class="text-sm font-medium truncate">
+            {props.widget.title || "View stats"}
+          </span>
+          <span class="text-[10px] text-dimmed shrink-0 truncate">{summary()}</span>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <Show when={props.canRemove}>
+            <button
+              type="button"
+              class="text-dimmed hover:text-primary p-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onRemove();
+              }}
+              title="Delete cell"
+            >
+              <i class="ti ti-trash text-xs" />
+            </button>
           </Show>
+          <i
+            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
+              props.isExpanded ? "rotate-180" : ""
+            }`}
+          />
         </div>
       </div>
+      <Show when={props.isExpanded}>
+        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <TextInput
+              label="Title (optional override)"
+              value={() => props.widget.title ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, title: v || undefined })
+              }
+              placeholder="Defaults to the view's name"
+            />
+            <Select
+              label="View"
+              value={() => props.widget.viewId}
+              onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+              options={[
+                { id: "", label: "(pick a view)" },
+                ...allViews().map(({ view, tableName }) => ({
+                  id: view.id,
+                  label: `${tableName} · ${view.name}`,
+                })),
+              ]}
+            />
+            <div class="md:col-span-2 text-[11px] text-dimmed">
+              Cells are derived from the view automatically. Ungrouped
+              views render the first record's columns; grouped views
+              render the first bucket's aggregations.
+            </div>
+          </div>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+// ── Form cell editor ──────────────────────────────────────────────
+// Pick a form by id from the base-wide forms list. Renderer embeds
+// the form inline; submit triggers a full page reload.
+
+function FormCellEditor(props: {
+  widget: FormWidget;
+  isExpanded: boolean;
+  canRemove: boolean;
+  onToggle: () => void;
+  onUpdate: (w: FormWidget) => void;
+  onRemove: () => void;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  formsByTable: Record<string, Form[]>;
+}) {
+  const allForms = createMemo(() => {
+    const flat: { form: Form; tableName: string }[] = [];
+    for (const t of props.tables) {
+      for (const f of props.formsByTable[t.id] ?? []) {
+        flat.push({ form: f, tableName: t.name });
+      }
+    }
+    flat.sort((a, b) =>
+      a.form.name.localeCompare(b.form.name, undefined, { sensitivity: "base" }),
+    );
+    return flat;
+  });
+
+  const summary = () => {
+    const f = allForms().find((x) => x.form.id === props.widget.formId);
+    return f ? `${f.tableName} · ${f.form.name}` : "(pick a form)";
+  };
+
+  return (
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
+      <div
+        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+        onClick={props.onToggle}
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="ti ti-forms text-sm shrink-0 text-dimmed" />
+          <span class="text-sm font-medium truncate">
+            {props.widget.title || "Form"}
+          </span>
+          <span class="text-[10px] text-dimmed shrink-0 truncate">{summary()}</span>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <Show when={props.canRemove}>
+            <button
+              type="button"
+              class="text-dimmed hover:text-primary p-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onRemove();
+              }}
+              title="Delete cell"
+            >
+              <i class="ti ti-trash text-xs" />
+            </button>
+          </Show>
+          <i
+            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
+              props.isExpanded ? "rotate-180" : ""
+            }`}
+          />
+        </div>
+      </div>
+      <Show when={props.isExpanded}>
+        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <TextInput
+              label="Title (optional override)"
+              value={() => props.widget.title ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, title: v || undefined })
+              }
+              placeholder="Defaults to the form's name"
+            />
+            <Select
+              label="Form"
+              value={() => props.widget.formId}
+              onChange={(v) => props.onUpdate({ ...props.widget, formId: v })}
+              options={[
+                { id: "", label: "(pick a form)" },
+                ...allForms().map(({ form, tableName }) => ({
+                  id: form.id,
+                  label: `${tableName} · ${form.name}`,
+                })),
+              ]}
+            />
+            <div class="md:col-span-2 text-[11px] text-dimmed">
+              On successful submit, the dashboard reloads so every other
+              widget re-resolves with the new record visible.
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }
@@ -1323,11 +1381,12 @@ function ViewCellEditor(props: {
 // =============================================================================
 // Chart cell editor — inline expandable, configures a single ChartWidget.
 //
-// Chart sources are richer than stat sources (multiple aggregations,
-// an optional groupBy with date-granularity, axis labels) so the
-// editor has more knobs than StatCellEditor — but the visual rhythm
-// matches: title row + chevron-collapse, expanded body uses the same
-// 2-column grid for inputs.
+// The chart pulls its source from a saved view (filter / groupBy with
+// granularity / aggregations all live on the view). The editor is
+// therefore a thin layer: chartType picker, view picker, optional
+// limit + axis cosmetics. The heavy "configure a query" UX happens
+// in the view editor, where the user already does that for the
+// records page.
 // =============================================================================
 
 const CHART_TYPE_OPTIONS: { id: ChartWidget["chartType"]; label: string; icon: string }[] = [
@@ -1337,24 +1396,14 @@ const CHART_TYPE_OPTIONS: { id: ChartWidget["chartType"]; label: string; icon: s
   { id: "scatter", label: "Scatter", icon: "ti ti-chart-dots" },
 ];
 
-/** Hint shown under the chartType picker — documents the source-shape
- *  contract so the user knows what to configure (e.g. scatter needs
- *  ≥2 aggs). Mirrors the ChartWidgetSchema JSDoc in contracts.ts. */
+/** Hint shown under the chartType picker — documents the view-shape
+ *  contract so the user knows what kind of view to point at. */
 const CHART_TYPE_HINTS: Record<ChartWidget["chartType"], string> = {
-  donut: "1 group-by → slice label, first aggregation → slice value.",
-  bar: "1 group-by → bar label, first aggregation → bar value.",
-  line: "1 group-by → x-axis, each aggregation → 1 line series.",
-  scatter: "1 group-by → buckets, agg 1 = x, agg 2 = y, agg 3 = bubble size.",
+  donut: "View must group by 1 field + have ≥1 aggregation. First agg → slice value.",
+  bar: "View must group by 1 field + have ≥1 aggregation. First agg → bar value.",
+  line: "View must group by 1 field + have N aggregations (one line series per agg).",
+  scatter: "View must group by 1 field + have ≥2 aggregations (agg 1 = x, agg 2 = y).",
 };
-
-const GRANULARITY_OPTIONS = [
-  { id: "", label: "(none — bucket per value)" },
-  { id: "day", label: "Day" },
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "quarter", label: "Quarter" },
-  { id: "year", label: "Year" },
-];
 
 function ChartCellEditor(props: {
   widget: ChartWidget;
@@ -1364,95 +1413,28 @@ function ChartCellEditor(props: {
   onUpdate: (w: ChartWidget) => void;
   onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
-  fieldsByTable: Record<string, Field[]>;
+  viewsByTable: Record<string, View[]>;
 }) {
-  const tableFields = () =>
-    (props.fieldsByTable[props.widget.source.tableId] ?? []).filter((f) => !f.deletedAt);
-
-  const groupBy = () => props.widget.source.groupBy?.[0];
-
-  /** True when the configured groupBy targets a date field — used to
-   *  gate the granularity picker (no point asking for "month"
-   *  bucketing on a text field). */
-  const isDateGroupBy = () => {
-    const g = groupBy();
-    if (!g) return false;
-    return tableFields().find((f) => f.id === g.fieldId)?.type === "date";
-  };
+  /** Flat list of every view in the base, with its parent table name
+   *  for the dropdown label. Sorted by view name (case-insensitive)
+   *  so the picker reads alphabetically. */
+  const allViews = createMemo(() => {
+    const flat: { view: View; tableName: string }[] = [];
+    for (const t of props.tables) {
+      for (const v of props.viewsByTable[t.id] ?? []) {
+        flat.push({ view: v, tableName: t.name });
+      }
+    }
+    flat.sort((a, b) =>
+      a.view.name.localeCompare(b.view.name, undefined, { sensitivity: "base" }),
+    );
+    return flat;
+  });
 
   const summary = () => {
-    const t = props.tables.find((x) => x.id === props.widget.source.tableId)?.name ?? "?";
-    return `${props.widget.chartType} · ${t}`;
-  };
-
-  // ── Source patches ────────────────────────────────────────────────
-  const patchSource = (patch: Partial<typeof props.widget.source>) => {
-    props.onUpdate({
-      ...props.widget,
-      source: { ...props.widget.source, ...patch },
-    });
-  };
-
-  const setTableId = (tableId: string) => {
-    // Field IDs are scoped to a table, so switching tables invalidates
-    // every fieldId reference. Reset groupBy + aggregations to the
-    // safe defaults — the user picks new ones from the new table's
-    // fields. Keep `chartType` and title since those are table-agnostic.
-    props.onUpdate({
-      ...props.widget,
-      source: {
-        tableId,
-        aggregations: [DEFAULT_AGG],
-        groupBy: undefined,
-      },
-    });
-  };
-
-  const setGroupByField = (fieldId: string) => {
-    if (!fieldId) {
-      patchSource({ groupBy: undefined });
-      return;
-    }
-    const current = groupBy();
-    // Preserve existing granularity when the new field is still a
-    // date; otherwise drop it (granularity is meaningless on non-date
-    // fields and the group-compiler would refuse it).
-    const newField = tableFields().find((f) => f.id === fieldId);
-    const keepGranularity =
-      newField?.type === "date" ? current?.granularity : undefined;
-    const next: GroupBySpec = { fieldId, granularity: keepGranularity };
-    patchSource({ groupBy: [next] });
-  };
-
-  const setGranularity = (g: string) => {
-    const current = groupBy();
-    if (!current) return;
-    const granularity = g === "" ? undefined : (g as GroupBySpec["granularity"]);
-    patchSource({ groupBy: [{ ...current, granularity }] });
-  };
-
-  // ── Aggregation patches ───────────────────────────────────────────
-  const updateAgg = (idx: number, patch: Partial<AggregationSpec>) => {
-    patchSource({
-      aggregations: props.widget.source.aggregations.map((a, i) =>
-        i === idx ? { ...a, ...patch } : a,
-      ),
-    });
-  };
-
-  const addAgg = () => {
-    patchSource({
-      aggregations: [...props.widget.source.aggregations, DEFAULT_AGG],
-    });
-  };
-
-  const removeAgg = (idx: number) => {
-    // The schema requires ≥1 aggregation; the editor enforces that
-    // here so we can't dispatch an invalid save.
-    if (props.widget.source.aggregations.length <= 1) return;
-    patchSource({
-      aggregations: props.widget.source.aggregations.filter((_, i) => i !== idx),
-    });
+    const v = allViews().find((x) => x.view.id === props.widget.viewId);
+    if (!v) return `${props.widget.chartType} · (pick a view)`;
+    return `${props.widget.chartType} · ${v.tableName} · ${v.view.name}`;
   };
 
   return (
@@ -1493,9 +1475,8 @@ function ChartCellEditor(props: {
       <Show when={props.isExpanded}>
         <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-3">
           {/* ── Chart kind picker ─────────────────────────────────
-              Segmented buttons (one per chartType) instead of a Select
-              — only 4 options and the icons disambiguate the choice
-              at a glance. */}
+              Segmented buttons (one per chartType). Hint underneath
+              documents what kind of view the chart needs. */}
           <div class="flex flex-col gap-1">
             <span class="text-[11px] text-dimmed">Chart type</span>
             <div class="flex flex-wrap items-center gap-1">
@@ -1521,7 +1502,7 @@ function ChartCellEditor(props: {
             </span>
           </div>
 
-          {/* ── Title / subtitle / source table ─────────────────── */}
+          {/* ── Title / subtitle / view picker / limit ──────────── */}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             <TextInput
               label="Title"
@@ -1540,10 +1521,38 @@ function ChartCellEditor(props: {
               placeholder="e.g. last 12 months"
             />
             <Select
-              label="Source table"
-              value={() => props.widget.source.tableId}
-              onChange={setTableId}
-              options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
+              label="Source view"
+              value={() => props.widget.viewId}
+              onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+              options={[
+                { id: "", label: "(pick a view)" },
+                ...allViews().map(({ view, tableName }) => ({
+                  id: view.id,
+                  label: `${tableName} · ${view.name}`,
+                })),
+              ]}
+            />
+            <TextInput
+              label="Limit (optional)"
+              value={() =>
+                props.widget.limit !== undefined ? String(props.widget.limit) : ""
+              }
+              onInput={(raw) => {
+                const trimmed = raw.trim();
+                if (trimmed === "") {
+                  // Empty → clear the cap; chart shows all buckets.
+                  const { limit: _drop, ...rest } = props.widget;
+                  props.onUpdate(rest);
+                  return;
+                }
+                const n = Number(trimmed);
+                if (!Number.isFinite(n) || n < 1) return;
+                props.onUpdate({
+                  ...props.widget,
+                  limit: Math.min(Math.floor(n), 1000),
+                });
+              }}
+              placeholder="e.g. 12 (last 12 buckets)"
             />
             <Select
               label="Y-axis format"
@@ -1558,83 +1567,10 @@ function ChartCellEditor(props: {
             />
           </div>
 
-          {/* ── Group by + granularity ──────────────────────────────
-              Single groupBy in v1 — the schema supports up to 3 but
-              none of the chartTypes use the extras yet. Keeping the
-              editor minimal until a real use case appears. */}
-          <div class="flex flex-col gap-1">
-            <span class="text-[11px] text-dimmed">Group by</span>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-              <Select
-                label="Field"
-                value={() => groupBy()?.fieldId ?? ""}
-                onChange={setGroupByField}
-                options={[
-                  { id: "", label: "(none)" },
-                  ...tableFields().map((f) => ({ id: f.id, label: f.name })),
-                ]}
-              />
-              <Show when={isDateGroupBy()}>
-                <Select
-                  label="Granularity"
-                  value={() => groupBy()?.granularity ?? ""}
-                  onChange={setGranularity}
-                  options={GRANULARITY_OPTIONS}
-                />
-              </Show>
-            </div>
-          </div>
-
-          {/* ── Aggregations list ──────────────────────────────────
-              One row per agg with agg-kind + field picker. Donut/bar
-              only read the first; line emits one series per agg;
-              scatter needs ≥2 (the hint above tells the user). Add/
-              remove keep schema's ≥1 constraint enforced. */}
-          <div class="flex flex-col gap-1">
-            <span class="text-[11px] text-dimmed">Aggregations</span>
-            <div class="flex flex-col gap-1.5">
-              <Index each={props.widget.source.aggregations}>
-                {(agg, idx) => (
-                  <div class="flex items-center gap-2 text-xs">
-                    <Select
-                      value={() => agg().agg}
-                      onChange={(v) =>
-                        updateAgg(idx, { agg: v as AggregationSpec["agg"] })
-                      }
-                      options={AGG_OPTIONS}
-                    />
-                    <Select
-                      value={() => agg().fieldId}
-                      onChange={(v) => updateAgg(idx, { fieldId: v })}
-                      options={[
-                        { id: "*", label: "* (records)" },
-                        ...tableFields().map((f) => ({ id: f.id, label: f.name })),
-                      ]}
-                    />
-                    <Show when={props.widget.source.aggregations.length > 1}>
-                      <button
-                        type="button"
-                        class="text-dimmed hover:text-red-600 dark:hover:text-red-400 p-1"
-                        onClick={() => removeAgg(idx)}
-                        title="Remove aggregation"
-                      >
-                        <i class="ti ti-x text-xs" />
-                      </button>
-                    </Show>
-                  </div>
-                )}
-              </Index>
-              <button
-                type="button"
-                class="btn-input btn-sm self-start mt-1"
-                onClick={addAgg}
-              >
-                <i class="ti ti-plus" /> Add aggregation
-              </button>
-            </div>
-          </div>
-
-          {/* ── Axis labels (optional override) ─────────────────── */}
+          {/* ── Axis labels (optional override) ──────────────────
+              Defaults: x-axis inherits from the view's groupBy field;
+              y-axis uses the aggregation label. Override only when
+              the inferred ones are wrong. */}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             <TextInput
               label="X-axis label (optional)"
@@ -1642,7 +1578,6 @@ function ChartCellEditor(props: {
               onInput={(v) =>
                 props.onUpdate({ ...props.widget, xAxisLabel: v || undefined })
               }
-              placeholder={groupBy() ? "Inferred from group-by field" : ""}
             />
             <TextInput
               label="Y-axis label (optional)"

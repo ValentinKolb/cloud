@@ -218,29 +218,47 @@ export type ChartRenderData =
     }
   | { kind: "scatter"; series: Series[] };
 
-export const buildChartRenderData = (
-  widget: ChartWidget,
-  buckets: ChartBucket[],
-  fieldsById: Map<string, Field>,
-): ChartRenderData => {
-  const aggs = widget.source.aggregations;
-  const groupBy = widget.source.groupBy?.[0];
-  const primary = aggs[0]!;
-  switch (widget.chartType) {
+/**
+ * Inputs the renderer needs to map buckets to a chart-specific shape.
+ * The view-query metadata (groupBy + aggregations) determines bucket
+ * key formatting and series labels; these used to live on the widget
+ * itself but now come from the saved view that the widget points at.
+ */
+export type ChartRenderInput = {
+  widget: ChartWidget;
+  /** The view's groupBy specs (parallel to bucket.keys positions). */
+  groupBy: GroupBySpec[];
+  /** The view's aggregations (parallel to bucket.values keys). */
+  aggregations: AggregationSpec[];
+  buckets: ChartBucket[];
+  fieldsById: Map<string, Field>;
+};
+
+export const buildChartRenderData = (input: ChartRenderInput): ChartRenderData => {
+  const aggs = input.aggregations;
+  const groupBy = input.groupBy[0];
+  const primary = aggs[0];
+  if (!primary) {
+    // Empty aggs is a misconfigured view (charts need at least 1 agg).
+    // Returning a donut with no slices lets the renderer fall through
+    // to the empty-state placeholder instead of crashing.
+    return { kind: "donut", data: [] };
+  }
+  switch (input.widget.chartType) {
     case "donut":
-      return { kind: "donut", data: bucketsToSlices(buckets, primary, groupBy) };
+      return { kind: "donut", data: bucketsToSlices(input.buckets, primary, groupBy) };
     case "bar":
-      return { kind: "bar", data: bucketsToBars(buckets, primary, groupBy) };
+      return { kind: "bar", data: bucketsToBars(input.buckets, primary, groupBy) };
     case "line":
       return {
         kind: "line",
-        series: bucketsToLineSeries(buckets, aggs, fieldsById),
-        xAxisFormat: chartXAxisFormat(buckets, groupBy),
+        series: bucketsToLineSeries(input.buckets, aggs, input.fieldsById),
+        xAxisFormat: chartXAxisFormat(input.buckets, groupBy),
       };
     case "scatter":
       return {
         kind: "scatter",
-        series: bucketsToScatterSeries(buckets, aggs, fieldsById),
+        series: bucketsToScatterSeries(input.buckets, aggs, input.fieldsById),
       };
   }
 };
