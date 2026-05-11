@@ -4,7 +4,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
 import ProxyClientActions from "./_components/ProxyClientActions.island";
-import { StatCell } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { proxyAuthService } from "../service";
 
 export default ssr<AuthContext>(async (c) => {
@@ -32,21 +32,19 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-3 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-shield-half" }} />
-              <StatCell label="Allowed groups" value={totalAllowedGroups} sub="across all clients" />
-              <StatCell
-                label="Open access"
-                value={clientsWithoutGroups}
-                sub={clientsWithoutGroups > 0 ? "any user passes" : "all gated"}
-                valueClass={clientsWithoutGroups > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-                accent={clientsWithoutGroups > 0
-                  ? { tone: "amber", icon: "ti ti-alert-triangle" }
-                  : { tone: "emerald", icon: "ti ti-check" }}
-              />
-            </div>
-          </div>
+          <StatGrid columns={3}>
+            <StatCell label="Clients" value={clients.length} sub="registered" accent={{ tone: "blue", icon: "ti ti-shield-half" }} />
+            <StatCell label="Allowed groups" value={totalAllowedGroups} sub="across all clients" />
+            <StatCell
+              label="Open access"
+              value={clientsWithoutGroups}
+              sub={clientsWithoutGroups > 0 ? "any user passes" : "all gated"}
+              valueClass={clientsWithoutGroups > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+              accent={clientsWithoutGroups > 0
+                ? { tone: "amber", icon: "ti ti-alert-triangle" }
+                : { tone: "emerald", icon: "ti ti-check" }}
+            />
+          </StatGrid>
 
           <div class="flex justify-end">
             <CreateProxyClient />
