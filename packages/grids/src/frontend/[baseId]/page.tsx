@@ -885,16 +885,26 @@ export default ssr<AuthContext>(async (c) => {
             base default redirected here); records-mode is the
             existing fallback. The sidebar above renders the same in
             both modes so the user can hop with one click. */}
-        <main class="order-2 flex-1 min-w-0 min-h-0 overflow-auto">
+        {/* `<main>` is `overflow-hidden flex flex-col` so it acts as
+            a fixed-height frame for whatever it contains; the actual
+            scroll lives one level deeper. Pre-fix, main had
+            `overflow-auto` which stole the y-scroll context — so the
+            records-view's internal body-scroll (the contacts-style
+            independent table/detail-panel scroll) never kicked in,
+            because main was already absorbing the overflow and the
+            search bar / toolbar scrolled along with the rows. */}
+        <main class="order-2 flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
           {renderDashboard ? (
-            <DashboardLayout
-              dashboard={renderDashboard}
-              widgetData={widgetData}
-              viewStatsData={viewStatsData}
-              baseShortId={baseShortId}
-            />
+            <div class="flex-1 min-h-0 overflow-y-auto">
+              <DashboardLayout
+                dashboard={renderDashboard}
+                widgetData={widgetData}
+                viewStatsData={viewStatsData}
+                baseShortId={baseShortId}
+              />
+            </div>
           ) : activeTable ? (
-            <div class="flex flex-col gap-2">
+            <div class="flex-1 min-h-0 flex flex-col">
               {/* Records-area lives in a single client-side island
                   (Phase 2 of the RecordsView refactor). It owns the
                   query / cursor / selectedRecord state machine; this
