@@ -381,10 +381,22 @@ export default function TableEditPage(props: Props) {
                         pencil icon turns blue-500 on group-hover as
                         an affordance cue. */}
                     <div class="flex items-center">
-                      <div class="flex flex-col gap-0.5 pl-2 shrink-0">
+                      {/* Reorder arrows — each button is a fixed-height
+                          flex box that centers its chevron, so the
+                          two-arrow column sits visually balanced in
+                          the row. Without the explicit `h-4 flex
+                          items-center justify-center`, the chevron
+                          glyph's intrinsic baseline offset (tabler
+                          renders chevron-up slightly higher in its
+                          em-box) made the top arrow look pushed
+                          upward, leaving asymmetric whitespace above
+                          vs below. Hover color is `text-blue-500` —
+                          the previous `text-primary` was too close to
+                          the dimmed default to read as a state change. */}
+                      <div class="flex flex-col pl-2 shrink-0">
                         <button
                           type="button"
-                          class="text-dimmed hover:text-primary disabled:opacity-30 leading-none"
+                          class="h-4 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
                           onClick={() => moveField(index(), -1)}
                           disabled={index() === 0 || reorderMut.loading()}
                           title="Move up"
@@ -394,7 +406,7 @@ export default function TableEditPage(props: Props) {
                         </button>
                         <button
                           type="button"
-                          class="text-dimmed hover:text-primary disabled:opacity-30 leading-none"
+                          class="h-4 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
                           onClick={() => moveField(index(), 1)}
                           disabled={index() === total() - 1 || reorderMut.loading()}
                           title="Move down"

@@ -545,10 +545,18 @@ function FormEditor(props: {
                         fallback={
                           <li class="paper p-3 flex flex-col gap-2">
                             <div class="flex items-center gap-2">
-                              <div class="flex flex-col gap-0.5">
+                              {/* Compact arrows (h-3 each = 24 px column)
+                                  so the first row's height is close to
+                                  the surrounding text height — keeps the
+                                  paper's perceived top padding equal to
+                                  left / right / bottom. Hover lands on
+                                  blue (was text-primary, too close to
+                                  the dimmed default to read as a state
+                                  change). */}
+                              <div class="flex flex-col shrink-0">
                                 <button
                                   type="button"
-                                  class="text-dimmed hover:text-primary disabled:opacity-30"
+                                  class="h-3 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
                                   onClick={() => moveEntry(idx, -1)}
                                   disabled={idx === 0}
                                   title="Move up"
@@ -558,7 +566,7 @@ function FormEditor(props: {
                                 </button>
                                 <button
                                   type="button"
-                                  class="text-dimmed hover:text-primary disabled:opacity-30"
+                                  class="h-3 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
                                   onClick={() => moveEntry(idx, 1)}
                                   disabled={idx === entries().length - 1}
                                   title="Move down"

@@ -71,15 +71,16 @@ export default function PublicFormSubmit(props: Props) {
 
   return (
     <div class="paper p-6 max-w-xl mx-auto flex flex-col gap-4">
-      {/* Optional title image — banner above the form. Same display
-          shape as the in-app FormSubmitModal so the public page and
-          the internal preview match. */}
+      {/* Optional title image — banner above the form. Compact
+          max-h (96 px) + object-contain matches FormSubmitModal so
+          the public page and the in-app preview render the same
+          shape regardless of source aspect ratio. */}
       <Show when={props.form.config.titleImage}>
         {(src) => (
           <img
             src={src()}
             alt=""
-            class="w-full max-h-48 rounded-md object-cover"
+            class="w-full max-h-24 rounded-md object-contain"
           />
         )}
       </Show>

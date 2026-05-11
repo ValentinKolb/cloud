@@ -92,18 +92,21 @@ function FormSubmitBody(props: {
       }
     >
       <form class="flex flex-col gap-3" onSubmit={handleSubmit}>
-        {/* Optional title image — full-width banner above the
-            description. `w-full` makes the IMG element span the form
-            width; `max-h-48` caps the height for very tall sources so
-            a portrait or square image doesn't dominate; `object-cover`
-            crops to fill the box when the source AR doesn't match,
-            keeping the banner shape consistent across uploads. */}
+        {/* Optional title image — banner above the description.
+            `w-full` lets a wide source span the form; `max-h-24` (6 rem
+            ≈ 96 px) caps the height so a square or portrait source
+            stays a compact banner instead of dominating the form;
+            `object-contain` preserves the source aspect ratio (no
+            cropping) so a small logo doesn't get squished into the
+            full width. Pre-fix used `max-h-48 object-cover` which
+            stretched a square logo to ~192 px tall and covered most
+            of the modal. */}
         <Show when={props.form.config.titleImage}>
           {(src) => (
             <img
               src={src()}
               alt=""
-              class="w-full max-h-48 rounded-md object-cover"
+              class="w-full max-h-24 rounded-md object-contain"
             />
           )}
         </Show>
