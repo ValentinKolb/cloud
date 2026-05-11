@@ -121,7 +121,9 @@ export default function GroupedTable(props: Props) {
       <div class="paper overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-            <thead>
+            {/* Sticky thead — mirrors RecordsGrid. Header stays pinned
+                while the records-view body scrolls the rows under it. */}
+            <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
               <tr class="border-b border-zinc-100 dark:border-zinc-800">
                 <For each={props.groupBy}>
                   {(g) => (

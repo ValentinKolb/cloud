@@ -386,16 +386,26 @@ export default function RecordsView(props: Props) {
   // signal-derived rendering, no DOM-class flipping.
   return (
     <div class="flex flex-col lg:flex-row gap-4 flex-1 min-w-0 min-h-0 overflow-hidden">
+      {/* Records column splits into two zones:
+          - header (search + toolbar) — fixed, never scrolls
+          - body (records grid + pagination) — scrolls independently
+            of the detail panel column on the right (which has its own
+            scroll inside RecordDetailPanel).
+          The column itself is `overflow-hidden` so neither zone leaks
+          into the other; the inner body div is the single y-scroll
+          container, paired with the table-head `position: sticky` in
+          RecordsGrid so the column headers stay pinned while rows
+          scroll. Mirrors the contacts page layout. */}
       <div
         class={
-          "order-1 flex-1 min-w-0 min-h-0 overflow-auto flex flex-col gap-2 transition-opacity duration-150 " +
+          "order-1 flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col gap-2 transition-opacity duration-150 " +
           (data.loading ? "opacity-60" : "")
         }
       >
         {/* Row 1 — always visible. Search (left, flex-grow), record
             count + Actions dropdown (right). Trash mode swaps the
             Actions for a "Back to live records" link. */}
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
           <Show when={props.searchableFields.length > 0}>
             <div class="flex-1 min-w-0">
               <SearchBar
@@ -461,66 +471,73 @@ export default function RecordsView(props: Props) {
             view's query is frozen) and in trash mode (only the back-
             link is meaningful there). */}
         <Show when={!props.viewMode && !props.trashMode}>
-          <GridToolbar
-            baseId={props.baseId}
-            tableId={props.tableId}
-            fields={props.fields}
-            initialFilter={initialFilterRows}
-            initialSort={(props.initialState.query.sort ?? []).map((s) => ({
-              fieldId: s.fieldId,
-              direction: s.direction,
-            }))}
-            initialGroupBy={groupBy()}
-            initialAggregations={toAggregationRows(aggregations())}
-            canWrite={props.canWrite}
-            onCommit={onToolbarCommit}
-            onRecordCreated={onRecordCreated}
-          />
-        </Show>
-
-        <Show
-          when={isGrouped()}
-          fallback={
-            <RecordsGrid
+          <div class="shrink-0">
+            <GridToolbar
               baseId={props.baseId}
               tableId={props.tableId}
               fields={props.fields}
-              records={items() as GridRecord[]}
+              initialFilter={initialFilterRows}
+              initialSort={(props.initialState.query.sort ?? []).map((s) => ({
+                fieldId: s.fieldId,
+                direction: s.direction,
+              }))}
+              initialGroupBy={groupBy()}
+              initialAggregations={toAggregationRows(aggregations())}
               canWrite={props.canWrite}
-              mode={props.trashMode ? "trash" : "live"}
-              selectedId={selectedRecordId()}
-              onSelectRecord={onSelectRecord}
-              viewColumns={props.viewColumns}
-              relationLabels={mergedRelationLabels()}
-              aggregates={props.trashMode ? {} : aggregates()}
-              aggregationSpecs={props.trashMode ? [] : aggregations()}
+              onCommit={onToolbarCommit}
+              onRecordCreated={onRecordCreated}
             />
-          }
-        >
-          <GroupedTable
-            baseId={props.baseId}
-            fields={props.fields}
-            groupBy={groupBy()}
-            aggregations={aggregations()}
-            buckets={buckets()}
-            explode={props.groupedExplode}
-            relationLabels={mergedRelationLabels()}
-          />
+          </div>
         </Show>
 
-        <Show when={nextCursor()}>
-          {(_) => (
-            <div class="flex items-center justify-end gap-2 text-xs">
-              <button
-                type="button"
-                class="btn-secondary btn-sm"
-                onClick={() => onPaginate(nextCursor())}
-              >
-                Next page <i class="ti ti-arrow-right" />
-              </button>
-            </div>
-          )}
-        </Show>
+        {/* Scrollable body — owns the y-scroll context. Wraps the
+            grid (which itself adds the x-scroll wrapper + sticky
+            `<thead>`) plus the next-page footer. */}
+        <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+          <Show
+            when={isGrouped()}
+            fallback={
+              <RecordsGrid
+                baseId={props.baseId}
+                tableId={props.tableId}
+                fields={props.fields}
+                records={items() as GridRecord[]}
+                canWrite={props.canWrite}
+                mode={props.trashMode ? "trash" : "live"}
+                selectedId={selectedRecordId()}
+                onSelectRecord={onSelectRecord}
+                viewColumns={props.viewColumns}
+                relationLabels={mergedRelationLabels()}
+                aggregates={props.trashMode ? {} : aggregates()}
+                aggregationSpecs={props.trashMode ? [] : aggregations()}
+              />
+            }
+          >
+            <GroupedTable
+              baseId={props.baseId}
+              fields={props.fields}
+              groupBy={groupBy()}
+              aggregations={aggregations()}
+              buckets={buckets()}
+              explode={props.groupedExplode}
+              relationLabels={mergedRelationLabels()}
+            />
+          </Show>
+
+          <Show when={nextCursor()}>
+            {(_) => (
+              <div class="flex items-center justify-end gap-2 text-xs">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  onClick={() => onPaginate(nextCursor())}
+                >
+                  Next page <i class="ti ti-arrow-right" />
+                </button>
+              </div>
+            )}
+          </Show>
+        </div>
       </div>
 
       <Show when={selectedRecordId()}>

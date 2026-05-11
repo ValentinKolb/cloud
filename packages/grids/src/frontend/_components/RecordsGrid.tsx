@@ -190,7 +190,13 @@ export default function RecordsGrid(props: Props) {
       <div class="paper overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-            <thead>
+            {/* `<thead>` is `sticky top-0` so the column-name row
+                stays pinned to the top of the records-view scroll
+                container while data rows scroll under it. The
+                background covers the rows behind it (otherwise they'd
+                show through during scroll). The records-view wrapper
+                owns the y-scroll context — see RecordsView.island. */}
+            <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
               <tr class="border-b border-zinc-100 dark:border-zinc-800">
                 {/* Two-line headers — explicitly breaking the platform's
                     single-line table convention because grids tables are far
