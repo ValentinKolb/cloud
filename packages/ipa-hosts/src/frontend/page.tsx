@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell } from "@valentinkolb/cloud/ui";
+import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import NewHostgroup from "./NewHostgroup.island";
 import HostgroupCard from "./HostgroupCard";
@@ -60,30 +60,28 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-3 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell
-                label="Hostgroups"
-                value={total}
-                sub={search ? "filtered" : "mirrored from IPA"}
-                accent={{ tone: "blue", icon: "ti ti-server" }}
-              />
-              <StatCell
-                label="Hosts in groups"
-                value={hostsInGroups}
-                sub={`of ${hostStats.hostsTotal} total`}
-              />
-              <StatCell
-                label="Ungrouped"
-                value={ungroupedHostsPage.total}
-                sub={ungroupedHostsPage.total > 0 ? "needs assignment" : "all assigned"}
-                valueClass={ungroupedHostsPage.total > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-                accent={ungroupedHostsPage.total > 0
-                  ? { tone: "amber", icon: "ti ti-alert-triangle" }
-                  : { tone: "emerald", icon: "ti ti-check" }}
-              />
-            </div>
-          </div>
+          <StatGrid columns={3}>
+            <StatCell
+              label="Hostgroups"
+              value={total}
+              sub={search ? "filtered" : "mirrored from IPA"}
+              accent={{ tone: "blue", icon: "ti ti-server" }}
+            />
+            <StatCell
+              label="Hosts in groups"
+              value={hostsInGroups}
+              sub={`of ${hostStats.hostsTotal} total`}
+            />
+            <StatCell
+              label="Ungrouped"
+              value={ungroupedHostsPage.total}
+              sub={ungroupedHostsPage.total > 0 ? "needs assignment" : "all assigned"}
+              valueClass={ungroupedHostsPage.total > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+              accent={ungroupedHostsPage.total > 0
+                ? { tone: "amber", icon: "ti ti-alert-triangle" }
+                : { tone: "emerald", icon: "ti ti-check" }}
+            />
+          </StatGrid>
 
           <div class="flex flex-wrap items-center gap-2">
             <div class="min-w-0 flex-1">
