@@ -71,6 +71,31 @@ export type Field = {
   updatedAt: string;
 };
 
+/**
+ * Wrapper shape returned by `record.list` — bundles the rows, the
+ * source table's schema (once, not duplicated per record), and the
+ * cursor for the next page in a single response. Designed so that
+ * presentational components like `<DatabaseTable>` take a single
+ * prop and have everything they need to render — no separate
+ * fetch-and-pass-as-two-props ceremony.
+ *
+ * `fields` is included unconditionally. The list resolver fetches
+ * the table's fields internally anyway (for filter compilation and
+ * relation hydration); echoing them on the way out costs nothing
+ * and saves callers a second `field.listByTable` roundtrip.
+ *
+ * Pagination is cursor-based — `nextCursor` is the opaque token to
+ * pass back as `params.cursor` on the next call, or `null` when the
+ * current page is the last. We deliberately don't carry a `total`
+ * here because counting rows on filtered queries is a separate
+ * (expensive) query and most consumers don't actually need it.
+ */
+export type RecordList = {
+  items: GridRecord[];
+  fields: Field[];
+  nextCursor: string | null;
+};
+
 export type GridRecord = {
   id: string;
   tableId: string;

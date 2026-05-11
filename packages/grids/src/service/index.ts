@@ -154,7 +154,7 @@ export type {
   GroupBySpec,
 } from "../contracts";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
-export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";
+export type { Base, Table, Field, GridRecord, RecordList, AuditEntry, AuditAction } from "./types";
 export type { FieldDependent } from "./field-dependents";
 export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";
 export type { FilterTree, FilterLeaf, FilterGroup } from "./filter-compiler";

@@ -30,7 +30,7 @@ import {
   applyComputedProjections,
   buildComputedProjections,
 } from "./computed-projections";
-import type { Field, GridRecord } from "./types";
+import type { Field, GridRecord, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
 
@@ -207,7 +207,7 @@ export const list = async (params: {
    * callers that don't know about expansion get the original shape.
    */
   includeRelations?: boolean;
-}): Promise<Result<{ items: GridRecord[]; nextCursor: string | null }>> => {
+}): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
 
@@ -293,7 +293,11 @@ export const list = async (params: {
     await attachRelationExpansion(items, fields);
   }
 
-  return ok({ items, nextCursor });
+  // Echo fields back in the response — list is the table-page entry
+  // point and consumers (records page, dashboard view widget,
+  // DatabaseTable) always need them to render. Saves a roundtrip vs
+  // calling listFields separately.
+  return ok({ items, fields, nextCursor });
 };
 
 /**
