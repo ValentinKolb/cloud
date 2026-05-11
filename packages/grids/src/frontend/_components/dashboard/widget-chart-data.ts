@@ -68,15 +68,32 @@ export const toNumber = (v: unknown): number | null => {
 };
 
 /** Render the first groupBy key of a bucket as a category label
- *  (donut / bar / line x-axis tick). Date-truncated keys come back
- *  as ISO strings — we format them with the matching readable form;
- *  numeric keys stringify natively; everything else falls back to
- *  `String(...)` with an em-dash for nullish. */
-export const formatCategoryKey = (key: unknown, spec: GroupBySpec | undefined): string => {
+ *  (donut / bar / line x-axis tick). Resolution order:
+ *
+ *    1. `relationLabels[uuid]` — for relation-typed groupBy, the key
+ *       is the linked record's UUID; the labels map is built server-
+ *       side via `buildLabelCacheForGroupedKeys`. Falls through to
+ *       UUID prefix if missing (target table the viewer can't read,
+ *       or label resolution skipped).
+ *    2. Date-truncated keys (ISO strings) → granularity-appropriate
+ *       readable form. The `dates.formatDate` family is locale-aware.
+ *    3. Numeric keys stringify natively; everything else falls back
+ *       to `String(...)`. Nullish → em-dash. */
+export const formatCategoryKey = (
+  key: unknown,
+  spec: GroupBySpec | undefined,
+  relationLabels?: Record<string, string>,
+): string => {
   if (key === null || key === undefined) return "—";
-  // Date-truncated groupBy → ISO date string. Pick a granularity-
-  // appropriate format so a `month` axis doesn't waste pixels on
-  // day/time noise. The `dates.formatDate` family is locale-aware.
+
+  // Relation-typed groupBy: bucket key is a UUID. Look up the
+  // presentable label resolved server-side; without it the axis
+  // would show raw UUIDs (the bug we're fixing).
+  if (relationLabels && typeof key === "string" && relationLabels[key]) {
+    return relationLabels[key];
+  }
+
+  // Date-truncated groupBy → granularity-appropriate format.
   if (spec?.granularity && (typeof key === "string" || key instanceof Date)) {
     const granularity = spec.granularity;
     if (granularity === "year") {
@@ -86,11 +103,16 @@ export const formatCategoryKey = (key: unknown, spec: GroupBySpec | undefined): 
     if (granularity === "month" || granularity === "quarter") {
       const d = new Date(key);
       if (!Number.isFinite(d.valueOf())) return String(key);
-      // "Jan 2025" — concise for axis ticks, still unambiguous.
       return d.toLocaleDateString(undefined, { year: "numeric", month: "short" });
     }
-    // day / week → 05 Mar 2025
     return dates.formatDate(key as string | Date);
+  }
+
+  // Plain UUID fallback when the lookup failed (e.g. relationLabels
+  // not threaded through) — trim to first 8 chars so the axis is
+  // less ugly. String keys that AREN'T UUIDs render as-is.
+  if (typeof key === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(key)) {
+    return key.slice(0, 8);
   }
   return String(key);
 };
@@ -106,13 +128,17 @@ export const bucketsToSlices = (
   buckets: ChartBucket[],
   primaryAgg: AggregationSpec,
   groupBy: GroupBySpec | undefined,
+  relationLabels?: Record<string, string>,
 ): SliceItem[] => {
   const key = aggKey(primaryAgg);
   const items: SliceItem[] = [];
   for (const b of buckets) {
     const v = toNumber(b.values[key]);
     if (v === null) continue;
-    items.push({ label: formatCategoryKey(b.keys[0], groupBy), value: v });
+    items.push({
+      label: formatCategoryKey(b.keys[0], groupBy, relationLabels),
+      value: v,
+    });
   }
   return items;
 };
@@ -124,7 +150,9 @@ export const bucketsToBars = (
   buckets: ChartBucket[],
   primaryAgg: AggregationSpec,
   groupBy: GroupBySpec | undefined,
-): BarItem[] => bucketsToSlices(buckets, primaryAgg, groupBy) as BarItem[];
+  relationLabels?: Record<string, string>,
+): BarItem[] =>
+  bucketsToSlices(buckets, primaryAgg, groupBy, relationLabels) as BarItem[];
 
 /**
  * Line — one `Series` per aggregation. x is the bucket index (0..N)
@@ -189,16 +217,19 @@ export const bucketsToScatterSeries = (
 /** Format-function for the x-axis tick numeric index, looking up the
  *  bucket key by position and rendering it via `formatCategoryKey`.
  *  Stdlib's `AxisOptions.format(v: number)` is called with each tick
- *  value — we round-trip the index back to a label. */
+ *  value — we round-trip the index back to a label. The optional
+ *  `relationLabels` map lets relation-typed groupBy ticks render as
+ *  presentable strings instead of raw UUIDs. */
 export const chartXAxisFormat = (
   buckets: ChartBucket[],
   groupBy: GroupBySpec | undefined,
+  relationLabels?: Record<string, string>,
 ): ((v: number) => string) => {
   return (v: number) => {
     const idx = Math.round(v);
     const bucket = buckets[idx];
     if (!bucket) return "";
-    return formatCategoryKey(bucket.keys[0], groupBy);
+    return formatCategoryKey(bucket.keys[0], groupBy, relationLabels);
   };
 };
 
@@ -232,12 +263,18 @@ export type ChartRenderInput = {
   aggregations: AggregationSpec[];
   buckets: ChartBucket[];
   fieldsById: Map<string, Field>;
+  /** UUID → presentable label map for relation-typed groupBy bucket
+   *  keys. Resolved server-side via `buildLabelCacheForGroupedKeys`;
+   *  the transformers and tick formatter use it to avoid printing
+   *  raw UUIDs on chart axes / slice labels. */
+  relationLabels?: Record<string, string>;
 };
 
 export const buildChartRenderData = (input: ChartRenderInput): ChartRenderData => {
   const aggs = input.aggregations;
   const groupBy = input.groupBy[0];
   const primary = aggs[0];
+  const relLabels = input.relationLabels;
   if (!primary) {
     // Empty aggs is a misconfigured view (charts need at least 1 agg).
     // Returning a donut with no slices lets the renderer fall through
@@ -246,14 +283,20 @@ export const buildChartRenderData = (input: ChartRenderInput): ChartRenderData =
   }
   switch (input.widget.chartType) {
     case "donut":
-      return { kind: "donut", data: bucketsToSlices(input.buckets, primary, groupBy) };
+      return {
+        kind: "donut",
+        data: bucketsToSlices(input.buckets, primary, groupBy, relLabels),
+      };
     case "bar":
-      return { kind: "bar", data: bucketsToBars(input.buckets, primary, groupBy) };
+      return {
+        kind: "bar",
+        data: bucketsToBars(input.buckets, primary, groupBy, relLabels),
+      };
     case "line":
       return {
         kind: "line",
         series: bucketsToLineSeries(input.buckets, aggs, input.fieldsById),
-        xAxisFormat: chartXAxisFormat(input.buckets, groupBy),
+        xAxisFormat: chartXAxisFormat(input.buckets, groupBy, relLabels),
       };
     case "scatter":
       return {

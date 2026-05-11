@@ -136,15 +136,22 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
       </span>
       {/* Optional trend sparkline. Sits between value and sub row
           so the eye lands on it after parsing the headline number.
-          Fixed compact height (h-8 ≈ 32px); width fills the cell so
-          long-cell trends span the full card. `currentColor` on the
-          wrapper picks up the cell's text tone — pass a `valueClass`
-          like `text-emerald-600` to colour both value and sparkline
-          in lockstep. */}
+          Fixed compact height (h-8 ≈ 32px) passed DIRECTLY to the
+          Chart wrapper so the SVG's CSS `height: 100%` resolves
+          against an explicit pixel value — wrapping in an h-8 div
+          instead would leave the inner block sizeless and the SVG
+          would fall back to its viewBox-intrinsic 280px tall, which
+          we saw in the bug report. `currentColor` on the wrapper
+          picks up the cell's text tone — pass a `valueClass` like
+          `text-emerald-600` to colour both value and sparkline in
+          lockstep. */}
       <Show when={props.trend && props.trend.length > 1}>
-        <div class="h-8 -mx-1 mt-0.5">
-          <Chart kind="sparkline" data={props.trend ?? []} showLast />
-        </div>
+        <Chart
+          kind="sparkline"
+          class="h-8 -mx-1 mt-0.5"
+          data={props.trend ?? []}
+          showLast
+        />
       </Show>
       {/* Sub row: rendered only when there's actual content. Keeping
           the row out entirely when both sub and accent are absent

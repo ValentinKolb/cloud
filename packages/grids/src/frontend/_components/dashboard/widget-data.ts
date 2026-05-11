@@ -41,6 +41,13 @@ export type WidgetData =
         groupBy: GroupBySpec[];
         aggregations: AggregationSpec[];
       };
+      /** UUID → presentable label map for relation-typed bucket keys.
+       *  Empty when no groupBy column is a relation. The renderer
+       *  looks up bucket.keys[0] here BEFORE falling back to the raw
+       *  string — without it, charts grouped by a relation field
+       *  would show UUIDs on the axis. Same batched server-side
+       *  resolution the records page uses for grouped relation cells. */
+      relationLabels: Record<string, string>;
     }
   | {
       kind: "view";
@@ -225,11 +232,22 @@ const resolveChart = async (
   const buckets = widget.limit
     ? result.data.buckets.slice(-widget.limit)
     : result.data.buckets;
+  // Relation-typed groupBy columns return raw UUIDs as bucket keys.
+  // Resolve those to presentable labels server-side (same batched
+  // helper the records page uses for grouped relation cells) so the
+  // chart renderer doesn't paint UUIDs on the axis. Empty map when
+  // no groupBy column is a relation.
+  const relationLabels = await gridsService.relations.buildLabelCacheForGroupedKeys(
+    buckets,
+    groupBy.map((g) => g.fieldId),
+    fields,
+  );
   return {
     kind: "chart",
     buckets,
     fields,
     viewQuery: { groupBy, aggregations },
+    relationLabels,
   };
 };
 

@@ -83,6 +83,7 @@ function ChartBody(props: {
       aggregations: props.data.viewQuery.aggregations,
       buckets: props.data.buckets,
       fieldsById: fieldsById(),
+      relationLabels: props.data.relationLabels,
     });
 
   const yFormat = () => (v: number) => formatWidgetValue(v, props.widget.format);

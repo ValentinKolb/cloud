@@ -104,6 +104,36 @@
   height: 100%;
 }
 
+/* stdlib charts — dark-mode overrides.
+
+   stdlib's embedded <style> hardcodes a light-mode `color: #1f2937`
+   on .stdlib-chart and `stroke: white` on slice/point/outlier
+   separators. The hardcoded color leaves axis labels / tick text
+   unreadable on a dark background, and white slice strokes look
+   harsh against zinc-950. We override BOTH from outside the SVG
+   with higher specificity (parent `.dark` selector beats the
+   embedded one-class rule).
+
+   Why specificity matters: stdlib's <style> lives INSIDE the SVG,
+   so its rules are part of the document. Both rule sets have one
+   class selector each (`.stdlib-chart`), and the embedded one is
+   parsed AFTER global.css — without raising specificity here, the
+   embedded rule would win and dark mode would stay broken. The
+   `.dark` parent on `<html>` (set by the platform's theme toggle)
+   bumps these rules to two classes, beating stdlib's one-class
+   embedded defaults cleanly. */
+.dark .stdlib-chart {
+  color: rgb(228 228 231); /* zinc-200 — readable on zinc-950 */
+}
+.dark .stdlib-chart .stdlib-chart-slice,
+.dark .stdlib-chart .stdlib-chart-point,
+.dark .stdlib-chart .stdlib-chart-box-outlier {
+  /* zinc-950 to match the dark page background, so slice / point
+     separators read as "gaps between segments" rather than visible
+     white lines against a dark surface. */
+  stroke: rgb(9 9 11);
+}
+
 *::-webkit-scrollbar {
   width: 0.5rem;
   height: 0.5rem;
