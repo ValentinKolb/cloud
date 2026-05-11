@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { Field, Form } from "../../service";
 import { errorMessage } from "./api-helpers";
@@ -118,21 +118,39 @@ function FormSubmitBody(props: {
           </div>
         </Show>
 
-        <div class="mt-2 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            class="btn-simple btn-sm"
-            onClick={() => props.close()}
-            disabled={submitting()}
-          >
-            Cancel
-          </button>
-          <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
-            <Show when={submitting()} fallback={<i class="ti ti-send" />}>
-              <i class="ti ti-loader-2 animate-spin" />
-            </Show>
-            {props.form.config.submitLabel ?? "Submit"}
-          </button>
+        <div class="mt-2 flex items-center gap-2">
+          {/* Public-form share affordance — bottom-left so it doesn't
+              compete with the primary Submit on the right. Only shown
+              when the form is publicly shared (has a token); for
+              private forms the button is meaningless. The full
+              absolute URL is built at click time from `window.location.origin`
+              so the copied link points at the correct host (SSR can't
+              resolve this — the modal is hydrated client-side anyway). */}
+          <Show when={props.form.publicToken}>
+            {(token) => (
+              <CopyButton
+                text={`${typeof window !== "undefined" ? window.location.origin : ""}/share/grids/forms/${token()}`}
+                label="Copy public link"
+                class="btn-simple btn-sm"
+              />
+            )}
+          </Show>
+          <div class="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              class="btn-simple btn-sm"
+              onClick={() => props.close()}
+              disabled={submitting()}
+            >
+              Cancel
+            </button>
+            <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
+              <Show when={submitting()} fallback={<i class="ti ti-send" />}>
+                <i class="ti ti-loader-2 animate-spin" />
+              </Show>
+              {props.form.config.submitLabel ?? "Submit"}
+            </button>
+          </div>
         </div>
       </form>
     </Show>
