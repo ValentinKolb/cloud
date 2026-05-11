@@ -1,7 +1,9 @@
-import { createSignal, createMemo } from "solid-js";
-import { SegmentedControl } from "@valentinkolb/cloud/ui";
-import { Slider } from "@valentinkolb/cloud/ui";
+import { createSignal, createMemo, createEffect } from "solid-js";
+import { SegmentedControl, Slider } from "@valentinkolb/cloud/ui";
+import { timed } from "@valentinkolb/stdlib/solid";
+
 type Mode = "paragraphs" | "sentences" | "words";
+
 const WORDS = [
   "lorem",
   "ipsum",
@@ -105,26 +107,31 @@ const WORDS = [
   "augue",
   "cursus",
 ];
+
 const randomWord = () => WORDS[Math.floor(Math.random() * WORDS.length)]!;
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const generateSentence = (): string => {
   const len = 5 + Math.floor(Math.random() * 10);
   const words: string[] = [];
   for (let i = 0; i < len; i++) words.push(randomWord());
   words[0] = capitalize(words[0]!);
-  return words.join("") + ".";
+  return words.join(" ") + ".";
 };
+
 const generateParagraph = (): string => {
   const len = 3 + Math.floor(Math.random() * 5);
   const sentences: string[] = [];
   for (let i = 0; i < len; i++) sentences.push(generateSentence());
-  return sentences.join("");
+  return sentences.join(" ");
 };
+
 export default function LoremIpsumGenerator() {
   const [mode, setMode] = createSignal<Mode>("paragraphs");
   const [count, setCount] = createSignal(3);
   const [output, setOutput] = createSignal("");
   const [copied, setCopied] = createSignal(false);
+
   const maxCount = createMemo(() => {
     switch (mode()) {
       case "paragraphs":
@@ -135,6 +142,7 @@ export default function LoremIpsumGenerator() {
         return 500;
     }
   });
+
   const generate = () => {
     switch (mode()) {
       case "paragraphs": {
@@ -146,28 +154,37 @@ export default function LoremIpsumGenerator() {
       case "sentences": {
         const sents: string[] = [];
         for (let i = 0; i < count(); i++) sents.push(generateSentence());
-        setOutput(sents.join(""));
+        setOutput(sents.join(" "));
         break;
       }
       case "words": {
         const words: string[] = [];
         for (let i = 0; i < count(); i++) words.push(randomWord());
         words[0] = capitalize(words[0]!);
-        setOutput(words.join("") + ".");
+        setOutput(words.join(" ") + ".");
         break;
       }
     }
   };
+
+  const { debouncedFn: debouncedGenerate, trigger: generateNow } = timed.debounce(generate, 200);
+
+  // Live regenerate when mode or count changes (initial mount included).
+  createEffect(() => {
+    mode();
+    count();
+    debouncedGenerate();
+  });
+
   const copy = async () => {
     await navigator.clipboard.writeText(output());
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
   return (
     <div class="flex flex-col gap-4">
-      {" "}
       <div class="paper p-4 flex flex-col gap-3">
-        {" "}
         <SegmentedControl
           options={[
             { value: "paragraphs" as Mode, label: "Paragraphs" },
@@ -176,7 +193,7 @@ export default function LoremIpsumGenerator() {
           ]}
           value={mode}
           onChange={setMode}
-        />{" "}
+        />
         <Slider
           label="Count"
           description={`Number of ${mode()} to generate`}
@@ -186,25 +203,21 @@ export default function LoremIpsumGenerator() {
           max={maxCount()}
           step={1}
           showValue
-        />{" "}
-        <button class="btn-primary btn-sm self-start" onClick={generate}>
-          {" "}
-          <i class="ti ti-refresh" /> Generate{" "}
-        </button>{" "}
-      </div>{" "}
+        />
+        <button class="btn-primary btn-sm self-start" onClick={() => generateNow()}>
+          <i class="ti ti-refresh" /> Regenerate
+        </button>
+      </div>
       {output() && (
         <div class="paper p-4 flex flex-col gap-3">
-          {" "}
           <div class="text-sm leading-relaxed whitespace-pre-wrap bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-4 max-h-96 overflow-y-auto select-all">
-            {" "}
-            {output()}{" "}
-          </div>{" "}
+            {output()}
+          </div>
           <button class="btn-primary btn-sm self-start" onClick={copy}>
-            {" "}
-            <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} /> {copied() ? "Copied" : "Copy Text"}{" "}
-          </button>{" "}
+            <i class={`ti ${copied() ? "ti-check" : "ti-copy"}`} /> {copied() ? "Copied" : "Copy Text"}
+          </button>
         </div>
-      )}{" "}
+      )}
     </div>
   );
 }
