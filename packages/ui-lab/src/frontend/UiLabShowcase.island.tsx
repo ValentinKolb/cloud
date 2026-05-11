@@ -16,6 +16,7 @@ import { SelectChip } from "@valentinkolb/cloud/ui";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { Dropdown, type DropdownItem } from "@valentinkolb/cloud/ui";
 import { LinkCard } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { ProgressBar } from "@valentinkolb/cloud/ui";
 import { Pagination } from "@valentinkolb/cloud/ui";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
@@ -901,18 +902,30 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
 
       <Section
         title="Stat Cards"
-        description="Hero with context grid, small-grid only, and compact pill row."
+        description="StatGrid + StatCell primitives (cloud/ui/misc). Composition-based: <StatGrid> frames a paper container, <StatCell> renders one stat. The 1px hairlines between cells come from a `gap-px bg-zinc` bleed inside the grid body — no inner ring, so the paper border is the only outer line and the cell corners follow the paper's rounded clip."
       >
         <div class="flex flex-col gap-10">
-          {/* ── Hero (mit Lead-Metrik) ── */}
+          {/* ── Hero (Lead-Metrik + Context Grid) ──
+              The hero side is plain markup (not a primitive) because
+              its layout is one-off — large lead metric centered in
+              its own half. The right half is a standard `StatGrid`
+              with no header, just cells. They share the same `paper`
+              container, with the StatGrid contributing its own outer
+              edges only on the right side; visually the two halves
+              continue each other. */}
           <div>
             <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">
               Hero · Lead-Metrik dominiert, 6 Kontext-Stats daneben
             </p>
             <div class="paper overflow-hidden">
               <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_2fr]">
-                {/* Hero side — keine eigene Border, das small-grid p-px frame setzt sie */}
-                <div class="px-6 py-8 flex flex-col gap-3 justify-center">
+                {/* Hero half: `lg:border-r` separates it from the
+                    StatGrid half on wide screens (matches the hairline
+                    colour of the inter-cell dividers so it visually
+                    continues the grid). At <lg the layout stacks
+                    vertically, where a right-border would float
+                    nowhere — so it's a `lg:`-gated rule. */}
+                <div class="px-6 py-8 flex flex-col gap-3 justify-center lg:border-r border-zinc-100 dark:border-zinc-800">
                   <span class="text-[10px] uppercase tracking-wider text-dimmed">Total Requests</span>
                   <span class="text-7xl font-bold tabular-nums leading-none text-primary">112</span>
                   <div class="flex items-center gap-2">
@@ -920,96 +933,129 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
                     <span class="tag bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">+12%</span>
                   </div>
                 </div>
-                {/* Small grid: gap-px + p-px + bg-zinc = 1px Frame um & zwischen Cells */}
-                <div class="grid grid-cols-2 sm:grid-cols-3 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-                  <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-wider text-dimmed">Apps</span>
-                    <span class="text-xl font-bold tabular-nums text-primary">17</span>
-                    <span class="text-[10px] text-dimmed">9·12</span>
-                  </div>
-                  <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-wider text-dimmed">Routes</span>
-                    <span class="text-xl font-bold tabular-nums text-primary">106</span>
-                    <span class="text-[10px] text-dimmed">v8</span>
-                  </div>
-                  <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-wider text-dimmed">Search</span>
-                    <span class="text-xl font-bold tabular-nums text-primary">5</span>
-                    <span class="text-[10px] text-dimmed">providers</span>
-                  </div>
-                  <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-wider text-dimmed">Uptime</span>
-                    <span class="text-xl font-bold tabular-nums text-primary">38m</span>
-                    <span class="text-[10px] text-dimmed">&nbsp;</span>
-                  </div>
-                  <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-wider text-dimmed">Healthy</span>
-                    <span class="text-xl font-bold tabular-nums text-primary">17/17</span>
-                    <span class="text-[10px] text-emerald-600 dark:text-emerald-400">ok</span>
-                  </div>
-                  <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                    <span class="text-[10px] uppercase tracking-wider text-dimmed">P99</span>
-                    <span class="text-xl font-bold tabular-nums text-amber-600 dark:text-amber-400">89ms</span>
-                    <span class="text-[10px] text-dimmed">trending up</span>
-                  </div>
+                {/* Inline grid (no paper frame, no header) — we're
+                    inside the hero's paper already. We replicate
+                    StatGrid's hairline body manually here so the two
+                    halves share one outer border. Cells are real
+                    `StatCell`s. */}
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-px bg-zinc-100 dark:bg-zinc-800">
+                  <StatCell label="Apps" value={17} sub="9·12" />
+                  <StatCell label="Routes" value={106} sub="v8" />
+                  <StatCell label="Search" value={5} sub="providers" />
+                  <StatCell label="Uptime" value="38m" />
+                  <StatCell
+                    label="Healthy"
+                    value="17/17"
+                    accent={{ tone: "emerald", icon: "ti ti-check", text: "ok" }}
+                  />
+                  <StatCell
+                    label="P99"
+                    value="89ms"
+                    valueClass="text-amber-600 dark:text-amber-400"
+                    sub="trending up"
+                  />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ── Small grid only (kein Hero) ── */}
+          {/* ── StatGrid only (kein Hero) ──
+              Canonical usage: 6 cells in one row, no header. Shows the
+              full StatCell vocabulary — pill-with-text accent (+12%),
+              icon-only accents for status hints, value-coloring for
+              warnings. */}
           <div>
             <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">
-              Small-grid only · gleiche Cells, keine Lead-Metrik
+              StatGrid only · 6 Cells, keine Lead-Metrik
             </p>
-            <div class="paper overflow-hidden">
-              <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-                <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                  <span class="text-[10px] uppercase tracking-wider text-dimmed">Apps</span>
-                  <span class="text-xl font-bold tabular-nums text-primary">17</span>
-                  <span class="text-[10px] text-dimmed">9·12 admin</span>
-                </div>
-                <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                  <span class="text-[10px] uppercase tracking-wider text-dimmed">Routes</span>
-                  <span class="text-xl font-bold tabular-nums text-primary">106</span>
-                  <span class="text-[10px] text-dimmed">v8</span>
-                </div>
-                <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                  <span class="text-[10px] uppercase tracking-wider text-dimmed">Requests</span>
-                  <span class="text-xl font-bold tabular-nums text-primary">112</span>
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-[10px] text-dimmed">last 24h</span>
-                    <span class="tag bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                      <i class="ti ti-trending-up text-[9px]" />+12%
-                    </span>
-                  </div>
-                </div>
-                <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                  <span class="text-[10px] uppercase tracking-wider text-dimmed">Search</span>
-                  <span class="text-xl font-bold tabular-nums text-primary">5</span>
-                  <span class="text-[10px] text-dimmed">providers</span>
-                </div>
-                <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                  <span class="text-[10px] uppercase tracking-wider text-dimmed">P99</span>
-                  <span class="text-xl font-bold tabular-nums text-amber-600 dark:text-amber-400">89ms</span>
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-[10px] text-dimmed">latency</span>
-                    <i class="ti ti-alert-triangle text-amber-600 dark:text-amber-400 text-[11px]" />
-                  </div>
-                </div>
-                <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                  <span class="text-[10px] uppercase tracking-wider text-dimmed">Healthy</span>
-                  <span class="text-xl font-bold tabular-nums text-primary">17/17</span>
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-[10px] text-dimmed">all good</span>
-                    <i class="ti ti-check text-emerald-600 dark:text-emerald-400 text-[11px]" />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <StatGrid columns={6}>
+              <StatCell label="Apps" value={17} sub="9·12 admin" />
+              <StatCell label="Routes" value={106} sub="v8" />
+              <StatCell
+                label="Requests"
+                value={112}
+                sub="last 24h"
+                accent={{ tone: "emerald", icon: "ti ti-trending-up", text: "+12%" }}
+              />
+              <StatCell label="Search" value={5} sub="providers" />
+              <StatCell
+                label="P99"
+                value="89ms"
+                valueClass="text-amber-600 dark:text-amber-400"
+                sub="latency"
+                accent={{ tone: "amber", icon: "ti ti-alert-triangle" }}
+              />
+              <StatCell
+                label="Healthy"
+                value="17/17"
+                sub="all good"
+                accent={{ tone: "emerald", icon: "ti ti-check" }}
+              />
+            </StatGrid>
             <p class="text-[10px] text-dimmed mt-2 italic">
-              ↑ Pill mit Text (Requests +12%) hat bg, icon-only Akzente (P99 ⚠, Healthy ✓) sind plain colored icons ohne bg. Subtil eingesetzt, nicht in jeder Cell.
+              ↑ Pill mit Text (Requests +12%) hat bg. Icon-only Akzente (P99 ⚠, Healthy ✓) sind plain colored icons ohne bg. Subtil eingesetzt, nicht in jeder Cell.
             </p>
+          </div>
+
+          {/* ── StatGrid with header + action ──
+              Used by grids' ViewStatsRow: the header carries a title
+              + an "open" link, the body is a standard cell grid. The
+              header's border-b uses the same zinc tone as the inter-
+              cell hairlines so the divider line is visually continuous
+              from the title bar down through the cells. */}
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">
+              StatGrid mit Header + Action · title bar oben, optional rechts ein "Open …" Link
+            </p>
+            <StatGrid
+              title="Account requests"
+              action={{ label: "Open full view", href: "#" }}
+              columns={4}
+            >
+              <StatCell label="Open" value={12} sub="needs review" />
+              <StatCell
+                label="Pending"
+                value={3}
+                accent={{ tone: "amber", icon: "ti ti-clock" }}
+              />
+              <StatCell
+                label="Approved"
+                value={47}
+                accent={{ tone: "emerald", icon: "ti ti-check", text: "ok" }}
+              />
+              <StatCell
+                label="Rejected"
+                value={2}
+                valueClass="text-red-600 dark:text-red-400"
+                sub="this week"
+              />
+            </StatGrid>
+          </div>
+
+          {/* ── StatGrid with link cells ──
+              Pass `href` to a StatCell and the whole cell becomes a
+              link with a subtle hover state. Useful for dashboard rows
+              where each stat drills into a filtered view. */}
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">
+              StatGrid mit Link-Cells · jede Cell ist klickbar (hover state)
+            </p>
+            <StatGrid columns={3}>
+              <StatCell label="All apps" value={17} sub="registered" href="#" />
+              <StatCell
+                label="Admin panels"
+                value={8}
+                sub="manageable"
+                href="#"
+                accent={{ tone: "blue", icon: "ti ti-shield" }}
+              />
+              <StatCell
+                label="With nav"
+                value={12}
+                sub="visible to users"
+                href="#"
+              />
+            </StatGrid>
           </div>
 
           {/* ── Pill row (ultra kompakt) ── */}
