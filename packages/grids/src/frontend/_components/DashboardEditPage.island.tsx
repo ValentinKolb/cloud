@@ -1,5 +1,7 @@
 import type { AccessEntry, Principal, PermissionLevel } from "@valentinkolb/cloud/contracts/shared";
 import {
+  DialogHeader,
+  dialogCore,
   IconInput,
   navigateTo,
   PermissionEditor,
@@ -303,13 +305,6 @@ function LayoutEditor(props: {
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
 }) {
-  // Single source of truth for which cell editor is expanded across
-  // all rows — keyed by stable widget.id. Avoids the row-remount
-  // focus loss a per-row local signal would cause.
-  const [expandedCellId, setExpandedCellId] = createSignal<string | null>(null);
-  const toggleCell = (id: string) =>
-    setExpandedCellId(expandedCellId() === id ? null : id);
-
   const updateRow = (rowIdx: number, next: DashboardRow) => {
     const cfg = props.config();
     props.setConfig({
@@ -366,8 +361,6 @@ function LayoutEditor(props: {
               fieldsByTable={props.fieldsByTable}
               viewsByTable={props.viewsByTable}
               formsByTable={props.formsByTable}
-              expandedCellId={expandedCellId}
-              toggleCell={toggleCell}
               onUpdate={(next) => updateRow(rowIdx, next)}
               onMoveRow={(dir) => moveRow(rowIdx, dir)}
               onRemoveRow={() => removeRow(rowIdx)}
@@ -390,8 +383,10 @@ function LayoutEditor(props: {
 }
 
 // =============================================================================
-// Row card — one editor for the unified row. Dispatches cell editors
-// by kind; "Add cell" button cycles through the five available kinds.
+// Row card — one editor for the unified row. Cells are listed
+// vertically with ↑/↓ chevrons (mirrors the field-list pattern in
+// TableEditPage) and editable via a Save-on-confirm modal (mirrors
+// `openFieldEditDialog`).
 // =============================================================================
 
 const HEIGHT_OPTIONS = [
@@ -400,9 +395,8 @@ const HEIGHT_OPTIONS = [
   { id: "lg", label: "Large (360px)" },
 ];
 
-/** Cell-kind picker for the "Add cell" dropdown. Each entry maps to
- *  its factory; the button picks the first non-disabled one. We use
- *  segmented buttons (visible at a glance) rather than a Select. */
+/** Cell-kind picker for the "Add cell" buttons. Each entry maps to
+ *  its factory + icon for the row-list display. */
 const CELL_KIND_OPTIONS: Array<{
   id: Widget["kind"];
   label: string;
@@ -415,6 +409,344 @@ const CELL_KIND_OPTIONS: Array<{
   { id: "form", label: "Form", icon: "ti ti-forms" },
 ];
 
+/** Resolves the icon + title + summary string shown in the collapsed
+ *  CellRow. Kind-specific because each cell type carries different
+ *  identifying info — stats have a title + agg, charts have a chart
+ *  type + view, etc. Used by `<CellRow>` (read-only render) so it
+ *  doesn't need to know cell-kind internals. */
+const summarizeCell = (
+  widget: Widget,
+  ctx: { tables: Array<{ id: string; name: string }>; viewsByTable: Record<string, View[]>; formsByTable: Record<string, Form[]> },
+): { icon: string; title: string; subtitle: string } => {
+  switch (widget.kind) {
+    case "stat": {
+      const agg = widget.source.aggregations[0];
+      const t = ctx.tables.find((x) => x.id === widget.source.tableId)?.name ?? "?";
+      const aggLabel = agg ? `${agg.agg}(${agg.fieldId === "*" ? "*" : "…"})` : "?";
+      return {
+        icon: "ti ti-number",
+        title: widget.title || "(untitled stat)",
+        subtitle: `${t} · ${aggLabel}`,
+      };
+    }
+    case "view": {
+      const src = widget.source;
+      if (src.kind === "table") {
+        const t = ctx.tables.find((x) => x.id === src.tableId)?.name ?? "?";
+        return {
+          icon: "ti ti-table-spark",
+          title: widget.title || "(untitled view)",
+          subtitle: `table · ${t}`,
+        };
+      }
+      const v = findViewById(src.viewId, ctx.viewsByTable);
+      return {
+        icon: "ti ti-table-spark",
+        title: widget.title || "(untitled view)",
+        subtitle: v ? `view · ${v.tableName} · ${v.view.name}` : "(pick a view)",
+      };
+    }
+    case "chart": {
+      const v = findViewById(widget.viewId, ctx.viewsByTable);
+      return {
+        icon: "ti ti-chart-bar",
+        title: widget.title || "(untitled chart)",
+        subtitle: v
+          ? `${widget.chartType} · ${v.tableName} · ${v.view.name}`
+          : `${widget.chartType} · (pick a view)`,
+      };
+    }
+    case "view-stats": {
+      const v = findViewById(widget.viewId, ctx.viewsByTable);
+      return {
+        icon: "ti ti-layout-2",
+        title: widget.title || "View stats",
+        subtitle: v ? `${v.tableName} · ${v.view.name}` : "(pick a view)",
+      };
+    }
+    case "form": {
+      const f = findFormById(widget.formId, ctx.formsByTable);
+      return {
+        icon: "ti ti-forms",
+        title: widget.title || (f?.form.name ?? "Form"),
+        subtitle: f ? `${f.tableName} · ${f.form.name}` : "(pick a form)",
+      };
+    }
+  }
+};
+
+/** Finds a view across all tables-by-base by id. Cell editors / row
+ *  cards use this for the summary line; cross-table lookup keeps the
+ *  picker uniform regardless of which table the view lives under. */
+const findViewById = (
+  viewId: string,
+  viewsByTable: Record<string, View[]>,
+): { view: View; tableName: string } | null => {
+  if (!viewId) return null;
+  for (const [_tableId, views] of Object.entries(viewsByTable)) {
+    for (const v of views) {
+      if (v.id === viewId) {
+        // tableName isn't on the view itself, but we know each view
+        // belongs to v.tableId. Return a placeholder; the cell editor
+        // will fill in the proper tableName from its own context.
+        return { view: v, tableName: "" };
+      }
+    }
+  }
+  return null;
+};
+
+/** Same shape as findViewById but scanning the forms-by-table map. */
+const findFormById = (
+  formId: string,
+  formsByTable: Record<string, Form[]>,
+): { form: Form; tableName: string } | null => {
+  if (!formId) return null;
+  for (const [_tableId, forms] of Object.entries(formsByTable)) {
+    for (const f of forms) {
+      if (f.id === formId) return { form: f, tableName: "" };
+    }
+  }
+  return null;
+};
+
+/**
+ * Compact list-item for a single cell inside RowCard. Mirrors the
+ * field-list row pattern in TableEditPage (chevron column on left,
+ * summary in the middle, edit + delete buttons on the right) so the
+ * two reorder surfaces feel consistent.
+ *
+ * Click anywhere on the summary opens the edit modal (same as the
+ * pencil button). Reorder arrows live in a fixed-width column on the
+ * left; they disable at top/bottom so the user gets clear feedback
+ * when they've hit the boundary.
+ */
+function CellRow(props: {
+  widget: Widget;
+  cellIdx: number;
+  cellCount: number;
+  ctx: {
+    tables: Array<{ id: string; name: string; slug: string }>;
+    fieldsByTable: Record<string, Field[]>;
+    viewsByTable: Record<string, View[]>;
+    formsByTable: Record<string, Form[]>;
+  };
+  onEdit: () => void;
+  onMove: (dir: -1 | 1) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  const summary = () => summarizeCell(props.widget, props.ctx);
+  return (
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex items-stretch overflow-hidden">
+      {/* Reorder column — same chevron-up/down stack as TableEditPage's
+          field rows. Buttons disable at the boundaries; pl-2 inset
+          matches the field-list rhythm. */}
+      <div class="flex flex-col pl-2 shrink-0 justify-center">
+        <button
+          type="button"
+          class="h-4 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
+          onClick={() => props.onMove(-1)}
+          disabled={props.cellIdx === 0}
+          title="Move up"
+          aria-label="Move up"
+        >
+          <i class="ti ti-chevron-up text-xs" />
+        </button>
+        <button
+          type="button"
+          class="h-4 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
+          onClick={() => props.onMove(1)}
+          disabled={props.cellIdx === props.cellCount - 1}
+          title="Move down"
+          aria-label="Move down"
+        >
+          <i class="ti ti-chevron-down text-xs" />
+        </button>
+      </div>
+      {/* Summary — clickable; click anywhere opens the edit modal */}
+      <button
+        type="button"
+        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+        onClick={props.onEdit}
+        aria-label={`Edit ${summary().title}`}
+      >
+        <i class={`${summary().icon} text-sm shrink-0 text-dimmed`} />
+        <span class="text-sm font-medium truncate">{summary().title}</span>
+        <span class="text-[10px] text-dimmed shrink-0 truncate">{summary().subtitle}</span>
+      </button>
+      <div class="flex items-center gap-1 pr-2 shrink-0">
+        <button
+          type="button"
+          class="text-dimmed hover:text-blue-500 p-1"
+          onClick={props.onEdit}
+          title="Edit"
+          aria-label="Edit cell"
+        >
+          <i class="ti ti-pencil text-xs" />
+        </button>
+        <Show when={props.canRemove}>
+          <button
+            type="button"
+            class="text-dimmed hover:text-red-600 dark:hover:text-red-400 p-1"
+            onClick={props.onRemove}
+            title="Delete cell"
+            aria-label="Delete cell"
+          >
+            <i class="ti ti-trash text-xs" />
+          </button>
+        </Show>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Opens a save-on-confirm modal for editing a single cell. The
+ * dialog owns a draft signal seeded from the input cell; the inner
+ * editor body reads `draft()` and calls `setDraft(...)` on every
+ * input change. Save resolves with the draft; Cancel resolves with
+ * `null` (caller discards). Mirrors `openFieldEditDialog` in
+ * TableEditPage.
+ *
+ * Per-kind dispatch by widget.kind — each kind has its own body
+ * component (StatCellBody / ViewCellBody / etc.) that knows how to
+ * render the right inputs. The dialog header carries a kind-specific
+ * icon + title for orientation.
+ */
+const openCellEditDialog = (
+  widget: Widget,
+  ctx: {
+    tables: Array<{ id: string; name: string; slug: string }>;
+    fieldsByTable: Record<string, Field[]>;
+    viewsByTable: Record<string, View[]>;
+    formsByTable: Record<string, Form[]>;
+  },
+): Promise<Widget | undefined> => {
+  const kindLabel: Record<Widget["kind"], string> = {
+    stat: "Edit stat cell",
+    view: "Edit view cell",
+    chart: "Edit chart cell",
+    "view-stats": "Edit view-stats cell",
+    form: "Edit form cell",
+  };
+  const kindIcon: Record<Widget["kind"], string> = {
+    stat: "ti ti-number",
+    view: "ti ti-table-spark",
+    chart: "ti ti-chart-bar",
+    "view-stats": "ti ti-layout-2",
+    form: "ti ti-forms",
+  };
+
+  return dialogCore.open<Widget>(
+    (close) => {
+      const [draft, setDraft] = createSignal<Widget>(widget);
+      return (
+        <div class="flex flex-col gap-4">
+          <DialogHeader
+            title={kindLabel[widget.kind]}
+            icon={kindIcon[widget.kind]}
+            close={() => close()}
+          />
+          <CellEditorBody
+            widget={draft()}
+            onUpdate={(next) => setDraft(next)}
+            tables={ctx.tables}
+            fieldsByTable={ctx.fieldsByTable}
+            viewsByTable={ctx.viewsByTable}
+            formsByTable={ctx.formsByTable}
+          />
+          <footer class="flex justify-end gap-2 border-t border-zinc-100 dark:border-zinc-800/60 pt-3">
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              onClick={() => close()}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              onClick={() => close(draft())}
+            >
+              <i class="ti ti-device-floppy" /> Save
+            </button>
+          </footer>
+        </div>
+      );
+    },
+    {
+      // Same panel sizing as openFieldEditDialog — 48rem wide,
+      // 86vh capped scroll. Keeps the two modal-edit surfaces visually
+      // identical, so the user's mental model carries across.
+      panelClassName:
+        "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 w-[min(96vw,48rem)] max-h-[86vh] overflow-x-hidden overflow-y-auto rounded-2xl border-0 bg-white/95 p-4 text-zinc-900 shadow-none ring-1 ring-inset ring-zinc-300/60 dark:bg-zinc-950/95 dark:text-zinc-100 dark:ring-zinc-700/60 backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm",
+    },
+  );
+};
+
+/** Per-kind dispatcher for the modal body. Each cell-kind has its
+ *  own body component carrying the actual inputs — `CellEditorBody`
+ *  picks the matching one based on widget.kind. The wrapping modal
+ *  provides the header + footer chrome, so these bodies render just
+ *  the form fields. */
+function CellEditorBody(props: {
+  widget: Widget;
+  onUpdate: (w: Widget) => void;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  fieldsByTable: Record<string, Field[]>;
+  viewsByTable: Record<string, View[]>;
+  formsByTable: Record<string, Form[]>;
+}) {
+  switch (props.widget.kind) {
+    case "stat":
+      return (
+        <StatCellBody
+          widget={props.widget}
+          onUpdate={props.onUpdate as (w: StatWidget) => void}
+          tables={props.tables}
+          fieldsByTable={props.fieldsByTable}
+        />
+      );
+    case "view":
+      return (
+        <ViewCellBody
+          widget={props.widget}
+          onUpdate={props.onUpdate as (w: ViewWidget) => void}
+          tables={props.tables}
+          viewsByTable={props.viewsByTable}
+        />
+      );
+    case "chart":
+      return (
+        <ChartCellBody
+          widget={props.widget}
+          onUpdate={props.onUpdate as (w: ChartWidget) => void}
+          tables={props.tables}
+          viewsByTable={props.viewsByTable}
+        />
+      );
+    case "view-stats":
+      return (
+        <ViewStatsCellBody
+          widget={props.widget}
+          onUpdate={props.onUpdate as (w: ViewStatsWidget) => void}
+          tables={props.tables}
+          viewsByTable={props.viewsByTable}
+        />
+      );
+    case "form":
+      return (
+        <FormCellBody
+          widget={props.widget}
+          onUpdate={props.onUpdate as (w: FormWidget) => void}
+          tables={props.tables}
+          formsByTable={props.formsByTable}
+        />
+      );
+  }
+}
+
 function RowCard(props: {
   row: DashboardRow;
   rowIdx: number;
@@ -423,8 +755,6 @@ function RowCard(props: {
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
-  expandedCellId: () => string | null;
-  toggleCell: (id: string) => void;
   onUpdate: (row: DashboardRow) => void;
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
@@ -442,6 +772,37 @@ function RowCard(props: {
       ...props.row,
       cells: props.row.cells.filter((_, i) => i !== cellIdx),
     });
+  };
+
+  /**
+   * Reorder cells within the row. Same swap-and-replace pattern as
+   * `moveField` in TableEditPage (and `moveRow` above). The cells
+   * array's order is the visual order in the dashboard row, so the
+   * up/down arrows on the row card move the cell left/right in the
+   * rendered row.
+   */
+  const moveCell = (cellIdx: number, direction: -1 | 1) => {
+    const target = cellIdx + direction;
+    if (target < 0 || target >= props.row.cells.length) return;
+    const next = [...props.row.cells];
+    [next[cellIdx], next[target]] = [next[target]!, next[cellIdx]!];
+    props.onUpdate({ ...props.row, cells: next });
+  };
+
+  /** Opens the modal editor for a cell. On Save (modal resolves with
+   *  the edited widget), splices into the row at the original index.
+   *  On Cancel (modal resolves with undefined), no-ops — local draft
+   *  is discarded. */
+  const editCell = async (cellIdx: number) => {
+    const current = props.row.cells[cellIdx];
+    if (!current) return;
+    const next = await openCellEditDialog(current, {
+      tables: props.tables,
+      fieldsByTable: props.fieldsByTable,
+      viewsByTable: props.viewsByTable,
+      formsByTable: props.formsByTable,
+    });
+    if (next) updateCell(cellIdx, next);
   };
 
   const addCell = (kind: Widget["kind"]) => {
@@ -489,21 +850,25 @@ function RowCard(props: {
       />
 
       <div class="flex flex-col gap-2">
-        {/* Index keys cells by position so per-keystroke updates don't
-            remount the cell editor and steal focus. */}
+        {/* Index keys cells by position — survives the row-object
+            recreations that updateCell triggers, so the row-card
+            (and any in-flight modal) stays mounted across edits. */}
         <Index each={props.row.cells}>
           {(cell, cellIdx) => (
-            <CellEditor
+            <CellRow
               widget={cell()}
-              isExpanded={props.expandedCellId() === cell().id}
-              canRemove={props.row.cells.length > 1}
-              onToggle={() => props.toggleCell(cell().id)}
-              onUpdate={(w) => updateCell(cellIdx, w)}
+              cellIdx={cellIdx}
+              cellCount={props.row.cells.length}
+              ctx={{
+                tables: props.tables,
+                fieldsByTable: props.fieldsByTable,
+                viewsByTable: props.viewsByTable,
+                formsByTable: props.formsByTable,
+              }}
+              onEdit={() => editCell(cellIdx)}
+              onMove={(dir) => moveCell(cellIdx, dir)}
               onRemove={() => removeCell(cellIdx)}
-              tables={props.tables}
-              fieldsByTable={props.fieldsByTable}
-              viewsByTable={props.viewsByTable}
-              formsByTable={props.formsByTable}
+              canRemove={props.row.cells.length > 1}
             />
           )}
         </Index>
@@ -527,91 +892,6 @@ function RowCard(props: {
       </Show>
     </div>
   );
-}
-
-/** Per-cell dispatcher inside RowCard. Picks the matching editor
- *  based on widget.kind. Each editor is a self-contained inline-
- *  expand card with its own header (collapsed summary) + expanded
- *  body (configuration fields). */
-function CellEditor(props: {
-  widget: Widget;
-  isExpanded: boolean;
-  canRemove: boolean;
-  onToggle: () => void;
-  onUpdate: (w: Widget) => void;
-  onRemove: () => void;
-  tables: Array<{ id: string; name: string; slug: string }>;
-  fieldsByTable: Record<string, Field[]>;
-  viewsByTable: Record<string, View[]>;
-  formsByTable: Record<string, Form[]>;
-}) {
-  switch (props.widget.kind) {
-    case "stat":
-      return (
-        <StatCellEditor
-          widget={props.widget}
-          isExpanded={props.isExpanded}
-          canRemove={props.canRemove}
-          onToggle={props.onToggle}
-          onUpdate={props.onUpdate}
-          onRemove={props.onRemove}
-          tables={props.tables}
-          fieldsByTable={props.fieldsByTable}
-        />
-      );
-    case "view":
-      return (
-        <ViewCellEditor
-          widget={props.widget}
-          isExpanded={props.isExpanded}
-          canRemove={props.canRemove}
-          onToggle={props.onToggle}
-          onUpdate={props.onUpdate}
-          onRemove={props.onRemove}
-          tables={props.tables}
-          viewsByTable={props.viewsByTable}
-        />
-      );
-    case "chart":
-      return (
-        <ChartCellEditor
-          widget={props.widget}
-          isExpanded={props.isExpanded}
-          canRemove={props.canRemove}
-          onToggle={props.onToggle}
-          onUpdate={props.onUpdate}
-          onRemove={props.onRemove}
-          tables={props.tables}
-          viewsByTable={props.viewsByTable}
-        />
-      );
-    case "view-stats":
-      return (
-        <ViewStatsCellEditor
-          widget={props.widget}
-          isExpanded={props.isExpanded}
-          canRemove={props.canRemove}
-          onToggle={props.onToggle}
-          onUpdate={props.onUpdate}
-          onRemove={props.onRemove}
-          tables={props.tables}
-          viewsByTable={props.viewsByTable}
-        />
-      );
-    case "form":
-      return (
-        <FormCellEditor
-          widget={props.widget}
-          isExpanded={props.isExpanded}
-          canRemove={props.canRemove}
-          onToggle={props.onToggle}
-          onUpdate={props.onUpdate}
-          onRemove={props.onRemove}
-          tables={props.tables}
-          formsByTable={props.formsByTable}
-        />
-      );
-  }
 }
 
 // Shared row-header strip — rendered above both stats and widgets cards
@@ -693,13 +973,15 @@ const FORMAT_OPTIONS = [
   { id: "percent", label: "Percent" },
 ];
 
-function StatCellEditor(props: {
+/**
+ * StatCellBody — modal-rendered editor for a single StatWidget.
+ * Inputs only; the wrapping modal supplies the header + Save/Cancel
+ * footer. Mirrors the way `<FieldEditor>` works inside
+ * `openFieldEditDialog`.
+ */
+function StatCellBody(props: {
   widget: StatWidget;
-  isExpanded: boolean;
-  canRemove: boolean;
-  onToggle: () => void;
   onUpdate: (w: StatWidget) => void;
-  onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   fieldsByTable: Record<string, Field[]>;
 }) {
@@ -719,141 +1001,82 @@ function StatCellEditor(props: {
     });
   };
 
-  const summary = () => {
-    const agg = props.widget.source.aggregations[0];
-    if (!agg) return "?";
-    const fieldName =
-      agg.fieldId === "*"
-        ? "*"
-        : fields().find((f) => f.id === agg.fieldId)?.name ?? "?";
-    return `${agg.agg}(${fieldName})`;
-  };
-
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
-      <div
-        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-        onClick={props.onToggle}
-      >
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="ti ti-number text-sm shrink-0 text-dimmed" />
-          <span class="text-sm font-medium truncate">
-            {props.widget.title || "(untitled)"}
-          </span>
-          <span class="text-[10px] text-dimmed shrink-0">{summary()}</span>
-        </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <Show when={props.canRemove}>
-            <button
-              type="button"
-              class="text-dimmed hover:text-primary p-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onRemove();
-              }}
-              title="Delete cell"
-            >
-              <i class="ti ti-trash text-xs" />
-            </button>
-          </Show>
-          <i
-            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
-              props.isExpanded ? "rotate-180" : ""
-            }`}
-          />
+    <div class="flex flex-col gap-3">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+        <TextInput
+          label="Title"
+          value={() => props.widget.title ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        />
+        <TextInput
+          label="Sub-line (optional)"
+          value={() => props.widget.sub ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, sub: v || undefined })}
+          placeholder="e.g. last 24h"
+        />
+        <Select
+          label="Source table"
+          value={() => props.widget.source.tableId}
+          onChange={(v) =>
+            props.onUpdate({
+              ...props.widget,
+              source: {
+                ...props.widget.source,
+                tableId: v,
+                aggregations: [DEFAULT_AGG],
+              },
+            })
+          }
+          options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
+        />
+        <Select
+          label="Aggregation"
+          value={() => props.widget.source.aggregations[0]?.agg ?? "count"}
+          onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
+          options={AGG_OPTIONS}
+        />
+        <Select
+          label="Field"
+          value={() => props.widget.source.aggregations[0]?.fieldId ?? "*"}
+          onChange={(v) => updateAgg({ fieldId: v })}
+          options={[
+            { id: "*", label: "* (records)" },
+            ...fields().map((f) => ({ id: f.id, label: f.name })),
+          ]}
+        />
+        <Select
+          label="Format"
+          value={() => props.widget.format ?? "plain"}
+          onChange={(v) =>
+            props.onUpdate({
+              ...props.widget,
+              format: v as "plain" | "currency" | "percent" | "integer",
+            })
+          }
+          options={FORMAT_OPTIONS}
+        />
+        <IconInput
+          label="Icon"
+          value={() => props.widget.icon ?? ""}
+          onChange={(v) => props.onUpdate({ ...props.widget, icon: v || undefined })}
+          placeholder="Search icons…"
+        />
+        <div class="md:col-span-2 text-[11px] text-dimmed">
+          Preview:{" "}
+          <code class="font-mono">{formatWidgetValue(0, props.widget.format)}</code>{" "}
+          (style only — real value resolves at render time)
         </div>
       </div>
 
-      <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <TextInput
-              label="Title"
-              value={() => props.widget.title ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, title: v || undefined })
-              }
-            />
-            <TextInput
-              label="Sub-line (optional)"
-              value={() => props.widget.sub ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, sub: v || undefined })
-              }
-              placeholder="e.g. last 24h"
-            />
-            <Select
-              label="Source table"
-              value={() => props.widget.source.tableId}
-              onChange={(v) =>
-                props.onUpdate({
-                  ...props.widget,
-                  source: {
-                    ...props.widget.source,
-                    tableId: v,
-                    aggregations: [DEFAULT_AGG],
-                  },
-                })
-              }
-              options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
-            />
-            <Select
-              label="Aggregation"
-              value={() => props.widget.source.aggregations[0]?.agg ?? "count"}
-              onChange={(v) => updateAgg({ agg: v as AggregationSpec["agg"] })}
-              options={AGG_OPTIONS}
-            />
-            <Select
-              label="Field"
-              value={() => props.widget.source.aggregations[0]?.fieldId ?? "*"}
-              onChange={(v) => updateAgg({ fieldId: v })}
-              options={[
-                { id: "*", label: "* (records)" },
-                ...fields().map((f) => ({ id: f.id, label: f.name })),
-              ]}
-            />
-            <Select
-              label="Format"
-              value={() => props.widget.format ?? "plain"}
-              onChange={(v) =>
-                props.onUpdate({
-                  ...props.widget,
-                  format: v as "plain" | "currency" | "percent" | "integer",
-                })
-              }
-              options={FORMAT_OPTIONS}
-            />
-            <IconInput
-              label="Icon"
-              value={() => props.widget.icon ?? ""}
-              onChange={(v) =>
-                props.onUpdate({ ...props.widget, icon: v || undefined })
-              }
-              placeholder="Search icons…"
-            />
-            <div class="md:col-span-2 text-[11px] text-dimmed">
-              Preview:{" "}
-              <code class="font-mono">
-                {formatWidgetValue(0, props.widget.format)}
-              </code>{" "}
-              (style only — real value resolves at render time)
-            </div>
-          </div>
-
-          {/* ── Trend (optional inline sparkline) ──────────────────
-              Configured separately from the main stat: same agg +
-              filter, but bucketed by a date field at a chosen
-              granularity. The resolver runs the extra group() query
-              in parallel and feeds the result through to the cell's
-              `trend` prop. Hidden when the source table has no date
-              fields — there's nothing sensible to bucket on. */}
-          <StatTrendSection
-            widget={props.widget}
-            fields={fields()}
-            onUpdate={props.onUpdate}
-          />
-        </div>
-      </Show>
+      {/* Trend (optional inline sparkline) — same agg + filter,
+          bucketed by a date field. Hidden when the source table has
+          zero date fields. */}
+      <StatTrendSection
+        widget={props.widget}
+        fields={fields()}
+        onUpdate={props.onUpdate}
+      />
     </div>
   );
 }
@@ -992,13 +1215,11 @@ function StatTrendSection(props: {
 // Cell-level version of the deprecated view-stats row. Picks a view;
 // the cell renders the auto-derived 2×N stat grid at runtime.
 
-function ViewStatsCellEditor(props: {
+/** ViewStatsCellBody — modal-rendered editor body. Picks a saved
+ *  view; the cell renders the auto-derived 2×N stat grid at runtime. */
+function ViewStatsCellBody(props: {
   widget: ViewStatsWidget;
-  isExpanded: boolean;
-  canRemove: boolean;
-  onToggle: () => void;
   onUpdate: (w: ViewStatsWidget) => void;
-  onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
 }) {
@@ -1015,76 +1236,31 @@ function ViewStatsCellEditor(props: {
     return flat;
   });
 
-  const summary = () => {
-    const v = allViews().find((x) => x.view.id === props.widget.viewId);
-    return v ? `${v.tableName} · ${v.view.name}` : "(pick a view)";
-  };
-
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
-      <div
-        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-        onClick={props.onToggle}
-      >
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="ti ti-layout-2 text-sm shrink-0 text-dimmed" />
-          <span class="text-sm font-medium truncate">
-            {props.widget.title || "View stats"}
-          </span>
-          <span class="text-[10px] text-dimmed shrink-0 truncate">{summary()}</span>
-        </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <Show when={props.canRemove}>
-            <button
-              type="button"
-              class="text-dimmed hover:text-primary p-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onRemove();
-              }}
-              title="Delete cell"
-            >
-              <i class="ti ti-trash text-xs" />
-            </button>
-          </Show>
-          <i
-            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
-              props.isExpanded ? "rotate-180" : ""
-            }`}
-          />
-        </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+      <TextInput
+        label="Title (optional override)"
+        value={() => props.widget.title ?? ""}
+        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        placeholder="Defaults to the view's name"
+      />
+      <Select
+        label="View"
+        value={() => props.widget.viewId}
+        onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+        options={[
+          { id: "", label: "(pick a view)" },
+          ...allViews().map(({ view, tableName }) => ({
+            id: view.id,
+            label: `${tableName} · ${view.name}`,
+          })),
+        ]}
+      />
+      <div class="md:col-span-2 text-[11px] text-dimmed">
+        Cells are derived from the view automatically. Ungrouped views
+        render the first record's columns; grouped views render the
+        first bucket's aggregations.
       </div>
-      <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <TextInput
-              label="Title (optional override)"
-              value={() => props.widget.title ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, title: v || undefined })
-              }
-              placeholder="Defaults to the view's name"
-            />
-            <Select
-              label="View"
-              value={() => props.widget.viewId}
-              onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-              options={[
-                { id: "", label: "(pick a view)" },
-                ...allViews().map(({ view, tableName }) => ({
-                  id: view.id,
-                  label: `${tableName} · ${view.name}`,
-                })),
-              ]}
-            />
-            <div class="md:col-span-2 text-[11px] text-dimmed">
-              Cells are derived from the view automatically. Ungrouped
-              views render the first record's columns; grouped views
-              render the first bucket's aggregations.
-            </div>
-          </div>
-        </div>
-      </Show>
     </div>
   );
 }
@@ -1093,13 +1269,11 @@ function ViewStatsCellEditor(props: {
 // Pick a form by id from the base-wide forms list. Renderer embeds
 // the form inline; submit triggers a full page reload.
 
-function FormCellEditor(props: {
+/** FormCellBody — modal-rendered editor body. Picks a form from the
+ *  base-wide forms list. */
+function FormCellBody(props: {
   widget: FormWidget;
-  isExpanded: boolean;
-  canRemove: boolean;
-  onToggle: () => void;
   onUpdate: (w: FormWidget) => void;
-  onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   formsByTable: Record<string, Form[]>;
 }) {
@@ -1116,75 +1290,30 @@ function FormCellEditor(props: {
     return flat;
   });
 
-  const summary = () => {
-    const f = allForms().find((x) => x.form.id === props.widget.formId);
-    return f ? `${f.tableName} · ${f.form.name}` : "(pick a form)";
-  };
-
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
-      <div
-        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-        onClick={props.onToggle}
-      >
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="ti ti-forms text-sm shrink-0 text-dimmed" />
-          <span class="text-sm font-medium truncate">
-            {props.widget.title || "Form"}
-          </span>
-          <span class="text-[10px] text-dimmed shrink-0 truncate">{summary()}</span>
-        </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <Show when={props.canRemove}>
-            <button
-              type="button"
-              class="text-dimmed hover:text-primary p-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onRemove();
-              }}
-              title="Delete cell"
-            >
-              <i class="ti ti-trash text-xs" />
-            </button>
-          </Show>
-          <i
-            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
-              props.isExpanded ? "rotate-180" : ""
-            }`}
-          />
-        </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+      <TextInput
+        label="Title (optional override)"
+        value={() => props.widget.title ?? ""}
+        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+        placeholder="Defaults to the form's name"
+      />
+      <Select
+        label="Form"
+        value={() => props.widget.formId}
+        onChange={(v) => props.onUpdate({ ...props.widget, formId: v })}
+        options={[
+          { id: "", label: "(pick a form)" },
+          ...allForms().map(({ form, tableName }) => ({
+            id: form.id,
+            label: `${tableName} · ${form.name}`,
+          })),
+        ]}
+      />
+      <div class="md:col-span-2 text-[11px] text-dimmed">
+        On successful submit, the dashboard reloads so every other widget
+        re-resolves with the new record visible.
       </div>
-      <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <TextInput
-              label="Title (optional override)"
-              value={() => props.widget.title ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, title: v || undefined })
-              }
-              placeholder="Defaults to the form's name"
-            />
-            <Select
-              label="Form"
-              value={() => props.widget.formId}
-              onChange={(v) => props.onUpdate({ ...props.widget, formId: v })}
-              options={[
-                { id: "", label: "(pick a form)" },
-                ...allForms().map(({ form, tableName }) => ({
-                  id: form.id,
-                  label: `${tableName} · ${form.name}`,
-                })),
-              ]}
-            />
-            <div class="md:col-span-2 text-[11px] text-dimmed">
-              On successful submit, the dashboard reloads so every other
-              widget re-resolves with the new record visible.
-            </div>
-          </div>
-        </div>
-      </Show>
     </div>
   );
 }
@@ -1193,13 +1322,12 @@ function FormCellEditor(props: {
 // View cell editor
 // =============================================================================
 
-function ViewCellEditor(props: {
+/** ViewCellBody — modal-rendered editor body. Two source kinds (view /
+ *  table) drive different sub-pickers; the binary toggle is a pair of
+ *  segmented buttons rather than a Select. */
+function ViewCellBody(props: {
   widget: ViewWidget;
-  isExpanded: boolean;
-  canRemove: boolean;
-  onToggle: () => void;
   onUpdate: (w: ViewWidget) => void;
-  onRemove: () => void;
   viewsByTable: Record<string, View[]>;
   tables: Array<{ id: string; name: string; slug: string }>;
 }) {
@@ -1216,19 +1344,6 @@ function ViewCellEditor(props: {
     return flat;
   });
 
-  const summary = () => {
-    const src = props.widget.source;
-    if (src.kind === "table") {
-      const t = props.tables.find((x) => x.id === src.tableId);
-      return t ? `table · ${t.name}` : "(pick a table)";
-    }
-    const v = allViews().find((x) => x.view.id === src.viewId);
-    return v ? `view · ${v.tableName} · ${v.view.name}` : "(pick a view)";
-  };
-
-  // Toggle source kind without losing the title or id. When switching,
-  // we reset the inner ref since `viewId` and `tableId` aren't
-  // interchangeable.
   const setSourceKind = (kind: "view" | "table") => {
     if (props.widget.source.kind === kind) return;
     props.onUpdate({
@@ -1241,139 +1356,91 @@ function ViewCellEditor(props: {
   };
 
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
-      <div
-        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-        onClick={props.onToggle}
-      >
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="ti ti-table-spark text-sm shrink-0 text-dimmed" />
-          <span class="text-sm font-medium truncate">
-            {props.widget.title || "(untitled)"}
-          </span>
-          <span class="text-[10px] text-dimmed shrink-0 truncate">
-            {summary()}
-          </span>
-        </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <Show when={props.canRemove}>
-            <button
-              type="button"
-              class="text-dimmed hover:text-primary p-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onRemove();
-              }}
-              title="Delete cell"
-            >
-              <i class="ti ti-trash text-xs" />
-            </button>
-          </Show>
-          <i
-            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
-              props.isExpanded ? "rotate-180" : ""
-            }`}
-          />
-        </div>
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center gap-2 text-[11px]">
+        <span class="text-dimmed">Source:</span>
+        <button
+          type="button"
+          class={`px-2 py-0.5 rounded ${
+            props.widget.source.kind === "view"
+              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+              : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+          }`}
+          onClick={() => setSourceKind("view")}
+        >
+          Saved view
+        </button>
+        <button
+          type="button"
+          class={`px-2 py-0.5 rounded ${
+            props.widget.source.kind === "table"
+              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+              : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+          }`}
+          onClick={() => setSourceKind("table")}
+        >
+          Table
+        </button>
       </div>
 
-      <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-2">
-          {/* Source-kind toggle. Plain segmented buttons rather than a
-              Select — only two options, the visual choice itself
-              communicates the binary. */}
-          <div class="flex items-center gap-2 text-[11px]">
-            <span class="text-dimmed">Source:</span>
-            <button
-              type="button"
-              class={`px-2 py-0.5 rounded ${
-                props.widget.source.kind === "view"
-                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-              }`}
-              onClick={() => setSourceKind("view")}
-            >
-              Saved view
-            </button>
-            <button
-              type="button"
-              class={`px-2 py-0.5 rounded ${
-                props.widget.source.kind === "table"
-                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-              }`}
-              onClick={() => setSourceKind("table")}
-            >
-              Table
-            </button>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <TextInput
-              label="Title (optional override)"
-              value={() => props.widget.title ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, title: v || undefined })
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+        <TextInput
+          label="Title (optional override)"
+          value={() => props.widget.title ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          placeholder={
+            props.widget.source.kind === "view"
+              ? "Defaults to the view's name"
+              : "Defaults to the table's name"
+          }
+        />
+        <Show
+          when={props.widget.source.kind === "view"}
+          fallback={
+            <Select
+              label="Table"
+              value={() =>
+                props.widget.source.kind === "table" ? props.widget.source.tableId : ""
               }
-              placeholder={
-                props.widget.source.kind === "view"
-                  ? "Defaults to the view's name"
-                  : "Defaults to the table's name"
+              onChange={(v) =>
+                props.onUpdate({
+                  ...props.widget,
+                  source: { kind: "table", tableId: v },
+                })
               }
+              options={[
+                { id: "", label: "(pick a table)" },
+                ...props.tables.map((t) => ({ id: t.id, label: t.name })),
+              ]}
             />
-            <Show
-              when={props.widget.source.kind === "view"}
-              fallback={
-                <Select
-                  label="Table"
-                  value={() =>
-                    props.widget.source.kind === "table"
-                      ? props.widget.source.tableId
-                      : ""
-                  }
-                  onChange={(v) =>
-                    props.onUpdate({
-                      ...props.widget,
-                      source: { kind: "table", tableId: v },
-                    })
-                  }
-                  options={[
-                    { id: "", label: "(pick a table)" },
-                    ...props.tables.map((t) => ({ id: t.id, label: t.name })),
-                  ]}
-                />
-              }
-            >
-              <Select
-                label="View"
-                value={() =>
-                  props.widget.source.kind === "view"
-                    ? props.widget.source.viewId
-                    : ""
-                }
-                onChange={(v) =>
-                  props.onUpdate({
-                    ...props.widget,
-                    source: { kind: "view", viewId: v },
-                  })
-                }
-                options={[
-                  { id: "", label: "(pick a view)" },
-                  ...allViews().map(({ view, tableName }) => ({
-                    id: view.id,
-                    label: `${tableName} · ${view.name}`,
-                  })),
-                ]}
-              />
-            </Show>
-            <div class="md:col-span-2 text-[11px] text-dimmed">
-              {props.widget.source.kind === "view"
-                ? 'Embedded views show 25 records with the saved view\'s filter and sort plus an "Open full view →" link to the records page.'
-                : "Raw-table source shows the latest 25 records, no filter applied. Save a view if you need filtering."}
-            </div>
-          </div>
+          }
+        >
+          <Select
+            label="View"
+            value={() =>
+              props.widget.source.kind === "view" ? props.widget.source.viewId : ""
+            }
+            onChange={(v) =>
+              props.onUpdate({
+                ...props.widget,
+                source: { kind: "view", viewId: v },
+              })
+            }
+            options={[
+              { id: "", label: "(pick a view)" },
+              ...allViews().map(({ view, tableName }) => ({
+                id: view.id,
+                label: `${tableName} · ${view.name}`,
+              })),
+            ]}
+          />
+        </Show>
+        <div class="md:col-span-2 text-[11px] text-dimmed">
+          {props.widget.source.kind === "view"
+            ? 'Embedded views show 25 records with the saved view\'s filter and sort plus an "Open full view →" link to the records page.'
+            : "Raw-table source shows the latest 25 records, no filter applied. Save a view if you need filtering."}
         </div>
-      </Show>
+      </div>
     </div>
   );
 }
@@ -1405,19 +1472,15 @@ const CHART_TYPE_HINTS: Record<ChartWidget["chartType"], string> = {
   scatter: "View must group by 1 field + have ≥2 aggregations (agg 1 = x, agg 2 = y).",
 };
 
-function ChartCellEditor(props: {
+/** ChartCellBody — modal-rendered editor body. chartType picker +
+ *  view picker + optional limit + axis cosmetics. View supplies the
+ *  filter/groupBy/granularity/aggregations. */
+function ChartCellBody(props: {
   widget: ChartWidget;
-  isExpanded: boolean;
-  canRemove: boolean;
-  onToggle: () => void;
   onUpdate: (w: ChartWidget) => void;
-  onRemove: () => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
 }) {
-  /** Flat list of every view in the base, with its parent table name
-   *  for the dropdown label. Sorted by view name (case-insensitive)
-   *  so the picker reads alphabetically. */
   const allViews = createMemo(() => {
     const flat: { view: View; tableName: string }[] = [];
     for (const t of props.tables) {
@@ -1431,164 +1494,110 @@ function ChartCellEditor(props: {
     return flat;
   });
 
-  const summary = () => {
-    const v = allViews().find((x) => x.view.id === props.widget.viewId);
-    if (!v) return `${props.widget.chartType} · (pick a view)`;
-    return `${props.widget.chartType} · ${v.tableName} · ${v.view.name}`;
-  };
-
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
-      <div
-        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-        onClick={props.onToggle}
-      >
-        <div class="flex items-center gap-2 min-w-0">
-          <i class="ti ti-chart-bar text-sm shrink-0 text-dimmed" />
-          <span class="text-sm font-medium truncate">
-            {props.widget.title || "(untitled)"}
-          </span>
-          <span class="text-[10px] text-dimmed shrink-0 truncate">{summary()}</span>
-        </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <Show when={props.canRemove}>
+    <div class="flex flex-col gap-3">
+      {/* Chart kind picker — segmented buttons. Hint underneath
+          documents what kind of view the chart needs. */}
+      <div class="flex flex-col gap-1">
+        <span class="text-[11px] text-dimmed">Chart type</span>
+        <div class="flex flex-wrap items-center gap-1">
+          {CHART_TYPE_OPTIONS.map((opt) => (
             <button
               type="button"
-              class="text-dimmed hover:text-primary p-1"
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onRemove();
-              }}
-              title="Delete cell"
+              class={`px-2 py-1 rounded text-[11px] inline-flex items-center gap-1.5 ${
+                props.widget.chartType === opt.id
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+              }`}
+              onClick={() => props.onUpdate({ ...props.widget, chartType: opt.id })}
             >
-              <i class="ti ti-trash text-xs" />
+              <i class={opt.icon} />
+              {opt.label}
             </button>
-          </Show>
-          <i
-            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
-              props.isExpanded ? "rotate-180" : ""
-            }`}
-          />
+          ))}
         </div>
+        <span class="text-[11px] text-dimmed italic">
+          {CHART_TYPE_HINTS[props.widget.chartType]}
+        </span>
       </div>
 
-      <Show when={props.isExpanded}>
-        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-3">
-          {/* ── Chart kind picker ─────────────────────────────────
-              Segmented buttons (one per chartType). Hint underneath
-              documents what kind of view the chart needs. */}
-          <div class="flex flex-col gap-1">
-            <span class="text-[11px] text-dimmed">Chart type</span>
-            <div class="flex flex-wrap items-center gap-1">
-              {CHART_TYPE_OPTIONS.map((opt) => (
-                <button
-                  type="button"
-                  class={`px-2 py-1 rounded text-[11px] inline-flex items-center gap-1.5 ${
-                    props.widget.chartType === opt.id
-                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                      : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-                  }`}
-                  onClick={() =>
-                    props.onUpdate({ ...props.widget, chartType: opt.id })
-                  }
-                >
-                  <i class={opt.icon} />
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <span class="text-[11px] text-dimmed italic">
-              {CHART_TYPE_HINTS[props.widget.chartType]}
-            </span>
-          </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+        <TextInput
+          label="Title"
+          value={() => props.widget.title ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          placeholder="e.g. Revenue by quarter"
+        />
+        <TextInput
+          label="Subtitle (optional)"
+          value={() => props.widget.subtitle ?? ""}
+          onInput={(v) =>
+            props.onUpdate({ ...props.widget, subtitle: v || undefined })
+          }
+          placeholder="e.g. last 12 months"
+        />
+        <Select
+          label="Source view"
+          value={() => props.widget.viewId}
+          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+          options={[
+            { id: "", label: "(pick a view)" },
+            ...allViews().map(({ view, tableName }) => ({
+              id: view.id,
+              label: `${tableName} · ${view.name}`,
+            })),
+          ]}
+        />
+        <TextInput
+          label="Limit (optional)"
+          value={() =>
+            props.widget.limit !== undefined ? String(props.widget.limit) : ""
+          }
+          onInput={(raw) => {
+            const trimmed = raw.trim();
+            if (trimmed === "") {
+              const { limit: _drop, ...rest } = props.widget;
+              props.onUpdate(rest);
+              return;
+            }
+            const n = Number(trimmed);
+            if (!Number.isFinite(n) || n < 1) return;
+            props.onUpdate({
+              ...props.widget,
+              limit: Math.min(Math.floor(n), 1000),
+            });
+          }}
+          placeholder="e.g. 12 (last 12 buckets)"
+        />
+        <Select
+          label="Y-axis format"
+          value={() => props.widget.format ?? "plain"}
+          onChange={(v) =>
+            props.onUpdate({
+              ...props.widget,
+              format: v as "plain" | "currency" | "percent" | "integer",
+            })
+          }
+          options={FORMAT_OPTIONS}
+        />
+      </div>
 
-          {/* ── Title / subtitle / view picker / limit ──────────── */}
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <TextInput
-              label="Title"
-              value={() => props.widget.title ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, title: v || undefined })
-              }
-              placeholder="e.g. Revenue by quarter"
-            />
-            <TextInput
-              label="Subtitle (optional)"
-              value={() => props.widget.subtitle ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, subtitle: v || undefined })
-              }
-              placeholder="e.g. last 12 months"
-            />
-            <Select
-              label="Source view"
-              value={() => props.widget.viewId}
-              onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-              options={[
-                { id: "", label: "(pick a view)" },
-                ...allViews().map(({ view, tableName }) => ({
-                  id: view.id,
-                  label: `${tableName} · ${view.name}`,
-                })),
-              ]}
-            />
-            <TextInput
-              label="Limit (optional)"
-              value={() =>
-                props.widget.limit !== undefined ? String(props.widget.limit) : ""
-              }
-              onInput={(raw) => {
-                const trimmed = raw.trim();
-                if (trimmed === "") {
-                  // Empty → clear the cap; chart shows all buckets.
-                  const { limit: _drop, ...rest } = props.widget;
-                  props.onUpdate(rest);
-                  return;
-                }
-                const n = Number(trimmed);
-                if (!Number.isFinite(n) || n < 1) return;
-                props.onUpdate({
-                  ...props.widget,
-                  limit: Math.min(Math.floor(n), 1000),
-                });
-              }}
-              placeholder="e.g. 12 (last 12 buckets)"
-            />
-            <Select
-              label="Y-axis format"
-              value={() => props.widget.format ?? "plain"}
-              onChange={(v) =>
-                props.onUpdate({
-                  ...props.widget,
-                  format: v as "plain" | "currency" | "percent" | "integer",
-                })
-              }
-              options={FORMAT_OPTIONS}
-            />
-          </div>
-
-          {/* ── Axis labels (optional override) ──────────────────
-              Defaults: x-axis inherits from the view's groupBy field;
-              y-axis uses the aggregation label. Override only when
-              the inferred ones are wrong. */}
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <TextInput
-              label="X-axis label (optional)"
-              value={() => props.widget.xAxisLabel ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, xAxisLabel: v || undefined })
-              }
-            />
-            <TextInput
-              label="Y-axis label (optional)"
-              value={() => props.widget.yAxisLabel ?? ""}
-              onInput={(v) =>
-                props.onUpdate({ ...props.widget, yAxisLabel: v || undefined })
-              }
-            />
-          </div>
-        </div>
-      </Show>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+        <TextInput
+          label="X-axis label (optional)"
+          value={() => props.widget.xAxisLabel ?? ""}
+          onInput={(v) =>
+            props.onUpdate({ ...props.widget, xAxisLabel: v || undefined })
+          }
+        />
+        <TextInput
+          label="Y-axis label (optional)"
+          value={() => props.widget.yAxisLabel ?? ""}
+          onInput={(v) =>
+            props.onUpdate({ ...props.widget, yAxisLabel: v || undefined })
+          }
+        />
+      </div>
     </div>
   );
 }
