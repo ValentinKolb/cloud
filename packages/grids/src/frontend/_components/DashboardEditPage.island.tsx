@@ -11,6 +11,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type {
+  ChartWidget,
   Dashboard,
   DashboardConfig,
   DashboardRow,
@@ -22,7 +23,7 @@ import type {
   ViewWidget,
   WidgetsRow as WidgetsRowType,
 } from "../../service";
-import type { AggregationSpec } from "../../contracts";
+import type { AggregationSpec, GroupBySpec } from "../../contracts";
 import { errorMessage } from "./api-helpers";
 import { SectionCard } from "./SectionCard";
 import { formatWidgetValue } from "./dashboard/widget-format";
@@ -66,6 +67,19 @@ const defaultViewWidget = (): ViewWidget => ({
   id: newId("w"),
   kind: "view",
   source: { kind: "view", viewId: "" },
+});
+
+/** Seed for a fresh chart widget. Bar + COUNT(*) is the safest
+ *  default — works on any table, no field required, produces a
+ *  visible chart the moment a groupBy field is picked. The empty
+ *  groupBy array intentionally renders an empty-state chart so the
+ *  user is nudged to configure one. */
+const defaultChartWidget = (tableId: string): ChartWidget => ({
+  id: newId("w"),
+  kind: "chart",
+  chartType: "bar",
+  title: "New chart",
+  source: { tableId, aggregations: [DEFAULT_AGG] },
 });
 
 const defaultStatsRow = (tableId: string): StatsRowType => ({
@@ -400,6 +414,7 @@ function LayoutEditor(props: {
                     rowCount={props.config().rows.length}
                     tables={props.tables}
                     viewsByTable={props.viewsByTable}
+                    fieldsByTable={props.fieldsByTable}
                     expandedCellId={expandedCellId}
                     toggleCell={toggleCell}
                     onUpdate={(next) => updateRow(rowIdx, next)}
@@ -545,6 +560,7 @@ function WidgetsRowCard(props: {
   rowCount: number;
   tables: Array<{ id: string; name: string; slug: string }>;
   viewsByTable: Record<string, View[]>;
+  fieldsByTable: Record<string, Field[]>;
   /** Hoisted expansion state — see StatsRowCard for the rationale. */
   expandedCellId: () => string | null;
   toggleCell: (id: string) => void;
@@ -552,22 +568,31 @@ function WidgetsRowCard(props: {
   onMoveRow: (dir: -1 | 1) => void;
   onRemoveRow: () => void;
 }) {
-  // Chart variant exists in the schema but the render stub ships in P1.
-  // The editor only offers `view` cells until then; an existing chart
-  // cell on a saved dashboard is preserved via the `cell.kind` check
-  // below but can't be added here.
-  const updateCell = (cellIdx: number, widget: ViewWidget) => {
+  // Widgets-row cells are a `view | chart` union — both routed through
+  // a single onUpdate callback. The cell index is the position; we
+  // splice in the new widget without touching siblings to keep the
+  // For/Index reconciler stable.
+  const updateCell = (cellIdx: number, widget: ViewWidget | ChartWidget) => {
     props.onUpdate({
       ...props.row,
       cells: props.row.cells.map((c, i) => (i === cellIdx ? widget : c)),
     });
   };
 
-  const addCell = () => {
+  const addView = () => {
     if (props.row.cells.length >= 4) return;
     props.onUpdate({
       ...props.row,
       cells: [...props.row.cells, defaultViewWidget()],
+    });
+  };
+
+  const addChart = () => {
+    if (props.row.cells.length >= 4) return;
+    const tableId = props.tables[0]?.id ?? "";
+    props.onUpdate({
+      ...props.row,
+      cells: [...props.row.cells, defaultChartWidget(tableId)],
     });
   };
 
@@ -582,7 +607,7 @@ function WidgetsRowCard(props: {
   return (
     <div class="paper p-3 flex flex-col gap-3">
       <RowHeader
-        kindLabel="View row"
+        kindLabel="Widget row"
         kindIcon="ti ti-table-spark"
         rowIdx={props.rowIdx}
         rowCount={props.rowCount}
@@ -600,21 +625,29 @@ function WidgetsRowCard(props: {
       />
 
       <div class="flex flex-col gap-2">
-        {/* Index — same rationale as StatsRowCard's cells loop. */}
+        {/* Index — same rationale as StatsRowCard's cells loop. The
+            cell-kind switch picks the matching editor; both update
+            paths flow through the same `updateCell` so the parent
+            row only sees one source of truth. */}
         <Index each={props.row.cells}>
           {(cell, cellIdx) => (
             <Show
               when={cell().kind === "view"}
               fallback={
-                <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md p-2 text-xs text-dimmed">
-                  Chart widget — renders on the dashboard view, but the
-                  editor for chart sources lands in a follow-up (Phase 4).
-                  Existing config is preserved as-is.
-                </div>
+                <ChartCellEditor
+                  widget={cell() as ChartWidget}
+                  isExpanded={props.expandedCellId() === cell().id}
+                  canRemove={props.row.cells.length > 1}
+                  onToggle={() => props.toggleCell(cell().id)}
+                  onUpdate={(w) => updateCell(cellIdx, w)}
+                  onRemove={() => removeCell(cellIdx)}
+                  tables={props.tables}
+                  fieldsByTable={props.fieldsByTable}
+                />
               }
             >
               <ViewCellEditor
-                widget={cell() as import("../../service").ViewWidget}
+                widget={cell() as ViewWidget}
                 isExpanded={props.expandedCellId() === cell().id}
                 canRemove={props.row.cells.length > 1}
                 onToggle={() => props.toggleCell(cell().id)}
@@ -629,13 +662,22 @@ function WidgetsRowCard(props: {
       </div>
 
       <Show when={props.row.cells.length < 4}>
-        <button
-          type="button"
-          class="btn-input btn-sm self-start"
-          onClick={addCell}
-        >
-          <i class="ti ti-plus" /> Add view
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="btn-input btn-sm"
+            onClick={addView}
+          >
+            <i class="ti ti-table-spark" /> Add view
+          </button>
+          <button
+            type="button"
+            class="btn-input btn-sm"
+            onClick={addChart}
+          >
+            <i class="ti ti-chart-bar" /> Add chart
+          </button>
+        </div>
       </Show>
     </div>
   );
@@ -1134,6 +1176,344 @@ function ViewCellEditor(props: {
                 ? 'Embedded views show 25 records with the saved view\'s filter and sort plus an "Open full view →" link to the records page.'
                 : "Raw-table source shows the latest 25 records, no filter applied. Save a view if you need filtering."}
             </div>
+          </div>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+// =============================================================================
+// Chart cell editor — inline expandable, configures a single ChartWidget.
+//
+// Chart sources are richer than stat sources (multiple aggregations,
+// an optional groupBy with date-granularity, axis labels) so the
+// editor has more knobs than StatCellEditor — but the visual rhythm
+// matches: title row + chevron-collapse, expanded body uses the same
+// 2-column grid for inputs.
+// =============================================================================
+
+const CHART_TYPE_OPTIONS: { id: ChartWidget["chartType"]; label: string; icon: string }[] = [
+  { id: "donut", label: "Donut", icon: "ti ti-chart-donut-4" },
+  { id: "bar", label: "Bar", icon: "ti ti-chart-bar" },
+  { id: "line", label: "Line", icon: "ti ti-chart-line" },
+  { id: "scatter", label: "Scatter", icon: "ti ti-chart-dots" },
+];
+
+/** Hint shown under the chartType picker — documents the source-shape
+ *  contract so the user knows what to configure (e.g. scatter needs
+ *  ≥2 aggs). Mirrors the ChartWidgetSchema JSDoc in contracts.ts. */
+const CHART_TYPE_HINTS: Record<ChartWidget["chartType"], string> = {
+  donut: "1 group-by → slice label, first aggregation → slice value.",
+  bar: "1 group-by → bar label, first aggregation → bar value.",
+  line: "1 group-by → x-axis, each aggregation → 1 line series.",
+  scatter: "1 group-by → buckets, agg 1 = x, agg 2 = y, agg 3 = bubble size.",
+};
+
+const GRANULARITY_OPTIONS = [
+  { id: "", label: "(none — bucket per value)" },
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "quarter", label: "Quarter" },
+  { id: "year", label: "Year" },
+];
+
+function ChartCellEditor(props: {
+  widget: ChartWidget;
+  isExpanded: boolean;
+  canRemove: boolean;
+  onToggle: () => void;
+  onUpdate: (w: ChartWidget) => void;
+  onRemove: () => void;
+  tables: Array<{ id: string; name: string; slug: string }>;
+  fieldsByTable: Record<string, Field[]>;
+}) {
+  const tableFields = () =>
+    (props.fieldsByTable[props.widget.source.tableId] ?? []).filter((f) => !f.deletedAt);
+
+  const groupBy = () => props.widget.source.groupBy?.[0];
+
+  /** True when the configured groupBy targets a date field — used to
+   *  gate the granularity picker (no point asking for "month"
+   *  bucketing on a text field). */
+  const isDateGroupBy = () => {
+    const g = groupBy();
+    if (!g) return false;
+    return tableFields().find((f) => f.id === g.fieldId)?.type === "date";
+  };
+
+  const summary = () => {
+    const t = props.tables.find((x) => x.id === props.widget.source.tableId)?.name ?? "?";
+    return `${props.widget.chartType} · ${t}`;
+  };
+
+  // ── Source patches ────────────────────────────────────────────────
+  const patchSource = (patch: Partial<typeof props.widget.source>) => {
+    props.onUpdate({
+      ...props.widget,
+      source: { ...props.widget.source, ...patch },
+    });
+  };
+
+  const setTableId = (tableId: string) => {
+    // Field IDs are scoped to a table, so switching tables invalidates
+    // every fieldId reference. Reset groupBy + aggregations to the
+    // safe defaults — the user picks new ones from the new table's
+    // fields. Keep `chartType` and title since those are table-agnostic.
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        tableId,
+        aggregations: [DEFAULT_AGG],
+        groupBy: undefined,
+      },
+    });
+  };
+
+  const setGroupByField = (fieldId: string) => {
+    if (!fieldId) {
+      patchSource({ groupBy: undefined });
+      return;
+    }
+    const current = groupBy();
+    // Preserve existing granularity when the new field is still a
+    // date; otherwise drop it (granularity is meaningless on non-date
+    // fields and the group-compiler would refuse it).
+    const newField = tableFields().find((f) => f.id === fieldId);
+    const keepGranularity =
+      newField?.type === "date" ? current?.granularity : undefined;
+    const next: GroupBySpec = { fieldId, granularity: keepGranularity };
+    patchSource({ groupBy: [next] });
+  };
+
+  const setGranularity = (g: string) => {
+    const current = groupBy();
+    if (!current) return;
+    const granularity = g === "" ? undefined : (g as GroupBySpec["granularity"]);
+    patchSource({ groupBy: [{ ...current, granularity }] });
+  };
+
+  // ── Aggregation patches ───────────────────────────────────────────
+  const updateAgg = (idx: number, patch: Partial<AggregationSpec>) => {
+    patchSource({
+      aggregations: props.widget.source.aggregations.map((a, i) =>
+        i === idx ? { ...a, ...patch } : a,
+      ),
+    });
+  };
+
+  const addAgg = () => {
+    patchSource({
+      aggregations: [...props.widget.source.aggregations, DEFAULT_AGG],
+    });
+  };
+
+  const removeAgg = (idx: number) => {
+    // The schema requires ≥1 aggregation; the editor enforces that
+    // here so we can't dispatch an invalid save.
+    if (props.widget.source.aggregations.length <= 1) return;
+    patchSource({
+      aggregations: props.widget.source.aggregations.filter((_, i) => i !== idx),
+    });
+  };
+
+  return (
+    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex flex-col overflow-hidden">
+      <div
+        class="px-2 py-1.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+        onClick={props.onToggle}
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <i class="ti ti-chart-bar text-sm shrink-0 text-dimmed" />
+          <span class="text-sm font-medium truncate">
+            {props.widget.title || "(untitled)"}
+          </span>
+          <span class="text-[10px] text-dimmed shrink-0 truncate">{summary()}</span>
+        </div>
+        <div class="flex items-center gap-1 shrink-0">
+          <Show when={props.canRemove}>
+            <button
+              type="button"
+              class="text-dimmed hover:text-primary p-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onRemove();
+              }}
+              title="Delete cell"
+            >
+              <i class="ti ti-trash text-xs" />
+            </button>
+          </Show>
+          <i
+            class={`ti ti-chevron-down text-xs text-dimmed transition-transform ${
+              props.isExpanded ? "rotate-180" : ""
+            }`}
+          />
+        </div>
+      </div>
+
+      <Show when={props.isExpanded}>
+        <div class="border-t border-zinc-200 dark:border-zinc-700/50 p-2 flex flex-col gap-3">
+          {/* ── Chart kind picker ─────────────────────────────────
+              Segmented buttons (one per chartType) instead of a Select
+              — only 4 options and the icons disambiguate the choice
+              at a glance. */}
+          <div class="flex flex-col gap-1">
+            <span class="text-[11px] text-dimmed">Chart type</span>
+            <div class="flex flex-wrap items-center gap-1">
+              {CHART_TYPE_OPTIONS.map((opt) => (
+                <button
+                  type="button"
+                  class={`px-2 py-1 rounded text-[11px] inline-flex items-center gap-1.5 ${
+                    props.widget.chartType === opt.id
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                      : "bg-zinc-100 text-dimmed hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                  }`}
+                  onClick={() =>
+                    props.onUpdate({ ...props.widget, chartType: opt.id })
+                  }
+                >
+                  <i class={opt.icon} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <span class="text-[11px] text-dimmed italic">
+              {CHART_TYPE_HINTS[props.widget.chartType]}
+            </span>
+          </div>
+
+          {/* ── Title / subtitle / source table ─────────────────── */}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <TextInput
+              label="Title"
+              value={() => props.widget.title ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, title: v || undefined })
+              }
+              placeholder="e.g. Revenue by quarter"
+            />
+            <TextInput
+              label="Subtitle (optional)"
+              value={() => props.widget.subtitle ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, subtitle: v || undefined })
+              }
+              placeholder="e.g. last 12 months"
+            />
+            <Select
+              label="Source table"
+              value={() => props.widget.source.tableId}
+              onChange={setTableId}
+              options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
+            />
+            <Select
+              label="Y-axis format"
+              value={() => props.widget.format ?? "plain"}
+              onChange={(v) =>
+                props.onUpdate({
+                  ...props.widget,
+                  format: v as "plain" | "currency" | "percent" | "integer",
+                })
+              }
+              options={FORMAT_OPTIONS}
+            />
+          </div>
+
+          {/* ── Group by + granularity ──────────────────────────────
+              Single groupBy in v1 — the schema supports up to 3 but
+              none of the chartTypes use the extras yet. Keeping the
+              editor minimal until a real use case appears. */}
+          <div class="flex flex-col gap-1">
+            <span class="text-[11px] text-dimmed">Group by</span>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <Select
+                label="Field"
+                value={() => groupBy()?.fieldId ?? ""}
+                onChange={setGroupByField}
+                options={[
+                  { id: "", label: "(none)" },
+                  ...tableFields().map((f) => ({ id: f.id, label: f.name })),
+                ]}
+              />
+              <Show when={isDateGroupBy()}>
+                <Select
+                  label="Granularity"
+                  value={() => groupBy()?.granularity ?? ""}
+                  onChange={setGranularity}
+                  options={GRANULARITY_OPTIONS}
+                />
+              </Show>
+            </div>
+          </div>
+
+          {/* ── Aggregations list ──────────────────────────────────
+              One row per agg with agg-kind + field picker. Donut/bar
+              only read the first; line emits one series per agg;
+              scatter needs ≥2 (the hint above tells the user). Add/
+              remove keep schema's ≥1 constraint enforced. */}
+          <div class="flex flex-col gap-1">
+            <span class="text-[11px] text-dimmed">Aggregations</span>
+            <div class="flex flex-col gap-1.5">
+              <Index each={props.widget.source.aggregations}>
+                {(agg, idx) => (
+                  <div class="flex items-center gap-2 text-xs">
+                    <Select
+                      value={() => agg().agg}
+                      onChange={(v) =>
+                        updateAgg(idx, { agg: v as AggregationSpec["agg"] })
+                      }
+                      options={AGG_OPTIONS}
+                    />
+                    <Select
+                      value={() => agg().fieldId}
+                      onChange={(v) => updateAgg(idx, { fieldId: v })}
+                      options={[
+                        { id: "*", label: "* (records)" },
+                        ...tableFields().map((f) => ({ id: f.id, label: f.name })),
+                      ]}
+                    />
+                    <Show when={props.widget.source.aggregations.length > 1}>
+                      <button
+                        type="button"
+                        class="text-dimmed hover:text-red-600 dark:hover:text-red-400 p-1"
+                        onClick={() => removeAgg(idx)}
+                        title="Remove aggregation"
+                      >
+                        <i class="ti ti-x text-xs" />
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </Index>
+              <button
+                type="button"
+                class="btn-input btn-sm self-start mt-1"
+                onClick={addAgg}
+              >
+                <i class="ti ti-plus" /> Add aggregation
+              </button>
+            </div>
+          </div>
+
+          {/* ── Axis labels (optional override) ─────────────────── */}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <TextInput
+              label="X-axis label (optional)"
+              value={() => props.widget.xAxisLabel ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, xAxisLabel: v || undefined })
+              }
+              placeholder={groupBy() ? "Inferred from group-by field" : ""}
+            />
+            <TextInput
+              label="Y-axis label (optional)"
+              value={() => props.widget.yAxisLabel ?? ""}
+              onInput={(v) =>
+                props.onUpdate({ ...props.widget, yAxisLabel: v || undefined })
+              }
+            />
           </div>
         </div>
       </Show>
