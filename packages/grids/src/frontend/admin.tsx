@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell } from "@valentinkolb/cloud/ui";
+import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { gridsService } from "../service";
 
@@ -38,35 +38,33 @@ export default ssr<AuthContext>(async (c) => {
             <h1 class="text-base font-semibold text-primary">Grids</h1>
           </div>
 
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-4 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell
-                label="Bases"
-                value={summary.totalBases}
-                sub={search ? "filtered" : "total"}
-                accent={{ tone: "blue", icon: "ti ti-database" }}
-              />
-              <StatCell
-                label="Tables"
-                value={summary.totalTables}
-                sub={search ? "in filtered bases" : "total"}
-                accent={{ tone: "zinc", icon: "ti ti-table" }}
-              />
-              <StatCell
-                label="Records"
-                value={summary.totalRecords}
-                sub="non-deleted"
-                accent={{ tone: "emerald", icon: "ti ti-list" }}
-              />
-              <StatCell
-                label="Orphaned bases"
-                value={summary.orphanedBases}
-                sub={summary.orphanedBases > 0 ? "no access entries" : "all reachable"}
-                valueClass={summary.orphanedBases > 0 ? "text-red-500" : "text-primary"}
-                accent={summary.orphanedBases > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
-              />
-            </div>
-          </div>
+          <StatGrid columns={4}>
+            <StatCell
+              label="Bases"
+              value={summary.totalBases}
+              sub={search ? "filtered" : "total"}
+              accent={{ tone: "blue", icon: "ti ti-database" }}
+            />
+            <StatCell
+              label="Tables"
+              value={summary.totalTables}
+              sub={search ? "in filtered bases" : "total"}
+              accent={{ tone: "zinc", icon: "ti ti-table" }}
+            />
+            <StatCell
+              label="Records"
+              value={summary.totalRecords}
+              sub="non-deleted"
+              accent={{ tone: "emerald", icon: "ti ti-list" }}
+            />
+            <StatCell
+              label="Orphaned bases"
+              value={summary.orphanedBases}
+              sub={summary.orphanedBases > 0 ? "no access entries" : "all reachable"}
+              valueClass={summary.orphanedBases > 0 ? "text-red-500" : "text-primary"}
+              accent={summary.orphanedBases > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            />
+          </StatGrid>
 
           <SearchBar action="/admin/grids" value={search} placeholder="Search bases by name or description..." ariaLabel="Search bases" />
 

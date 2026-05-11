@@ -1,4 +1,5 @@
-import { For, Show } from "solid-js";
+import { For } from "solid-js";
+import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import type { StatWidget, StatsRow as StatsRowType } from "../../../service";
 import { formatWidgetValue } from "./widget-format";
 import type { WidgetData } from "./widget-data";
@@ -8,57 +9,39 @@ type Props = {
   widgetData: Record<string, WidgetData>;
 };
 
-/** Static `md:grid-cols-N` map for cell counts 1-6. Tailwind's JIT
- *  bundles only literal class names found in source — interpolated
- *  `md:grid-cols-${n}` strings get silently stripped. */
-const GRID_CLASS: Record<number, string> = {
-  1: "grid-cols-1",
-  2: "grid-cols-2",
-  3: "grid-cols-1 sm:grid-cols-3",
-  4: "grid-cols-2 md:grid-cols-4",
-  5: "grid-cols-2 sm:grid-cols-3 md:grid-cols-5",
-  6: "grid-cols-2 sm:grid-cols-3 md:grid-cols-6",
-};
-
 /**
- * Renders a row of stat cells using the ui-lab "Small grid only"
- * pattern: a single `paper` container holding cells separated by 1px
- * hairlines via `gap-px p-px bg-zinc`. Cells share visual context
- * (uppercase 10px label, `text-xl tabular-nums` value, optional 10px
- * sub line) and stay readable down to a 2-column grid at narrow
- * viewports — strictly better than independent gap-3 paper cards
- * which collapse to a 1-column tower at high zoom.
+ * Renders a row of stat cells as a {@link StatGrid}. Each cell is a
+ * {@link StatCell} configured from a single `StatWidget`.
  *
- * The markup is intentionally inlined and small. We don't wrap a
- * platform `WidgetStat` here because that defaults to `text-3xl`,
- * meant for the stand-alone dashboard app's wider lead-metric
- * layout. Stats inside a dashboard cell need the tighter ui-lab
- * spec to fit.
+ * Per-cell mapping rules:
+ * - **Label**: explicit `widget.title` wins; otherwise we derive a
+ *   compact label from the first aggregation (`COUNT(*)`, `SUM(x)`, …).
+ * - **Value**: formatted via `formatWidgetValue` for stat data; the
+ *   em-dash fallback for missing / errored data keeps the row's
+ *   typography stable.
+ * - **Error state**: when the source fails we render the cell red and
+ *   surface the reason as the sub line — no separate error UI, the
+ *   widget keeps its slot in the grid.
+ * - **Icon**: stored as a full Tabler class on the widget. We render
+ *   it as a small blue accent icon only when there is no error;
+ *   showing both a red error reason and a hopeful blue icon would be
+ *   contradictory.
  */
 export default function StatsRow(props: Props) {
-  const gridCols = () =>
-    GRID_CLASS[props.row.cells.length] ?? "grid-cols-2 md:grid-cols-4";
-
   return (
-    <div class="paper overflow-hidden">
-      <div
-        class={`grid gap-px p-px bg-zinc-100 dark:bg-zinc-800 ${gridCols()}`}
-      >
-        <For each={props.row.cells}>
-          {(widget) => (
-            <StatCell
-              widget={widget}
-              data={props.widgetData[widget.id]}
-            />
-          )}
-        </For>
-      </div>
-    </div>
+    <StatGrid columns={props.row.cells.length}>
+      <For each={props.row.cells}>
+        {(widget) => <StatWidgetCell widget={widget} data={props.widgetData[widget.id]} />}
+      </For>
+    </StatGrid>
   );
 }
 
-function StatCell(props: { widget: StatWidget; data: WidgetData | undefined }) {
-  const labelOf = () => {
+/** One stat-cell with widget-shaped data. Split out so the For loop
+ *  in `StatsRow` stays readable and the mapping logic lives next to
+ *  what it produces. */
+function StatWidgetCell(props: { widget: StatWidget; data: WidgetData | undefined }) {
+  const labelOf = (): string => {
     if (props.widget.title) return props.widget.title;
     const agg = props.widget.source.aggregations[0];
     if (!agg) return "Stat";
@@ -66,62 +49,35 @@ function StatCell(props: { widget: StatWidget; data: WidgetData | undefined }) {
     return agg.label ?? agg.agg;
   };
 
-  const data = (): WidgetData =>
-    props.data ?? { kind: "error", reason: "no data" };
-
+  const data = (): WidgetData => props.data ?? { kind: "error", reason: "no data" };
   const isError = () => data().kind === "error";
-  const valueText = () => {
-    const d = data();
-    if (d.kind === "error") return "—";
-    if (d.kind !== "stat") return "—";
-    return formatWidgetValue(d.value, props.widget.format);
-  };
-  const errorReason = () => {
+  const errorReason = (): string | null => {
     const d = data();
     return d.kind === "error" ? d.reason : null;
   };
+  const valueText = (): string => {
+    const d = data();
+    if (d.kind !== "stat") return "—";
+    return formatWidgetValue(d.value, props.widget.format);
+  };
 
-  // Sub-line: explicit `widget.sub` wins; otherwise show error reason
-  // when the source failed; otherwise blank (no row, keeps layout
-  // tight when the user didn't configure sub-text).
-  const subText = () => props.widget.sub ?? errorReason();
+  // `sub` precedence: explicit widget.sub → error reason → undefined
+  // (cell omits the sub row entirely, see StatCell docs).
+  const subText = (): string | undefined => props.widget.sub ?? errorReason() ?? undefined;
 
   return (
-    <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5 min-w-0">
-      <span class="text-[10px] uppercase tracking-wider text-dimmed truncate">
-        {labelOf()}
-      </span>
-      <span
-        class={`text-xl font-bold tabular-nums leading-tight truncate ${
-          isError() ? "text-red-600 dark:text-red-400" : "text-primary"
-        }`}
-        title={valueText()}
-      >
-        {valueText()}
-      </span>
-      <Show when={subText() || props.widget.icon}>
-        <div class="flex items-center gap-1.5 min-w-0">
-          <Show when={subText()}>
-            <span
-              class={`text-[10px] truncate ${
-                isError() ? "text-red-600 dark:text-red-400" : "text-dimmed"
-              }`}
-            >
-              {subText()}
-            </span>
-          </Show>
-          <Show when={props.widget.icon && !errorReason()}>
-            {/* widget.icon stores the full Tabler class (e.g.
-                "ti ti-shopping-cart") — render directly. Older
-                values that lack the family prefix still render
-                correctly in browsers that tolerate duplicate class
-                tokens, which Tabler's CSS does. */}
-            <i
-              class={`${props.widget.icon} text-[12px] text-blue-600 dark:text-blue-400 shrink-0`}
-            />
-          </Show>
-        </div>
-      </Show>
-    </div>
+    <StatCell
+      label={labelOf()}
+      value={valueText()}
+      title={valueText()}
+      sub={subText()}
+      valueClass={isError() ? "text-red-600 dark:text-red-400" : undefined}
+      accent={
+        props.widget.icon && !errorReason()
+          ? { tone: "blue", icon: props.widget.icon }
+          : undefined
+      }
+    />
   );
 }
+
