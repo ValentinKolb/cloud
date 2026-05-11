@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell } from "@valentinkolb/cloud/ui";
+import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import AdminNotebookActions from "./_components/AdminNotebookActions.island";
 import AdminNotebooksAppSettings from "./_components/AdminNotebooksAppSettings.island";
@@ -39,28 +39,26 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-3 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell
-                label="Notebooks"
-                value={notebooks.total}
-                sub={search ? "filtered" : "total"}
-                accent={{ tone: "blue", icon: "ti ti-notebook" }}
-              />
-              <StatCell
-                label="Orphaned"
-                value={orphanedCount}
-                sub={orphanedCount > 0 ? "no access" : "all reachable"}
-                valueClass={orphanedCount > 0 ? "text-red-500" : "text-primary"}
-                accent={orphanedCount > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
-              />
-              <StatCell
-                label="Access entries"
-                value={totalPermissions}
-                sub={search ? "in search" : "across all notebooks"}
-              />
-            </div>
-          </div>
+          <StatGrid columns={3}>
+            <StatCell
+              label="Notebooks"
+              value={notebooks.total}
+              sub={search ? "filtered" : "total"}
+              accent={{ tone: "blue", icon: "ti ti-notebook" }}
+            />
+            <StatCell
+              label="Orphaned"
+              value={orphanedCount}
+              sub={orphanedCount > 0 ? "no access" : "all reachable"}
+              valueClass={orphanedCount > 0 ? "text-red-500" : "text-primary"}
+              accent={orphanedCount > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            />
+            <StatCell
+              label="Access entries"
+              value={totalPermissions}
+              sub={search ? "in search" : "across all notebooks"}
+            />
+          </StatGrid>
 
           <div class="flex items-stretch gap-2">
             <div class="flex-1 min-w-0">
