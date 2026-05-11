@@ -302,17 +302,22 @@ const ChartShowcase = () => {
           <div>
             <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">Sparkline · inline trend</p>
             <div class="paper p-3 flex flex-col gap-3">
+              {/* Sparklines are sized small + inline. Width is fluid
+                  (flex-1) so they fill the row; height is fixed because
+                  sparklines are decorative rather than tall enough to
+                  read tick-level detail. The ResizeObserver in <Chart>
+                  picks up the actual pixel size and re-renders crisply. */}
               <div class="flex items-center gap-3">
                 <span class="text-[10px] uppercase tracking-wider text-dimmed w-20 shrink-0">Up</span>
-                <Chart kind="sparkline" class="text-emerald-600 dark:text-emerald-400" data={trendUp} showLast showMinMax />
+                <Chart kind="sparkline" class="flex-1 h-8 text-emerald-600 dark:text-emerald-400" data={trendUp} showLast showMinMax />
               </div>
               <div class="flex items-center gap-3">
                 <span class="text-[10px] uppercase tracking-wider text-dimmed w-20 shrink-0">Down</span>
-                <Chart kind="sparkline" class="text-red-500 dark:text-red-400" data={trendDown} showLast showMinMax />
+                <Chart kind="sparkline" class="flex-1 h-8 text-red-500 dark:text-red-400" data={trendDown} showLast showMinMax />
               </div>
               <div class="flex items-center gap-3">
                 <span class="text-[10px] uppercase tracking-wider text-dimmed w-20 shrink-0">Flat</span>
-                <Chart kind="sparkline" class="text-dimmed" data={trendFlat} showLast />
+                <Chart kind="sparkline" class="flex-1 h-8 text-dimmed" data={trendFlat} showLast />
               </div>
             </div>
           </div>
