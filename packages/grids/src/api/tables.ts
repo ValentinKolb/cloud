@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import {
   TableSchema,
@@ -226,6 +226,13 @@ const app = new Hono<AuthContext>()
       }
 
       // List-mode (with optional aggregates side-channel).
+      // includeRelations + viewer attach `.expanded` to each record
+      // server-side. The records-view island consumes that via
+      // <DatabaseTable> (relations render as clickable RecordLinks).
+      // Per-target-table read perm gating means records the viewer
+      // can't reach contribute UUIDs that fall back to a UUID prefix
+      // rather than leaking presentable values.
+      const user = c.get("user");
       const listResult = await gridsService.record.list({
         tableId,
         cursor: cursor ?? null,
@@ -233,6 +240,12 @@ const app = new Hono<AuthContext>()
         includeDeleted: query.includeDeleted,
         filter: effectiveFilter,
         sort: query.sort,
+        includeRelations: true,
+        viewer: {
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+          isAdmin: hasRole(user, "admin"),
+        },
       });
       if (!listResult.ok) return c.json({ message: listResult.error.message }, listResult.error.status);
 

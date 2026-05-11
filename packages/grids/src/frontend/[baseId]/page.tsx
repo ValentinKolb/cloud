@@ -370,6 +370,17 @@ export default ssr<AuthContext>(async (c) => {
         filter: filterWithSearch,
         sort: effectiveSort,
         cursor: rawCursor,
+        // SSR initial render uses includeRelations + viewer so the
+        // first paint already carries `.expanded` on every record;
+        // the records-view island reads `record.expanded` directly
+        // for relation cells via <DatabaseTable>. Per-target-table
+        // perm gating drops tables the viewer can't read.
+        includeRelations: true,
+        viewer: {
+          userId: user.id,
+          userGroups: user.memberofGroupIds,
+          isAdmin: hasRole(user, "admin"),
+        },
       }),
       resolveLevel(user, baseId, activeTable.id),
     ]);

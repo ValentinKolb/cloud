@@ -19,7 +19,7 @@ import {
 // children means they hydrate as part of RecordsView, sharing its state.
 import SearchBar from "../SearchBar";
 import GridToolbar from "../GridToolbar";
-import RecordsGrid from "../RecordsGrid";
+import DatabaseTable from "../DatabaseTable";
 import GroupedTable, { type GroupBucket } from "../GroupedTable";
 import RecordDetailPanel from "../RecordDetailPanel";
 import { apiClient } from "../../../api/client";
@@ -503,17 +503,16 @@ export default function RecordsView(props: Props) {
           <Show
             when={isGrouped()}
             fallback={
-              <RecordsGrid
+              <DatabaseTable
+                result={{
+                  items: items() as GridRecord[],
+                  fields: props.fields,
+                  nextCursor: null,
+                }}
                 baseId={props.baseId}
-                tableId={props.tableId}
-                fields={props.fields}
-                records={items() as GridRecord[]}
-                canWrite={props.canWrite}
-                mode={props.trashMode ? "trash" : "live"}
                 selectedId={selectedRecordId()}
-                onSelectRecord={onSelectRecord}
+                onRecordClick={onSelectRecord}
                 viewColumns={props.viewColumns}
-                relationLabels={mergedRelationLabels()}
                 aggregates={props.trashMode ? {} : aggregates()}
                 aggregationSpecs={props.trashMode ? [] : aggregations()}
               />

@@ -1,7 +1,24 @@
 import { For, Show } from "solid-js";
 import type { Field, GridRecord, RecordList } from "../../service";
+import type { AggregationSpec } from "../../contracts";
+import type { ColumnSpec } from "../../service/views";
 import { formatCell } from "./format-cell";
 import { RecordLink } from "./RecordLink";
+
+/** Friendly label for an aggregation kind — used as the fallback when
+ *  the user didn't set a custom label on the aggregation row. */
+const AGG_LABELS: Record<string, string> = {
+  count: "values",
+  countEmpty: "empty",
+  countUnique: "unique",
+  sum: "Σ",
+  avg: "avg",
+  min: "min",
+  max: "max",
+  median: "median",
+  earliest: "earliest",
+  latest: "latest",
+};
 
 /**
  * DatabaseTable — minimal, presentational records table.
@@ -44,6 +61,26 @@ type Props = {
   onRecordClick?: (record: GridRecord) => void;
   /** Highlighted row id — purely visual. */
   selectedId?: string | null;
+  /**
+   * Optional saved-view column override. When set, dictates BOTH the
+   * visible field set AND their order (instead of the default
+   * `!hideInTable` + `position` rule). Per-column `format` lives here
+   * too; used by date / decimal / currency / percent renderers to
+   * pick up the view's saved style.
+   */
+  viewColumns?: ColumnSpec[];
+  /**
+   * Pre-resolved aggregate values keyed `<fieldId>__<agg>`. Drives a
+   * footer row when paired with `aggregationSpecs`. Omit both to skip
+   * the footer entirely (the dashboard view widget does this).
+   */
+  aggregates?: Record<string, unknown>;
+  /**
+   * Aggregation specs that produced `aggregates`. Footer renders one
+   * entry per spec under its target field's column (`*` specs land
+   * under the leftmost visible field, Airtable-style).
+   */
+  aggregationSpecs?: AggregationSpec[];
 };
 
 /** Joins a list of arbitrary cell values into a presentable label.
@@ -78,14 +115,29 @@ const buildExpandedLabel = (
 };
 
 export default function DatabaseTable(props: Props) {
-  /** Fields that actually render: not deleted, not hidden, sorted by
-   *  position. Same default-visibility rule the records page uses, so
-   *  embedding this on a dashboard matches what the user sees on the
-   *  full records view. */
-  const visibleFields = (): Field[] =>
-    props.result.fields
+  /** Fields that actually render. When the caller passes `viewColumns`,
+   *  it dictates BOTH visibility and order. Otherwise we fall back to
+   *  the table-level default: every non-deleted, non-`hideInTable`
+   *  field in `position` order — same rule the records page uses. */
+  const visibleFields = (): Field[] => {
+    if (props.viewColumns) {
+      const fieldsById = new Map(props.result.fields.map((f) => [f.id, f]));
+      return props.viewColumns
+        .map((c) => fieldsById.get(c.fieldId))
+        .filter((f): f is Field => !!f && !f.deletedAt);
+    }
+    return props.result.fields
       .filter((f) => !f.deletedAt && !f.hideInTable)
       .sort((a, b) => a.position - b.position);
+  };
+
+  /** Look up a per-column FormatSpec from the active viewColumns, if
+   *  any. Drives date / decimal / currency / percent rendering. */
+  const columnFormat = (fieldId: string) => {
+    if (!props.viewColumns) return undefined;
+    const col = props.viewColumns.find((c) => c.fieldId === fieldId);
+    return col && "format" in col ? col.format : undefined;
+  };
 
   /** Renders a relation cell as one or more inline `<RecordLink>`s.
    *  Each link reads from the parent record's `.expanded` map — no
@@ -123,7 +175,12 @@ export default function DatabaseTable(props: Props) {
     const relationField = cfg.relationFieldId
       ? visibleFields().find((f) => f.id === cfg.relationFieldId && f.type === "relation")
       : undefined;
-    const value = formatCell(record.data[field.id], field.type, field.config);
+    const value = formatCell(
+      record.data[field.id],
+      field.type,
+      field.config,
+      columnFormat(field.id),
+    );
     if (!value || !relationField) return value;
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = record.data[relationField.id];
@@ -149,7 +206,7 @@ export default function DatabaseTable(props: Props) {
   const renderCell = (record: GridRecord, field: Field) => {
     if (field.type === "relation") return renderRelationCell(record, field);
     if (field.type === "lookup") return renderLookupCell(record, field);
-    return formatCell(record.data[field.id], field.type, field.config);
+    return formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id));
   };
 
   const isInteractive = () => !!props.onRecordClick;
@@ -195,6 +252,50 @@ export default function DatabaseTable(props: Props) {
               </For>
             </tr>
           </thead>
+          {/* Footer aggregations — opt-in via the records-page toolbar's
+              Aggregations panel. Each spec maps to a line in the cell
+              under its target field. `*` specs ("count of rows") land
+              under the leftmost visible field, Airtable-style. Reactivity
+              gotcha: aggregationSpecs / aggregates MUST be read inside
+              JSX expressions (or memos) — destructuring into local consts
+              inside For freezes values at row's first render. */}
+          <Show when={(props.aggregationSpecs ?? []).length > 0}>
+            <tfoot>
+              <tr class="border-t border-zinc-100 dark:border-zinc-800">
+                <For each={visibleFields()}>
+                  {(f, i) => (
+                    <td class="px-3 py-1.5 text-[11px] text-dimmed">
+                      <For
+                        each={(props.aggregationSpecs ?? []).filter((s) =>
+                          s.fieldId === "*" ? i() === 0 : s.fieldId === f.id,
+                        )}
+                      >
+                        {(spec) => {
+                          const value = () =>
+                            (props.aggregates ?? {})[`${spec.fieldId}__${spec.agg}`];
+                          const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
+                          const label = spec.label?.trim() || fallbackLabel;
+                          return (
+                            <Show when={value() !== undefined && value() !== null}>
+                              <span
+                                class="block whitespace-nowrap"
+                                title={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}
+                              >
+                                <span class="font-medium text-secondary">
+                                  {String(value())}
+                                </span>{" "}
+                                <span>{label}</span>
+                              </span>
+                            </Show>
+                          );
+                        }}
+                      </For>
+                    </td>
+                  )}
+                </For>
+              </tr>
+            </tfoot>
+          </Show>
           <tbody>
             <Show
               when={props.result.items.length > 0}
