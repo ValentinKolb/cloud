@@ -417,10 +417,14 @@ const NumberInput = (props: NumberInputProps) => {
           />
 
           {/* Suffix label — short inline text like "%" / "€" / "(Test)".
-              Always shown when set; sits flush after the typed value.
-              Whatever-length string works because it gets its own
-              flex column. */}
-          <Show when={props.suffix}>
+              Shown only when the input has a value; sits flush after
+              the typed number. Hidden in the empty state because the
+              caller's placeholder typically already conveys the unit
+              (e.g. placeholder="12.34 €" with suffix="€"); otherwise
+              both render side-by-side and the user sees "12.34 €  €"
+              ghost-and-real. The same reactive `hasValue()` that
+              gates the clear button also gates the suffix. */}
+          <Show when={props.suffix && hasValue()}>
             <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
               {props.suffix}
             </span>
