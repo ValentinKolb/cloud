@@ -222,54 +222,52 @@ export function FieldInput(props: {
       );
 
     case "currency": {
-      // Currency: real paired amount + currency-code picker via
-      // CurrencyInput. The platform widget emits `{amount, currency}`
-      // which matches the server-side `currencyHandler` storage shape
-      // exactly — no string parsing required. Tolerates legacy stored
-      // values (raw number or `"12.34 EUR"` string) by coercing on
-      // read so existing records render correctly.
-      const defaultCcy =
-        (props.field.config as { defaultCurrency?: string }).defaultCurrency ?? "EUR";
-      const currencyValue = (): CurrencyValue | null => {
+      // Currency renders as a number input with the field admin's
+      // display symbol as a left prefix. The symbol is free-text in
+      // field config (`currency` key) — could be "€", "EUR", "Euro",
+      // "credits", anything. It's purely semantic; the stored value
+      // is just a decimal. Tolerates the legacy `{amount, currency}`
+      // shape on read so existing records continue rendering until
+      // they're re-saved.
+      const symbol =
+        (props.field.config as { currency?: string }).currency ?? "EUR";
+      const amountValue = (): number | null => {
         const v = props.value;
         if (v === null || v === undefined || v === "") return null;
+        if (typeof v === "number") return Number.isFinite(v) ? v : null;
+        if (typeof v === "string") {
+          // Tolerate "12.34" and the legacy "12.34 EUR" shapes.
+          const m = /^(-?\d+(?:\.\d+)?)\s*[A-Za-z]{0,3}$/.exec(v.trim());
+          if (m) {
+            const n = Number(m[1]);
+            return Number.isFinite(n) ? n : null;
+          }
+        }
         if (typeof v === "object") {
-          const obj = v as { amount?: unknown; currency?: unknown };
-          const amountNum =
+          // Legacy { amount, currency } shape — take the amount,
+          // drop the currency (it's in field config now).
+          const obj = v as { amount?: unknown };
+          const n =
             typeof obj.amount === "number"
               ? obj.amount
               : typeof obj.amount === "string"
                 ? Number(obj.amount)
                 : NaN;
-          const code = typeof obj.currency === "string" && obj.currency.length > 0
-            ? obj.currency.toUpperCase()
-            : defaultCcy;
-          return Number.isFinite(amountNum)
-            ? { amount: amountNum, currency: code }
-            : null;
-        }
-        if (typeof v === "number") return { amount: v, currency: defaultCcy };
-        if (typeof v === "string") {
-          // Tolerate "12.34" or "12.34 EUR" — same shapes the server
-          // `currencyHandler` accepts as input. The Select picks up
-          // the currency token if present.
-          const m = /^(-?\d+(?:\.\d+)?)\s*([A-Za-z]{3})?$/.exec(v.trim());
-          if (m) {
-            const amount = Number(m[1]);
-            const code = (m[2] ?? defaultCcy).toUpperCase();
-            return Number.isFinite(amount) ? { amount, currency: code } : null;
-          }
+          return Number.isFinite(n) ? (n as number) : null;
         }
         return null;
       };
       return (
-        <CurrencyInput
+        <NumberInput
           label={label}
           description={helpText}
           required={required}
-          value={currencyValue}
-          defaultCurrency={defaultCcy}
-          onChange={(v) => props.onChange(v)}
+          value={amountValue}
+          onInput={(v) => props.onChange(v)}
+          prefix={<span class="font-mono text-sm">{symbol}</span>}
+          step={0.01}
+          showSteppers={false}
+          clearable={!required}
           error={error}
         />
       );

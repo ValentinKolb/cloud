@@ -39,11 +39,12 @@ import type { Field } from "./types";
 export type ProjectionKind =
   | "text"            // data->>id (text)
   | "numeric"         // try_numeric(data->>id)
-  | "decimal"         // try_numeric(data->>id) — same SQL shape, different formatKind
+  | "decimal"         // try_numeric(data->>id) — same SQL shape as numeric, formatKind differs.
+                      // Currency uses this kind too (decimal-backed amount, free-text symbol
+                      // lives in field config; no special JSON path).
   | "boolean"         // try_boolean(data->>id)
   | "date"            // try_date(data->>id)
   | "datetime"        // try_timestamptz(data->>id)
-  | "currencyAmount"  // try_numeric(data->fieldId->>'amount')
   | "selectId"        // data->>id (option id text)
   | "jsonbArray"      // multi-select; no scalar projection
   | "relationLink"    // record_links junction
@@ -106,8 +107,6 @@ const tryBoolean = (alias: string, fieldId: string) =>
   sql`grids.try_boolean(${data(alias)}->>${fieldId})`;
 const textOf = (alias: string, fieldId: string) =>
   sql`${data(alias)}->>${fieldId}`;
-const currencyAmountOf = (alias: string, fieldId: string) =>
-  sql`grids.try_numeric(${data(alias)}->${fieldId}->>'amount')`;
 
 const STORAGE: Record<string, StorageDescriptor> = {
   // ── Text family ──────────────────────────────────────────────────
@@ -211,8 +210,14 @@ const STORAGE: Record<string, StorageDescriptor> = {
     aggregatable: true, cursorable: true, searchable: false,
   },
   currency: {
-    kind: "currencyAmount",
-    project: (f, a) => currencyAmountOf(a, f.id),
+    // Currency is now decimal-backed (just a number) with a
+    // display-only symbol in field config — see currencyHandler. The
+    // SQL contract matches decimal exactly: `try_numeric(data->>id)`,
+    // not the legacy `data->fieldId->>'amount'`. Every numeric
+    // compiler (aggregate / group / sort / rollup) treats currency
+    // identically to decimal as a result.
+    kind: "decimal",
+    project: (f, a) => tryNumeric(a, f.id),
     formatKind: "money",
     sortable: true, filterable: true, groupable: true,
     aggregatable: true, cursorable: true, searchable: false,

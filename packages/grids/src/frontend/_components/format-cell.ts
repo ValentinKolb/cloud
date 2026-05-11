@@ -29,14 +29,24 @@ export const formatCell = (
     if (format.kind === "date" && type === "date" && typeof value === "string") {
       return formatDate(value, format);
     }
-    if (format.kind === "decimal" && (type === "number" || type === "decimal") && typeof value !== "object") {
+    if (
+      format.kind === "decimal" &&
+      (type === "number" || type === "decimal") &&
+      typeof value !== "object"
+    ) {
       return formatDecimal(value as number | string, format);
     }
     if (format.kind === "percent" && type === "percent" && typeof value === "number") {
       return formatPercent(value, format);
     }
-    if (format.kind === "currency" && type === "currency" && typeof value === "object") {
-      return formatCurrency(value as { amount?: string; currency?: string }, format);
+    if (format.kind === "currency" && type === "currency") {
+      // Currency stores a plain decimal string / number now; the
+      // symbol comes from the FormatSpec (per-column override) or
+      // falls back to the field-config `currency` free-text.
+      const sym =
+        format.symbol ??
+        (typeof fieldConfig?.currency === "string" ? (fieldConfig.currency as string) : "");
+      return formatCurrency(value as string | number, sym, format.precision);
     }
   }
 
@@ -50,9 +60,19 @@ export const formatCell = (
     const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
     return options.find((o) => o.id === value)?.label ?? String(value);
   }
-  if (type === "currency" && typeof value === "object") {
-    const obj = value as { amount?: string; currency?: string };
-    if (obj.amount !== undefined) return `${obj.amount} ${obj.currency ?? ""}`.trim();
+  if (type === "currency") {
+    // Type-default: amount + field-config currency symbol. Tolerates
+    // the legacy `{amount, currency}` shape so old records keep
+    // rendering until the user re-saves them.
+    const sym =
+      typeof fieldConfig?.currency === "string" ? (fieldConfig.currency as string) : "";
+    if (typeof value === "object" && value !== null) {
+      const obj = value as { amount?: string | number; currency?: string };
+      if (obj.amount !== undefined) {
+        return formatCurrency(obj.amount, sym || obj.currency || "");
+      }
+    }
+    return formatCurrency(value as string | number, sym);
   }
   if (type === "percent" && typeof value === "number") return `${value}%`;
   if (type === "duration" && typeof value === "number") {
@@ -119,16 +139,22 @@ const formatPercent = (
   return `${fixed}%`;
 };
 
+/**
+ * Render a money amount with a free-text symbol. The amount is the
+ * stored decimal (`"12.34"` string or `12.34` number); the symbol is
+ * whatever the field admin typed in field config ("€", "EUR", "Euro",
+ * "credits", …) — purely display, no semantics. Empty symbol prints
+ * the bare amount; the user is expected to set one explicitly if
+ * they care.
+ */
 const formatCurrency = (
-  obj: { amount?: string; currency?: string },
-  spec: Extract<FormatSpec, { kind: "currency" }>,
+  amount: string | number | null | undefined,
+  symbol: string,
+  precision?: number,
 ): string => {
-  if (obj.amount === undefined) return "";
-  const n = Number(obj.amount);
-  const formatted =
-    spec.precision !== undefined && Number.isFinite(n)
-      ? n.toFixed(spec.precision)
-      : obj.amount;
-  const sym = spec.symbol ?? obj.currency ?? "";
-  return sym ? `${formatted} ${sym}` : formatted;
+  if (amount === null || amount === undefined || amount === "") return "";
+  const n = typeof amount === "string" ? Number(amount) : amount;
+  const text =
+    precision !== undefined && Number.isFinite(n) ? n.toFixed(precision) : String(amount);
+  return symbol ? `${text} ${symbol}` : text;
 };

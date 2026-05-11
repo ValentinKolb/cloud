@@ -1,4 +1,4 @@
-import type { JSX } from "solid-js";
+import { type JSX, Show } from "solid-js";
 import NumberInput from "./NumberInput";
 import { Select } from "./Select";
 import { InputWrapper, createInputA11y } from "./util";
@@ -40,10 +40,17 @@ type CurrencyInputProps = {
    */
   defaultCurrency?: string;
   /**
-   * 3-letter codes the user can pick from. Order is preserved in the
-   * dropdown. Default is a sensible global subset; pass a narrower
+   * Codes the user can pick from. Order is preserved in the dropdown.
+   * Default is a sensible global 3-letter subset; pass a narrower
    * list when the surrounding domain only deals with one or two
-   * currencies (e.g. an internal expenses form).
+   * currencies.
+   *
+   * **Locked-currency mode**: when this is a single-element array
+   * (e.g. `["EUR"]`), the picker disappears entirely and the amount
+   * input takes full width. The locked currency is still emitted
+   * in the value's `currency` field. Use this when the surrounding
+   * field is fixed to one currency by configuration — the picker
+   * would just be visual noise.
    */
   currencies?: readonly string[];
   /** Min amount (inclusive). Passes through to NumberInput. */
@@ -132,6 +139,12 @@ const CurrencyInput = (props: CurrencyInputProps) => {
   const defaultCurrency = () => props.defaultCurrency ?? "EUR";
   const currencies = () => props.currencies ?? DEFAULT_CURRENCIES;
   const disabled = () => props.disabled ?? false;
+  // Single-element currency list = locked mode: the picker has no
+  // meaningful choice to offer, so we hide it and pin the currency
+  // to that one value (overrides `defaultCurrency` if they disagree
+  // — the explicit allow-list always wins).
+  const locked = () => currencies().length === 1;
+  const lockedCurrency = () => currencies()[0]!;
 
   // Effective values, defaulting to "no amount + default currency"
   // for the empty state. The Select needs a non-undefined string to
@@ -142,6 +155,7 @@ const CurrencyInput = (props: CurrencyInputProps) => {
     return v ? v.amount : null;
   };
   const currency = (): string => {
+    if (locked()) return lockedCurrency();
     const v = props.value?.();
     return v?.currency ?? defaultCurrency();
   };
@@ -205,18 +219,21 @@ const CurrencyInput = (props: CurrencyInputProps) => {
             }
           />
         </div>
-        <div class="shrink-0 w-28">
-          {/* Currency-code picker. Renders as `EUR · €` to keep the
-              code (the source of truth) visible while hinting at the
-              symbol so the user can match it to the amount-input's
-              prefix. Disabled mirrors the parent. */}
-          <Select
-            value={currency}
-            onChange={onCurrencyChange}
-            options={options() as unknown as { id: string; label?: string }[]}
-            disabled={disabled()}
-          />
-        </div>
+        <Show when={!locked()}>
+          <div class="shrink-0 w-28">
+            {/* Currency-code picker. Renders as `EUR · €` to keep the
+                code (the source of truth) visible while hinting at the
+                symbol so the user can match it to the amount-input's
+                prefix. Disabled mirrors the parent. Hidden entirely
+                when `currencies` has a single entry — see `locked()`. */}
+            <Select
+              value={currency}
+              onChange={onCurrencyChange}
+              options={options() as unknown as { id: string; label?: string }[]}
+              disabled={disabled()}
+            />
+          </div>
+        </Show>
       </div>
     </InputWrapper>
   );

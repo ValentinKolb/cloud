@@ -28,29 +28,20 @@ export type AggregateColumn = {
 // percent, and duration — they were silently rejected before despite
 // having well-defined numeric aggregation semantics.
 //
-// Currency stores `{ amount: "12.34", currency: "EUR" }` — projected
-// via `data->'<id>'->>'amount'`. Aggregating across mixed currency
-// codes is the user's choice; the compiler doesn't reject it (a
-// future UI warning may surface "mixed currencies" if useful).
-const FLAT_NUMERIC_TYPES = new Set([
-  "number", "decimal", "rating", "autonumber", "percent", "duration",
+// Currency is decimal-backed (just a number) with a display-only
+// symbol in field config — see currencyHandler. SQL projection
+// matches decimal exactly, no nested JSON path. Every numeric type
+// goes through the same `try_numeric(data->>id)` pipeline.
+const NUMERIC_TYPES = new Set([
+  "number", "decimal", "rating", "autonumber", "percent", "duration", "currency",
 ]);
-const NESTED_NUMERIC_TYPES = new Set(["currency"]);
-const NUMERIC_TYPES = new Set([...FLAT_NUMERIC_TYPES, ...NESTED_NUMERIC_TYPES]);
 const DATE_TYPES = new Set(["date"]);
 
 /** SQL fragment that extracts a numeric value for the given field.
- *  Delegates to the shared storage descriptor so currency (nested under
- *  `amount`) projects correctly across every compiler — chunk 3
- *  identified that the rollup compiler was reading `data->>fieldId`
- *  for currency targets, returning the JSON-stringified blob instead
- *  of the amount. The descriptor is now the single source of truth. */
+ *  Delegates to the shared storage descriptor; corrupt JSONB
+ *  resolves to NULL via try_numeric, so aggregates don't crash. */
 const numericProjection = (field: Field): any => {
   const expr = storageOf(field).project(field, "r");
-  // For numeric/decimal/rating/autonumber/percent/duration the descriptor
-  // returns try_numeric(data->>id); for currency it returns
-  // try_numeric(data->fieldId->>'amount'). Both are NULL-on-corrupt-data
-  // so corrupt JSONB doesn't crash the aggregate.
   return expr ?? sql`NULL::numeric`;
 };
 

@@ -27,6 +27,12 @@ const indexExpressionForType = (fieldId: string, type: string): string | null =>
     case "decimal":
     case "rating":
     case "autonumber":
+    case "percent":
+    case "duration":
+    case "currency":
+      // All decimal-backed types share the numeric expression index.
+      // Currency stores a plain decimal (the symbol lives in field
+      // config) so it indexes identically.
       return `((data->>'${fieldId}')::numeric)`;
     case "date":
       return `((data->>'${fieldId}')::date)`;

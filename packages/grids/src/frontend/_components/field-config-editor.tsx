@@ -81,7 +81,7 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   phone:
     "A phone number. Stored as the user typed it; no strict format check.",
   currency:
-    "A money amount with a currency code. Set the default currency users see; they can override it per record.",
+    "A money amount with a free-text symbol. Set the symbol once per field (€, EUR, USD, anything that reads naturally) — it shows up next to every amount as display-only label.",
   percent: "A percentage from 0 to 100.",
   duration: "A length of time. Type as HH:MM:SS or seconds; displayed as HH:MM:SS.",
   slug:
@@ -113,7 +113,7 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
     case "autonumber":
       return { padding: 1 };
     case "currency":
-      return { defaultCurrency: "EUR" };
+      return { currency: "EUR" };
     case "date":
       return { includeTime: false };
     default:
@@ -652,13 +652,20 @@ function CurrencyConstraints(props: {
   onChange: (next: FieldConfigState) => void;
 }) {
   const cfg = () => props.config();
-  const def = () => (typeof cfg().defaultCurrency === "string" ? (cfg().defaultCurrency as string) : "EUR");
+  const symbol = () =>
+    typeof cfg().currency === "string" ? (cfg().currency as string) : "EUR";
   return (
     <div>
       <TextInput
-        label="Default currency code (ISO-4217)"
-        value={def}
-        onInput={(v) => props.onChange({ ...cfg(), defaultCurrency: v.trim().toUpperCase() || undefined })}
+        label="Currency symbol"
+        description="Free text — shown next to every amount. Could be €, EUR, Euro, USD, or anything else that reads naturally."
+        value={symbol}
+        onInput={(v) =>
+          props.onChange({
+            ...cfg(),
+            currency: v.trim() === "" ? undefined : v.trim(),
+          })
+        }
         placeholder="EUR"
       />
     </div>

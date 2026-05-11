@@ -46,7 +46,6 @@ const cursorCastFor = (kind: ProjectionKind): CastKind | null => {
   switch (kind) {
     case "numeric":
     case "decimal":
-    case "currencyAmount":
       return "numeric";
     case "date":
     case "datetime":

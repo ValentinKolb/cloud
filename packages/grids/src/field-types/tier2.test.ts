@@ -45,18 +45,36 @@ test("phone: rejects too short / non-digits", () => {
 });
 
 // ── currency ──────────────────────────────────────────────────────
-test("currency: number wraps with default currency", () => {
-  expect(
-    currencyHandler.validate(42, { defaultCurrency: "USD" }, false),
-  ).toEqual({ ok: true, value: { amount: "42.00", currency: "USD" } });
+// Currency is now decimal-backed: the value is just a number string
+// (like decimal), and the display symbol lives in field config. The
+// handler accepts numbers, decimal strings, legacy `{amount, currency}`
+// objects (drops the currency portion), and the old "12.34 EUR" combined
+// string (drops the suffix). Output is always a Decimal-fixed string.
+test("currency: number → decimal string at default scale", () => {
+  expect(currencyHandler.validate(42, {}, false)).toEqual({
+    ok: true,
+    value: "42.00",
+  });
 });
-test("currency: object form preserved", () => {
-  expect(
-    currencyHandler.validate({ amount: "12.50", currency: "eur" }, {}, false),
-  ).toEqual({ ok: true, value: { amount: "12.50", currency: "EUR" } });
+test("currency: decimal string → fixed to scale", () => {
+  expect(currencyHandler.validate("12.5", {}, false)).toEqual({
+    ok: true,
+    value: "12.50",
+  });
 });
-test("currency: rejects bad currency code", () => {
-  expect(currencyHandler.validate({ amount: "1", currency: "EUROS" }, {}, false).ok).toBe(false);
+test("currency: legacy {amount, currency} object keeps only the amount", () => {
+  expect(
+    currencyHandler.validate({ amount: "12.50", currency: "EUR" }, {}, false),
+  ).toEqual({ ok: true, value: "12.50" });
+});
+test("currency: legacy '12.34 EUR' string drops the suffix", () => {
+  expect(currencyHandler.validate("12.34 EUR", {}, false)).toEqual({
+    ok: true,
+    value: "12.34",
+  });
+});
+test("currency: rejects non-decimal input", () => {
+  expect(currencyHandler.validate("not a number", {}, false).ok).toBe(false);
 });
 
 // ── percent ───────────────────────────────────────────────────────

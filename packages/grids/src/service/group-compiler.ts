@@ -93,7 +93,6 @@ export type CompiledGroup = {
 const NUMERIC_KINDS: ReadonlySet<ProjectionKind> = new Set([
   "numeric",
   "decimal",
-  "currencyAmount",
 ]);
 const DATE_KINDS: ReadonlySet<ProjectionKind> = new Set(["date", "datetime"]);
 

@@ -74,12 +74,28 @@ export const phoneHandler: FieldTypeHandler = {
 };
 
 // ── currency ──────────────────────────────────────────────────────
-// Decimal-backed money with an attached currency code. Storage layout:
-// { amount: "12.34", currency: "EUR" }. Aggregation strips down to
-// `amount` so SUM works with `(data->'fld_X'->>'amount')::numeric`.
+// Decimal-backed money with a field-level display symbol.
+//
+// Storage: a plain decimal string (e.g. "12.34") — same shape as
+// `decimal`. The currency symbol lives in field config and is purely
+// semantic for display; no per-record override, no ISO code
+// validation, no 3-letter restriction. Field admins type whatever
+// reads naturally for their use case ("€", "EUR", "USD", "Euro",
+// "credits"). Aggregations / sorts / filters / rollups go straight
+// through `try_numeric(data->>id)` — identical SQL contract to
+// decimal, no special-case in the compilers.
+//
+// Why we simplified: per-record currency was almost never used in
+// practice (people don't mix currencies row-by-row in a single
+// field), the ISO-3 constraint surprised users who wanted "Euro" or
+// "€", and the nested `{amount, currency}` JSONB shape forced every
+// numeric SQL compiler to special-case the projection path. The new
+// model: currency is a number that happens to know how it wants to
+// be rendered.
 const CurrencyConfigSchema = z.object({
-  /** Default currency code (ISO 4217 — UI-validated, server is permissive). */
-  defaultCurrency: z.string().min(3).max(3).optional(),
+  /** Free-text display label rendered next to the amount in cells
+   *  and as a prefix in the input. Defaults to "EUR" when unset. */
+  currency: z.string().min(1).max(20).optional(),
   precision: z.number().int().min(1).max(38).optional(),
   scale: z.number().int().min(0).max(20).optional(),
 });
@@ -94,46 +110,40 @@ export const currencyHandler: FieldTypeHandler = {
     const config = parsed.data;
     const precision = config.precision ?? 16;
     const scale = config.scale ?? 2;
-    const defaultCurrency = config.defaultCurrency ?? "EUR";
 
-    if (raw === null || raw === undefined || raw === "") return required ? fail("required") : ok(null);
-    let amountStr: string;
-    let currency: string;
-    if (typeof raw === "string" || typeof raw === "number") {
-      const s = String(raw).trim();
-      // Accept "12.34" (default-currency wraps) OR "12.34 EUR" (so the
-      // inline edit dialog can round-trip the per-row currency code).
-      const m = /^(-?\d+(?:\.\d+)?)\s+([A-Za-z]{3})$/.exec(s);
-      if (m) {
-        amountStr = m[1]!;
-        currency = m[2]!.toUpperCase();
-      } else {
-        amountStr = s;
-        currency = defaultCurrency;
-      }
-    } else if (typeof raw === "object" && raw !== null) {
-      const obj = raw as { amount?: unknown; currency?: unknown };
-      amountStr = typeof obj.amount === "number" ? String(obj.amount) : String(obj.amount ?? "").trim();
-      currency = typeof obj.currency === "string" && obj.currency.length > 0 ? obj.currency.toUpperCase() : defaultCurrency;
-    } else {
-      return fail("must be a number, decimal string, or { amount, currency }");
+    if (raw === null || raw === undefined || raw === "") {
+      return required ? fail("required") : ok(null);
     }
 
-    if (currency.length !== 3) return fail("currency must be a 3-letter code");
+    // Accept: number, decimal string ("12.34"), legacy
+    // `{amount, currency}` object (we keep only the amount), and the
+    // old "<amount> <CODE>" combined string. The currency portion is
+    // ignored in every case — that's a field-config property now.
+    let amountInput: unknown = raw;
+    if (typeof raw === "object" && raw !== null) {
+      const obj = raw as { amount?: unknown };
+      amountInput = obj.amount;
+    } else if (typeof raw === "string") {
+      const m = /^(-?\d+(?:\.\d+)?)\s+[A-Za-z]{3}$/.exec(raw.trim());
+      if (m) amountInput = m[1];
+    }
 
     let dec: Decimal;
     try {
-      dec = new Decimal(amountStr);
+      dec = new Decimal(typeof amountInput === "number" ? String(amountInput) : String(amountInput ?? "").trim());
     } catch {
-      return fail("amount must be a decimal number");
+      return fail("must be a decimal number");
     }
-    if (!dec.isFinite()) return fail("amount must be finite");
-    if (dec.decimalPlaces() > scale) return fail(`amount has more than ${scale} decimal places`);
+    if (!dec.isFinite()) return fail("must be finite");
+    if (dec.decimalPlaces() > scale) return fail(`max ${scale} decimal places`);
 
     const integerDigits = dec.isZero() ? 0 : Math.max(0, dec.precision(true) - dec.decimalPlaces());
-    if (integerDigits > precision - scale) return fail(`amount exceeds precision ${precision}`);
+    if (integerDigits > precision - scale) return fail(`exceeds precision ${precision}`);
 
-    return ok({ amount: dec.toFixed(scale), currency });
+    // Plain decimal string — identical to the `decimal` handler's
+    // return shape. SQL compilers can project via `data->>fieldId`
+    // and cast through `try_numeric`.
+    return ok(dec.toFixed(scale));
   },
 };
 
