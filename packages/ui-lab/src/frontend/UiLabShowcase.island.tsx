@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type JSX } from "solid-js";
+import { For, Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import type { BaseGroup, BaseUser } from "@valentinkolb/cloud/contracts";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { NumberInput } from "@valentinkolb/cloud/ui";
@@ -17,6 +17,7 @@ import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { Dropdown, type DropdownItem } from "@valentinkolb/cloud/ui";
 import { LinkCard } from "@valentinkolb/cloud/ui";
 import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { Chart } from "@valentinkolb/cloud/ui";
 import { ProgressBar } from "@valentinkolb/cloud/ui";
 import { Pagination } from "@valentinkolb/cloud/ui";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
@@ -177,6 +178,159 @@ const SidebarTree = (props: {
         }}
       </For>
     </div>
+  );
+};
+
+/**
+ * Showcase for the `Chart` primitive — covers static demos, the
+ * live-update story (a signal driving series data), and verifies
+ * dark-mode theming (axes/ticks inherit `currentColor`).
+ *
+ * The "live" demo starts a setInterval on mount that nudges each
+ * data point by a small random delta every second. The Chart re-
+ * renders automatically because its props are reactive — no manual
+ * subscription, no imperative DOM, just signals.
+ */
+const ChartShowcase = () => {
+  // Static datasets — mirror the stdlib charts examples so this page
+  // doubles as a quick-reference for what the API looks like.
+  const lineSeries = [
+    { label: "Revenue", data: [
+      { x: 1, y: 42 }, { x: 2, y: 51 }, { x: 3, y: 47 },
+      { x: 4, y: 63 }, { x: 5, y: 71 }, { x: 6, y: 68 },
+      { x: 7, y: 82 }, { x: 8, y: 91 },
+    ] },
+    { label: "Costs", data: [
+      { x: 1, y: 30 }, { x: 2, y: 33 }, { x: 3, y: 36 },
+      { x: 4, y: 41 }, { x: 5, y: 44 }, { x: 6, y: 48 },
+      { x: 7, y: 52 }, { x: 8, y: 58 },
+    ] },
+  ];
+  const barData = [
+    { label: "Mon", value: 42 }, { label: "Tue", value: 51 },
+    { label: "Wed", value: 38 }, { label: "Thu", value: 63 },
+    { label: "Fri", value: 71 }, { label: "Sat", value: 24 },
+    { label: "Sun", value: 18 },
+  ];
+  const donutData = [
+    { label: "Direct", value: 412 },
+    { label: "Search", value: 287 },
+    { label: "Referral", value: 154 },
+    { label: "Email", value: 89 },
+    { label: "Other", value: 31 },
+  ];
+
+  // Live-update demo: tick a random walk forward every second. The
+  // signal feeds straight into the Chart's `series` prop — Solid's
+  // reactive `innerHTML` re-runs `charts.line(...)` on every change.
+  // Wrapped in onMount because SSR shouldn't touch setInterval.
+  const [liveData, setLiveData] = createSignal<{ x: number; y: number }[]>(
+    Array.from({ length: 20 }, (_, i) => ({ x: i, y: 50 + Math.sin(i / 2) * 15 })),
+  );
+  onMount(() => {
+    const handle = setInterval(() => {
+      setLiveData((prev) => {
+        const last = prev[prev.length - 1]!;
+        const next = {
+          x: last.x + 1,
+          y: Math.max(10, Math.min(90, last.y + (Math.random() - 0.5) * 12)),
+        };
+        // Sliding window of 20 points so the x-domain doesn't grow forever.
+        return [...prev.slice(1), next];
+      });
+    }, 1000);
+    onCleanup(() => clearInterval(handle));
+  });
+
+  // Sparkline demos use plain `number[]` for the canonical inline-stat shape.
+  const trendUp = [12, 14, 13, 16, 18, 17, 21, 22, 24, 28];
+  const trendDown = [42, 39, 41, 35, 33, 28, 24, 22, 19, 15];
+  const trendFlat = [50, 51, 49, 50, 50, 51, 50, 49, 51, 50];
+
+  return (
+    <Section
+      title="Charts"
+      description="<Chart kind=… /> is a thin Solid wrapper around stdlib.charts — the SVG re-renders reactively when props change. Axes / ticks inherit currentColor, so light/dark mode 'just works'."
+    >
+      <div class="flex flex-col gap-8">
+        {/* Live demo — most important affordance, top of section so
+            the user immediately sees the data updating. */}
+        <div>
+          <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">
+            Live · setInterval(1s) → setSignal → Chart re-renders. No subscription, no imperative DOM.
+          </p>
+          <div class="paper p-3">
+            <Chart
+              kind="line"
+              class="h-56 text-dimmed"
+              series={[{ label: "metric", data: liveData() }]}
+              yAxis={{ label: "value" }}
+              smooth
+              area
+            />
+          </div>
+        </div>
+
+        {/* Static demos arranged 2×2 so visual rhythm matches the
+            rest of the UI lab (paper cards, p-3, no inner borders). */}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">Line · multi-series + legend</p>
+            <div class="paper p-3">
+              <Chart
+                kind="line"
+                class="h-56 text-dimmed"
+                series={lineSeries}
+                yAxis={{ format: (v) => `€${v}k` }}
+                legend
+                smooth
+              />
+            </div>
+          </div>
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">Bar · single category</p>
+            <div class="paper p-3">
+              <Chart kind="bar" class="h-56 text-dimmed" data={barData} showValues />
+            </div>
+          </div>
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">Donut · composition</p>
+            <div class="paper p-3">
+              <Chart kind="donut" class="h-56 text-dimmed" data={donutData} showLabels />
+            </div>
+          </div>
+          <div>
+            <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">Sparkline · inline trend</p>
+            <div class="paper p-3 flex flex-col gap-3">
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] uppercase tracking-wider text-dimmed w-20 shrink-0">Up</span>
+                <Chart kind="sparkline" class="text-emerald-600 dark:text-emerald-400" data={trendUp} showLast showMinMax />
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] uppercase tracking-wider text-dimmed w-20 shrink-0">Down</span>
+                <Chart kind="sparkline" class="text-red-500 dark:text-red-400" data={trendDown} showLast showMinMax />
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-[10px] uppercase tracking-wider text-dimmed w-20 shrink-0">Flat</span>
+                <Chart kind="sparkline" class="text-dimmed" data={trendFlat} showLast />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Empty-state demo — the wrapper short-circuits empty data
+            inputs to a tonal "No data" placeholder instead of stdlib's
+            internal empty SVG. */}
+        <div>
+          <p class="text-[10px] uppercase tracking-wider text-dimmed mb-3">Empty state · `series` or `data` empty</p>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="paper p-3"><Chart kind="line" class="h-32" series={[]} /></div>
+            <div class="paper p-3"><Chart kind="bar" class="h-32" data={[]} /></div>
+            <div class="paper p-3"><Chart kind="donut" class="h-32" data={[]} /></div>
+          </div>
+        </div>
+      </div>
+    </Section>
   );
 };
 
@@ -1092,6 +1246,8 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
           </div>
         </div>
       </Section>
+
+      <ChartShowcase />
 
       <Section
         title="Sidebar System (Draft)"
