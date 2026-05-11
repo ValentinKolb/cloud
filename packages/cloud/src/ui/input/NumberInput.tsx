@@ -1,4 +1,4 @@
-import { Show, type JSX } from "solid-js";
+import { createEffect, createSignal, Show, type JSX } from "solid-js";
 import { InputWrapper, createInputA11y } from "./util";
 
 type NumberInputProps = {
@@ -133,11 +133,32 @@ const NumberInput = (props: NumberInputProps) => {
 
   const hasValue = () => currentValue() !== null;
 
-  /** Display string for the underlying input — empty string when null. */
-  const displayValue = () => {
+  // Internal raw-text buffer. Holds exactly what the user typed, NOT
+  // a stringified version of the parsed numeric value. Without this,
+  // typing "12." emits 12 on input, the parent re-renders with value
+  // 12, the controlled `value` binding writes "12" back into the
+  // <input>, and the user's "." disappears mid-keystroke. With the
+  // buffer, the input stays in sync with what the user typed and
+  // re-syncs to the parsed value only on blur or external resets
+  // (clear button, step click, parent state change while unfocused).
+  const [rawText, setRawText] = createSignal<string>(
+    currentValue() === null ? "" : String(currentValue()),
+  );
+  const [focused, setFocused] = createSignal(false);
+
+  // When the input is NOT being typed into, mirror the parent's value
+  // into the buffer. Comparing parsed values (not strings) avoids
+  // overwriting "12.0" with "12" — both parse to 12, leave the user's
+  // formatting alone. Runs on every signal change so external resets
+  // (clear button → null, step click → +1, parent setValue) propagate.
+  createEffect(() => {
+    if (focused()) return;
     const v = currentValue();
-    return v === null ? "" : String(v);
-  };
+    const parsedRaw = parse(rawText(), false);
+    if (v !== parsedRaw) {
+      setRawText(v === null ? "" : String(v));
+    }
+  });
 
   const canClear = () =>
     (props.clearable ?? false) && !disabled() && hasValue();
@@ -271,20 +292,35 @@ const NumberInput = (props: NumberInputProps) => {
               canClear() || props.suffix ? "pr-9" : ""
             } ${disabled() ? "cursor-not-allowed" : ""}`}
             placeholder={props.placeholder}
-            value={displayValue()}
-            onInput={(e) => {
-              // Live updates without clamping — user can type a
-              // number that's temporarily out-of-range while building
-              // it. Empty → null.
-              const v = parse(e.currentTarget.value, false);
-              props.onInput?.(v);
-            }}
-            onChange={(e) => {
-              // Commit on blur / Enter: clamp + snap + emit.
+            value={rawText()}
+            onFocus={() => setFocused(true)}
+            onBlur={(e) => {
+              // Always clear the focused flag — onChange only fires
+              // when the value changed, so leaving the input untouched
+              // wouldn't reset focused via the onChange handler alone.
+              // Without this, a focus-then-blur cycle without typing
+              // leaves focused=true forever and external value
+              // updates stop syncing into the input buffer.
+              setFocused(false);
+              // Commit on blur: clamp + snap + emit, then sync the
+              // buffer to the canonical string so the user sees the
+              // normalised number (e.g. "12.30" → "12.3"). Safe to
+              // run unconditionally — when nothing changed,
+              // setRawText to the same value is a no-op.
               const v = parse(e.currentTarget.value, true);
               const final = v === null ? null : snapToStep(v);
               props.onChange?.(final);
-              e.currentTarget.value = final === null ? "" : String(final);
+              setRawText(final === null ? "" : String(final));
+            }}
+            onInput={(e) => {
+              // Update the internal buffer with what the user typed
+              // (including intermediate states like "12." mid-decimal)
+              // and emit the parsed value to onInput. Don't bounce
+              // the parsed value back into the input — that's what
+              // would eat the trailing "." or "-" mid-type.
+              const next = e.currentTarget.value;
+              setRawText(next);
+              props.onInput?.(parse(next, false));
             }}
             disabled={disabled()}
             aria-label={!props.label ? props.placeholder || "Enter number" : undefined}
