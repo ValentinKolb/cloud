@@ -148,6 +148,8 @@ export type {
   StatSource,
   WidgetSource,
   WidgetFormat,
+  AggregationSpec,
+  GroupBySpec,
 } from "../contracts";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
 export type { Base, Table, Field, GridRecord, AuditEntry, AuditAction } from "./types";

@@ -543,13 +543,39 @@ export const StatWidgetSchema = z.object({
   sub: z.string().max(60).optional(),
 });
 
+/**
+ * Chart widget — visualizes the buckets produced by `record.group()`
+ * as a donut, bar, line, or scatter SVG (rendered by the platform
+ * `Chart` primitive in `cloud/ui`).
+ *
+ * **Source-shape contract per chartType.** All four read from a
+ * shared `WidgetSource` (table + filter + groupBy + aggregations);
+ * the renderer interprets the resulting buckets differently:
+ *
+ *  - `donut`: 1 groupBy → slice label, 1+ aggs → slice value (first agg wins).
+ *  - `bar`:   1 groupBy → bar label,   1+ aggs → bar value   (first agg wins).
+ *  - `line`:  1 groupBy → x-axis,      N aggs → 1 series per agg.
+ *  - `scatter`: 1 groupBy → buckets,   ≥2 aggs → x=agg1, y=agg2 per point.
+ *
+ * x-axis formatting is inferred from the groupBy field type (date
+ * → readable date; number → numeric; string → category label). The
+ * widget's `format` applies to the y-axis (and to scalar slice
+ * values). For most dashboards the defaults work — `format`/labels
+ * are escape hatches, not required input.
+ */
 export const ChartWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("chart"),
   title: z.string().max(200).optional(),
+  /** Small grey line under the title in the chart frame. */
+  subtitle: z.string().max(200).optional(),
   chartType: z.enum(["donut", "bar", "line", "scatter"]),
   source: WidgetSourceSchema,
+  /** Y-axis / value format. Defaults inferred from the primary aggregation. */
   format: WidgetFormatSchema.optional(),
+  /** Optional axis labels — passed through to the chart renderer. */
+  xAxisLabel: z.string().max(60).optional(),
+  yAxisLabel: z.string().max(60).optional(),
 });
 
 /** Embedded-table source for a `view` widget. Two kinds:
