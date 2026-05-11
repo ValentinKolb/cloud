@@ -16,3 +16,4 @@ export type { LogTableEntry } from "./LogEntriesTable";
 export { default as ContextMenu } from "./ContextMenu";
 export { default as StatCell } from "./StatCell";
 export type { StatCellAccent, StatCellProps } from "./StatCell";
+export { default as StatGrid } from "./StatGrid";
