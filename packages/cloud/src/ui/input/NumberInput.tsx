@@ -326,27 +326,35 @@ const NumberInput = (props: NumberInputProps) => {
           />
         </Show>
 
-        <div class="group relative flex-1 flex items-center">
-          {/* Left icon, mirrors TextInput's pattern. Hidden when empty
-              `icon` prop. Active icon swaps on focus-within. */}
+        {/* Single .input box with flex children. Previous design used
+            absolute-positioned prefix / suffix / clear overlays inside
+            a relative wrapper, which broke for long suffix strings
+            (e.g. a configurable currency label like "€ (Test)" —
+            ~5rem wide overflows the fixed `pr-9` padding and crashes
+            into the typed value). Flex layout puts every part in its
+            own column; the native input takes flex-1 and is the only
+            thing that shrinks. No overlap possible regardless of
+            suffix length. */}
+        <div
+          class={`input flex flex-1 items-center gap-2 ${
+            disabled() ? "cursor-not-allowed" : ""
+          }`}
+        >
+          {/* Left icon, mirrors TextInput's pattern. Active icon swaps
+              on focus-within. */}
           <Show when={icon()}>
-            <div class="absolute left-3 z-10 flex pointer-events-none text-zinc-400 dark:text-zinc-500 inset-y-0 items-center">
+            <span class="shrink-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
               <i class={`${icon()} group-focus-within:hidden`} />
               <i
                 class={`${activeIcon()} hidden text-blue-500 group-focus-within:block`}
               />
-            </div>
+            </span>
           </Show>
 
-          {/* Prefix slot — rendered after the icon, before the input.
-              Caller is responsible for short content (e.g. "€" or "$"),
-              long content would crowd the input. */}
+          {/* Prefix label — short inline text like "€" / "$". Sits
+              flush before the typed value. */}
           <Show when={props.prefix}>
-            <span
-              class={`absolute z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400 inset-y-0 ${
-                icon() ? "left-9" : "left-3"
-              }`}
-            >
+            <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
               {props.prefix}
             </span>
           </Show>
@@ -356,11 +364,15 @@ const NumberInput = (props: NumberInputProps) => {
             name={props.name}
             type="text"
             inputMode={decimalPlaces() === 0 ? "numeric" : "decimal"}
-            class={`input w-full text-right font-mono font-semibold ${
-              icon() ? "pl-9" : ""
-            } ${props.prefix ? "pl-12" : ""} ${
-              canClear() || props.suffix ? "pr-9" : ""
-            } ${disabled() ? "cursor-not-allowed" : ""}`}
+            // Transparent / borderless / zero-padding: the wrapping
+            // <div class="input"> owns the visual box, the native
+            // input is just a typing surface inside it. Without
+            // zeroing the browser default padding, the input would
+            // double-pad and the row would grow taller than other
+            // inputs in the same form.
+            class={`flex-1 min-w-0 bg-transparent border-0 outline-none p-0 text-right font-mono font-semibold ${
+              disabled() ? "cursor-not-allowed" : ""
+            }`}
             placeholder={props.placeholder}
             value={rawText()}
             onFocus={() => setFocused(true)}
@@ -368,9 +380,6 @@ const NumberInput = (props: NumberInputProps) => {
               // Always clear the focused flag — onChange only fires
               // when the value changed, so leaving the input untouched
               // wouldn't reset focused via the onChange handler alone.
-              // Without this, a focus-then-blur cycle without typing
-              // leaves focused=true forever and external value
-              // updates stop syncing into the input buffer.
               setFocused(false);
               // Commit on blur: clamp + snap + emit, then sync the
               // buffer to the canonical string so the user sees the
@@ -387,13 +396,9 @@ const NumberInput = (props: NumberInputProps) => {
               // (digits + optional leading minus + optional single
               // dot, capped at decimalPlaces). Junk characters
               // (letters, second dots, etc.) are silently dropped
-              // instead of clearing the field — the user's typing
-              // momentum is preserved. Comma → dot for German
+              // instead of clearing the field. Comma → dot for German
               // keyboards.
               const next = filterInput(e.currentTarget.value);
-              // Reflect the filtered text back into the input so
-              // what the user sees matches what we'll emit. If
-              // unchanged, the assignment is a cheap no-op.
               if (e.currentTarget.value !== next) {
                 e.currentTarget.value = next;
               }
@@ -411,27 +416,23 @@ const NumberInput = (props: NumberInputProps) => {
             aria-valuenow={currentValue() ?? undefined}
           />
 
-          {/* Suffix slot — rendered before the right-edge clear button
-              (which gets priority when both are set; suffix shifts left
-              to make room). Use for unit labels: "%", "/min", "kg". */}
-          <Show when={props.suffix && !canClear()}>
-            <span class="absolute right-3 inset-y-0 z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
+          {/* Suffix label — short inline text like "%" / "€" / "(Test)".
+              Always shown when set; sits flush after the typed value.
+              Whatever-length string works because it gets its own
+              flex column. */}
+          <Show when={props.suffix}>
+            <span class="shrink-0 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
               {props.suffix}
             </span>
           </Show>
 
-          {/* Clear button — same shape as TextInput's. Sets value to
-              null. Suffix moves out of the way (left of the button)
-              when both are present. */}
+          {/* Clear button — same shape as TextInput's ✕ button.
+              Coexists peacefully with suffix because both are flex
+              siblings; no `right-3` race. */}
           <Show when={canClear()}>
-            <Show when={props.suffix}>
-              <span class="absolute right-9 inset-y-0 z-10 flex items-center pointer-events-none text-sm text-zinc-500 dark:text-zinc-400">
-                {props.suffix}
-              </span>
-            </Show>
             <button
               type="button"
-              class="absolute inset-y-0 right-3 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              class="shrink-0 flex items-center text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
               onClick={handleClear}
               aria-label={props.clearLabel ?? "Clear input"}
               tabIndex={-1}
