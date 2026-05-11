@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell } from "@valentinkolb/cloud/ui";
+import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { get } from "@valentinkolb/cloud/services";
 import { createPagination } from "@/contracts";
 import LogFilterBar from "./_components/LogFilterBar.island";
@@ -51,36 +51,34 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {/* Stat cards — see skills/cloud-app/references/frontend.md § Stats */}
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell
-                label="Errors 24h"
-                value={summary.errors24h.toLocaleString()}
-                sub={summary.errors24h > 0 ? "last 24h" : "none"}
-                valueClass={summary.errors24h > 0 ? "text-red-500" : "text-primary"}
-                accent={summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
-              />
-              <StatCell
-                label="Warnings 24h"
-                value={summary.warnings24h.toLocaleString()}
-                sub={summary.warnings24h > 0 ? "last 24h" : "none"}
-                valueClass={summary.warnings24h > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
-                accent={summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
-              />
-              <StatCell label="Volume 24h" value={summary.total24h.toLocaleString()} sub="all levels" />
-              <StatCell
-                label="Sources"
-                value={summary.sources}
-                sub="distinct"
-                accent={{ tone: "blue", icon: "ti ti-stack-3" }}
-              />
-              <StatCell
-                label="Total · Retention"
-                value={summary.total.toLocaleString()}
-                sub={`${retentionDays}d auto-prune`}
-              />
-            </div>
-          </div>
+          <StatGrid columns={5}>
+            <StatCell
+              label="Errors 24h"
+              value={summary.errors24h.toLocaleString()}
+              sub={summary.errors24h > 0 ? "last 24h" : "none"}
+              valueClass={summary.errors24h > 0 ? "text-red-500" : "text-primary"}
+              accent={summary.errors24h > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
+            />
+            <StatCell
+              label="Warnings 24h"
+              value={summary.warnings24h.toLocaleString()}
+              sub={summary.warnings24h > 0 ? "last 24h" : "none"}
+              valueClass={summary.warnings24h > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+              accent={summary.warnings24h > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
+            />
+            <StatCell label="Volume 24h" value={summary.total24h.toLocaleString()} sub="all levels" />
+            <StatCell
+              label="Sources"
+              value={summary.sources}
+              sub="distinct"
+              accent={{ tone: "blue", icon: "ti ti-stack-3" }}
+            />
+            <StatCell
+              label="Total · Retention"
+              value={summary.total.toLocaleString()}
+              sub={`${retentionDays}d auto-prune`}
+            />
+          </StatGrid>
 
           <LogFilterBar filter={filter} sources={sources} retentionDays={retentionDays} />
           <LogTable entries={entries} />
