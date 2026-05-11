@@ -1,6 +1,7 @@
 import {
   gridsService,
   type Widget,
+  type StatSource,
   type WidgetSource,
   type ViewWidgetSource,
   type ViewStatsRow,
@@ -22,7 +23,14 @@ import {
  * widget doesn't crash the whole dashboard.
  */
 export type WidgetData =
-  | { kind: "stat"; value: unknown }
+  | {
+      kind: "stat";
+      value: unknown;
+      /** Optional inline trend — last N bucket values, oldest first.
+       *  Resolved by `resolveStat` when `source.trend` is configured;
+       *  consumed by the `StatCell.trend` prop in the renderer. */
+      trend?: number[];
+    }
   | {
       kind: "chart";
       buckets: Array<{ keys: unknown[]; values: Record<string, unknown> }>;
@@ -92,17 +100,74 @@ export const resolveWidgetData = async (
   }
 };
 
-const resolveStat = async (source: WidgetSource): Promise<WidgetData> => {
+const resolveStat = async (source: StatSource): Promise<WidgetData> => {
   const agg = source.aggregations[0];
   if (!agg) return { kind: "error", reason: "stat widget has no aggregation" };
-  const result = await gridsService.record.aggregate({
-    tableId: source.tableId,
-    filter: source.filter ?? null,
-    requests: [{ fieldId: agg.fieldId, agg: agg.agg }],
-  });
-  if (!result.ok) return { kind: "error", reason: result.error.message };
-  const key = `${agg.fieldId}__${agg.agg}`;
-  return { kind: "stat", value: result.data[key] ?? null };
+  const aggKey = `${agg.fieldId}__${agg.agg}`;
+  // Main scalar aggregation + optional trend group query run in
+  // parallel — the trend is independent of the scalar and would
+  // otherwise serialise two roundtrips for one widget.
+  const [scalar, trend] = await Promise.all([
+    gridsService.record.aggregate({
+      tableId: source.tableId,
+      filter: source.filter ?? null,
+      requests: [{ fieldId: agg.fieldId, agg: agg.agg }],
+    }),
+    source.trend ? resolveStatTrend(source, aggKey) : Promise.resolve<number[] | null>(null),
+  ]);
+  if (!scalar.ok) return { kind: "error", reason: scalar.error.message };
+  return {
+    kind: "stat",
+    value: scalar.data[aggKey] ?? null,
+    // Drop `trend: null` so callers can branch on `data.trend ?? []`.
+    ...(trend && trend.length > 0 ? { trend } : {}),
+  };
+};
+
+/**
+ * Computes the inline-trend series for a stat widget. Groups records
+ * by the configured date field at the configured granularity, runs
+ * the same aggregation as the main stat, and returns the most-recent
+ * `windowSize` values as plain numbers (oldest → newest order so the
+ * sparkline reads left-to-right chronologically).
+ *
+ * Returns `null` on any resolver error — the trend is best-effort
+ * decoration and never blocks the main stat value from rendering.
+ */
+const resolveStatTrend = async (
+  source: StatSource,
+  aggKey: string,
+): Promise<number[] | null> => {
+  if (!source.trend) return null;
+  const agg = source.aggregations[0];
+  if (!agg) return null;
+  try {
+    const result = await gridsService.record.group({
+      tableId: source.tableId,
+      filter: source.filter ?? null,
+      groupBy: [{ fieldId: source.trend.fieldId, granularity: source.trend.granularity }],
+      aggregations: [
+        {
+          fieldId: agg.fieldId,
+          agg: agg.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
+        },
+      ],
+    });
+    if (!result.ok) return null;
+    // Buckets come back in groupBy order (date ascending), so taking
+    // the tail is "most recent N". Convert string-decimals (currency
+    // / decimal aggs) to JS numbers; reject NaN/Infinity defensively.
+    const tail = result.data.buckets.slice(-source.trend.windowSize);
+    const numbers: number[] = [];
+    for (const b of tail) {
+      const raw = b.values[aggKey];
+      const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+      if (Number.isFinite(n)) numbers.push(n);
+    }
+    return numbers;
+  } catch {
+    return null;
+  }
 };
 
 const resolveChart = async (source: WidgetSource): Promise<WidgetData> => {

@@ -146,6 +146,7 @@ export type {
   ViewWidget,
   ViewWidgetSource,
   StatSource,
+  StatTrend,
   WidgetSource,
   WidgetFormat,
   AggregationSpec,

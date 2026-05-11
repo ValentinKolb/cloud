@@ -65,12 +65,22 @@ function StatWidgetCell(props: { widget: StatWidget; data: WidgetData | undefine
   // (cell omits the sub row entirely, see StatCell docs).
   const subText = (): string | undefined => props.widget.sub ?? errorReason() ?? undefined;
 
+  /** Trend values, if the resolver produced any for this widget.
+   *  `undefined` (not configured) and `[]` (configured but no buckets
+   *  returned) are both treated the same by `StatCell` — the
+   *  sparkline only renders for ≥2 points. */
+  const trend = (): number[] | undefined => {
+    const d = data();
+    return d.kind === "stat" ? d.trend : undefined;
+  };
+
   return (
     <StatCell
       label={labelOf()}
       value={valueText()}
       title={valueText()}
       sub={subText()}
+      trend={trend()}
       valueClass={isError() ? "text-red-600 dark:text-red-400" : undefined}
       accent={
         props.widget.icon && !errorReason()

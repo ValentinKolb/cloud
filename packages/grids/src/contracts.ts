@@ -518,10 +518,34 @@ export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
  *  `ViewStatsRowSchema`). Single-cell-of-a-view turned out to be the
  *  wrong granularity (gnarly editor UX, awkward stable-id story);
  *  the row-level abstraction is the cleaner KISS replacement. */
+/**
+ * Optional trend spec attached to a stat source. When set, the
+ * resolver runs an additional `record.group()` query — same filter
+ * + same primary aggregation as the main stat — bucketed by a date
+ * field. The last `windowSize` buckets surface as a small inline
+ * sparkline beneath the stat value.
+ *
+ * Keeping this on the source (rather than a separate widget kind)
+ * means a single stat cell can show both a number and its recent
+ * history without doubling the widget count or splitting the editor.
+ */
+export const StatTrendSchema = z.object({
+  /** Date field to bucket records by. Must resolve to type "date";
+   *  the editor only offers date fields here. */
+  fieldId: z.string().uuid(),
+  granularity: z.enum(["day", "week", "month", "quarter", "year"]),
+  /** How many most-recent buckets to keep. Defaults to 12 — long
+   *  enough to spot a trend, short enough for a compact sparkline. */
+  windowSize: z.number().int().min(2).max(60).default(12),
+});
+export type StatTrend = z.infer<typeof StatTrendSchema>;
+
 export const StatSourceSchema = z.object({
   tableId: z.string().uuid(),
   filter: FilterTreeSchema.optional(),
   aggregations: z.array(AggregationSpecSchema).min(1),
+  /** Optional inline trend — see {@link StatTrendSchema}. */
+  trend: StatTrendSchema.optional(),
 });
 export type StatSource = z.infer<typeof StatSourceSchema>;
 

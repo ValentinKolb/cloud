@@ -908,9 +908,146 @@ function StatCellEditor(props: {
               (style only — real value resolves at render time)
             </div>
           </div>
+
+          {/* ── Trend (optional inline sparkline) ──────────────────
+              Configured separately from the main stat: same agg +
+              filter, but bucketed by a date field at a chosen
+              granularity. The resolver runs the extra group() query
+              in parallel and feeds the result through to the cell's
+              `trend` prop. Hidden when the source table has no date
+              fields — there's nothing sensible to bucket on. */}
+          <StatTrendSection
+            widget={props.widget}
+            fields={fields()}
+            onUpdate={props.onUpdate}
+          />
         </div>
       </Show>
     </div>
+  );
+}
+
+/**
+ * Trend sub-section inside `StatCellEditor`. Toggleable: when off,
+ * `source.trend` is undefined (no extra resolver work, no sparkline);
+ * when on, the user picks a date field, granularity, and window size.
+ *
+ * Hidden entirely when the source table has zero date fields — the
+ * feature is meaningless without one, and showing a dead checkbox
+ * confuses more than it helps.
+ */
+function StatTrendSection(props: {
+  widget: StatWidget;
+  fields: Field[];
+  onUpdate: (w: StatWidget) => void;
+}) {
+  const dateFields = () => props.fields.filter((f) => f.type === "date");
+  const trend = () => props.widget.source.trend;
+
+  const enable = () => {
+    const firstDateField = dateFields()[0];
+    if (!firstDateField) return;
+    props.onUpdate({
+      ...props.widget,
+      source: {
+        ...props.widget.source,
+        trend: {
+          fieldId: firstDateField.id,
+          granularity: "month",
+          windowSize: 12,
+        },
+      },
+    });
+  };
+
+  const disable = () => {
+    const { trend: _drop, ...rest } = props.widget.source;
+    props.onUpdate({ ...props.widget, source: rest });
+  };
+
+  const patchTrend = (patch: Partial<NonNullable<StatWidget["source"]["trend"]>>) => {
+    const current = trend();
+    if (!current) return;
+    props.onUpdate({
+      ...props.widget,
+      source: { ...props.widget.source, trend: { ...current, ...patch } },
+    });
+  };
+
+  return (
+    <Show
+      when={dateFields().length > 0}
+      fallback={
+        <div class="text-[11px] text-dimmed italic">
+          Inline trend sparkline needs a date field on the source table.
+        </div>
+      }
+    >
+      <div class="flex flex-col gap-2 border-t border-zinc-200 dark:border-zinc-700/50 pt-2">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] uppercase tracking-wider text-dimmed">
+            Inline trend
+          </span>
+          <Show
+            when={trend()}
+            fallback={
+              <button
+                type="button"
+                class="btn-input btn-sm"
+                onClick={enable}
+              >
+                <i class="ti ti-plus" /> Add trend
+              </button>
+            }
+          >
+            <button
+              type="button"
+              class="text-[11px] text-dimmed hover:text-red-600 dark:hover:text-red-400"
+              onClick={disable}
+            >
+              Remove
+            </button>
+          </Show>
+        </div>
+        <Show when={trend()}>
+          {(t) => (
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+              <Select
+                label="Date field"
+                value={() => t().fieldId}
+                onChange={(v) => patchTrend({ fieldId: v })}
+                options={dateFields().map((f) => ({ id: f.id, label: f.name }))}
+              />
+              <Select
+                label="Bucket by"
+                value={() => t().granularity}
+                onChange={(v) =>
+                  patchTrend({
+                    granularity: v as NonNullable<StatWidget["source"]["trend"]>["granularity"],
+                  })
+                }
+                options={[
+                  { id: "day", label: "Day" },
+                  { id: "week", label: "Week" },
+                  { id: "month", label: "Month" },
+                  { id: "quarter", label: "Quarter" },
+                  { id: "year", label: "Year" },
+                ]}
+              />
+              <Select
+                label="Window size"
+                value={() => String(t().windowSize)}
+                onChange={(v) => patchTrend({ windowSize: Number(v) })}
+                options={[6, 8, 12, 24, 30].map((n) => ({
+                  id: String(n),
+                  label: `Last ${n}`,
+                }))}
+              />
+            </div>
+          )}
+        </Show>
+      </div>
+    </Show>
   );
 }
 

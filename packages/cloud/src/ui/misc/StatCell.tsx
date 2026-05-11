@@ -1,4 +1,6 @@
 import type { JSX } from "solid-js";
+import { Show } from "solid-js";
+import Chart from "./Chart";
 
 /**
  * Single cell inside a {@link StatGrid}. Renders one stat: tiny
@@ -78,6 +80,14 @@ export type StatCellProps = {
   href?: string;
   /** Native `title` attribute on the value — useful when the value is truncated. */
   title?: string;
+  /**
+   * Optional inline sparkline showing the value's recent history.
+   * Plain `number[]`, oldest → newest. Renders below the sub row at
+   * a fixed compact height; the line tone matches the cell's value
+   * tone (uses `currentColor` on a wrapper). Pass an empty array or
+   * omit to hide the sparkline.
+   */
+  trend?: number[];
 };
 
 const ACCENT_PILL_CLASSES: Record<StatCellAccent["tone"], string> = {
@@ -124,6 +134,18 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
       >
         {props.value}
       </span>
+      {/* Optional trend sparkline. Sits between value and sub row
+          so the eye lands on it after parsing the headline number.
+          Fixed compact height (h-8 ≈ 32px); width fills the cell so
+          long-cell trends span the full card. `currentColor` on the
+          wrapper picks up the cell's text tone — pass a `valueClass`
+          like `text-emerald-600` to colour both value and sparkline
+          in lockstep. */}
+      <Show when={props.trend && props.trend.length > 1}>
+        <div class="h-8 -mx-1 mt-0.5">
+          <Chart kind="sparkline" data={props.trend ?? []} showLast />
+        </div>
+      </Show>
       {/* Sub row: rendered only when there's actual content. Keeping
           the row out entirely when both sub and accent are absent
           lets the grid's row-height shrink naturally — callers that
