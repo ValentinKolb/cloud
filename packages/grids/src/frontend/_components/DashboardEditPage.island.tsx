@@ -1232,7 +1232,11 @@ function DeleteButton(props: { dashboardId: string; baseShortId: string; name: s
   return (
     <button
       type="button"
-      class="btn-danger btn-sm"
+      // `self-start` keeps the button auto-width inside the SectionCard's
+      // flex-col stretch — without it the button fills the full row
+      // width which makes a destructive primary look like a banner.
+      // Mirrors the other danger-zone buttons (table / view / base).
+      class="btn-danger btn-sm self-start"
       onClick={onClick}
       disabled={mut.loading()}
     >
