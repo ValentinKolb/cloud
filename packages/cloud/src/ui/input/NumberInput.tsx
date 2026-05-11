@@ -34,14 +34,25 @@ type NumberInputProps = {
   required?: boolean;
   disabled?: boolean;
   /**
-   * When true, parses input as an integer (parseInt). When false /
-   * unset, parses as a float (Number / parseFloat) so callers like
-   * currency / percent / decimal don't lose digits past the decimal
-   * point. Default false (was effectively `true` in v1 because v1
-   * used parseInt unconditionally; default flipped here because
-   * float-parsing is the safer default for a generic number input).
+   * Number of decimal places the user can type. Default `0`
+   * (integer-only) — opt in to decimals explicitly when the caller
+   * needs them. The cap is enforced live during typing: characters
+   * past the dot are truncated as the user types past the limit, not
+   * just on blur.
+   *
+   * `decimalPlaces: 0`   integers only; `.` and `,` are ignored
+   * `decimalPlaces: 2`   up to 2 decimals; "1.234" truncates to "1.23"
+   * `decimalPlaces: 10`  effectively unlimited for typical UIs
+   *
+   * Mirrors Mantine's `decimalScale` semantics.
    */
-  integer?: boolean;
+  decimalPlaces?: number;
+  /**
+   * Allow a leading minus sign. Default `true`. Set false for inputs
+   * that semantically only accept non-negative values (counts, ages,
+   * page numbers) — the minus key is silently ignored.
+   */
+  allowNegative?: boolean;
   /**
    * Show a clear (✕) button when the input has a value. Same UX
    * shape as TextInput's `clearable` — sets value to null on click.
@@ -69,17 +80,18 @@ type NumberInputProps = {
   /** Icon shown on focus, blue-tinted; defaults to icon. */
   activeIcon?: string;
   /**
-   * JSX slot rendered between the (optional) left icon and the input.
-   * Use for inline labels like a currency symbol that shouldn't take
-   * up the icon slot. The slot does not steal focus and is muted.
+   * Inline label rendered to the LEFT of the typed number, inside
+   * the input box. Always visible (focus / blur / empty / typed) —
+   * Mantine-style static label. Use short content: "$", "€", "≈",
+   * etc. Long content crowds the input.
    */
-  prefix?: JSX.Element;
+  prefix?: string | JSX.Element;
   /**
-   * JSX slot rendered between the input and the +/- steppers. Use
-   * for unit suffixes ("%", "/min", "kg"). Same muted styling as
-   * `prefix`.
+   * Inline label rendered to the RIGHT of the typed number, inside
+   * the input box. Always visible. Same shape as `prefix`. Use for
+   * unit suffixes ("%", "kg", "/min") or trailing currency labels.
    */
-  suffix?: JSX.Element;
+  suffix?: string | JSX.Element;
 };
 
 /**
@@ -110,7 +122,8 @@ type NumberInputProps = {
  */
 const NumberInput = (props: NumberInputProps) => {
   const disabled = () => props.disabled ?? false;
-  const integer = () => props.integer ?? false;
+  const decimalPlaces = () => Math.max(0, props.decimalPlaces ?? 0);
+  const allowNegative = () => props.allowNegative ?? true;
   const showSteppers = () => props.showSteppers ?? true;
   const steppersDisabled = () => disabled() || (props.disableSteppers ?? false);
   const min = () => props.min ?? -Infinity;
@@ -164,17 +177,74 @@ const NumberInput = (props: NumberInputProps) => {
     (props.clearable ?? false) && !disabled() && hasValue();
 
   /**
-   * Parse a raw input string. Empty / non-numeric → null. Integer
-   * mode truncates via parseInt; float mode uses Number for both
-   * "3" and "3.14". The `applyConstraints` flag clamps to min/max
-   * after parsing — we apply on commit (change / +-) but not on
-   * every keystroke (so the user can type "1" while building "100"
-   * without it bouncing to min between digits).
+   * Filter a raw keystroke / paste string to the allowed character set
+   * for the current configuration. Drops letters, multiple dots,
+   * trailing non-digit junk; replaces comma with dot (German keyboards);
+   * truncates decimal-place overflow. The result is what we put back
+   * into the input box AND what we hand to `parse` — keeps the visible
+   * input and the emitted value consistent.
+   *
+   * Mantine-style — invalid characters are silently swallowed rather
+   * than clearing the whole input (the v1 behaviour, which produced
+   * "type a letter → field empties" surprises).
+   */
+  const filterInput = (raw: string): string => {
+    // Normalise European decimal comma → dot. Users on German /
+    // French keyboards type "12,34" and expect it to be the same as
+    // "12.34". Doing this before character filtering means the dot
+    // is treated as a real decimal separator below.
+    let s = raw.replace(/,/g, ".");
+    let out = "";
+    let dotSeen = false;
+    let dotIdx = -1;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i]!;
+      if (c >= "0" && c <= "9") {
+        out += c;
+        continue;
+      }
+      // Leading minus, only when allowed and only at position 0.
+      if (c === "-" && out.length === 0 && allowNegative()) {
+        out += c;
+        continue;
+      }
+      // Single dot, only when decimals are allowed.
+      if (c === "." && !dotSeen && decimalPlaces() > 0) {
+        dotIdx = out.length;
+        out += c;
+        dotSeen = true;
+        continue;
+      }
+      // Everything else — letters, second dots, spaces, junk —
+      // is silently dropped.
+    }
+    // Enforce the decimal-place cap. Cuts any digits past the cap;
+    // user-pasted "1121.121212" with cap=2 becomes "1121.12".
+    if (dotSeen) {
+      const decimals = out.length - dotIdx - 1;
+      const cap = decimalPlaces();
+      if (decimals > cap) {
+        // cap=0 shouldn't actually reach here (dot rejected above)
+        // but guard anyway.
+        out = cap === 0 ? out.slice(0, dotIdx) : out.slice(0, dotIdx + 1 + cap);
+      }
+    }
+    return out;
+  };
+
+  /**
+   * Parse a raw input string. Empty / non-numeric → null. Decimal-
+   * mode uses parseFloat / Number; integer-mode (decimalPlaces===0)
+   * uses parseInt for explicit truncation semantics. The
+   * `applyConstraints` flag clamps to min/max after parsing — we
+   * apply on commit (blur / +-) but not on every keystroke (so the
+   * user can type "1" while building "100" without it bouncing to
+   * min between digits).
    */
   const parse = (raw: string, applyConstraints: boolean): number | null => {
     const t = raw.trim();
-    if (t === "") return null;
-    const parsed = integer() ? parseInt(t, 10) : Number(t);
+    if (t === "" || t === "-" || t === ".") return null;
+    const parsed = decimalPlaces() === 0 ? parseInt(t, 10) : Number(t);
     if (!Number.isFinite(parsed)) return null;
     if (!applyConstraints) return parsed;
     return Math.max(min(), Math.min(max(), parsed));
@@ -193,7 +263,7 @@ const NumberInput = (props: NumberInputProps) => {
     const snapped = Math.round((n - anchor) / s) * s + anchor;
     // parseFloat round-trip kills accumulated FP error from the
     // multiply / divide so "0.1 + 0.2"-style sums don't surface.
-    return integer() ? Math.round(snapped) : parseFloat(snapped.toFixed(10));
+    return decimalPlaces() === 0 ? Math.round(snapped) : parseFloat(snapped.toFixed(10));
   };
 
   const commit = (n: number | null) => {
@@ -285,8 +355,8 @@ const NumberInput = (props: NumberInputProps) => {
             id={a11y.inputId}
             name={props.name}
             type="text"
-            inputMode={integer() ? "numeric" : "decimal"}
-            class={`input w-full text-center font-mono font-semibold ${
+            inputMode={decimalPlaces() === 0 ? "numeric" : "decimal"}
+            class={`input w-full text-right font-mono font-semibold ${
               icon() ? "pl-9" : ""
             } ${props.prefix ? "pl-12" : ""} ${
               canClear() || props.suffix ? "pr-9" : ""
@@ -313,12 +383,20 @@ const NumberInput = (props: NumberInputProps) => {
               setRawText(final === null ? "" : String(final));
             }}
             onInput={(e) => {
-              // Update the internal buffer with what the user typed
-              // (including intermediate states like "12." mid-decimal)
-              // and emit the parsed value to onInput. Don't bounce
-              // the parsed value back into the input — that's what
-              // would eat the trailing "." or "-" mid-type.
-              const next = e.currentTarget.value;
+              // Filter the raw input to the allowed character set
+              // (digits + optional leading minus + optional single
+              // dot, capped at decimalPlaces). Junk characters
+              // (letters, second dots, etc.) are silently dropped
+              // instead of clearing the field — the user's typing
+              // momentum is preserved. Comma → dot for German
+              // keyboards.
+              const next = filterInput(e.currentTarget.value);
+              // Reflect the filtered text back into the input so
+              // what the user sees matches what we'll emit. If
+              // unchanged, the assignment is a cheap no-op.
+              if (e.currentTarget.value !== next) {
+                e.currentTarget.value = next;
+              }
               setRawText(next);
               props.onInput?.(parse(next, false));
             }}

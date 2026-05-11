@@ -1,7 +1,5 @@
 import {
   Checkbox,
-  CurrencyInput,
-  type CurrencyValue,
   DateTimeInput,
   NumberInput,
   SelectInput,
@@ -178,8 +176,14 @@ export function FieldInput(props: {
         />
       );
 
-    case "number":
-    case "decimal":
+    case "number": {
+      // Number can be integer or float depending on field config.
+      // `integerOnly` flag locks it to integers; otherwise allow a
+      // generous 10 decimal places (enough for the long-tail cases
+      // while still capping cosmic-noise input).
+      const integerOnly = Boolean(
+        (props.field.config as { integerOnly?: boolean }).integerOnly,
+      );
       return (
         <NumberInput
           label={label}
@@ -187,9 +191,27 @@ export function FieldInput(props: {
           required={required}
           value={numberValue}
           onInput={(v) => props.onChange(v)}
+          decimalPlaces={integerOnly ? 0 : 10}
           error={error}
         />
       );
+    }
+
+    case "decimal": {
+      // Decimal carries an explicit `scale` (default 2 — see decimalHandler).
+      const scale = (props.field.config as { scale?: number }).scale ?? 2;
+      return (
+        <NumberInput
+          label={label}
+          description={helpText}
+          required={required}
+          value={numberValue}
+          onInput={(v) => props.onChange(v)}
+          decimalPlaces={scale}
+          error={error}
+        />
+      );
+    }
 
     case "rating": {
       const scale = (props.field.config as { scale?: number }).scale ?? 5;
@@ -202,6 +224,7 @@ export function FieldInput(props: {
           max={scale}
           value={numberValue}
           onInput={(v) => props.onChange(v)}
+          decimalPlaces={0}
           error={error}
         />
       );
@@ -217,26 +240,34 @@ export function FieldInput(props: {
           max={100}
           value={numberValue}
           onInput={(v) => props.onChange(v)}
+          decimalPlaces={0}
+          suffix={<span class="font-mono">%</span>}
           error={error}
         />
       );
 
     case "currency": {
-      // Currency renders as a number input with the field admin's
-      // display symbol as a left prefix. The symbol is free-text in
-      // field config (`currency` key) — could be "€", "EUR", "Euro",
-      // "credits", anything. It's purely semantic; the stored value
-      // is just a decimal. Tolerates the legacy `{amount, currency}`
-      // shape on read so existing records continue rendering until
-      // they're re-saved.
+      // Currency: number input + the field admin's free-text symbol
+      // as an inline suffix. The symbol comes from `field.config.currency`
+      // — could be "€", "EUR", "Euro", "credits", whatever reads
+      // naturally. Stored value is just a decimal (no `{amount, currency}`
+      // object anymore); the scale comes from `field.config.scale`,
+      // default 2 to match the server-side currencyHandler.
+      //
+      // Legacy storage tolerance: pre-rework records carried
+      // `{amount, currency}` objects. Read takes the `amount` field
+      // and discards the currency code (it's in field config now).
+      // Records re-render correctly until the next save, after which
+      // they're written as decimal strings like every other money value.
       const symbol =
         (props.field.config as { currency?: string }).currency ?? "EUR";
+      const scale = (props.field.config as { scale?: number }).scale ?? 2;
       const amountValue = (): number | null => {
         const v = props.value;
         if (v === null || v === undefined || v === "") return null;
         if (typeof v === "number") return Number.isFinite(v) ? v : null;
         if (typeof v === "string") {
-          // Tolerate "12.34" and the legacy "12.34 EUR" shapes.
+          // Tolerate "12.34" and the legacy "12.34 EUR" shape.
           const m = /^(-?\d+(?:\.\d+)?)\s*[A-Za-z]{0,3}$/.exec(v.trim());
           if (m) {
             const n = Number(m[1]);
@@ -244,8 +275,6 @@ export function FieldInput(props: {
           }
         }
         if (typeof v === "object") {
-          // Legacy { amount, currency } shape — take the amount,
-          // drop the currency (it's in field config now).
           const obj = v as { amount?: unknown };
           const n =
             typeof obj.amount === "number"
@@ -264,8 +293,10 @@ export function FieldInput(props: {
           required={required}
           value={amountValue}
           onInput={(v) => props.onChange(v)}
-          prefix={<span class="font-mono text-sm">{symbol}</span>}
-          step={0.01}
+          decimalPlaces={scale}
+          suffix={<span class="font-mono">{symbol}</span>}
+          placeholder={`12.34 ${symbol}`}
+          step={Math.pow(10, -scale)}
           showSteppers={false}
           clearable={!required}
           error={error}

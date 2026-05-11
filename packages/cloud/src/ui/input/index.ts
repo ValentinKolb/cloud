@@ -1,6 +1,5 @@
 export { default as TextInput } from "./TextInput";
 export { default as NumberInput } from "./NumberInput";
-export { default as CurrencyInput, type CurrencyValue } from "./CurrencyInput";
 export { Checkbox, CheckboxInput } from "./Checkbox";
 export { Select, SelectInput } from "./Select";
 export { default as SelectChip } from "./SelectChip";

@@ -1,7 +1,7 @@
 import { For, Show, createSignal, type JSX } from "solid-js";
 import type { BaseGroup, BaseUser } from "@valentinkolb/cloud/contracts";
 import { TextInput } from "@valentinkolb/cloud/ui";
-import { NumberInput, CurrencyInput, type CurrencyValue } from "@valentinkolb/cloud/ui";
+import { NumberInput } from "@valentinkolb/cloud/ui";
 import { Checkbox } from "@valentinkolb/cloud/ui";
 import { Select } from "@valentinkolb/cloud/ui";
 import { Switch } from "@valentinkolb/cloud/ui";
@@ -193,10 +193,7 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
   const [numberValue, setNumberValue] = createSignal<number | null>(42);
   const [numberOptional, setNumberOptional] = createSignal<number | null>(null);
   const [percentValue, setPercentValue] = createSignal<number | null>(25);
-  const [currencyValue, setCurrencyValue] = createSignal<CurrencyValue | null>({
-    amount: 12.34,
-    currency: "EUR",
-  });
+  const [currencyValue, setCurrencyValue] = createSignal<number | null>(12.34);
   const [dateTimeValue, setDateTimeValue] = createSignal("2026-02-18T10:30");
   const [dateValue, setDateValue] = createSignal("2026-02-18");
   const [selectValue, setSelectValue] = createSignal("refined");
@@ -420,18 +417,17 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
             onInput={setMarkdownValue}
           />
           <NumberInput
-            label="Number Input"
-            description="Bounded 0–100 with +/- steppers."
+            label="Integer (default)"
+            description="decimalPlaces defaults to 0 — no dot/comma accepted, junk chars filtered out."
             value={numberValue}
             onChange={setNumberValue}
             min={0}
             max={100}
             step={1}
-            integer
           />
           <NumberInput
             label="Optional Number"
-            description="Empty / null = no value. Clear button + null pass-through."
+            description="Clearable, no steppers, null = no value (distinct from 0)."
             placeholder="Type a number…"
             value={numberOptional}
             onChange={setNumberOptional}
@@ -439,21 +435,27 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
             showSteppers={false}
           />
           <NumberInput
-            label="Percent"
-            description="Suffix slot ('%'), float-parsing, half-step."
+            label="Percent (suffix)"
+            description="suffix='%' inline; decimalPlaces=1; comma auto-converts to dot."
             value={percentValue}
             onChange={setPercentValue}
             min={0}
             max={100}
             step={0.5}
+            decimalPlaces={1}
             suffix={<span class="font-mono">%</span>}
           />
-          <CurrencyInput
-            label="Currency Input"
-            description="Paired amount + 3-letter currency code. Emits {amount, currency}."
+          <NumberInput
+            label="Currency (suffix)"
+            description="suffix='€'; decimalPlaces=2; placeholder hints the dot."
+            placeholder="12.34 €"
             value={currencyValue}
             onChange={setCurrencyValue}
+            decimalPlaces={2}
+            step={0.01}
+            suffix={<span class="font-mono">€</span>}
             clearable
+            showSteppers={false}
           />
           <DateTimeInput
             label="Date Time Input"

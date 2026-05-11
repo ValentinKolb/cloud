@@ -246,6 +246,7 @@ function FilterValueInput(props: {
                   <NumberInput
                     value={() => numAt(0)}
                     onChange={(v) => props.onChange([v, range()[1]])}
+                    decimalPlaces={10}
                   />
                 )}
               </div>
@@ -261,6 +262,7 @@ function FilterValueInput(props: {
                   <NumberInput
                     value={() => numAt(1)}
                     onChange={(v) => props.onChange([range()[0], v])}
+                    decimalPlaces={10}
                   />
                 )}
               </div>
@@ -354,6 +356,7 @@ function FilterValueInput(props: {
               return Number.isFinite(n) ? n : undefined;
             }}
             onChange={(v) => props.onChange(v)}
+            decimalPlaces={10}
           />
         </div>
       </Match>
