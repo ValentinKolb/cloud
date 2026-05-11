@@ -3,7 +3,7 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
-import { LinkCard, LogEntriesTable, ProgressBar, StatCell } from "@valentinkolb/cloud/ui";
+import { LinkCard, LogEntriesTable, ProgressBar, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import AccountsNavSidebar from "./AccountsNavSidebar";
 import AdminOperations from "./dashboard/AdminOperations.island";
@@ -132,11 +132,15 @@ export default ssr<AuthContext>(async (c) => {
                 </div>
 
                 {/* Hero stats: Run Health (left, list of progress rows) + 2x2 stat grid (right).
-                    See skills/cloud-app/references/frontend.md § Stats — Hero pattern. */}
+                    See skills/cloud-app/references/frontend.md § Stats — Hero pattern.
+                    The hero side carries `lg:border-r` so the divider line
+                    between the two halves visually continues the StatCell
+                    hairlines on the right. At narrow viewports the layout
+                    stacks and the border is suppressed (no orphaned line). */}
                 <div class="paper overflow-hidden">
                   <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1.8fr]">
                     {/* Run Health — hero side */}
-                    <div class="px-5 py-5 flex flex-col gap-3">
+                    <div class="px-5 py-5 flex flex-col gap-3 lg:border-r border-zinc-100 dark:border-zinc-800">
                       <div class="flex items-center justify-between gap-3">
                         <span class="text-[10px] uppercase tracking-wider text-dimmed">Run health</span>
                         <span
@@ -165,8 +169,11 @@ export default ssr<AuthContext>(async (c) => {
                       </div>
                       <span class="text-[10px] text-dimmed">Based on last {summary.runHealthWindow} runs</span>
                     </div>
-                    {/* Stat cells — 2x2 grid, gap-px p-px bg-zinc-100 frames every cell */}
-                    <div class="grid grid-cols-2 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
+                    {/* Stat cells — 2x2 grid. Inline (not StatGrid) because we're
+                        already inside the hero's paper frame; using StatGrid here
+                        would nest a second paper container. The hairline body
+                        (`gap-px bg-zinc`) is the same pattern StatGrid emits. */}
+                    <div class="grid grid-cols-2 gap-px bg-zinc-100 dark:bg-zinc-800">
                       <StatCell
                         label="Accounts"
                         value={totalAccounts}
@@ -178,21 +185,22 @@ export default ssr<AuthContext>(async (c) => {
                         value={summary.groupsTotal}
                         sub={`${summary.ipaGroupsTotal} IPA · ${summary.localGroupsTotal} local`}
                       />
-                      {/* Requests — anchor-pill, must stay inline (StatCell only renders span tags) */}
-                      <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-                        <span class="text-[10px] uppercase tracking-wider text-dimmed">Requests</span>
-                        <span class={`text-xl font-bold tabular-nums ${summary.openRequests > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}`}>{summary.openRequests}</span>
-                        {summary.openRequests > 0 ? (
-                          <div class="flex items-center gap-1.5">
-                            <span class="text-[10px] text-dimmed">pending review</span>
-                            <a href="/app/accounts/requests" class="tag bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors">
-                              <i class="ti ti-clock text-[9px]" />open
-                            </a>
-                          </div>
-                        ) : (
-                          <span class="text-[10px] text-dimmed">none pending</span>
-                        )}
-                      </div>
+                      <StatCell
+                        label="Requests"
+                        value={summary.openRequests}
+                        valueClass={summary.openRequests > 0 ? "text-amber-600 dark:text-amber-400" : "text-primary"}
+                        sub={summary.openRequests > 0 ? "pending review" : "none pending"}
+                        accent={
+                          summary.openRequests > 0
+                            ? {
+                                tone: "amber",
+                                icon: "ti ti-clock",
+                                text: "open",
+                                href: "/app/accounts/requests",
+                              }
+                            : undefined
+                        }
+                      />
                       <StatCell
                         label="Expiring 30d"
                         value={expiringTotal}
