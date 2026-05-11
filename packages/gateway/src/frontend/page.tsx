@@ -4,7 +4,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { listAppsDetailed, type AppRegistryDetail } from "@valentinkolb/cloud";
 import { getGatewayStats, getRouteTable } from "../stats";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { StatCell } from "@valentinkolb/cloud/ui";
+import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,34 +80,32 @@ export default ssr<AuthContext>(async (c) => {
           </div>
 
           {/* ── Stats — see skills/cloud-app/references/frontend.md § Stats ── */}
-          <div class="paper overflow-hidden">
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-              <StatCell value={appCount} label="Apps" sub={`${withNav.length} nav · ${withAdmin.length} admin`} />
-              <StatCell value={table.routeCount} label="Routes" sub={`v${table.version}`} />
-              <StatCell
-                value={fmtCount(stats.totalRequests)}
-                label="Requests"
-                sub={`${stats.noRouteCount} unmatched`}
-                accent={stats.noRouteCount > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
-              />
-              <StatCell value={withSearch.length} label="Search" sub="providers" />
-              <StatCell
-                value={fmtUptime(Date.now() - stats.startedAt)}
-                label="Uptime"
-                sub={`since ${new Date(stats.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-              />
-              <StatCell
-                value={`${healthy.length}/${appCount}`}
-                label="Healthy"
-                sub={healthy.length === appCount ? "all systems" : `${appCount - healthy.length} degraded`}
-                accent={
-                  healthy.length === appCount
-                    ? { tone: "emerald", icon: "ti ti-check" }
-                    : { tone: "red", icon: "ti ti-alert-circle" }
-                }
-              />
-            </div>
-          </div>
+          <StatGrid columns={6}>
+            <StatCell value={appCount} label="Apps" sub={`${withNav.length} nav · ${withAdmin.length} admin`} />
+            <StatCell value={table.routeCount} label="Routes" sub={`v${table.version}`} />
+            <StatCell
+              value={fmtCount(stats.totalRequests)}
+              label="Requests"
+              sub={`${stats.noRouteCount} unmatched`}
+              accent={stats.noRouteCount > 0 ? { tone: "amber", icon: "ti ti-alert-triangle" } : undefined}
+            />
+            <StatCell value={withSearch.length} label="Search" sub="providers" />
+            <StatCell
+              value={fmtUptime(Date.now() - stats.startedAt)}
+              label="Uptime"
+              sub={`since ${new Date(stats.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+            />
+            <StatCell
+              value={`${healthy.length}/${appCount}`}
+              label="Healthy"
+              sub={healthy.length === appCount ? "all systems" : `${appCount - healthy.length} degraded`}
+              accent={
+                healthy.length === appCount
+                  ? { tone: "emerald", icon: "ti ti-check" }
+                  : { tone: "red", icon: "ti ti-alert-circle" }
+              }
+            />
+          </StatGrid>
 
           {/* ── Apps Table ── */}
           <div class="paper overflow-x-auto">
