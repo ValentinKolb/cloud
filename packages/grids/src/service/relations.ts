@@ -552,25 +552,22 @@ export const resolveExpansionByTargetTable = async (
     if (idSet.size === 0) continue;
     const targetFields = await listFields(targetTableId);
     const alive = targetFields.filter((f) => !f.deletedAt);
-    // The slice of fields we'll project into each row's expansion:
-    // presentable fields (table-level "what represents a row") + the
-    // optional per-relation displayFieldId. De-dup via Set so a
-    // presentable field that's also the displayFieldId only ships once.
-    const projectIds = new Set<string>();
-    for (const f of alive) if (f.presentable) projectIds.add(f.id);
+    const presentable = alive
+      .filter((f) => f.presentable)
+      .sort((a, b) => a.position - b.position);
     const displayFieldId = displayFieldByTargetTable.get(targetTableId);
-    if (displayFieldId) projectIds.add(displayFieldId);
-    if (projectIds.size === 0) {
-      // Defensive: no presentable + no displayFieldId. We could fall
-      // back to "first text field" like the label resolver does, but
-      // the renderer can already do that by walking record.data of
-      // the linked record — IF expansion included data. Here we skip
-      // entirely; the renderer's UUID-prefix fallback kicks in. The
-      // alternative would bloat payloads for users who set up no
-      // presentable fields, which is a separate "fix your schema"
-      // problem rather than a render problem.
-      continue;
-    }
+
+    // Fast-skip when neither presentable nor displayFieldId are set.
+    // Without either, expansion has nothing to surface — the renderer
+    // falls back to UUID-prefix. The payload-trim alternative (return
+    // first text field) lives in buildRelationLabelCache; we match
+    // the user's schema rather than guess for them.
+    if (presentable.length === 0 && !displayFieldId) continue;
+
+    // We need data for BOTH the presentable fields and displayFieldId,
+    // because precedence is decided per-row (displayFieldId wins ONLY
+    // when its value is non-empty for THAT row). So the SQL projection
+    // pulls a superset; the per-row filter below picks the actual subset.
     const idArr = `{${[...idSet].join(",")}}`;
     const rows = await sql<DbRow[]>`
       SELECT id, data
@@ -582,15 +579,28 @@ export const resolveExpansionByTargetTable = async (
     for (const row of rows) {
       const id = row.id as string;
       const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
-      // Project down to the presentable + displayFieldId subset only.
-      // Trims payload by an order of magnitude on wide target tables
-      // (e.g. a "customers" table with 30 fields where only 1-2 are
-      // presentable).
       const subset: Record<string, unknown> = {};
-      for (const fid of projectIds) {
-        if (data[fid] !== undefined) subset[fid] = data[fid];
+
+      // Precedence: displayFieldId wins (when set + non-empty) — emit
+      // ONLY that one. Otherwise emit every presentable field that has
+      // a value. Matches buildRelationLabelCache's label precedence so
+      // a client-side join-with-" · " produces the same string the
+      // server-side cache used to emit.
+      const displayValue = displayFieldId ? data[displayFieldId] : undefined;
+      if (
+        displayFieldId &&
+        displayValue !== null &&
+        displayValue !== undefined &&
+        displayValue !== ""
+      ) {
+        subset[displayFieldId] = displayValue;
+      } else {
+        for (const f of presentable) {
+          const v = data[f.id];
+          if (v !== null && v !== undefined && v !== "") subset[f.id] = v;
+        }
       }
-      out[id] = subset;
+      if (Object.keys(subset).length > 0) out[id] = subset;
     }
   }
   return out;
