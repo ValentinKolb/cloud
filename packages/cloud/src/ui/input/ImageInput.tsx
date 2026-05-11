@@ -14,6 +14,22 @@ type ImageInputProps = {
   error?: () => string | undefined;
   required?: boolean;
   disabled?: boolean;
+  /**
+   * Custom file→data-URL transform applied to the picked file before
+   * emitting via `onChange`. Default = `img.presets.avatar` which
+   * produces a 512×512 cropped WebP — fine for square avatars but
+   * the wrong shape for banners / title images. Pass a custom
+   * transform (e.g. one that preserves aspect ratio and caps the
+   * longest side) to override. Receives the user-picked `File`,
+   * returns a base64 data-URL string.
+   */
+  transform?: (file: File) => Promise<string>;
+  /**
+   * File-picker `accept` attribute. Default matches the common
+   * raster formats the avatar preset handles. Override when a
+   * caller needs to allow / restrict different formats.
+   */
+  accept?: string;
 };
 
 /**
@@ -42,8 +58,9 @@ const ImageInput = (props: ImageInputProps) => {
 
   const selectImage = () => {
     if (disabled()) return;
-    showFileDialog({ accept: ".jpg,.jpeg,.png,.gif,.webp" })
-      .then((file) => img.presets.avatar(file))
+    const transform = props.transform ?? ((f: File) => img.presets.avatar(f));
+    showFileDialog({ accept: props.accept ?? ".jpg,.jpeg,.png,.gif,.webp" })
+      .then(transform)
       .then((image) => props.onChange?.(image));
   };
 

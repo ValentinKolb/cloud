@@ -92,6 +92,21 @@ function FormSubmitBody(props: {
       }
     >
       <form class="flex flex-col gap-3" onSubmit={handleSubmit}>
+        {/* Optional title image — full-width banner above the
+            description. `w-full` makes the IMG element span the form
+            width; `max-h-48` caps the height for very tall sources so
+            a portrait or square image doesn't dominate; `object-cover`
+            crops to fill the box when the source AR doesn't match,
+            keeping the banner shape consistent across uploads. */}
+        <Show when={props.form.config.titleImage}>
+          {(src) => (
+            <img
+              src={src()}
+              alt=""
+              class="w-full max-h-48 rounded-md object-cover"
+            />
+          )}
+        </Show>
         <Show when={props.form.config.description}>
           <p class="text-sm text-dimmed">{props.form.config.description}</p>
         </Show>

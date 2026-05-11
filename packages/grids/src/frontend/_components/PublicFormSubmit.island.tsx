@@ -71,6 +71,18 @@ export default function PublicFormSubmit(props: Props) {
 
   return (
     <div class="paper p-6 max-w-xl mx-auto flex flex-col gap-4">
+      {/* Optional title image — banner above the form. Same display
+          shape as the in-app FormSubmitModal so the public page and
+          the internal preview match. */}
+      <Show when={props.form.config.titleImage}>
+        {(src) => (
+          <img
+            src={src()}
+            alt=""
+            class="w-full max-h-48 rounded-md object-cover"
+          />
+        )}
+      </Show>
       <header class="flex flex-col gap-1">
         <h1 class="text-lg font-semibold text-primary">{props.form.config.title ?? props.form.name}</h1>
         <Show when={props.form.config.description}>

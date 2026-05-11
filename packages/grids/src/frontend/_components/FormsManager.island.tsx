@@ -2,12 +2,14 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   DialogHeader,
   dialogCore,
+  ImageInput,
   PermissionEditor,
   prompts,
   SegmentedControl,
   Select,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import { img } from "@valentinkolb/stdlib/browser";
 import { FieldInput } from "./form-fields";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Index, Show } from "solid-js";
@@ -185,6 +187,31 @@ export default function FormsManager(props: Props) {
 // FormEditor — expanded body of a form card
 // =============================================================================
 
+/**
+ * Resize-and-encode pipeline for the form's optional title image.
+ *
+ * Free aspect ratio (banner / square / portrait all fine), preserved
+ * through the resize. Caps the LONGEST side at `MAX_LONGEST` so a phone
+ * photo (4032 × 3024) becomes ~1600 × 1200, and a wide banner
+ * (3000 × 800) becomes 1600 × 427. Never upscales — a small icon
+ * (300 × 200) passes through untouched. WebP at quality 0.85 typically
+ * lands ~80–150 KB as base64 for these sizes, well inside the 1 MB
+ * server-side cap on `config.titleImage`.
+ */
+const MAX_LONGEST = 1600;
+const bannerTransform = async (file: File): Promise<string> => {
+  const data = await img.create(file);
+  const longest = Math.max(data.width, data.height);
+  // Compute scale-down factor; clamp to 1 so we never upscale.
+  const scale = Math.min(1, MAX_LONGEST / longest);
+  const tw = Math.round(data.width * scale);
+  const th = Math.round(data.height * scale);
+  // No-op resize when scale === 1: encode the source as-is.
+  const transformed =
+    scale < 1 ? await img.resize(tw, th, "fill")(data) : data;
+  return img.toBase64("webp", 0.85)(transformed);
+};
+
 function FormEditor(props: {
   form: Form;
   tableFields: Field[];
@@ -204,6 +231,9 @@ function FormEditor(props: {
   const [submitLabel, setSubmitLabel] = createSignal(props.form.config.submitLabel ?? "");
   const [successMessage, setSuccessMessage] = createSignal(props.form.config.successMessage ?? "");
   const [redirectUrl, setRedirectUrl] = createSignal(props.form.config.redirectUrl ?? "");
+  const [titleImage, setTitleImage] = createSignal<string | null>(
+    props.form.config.titleImage ?? null,
+  );
   const [entries, setEntries] = createSignal<FormFieldEntry[]>(props.form.config.fields.map((e) => ({ ...e })));
   const [dirty, setDirty] = createSignal(false);
 
@@ -235,6 +265,7 @@ function FormEditor(props: {
             submitLabel: submitLabel().trim() || undefined,
             successMessage: successMessage().trim() || undefined,
             redirectUrl: redirectUrl().trim() || null,
+            titleImage: titleImage() ?? undefined,
             fields: entries(),
           },
         },
@@ -371,6 +402,22 @@ function FormEditor(props: {
           icon="ti ti-align-left"
           multiline
           lines={2}
+        />
+        {/* Title image — banner displayed at the top of the form,
+            above title and description. Stored inline as a base64
+            WebP data-URL in form.config.titleImage. The transform
+            preserves the source aspect ratio (no forced square),
+            caps the longest side at 1600 px, and never upscales —
+            so a phone photo (4032 × 3024) becomes ~1600 × 1200
+            (~120 KB at q=0.85), while a small icon stays untouched.
+            Rendered in submit surfaces as `w-full` with a height
+            cap so a wide banner fills the form width naturally. */}
+        <ImageInput
+          label="Title image (optional)"
+          description="Shown as a banner at the top of the form. Free aspect ratio; capped at 1600 px on the longest side."
+          value={titleImage}
+          onChange={wrap(setTitleImage)}
+          transform={bannerTransform}
         />
         <label class="inline-flex items-center gap-2 text-xs text-secondary">
           <input

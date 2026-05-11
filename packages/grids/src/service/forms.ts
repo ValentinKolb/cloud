@@ -52,6 +52,15 @@ export type FormConfig = {
   submitLabel?: string;
   successMessage?: string;
   redirectUrl?: string | null;
+  /**
+   * Optional title image rendered above the form's title/description.
+   * Stored as a base64 data-URL (typically `data:image/webp;base64,...`)
+   * inside the JSONB config — no separate blob storage, no migration.
+   * The frontend resizes uploads to a sensible max-dimension before
+   * emitting so this stays small (≤ ~150 KB per image at common
+   * banner sizes).
+   */
+  titleImage?: string;
 };
 
 export type Form = {
@@ -114,6 +123,7 @@ const normalizeFormConfig = (raw: unknown): FormConfig => {
     submitLabel: cfg.submitLabel,
     successMessage: cfg.successMessage,
     redirectUrl: cfg.redirectUrl,
+    titleImage: typeof cfg.titleImage === "string" ? cfg.titleImage : undefined,
   };
 };
 

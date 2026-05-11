@@ -40,6 +40,12 @@ const FormConfigSchema = z.object({
   submitLabel: z.string().optional(),
   successMessage: z.string().optional(),
   redirectUrl: z.string().nullable().optional(),
+  // Optional title image (base64 data-URL). Frontend caps source
+  // dimensions before emitting; we apply a generous server-side
+  // byte-cap so an oversized payload can't bloat the JSONB blob.
+  // 1 MB of base64 ≈ 750 KB of raw image — comfortably above our
+  // 1600px-longest-side webp budget (~150 KB typical).
+  titleImage: z.string().max(1_000_000).optional(),
 });
 
 const FormSchema = z.object({
@@ -77,6 +83,8 @@ const PublicFormSchema = z.object({
     submitLabel: z.string().optional(),
     successMessage: z.string().optional(),
     redirectUrl: z.string().nullable().optional(),
+    // titleImage is safe to ship publicly — the admin chose it.
+    titleImage: z.string().max(1_000_000).optional(),
   }),
 });
 
@@ -161,6 +169,7 @@ const toPublicForm = (
     submitLabel: f.config.submitLabel,
     successMessage: f.config.successMessage,
     redirectUrl: f.config.redirectUrl,
+    titleImage: f.config.titleImage,
   },
 });
 const FormListSchema = z.array(FormSchema);
