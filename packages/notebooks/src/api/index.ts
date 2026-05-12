@@ -1315,6 +1315,37 @@ app
     },
   )
 
+  // Get metadata by id — sibling to the `/content` route, but
+  // returns the AttachmentSchema (filename, mimeType, sizeBytes,
+  // kind, createdAt) without the blob. Used by kit.attachments.get
+  // so scripts can resolve a single shortId in O(1) instead of
+  // fetching the whole list and filtering client-side. MUST be
+  // registered after `/content` and `/usage` so those more
+  // specific paths match first (Hono is first-match wins).
+  .get(
+    "/:id/attachments/:attId",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Get attachment metadata",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(AttachmentSchema, "Attachment metadata"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Attachment not found"),
+      },
+    }),
+    async (c) => {
+      let notebookId = c.req.param("id");
+      const attIdOrShort = c.req.param("attId");
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      notebookId = notebook!.id;
+      const att = await notebooksService.attachment.getByIdOrShortId({ idOrShortId: attIdOrShort });
+      if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
+      return respond(c, ok(att));
+    },
+  )
+
   // Delete
   .delete(
     "/:id/attachments/:attId",

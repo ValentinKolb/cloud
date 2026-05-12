@@ -92,11 +92,14 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   };
 
   const get = async (shortId: string): Promise<KitAttachment | null> => {
-    // No dedicated GET-by-id endpoint — use list + filter. Cheap for
-    // typical notebooks; lift to a real endpoint if the surface area
-    // grows large.
-    const all = await list();
-    return all.find((a) => a.id === shortId) ?? null;
+    // Direct GET-by-id endpoint — O(1) lookup. Previously this did
+    // a full list() + Array.find which made `for (id of ids)
+    // kit.attachments.get(id)` O(N²) on notebook size.
+    const res = await fetch(`${apiBase(ctx.notebookId)}/${encodeURIComponent(shortId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error("kit.attachments.get: API call failed");
+    const att = (await res.json()) as ApiAttachment;
+    return toKitAttachment(att);
   };
 
   const upload = async (file: File | Blob, filename?: string): Promise<KitAttachment> => {
