@@ -25,6 +25,7 @@ import {
   pickedCompletion,
 } from "@codemirror/autocomplete";
 import { isInsideFencedCode } from "./editor-scope";
+import { withIcon } from "./kit-autocomplete";
 
 /** Lightweight attachment projection — only what the picker needs. */
 type AttRef = {
@@ -142,7 +143,7 @@ const buildCompletions = (attachments: AttRef[], triggerStart: number): Completi
           });
         },
       };
-      (c as Completion & { kitIcon: string }).kitIcon = iconFor(a);
+      withIcon(c, iconFor(a));
       return c;
     });
 };

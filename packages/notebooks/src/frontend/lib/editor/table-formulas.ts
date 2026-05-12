@@ -38,6 +38,7 @@ import {
   snippetCompletion,
 } from "@codemirror/autocomplete";
 import { cellTextBeforeCursor, isTableRow } from "./_lib/table-cell";
+import { withIcon } from "./kit-autocomplete";
 
 type Formula = {
   /** Function name as it appears in the formula source. */
@@ -117,7 +118,7 @@ const COMPLETIONS: Completion[] = FORMULAS.map((f) => {
     type: "function",
     detail: f.detail,
   });
-  (c as Completion & { kitIcon: string }).kitIcon = f.icon;
+  withIcon(c, f.icon);
   return c;
 });
 

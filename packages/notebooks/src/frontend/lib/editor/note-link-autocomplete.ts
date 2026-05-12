@@ -39,6 +39,7 @@ import {
 } from "@codemirror/autocomplete";
 import { apiClient } from "../../../api/client";
 import { isInsideFencedCode } from "./editor-scope";
+import { withIcon } from "./kit-autocomplete";
 
 /** Lightweight note projection — only what the popup needs. */
 type NoteRef = {
@@ -162,7 +163,7 @@ const buildCompletions = (
           });
         },
       };
-      (c as Completion & { kitIcon: string }).kitIcon = "ti-note";
+      withIcon(c, "ti-note");
       return c;
     });
 };

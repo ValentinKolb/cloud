@@ -23,6 +23,7 @@ import {
   snippetCompletion,
 } from "@codemirror/autocomplete";
 import { isInsideFencedCode } from "./editor-scope";
+import { withIcon } from "./kit-autocomplete";
 
 type BlockEntry = {
   /** The directive name as it appears after the `:::`. */
@@ -64,7 +65,7 @@ const COMPLETIONS: Completion[] = BLOCKS.map((b) => {
     type: "keyword",
     detail: b.detail,
   });
-  (c as Completion & { kitIcon: string }).kitIcon = b.icon;
+  withIcon(c, b.icon);
   return c;
 });
 

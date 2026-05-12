@@ -32,6 +32,7 @@ import {
   snippetCompletion,
 } from "@codemirror/autocomplete";
 import { isInsideFencedCodeBody } from "./editor-scope";
+import { withIcon } from "./kit-autocomplete";
 
 /**
  * Each fence-language entry. `name` is what we insert into the
@@ -141,7 +142,7 @@ const COMPLETIONS: Completion[] = LANGUAGES.map((lang) => {
     detail: `${lang.detail}${aliasHint}`,
     boost: LANG_BOOSTS[lang.name],
   });
-  (c as Completion & { kitIcon: string }).kitIcon = lang.icon;
+  withIcon(c, lang.icon);
   return c;
 });
 

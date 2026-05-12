@@ -39,6 +39,7 @@ import type {
   CompletionSource,
 } from "@codemirror/autocomplete";
 import { isInsideFencedCode } from "./editor-scope";
+import { withIcon } from "./kit-autocomplete";
 
 /** Server response shape — matches `KitTagSummary` in `kit-types.ts`. */
 type TagSummary = { tag: string; count: number };
@@ -120,7 +121,7 @@ const buildCompletions = (tags: TagSummary[]): Completion[] => {
         type: "constant",
         detail: t.count === 1 ? "1 note" : `${t.count} notes`,
       };
-      (c as Completion & { kitIcon: string }).kitIcon = "ti-hash";
+      withIcon(c, "ti-hash");
       return c;
     });
 };

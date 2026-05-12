@@ -55,6 +55,21 @@ import type { EditorState } from "@codemirror/state";
  */
 export type KitCompletion = Completion & { kitIcon?: string };
 
+/**
+ * Tag a CM `Completion` with a Tabler icon class. The structural-cast
+ * dance is here because CM's `Completion` interface has no built-in
+ * icon field; we extend it via the `KitCompletion` shape and the
+ * renderer in `slash-commands/index.ts` reads the same field with a
+ * symmetric cast.
+ *
+ * Returns the original object (mutated in place) so callers can
+ * write `withIcon(snippetCompletion(...), "ti-foo")` inline.
+ */
+export const withIcon = <C extends Completion>(c: C, icon: string): C => {
+  (c as KitCompletion).kitIcon = icon;
+  return c;
+};
+
 // =============================================================================
 // Top-level namespaces
 // =============================================================================

@@ -45,6 +45,7 @@
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import type { EditorState } from "@codemirror/state";
 import { cellTextBeforeCursor, isTableRow, TABLE_SEPARATOR_RE } from "./_lib/table-cell";
+import { withIcon } from "./kit-autocomplete";
 
 const isSeparatorRow = (lineText: string): boolean => TABLE_SEPARATOR_RE.test(lineText);
 
@@ -179,7 +180,7 @@ export const tableColumnCompletionSource = (
       detail: "column",
       apply: buildColumnApply(col, userTypedBacktick),
     };
-    (c as Completion & { kitIcon: string }).kitIcon = "ti-columns-3";
+    withIcon(c, "ti-columns-3");
     return c;
   });
 
