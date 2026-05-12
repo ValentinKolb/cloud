@@ -78,11 +78,10 @@ export const enhanceReadModeScripts = (container: HTMLElement, config: ReadModeS
   }
 };
 
-/** Inverse of `encodeScriptSource` in `cloud/.../extensions/code.ts`.
- *  Browser-side: `atob` + `decodeURIComponent` round-trips UTF-8. */
+/** Inverse of `encodeScriptSource` in `cloud/.../extensions/code.ts`. */
 const decodeScriptSource = (b64: string): string => {
-  // `escape` is deprecated but the equivalent of the marked
-  // server-side encoder's `unescape(encodeURIComponent(...))`. The
-  // round-trip is the standard "btoa supports only Latin-1" workaround.
-  return decodeURIComponent(escape(atob(b64)));
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
 };

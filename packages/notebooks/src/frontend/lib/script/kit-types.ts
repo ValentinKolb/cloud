@@ -75,11 +75,78 @@ export type KitContext = {
    * are just dropped on the floor.
    */
   registerDisposer?: (fn: () => void) => void;
+  /**
+   * Host-provided liveness check for edit-mode re-runs. Async script
+   * bodies cannot be cancelled once started, so kit methods that cause
+   * visible or persistent side effects check this before acting.
+   */
+  isActive?: () => boolean;
 };
 
 // =============================================================================
 // Public Kit shape
 // =============================================================================
+
+import type {
+  charts as stdCharts,
+  crypto as stdCrypto,
+  dates as stdDates,
+  encoding as stdEncoding,
+  fuzzy as stdFuzzy,
+  password as stdPassword,
+  text as stdText,
+  timing as stdTiming,
+} from "@valentinkolb/stdlib";
+import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
+import type { files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
+
+/**
+ * Curated `@valentinkolb/stdlib` namespaces re-exposed on the kit so
+ * script authors can build small applications without importing
+ * anything. Each entry is a thin pass-through — the kit doesn't wrap
+ * or rename functions, so the full stdlib API reference applies.
+ *
+ * What's NOT included on purpose:
+ *  - `notifications`, `cache`, `gradients`, `svg` — user dropped.
+ *  - `result`, `searchParams`, `streaming`, `theme`, `cookies`,
+ *    `fileicons`, `solid/*` — not script-relevant.
+ *  - `kvStore` — already exposed as `kit.localState.*` with proper
+ *    namespacing per notebook.
+ */
+export type KitStdLib = {
+  /** String manipulation — `slugify`, `humanize`, `truncate`,
+   *  case conversion, `pprintBytes`, etc. */
+  text: typeof stdText;
+  /** Date / time formatting and calendar utilities. */
+  dates: typeof stdDates;
+  /** Fuzzy search / typo correction — `match`, `filter`, `closest`. */
+  fuzzy: typeof stdFuzzy;
+  /** Crypto primitives: hash (SHA-256 / FNV-1a), uuid, readableId,
+   *  asymmetric / symmetric / TOTP. */
+  crypto: typeof stdCrypto;
+  /** Byte ↔ string conversions — Base64, Hex, Base62. */
+  encoding: typeof stdEncoding;
+  /** SVG chart generators — scatter, line, bar, pie, donut, sparkline.
+   *  Combine with `kit.ui.html(svg)` to render the result. */
+  charts: typeof stdCharts;
+  /** QR-code generators (WiFi, email, tel, vCard, event) + SVG render. */
+  qr: typeof stdQr;
+  /** Password generators (random / memorable / pin) + strength meter. */
+  password: typeof stdPassword;
+  /** Async timing helpers — `sleep`, `debounce`, `throttle`, `jitter`,
+   *  `withMinLoadTime`. */
+  timing: typeof stdTiming;
+  /** File downloads, ZIP archive creation, file/folder picker
+   *  dialogs, MIME-type utilities. Browser-only. */
+  files: typeof stdFiles;
+  /** Chainable image processing — resize, crop, filter, rotate,
+   *  flip, presets, batch. Browser-only. */
+  images: typeof stdImages;
+  /** Single-method facade — `kit.clipboard.copy(text)`. The full
+   *  stdlib clipboard module has more (read, hasPermission, etc.)
+   *  but we deliberately keep the surface minimal here. */
+  clipboard: { copy: (text: string) => Promise<void> };
+};
 
 export type Kit = {
   note: KitCurrentNote;
@@ -89,7 +156,7 @@ export type Kit = {
   state: KitStateAPI;
   localState: KitLocalStateAPI;
   ui: KitUI;
-};
+} & KitStdLib;
 
 // ----- kit.note ----------------------------------------------------
 
@@ -260,6 +327,11 @@ export type KitLocalStateAPI = {
   /** Keys for THIS notebook's local-state namespace, sorted
    *  alphabetically. Other notebooks' keys aren't visible. */
   keys(): Promise<string[]>;
+  /** Fire `cb` whenever `key` changes — same tab via the kvStore's
+   *  internal watcher, OTHER tabs via the kvStore's BroadcastChannel.
+   *  Auto-cleaned on script re-run / widget destroy. The returned
+   *  function unsubscribes manually; running it twice is a no-op. */
+  observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void;
 };
 
 // ----- kit.ui ------------------------------------------------------
@@ -272,7 +344,144 @@ export type KitToastOptions = {
   title?: string;
 };
 
+/**
+ * The DOM element returned by every `kit.ui.*` builder. Carries a
+ * `.show()` shortcut so users can mount via either of:
+ *
+ *   kit.ui.render(kit.ui.button("hi", fn));   // declarative
+ *   kit.ui.button("hi", fn).show();           // chaining sugar
+ *
+ * The element is a plain `HTMLElement` under the hood — escape
+ * hatches like `kit.ui.html(...)` and the children-as-`HTMLElement`
+ * accept points let scripts plug in any DOM, not just kit-built
+ * nodes.
+ */
+export type KitElement = HTMLElement & {
+  /** Mount this element into the script's output container. Same
+   *  effect as `kit.ui.render(this)`. Returns nothing. */
+  show: () => void;
+};
+
+/** Anything the layout builders accept as a child:
+ *  - a `KitElement` (returned by other `kit.ui.*` builders)
+ *  - any raw `HTMLElement` (escape hatch — your own canvas, charts,
+ *    third-party components)
+ *  - a `string` (auto-wrapped in `kit.ui.text`)
+ *  - `null` / `false` / `undefined` (skipped — useful for inline
+ *    conditionals: `cond && kit.ui.text(...)`) */
+export type KitChild = KitElement | HTMLElement | string | null | false | undefined;
+
+export type KitButtonVariant = "primary" | "secondary" | "danger";
+
+export type KitButtonOptions = {
+  /** Visual variant. Default `primary`. */
+  variant?: KitButtonVariant;
+  /** Tabler-icon class — e.g. `"ti ti-check"`. Rendered before the
+   *  label. */
+  icon?: string;
+  /** When true the button is non-interactive (greyed out, click
+   *  handler not invoked). */
+  disabled?: boolean;
+};
+
+export type KitHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
 export type KitUI = {
+  // ── Layout ─────────────────────────────────────────────────────
+  /** Horizontal flex row with gap. Children wrap to a new visual
+   *  line when they don't fit. */
+  row: (...children: KitChild[]) => KitElement;
+  /** Vertical flex column with gap. */
+  col: (...children: KitChild[]) => KitElement;
+  /** Bordered container with padding — visual grouping for related
+   *  content. Lays out children vertically (same as `col`) by
+   *  default. */
+  card: (...children: KitChild[]) => KitElement;
+  /** Horizontal rule. */
+  divider: () => KitElement;
+
+  // ── Content ────────────────────────────────────────────────────
+  /** Plain paragraph text. */
+  text: (content: string) => KitElement;
+  /** Heading level 1–6 (default 2). */
+  heading: (content: string, level?: KitHeadingLevel) => KitElement;
+  /** Render arbitrary markdown (same engine as the read-mode
+   *  pipeline). Trusted scripts only — output is not sanitised. */
+  md: (markdown: string) => KitElement;
+
+  // ── Interactive ────────────────────────────────────────────────
+  /** Button. Async `onClick` errors are caught and rendered as a
+   *  small inline error chip next to the button. */
+  button: (
+    label: string,
+    onClick: () => void | Promise<void>,
+    options?: KitButtonOptions,
+  ) => KitElement;
+
+  // ── Escape hatch ───────────────────────────────────────────────
+  /** Wrap raw HTML in a container. Trusted-script-only — the
+   *  string is set via `innerHTML` without sanitisation. */
+  html: (rawHtml: string) => KitElement;
+
+  // ── Mount ──────────────────────────────────────────────────────
+  /** Mount one or more elements into the script's output container.
+   *  Equivalent to calling `.show()` on each one in order. */
+  render: (...elements: KitChild[]) => void;
+
+  // ── Side-effect (NOT mounted into the output tree) ─────────────
+  /** Global toast notification. Fires the platform toast UI; not
+   *  attached to the script's output. */
   toast: (description: string, options?: KitToastOptions) => void;
-  button: (label: string, onClick: () => void | Promise<void>) => void;
+  /** Modal prompts — pass-through to the platform `prompts.*` API.
+   *  Async, return null/undefined on cancel:
+   *    - `kit.ui.prompt.alert(msg)` — info dialog with OK
+   *    - `kit.ui.prompt.confirm(msg)` — Yes/No, returns boolean
+   *    - `kit.ui.prompt.text(msg, def?)` — single text input
+   *    - `kit.ui.prompt.form(spec)` — multi-field form (see platform
+   *      docs for field types: text / number / select / boolean /
+   *      tags / image / currency / pin) */
+  prompt: KitPromptAPI;
+};
+
+/** Pass-through binding for the platform `prompts.*` modal API,
+ *  exposed via `kit.ui.prompt`. We re-declare the surface here as a
+ *  thin type so script-side typings don't reach into
+ *  `@valentinkolb/cloud/ui`. */
+export type KitPromptAPI = {
+  alert: (message: string, options?: { title?: string; icon?: string }) => Promise<void>;
+  confirm: (message: string, options?: { title?: string; icon?: string }) => Promise<boolean>;
+  text: (message: string, defaultValue?: string, options?: { title?: string; placeholder?: string }) => Promise<string | null>;
+  form: (spec: KitFormSpec) => Promise<Record<string, unknown> | null>;
+};
+
+/** Shape of the `kit.ui.prompt.form` argument. Mirrors the platform
+ *  `prompts.form` config — fields can be text / number / boolean /
+ *  select. Multi-line input via `{ type: "text", multiline: true }`
+ *  (the platform doesn't have a separate `textarea` type — a `text`
+ *  field with `multiline: true` and an optional `lines` count
+ *  IS the textarea). The platform supports more types (tags, image,
+ *  currency, pin, datetime) — scripts needing those can drop down
+ *  to `kit.ui.html` + a manual form. */
+export type KitFormField =
+  | {
+      type: "text";
+      label?: string;
+      placeholder?: string;
+      required?: boolean;
+      default?: string;
+      /** Render as multi-line textarea. */
+      multiline?: boolean;
+      /** Visible rows when `multiline` is true. Default ~3. */
+      lines?: number;
+    }
+  | { type: "number"; label?: string; placeholder?: string; required?: boolean; default?: number; min?: number; max?: number }
+  | { type: "boolean"; label?: string; default?: boolean }
+  | { type: "select"; label?: string; options: string[]; required?: boolean; default?: string };
+
+export type KitFormSpec = {
+  title?: string;
+  icon?: string;
+  submitText?: string;
+  cancelText?: string;
+  fields: Record<string, KitFormField>;
 };

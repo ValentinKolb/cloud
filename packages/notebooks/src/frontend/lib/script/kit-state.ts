@@ -22,6 +22,12 @@
 import * as Y from "yjs";
 import type { KitContext, KitStateAPI } from "./kit-types";
 
+const assertActive = (ctx: KitContext): void => {
+  if (ctx.isActive && !ctx.isActive()) {
+    throw new Error("Script run is no longer active");
+  }
+};
+
 const STATE_MAP_NAME = "kit:state";
 const READ_MODE_WARN = "kit.state.* is a no-op in read mode (no Y.Doc available)";
 
@@ -66,10 +72,12 @@ export const createKitStateAPI = (ctx: KitContext): KitStateAPI => {
   };
 
   const set = <T>(key: string, value: T): void => {
+    assertActive(ctx);
     ymap.set(key, JSON.stringify(value));
   };
 
   const del = (key: string): void => {
+    assertActive(ctx);
     ymap.delete(key);
   };
 
@@ -79,6 +87,7 @@ export const createKitStateAPI = (ctx: KitContext): KitStateAPI => {
     key: string,
     cb: (newValue: T | undefined) => void,
   ): (() => void) => {
+    assertActive(ctx);
     const handler = (event: Y.YMapEvent<string>) => {
       // `event.keysChanged` is a Set of keys that changed in this
       // transaction — only fire the callback when the watched key

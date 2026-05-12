@@ -3,7 +3,7 @@
  * edit-mode (via Y.Text) and the snapshot in read-mode. Write methods
  * mutate Y.Text directly when available; in read-mode they throw.
  *
- * Tag + task extraction reuses the same regexes as the rest of the
+ * Tag + task extraction reuses the same markdown semantics as the
  * platform (notebook tag pills, sidebar task counter) so what
  * `kit.note.tags` returns matches what the user sees in the UI.
  */
@@ -15,23 +15,57 @@ import type { KitContext, KitCurrentNote, KitTask } from "./kit-types";
 // Task extraction
 // =============================================================================
 
-/** Markdown task checkbox: optional indent + bullet (`-` or `*`) +
- *  space + `[ ]` or `[x]` + space + body. */
-const TASK_REGEX = /^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/;
+const WHITESPACE_REGEX = /\s/;
+
+const isWhitespace = (char: string): boolean => WHITESPACE_REGEX.test(char);
+
+const parseTaskLine = (
+  line: string,
+): { text: string; done: boolean; checkboxIndex: number } | null => {
+  let i = 0;
+  while (i < line.length && isWhitespace(line[i]!)) i++;
+
+  const bullet = line[i];
+  if (bullet !== "-" && bullet !== "*") return null;
+  i++;
+
+  const afterBullet = i;
+  while (i < line.length && isWhitespace(line[i]!)) i++;
+  if (i === afterBullet) return null;
+
+  if (line[i] !== "[") return null;
+  const checkboxIndex = i + 1;
+  const checkbox = line[checkboxIndex];
+  if (checkbox !== " " && checkbox !== "x" && checkbox !== "X") return null;
+  if (line[i + 2] !== "]") return null;
+  i += 3;
+
+  const afterCheckbox = i;
+  while (i < line.length && isWhitespace(line[i]!)) i++;
+  if (i === afterCheckbox) return null;
+
+  return { text: line.slice(i), done: checkbox.toLowerCase() === "x", checkboxIndex };
+};
 
 const extractTasks = (content: string): KitTask[] => {
   if (!content) return [];
-  const lines = content.split("\n");
   const tasks: KitTask[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i]!.match(TASK_REGEX);
-    if (match) {
+  let line = 0;
+  let start = 0;
+  while (start <= content.length) {
+    const next = content.indexOf("\n", start);
+    const end = next === -1 ? content.length : next;
+    const task = parseTaskLine(content.slice(start, end));
+    if (task) {
       tasks.push({
-        text: match[3]!,
-        done: match[2]!.toLowerCase() === "x",
-        line: i,
+        text: task.text,
+        done: task.done,
+        line,
       });
     }
+    if (next === -1) break;
+    start = next + 1;
+    line++;
   }
   return tasks;
 };
@@ -70,13 +104,63 @@ const lineRange = (text: string, line: number): { start: number; end: number } |
  *  caller so users searching for it find every site. */
 const READ_MODE_WRITE_ERROR = "kit.note.* writes are only available in edit mode";
 
+type YTextItemLike = {
+  deleted?: boolean;
+  countable?: boolean;
+  content?: { str?: unknown };
+  right?: YTextItemLike | null;
+};
+
+type YTextWithInternals = {
+  _start?: YTextItemLike | null;
+  length: number;
+  toString(): string;
+};
+
+/** Hard cap for content read by sync getters (`kit.note.content`,
+ *  `kit.note.tags`, `kit.note.tasks`). For pathologically large notes
+ *  the synchronous regex passes in `extractTags` / `extractTasks`
+ *  could block the JS thread visibly. Truncating at 256K chars gives a
+ *  predictable upper bound on the parse work — users with notes
+ *  bigger than that should be querying via `kit.notes` etc. instead. */
+const LIVE_CONTENT_HARD_CAP_CHARS = 256 * 1024;
+
+const readYTextPrefix = (ytext: NonNullable<KitContext["ytext"]>, maxChars: number): string => {
+  const internal = ytext as unknown as YTextWithInternals;
+  if (internal.length <= maxChars || !internal._start) return ytext.toString();
+
+  const chunks: string[] = [];
+  let remaining = maxChars;
+  let item: YTextItemLike | null = internal._start;
+  while (item && remaining > 0) {
+    if (!item.deleted && item.countable && typeof item.content?.str === "string") {
+      const chunk = item.content.str;
+      const take = Math.min(chunk.length, remaining);
+      chunks.push(chunk.slice(0, take));
+      remaining -= take;
+    }
+    item = item.right ?? null;
+  }
+  return chunks.join("");
+};
+
 export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
   // Live content reader: ytext in edit mode, snapshot in read mode.
   // Wrapping in a function (not a stored value) so getters always
   // hit the latest Y.Text state.
-  const liveContent = (): string => (ctx.ytext ? ctx.ytext.toString() : ctx.note.content);
+  const liveContent = (): string => {
+    const raw = ctx.ytext
+      ? readYTextPrefix(ctx.ytext, LIVE_CONTENT_HARD_CAP_CHARS)
+      : ctx.note.content;
+    if (!raw) return raw ?? "";
+    if (raw.length > LIVE_CONTENT_HARD_CAP_CHARS) {
+      return raw.slice(0, LIVE_CONTENT_HARD_CAP_CHARS);
+    }
+    return raw;
+  };
 
   const requireWrite = () => {
+    if (ctx.isActive && !ctx.isActive()) throw new Error("Script run is no longer active");
     if (ctx.mode !== "edit" || !ctx.ytext) throw new Error(READ_MODE_WRITE_ERROR);
   };
 
@@ -146,12 +230,10 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
     const range = lineRange(current, line);
     if (!range) throw new Error(`kit.note.toggleTask: line ${line} is out of range`);
     const lineText = current.slice(range.start, range.end);
-    const match = lineText.match(TASK_REGEX);
-    if (!match) throw new Error(`kit.note.toggleTask: line ${line} doesn't contain a task checkbox`);
-    // Position of the checkbox char inside the line: indent length + bullet (`-`/`*`) + space + `[`.
-    const indent = match[1]!.length;
-    const checkboxCharOffset = range.start + indent + 2 + 1; // `[ ` or `[x` — char at idx `indent+2+1`
-    const newChar = match[2]!.toLowerCase() === "x" ? " " : "x";
+    const task = parseTaskLine(lineText);
+    if (!task) throw new Error(`kit.note.toggleTask: line ${line} doesn't contain a task checkbox`);
+    const checkboxCharOffset = range.start + task.checkboxIndex;
+    const newChar = task.done ? " " : "x";
     // Single-character flip — minimal-diff so remote cursors don't shift.
     ytext.doc?.transact(() => {
       ytext.delete(checkboxCharOffset, 1);

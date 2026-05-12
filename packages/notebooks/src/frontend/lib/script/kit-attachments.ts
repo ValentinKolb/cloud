@@ -11,6 +11,12 @@
 import { files } from "@valentinkolb/stdlib/browser";
 import type { KitAttachment, KitAttachmentsAPI, KitContext } from "./kit-types";
 
+const assertActive = (ctx: KitContext): void => {
+  if (ctx.isActive && !ctx.isActive()) {
+    throw new Error("Script run is no longer active");
+  }
+};
+
 // =============================================================================
 // Wire shape (matches AttachmentSchema in api/index.ts)
 // =============================================================================
@@ -95,6 +101,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   };
 
   const upload = async (file: File | Blob, filename?: string): Promise<KitAttachment> => {
+    assertActive(ctx);
     const name = filename ?? (file instanceof File ? file.name : undefined);
     if (!name) throw new Error("kit.attachments.upload: filename required for Blob inputs");
     const form = new FormData();
@@ -119,6 +126,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   ): Promise<KitAttachment[]> => {
     if (opts?.multiple) {
       const picked = await files.showFileDialog({ accept: opts.accept, multiple: true });
+      assertActive(ctx);
       const results: KitAttachment[] = [];
       // Sequential to keep order stable + bound concurrency to 1
       // upload at a time (matches the editor's AttachmentPicker).
@@ -126,14 +134,17 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
       return results;
     }
     const picked = await files.showFileDialog({ accept: opts?.accept, multiple: false });
+    assertActive(ctx);
     return [await upload(picked)];
   };
 
   const insertIntoContent = async (shortId: string): Promise<void> => {
+    assertActive(ctx);
     if (ctx.mode !== "edit" || !ctx.ytext) throw new Error(READ_MODE_WRITE_ERROR);
     // Resolve the attachment to know its filename + kind, so we
     // emit the correct image-vs-file markdown form.
     const att = await get(shortId);
+    assertActive(ctx);
     if (!att) throw new Error(`kit.attachments.insertIntoContent: attachment ${shortId} not found`);
     const md =
       att.kind === "image"
@@ -146,6 +157,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   };
 
   const remove = async (shortId: string): Promise<void> => {
+    assertActive(ctx);
     const res = await fetch(`${apiBase(ctx.notebookId)}/${encodeURIComponent(shortId)}`, {
       method: "DELETE",
     });

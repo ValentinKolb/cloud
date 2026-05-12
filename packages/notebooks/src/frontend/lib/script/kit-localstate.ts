@@ -19,6 +19,12 @@
 import { kvStore } from "@valentinkolb/stdlib/browser";
 import type { KitContext, KitLocalStateAPI } from "./kit-types";
 
+const assertActive = (ctx: KitContext): void => {
+  if (ctx.isActive && !ctx.isActive()) {
+    throw new Error("Script run is no longer active");
+  }
+};
+
 const KEY_NAMESPACE = "notebooks:script-state";
 
 export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
@@ -31,10 +37,12 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
   };
 
   const set = async <T>(key: string, value: T): Promise<void> => {
+    assertActive(ctx);
     await kvStore.set(fullKey(key), value);
   };
 
   const del = async (key: string): Promise<void> => {
+    assertActive(ctx);
     await kvStore.delete(fullKey(key));
   };
 
@@ -45,5 +53,38 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
     return all.map((k) => k.slice(prefix.length)).sort();
   };
 
-  return { get, set, delete: del, keys };
+  const observe = <T = unknown>(
+    key: string,
+    cb: (newValue: T | undefined) => void,
+  ): (() => void) => {
+    // `kvStore.watch` accepts a prefix and fires on any matching
+    // key change. We pass the FULLY-NAMESPACED key as the prefix
+    // and then filter by exact match in the callback so we only
+    // fire for THIS key, not siblings under the same notebook.
+    const full = fullKey(key);
+    const unwatch = kvStore.watch((event) => {
+      if (event.key !== full) return;
+      // Re-read async so the callback sees the current value (or
+      // undefined on delete). `kvStore.watch` is cross-tab via
+      // BroadcastChannel, so updates from OTHER browser tabs / other
+      // scripts that touched the same key also fire here.
+      void (async () => {
+        const value = await kvStore.get<T>(full);
+        cb(value);
+      })();
+    }, prefix);
+
+    // Auto-cleanup on script re-run / widget destroy. Identical
+    // pattern to `kit.state.observe`'s `registerDisposer` usage.
+    let disposed = false;
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      unwatch();
+    };
+    ctx.registerDisposer?.(dispose);
+    return dispose;
+  };
+
+  return { get, set, delete: del, keys, observe };
 };

@@ -17,6 +17,12 @@ import { apiClient } from "../../../api/client";
 import { extractTags } from "../tag-extract";
 import type { KitContext, KitNote, KitNotesAPI, KitQuery } from "./kit-types";
 
+const assertActive = (ctx: KitContext): void => {
+  if (ctx.isActive && !ctx.isActive()) {
+    throw new Error("Script run is no longer active");
+  }
+};
+
 // =============================================================================
 // Wire shape (matches NoteSchema in api/index.ts)
 // =============================================================================
@@ -33,16 +39,22 @@ type ApiNote = {
   lockedAt: string | null;
 };
 
-const toKitNote = (n: ApiNote): KitNote => ({
-  id: n.shortId,
-  title: n.title,
-  content: n.contentMd,
-  tags: extractTags(n.contentMd),
-  parentId: n.parentId,
-  createdAt: n.createdAt,
-  updatedAt: n.updatedAt,
-  lockedAt: n.lockedAt,
-});
+const toKitNote = (n: ApiNote): KitNote => {
+  let tags: string[] | undefined;
+  return {
+    id: n.shortId,
+    title: n.title,
+    content: n.contentMd,
+    get tags() {
+      tags ??= extractTags(n.contentMd);
+      return tags;
+    },
+    parentId: n.parentId,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+    lockedAt: n.lockedAt,
+  };
+};
 
 // =============================================================================
 // Pagination helpers
@@ -161,8 +173,8 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
   const search = async (query: string | KitQuery): Promise<KitNote[]> => {
     // Normalise: string overload becomes `{ search: <string> }`.
     const q: KitQuery = typeof query === "string" ? { search: query } : query;
-    const userLimit = Math.min(q.limit ?? 50, 200);
-    const userOffset = q.offset ?? 0;
+    const userLimit = Math.max(0, Math.min(q.limit ?? 50, 200));
+    const userOffset = Math.max(0, q.offset ?? 0);
 
     const hasPostFilter =
       (q.tags && q.tags.length > 0) ||
@@ -194,6 +206,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
   };
 
   const create = async (data: { title: string; parentId?: string }): Promise<KitNote> => {
+    assertActive(ctx);
     const res = await apiClient[":id"].notes.$post({
       param: { id: ctx.notebookId },
       json: data,
@@ -207,6 +220,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     shortId: string,
     data: { title?: string; parentId?: string | null },
   ): Promise<KitNote> => {
+    assertActive(ctx);
     const res = await apiClient[":id"].notes[":noteId"].$patch({
       param: { id: ctx.notebookId, noteId: shortId },
       json: data,
@@ -217,6 +231,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
   };
 
   const remove = async (shortId: string): Promise<void> => {
+    assertActive(ctx);
     const res = await apiClient[":id"].notes[":noteId"].$delete({
       param: { id: ctx.notebookId, noteId: shortId },
     });

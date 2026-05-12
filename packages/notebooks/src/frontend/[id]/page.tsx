@@ -141,7 +141,7 @@ export default ssr<AuthContext>(async (c) => {
       if (noteWithContent) {
         // Force read mode for locked notes
         const isNoteLocked = !!noteWithContent.lockedAt;
-        const shouldRenderHtml = isReadMode || isNoteLocked;
+        const shouldRenderHtml = isReadMode || isNoteLocked || !canWrite;
 
         tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
 
@@ -198,8 +198,9 @@ export default ssr<AuthContext>(async (c) => {
     }
   }
 
-  // Determine actual read mode (including locked notes)
-  const actualReadMode = isReadMode || !!selectedNote?.lockedAt;
+  // Determine actual read mode. Users without write permission must
+  // not mount the edit-mode Y.Doc/kit surface.
+  const actualReadMode = isReadMode || !canWrite || !!selectedNote?.lockedAt;
 
   // Backlinks: only loaded for actual note views (skip settings + versions
   // modes). Cheap query; rendered server-side via SSR — no client fetch.
