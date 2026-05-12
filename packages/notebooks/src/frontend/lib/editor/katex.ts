@@ -1,5 +1,5 @@
 import { syntaxTree } from "@codemirror/language";
-import type { EditorState, Extension, Range } from "@codemirror/state";
+import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { RangeSet, StateField } from "@codemirror/state";
 import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
@@ -76,10 +76,57 @@ class BlockMathWidget extends WidgetType {
   }
 }
 
-const findBlockMathExpressions = (state: EditorState): Range<Decoration>[] => {
+type KatexDecorationState = {
+  decorations: DecorationSet;
+  hasMathSyntax: boolean;
+  mathRanges: { from: number; to: number }[];
+};
+
+const hasMathMarker = (text: string): boolean => text.includes("$") || text.includes("\\");
+
+const changesMightAffectMath = (tr: Transaction): boolean => {
+  let might = false;
+  tr.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
+    if (might) return;
+    if (hasMathMarker(inserted.toString())) {
+      might = true;
+      return;
+    }
+
+    const from = Math.max(0, fromB - 2);
+    const to = Math.min(tr.state.doc.length, toB + 2);
+    might = hasMathMarker(tr.state.doc.sliceString(from, to));
+  });
+  return might;
+};
+
+const intersectsAnyRange = (ranges: { from: number; to: number }[], from: number, to: number): boolean =>
+  ranges.some(
+    (range) => (from >= range.from && from < range.to) || (to > range.from && to <= range.to) || (from <= range.from && to >= range.to),
+  );
+
+const changesIntersectRanges = (tr: Transaction, ranges: { from: number; to: number }[]): boolean => {
+  if (ranges.length === 0) return false;
+  let intersects = false;
+  tr.changes.iterChangedRanges((fromA, toA) => {
+    if (intersects) return;
+    intersects = intersectsAnyRange(ranges, fromA, toA) || ranges.some((range) => fromA === range.from || fromA === range.to);
+  });
+  return intersects;
+};
+
+const mapRanges = (tr: Transaction, ranges: { from: number; to: number }[]): { from: number; to: number }[] =>
+  ranges.map((range) => ({
+    from: tr.changes.mapPos(range.from, 1),
+    to: tr.changes.mapPos(range.to, -1),
+  }));
+
+const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
   const decorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
   const doc = state.doc.toString();
+  let hasMathSyntax = false;
+  const mathRanges: { from: number; to: number }[] = [];
 
   const codeRanges: { from: number; to: number }[] = [];
 
@@ -93,6 +140,8 @@ const findBlockMathExpressions = (state: EditorState): Range<Decoration>[] => {
         const language = lines[0]?.replace("```", "").trim().toLowerCase() || "";
 
         if (language === "math") {
+          hasMathSyntax = true;
+          mathRanges.push({ from: node.from, to: node.to });
           if (cursor.from >= node.from && cursor.to <= node.to) return false;
           const latex = lines.slice(1, -1).join("\n");
           decorations.push(
@@ -109,76 +158,83 @@ const findBlockMathExpressions = (state: EditorState): Range<Decoration>[] => {
     },
   });
 
-  const isInsideCode = (from: number, to: number): boolean =>
-    codeRanges.some(
-      (range) => (from >= range.from && from < range.to) || (to > range.from && to <= range.to) || (from <= range.from && to >= range.to),
-    );
-
   const blockMathRegex = /\$\$([^$]+)\$\$|\\\[(.*?)\\\]/gs;
   let match: RegExpExecArray | null = blockMathRegex.exec(doc);
   while (match !== null) {
     const from = match.index;
     const to = from + match[0].length;
     const latex = match[1] ?? match[2] ?? "";
-    if (isInsideCode(from, to)) continue;
-    if (cursor.from >= from && cursor.to <= to) continue;
+    hasMathSyntax = true;
+    mathRanges.push({ from, to });
+    // CRITICAL — advance `match` BEFORE any `continue`, otherwise
+    // the loop spins forever on a match that's inside code or under
+    // the caret. Previously the `.exec(doc)` call only ran at the
+    // end of the iteration; a `continue` skipped it and `lastIndex`
+    // stayed the same → same match → continue → infinite loop. The
+    // observable symptom is a complete tab freeze the moment the
+    // doc contains a `$$..$$` (or `\[..\]`) inside any code block.
+    const cursorInside = cursor.from >= from && cursor.to <= to;
+    const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
+    match = blockMathRegex.exec(doc);
+    if (skip) continue;
     decorations.push(
       Decoration.replace({
         widget: new BlockMathWidget(latex),
         block: true,
       }).range(from, to),
     );
-    match = blockMathRegex.exec(doc);
   }
 
-  return decorations;
-};
-
-const findInlineMathExpressions = (state: EditorState): Range<Decoration>[] => {
-  const decorations: Range<Decoration>[] = [];
-  const cursor = state.selection.ranges[0]!;
-  const doc = state.doc.toString();
-
-  const codeRanges: { from: number; to: number }[] = [];
-  syntaxTree(state).iterate({
-    enter: (node) => {
-      if (node.type.name === "FencedCode" || node.type.name === "InlineCode") {
-        codeRanges.push({ from: node.from, to: node.to });
-      }
-    },
-  });
-
-  const isInsideCode = (from: number, to: number): boolean =>
-    codeRanges.some((range) => (from >= range.from && from < range.to) || (to > range.from && to <= range.to));
-
   const inlineMathRegex = /(?<!\$)\$(?!\$)([^$]+)\$(?!\$)|\\\((.*?)\\\)/g;
-  let match: RegExpExecArray | null = inlineMathRegex.exec(doc);
+  match = inlineMathRegex.exec(doc);
   while (match !== null) {
     const from = match.index;
     const to = from + match[0].length;
     const latex = match[1] ?? match[2] ?? "";
-    if (isInsideCode(from, to)) continue;
-    if (cursor.from >= from && cursor.to <= to) continue;
-    decorations.push(Decoration.replace({ widget: new InlineMathWidget(latex) }).range(from, to));
+    hasMathSyntax = true;
+    mathRanges.push({ from, to });
+    // Same infinite-loop guard as in `findBlockMathExpressions` —
+    // advance `match` BEFORE any `continue`. See the comment there
+    // for the freeze-on-`$`-in-code-range root cause.
+    const cursorInside = cursor.from >= from && cursor.to <= to;
+    const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
     match = inlineMathRegex.exec(doc);
+    if (skip) continue;
+    decorations.push(Decoration.replace({ widget: new InlineMathWidget(latex) }).range(from, to));
   }
 
-  return decorations;
+  return {
+    decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    hasMathSyntax,
+    mathRanges,
+  };
 };
 
 export const katexExtension = (): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<KatexDecorationState>({
     create(state) {
-      return RangeSet.of([...findBlockMathExpressions(state), ...findInlineMathExpressions(state)], true);
+      return buildKatexDecorations(state);
     },
-    update(decorations, tr) {
-      if (tr.docChanged || tr.selection) {
-        return RangeSet.of([...findBlockMathExpressions(tr.state), ...findInlineMathExpressions(tr.state)], true);
+    update(value, tr) {
+      if (tr.docChanged) {
+        const decorations = value.decorations.map(tr.changes);
+        const mathRanges = mapRanges(tr, value.mathRanges);
+        const mightAffectMath = changesMightAffectMath(tr);
+        if (!value.hasMathSyntax && !mightAffectMath) {
+          return { decorations, hasMathSyntax: false, mathRanges: [] };
+        }
+        if (value.hasMathSyntax && !changesIntersectRanges(tr, value.mathRanges) && !mightAffectMath) {
+          return { decorations, hasMathSyntax: true, mathRanges };
+        }
+        return buildKatexDecorations(tr.state);
       }
-      return decorations.map(tr.changes);
+      if (tr.selection && value.hasMathSyntax) {
+        return buildKatexDecorations(tr.state);
+      }
+      return { ...value, decorations: value.decorations.map(tr.changes) };
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (value) => value.decorations);
     },
   });
 

@@ -138,8 +138,17 @@ const bulletLists = (): Extension => {
     create(state) {
       return decorate(state);
     },
-    update(_, { state }) {
-      return decorate(state);
+    update(value, tr) {
+      // List decorations are purely positional (line classes + dot
+      // widgets); they have no cursor dependency. Skip the rescan
+      // when nothing structural about the doc changed. This was a
+      // major lag source: the original code ran `decorate(state)`
+      // on EVERY transaction including bare selection moves and
+      // focus events, walking the syntax tree each time.
+      if (!tr.docChanged) {
+        return [value[0].map(tr.changes), value[1].map(tr.changes)];
+      }
+      return decorate(tr.state);
     },
     provide(field) {
       return [
@@ -226,8 +235,14 @@ const taskLists = (): Extension => {
     create(state) {
       return decorate(state);
     },
-    update(_, { state }) {
-      return decorate(state);
+    update(value, tr) {
+      // Same as bullet-list field above: task-list decorations are
+      // pure layout (checkbox widget + line class), not cursor-
+      // dependent. Only rebuild on actual doc changes.
+      if (!tr.docChanged) {
+        return [value[0].map(tr.changes), value[1].map(tr.changes)];
+      }
+      return decorate(tr.state);
     },
     provide(field) {
       return [

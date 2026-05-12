@@ -77,8 +77,27 @@ const collectExcludedRanges = (state: EditorState): { from: number; to: number }
 const isInsideExcluded = (excluded: { from: number; to: number }[], from: number, to: number): boolean =>
   excluded.some((r) => from >= r.from && to <= r.to);
 
-const findTags = (state: EditorState, notebookId: string): Range<Decoration>[] => {
+type TagRange = { from: number; to: number };
+type TagPillState = {
+  decorations: DecorationSet;
+  /** Source ranges of every `#tag` occurrence — used both to gate
+   *  cursor-boundary rebuilds AND to feed the "cursor inside which
+   *  tag?" decision. */
+  tagRanges: TagRange[];
+};
+
+const cursorTagKey = (state: EditorState, ranges: TagRange[]): number | null => {
+  if (ranges.length === 0) return null;
+  const cursor = state.selection.main;
+  for (const r of ranges) {
+    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
+  }
+  return null;
+};
+
+const findTags = (state: EditorState, notebookId: string): TagPillState => {
   const decorations: Range<Decoration>[] = [];
+  const tagRanges: TagRange[] = [];
   const cursor = state.selection.ranges[0]!;
   const excluded = collectExcludedRanges(state);
   const text = state.doc.toString();
@@ -93,6 +112,7 @@ const findTags = (state: EditorState, notebookId: string): Range<Decoration>[] =
     const to = from + 1 + m[2]!.length; // `#` + tag chars
 
     if (isInsideExcluded(excluded, from, to)) continue;
+    tagRanges.push({ from, to });
     // Hide widget while cursor is inside its range so the user can edit
     // the literal `#tag` text without the pill swallowing clicks.
     if (cursor.from >= from && cursor.to <= to) continue;
@@ -101,22 +121,37 @@ const findTags = (state: EditorState, notebookId: string): Range<Decoration>[] =
       Decoration.replace({ widget: new TagWidget(notebookId, m[2]!.toLowerCase()) }).range(from, to),
     );
   }
-  return decorations;
+  return {
+    decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    tagRanges,
+  };
 };
 
 export const tagPillExtension = (notebookId: string): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<TagPillState>({
     create(state) {
-      return RangeSet.of(findTags(state, notebookId), true);
+      return findTags(state, notebookId);
     },
-    update(decorations, tr) {
-      if (tr.docChanged || tr.selection) {
-        return RangeSet.of(findTags(tr.state, notebookId), true);
+    update(value, tr) {
+      if (tr.docChanged) {
+        return findTags(tr.state, notebookId);
       }
-      return decorations.map(tr.changes);
+      if (!tr.selection) {
+        return value;
+      }
+      // Cursor moved — only rebuild if it crossed any tag-range
+      // boundary (entered, left, or moved between tags). For most
+      // cursor moves through plain prose, this is false and we
+      // skip the full doc.toString() + matchAll() rescan.
+      const oldKey = cursorTagKey(tr.startState, value.tagRanges);
+      const newKey = cursorTagKey(tr.state, value.tagRanges);
+      if (oldKey === newKey) {
+        return value;
+      }
+      return findTags(tr.state, notebookId);
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (v) => v.decorations);
     },
   });
 

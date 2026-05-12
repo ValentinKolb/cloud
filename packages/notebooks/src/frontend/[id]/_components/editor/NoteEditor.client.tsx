@@ -172,9 +172,20 @@ export default function NoteEditor(props: Props) {
           editor.katexExtension(),
           editor.codeFontExtension(),
           editor.tagPillExtension(props.notebookId),
+          // Note: `kit.*` autocomplete is wired INSIDE the
+          // slashCommandsExtension's `override` array (both kit and
+          // slash sources share one `autocompletion()` config so
+          // they can coexist — override means CM only uses sources
+          // we explicitly list).
           // Scripts: per-notebook opt-in (admin toggles in settings).
-          // When OFF, the extension emits no decorations and the
-          // ```script fence renders as a normal code block.
+          // When OFF the extension emits no widgets and the
+          // ```script fence renders as a plain code block. When ON
+          // each block gets a `.md-script-output` block widget below
+          // it, hosting kit UI (buttons, toasts, error blocks). The
+          // widget root sets `contenteditable=false` so CM6's
+          // MutationObserver skips the subtree — without that, the
+          // kit's runtime DOM mutations get misinterpreted as user
+          // edits and corrupt the script body / surrounding doc.
           editor.scriptsExtension({
             scriptsEnabled: () => props.scriptsEnabled,
             notebookId: props.notebookId,

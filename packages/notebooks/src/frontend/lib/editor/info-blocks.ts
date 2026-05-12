@@ -124,8 +124,31 @@ class InfoBlockWidget extends WidgetType {
 
 const BLOCK_REGEX = /^:::(\w+)\s*\n([\s\S]*?)\n:::$/gm;
 
-const findInfoBlocks = (state: EditorState): Range<Decoration>[] => {
+type BlockRange = { from: number; to: number };
+type InfoBlocksState = {
+  decorations: DecorationSet;
+  /** Source-byte ranges of every `:::TYPE…:::` block in the doc.
+   *  Used by `update()` to detect whether the cursor moved INTO
+   *  or OUT OF a block (= the only state change that affects the
+   *  widget-vs-source visibility decision). */
+  blockRanges: BlockRange[];
+};
+
+/** Find which block (if any) contains the cursor. Returns the
+ *  block's `from` as a stable key, or `null` for outside. Used by
+ *  the cross-boundary check that gates the rescan. */
+const cursorBlockKey = (state: EditorState, ranges: BlockRange[]): number | null => {
+  if (ranges.length === 0) return null;
+  const cursor = state.selection.main;
+  for (const r of ranges) {
+    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
+  }
+  return null;
+};
+
+const findInfoBlocks = (state: EditorState): InfoBlocksState => {
   const decorations: Range<Decoration>[] = [];
+  const blockRanges: BlockRange[] = [];
   const cursor = state.selection.ranges[0]!;
   const text = state.doc.toString();
 
@@ -139,10 +162,12 @@ const findInfoBlocks = (state: EditorState): Range<Decoration>[] => {
     const blockStart = match.index;
     const blockEnd = blockStart + match[0].length;
     const nextLine = state.doc.lineAt(Math.min(blockEnd + 1, state.doc.length));
+    const sourceVisibleEnd = nextLine.to;
+    blockRanges.push({ from: blockStart, to: sourceVisibleEnd });
 
     // Cursor is inside the block → don't render the widget so the user
     // can edit the raw `:::xxx` markers.
-    if (cursor.from >= blockStart && cursor.to <= nextLine.to) continue;
+    if (cursor.from >= blockStart && cursor.to <= sourceVisibleEnd) continue;
 
     const blockData = parseInfoBlock(match[0]);
     if (!blockData) continue;
@@ -154,22 +179,36 @@ const findInfoBlocks = (state: EditorState): Range<Decoration>[] => {
     );
   }
 
-  return decorations;
+  return {
+    decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    blockRanges,
+  };
 };
 
 export const infoBlocksExtension = (): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<InfoBlocksState>({
     create(state) {
-      return RangeSet.of(findInfoBlocks(state), true);
+      return findInfoBlocks(state);
     },
-    update(decorations, tr) {
-      if (tr.docChanged || tr.selection) {
-        return RangeSet.of(findInfoBlocks(tr.state), true);
+    update(value, tr) {
+      if (tr.docChanged) {
+        return findInfoBlocks(tr.state);
       }
-      return decorations.map(tr.changes);
+      if (!tr.selection) {
+        return value;
+      }
+      // Selection change — only rescan if cursor crossed an
+      // info-block boundary (entered, left, or moved between two
+      // blocks). Same pattern as tables.ts.
+      const oldKey = cursorBlockKey(tr.startState, value.blockRanges);
+      const newKey = cursorBlockKey(tr.state, value.blockRanges);
+      if (oldKey === newKey) {
+        return value;
+      }
+      return findInfoBlocks(tr.state);
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (v) => v.decorations);
     },
   });
 

@@ -7,27 +7,51 @@
  *   kit.ui.button("Hello", () => kit.ui.toast(kit.note.title));
  *   ```
  *
- * What this extension does:
- *  - Walks the syntax tree for `FencedCode` nodes whose info-string
- *    is `script`, evaluates them as `async (kit) => { ... }`, and
- *    mounts each block's UI output into a `.md-script-output`
- *    widget BELOW the source fence.
- *  - Re-runs are debounced (~500 ms quiet) so rapid keystrokes inside
- *    a script don't thrash the kit / DOM. Edits OUTSIDE a script
- *    block (or in a different script block) don't trigger a rerun
- *    of the unrelated block — `eq()` keeps stable widgets stable.
- *  - The `scriptsEnabled` flag is checked synchronously at decoration
- *    time. When OFF, no widgets are emitted; the source renders as a
- *    plain code-fence like any other.
+ * # Architecture — minimal, mirrors the homepage app's `code` ext
  *
- * The read-mode equivalent lives in
- * `service/scripts.ts:transformScripts` — same engine
- * (`lib/script/runner.ts`) drives both paths so authoring + viewing
- * stay byte-identical.
+ * Each `\`\`\`script` block gets ONE additive `Decoration.widget`
+ * (NOT `Decoration.replace`) anchored at the end of the closing-fence
+ * line with `side: 1` as an inline widget. CSS makes the widget
+ * visually block-level. The widget hosts the kit-driven UI (buttons,
+ * toasts, error blocks). The source code itself is UNTOUCHED — it
+ * stays as plain markdown so cursor / selection / mouse interactions
+ * all work exactly like a regular ` ```js ` fence.
+ *
+ * No `estimatedHeight`, no `requestMeasure`, no fold support, no
+ * decoration on the source — every previous attempt at adding any
+ * of those caused the "ArrowUp jumps to a random script block"
+ * regression. CM measures the widget DOM after mount and adjusts
+ * layout heights from there; trust that.
+ *
+ * # Output widget — runtime isolation
+ *
+ * - `eq()` is source-only — re-runs on positional shifts would
+ *   cost a kit invocation each time, which means network calls /
+ *   Y.Doc transactions for shifts that have nothing to do with
+ *   the script.
+ * - `contenteditable=false` on the widget root keeps CM6's
+ *   MutationObserver out of the kit's runtime DOM mutations
+ *   (kit.ui.button, error blocks, toasts). Without this, those
+ *   mutations get misinterpreted as user edits and corrupt the
+ *   script body.
+ * - `ignoreEvent` returns true — clicks on internal buttons stay
+ *   self-contained; CM doesn't try to caret-move on them.
+ * - `disposed` flag handles the late-registration race for async
+ *   scripts that `await` before subscribing via
+ *   `kit.state.observe`.
+ * - `runId` guards stale async runs. We can't cancel an already
+ *   executing AsyncFunction, but late kit side effects from old
+ *   source are rejected after a re-run/destroy.
+ *
+ * # Read-mode parallel
+ *
+ * The read-mode equivalent lives in `lib/script/read-mode.ts` —
+ * same engine (`lib/script/runner.ts`) drives both paths so authoring
+ * + viewing stay byte-identical.
  */
 import { syntaxTree } from "@codemirror/language";
-import { RangeSet, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
+import { Prec, RangeSet, StateField, type EditorState, type Extension, type Range, type Transaction } from "@codemirror/state";
+import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import type { SyntaxNode } from "@lezer/common";
 import type * as Y from "yjs";
 import { createKit } from "../script/kit";
@@ -60,175 +84,291 @@ export type ScriptsConfig = {
 
 /** Debounce window for re-runs after a source change. Picked at
  *  500 ms because: (a) AsyncFunction parse + execute on small bodies
- *  is sub-ms, but (b) future kit calls (Phase 2) hit the network /
- *  Y.Doc, and (c) the user rarely needs sub-500 ms feedback while
- *  TYPING the script — most edits land settled. */
+ *  is sub-ms, but (b) kit calls hit the network / Y.Doc, and (c) the
+ *  user rarely needs sub-500 ms feedback while TYPING the script —
+ *  most edits land settled. */
 const RERUN_DEBOUNCE_MS = 500;
 
-/**
- * Block widget: hosts the `.md-script-output` container and runs the
- * script into it on a debounced timer.
- *
- * Lifecycle:
- *  - `toDOM` is called once per widget instance. We schedule the run
- *    via `setTimeout(RERUN_DEBOUNCE_MS)` rather than running
- *    synchronously. This gives the user typing-noise immunity:
- *    rapid keystrokes spawn many short-lived widgets, but only the
- *    LATEST instance's timer survives long enough to fire.
- *  - When the user edits the source, CodeMirror builds a NEW widget
- *    with the new source, removes the old DOM, and calls `destroy`
- *    on the old widget. We clear the old timer there — pending runs
- *    on stale widgets would otherwise fire into detached DOM and
- *    waste cycles (harmless but ugly).
- *  - On first mount (note open) the same debounce applies — there's
- *    no "first render is instant" carve-out because adding one
- *    branches the state machine and 500 ms is below typical
- *    page-paint perception anyway.
- */
-class ScriptOutputWidget extends WidgetType {
-  private container: HTMLElement | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
-  /** Per-run teardown functions — `kit.state.observe` and any
-   *  future kit method that registers external listeners pushes
-   *  here via `KitContext.registerDisposer`. We invoke them on
-   *  re-run / widget destroy so handlers don't leak across runs.
-   *  Codex review on commit 7ee5fdc, finding 6. */
-  private disposers: Array<() => void> = [];
-  /** Set true once the widget is permanently torn down (CM
-   *  destroyed it because the source changed and a new widget
-   *  replaces it). Late `registerDisposer` calls after this point
-   *  must invoke their teardown immediately, otherwise async
-   *  scripts that `await` before calling `kit.state.observe`
-   *  would leak observers into the old (already-disposed) widget
-   *  — codex review on commit 6978ae7, finding 1. */
-  private disposed = false;
+// =============================================================================
+// Output widget — visually block-level widget below the script
+// =============================================================================
 
+/**
+ * Inline widget that hosts the `.md-script-output` container the kit
+ * renders into. CSS gives it `display: block`, but CM still sees the
+ * enclosing line as text, which keeps cursor movement stable.
+ *
+ * # DOM reuse via `updateDOM` — critical for typing perf
+ *
+ * Every keystroke INSIDE a script fence changes the source, which
+ * means `eq()` returns false against the previous widget instance.
+ * Without intervention CM would call `destroy(oldDom)` + `toDOM()`
+ * for every keystroke — tearing down the output DOM, running all
+ * disposers (kvStore.watch unsubs, ymap unobserves), and rebuilding
+ * fresh divs. Even though the user script itself is debounced 500ms,
+ * the destroy/create cycle alone is enough to make typing visibly
+ * laggy in a doc with several scripts.
+ *
+ * Fix: implement `updateDOM(dom)` to opt into CM's same-type-widget
+ * DOM reuse path. When `updateDOM` returns true, CM keeps the
+ * existing DOM and skips `destroy`. We stash the per-DOM run state
+ * (timer, disposers, output/error refs, runId, scriptIndex) on the
+ * dom element itself via a symbol key, so successive widget
+ * instances all schedule runs against the same persistent state.
+ * Source changes only re-arm the debounce timer; no DOM teardown
+ * happens until the widget is actually removed (script deleted /
+ * editor unmounted) or it migrates to a different `scriptIndex`
+ * (defensive guard against CM matching the wrong decoration).
+ */
+
+/** Per-DOM run state. Lives on the widget's root element via the
+ *  symbol key below so it survives widget-instance churn (source
+ *  edits create new widgets every keystroke; the DOM and its state
+ *  are reused). */
+type WidgetRunState = {
+  outputEl: HTMLElement;
+  errorEl: HTMLElement;
+  /** Pending debounce timer for the next script execution. */
+  timer: ReturnType<typeof setTimeout> | null;
+  /** Disposers registered by the most recent successful run. Re-run
+   *  fires them BEFORE registering new ones. */
+  disposers: Array<() => void>;
+  /** True once the dom is permanently torn down (CM `destroy`).
+   *  Late async callbacks check this to short-circuit. */
+  disposed: boolean;
+  /** Bumped on every run + on destroy. Lets async callbacks tell
+   *  whether they're a leftover from an earlier run. */
+  runId: number;
+  /** Index of the script this state belongs to. If CM ever calls
+   *  `updateDOM` across mismatched indices we refuse and force a
+   *  rebuild (defense against CM matching the wrong decoration when
+   *  scripts are added/removed). */
+  scriptIndex: number;
+};
+
+const RUN_STATE_KEY = Symbol("kit-script-run-state");
+
+type DomWithState = HTMLElement & { [RUN_STATE_KEY]?: WidgetRunState };
+
+class OutputWidget extends WidgetType {
   constructor(
     private readonly source: string,
     private readonly config: ScriptsConfig,
+    /** Positional index of this script block within the document
+     *  (0 for the first `\`\`\`script` fence, 1 for the second, …).
+     *  Included in `eq()` so CM treats two scripts with the SAME
+     *  source body at DIFFERENT positions as distinct decorations.
+     *  Without this, pasting an identical script twice would make
+     *  CM's diff algorithm conflate them (both widgets are eq() to
+     *  each other) — observed as a complete tab freeze on the second
+     *  paste. */
+    private readonly scriptIndex: number,
   ) {
     super();
   }
 
   override eq(other: WidgetType): boolean {
-    return other instanceof ScriptOutputWidget && other.source === this.source;
+    // Source AND positional index — see ctor doc for why index is
+    // required. Two scripts with the same body at different doc
+    // positions must NOT be eq, otherwise CM's decoration-diff
+    // tries to reuse one's DOM for the other and the update cycle
+    // hangs.
+    //
+    // Note: when source DIFFERS but scriptIndex matches, eq returns
+    // false (correct — CM will then try `updateDOM` next, which we
+    // override to reuse the DOM without tearing it down).
+    return (
+      other instanceof OutputWidget &&
+      other.source === this.source &&
+      other.scriptIndex === this.scriptIndex
+    );
+  }
+
+  override get lineBreaks(): number {
+    // CRITICAL — without this, ArrowDown from the closing-fence line
+    // gets stuck before the widget. Reason: this is an INLINE widget
+    // (block: false) styled `display: block` in CSS. CM6 treats it
+    // as part of the closing-fence line for cursor purposes, so the
+    // visual block we render isn't a "next line" cursor can move to;
+    // moveVertically lands at the same end-of-line position. Setting
+    // `lineBreaks: 1` tells CM the widget introduces one logical
+    // line break, so vertical navigation routes the caret PAST the
+    // widget (to the start of the next real line) instead of into
+    // it. Per CM docs (`@codemirror/view` WidgetType.lineBreaks):
+    // "for inline widgets that introduce line breaks (through <br>
+    // tags or textual newlines), this must indicate the amount of
+    // line breaks they introduce". Our `display: block` widget is
+    // morally equivalent to a `<br>` so lineBreaks=1 fits.
+    return 1;
   }
 
   override toDOM(): HTMLElement {
-    const container = document.createElement("div");
-    container.className = "md-script-output";
-    this.container = container;
-    this.scheduleRun();
-    return container;
+    const root = document.createElement("div") as DomWithState;
+    root.className = "md-script-block";
+    root.setAttribute("contenteditable", "false");
+
+    const output = document.createElement("div");
+    output.className = "md-script-output";
+    root.appendChild(output);
+
+    const errors = document.createElement("div");
+    errors.className = "md-script-errors";
+    root.appendChild(errors);
+
+    const state: WidgetRunState = {
+      outputEl: output,
+      errorEl: errors,
+      timer: null,
+      disposers: [],
+      disposed: false,
+      runId: 0,
+      scriptIndex: this.scriptIndex,
+    };
+    root[RUN_STATE_KEY] = state;
+    this.scheduleRun(state);
+    return root;
   }
 
-  override destroy(): void {
-    this.disposed = true;
-    if (this.timer !== null) {
-      clearTimeout(this.timer);
-      this.timer = null;
+  /**
+   * Hook into CM's same-type-widget DOM-reuse path. Called when the
+   * new widget's `eq()` returned false but the widget classes match.
+   * Returning `true` tells CM to keep the existing DOM and skip
+   * `destroy` — we just re-arm the debounce timer with the new
+   * source. This turns the per-keystroke cost of "tear down +
+   * rebuild divs + run all disposers" into "clearTimeout +
+   * setTimeout", which is what makes typing inside script fences
+   * feel native.
+   *
+   * Refuses the reuse if `scriptIndex` doesn't match — defensive
+   * guard for the (rare) case where CM matches a leftover
+   * decoration from an unrelated script position.
+   */
+  override updateDOM(dom: HTMLElement): boolean {
+    const state = (dom as DomWithState)[RUN_STATE_KEY];
+    if (!state || state.disposed) return false;
+    if (state.scriptIndex !== this.scriptIndex) return false;
+    this.scheduleRun(state);
+    return true;
+  }
+
+  override destroy(dom: HTMLElement): void {
+    const state = (dom as DomWithState)[RUN_STATE_KEY];
+    if (!state) return;
+    state.disposed = true;
+    state.runId++;
+    if (state.timer !== null) {
+      clearTimeout(state.timer);
+      state.timer = null;
     }
-    this.runDisposers();
-    this.container = null;
+    this.runDisposers(state);
   }
 
-  private runDisposers(): void {
-    for (const fn of this.disposers) {
+  override ignoreEvent(): boolean {
+    return true;
+  }
+
+  private runDisposers(state: WidgetRunState): void {
+    for (const fn of state.disposers) {
       try {
         fn();
       } catch (err) {
-        // Disposer failures shouldn't prevent the others from
-        // running. Surface in console rather than swallow silently.
         console.error("[kit dispose]", err);
       }
     }
-    this.disposers = [];
+    state.disposers = [];
   }
 
-  /** Schedule a debounced run. Replaces any pending run on the same
-   *  widget instance — that's just defensive, since each widget only
-   *  schedules once via `toDOM`. */
-  private scheduleRun(): void {
-    if (this.timer !== null) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      this.run();
+  private scheduleRun(state: WidgetRunState): void {
+    if (state.timer !== null) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      state.timer = null;
+      this.run(state);
     }, RERUN_DEBOUNCE_MS);
   }
 
-  private run(): void {
-    if (!this.container) return;
-    // Bail if the container was detached between scheduling and
-    // firing — the widget got destroyed but the timer somehow
-    // survived (defensive; `destroy` clears it).
-    if (!this.container.isConnected) return;
-    // Tear down any disposers from the previous run before clearing.
-    this.runDisposers();
-    // Clear previous render so re-runs don't accumulate buttons /
-    // duplicate output. (No-op on first run.)
-    this.container.replaceChildren();
-    const kit = createKit({
-      mode: "edit",
-      notebookId: this.config.notebookId,
-      note: this.config.noteSnapshot(),
-      ytext: this.config.ytext,
-      ydoc: this.config.ydoc,
-      outputEl: this.container,
-      registerDisposer: (fn) => {
-        // Late registration race (codex review on commit 6978ae7,
-        // finding 1): an async script may `await` before calling
-        // `kit.state.observe`. If the widget was destroyed during
-        // that await, the disposer list has already been drained
-        // and pushing now would leak the handler forever. When
-        // already disposed, invoke the teardown immediately so
-        // it's never tied to the dead widget.
-        if (this.disposed) {
-          try {
-            fn();
-          } catch (err) {
-            console.error("[kit dispose late]", err);
+  private run(state: WidgetRunState): void {
+    if (state.disposed) return;
+    if (!state.outputEl.isConnected) return;
+    state.runId++;
+    const runId = state.runId;
+    const isActive = () => !state.disposed && state.runId === runId && state.outputEl.isConnected;
+    this.runDisposers(state);
+    // Clear BOTH containers on every fresh run — old output and
+    // old errors shouldn't bleed across re-evaluations.
+    state.outputEl.replaceChildren();
+    state.errorEl.replaceChildren();
+
+    // Defense in depth: wrap the kit + run-script setup in a
+    // try/catch so any failure during widget-side preparation
+    // (kit factory throws, console proxy init throws, etc.) is
+    // surfaced as a visible error chip rather than silently
+    // bringing down the widget. `runScript` itself already catches
+    // user-script errors and renders them into `errorEl`; this
+    // outer guard only catches the rare framework-side failure.
+    try {
+      const kit = createKit({
+        mode: "edit",
+        notebookId: this.config.notebookId,
+        note: this.config.noteSnapshot(),
+        ytext: this.config.ytext,
+        ydoc: this.config.ydoc,
+        outputEl: state.outputEl,
+        isActive,
+        registerDisposer: (fn) => {
+          if (!isActive()) {
+            try {
+              fn();
+            } catch (err) {
+              console.error("[kit dispose late]", err);
+            }
+            return;
           }
-          return;
-        }
-        this.disposers.push(fn);
-      },
-    });
-    void runScript(this.source, kit, this.container);
+          state.disposers.push(fn);
+        },
+      });
+      void runScript(this.source, kit, state.outputEl, { isActive, errorEl: state.errorEl });
+    } catch (err) {
+      console.error("[scripts] widget-side setup failed:", err);
+      if (isActive()) {
+        const block = document.createElement("div");
+        block.className =
+          "md-script-error-block flex flex-col gap-1 px-3 py-2 rounded text-xs " +
+          "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 " +
+          "border border-red-200 dark:border-red-900";
+        block.textContent = `script widget error: ${err instanceof Error ? err.message : String(err)}`;
+        state.errorEl.appendChild(block);
+      }
+    }
   }
 }
 
+// =============================================================================
+// Fence parser
+// =============================================================================
+
 /**
  * Extract the language tag and body of a `FencedCode` node by walking
- * its Lezer-markdown children. This is the same lexer the markdown
- * preview pipeline uses, so accepts every variant `marked` accepts:
- *   - 3+ backtick fences  (` ``` `, ` ```` `, …)
- *   - 3+ tilde fences     (`~~~`, `~~~~`, …)
- *   - up to 3 leading spaces of indentation
- *   - missing closing fence (mid-edit) — body extends to EOF
- *
- * Why not string-split: codex review on commit 14642fc flagged that
- * CM's `state.doc.sliceString(from, to)` + a hand-rolled
- * `replace(/^```/, '')` only handles the most common form. Variants
- * like `~~~script` or `    \`\`\`\`script` would be evaluated by
- * read-mode (marked sees them as `lang: "script"`) but skipped by
- * the editor — silent drift between authoring and rendering.
+ * its Lezer-markdown children. Same lexer the markdown preview
+ * pipeline uses, so accepts every variant `marked` accepts (3+
+ * backticks / tildes, indented fences, missing closing fence).
  *
  * `node` MUST be the `FencedCode` node itself — not a cursor /
- * resolved position. Resolving via `tree.cursorAt(from, 1)` would
- * land on the opening `CodeMark` (no children), which would make
- * `firstChild()` return false and silently skip every block. We pull
- * the SyntaxNode straight from `iterate`'s `nodeRef.node` to avoid
- * that trap (codex review on commit 972e16e).
+ * resolved position. Pulling the SyntaxNode straight from `iterate`'s
+ * `nodeRef.node` avoids the trap where `tree.cursorAt(from, 1)`
+ * lands on the opening `CodeMark` (no children) and silently skips
+ * every block (codex review on commit 972e16e).
  *
  * Returns null when the fence isn't a `script` block.
  */
 type FenceParts = { body: string };
+type ScriptRange = { from: number; to: number };
+type ScriptDecorationState = {
+  decorations: DecorationSet;
+  scriptRanges: ScriptRange[];
+};
 
 const parseScriptFence = (state: EditorState, node: SyntaxNode): FenceParts | null => {
   let info: string | null = null;
-  // Body spans the union of every `CodeText` child range. The grammar
-  // emits one `CodeText` per body line in some variants, so we have
-  // to collect the full span from the first to the last.
   let bodyFrom: number | null = null;
   let bodyTo: number | null = null;
 
@@ -245,67 +385,263 @@ const parseScriptFence = (state: EditorState, node: SyntaxNode): FenceParts | nu
   }
 
   if (info !== "script") return null;
-  // Empty body (just `\`\`\`script\n\`\`\``) — let the runner render
-  // an empty output. No filter here.
   const body = bodyFrom !== null && bodyTo !== null ? state.doc.sliceString(bodyFrom, bodyTo) : "";
   return { body };
 };
 
+// =============================================================================
+// Output widget decoration
+// =============================================================================
+
 /**
- * Walk the document syntax tree, find every `\`\`\`script` block, and
- * emit a block widget below each one. Synchronous — runs on every
- * doc-changed transaction. The widget's `eq()` keeps DOM stable
- * across unrelated edits.
+ * Walk the doc and emit ONE additive block widget per `\`\`\`script`
+ * fence, anchored just past the FencedCode end. Source is left
+ * untouched.
+ *
+ * The widget's `eq()` returns true for same-source widgets, so
+ * unrelated edits (typing OUTSIDE the script, edits ABOVE it that
+ * shift its position) don't tear down a running kit / output DOM.
  */
-const decorate = (state: EditorState, config: ScriptsConfig): DecorationSet => {
-  if (!config.scriptsEnabled()) return Decoration.none;
+const changeMightAffectScriptFence = (tr: Transaction): boolean => {
+  let might = false;
+  tr.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
+    if (might) return;
+    const insertedText = inserted.toString();
+    if (insertedText.includes("`") || insertedText.includes("~") || insertedText.includes("script")) {
+      might = true;
+      return;
+    }
+
+    const from = Math.max(0, fromB - 16);
+    const to = Math.min(tr.state.doc.length, toB + 16);
+    const context = tr.state.doc.sliceString(from, to);
+    might = context.includes("```") || context.includes("~~~");
+  });
+  return might;
+};
+
+const changesIntersectScriptRanges = (tr: Transaction, ranges: ScriptRange[]): boolean => {
+  if (ranges.length === 0) return false;
+  let intersects = false;
+  tr.changes.iterChangedRanges((fromA, toA) => {
+    if (intersects) return;
+    intersects = ranges.some((range) => fromA <= range.to && toA >= range.from);
+  });
+  return intersects;
+};
+
+const decorateOutputs = (state: EditorState, config: ScriptsConfig): ScriptDecorationState => {
+  if (!config.scriptsEnabled()) return { decorations: Decoration.none, scriptRanges: [] };
 
   const widgets: Range<Decoration>[] = [];
+  const scriptRanges: ScriptRange[] = [];
+  let scriptIndex = 0;
   syntaxTree(state).iterate({
     enter: (nodeRef) => {
       if (nodeRef.type.name !== "FencedCode") return;
       const parts = parseScriptFence(state, nodeRef.node);
       if (!parts) return;
-      const widget = new ScriptOutputWidget(parts.body, config);
-      const blockEnd = state.doc.lineAt(nodeRef.to).to;
+      scriptRanges.push({ from: nodeRef.from, to: nodeRef.to });
+      // INLINE widget (block: false). This is the critical
+      // difference from earlier revisions:
+      //
+      //   `Decoration.widget({ block: true, side: 1 })` becomes a
+      //   `WidgetAfter` block decoration (CM internals,
+      //   PointDecoration.fromMark in @codemirror/view). CM6's
+      //   `posAtCoords(scanY)` loop in `moveVertically` then treats
+      //   the widget as a non-Text block and SKIPS it during
+      //   vertical scan, repositioning yOffset to `widget.top -
+      //   halfLine`. With only one script in the doc, that lands
+      //   on the closing fence line — observed by users as
+      //   "ArrowUp from anywhere jumps to the bottom of the first
+      //   script block". Tables don't trigger this because their
+      //   decoration is a `Decoration.replace` (BlockType
+      //   `WidgetRange`, with content length) AND because they
+      //   drop the widget when the cursor is on the table or its
+      //   next line.
+      //
+      // An inline widget is NOT a block in CM's layout — its
+      // BlockType stays Text (the line that contains it). Vertical
+      // navigation around it works the same as around any
+      // character; the widget doesn't act as an attractor for the
+      // upward scan.
+      //
+      // We anchor at the END of the closing-fence line so the
+      // widget sits visually below the script when CSS gives it
+      // `display: block`. `lineAt(nodeRef.to - 1).to` resolves to
+      // the closing fence's line end regardless of whether
+      // FencedCode includes the trailing `\n` in its range.
+      const closingLine = state.doc.lineAt(Math.max(0, nodeRef.to - 1));
       widgets.push(
         Decoration.widget({
-          widget,
+          widget: new OutputWidget(parts.body, config, scriptIndex),
           side: 1,
-          block: true,
-        }).range(blockEnd),
+          // block: false (default) — INLINE widget, see comment above.
+        }).range(closingLine.to),
       );
+      scriptIndex++;
     },
   });
-  return widgets.length > 0 ? RangeSet.of(widgets) : Decoration.none;
+  return {
+    decorations: widgets.length > 0 ? RangeSet.of(widgets, true) : Decoration.none,
+    scriptRanges,
+  };
 };
 
+// =============================================================================
+// Extension factory
+// =============================================================================
+
 /**
- * Returns the CodeMirror extension that wires up `\`\`\`script`
- * widgets. Mount alongside the other editor extensions in
- * `NoteEditor.client.tsx`.
+ * `ArrowDown` interceptor for the closing-fence + output-widget
+ * cursor-stuck cases.
  *
- * Debounce: the StateField re-decorates on every doc-changed
- * transaction (so the widget tree stays in sync). A cheap built-in
- * debounce is achieved by `eq()` — when the user is typing INSIDE
- * a script block, every keystroke produces a different source string
- * → different widget → CM rebuilds DOM → `toDOM` runs the script
- * fresh. To slow that down for expensive scripts, the runner itself
- * could grow a settle-delay; for Phase 1 (small kit surface, sub-ms
- * runs) we accept the immediate rebuild.
+ * Two related bugs land here, both rooted in the same cause: the
+ * output widget is INLINE (`block: false`) styled `display: block`
+ * via CSS, so it's logically attached to the closing-fence line in
+ * CM's model but visually occupies a second row beneath that line.
+ * CM treats those two visual rows as ONE logical line:
+ *
+ *   1. Caret AT END of closing fence (`\`\`\`|`) → `moveVertically`
+ *      calls `posAtCoords({y: cursorY + halfText}, scanY=+1)`,
+ *      yOffset lands in the widget area, maps back to
+ *      `closingLine.to` (same position) → caret loops in place.
+ *   2. Caret ANYWHERE ELSE on the closing-fence line (e.g.
+ *      `|\`\`\``) → ArrowDown moves "down one visual row" within
+ *      the same logical line, lands inside the widget area, maps
+ *      back to `closingLine.to` → caret jumps to end of fence
+ *      instead of past the widget.
+ *
+ * Either way the caret never makes it to the next REAL line below
+ * the script. ArrowUp doesn't have this problem because the upward
+ * scan crosses into a different line block.
+ *
+ * Pragmatic fix: when the caret is on a `\`\`\`script` block's
+ * closing-fence line and the user presses ArrowDown, dispatch the
+ * caret to the start of the next line ourselves. Targeted on
+ * purpose — default ArrowDown elsewhere stays untouched, including
+ * regular ```js / ```py fences where there's no widget.
+ *
+ * Selection-extending variants (Shift-ArrowDown / Mod-ArrowDown)
+ * aren't intercepted yet — mirror the same logic onto them if a
+ * report comes in.
+ */
+const arrowDownPastWidgetKeymap = (config: ScriptsConfig) =>
+  // `Prec.highest` so we run BEFORE the default ArrowDown command
+  // (`cursorLineDown` from `@codemirror/commands`). Without this,
+  // the default fires first, consumes the event, and our handler
+  // never runs.
+  Prec.highest(
+    keymap.of([
+      {
+        key: "ArrowDown",
+        run: (view) => {
+          if (!config.scriptsEnabled()) return false;
+          const sel = view.state.selection.main;
+          if (!sel.empty) return false;
+          const cursor = sel.head;
+
+          const cursorLine = view.state.doc.lineAt(cursor);
+
+          // Walk every FencedCode in the doc and check whether the
+          // caret sits on a `\`\`\`script` block's closing-fence
+          // line. We iterate (rather than `tree.resolveInner`)
+          // because at line boundaries the resolver can land on
+          // an adjacent node — CodeText of the previous line, or
+          // the closing CodeMark, depending on `side` — and walking
+          // up from the wrong child sometimes misses the parent.
+          // Iterating is O(scripts-in-doc) which is fine; a typical
+          // note has at most a handful.
+          let scriptFenced: SyntaxNode | null = null;
+          syntaxTree(view.state).iterate({
+            enter: (nodeRef) => {
+              if (nodeRef.type.name !== "FencedCode") return;
+              if (cursor < nodeRef.from || cursor > nodeRef.to) return false;
+              const parts = parseScriptFence(view.state, nodeRef.node);
+              if (!parts) return false;
+              const closingLine = view.state.doc.lineAt(Math.max(0, nodeRef.to - 1));
+              if (closingLine.from === cursorLine.from) {
+                scriptFenced = nodeRef.node;
+                return false;
+              }
+              return false;
+            },
+          });
+          if (!scriptFenced) return false;
+
+          // Caret is on a script's closing-fence line. Default
+          // ArrowDown lands inside the inline-but-display:block
+          // output widget which CM maps back to `closingLine.to`
+          // (same logical line). Skip past the widget by
+          // dispatching to the start of the next REAL line.
+          const fenced = scriptFenced as SyntaxNode;
+          const closingLine = view.state.doc.lineAt(Math.max(0, fenced.to - 1));
+          const totalLines = view.state.doc.lines;
+          const nextPos =
+            closingLine.number < totalLines
+              ? view.state.doc.line(closingLine.number + 1).from
+              : view.state.doc.length;
+
+          view.dispatch({
+            selection: { anchor: nextPos },
+            scrollIntoView: true,
+            userEvent: "select",
+          });
+          return true;
+        },
+      },
+    ]),
+  );
+
+/**
+ * Public extension factory. Wire it alongside the other rich-mode
+ * extensions in `NoteEditor.client.tsx`.
+ *
+ * Returns:
+ *  1. The output-widget StateField — emits one additive INLINE
+ *     widget per `\`\`\`script` fence at the end of the closing-fence
+ *     line. The widget is styled `display: block` (see app.css) so
+ *     it visually appears below the source. This shape avoids the
+ *     `WidgetAfter` block-decoration cursor-jump bug we hit with
+ *     earlier revisions (block widgets become "attractors" in CM's
+ *     vertical-navigation scan loop).
+ *  2. The ArrowDown interceptor — fixes the caret-stuck-at-
+ *     closing-fence-end edge case that comes with inline widgets
+ *     styled as blocks.
+ *
+ * NOTE: an earlier revision included an auto-fold `ViewPlugin` that
+ * kept fold state synced with caret position. That layer caused
+ * cursor displacement on ArrowUp from anywhere in the doc — every
+ * `selectionSet` triggered fold/unfold dispatches and the resulting
+ * layout shifts confused CM's vertical-navigation math. Auto-fold
+ * is left out on purpose.
  */
 export const scriptsExtension = (config: ScriptsConfig): Extension => {
-  const field = StateField.define<DecorationSet>({
-    create: (state) => decorate(state, config),
-    update: (decorations, tx) => {
-      if (tx.docChanged) return decorate(tx.state, config);
-      // Non-doc changes (selection, focus) don't affect script
-      // widgets — keep the same decoration set, mapped through any
-      // changes (none in this branch but harmless).
-      return decorations.map(tx.changes);
+  const outputField = StateField.define<ScriptDecorationState>({
+    create: (state) => decorateOutputs(state, config),
+    update: (value, tx) => {
+      if (!config.scriptsEnabled()) return { decorations: Decoration.none, scriptRanges: [] };
+      if (tx.docChanged) {
+        const decorations = value.decorations.map(tx.changes);
+        const mightAffectScriptFence = changeMightAffectScriptFence(tx);
+        if (value.scriptRanges.length === 0 && !mightAffectScriptFence) {
+          return { decorations, scriptRanges: [] };
+        }
+        if (!changesIntersectScriptRanges(tx, value.scriptRanges) && !mightAffectScriptFence) {
+          return {
+            decorations,
+            scriptRanges: value.scriptRanges.map((range) => ({
+              from: tx.changes.mapPos(range.from, 1),
+              to: tx.changes.mapPos(range.to, -1),
+            })),
+          };
+        }
+        return decorateOutputs(tx.state, config);
+      }
+      return { ...value, decorations: value.decorations.map(tx.changes) };
     },
-    provide: (f) => EditorView.decorations.from(f),
+    provide: (f) => EditorView.decorations.from(f, (value) => value.decorations),
   });
 
-  return [field];
+  return [outputField, arrowDownPastWidgetKeymap(config)];
 };

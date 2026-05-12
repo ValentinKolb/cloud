@@ -167,13 +167,30 @@ const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
   };
 };
 
-const findLinks = (state: EditorState, notebookId: string): Range<Decoration>[] => {
+type LinkRange = { from: number; to: number };
+type LinksState = {
+  decorations: DecorationSet;
+  linkRanges: LinkRange[];
+};
+
+const cursorLinkKey = (state: EditorState, ranges: LinkRange[]): number | null => {
+  if (ranges.length === 0) return null;
+  const cursor = state.selection.main;
+  for (const r of ranges) {
+    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
+  }
+  return null;
+};
+
+const findLinks = (state: EditorState, notebookId: string): LinksState => {
   const decorations: Range<Decoration>[] = [];
+  const linkRanges: LinkRange[] = [];
   const cursor = state.selection.ranges[0]!;
 
   syntaxTree(state).iterate({
     enter: ({ type, from, to }) => {
       if (type.name !== "Link") return;
+      linkRanges.push({ from, to });
       if (cursor.from >= from && cursor.to <= to) return;
 
       const text = state.doc.sliceString(from, to);
@@ -185,22 +202,33 @@ const findLinks = (state: EditorState, notebookId: string): Range<Decoration>[] 
     },
   });
 
-  return decorations;
+  return {
+    decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    linkRanges,
+  };
 };
 
 export const linksExtension = (notebookId: string): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<LinksState>({
     create(state) {
-      return RangeSet.of(findLinks(state, notebookId), true);
+      return findLinks(state, notebookId);
     },
-    update(decorations, tr) {
-      if (tr.docChanged || tr.selection) {
-        return RangeSet.of(findLinks(tr.state, notebookId), true);
+    update(value, tr) {
+      if (tr.docChanged) {
+        return findLinks(tr.state, notebookId);
       }
-      return decorations.map(tr.changes);
+      if (!tr.selection) {
+        return value;
+      }
+      const oldKey = cursorLinkKey(tr.startState, value.linkRanges);
+      const newKey = cursorLinkKey(tr.state, value.linkRanges);
+      if (oldKey === newKey) {
+        return value;
+      }
+      return findLinks(tr.state, notebookId);
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (v) => v.decorations);
     },
   });
 

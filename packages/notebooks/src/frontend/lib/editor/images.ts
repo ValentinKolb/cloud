@@ -107,8 +107,27 @@ class ImageWidget extends WidgetType {
   }
 }
 
-const findMarkdownImages = (state: EditorState, notebookId: string): Range<Decoration>[] => {
+type ImageRange = { from: number; to: number };
+type ImagesState = {
+  decorations: DecorationSet;
+  /** Source-byte ranges of every Image node (incl. the next-line
+   *  source-visible extension). Used by `update()` to gate
+   *  rebuilds on cursor-boundary crossings. */
+  imageRanges: ImageRange[];
+};
+
+const cursorImageKey = (state: EditorState, ranges: ImageRange[]): number | null => {
+  if (ranges.length === 0) return null;
+  const cursor = state.selection.main;
+  for (const r of ranges) {
+    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
+  }
+  return null;
+};
+
+const findMarkdownImages = (state: EditorState, notebookId: string): ImagesState => {
   const decorations: Range<Decoration>[] = [];
+  const imageRanges: ImageRange[] = [];
   const cursor = state.selection.ranges[0]!;
 
   syntaxTree(state).iterate({
@@ -116,6 +135,7 @@ const findMarkdownImages = (state: EditorState, notebookId: string): Range<Decor
       if (node.type.name !== "Image") return;
 
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
+      imageRanges.push({ from: node.from, to: nextLine.to });
       if (cursor.from >= node.from && cursor.to <= nextLine.to) return false;
 
       const text = state.sliceDoc(node.from, node.to);
@@ -135,22 +155,33 @@ const findMarkdownImages = (state: EditorState, notebookId: string): Range<Decor
     },
   });
 
-  return decorations;
+  return {
+    decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    imageRanges,
+  };
 };
 
 export const imageExtension = (notebookId: string): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<ImagesState>({
     create(state) {
-      return RangeSet.of(findMarkdownImages(state, notebookId), true);
+      return findMarkdownImages(state, notebookId);
     },
-    update(decorations, tr) {
-      if (tr.docChanged || tr.selection) {
-        return RangeSet.of(findMarkdownImages(tr.state, notebookId), true);
+    update(value, tr) {
+      if (tr.docChanged) {
+        return findMarkdownImages(tr.state, notebookId);
       }
-      return decorations.map(tr.changes);
+      if (!tr.selection) {
+        return value;
+      }
+      const oldKey = cursorImageKey(tr.startState, value.imageRanges);
+      const newKey = cursorImageKey(tr.state, value.imageRanges);
+      if (oldKey === newKey) {
+        return value;
+      }
+      return findMarkdownImages(tr.state, notebookId);
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (v) => v.decorations);
     },
   });
 
