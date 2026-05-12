@@ -87,13 +87,19 @@ const SEARCH_FETCH_CAP = 1000;
  *
  *  Returns the contiguous slice STARTING AT `startPage` — the
  *  caller is responsible for `out.slice(withinPageOffset, ...)` when
- *  they seeked into the middle of a page. */
+ *  they seeked into the middle of a page.
+ *
+ *  `truncated` is `true` when the loop exited because we hit
+ *  `maxItems` AND the last fetched page was full (i.e. more data
+ *  may exist server-side). The caller decides whether to surface
+ *  this — `list()` ignores it (cap is documented), `search()`
+ *  warns the user. */
 const fetchPagesUpTo = async (
   notebookId: string,
   maxItems: number,
   searchQuery?: string,
   startPage = 1,
-): Promise<KitNote[]> => {
+): Promise<{ items: KitNote[]; truncated: boolean }> => {
   const out: KitNote[] = [];
   let page = startPage;
   while (out.length < maxItems) {
@@ -108,12 +114,14 @@ const fetchPagesUpTo = async (
     });
     if (!res.ok) throw new Error("kit.notes: API call failed");
     const payload = (await res.json()) as { data: ApiNote[]; pagination?: { total?: number } };
-    if (payload.data.length === 0) break;
+    if (payload.data.length === 0) return { items: out, truncated: false };
     for (const n of payload.data) out.push(toKitNote(n));
-    if (payload.data.length < API_PER_PAGE_MAX) break; // last page
+    if (payload.data.length < API_PER_PAGE_MAX) return { items: out, truncated: false }; // last page
     page++;
   }
-  return out;
+  // Loop exited via the `out.length < maxItems` guard failing —
+  // last page was full AND we hit the cap. Server may have more.
+  return { items: out, truncated: true };
 };
 
 // =============================================================================
@@ -146,12 +154,28 @@ const postFilter = (notes: KitNote[], query: KitQuery): KitNote[] => {
 // Factory
 // =============================================================================
 
+/** Attach a non-enumerable `__truncated` flag to a result array
+ *  without altering its serialised / iterated shape. Scripts that
+ *  ignore the flag see the same `KitNote[]` they always have;
+ *  scripts that want to detect cap-overflow can read it. */
+const flagTruncated = (items: KitNote[]): KitNote[] => {
+  Object.defineProperty(items, "__truncated", {
+    value: true,
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return items;
+};
+
 export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
   const list = async (): Promise<KitNote[]> => {
     // Walk every page so callers see the full notebook, not just
     // the first 100. Capped at SEARCH_FETCH_CAP to avoid runaway
-    // fetches; document if anyone needs more.
-    return fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP);
+    // fetches; the cap is documented on SEARCH_FETCH_CAP above so
+    // we don't surface truncation noise here.
+    const { items } = await fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP);
+    return items;
   };
 
   const get = async (shortId: string): Promise<KitNote | null> => {
@@ -193,16 +217,34 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       const startPage = Math.floor(userOffset / API_PER_PAGE_MAX) + 1;
       const withinPageOffset = userOffset % API_PER_PAGE_MAX;
       const needed = withinPageOffset + userLimit;
-      const slice = await fetchPagesUpTo(ctx.notebookId, needed, q.search, startPage);
-      return slice.slice(withinPageOffset, withinPageOffset + userLimit);
+      const { items } = await fetchPagesUpTo(ctx.notebookId, needed, q.search, startPage);
+      // Fast path doesn't risk silent truncation — `userLimit` is
+      // capped at 200, well under SEARCH_FETCH_CAP, and the API
+      // itself enforces the user's offset/limit so partial pages
+      // are expected when the notebook is shorter than the slice.
+      return items.slice(withinPageOffset, withinPageOffset + userLimit);
     }
 
     // Slow path: tags / date filters aren't server-side, so we
     // have to fetch, filter, then paginate client-side. Walk the
     // pages until exhausted or until the safety cap.
-    const all = await fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP, q.search);
+    const { items: all, truncated } = await fetchPagesUpTo(ctx.notebookId, SEARCH_FETCH_CAP, q.search);
+    if (truncated) {
+      // Silent truncation here would give the wrong answer for
+      // filter-based searches — date / tag filters apply to the
+      // full notebook, but we only saw the first N notes. Warn
+      // loudly + flag the array so scripts can detect this
+      // programmatically. The result is still returned (degraded
+      // gracefully — same behaviour as before, plus a signal).
+      console.warn(
+        `kit.notes.search: notebook has more than ${SEARCH_FETCH_CAP} notes; ` +
+          "filter-based search saw only the first page set. " +
+          "Results may be incomplete. Add a `search` term to narrow server-side.",
+      );
+    }
     const filtered = postFilter(all, q);
-    return filtered.slice(userOffset, userOffset + userLimit);
+    const sliced = filtered.slice(userOffset, userOffset + userLimit);
+    return truncated ? flagTruncated(sliced) : sliced;
   };
 
   const create = async (data: { title: string; parentId?: string }): Promise<KitNote> => {

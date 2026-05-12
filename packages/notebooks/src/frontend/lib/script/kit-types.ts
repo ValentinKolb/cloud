@@ -266,8 +266,20 @@ export type KitNotesAPI = {
    *  isn't in the current notebook. */
   get(shortId: string): Promise<KitNote | null>;
   /** Search by string (title + content substring) OR a structured
-   *  `KitQuery`. The string overload is the common shortcut. */
-  search(query: string | KitQuery): Promise<KitNote[]>;
+   *  `KitQuery`. The string overload is the common shortcut.
+   *
+   *  When tag / date filters force a client-side post-filter pass,
+   *  the result universe is capped at ~1000 notes. If the notebook
+   *  has more, a `console.warn` fires AND the returned array has
+   *  a non-enumerable `__truncated: true` property — scripts that
+   *  need to detect cap-overflow can read it:
+   *
+   *      const notes = await kit.notes.search({ tags: ['old'] });
+   *      if (notes.__truncated) { ... }
+   *
+   *  String-only searches forwarded to the server are NOT subject
+   *  to this cap — the API handles offset/limit natively. */
+  search(query: string | KitQuery): Promise<KitNote[] & { __truncated?: boolean }>;
   create(data: { title: string; parentId?: string }): Promise<KitNote>;
   update(shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote>;
   remove(shortId: string): Promise<void>;
