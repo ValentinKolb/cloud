@@ -32,6 +32,7 @@ export const TYPE_OPTIONS = [
   { value: "barcode", label: "Barcode / QR" },
   { value: "isbn", label: "ISBN" },
   { value: "json", label: "JSON" },
+  { value: "file", label: "File" },
   // Phase 4 / 5
   { value: "relation", label: "Relation (link to another table)" },
   { value: "lookup", label: "Lookup (project a field through a relation)" },
@@ -90,6 +91,8 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
     "Any barcode value. No format check, so EAN, Code-128, QR, anything works.",
   isbn: "A 10- or 13-digit ISBN. The check digit is verified.",
   json: "A free-form JSON value. Use this when no other type fits.",
+  file:
+    "Small files stored directly in Postgres. The app-level upload limit is controlled from the Grids admin settings.",
   relation:
     "A link to one or more records in another table. Pick the target table and which of its columns to show.",
   lookup:
@@ -116,6 +119,8 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
       return { currency: "EUR" };
     case "date":
       return { includeTime: false };
+    case "file":
+      return { maxFiles: 10 };
     default:
       return {};
   }
@@ -147,6 +152,7 @@ const NON_PRESENTABLE_TYPES = new Set([
   "lookup",
   "rollup",
   "formula",
+  "file",
 ]);
 
 // Set of types we know how to show a constraint form for. Anything outside
@@ -168,6 +174,7 @@ const CONFIGURABLE = new Set([
   "lookup",
   "rollup",
   "formula",
+  "file",
 ]);
 
 /**
@@ -234,6 +241,9 @@ export function FieldConfigEditor(props: EditorProps) {
       </Show>
       <Show when={props.type === "formula"}>
         <FormulaConstraints config={props.config} onChange={props.onChange} />
+      </Show>
+      <Show when={props.type === "file"}>
+        <FileConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={!CONFIGURABLE.has(props.type)}>
         <p class="text-xs text-dimmed">This field type has no extra configuration.</p>
@@ -831,6 +841,44 @@ function LookupRollupConstraints(props: {
           ]}
         />
       </Show>
+    </div>
+  );
+}
+
+function FileConstraints(props: {
+  config: () => FieldConfigState;
+  onChange: (next: FieldConfigState) => void;
+}) {
+  const cfg = () => props.config();
+  const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
+  const maxFiles = () => (typeof cfg().maxFiles === "number" ? String(cfg().maxFiles) : "10");
+  const accept = () => Array.isArray(cfg().accept) ? (cfg().accept as string[]).join(", ") : "";
+
+  return (
+    <div class="grid grid-cols-1 gap-3">
+      <NumberField
+        label="Max files per record"
+        value={maxFiles}
+        min={1}
+        max={100}
+        onInput={(v) => {
+          const n = Number(v);
+          if (Number.isInteger(n) && n >= 1 && n <= 100) update({ maxFiles: n });
+        }}
+      />
+      <TextInput
+        label="Accepted MIME types/extensions (optional)"
+        description="Comma-separated, e.g. image/png, application/pdf, .txt. Empty accepts any file type."
+        value={accept}
+        onInput={(v) => {
+          const items = v.split(",").map((item) => item.trim()).filter(Boolean);
+          update({ accept: items.length > 0 ? items : undefined });
+        }}
+        placeholder="image/png, application/pdf, .txt"
+      />
+      <p class="text-xs text-dimmed leading-snug">
+        The global per-file size limit is managed from the Grids admin settings.
+      </p>
     </div>
   );
 }

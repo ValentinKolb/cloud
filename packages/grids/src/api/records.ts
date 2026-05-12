@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
+import * as settings from "@valentinkolb/cloud/services/settings";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { ok, fail, err } from "@valentinkolb/stdlib";
 import { gridsService } from "../service";
 import {
   GridRecordSchema,
@@ -60,6 +62,27 @@ const ExportQuerySchema = z.object({
     .pipe(z.array(z.string().uuid())),
 });
 
+const GridFileSchema = z.object({
+  id: z.string().uuid(),
+  recordId: z.string().uuid(),
+  fieldId: z.string().uuid(),
+  position: z.number().int(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int(),
+  sha256: z.string(),
+  createdBy: z.string().uuid().nullable(),
+  createdAt: z.string(),
+});
+
+const DEFAULT_MAX_FILE_SIZE_MB = 10;
+
+const getMaxFileSizeBytes = async (): Promise<number> => {
+  const mb = await settings.get<number>("grids.max_file_size_mb");
+  const resolved = typeof mb === "number" && Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_MAX_FILE_SIZE_MB;
+  return resolved * 1024 * 1024;
+};
+
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
@@ -67,6 +90,140 @@ const app = new Hono<AuthContext>()
   // The unified POST /tables/:id/query (api/tables.ts) supersedes it
   // with the same filter/sort/cursor semantics plus search merging.
   // No frontend callers remained at the time of removal.
+
+  .get(
+    "/:tableId/:recordId/files/:fieldId",
+    describeRoute({
+      tags: ["Grids:File"],
+      summary: "List files for a file field on a record",
+      responses: {
+        200: jsonResponse(z.object({ items: z.array(GridFileSchema) }), "Files"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const fieldId = c.req.param("fieldId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.file.listForRecordField({ tableId, recordId, fieldId });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return respond(c, ok({ items: result.data }));
+    },
+  )
+
+  .post(
+    "/:tableId/:recordId/files/:fieldId",
+    describeRoute({
+      tags: ["Grids:File"],
+      summary: "Upload a file to a record file field",
+      description: `Stores a small file directly in Postgres bytea. Max size is configurable via \`grids.max_file_size_mb\` (default ${DEFAULT_MAX_FILE_SIZE_MB} MB).`,
+      responses: {
+        200: jsonResponse(GridFileSchema, "Uploaded file metadata"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid upload"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        413: jsonResponse(ErrorResponseSchema, "File too large"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const fieldId = c.req.param("fieldId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("file");
+      if (!(file instanceof File)) return respond(c, fail(err.badInput("Missing 'file' field")));
+
+      const maxBytes = await getMaxFileSizeBytes();
+      if (file.size > maxBytes) {
+        return c.json(
+          { message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` },
+          413,
+        );
+      }
+
+      const user = c.get("user");
+      const result = await gridsService.file.upload({
+        tableId,
+        recordId,
+        fieldId,
+        filename: file.name || "untitled",
+        mimeType: file.type || "application/octet-stream",
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        userId: user.id,
+      });
+      return respond(c, () => Promise.resolve(result));
+    },
+  )
+
+  .get(
+    "/:tableId/:recordId/files/:fieldId/:fileId/content",
+    describeRoute({
+      tags: ["Grids:File"],
+      summary: "Download a file field blob",
+      responses: {
+        200: { description: "File content" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const fieldId = c.req.param("fieldId")!;
+      const fileId = c.req.param("fileId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.file.getContent({ tableId, recordId, fieldId, fileId });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const file = result.data;
+      const buffer = file.bytes.buffer.slice(file.bytes.byteOffset, file.bytes.byteOffset + file.bytes.byteLength) as ArrayBuffer;
+      const inline = c.req.query("inline") === "true";
+      return new Response(new Blob([buffer], { type: file.mimeType }), {
+        headers: {
+          "Content-Type": file.mimeType,
+          "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(file.filename)}"`,
+          "Cache-Control": "private, max-age=300",
+        },
+      });
+    },
+  )
+
+  .delete(
+    "/:tableId/:recordId/files/:fieldId/:fileId",
+    describeRoute({
+      tags: ["Grids:File"],
+      summary: "Delete a file field blob",
+      responses: {
+        204: { description: "Deleted" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
+      const fieldId = c.req.param("fieldId")!;
+      const fileId = c.req.param("fileId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.file.remove({ tableId, recordId, fieldId, fileId });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.body(null, 204);
+    },
+  )
 
   .post(
     "/by-table/:tableId",
@@ -80,7 +237,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordPayloadSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
@@ -101,8 +258,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
-      const recordId = c.req.param("recordId");
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -125,8 +282,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordPayloadSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
-      const recordId = c.req.param("recordId");
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
@@ -148,8 +305,8 @@ const app = new Hono<AuthContext>()
       responses: { 204: { description: "Deleted" } },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
-      const recordId = c.req.param("recordId");
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
@@ -175,7 +332,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ExportQuerySchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -216,8 +373,8 @@ const app = new Hono<AuthContext>()
       responses: { 204: { description: "Restored" } },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
-      const recordId = c.req.param("recordId");
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
@@ -240,8 +397,8 @@ const app = new Hono<AuthContext>()
       responses: { 200: { description: "Audit entries" } },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
-      const recordId = c.req.param("recordId");
+      const tableId = c.req.param("tableId")!;
+      const recordId = c.req.param("recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");

@@ -174,6 +174,38 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids.records");
 
   // ──────────────────────────────────────────────────────────────────
+  // files — small per-record blobs stored directly in Postgres
+  // ──────────────────────────────────────────────────────────────────
+  // File field values do not live in records.data. The blob table is the
+  // source of truth and cascades from records/fields, so hard-pruning a
+  // record/table/base or removing a file field lets Postgres clean up bytes.
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.files (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
+      field_id UUID NOT NULL REFERENCES grids.fields(id) ON DELETE CASCADE,
+      position INT NOT NULL DEFAULT 0,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INT NOT NULL CHECK (size_bytes >= 0),
+      sha256 TEXT NOT NULL,
+      bytes BYTEA NOT NULL,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CHECK (octet_length(bytes) = size_bytes)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_files_record_field
+    ON grids.files(record_id, field_id, position, created_at)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_files_field
+    ON grids.files(field_id)
+  `.simple();
+  console.log("  ✓ grids.files");
+
+  // ──────────────────────────────────────────────────────────────────
   // record_links — junction table for relation fields
   // ──────────────────────────────────────────────────────────────────
   // v3 replaces the previous "JSONB-array of UUIDs in data->>fieldId"

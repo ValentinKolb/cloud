@@ -9,7 +9,9 @@ const log = logger("grids:field-indexes");
  *
  * Index names: `idx_grids_data_<fieldId-no-dashes>` keeps us under Postgres'
  * 63-char identifier limit (32 hex chars + prefix = ~52). All indexes are
- * partial: only over live (non-deleted) records.
+ * partial: only over live records in the owning table that actually contain
+ * the JSONB field key. That keeps indexes small even when all tables share the
+ * physical `grids.records` table.
  */
 
 const indexName = (fieldId: string): string => `idx_grids_data_${fieldId.replace(/-/g, "")}`;
@@ -33,11 +35,15 @@ const indexExpressionForType = (fieldId: string, type: string): string | null =>
       // All decimal-backed types share the numeric expression index.
       // Currency stores a plain decimal (the symbol lives in field
       // config) so it indexes identically.
-      return `((data->>'${fieldId}')::numeric)`;
+      return `(grids.try_numeric(data->>'${fieldId}'))`;
     case "date":
+      // Date expression indexes use the raw cast because Postgres
+      // expression indexes require IMMUTABLE functions; grids.try_date is
+      // intentionally STABLE. Record validation stores ISO dates, so this
+      // is safe for indexed fields with valid app-written data.
       return `((data->>'${fieldId}')::date)`;
     case "boolean":
-      return `((data->>'${fieldId}')::boolean)`;
+      return `(grids.try_boolean(data->>'${fieldId}'))`;
     case "text":
     case "longtext":
     case "single-select":
@@ -50,17 +56,24 @@ const indexExpressionForType = (fieldId: string, type: string): string | null =>
   }
 };
 
+const fieldIndexWhere = (fieldId: string, tableId: string): string =>
+  `WHERE table_id = '${tableId}'::uuid AND deleted_at IS NULL AND data ? '${fieldId}'`;
+
 /**
  * Ensures the expression index exists for an indexed field. Idempotent —
  * uses IF NOT EXISTS. Runs CONCURRENTLY so it can't be inside a transaction;
  * caller must invoke this OUTSIDE any in-flight tx (which is the case in
  * field.update / field.create where the tx is already committed).
  */
-export const ensureFieldIndex = async (fieldId: string, type: string): Promise<void> => {
+export const ensureFieldIndex = async (
+  fieldId: string,
+  type: string,
+  tableId: string,
+): Promise<void> => {
   // Field IDs are UUIDs (constrained set [a-f0-9-]) so embedding them in
   // SQL identifiers is safe — no other path produces a `fieldId` value.
-  if (!/^[a-f0-9-]+$/i.test(fieldId)) {
-    log.warn("Refusing to create index for invalid fieldId", { fieldId });
+  if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) {
+    log.warn("Refusing to create index for invalid id", { fieldId, tableId });
     return;
   }
 
@@ -71,11 +84,13 @@ export const ensureFieldIndex = async (fieldId: string, type: string): Promise<v
       const idx = indexName(fieldId);
       try {
         await sql.unsafe(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${idx} ON grids.records USING gin ((data->'${fieldId}') jsonb_path_ops) WHERE deleted_at IS NULL`,
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${idx}
+           ON grids.records USING gin ((data->'${fieldId}') jsonb_path_ops)
+           ${fieldIndexWhere(fieldId, tableId)}`,
         );
-        log.info("Created multi-select GIN index", { fieldId, idx });
+        log.info("Created multi-select GIN index", { fieldId, tableId, idx });
       } catch (e) {
-        log.error("Failed to create multi-select GIN index", { fieldId, error: String(e) });
+        log.error("Failed to create multi-select GIN index", { fieldId, tableId, error: String(e) });
       }
     }
     return;
@@ -84,11 +99,13 @@ export const ensureFieldIndex = async (fieldId: string, type: string): Promise<v
   const idx = indexName(fieldId);
   try {
     await sql.unsafe(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${idx} ON grids.records ${expression} WHERE deleted_at IS NULL`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${idx}
+       ON grids.records ${expression}
+       ${fieldIndexWhere(fieldId, tableId)}`,
     );
-    log.info("Created expression index", { fieldId, idx });
+    log.info("Created expression index", { fieldId, tableId, idx });
   } catch (e) {
-    log.error("Failed to create expression index", { fieldId, error: String(e) });
+    log.error("Failed to create expression index", { fieldId, tableId, error: String(e) });
   }
 
   // Trigram index for text fields — accelerates `contains`/`startsWith`.
@@ -98,11 +115,13 @@ export const ensureFieldIndex = async (fieldId: string, type: string): Promise<v
       // pg_trgm is a postgres extension; ensure it's available.
       await sql.unsafe(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
       await sql.unsafe(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${tidx} ON grids.records USING gin ((data->>'${fieldId}') gin_trgm_ops) WHERE deleted_at IS NULL`,
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${tidx}
+         ON grids.records USING gin ((data->>'${fieldId}') gin_trgm_ops)
+         ${fieldIndexWhere(fieldId, tableId)}`,
       );
-      log.info("Created text trigram index", { fieldId, tidx });
+      log.info("Created text trigram index", { fieldId, tableId, tidx });
     } catch (e) {
-      log.error("Failed to create trigram index", { fieldId, error: String(e) });
+      log.error("Failed to create trigram index", { fieldId, tableId, error: String(e) });
     }
   }
 };

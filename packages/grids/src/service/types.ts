@@ -143,6 +143,23 @@ export type AuditEntry = {
   createdAt: string;
 };
 
+export type GridFile = {
+  id: string;
+  recordId: string;
+  fieldId: string;
+  position: number;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  createdBy: string | null;
+  createdAt: string;
+};
+
+export type GridFileContent = GridFile & {
+  bytes: Uint8Array;
+};
+
 export type CreateBaseInput = { name: string; description?: string | null };
 export type UpdateBaseInput = {
   name?: string;

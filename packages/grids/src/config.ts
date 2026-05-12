@@ -15,6 +15,14 @@ export const app = defineApp({
     requiresAuth: true,
     requiresRoles: ["user"],
   },
+  settings: {
+    "grids.max_file_size_mb": {
+      kind: "number",
+      label: "Max File Size",
+      default: 10,
+      description: "Maximum size per uploaded Grids file.",
+    },
+  },
   openapi: "/api/grids/openapi.json",
   // `/share/grids` hosts anonymous-friendly pages (public forms etc).
   // We don't use `/public/grids` because the SSR framework reserves

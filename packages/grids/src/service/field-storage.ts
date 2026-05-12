@@ -69,6 +69,7 @@ export type FormatKind =
   | "duration"
   | "json"
   | "relation"
+  | "file"
   | "computed"
   | "system"
   | "unknown";
@@ -260,6 +261,13 @@ const STORAGE: Record<string, StorageDescriptor> = {
     kind: "json",
     project: () => null,
     formatKind: "json",
+    sortable: false, filterable: false, groupable: false,
+    aggregatable: false, cursorable: false, searchable: false,
+  },
+  file: {
+    kind: "computed",
+    project: () => null,
+    formatKind: "file",
     sortable: false, filterable: false, groupable: false,
     aggregatable: false, cursorable: false, searchable: false,
   },

@@ -1,4 +1,8 @@
-# Grids — Design v4 (final, greenlight-ready)
+# Grids — Historical Design v4
+
+Current v1 storage decisions live in [V1_DATA_MODEL.md](./V1_DATA_MODEL.md).
+This file is retained as historical context and may describe tables or field
+types that no longer match the implementation.
 
 Generic Airtable-style table app for the StuVe Cloud platform.
 Independent of all other apps. Postgres + JSONB only. Realistic scope: thousands to ~100k rows per table.

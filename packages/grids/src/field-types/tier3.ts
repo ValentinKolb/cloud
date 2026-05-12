@@ -2,7 +2,7 @@ import { z } from "zod";
 import { fail, ok, type FieldTypeHandler } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
-// Tier-3 field types: barcode/qr, isbn, json.
+// Tier-3 field types: barcode/qr, isbn, json, file.
 //
 // (color, rich-text, signature, location were dropped — they had no
 // honest input UX. Existing rows of those types are migrated to text /
@@ -102,3 +102,17 @@ export const jsonHandler: FieldTypeHandler = {
   },
 };
 
+// ── file ──────────────────────────────────────────────────────────
+// File bytes live in grids.files, not records.data. Upload/delete goes through
+// the dedicated file API so size limits and bytea storage stay server-owned.
+export const fileHandler: FieldTypeHandler = {
+  type: "file",
+  configSchema: z.object({
+    maxFiles: z.number().int().min(1).max(100).optional(),
+    accept: z.array(z.string().min(1)).max(100).optional(),
+  }),
+  userInput: false,
+  validate(_raw, _config, _required) {
+    return fail("files must be uploaded through the file API");
+  },
+};

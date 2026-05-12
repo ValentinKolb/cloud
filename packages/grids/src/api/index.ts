@@ -8,9 +8,11 @@ import accessRoutes from "./access";
 import viewsRoutes from "./views";
 import dashboardsRoutes from "./dashboards";
 import formsRoutes from "./forms";
+import adminSettingsRoutes from "./admin-settings";
 
 const app = new Hono()
   .use(rateLimit())
+  .route("/admin/settings", adminSettingsRoutes)
   .route("/bases", basesRoutes)
   .route("/tables", tablesRoutes)
   .route("/fields", fieldsRoutes)

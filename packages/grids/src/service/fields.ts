@@ -285,7 +285,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // re-toggle (filterable indexes are nice-to-have for performance,
   // not correctness — fields work without them).
   if (field.indexed) {
-    void ensureFieldIndex(field.id, field.type);
+    void ensureFieldIndex(field.id, field.type, field.tableId);
   }
   // Unique-constraint indexes ARE correctness-critical: if the build
   // fails, the row claiming `unique_constraint = true` would lie about
@@ -396,7 +396,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
 
   // Toggle indexed state outside the row commit. Both calls are idempotent.
   if (existing.indexed !== field.indexed) {
-    if (field.indexed) void ensureFieldIndex(field.id, field.type);
+    if (field.indexed) void ensureFieldIndex(field.id, field.type, field.tableId);
     else void dropFieldIndex(field.id);
   }
   // Unique-constraint enable: AWAIT the build and roll back the metadata
@@ -483,7 +483,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
   // Re-create the expression index if the field was indexed.
-  if (existing.indexed) void ensureFieldIndex(id, existing.type);
+  if (existing.indexed) void ensureFieldIndex(id, existing.type, existing.tableId);
   return ok({ ...existing, deletedAt: null });
 };
 

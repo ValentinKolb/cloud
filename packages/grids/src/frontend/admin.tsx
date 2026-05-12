@@ -4,6 +4,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { gridsService } from "../service";
+import AdminGridsSettings from "./_components/AdminGridsSettings.island";
 
 const PER_PAGE = 100;
 
@@ -34,8 +35,10 @@ export default ssr<AuthContext>(async (c) => {
     <AdminLayout c={c} title="Grids" stretch>
       <div class="flex-1 min-h-0 overflow-y-auto">
         <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-grids-title">
-            <h1 class="text-base font-semibold text-primary">Grids</h1>
+          <div class="flex items-center justify-between gap-3" style="view-transition-name: admin-grids-title">
+            <div class="min-w-0">
+              <h1 class="text-base font-semibold text-primary">Grids</h1>
+            </div>
           </div>
 
           <StatGrid columns={4}>
@@ -66,7 +69,12 @@ export default ssr<AuthContext>(async (c) => {
             />
           </StatGrid>
 
-          <SearchBar action="/admin/grids" value={search} placeholder="Search bases by name or description..." ariaLabel="Search bases" />
+          <div class="flex items-stretch gap-2">
+            <div class="min-w-0 flex-1">
+              <SearchBar action="/admin/grids" value={search} placeholder="Search bases by name or description..." ariaLabel="Search bases" />
+            </div>
+            <AdminGridsSettings />
+          </div>
 
           {list.items.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-grids-table">

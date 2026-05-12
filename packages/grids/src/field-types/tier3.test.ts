@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   barcodeHandler,
+  fileHandler,
   isbnHandler,
   jsonHandler,
 } from "./tier3";
@@ -42,4 +43,17 @@ test("json: passes already-parsed object", () => {
 });
 test("json: rejects malformed string", () => {
   expect(jsonHandler.validate("{not json", {}, false).ok).toBe(false);
+});
+
+// ── file ──────────────────────────────────────────────────────────
+test("file: config accepts maxFiles and accept list", () => {
+  expect(fileHandler.configSchema.safeParse({
+    maxFiles: 3,
+    accept: ["image/*", "application/pdf", ".txt"],
+  }).success).toBe(true);
+});
+
+test("file: refuses direct record payload input", () => {
+  expect(fileHandler.userInput).toBe(false);
+  expect(fileHandler.validate("anything", {}, false).ok).toBe(false);
 });

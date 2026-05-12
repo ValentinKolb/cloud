@@ -7,6 +7,7 @@ import * as access from "./access";
 import * as views from "./views";
 import * as dashboards from "./dashboards";
 import * as forms from "./forms";
+import * as files from "./files";
 import * as exporter from "./export";
 import * as maintenance from "./maintenance";
 import * as relationsModule from "./relations";
@@ -118,6 +119,12 @@ export const gridsService = {
     restore: forms.restore,
     buildDefault: forms.buildDefaultForm,
   },
+  file: {
+    listForRecordField: files.listForRecordField,
+    upload: files.upload,
+    getContent: files.getContent,
+    remove: files.remove,
+  },
   exporter: {
     exportRecords: exporter.exportRecords,
   },
@@ -132,7 +139,7 @@ export const gridsService = {
   },
 };
 
-export { bases, tables, fields, records, audit, access, views, dashboards, forms, exporter, maintenance };
+export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, exporter, maintenance };
 export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
 export type {
   Dashboard,
@@ -153,7 +160,7 @@ export type {
   GroupBySpec,
 } from "../contracts";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
-export type { Base, Table, Field, GridRecord, RecordList, AuditEntry, AuditAction } from "./types";
+export type { Base, Table, Field, GridRecord, RecordList, AuditEntry, AuditAction, GridFile, GridFileContent } from "./types";
 export type { ExpansionViewer } from "./relations";
 export type { FieldDependent } from "./field-dependents";
 export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";

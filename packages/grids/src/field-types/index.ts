@@ -24,6 +24,7 @@ import {
 } from "./tier2";
 import {
   barcodeHandler,
+  fileHandler,
   isbnHandler,
   jsonHandler,
 } from "./tier3";
@@ -58,6 +59,7 @@ const handlers: FieldTypeHandler[] = [
   barcodeHandler,
   isbnHandler,
   jsonHandler,
+  fileHandler,
   // Phase 4 — relations
   relationHandler,
   lookupHandler,

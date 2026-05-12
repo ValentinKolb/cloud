@@ -1,8 +1,9 @@
-import { createResource, For, Show } from "solid-js";
+import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
+import { text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type { AuditEntry, Field, GridRecord } from "../../service";
+import type { AuditEntry, Field, GridFile, GridRecord } from "../../service";
 import {
   fieldToPromptSchema,
   isUserEditable,
@@ -229,6 +230,16 @@ export default function RecordDetailPanel(props: Props) {
    *  Relation cells become an inline picker when canWrite + live mode;
    *  otherwise they render as read-only links. */
   const renderField = (field: Field, rec: GridRecord) => {
+    if (field.type === "file") {
+      return (
+        <FileFieldCell
+          tableId={props.tableId}
+          recordId={rec.id}
+          field={field}
+          canWrite={props.canWrite && mode() === "live"}
+        />
+      );
+    }
     if (field.type === "relation") {
       const editable = props.canWrite && mode() === "live";
       return editable
@@ -336,9 +347,9 @@ export default function RecordDetailPanel(props: Props) {
                       <Show when={description}>
                         <p class="text-[11px] text-dimmed leading-snug">{description}</p>
                       </Show>
-                      <p class="text-sm text-secondary break-words">
+                      <div class="text-sm text-secondary break-words">
                         {renderField(f, rec())}
-                      </p>
+                      </div>
                     </div>
                   );
                 }}
@@ -355,6 +366,110 @@ export default function RecordDetailPanel(props: Props) {
           </div>
         )}
     </Show>
+  );
+}
+
+function FileFieldCell(props: {
+  tableId: string;
+  recordId: string;
+  field: Field;
+  canWrite: boolean;
+}) {
+  const [uploading, setUploading] = createSignal(false);
+  const [files, { refetch }] = createResource(
+    () => `${props.tableId}:${props.recordId}:${props.field.id}`,
+    async () => {
+      const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}`);
+      if (!res.ok) return { items: [] as GridFile[] };
+      return (await res.json()) as { items: GridFile[] };
+    },
+  );
+
+  const accept = () => {
+    const raw = (props.field.config as { accept?: string[] }).accept;
+    return Array.isArray(raw) ? raw.join(",") : undefined;
+  };
+
+  const upload = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to upload file"));
+      await refetch();
+    } catch (e) {
+      prompts.error(e instanceof Error ? e.message : "Failed to upload file");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const remove = async (file: GridFile) => {
+    const confirmed = await prompts.confirm(
+      `Delete "${file.filename}"?`,
+      { title: "Delete file?", variant: "danger", confirmText: "Delete" },
+    );
+    if (!confirmed) return;
+    const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to delete file"));
+      return;
+    }
+    await refetch();
+  };
+
+  return (
+    <div class="flex flex-col gap-2">
+      <Show when={!files.loading && (files()?.items.length ?? 0) === 0}>
+        <span class="text-dimmed">—</span>
+      </Show>
+      <Show when={(files()?.items.length ?? 0) > 0}>
+        <div class="flex flex-col gap-1">
+          <For each={files()?.items ?? []}>
+            {(file) => (
+              <div class="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900/40">
+                <i class="ti ti-paperclip text-dimmed" />
+                <a
+                  class="min-w-0 flex-1 truncate text-secondary hover:text-primary"
+                  href={`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}/content`}
+                  title={file.filename}
+                >
+                  {file.filename}
+                </a>
+                <span class="shrink-0 text-[10px] text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
+                <Show when={props.canWrite}>
+                  <button
+                    type="button"
+                    class="btn-simple btn-sm text-dimmed hover:text-red-500"
+                    title="Delete file"
+                    onClick={() => void remove(file)}
+                  >
+                    <i class="ti ti-trash" />
+                  </button>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={props.canWrite}>
+        <label class={`btn-input btn-input-sm w-fit ${uploading() ? "pointer-events-none opacity-60" : ""}`}>
+          <i class={`ti ${uploading() ? "ti-loader-2 animate-spin" : "ti-upload"} text-sm`} />
+          Upload
+          <input type="file" class="sr-only" accept={accept()} onChange={(event) => void upload(event)} disabled={uploading()} />
+        </label>
+      </Show>
+    </div>
   );
 }
 
