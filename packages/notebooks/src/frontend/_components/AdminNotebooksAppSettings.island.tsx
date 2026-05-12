@@ -48,19 +48,47 @@ const runReindex = async (): Promise<void> => {
   }
 };
 
+/** Visual unit suffix derived from the setting key. Convention beats
+ *  schema for two entries — keeps the SettingEntry type generic and
+ *  the modal renderer free to grow more suffixes as new settings
+ *  appear. Returns `null` when no suffix applies. */
+const unitSuffixForKey = (key: string): string | null => {
+  if (key.endsWith("_mb")) return "MB";
+  if (key.endsWith("_px")) return "px";
+  return null;
+};
+
 /**
- * Renders one setting row. Falls back to a text input for unknown kinds
- * so a new `kind` doesn't crash the modal — the value still round-trips
- * as a string and the API will validate it.
+ * Renders one setting row. The input type is picked per `entry.kind`:
+ *
+ *  - `number` (incl. `_mb` / `_px` suffix keys) → `<input type="number">`
+ *    with optional unit pill on the right edge.
+ *  - everything else → text input, value round-trips as a string and
+ *    the API validates per the registered SettingDef.
+ *
+ * Unknown kinds also fall back to text, so adding a new `kind` in
+ * `defaults.ts` doesn't crash the modal — the value still flows
+ * through the backend validator.
  */
 const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => void }) => {
   const initial = props.entry.value ?? props.entry.default ?? "";
   const [value, setValue] = createSignal(typeof initial === "string" ? initial : String(initial));
 
+  const isNumber = props.entry.kind === "number";
+  const suffix = unitSuffixForKey(props.entry.key);
+
   const handleInput = (e: Event) => {
-    const next = (e.currentTarget as HTMLInputElement).value;
-    setValue(next);
-    props.onChange(next);
+    const raw = (e.currentTarget as HTMLInputElement).value;
+    setValue(raw);
+    // For number kinds we parse before handing the value off so the
+    // PUT body matches the backend validator's expectation. Empty
+    // string → null (resets to default per existing service contract).
+    if (isNumber) {
+      const parsed = raw.trim() === "" ? null : Number(raw);
+      props.onChange(parsed);
+    } else {
+      props.onChange(raw);
+    }
   };
 
   return (
@@ -69,14 +97,21 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
         {props.entry.label}
         <span class="ml-1.5 text-[10px] text-dimmed font-normal font-mono">{props.entry.key}</span>
       </label>
-      <input
-        id={`setting-${props.entry.key}`}
-        type="text"
-        class="input"
-        value={value()}
-        onInput={handleInput}
-        placeholder={typeof props.entry.default === "string" ? props.entry.default : ""}
-      />
+      <div class="relative">
+        <input
+          id={`setting-${props.entry.key}`}
+          type={isNumber ? "number" : "text"}
+          class={`input w-full ${suffix ? "pr-12" : ""}`}
+          value={value()}
+          onInput={handleInput}
+          placeholder={typeof props.entry.default === "string" ? props.entry.default : String(props.entry.default ?? "")}
+        />
+        <Show when={suffix}>
+          <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-mono text-dimmed">
+            {suffix}
+          </span>
+        </Show>
+      </div>
       <Show when={props.entry.description}>
         <p class="text-[11px] text-dimmed">{props.entry.description}</p>
       </Show>

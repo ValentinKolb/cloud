@@ -4,7 +4,7 @@ import { z } from "zod";
 import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { notebooksService, reindexRuntime } from "../service";
-import { settingsService } from "@valentinkolb/cloud/services";
+import { settings, settingsService } from "@valentinkolb/cloud/services";
 import type { MutationResult, PermissionLevel } from "@valentinkolb/cloud/contracts";
 import {
   ErrorResponseSchema,
@@ -141,8 +141,18 @@ const AttachmentSchema = z.object({
 
 const AttachmentUsageSchema = z.object({ count: z.number().int() });
 
-/** 10 MB per-file upload cap. Larger files → 413. */
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+/** Per-file upload cap. Default 10 MB, configurable at runtime via
+ *  `notebooks.max_attachment_size_mb` (admin settings modal). The
+ *  default mirrors the frontend's hardcoded `MAX_ATTACHMENT_SIZE_BYTES`
+ *  in attachments-client.ts so a fresh install matches client-side
+ *  expectations. Larger files → 413. */
+const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 10;
+
+const getMaxAttachmentSizeBytes = async (): Promise<number> => {
+  const mb = await settings.get<number>("notebooks.max_attachment_size_mb");
+  const resolved = typeof mb === "number" && Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_MAX_ATTACHMENT_SIZE_MB;
+  return resolved * 1024 * 1024;
+};
 
 const ListNotebooksQuerySchema = z.object({
   ...PaginationQuerySchema.shape,
@@ -1190,7 +1200,7 @@ app
     describeRoute({
       tags: ["Notebooks"],
       summary: "Upload attachment",
-      description: `Upload a file blob (image or any other type) to a notebook. Max ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB.`,
+      description: `Upload a file blob (image or any other type) to a notebook. Max size is configurable via the \`notebooks.max_attachment_size_mb\` admin setting (default ${DEFAULT_MAX_ATTACHMENT_SIZE_MB} MB).`,
       ...requiresAuth,
       responses: {
         200: jsonResponse(AttachmentSchema, "Uploaded attachment metadata"),
@@ -1210,8 +1220,9 @@ app
       const form = await c.req.formData().catch(() => null);
       const file = form?.get("file");
       if (!(file instanceof File)) return respond(c, fail(err.badInput("Missing 'file' field")));
-      if (file.size > MAX_ATTACHMENT_SIZE) {
-        return respond(c, fail(err.badInput(`File exceeds ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB limit`)));
+      const maxBytes = await getMaxAttachmentSizeBytes();
+      if (file.size > maxBytes) {
+        return respond(c, fail(err.badInput(`File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`)));
       }
 
       const content = new Uint8Array(await file.arrayBuffer());

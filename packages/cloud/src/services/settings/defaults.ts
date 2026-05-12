@@ -631,6 +631,26 @@ export const SETTINGS: SettingDef[] = [
     description: "Five-field cron schedule for the periodic note-refs reindex job (links, tags, attachments) in app.timezone.",
     group: "notebooks",
   },
+  {
+    key: "notebooks.max_attachment_size_mb",
+    label: "Max Attachment Size",
+    kind: "number",
+    default: 10,
+    min: 1,
+    max: 200,
+    description: "Per-file upload limit for notebook attachments (megabytes). Oversize images are auto-resized client-side before the upload hits this gate; non-image files exceeding the limit are rejected with a clear error.",
+    group: "notebooks",
+  },
+  {
+    key: "notebooks.max_image_dimension_px",
+    label: "Max Image Side",
+    kind: "number",
+    default: 2048,
+    min: 256,
+    max: 8192,
+    description: "Longest-side cap (pixels) applied when an oversize image is auto-resized before upload. Aspect ratio is preserved; PNG inputs stay PNG, everything else becomes WebP at quality 0.85.",
+    group: "notebooks",
+  },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
