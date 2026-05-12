@@ -392,4 +392,3 @@ export const slashCommandsExtension = (ctx: SlashCommandContext): Extension =>
     addToOptions: [iconRenderer, descRenderer],
   });
 
-export type { SlashCommand, SlashCommandContext, SlashCommandSection } from "./types";

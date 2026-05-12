@@ -277,21 +277,11 @@ const SNIPPETS: Completion[] = [
 // Sources
 // =============================================================================
 
-/** Combined identifier list — keywords + globals + snippets. Snippets
- *  are listed first so their fuller scaffolds win over the bare
- *  keyword when CM ranks by score (CM weights position in source list
- *  on ties).
- *
- *  Note: snippets and keywords can share a label (`if` snippet vs `if`
- *  keyword). CM dedups by label internally — the snippet's apply
- *  wins because it ships an `apply` function while the keyword is a
- *  plain insert. */
-const ALL_IDENTIFIERS: Completion[] = [...SNIPPETS, ...KEYWORDS, ...GLOBALS];
-
-/** Set of labels that have a snippet variant — used by the keyword
- *  filter to drop the bare keyword when a snippet with the same name
- *  is in the same list. Otherwise CM shows two entries for `if`
- *  (snippet vs bare keyword) which reads as a bug. */
+/** Combined identifier list — snippets first (their fuller scaffolds
+ *  win over bare keywords when CM ranks by score), then keywords
+ *  with snippet duplicates removed, then globals. Without the dedup
+ *  CM would show two entries for `if` (snippet variant + bare
+ *  keyword variant) which reads as a bug. */
 const SNIPPET_LABELS = new Set(SNIPPETS.map((s) => s.label));
 const IDENTIFIERS_DEDUPED: Completion[] = [
   ...SNIPPETS,

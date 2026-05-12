@@ -137,18 +137,6 @@ export const insertAtCursor = (view: EditorView, text: string): void => {
 // Block insertion
 // ==========================
 
-/**
- * Append a multi-line block after the current line. Adds a blank-line
- * separator if the current line is non-empty so the block doesn't fuse into
- * the preceding paragraph.
- */
-export const insertBlock = (view: EditorView, block: string): void => {
-  const { from } = view.state.selection.main;
-  const line = view.state.doc.lineAt(from);
-  const separator = line.text.trim() ? "\n\n" : "";
-  view.dispatch({ changes: { from: line.to, insert: separator + block + "\n" } });
-  view.focus();
-};
 
 /**
  * Insert a fenced code block at the current line and place the cursor on
@@ -212,7 +200,7 @@ export const insertCallout = (view: EditorView, type: string): void => {
 // ==========================
 
 /** Build a markdown table skeleton with placeholder headers. */
-export const buildTable = (rows: number, cols: number): string => {
+const buildTable = (rows: number, cols: number): string => {
   const header = `| ${Array.from({ length: cols }, (_, i) => `Header ${i + 1}`).join(" | ")} |`;
   const sep = `| ${Array.from({ length: cols }, () => "---").join(" | ")} |`;
   const body = Array.from(

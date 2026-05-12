@@ -139,7 +139,7 @@ export default function NoteEditor(props: Props) {
 
   addExtension(editor.basicExtensions());
   addExtension(formattingKeymap({ notebookId: props.notebookId }));
-  addExtension(slashCommandsExtension({ notebookId: props.notebookId, noteId: props.noteId }));
+  addExtension(slashCommandsExtension({ notebookId: props.notebookId }));
   addExtension(editor.markdownExtension());
   addExtension(editor.searchTheme());
 

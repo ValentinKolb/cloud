@@ -24,7 +24,7 @@
  *  - Subsequent chars are word chars / hyphen, with optional `/`-
  *    separated nesting (`#parent/child`).
  */
-export const TAG_REGEX = /(?:^|\s)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
+const TAG_REGEX = /(?:^|\s)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
 
 /** Strip fenced + inline code blocks so we don't pick up `#define`
  *  in C samples or `#tag` literals shown in documentation about

@@ -3,7 +3,6 @@ import type { EditorView } from "@codemirror/view";
 /** Per-editor context made available to every slash command at runtime. */
 export type SlashCommandContext = {
   notebookId: string;
-  noteId: string;
 };
 
 /**
