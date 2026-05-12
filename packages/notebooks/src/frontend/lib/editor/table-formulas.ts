@@ -56,6 +56,9 @@ const FORMULAS: Formula[] = [
   // Math ─────────────────────────────────────────────────────────
   { name: "ROUND", detail: "(number, digits)", args: "${1:value}, ${2:2}", icon: "ti-math-function" },
   { name: "ABS", detail: "(number)", args: "${1:value}", icon: "ti-math-function" },
+  { name: "SQRT", detail: "(number) — square root", args: "${1:value}", icon: "ti-math-function" },
+  { name: "POW", detail: "(base, exp) — power", args: "${1:base}, ${2:exp}", icon: "ti-math-function" },
+  { name: "MOD", detail: "(a, b) — remainder", args: "${1:a}, ${2:b}", icon: "ti-math-function" },
   // Column aggregates ────────────────────────────────────────────
   { name: "SUM", detail: "(column) — sum of column", args: "${1:Column}", icon: "ti-sum" },
   { name: "AVG", detail: "(column) — average of column", args: "${1:Column}", icon: "ti-math-avg" },
@@ -63,6 +66,10 @@ const FORMULAS: Formula[] = [
   { name: "MAX", detail: "(column) — maximum of column", args: "${1:Column}", icon: "ti-math-max" },
   { name: "COUNT", detail: "(column) — non-empty count", args: "${1:Column}", icon: "ti-tallymark-4" },
   { name: "MEDIAN", detail: "(column) — median of column", args: "${1:Column}", icon: "ti-math-avg" },
+  { name: "UNIQUE", detail: "(column) — distinct non-empty count", args: "${1:Column}", icon: "ti-fingerprint" },
+  { name: "STDEV", detail: "(column) — sample standard deviation", args: "${1:Column}", icon: "ti-chart-bar" },
+  { name: "COUNTIF", detail: "(column, value) — count matching cells", args: "${1:Column}, ${2:'value'}", icon: "ti-tallymark-4" },
+  { name: "SUMIF", detail: "(sumCol, condCol, value) — conditional sum", args: "${1:SumCol}, ${2:CondCol}, ${3:'value'}", icon: "ti-sum" },
   // Sugar ────────────────────────────────────────────────────────
   { name: "PERCENT", detail: "(part, total) — rounded percent", args: "${1:part}, ${2:total}", icon: "ti-percentage" },
   // Row aggregates ───────────────────────────────────────────────
@@ -72,12 +79,25 @@ const FORMULAS: Formula[] = [
   { name: "IF", detail: "(cond, then, else)", args: "${1:condition}, ${2:then}, ${3:else}", icon: "ti-git-branch" },
   { name: "IFEMPTY", detail: "(value, fallback)", args: "${1:value}, ${2:fallback}", icon: "ti-git-branch" },
   { name: "IFERROR", detail: "(value, fallback)", args: "${1:value}, ${2:fallback}", icon: "ti-git-branch" },
+  // Logical ──────────────────────────────────────────────────────
+  { name: "AND", detail: "(a, b, ...) — all truthy", args: "${1:a}, ${2:b}", icon: "ti-logic-and" },
+  { name: "OR", detail: "(a, b, ...) — any truthy", args: "${1:a}, ${2:b}", icon: "ti-logic-or" },
+  { name: "NOT", detail: "(a) — invert truthiness", args: "${1:value}", icon: "ti-logic-not" },
+  { name: "CONTAINS", detail: "(haystack, needle) — substring match", args: "${1:haystack}, ${2:'needle'}", icon: "ti-search" },
   // Text ─────────────────────────────────────────────────────────
   { name: "CONCAT", detail: "(...parts) — join strings", args: "${1:a}, ${2:b}", icon: "ti-typography" },
   { name: "UPPER", detail: "(text) — uppercase", args: "${1:text}", icon: "ti-letter-case-upper" },
   { name: "LOWER", detail: "(text) — lowercase", args: "${1:text}", icon: "ti-letter-case-lower" },
+  { name: "TRIM", detail: "(text) — strip whitespace", args: "${1:text}", icon: "ti-typography" },
+  { name: "LEFT", detail: "(text, n) — first n chars", args: "${1:text}, ${2:n}", icon: "ti-cut" },
+  { name: "RIGHT", detail: "(text, n) — last n chars", args: "${1:text}, ${2:n}", icon: "ti-cut" },
   { name: "LEN", detail: "(text) — character count", args: "${1:text}", icon: "ti-ruler-measure" },
   { name: "SUBSTRING", detail: "(text, start, end?)", args: "${1:text}, ${2:start}, ${3:end}", icon: "ti-cut" },
+  { name: "REPLACE", detail: "(text, search, replacement)", args: "${1:text}, ${2:'search'}, ${3:'replacement'}", icon: "ti-replace" },
+  // Date / time ──────────────────────────────────────────────────
+  { name: "NOW", detail: "() — current YYYY-MM-DD HH:MM:SS", args: "", icon: "ti-clock" },
+  { name: "TODAY", detail: "() — current YYYY-MM-DD", args: "", icon: "ti-calendar" },
+  { name: "DATEDIFF", detail: "(d1, d2, unit?) — date diff (d/h/m/s/ms)", args: "${1:'2026-01-01'}, ${2:'2026-12-31'}, ${3:'d'}", icon: "ti-calendar-stats" },
 ];
 
 /** Snippet template. Does NOT include the leading `=` because the

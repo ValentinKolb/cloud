@@ -574,6 +574,40 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     if (n === null) return err("NON_NUMERIC", `ABS: argument is not a number`);
     return ok(Math.abs(n));
   },
+  SQRT: (args, state) => {
+    if (args.length !== 1) return argCountError("SQRT", "1 argument (number)", args.length);
+    const v = state.evaluate(args[0]!);
+    if (v.kind === "error") return v;
+    const n = toNumber(v.value);
+    if (n === null) return err("NON_NUMERIC", `SQRT: argument is not a number`);
+    if (n < 0) return err("NON_NUMERIC", `SQRT: argument must be non-negative (got ${n})`);
+    return ok(Math.sqrt(n));
+  },
+  POW: (args, state) => {
+    if (args.length !== 2) return argCountError("POW", "2 arguments (base, exponent)", args.length);
+    const baseV = state.evaluate(args[0]!);
+    if (baseV.kind === "error") return baseV;
+    const expV = state.evaluate(args[1]!);
+    if (expV.kind === "error") return expV;
+    const base = toNumber(baseV.value);
+    const exp = toNumber(expV.value);
+    if (base === null) return err("NON_NUMERIC", `POW: base is not a number`);
+    if (exp === null) return err("NON_NUMERIC", `POW: exponent is not a number`);
+    return ok(Math.pow(base, exp));
+  },
+  MOD: (args, state) => {
+    if (args.length !== 2) return argCountError("MOD", "2 arguments (a, b)", args.length);
+    const aV = state.evaluate(args[0]!);
+    if (aV.kind === "error") return aV;
+    const bV = state.evaluate(args[1]!);
+    if (bV.kind === "error") return bV;
+    const a = toNumber(aV.value);
+    const b = toNumber(bV.value);
+    if (a === null) return err("NON_NUMERIC", `MOD: first argument is not a number`);
+    if (b === null) return err("NON_NUMERIC", `MOD: second argument is not a number`);
+    if (b === 0) return err("DIV_BY_ZERO", `MOD: divisor is zero`);
+    return ok(a % b);
+  },
 
   // --- Column aggregates ---
   SUM: (args, state) =>
@@ -597,6 +631,82 @@ const FUNCTIONS: Record<string, FuncImpl> = {
       const mid = Math.floor(sorted.length / 2);
       return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
     }),
+  UNIQUE: (args, state) => {
+    if (args.length !== 1) return argCountError("UNIQUE", "1 argument (column name)", args.length);
+    const col = collectColumnValues(args[0]!, state);
+    if ("kind" in col) return col;
+    // Count distinct NON-EMPTY values, case-sensitive. Empty strings
+    // (blank cells) are not "a value" for unique-count purposes —
+    // same convention as COUNT().
+    const seen = new Set<string>();
+    for (const v of col.values) {
+      if (v.trim().length === 0) continue;
+      seen.add(v);
+    }
+    return ok(seen.size);
+  },
+  STDEV: (args, state) =>
+    aggregateColumn("STDEV", args, state, (nums) => {
+      // Sample standard deviation (Bessel's correction, n-1 denominator).
+      // Matches what most spreadsheet apps default to. Returns 0 for
+      // n < 2 (no variance computable).
+      if (nums.length < 2) return 0;
+      const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
+      const variance = nums.reduce((sum, n) => sum + (n - mean) ** 2, 0) / (nums.length - 1);
+      return Math.sqrt(variance);
+    }),
+  COUNTIF: (args, state) => {
+    if (args.length !== 2)
+      return argCountError("COUNTIF", "2 arguments (column, value)", args.length);
+    const col = collectColumnValues(args[0]!, state);
+    if ("kind" in col) return col;
+    const valueArg = state.evaluate(args[1]!);
+    if (valueArg.kind === "error") return valueArg;
+    const target = toString(valueArg.value);
+    let count = 0;
+    for (const v of col.values) if (v === target) count++;
+    return ok(count);
+  },
+  SUMIF: (args, state) => {
+    if (args.length !== 3)
+      return argCountError("SUMIF", "3 arguments (sumCol, condCol, condValue)", args.length);
+    if (args[0]!.kind !== "col") {
+      return err("TYPE_ERROR", `SUMIF: first argument must be a column name`);
+    }
+    if (args[1]!.kind !== "col") {
+      return err("TYPE_ERROR", `SUMIF: second argument must be a column name`);
+    }
+    const sumLookup = lookupColumn(args[0]!.name, state.ctx);
+    if (!("index" in sumLookup)) {
+      return err(
+        "UNKNOWN_COLUMN",
+        `Unknown column "${args[0]!.name}"${sumLookup.suggestion ? ` — did you mean "${sumLookup.suggestion}"?` : ""}`,
+        sumLookup.suggestion,
+      );
+    }
+    const condLookup = lookupColumn(args[1]!.name, state.ctx);
+    if (!("index" in condLookup)) {
+      return err(
+        "UNKNOWN_COLUMN",
+        `Unknown column "${args[1]!.name}"${condLookup.suggestion ? ` — did you mean "${condLookup.suggestion}"?` : ""}`,
+        condLookup.suggestion,
+      );
+    }
+    const condValueArg = state.evaluate(args[2]!);
+    if (condValueArg.kind === "error") return condValueArg;
+    const target = toString(condValueArg.value);
+    let total = 0;
+    for (let r = 0; r < state.ctx.rows.length; r++) {
+      const condResult = evaluateCell(r, condLookup.index, state.ctx);
+      if (condResult.kind !== "ok") continue;
+      if (toString(condResult.value) !== target) continue;
+      const sumResult = evaluateCell(r, sumLookup.index, state.ctx);
+      if (sumResult.kind !== "ok") continue;
+      const n = toNumber(sumResult.value);
+      if (n !== null) total += n;
+    }
+    return ok(total);
+  },
 
   // --- PERCENT helper — sugar for ROUND(part / total * 100, 2) ---
   PERCENT: (args, state) => {
@@ -683,6 +793,45 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     return v;
   },
 
+  // --- Logical combinators ---
+  // Result is returned as numeric 1/0 to match the rest of the engine's
+  // boolean handling (comparison operators do the same). Short-circuit
+  // evaluation: AND stops on first false, OR stops on first true — so
+  // expensive sub-expressions in later args are skipped when the
+  // outcome is already decided.
+  AND: (args, state) => {
+    if (args.length === 0) return argCountError("AND", "at least 1 argument", args.length);
+    for (const a of args) {
+      const v = state.evaluate(a);
+      if (v.kind === "error") return v;
+      if (!isTruthy(v.value)) return ok(0);
+    }
+    return ok(1);
+  },
+  OR: (args, state) => {
+    if (args.length === 0) return argCountError("OR", "at least 1 argument", args.length);
+    for (const a of args) {
+      const v = state.evaluate(a);
+      if (v.kind === "error") return v;
+      if (isTruthy(v.value)) return ok(1);
+    }
+    return ok(0);
+  },
+  NOT: (args, state) => {
+    if (args.length !== 1) return argCountError("NOT", "1 argument", args.length);
+    const v = state.evaluate(args[0]!);
+    if (v.kind === "error") return v;
+    return ok(isTruthy(v.value) ? 0 : 1);
+  },
+  CONTAINS: (args, state) => {
+    if (args.length !== 2) return argCountError("CONTAINS", "2 arguments (haystack, needle)", args.length);
+    const h = state.evaluate(args[0]!);
+    if (h.kind === "error") return h;
+    const n = state.evaluate(args[1]!);
+    if (n.kind === "error") return n;
+    return ok(toString(h.value).includes(toString(n.value)) ? 1 : 0);
+  },
+
   // --- String ---
   CONCAT: (args, state) => {
     let out = "";
@@ -728,6 +877,111 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     const startI = Math.max(0, Math.floor(startN));
     const endI = Math.max(startI, startI + Math.floor(lenN));
     return ok(s.slice(startI, endI));
+  },
+  TRIM: (args, state) => {
+    if (args.length !== 1) return argCountError("TRIM", "1 argument (text)", args.length);
+    const v = state.evaluate(args[0]!);
+    if (v.kind === "error") return v;
+    return ok(toString(v.value).trim());
+  },
+  LEFT: (args, state) => {
+    if (args.length !== 2) return argCountError("LEFT", "2 arguments (text, n)", args.length);
+    const text = state.evaluate(args[0]!);
+    if (text.kind === "error") return text;
+    const nArg = state.evaluate(args[1]!);
+    if (nArg.kind === "error") return nArg;
+    const n = toNumber(nArg.value);
+    if (n === null) return err("NON_NUMERIC", `LEFT: n is not a number`);
+    return ok(toString(text.value).slice(0, Math.max(0, Math.floor(n))));
+  },
+  RIGHT: (args, state) => {
+    if (args.length !== 2) return argCountError("RIGHT", "2 arguments (text, n)", args.length);
+    const text = state.evaluate(args[0]!);
+    if (text.kind === "error") return text;
+    const nArg = state.evaluate(args[1]!);
+    if (nArg.kind === "error") return nArg;
+    const n = toNumber(nArg.value);
+    if (n === null) return err("NON_NUMERIC", `RIGHT: n is not a number`);
+    const s = toString(text.value);
+    const take = Math.max(0, Math.floor(n));
+    return ok(take === 0 ? "" : s.slice(-take));
+  },
+  REPLACE: (args, state) => {
+    if (args.length !== 3) return argCountError("REPLACE", "3 arguments (text, search, replacement)", args.length);
+    const text = state.evaluate(args[0]!);
+    if (text.kind === "error") return text;
+    const search = state.evaluate(args[1]!);
+    if (search.kind === "error") return search;
+    const replacement = state.evaluate(args[2]!);
+    if (replacement.kind === "error") return replacement;
+    const searchStr = toString(search.value);
+    if (searchStr.length === 0) {
+      // `replaceAll` with empty needle inserts the replacement between
+      // every character — almost never the user's intent and slow on
+      // long strings. Reject explicitly.
+      return err("PARSE_ERROR", `REPLACE: search string must be non-empty`);
+    }
+    return ok(toString(text.value).replaceAll(searchStr, toString(replacement.value)));
+  },
+
+  // --- Date / time helpers ---
+  // Plain-ISO formatting — local timezone, no offset suffix. Same
+  // convention as the `/now` `/date` slash commands so a doc-wide
+  // search for a date string matches both sources.
+  NOW: (args) => {
+    if (args.length !== 0) return argCountError("NOW", "no arguments", args.length);
+    const d = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return ok(
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+    );
+  },
+  TODAY: (args) => {
+    if (args.length !== 0) return argCountError("TODAY", "no arguments", args.length);
+    const d = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return ok(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
+  },
+  DATEDIFF: (args, state) => {
+    if (args.length < 2 || args.length > 3)
+      return argCountError("DATEDIFF", "2 or 3 arguments (d1, d2, unit?)", args.length);
+    const d1V = state.evaluate(args[0]!);
+    if (d1V.kind === "error") return d1V;
+    const d2V = state.evaluate(args[1]!);
+    if (d2V.kind === "error") return d2V;
+    const d1 = new Date(toString(d1V.value));
+    const d2 = new Date(toString(d2V.value));
+    if (Number.isNaN(d1.getTime())) return err("PARSE_ERROR", `DATEDIFF: first argument is not a valid date`);
+    if (Number.isNaN(d2.getTime())) return err("PARSE_ERROR", `DATEDIFF: second argument is not a valid date`);
+    let unit = "days";
+    if (args.length === 3) {
+      const u = state.evaluate(args[2]!);
+      if (u.kind === "error") return u;
+      unit = toString(u.value).toLowerCase();
+    }
+    const diffMs = d2.getTime() - d1.getTime();
+    switch (unit) {
+      case "ms":
+      case "milliseconds":
+        return ok(diffMs);
+      case "s":
+      case "seconds":
+        return ok(diffMs / 1000);
+      case "m":
+      case "minutes":
+        return ok(diffMs / (1000 * 60));
+      case "h":
+      case "hours":
+        return ok(diffMs / (1000 * 60 * 60));
+      case "d":
+      case "days":
+        return ok(diffMs / (1000 * 60 * 60 * 24));
+      default:
+        return err(
+          "PARSE_ERROR",
+          `DATEDIFF: unknown unit "${unit}" — use one of ms / s / m / h / d (or full names)`,
+        );
+    }
   },
 };
 

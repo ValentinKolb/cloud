@@ -219,6 +219,96 @@ describe("column aggregates", () => {
   });
 });
 
+describe("UNIQUE / COUNTIF / SUMIF / STDEV", () => {
+  test("UNIQUE counts distinct non-empty values", () => {
+    const c = ctx(["status"], [["done"], ["pending"], ["done"], [""], ["pending"], ["new"]]);
+    expectOk(evaluateFormula("=UNIQUE(status)", c), 3); // done, pending, new
+  });
+
+  test("UNIQUE is case-sensitive", () => {
+    const c = ctx(["x"], [["A"], ["a"], ["A"]]);
+    expectOk(evaluateFormula("=UNIQUE(x)", c), 2);
+  });
+
+  test("UNIQUE empty column returns 0", () => {
+    const c = ctx(["x"], []);
+    expectOk(evaluateFormula("=UNIQUE(x)", c), 0);
+  });
+
+  test("UNIQUE arg count + unknown column", () => {
+    const c = ctx(["x"], [["1"]]);
+    expectError(evaluateFormula("=UNIQUE()", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula("=UNIQUE(y)", c), "UNKNOWN_COLUMN");
+  });
+
+  test("COUNTIF counts exact-string matches", () => {
+    const c = ctx(["status"], [["done"], ["pending"], ["done"], ["done"]]);
+    expectOk(evaluateFormula(`=COUNTIF(status, "done")`, c), 3);
+    expectOk(evaluateFormula(`=COUNTIF(status, "pending")`, c), 1);
+    expectOk(evaluateFormula(`=COUNTIF(status, "missing")`, c), 0);
+  });
+
+  test("COUNTIF matches numbers as strings", () => {
+    const c = ctx(["price"], [["10"], ["20"], ["10"], ["30"]]);
+    expectOk(evaluateFormula("=COUNTIF(price, 10)", c), 2);
+  });
+
+  test("COUNTIF arg count + unknown column", () => {
+    const c = ctx(["x"], [["1"]]);
+    expectError(evaluateFormula("=COUNTIF(x)", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=COUNTIF(y, "v")`, c), "UNKNOWN_COLUMN");
+  });
+
+  test("SUMIF sums values where condition matches", () => {
+    const c = ctx(
+      ["hours", "status"],
+      [["8", "done"], ["4", "pending"], ["6", "done"], ["3", "done"], ["5", "pending"]],
+    );
+    expectOk(evaluateFormula(`=SUMIF(hours, status, "done")`, c), 17); // 8 + 6 + 3
+    expectOk(evaluateFormula(`=SUMIF(hours, status, "pending")`, c), 9); // 4 + 5
+  });
+
+  test("SUMIF skips non-numeric sum cells silently", () => {
+    const c = ctx(
+      ["amount", "type"],
+      [["10", "a"], ["x", "a"], ["20", "a"]],
+    );
+    expectOk(evaluateFormula(`=SUMIF(amount, type, "a")`, c), 30);
+  });
+
+  test("SUMIF no matches returns 0", () => {
+    const c = ctx(["x", "y"], [["1", "a"]]);
+    expectOk(evaluateFormula(`=SUMIF(x, y, "z")`, c), 0);
+  });
+
+  test("SUMIF arg count + type errors", () => {
+    const c = ctx(["x", "y"], [["1", "a"]]);
+    expectError(evaluateFormula(`=SUMIF(x, y)`, c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=SUMIF(1, y, "a")`, c), "TYPE_ERROR");
+    expectError(evaluateFormula(`=SUMIF(x, 1, "a")`, c), "TYPE_ERROR");
+    expectError(evaluateFormula(`=SUMIF(x, missing, "a")`, c), "UNKNOWN_COLUMN");
+  });
+
+  test("STDEV computes sample standard deviation", () => {
+    const c = ctx(["n"], [["2"], ["4"], ["4"], ["4"], ["5"], ["5"], ["7"], ["9"]]);
+    // Sample stdev = sqrt(32/7) ≈ 2.138...
+    const r = evaluateFormula("=STDEV(n)", c);
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") expect(r.value as number).toBeCloseTo(2.138, 2);
+  });
+
+  test("STDEV returns 0 for fewer than 2 numbers", () => {
+    expectOk(evaluateFormula("=STDEV(x)", ctx(["x"], [])), 0);
+    expectOk(evaluateFormula("=STDEV(x)", ctx(["x"], [["5"]])), 0);
+  });
+
+  test("STDEV arg count + unknown column", () => {
+    const c = ctx(["x"], [["1"]]);
+    expectError(evaluateFormula("=STDEV()", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula("=STDEV(y)", c), "UNKNOWN_COLUMN");
+  });
+});
+
 // =============================================================================
 // Row aggregates
 // =============================================================================
@@ -277,6 +367,121 @@ describe("ROUND + ABS", () => {
   test("wrong arg count", () => {
     expectError(evaluateFormula("=ROUND(1)", c), "WRONG_ARG_COUNT");
     expectError(evaluateFormula("=ABS(1, 2)", c), "WRONG_ARG_COUNT");
+  });
+});
+
+describe("SQRT + POW + MOD", () => {
+  const c = ctx(["a"], [["1"]]);
+
+  test("SQRT computes square root", () => {
+    expectOk(evaluateFormula("=SQRT(9)", c), 3);
+    expectOk(evaluateFormula("=SQRT(2)", c), Math.SQRT2);
+    expectOk(evaluateFormula("=SQRT(0)", c), 0);
+  });
+
+  test("SQRT rejects negative input", () => {
+    expectError(evaluateFormula("=SQRT(-1)", c), "NON_NUMERIC");
+  });
+
+  test("SQRT wrong arg count", () => {
+    expectError(evaluateFormula("=SQRT()", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula("=SQRT(1, 2)", c), "WRONG_ARG_COUNT");
+  });
+
+  test("POW computes powers", () => {
+    expectOk(evaluateFormula("=POW(2, 10)", c), 1024);
+    expectOk(evaluateFormula("=POW(5, 0)", c), 1);
+    expectOk(evaluateFormula("=POW(4, 0.5)", c), 2);
+  });
+
+  test("POW handles negative base", () => {
+    expectOk(evaluateFormula("=POW(-2, 3)", c), -8);
+  });
+
+  test("POW wrong arg count", () => {
+    expectError(evaluateFormula("=POW(2)", c), "WRONG_ARG_COUNT");
+  });
+
+  test("MOD computes modulo", () => {
+    expectOk(evaluateFormula("=MOD(10, 3)", c), 1);
+    expectOk(evaluateFormula("=MOD(15, 5)", c), 0);
+    expectOk(evaluateFormula("=MOD(-7, 3)", c), -1); // JS modulo keeps sign of dividend
+  });
+
+  test("MOD rejects zero divisor", () => {
+    expectError(evaluateFormula("=MOD(10, 0)", c), "DIV_BY_ZERO");
+  });
+
+  test("MOD wrong arg count", () => {
+    expectError(evaluateFormula("=MOD(10)", c), "WRONG_ARG_COUNT");
+  });
+});
+
+describe("AND / OR / NOT / CONTAINS", () => {
+  const c = ctx(["a"], [["1"]]);
+
+  test("AND returns 1 when all truthy, 0 otherwise", () => {
+    expectOk(evaluateFormula("=AND(1, 2, 3)", c), 1);
+    expectOk(evaluateFormula(`=AND("yes", 1)`, c), 1);
+    expectOk(evaluateFormula("=AND(1, 0, 3)", c), 0);
+    expectOk(evaluateFormula(`=AND("", 1)`, c), 0);
+  });
+
+  test("AND short-circuits on first false (later errors not surfaced)", () => {
+    // The 1/0 short-circuit means the third arg is never evaluated;
+    // if it were, the unknown column would error.
+    expectOk(evaluateFormula("=AND(0, missingCol)", c), 0);
+  });
+
+  test("AND requires at least one argument", () => {
+    expectError(evaluateFormula("=AND()", c), "WRONG_ARG_COUNT");
+  });
+
+  test("OR returns 1 if any truthy, 0 if all falsy", () => {
+    expectOk(evaluateFormula("=OR(0, 0, 1)", c), 1);
+    expectOk(evaluateFormula("=OR(0, 0, 0)", c), 0);
+    expectOk(evaluateFormula(`=OR("", "")`, c), 0);
+  });
+
+  test("OR short-circuits on first true", () => {
+    expectOk(evaluateFormula("=OR(1, missingCol)", c), 1);
+  });
+
+  test("OR requires at least one argument", () => {
+    expectError(evaluateFormula("=OR()", c), "WRONG_ARG_COUNT");
+  });
+
+  test("NOT inverts truthiness", () => {
+    expectOk(evaluateFormula("=NOT(1)", c), 0);
+    expectOk(evaluateFormula("=NOT(0)", c), 1);
+    expectOk(evaluateFormula(`=NOT("")`, c), 1);
+    expectOk(evaluateFormula(`=NOT("hi")`, c), 0);
+  });
+
+  test("NOT requires exactly one argument", () => {
+    expectError(evaluateFormula("=NOT()", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula("=NOT(1, 2)", c), "WRONG_ARG_COUNT");
+  });
+
+  test("CONTAINS does substring match", () => {
+    expectOk(evaluateFormula(`=CONTAINS("hello world", "world")`, c), 1);
+    expectOk(evaluateFormula(`=CONTAINS("hello world", "xyz")`, c), 0);
+    expectOk(evaluateFormula(`=CONTAINS("hello", "")`, c), 1); // empty needle always matches
+  });
+
+  test("CONTAINS coerces numbers to string", () => {
+    expectOk(evaluateFormula(`=CONTAINS("price: 42", 42)`, c), 1);
+  });
+
+  test("CONTAINS requires two arguments", () => {
+    expectError(evaluateFormula(`=CONTAINS("hi")`, c), "WRONG_ARG_COUNT");
+  });
+
+  test("AND/OR/NOT integrate with IF", () => {
+    const c2 = ctx(["x", "y"], [["10", "20"]]);
+    expectOk(evaluateFormula(`=IF(AND(x > 5, y < 30), "yes", "no")`, c2), "yes");
+    expectOk(evaluateFormula(`=IF(OR(x > 100, y > 100), "high", "low")`, c2), "low");
+    expectOk(evaluateFormula(`=IF(NOT(x == 0), "non-zero", "zero")`, c2), "non-zero");
   });
 });
 
@@ -361,6 +566,120 @@ describe("string functions", () => {
   test("string function arg count", () => {
     expectError(evaluateFormula(`=UPPER()`, c), "WRONG_ARG_COUNT");
     expectError(evaluateFormula(`=SUBSTRING("hi", 0)`, c), "WRONG_ARG_COUNT");
+  });
+});
+
+describe("TRIM / LEFT / RIGHT / REPLACE", () => {
+  const c = ctx(["a"], [["1"]]);
+
+  test("TRIM strips leading/trailing whitespace", () => {
+    // NOTE: the formula string-literal parser only supports `\"` and
+    // `\\` escapes (see lexer comment) — no `\t` / `\n`. So we test
+    // with plain spaces here. TRIM uses String.prototype.trim which
+    // strips all Unicode whitespace, so real tabs/newlines passing
+    // through (e.g. via column refs that contain them) would also be
+    // stripped at runtime.
+    expectOk(evaluateFormula(`=TRIM("  hi  ")`, c), "hi");
+    expectOk(evaluateFormula(`=TRIM("hi")`, c), "hi");
+    expectOk(evaluateFormula(`=TRIM("   ")`, c), "");
+  });
+
+  test("TRIM wrong arg count", () => {
+    expectError(evaluateFormula("=TRIM()", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=TRIM("a", "b")`, c), "WRONG_ARG_COUNT");
+  });
+
+  test("LEFT takes first N chars", () => {
+    expectOk(evaluateFormula(`=LEFT("Hello", 3)`, c), "Hel");
+    expectOk(evaluateFormula(`=LEFT("Hi", 5)`, c), "Hi"); // n > length: full string
+    expectOk(evaluateFormula(`=LEFT("Hi", 0)`, c), "");
+    expectOk(evaluateFormula(`=LEFT("Hi", -1)`, c), ""); // negative clamps to 0
+  });
+
+  test("LEFT rejects non-numeric n", () => {
+    expectError(evaluateFormula(`=LEFT("hi", "x")`, c), "NON_NUMERIC");
+  });
+
+  test("RIGHT takes last N chars", () => {
+    expectOk(evaluateFormula(`=RIGHT("Hello", 3)`, c), "llo");
+    expectOk(evaluateFormula(`=RIGHT("Hi", 5)`, c), "Hi");
+    expectOk(evaluateFormula(`=RIGHT("Hi", 0)`, c), "");
+    expectOk(evaluateFormula(`=RIGHT("Hi", -1)`, c), "");
+  });
+
+  test("LEFT/RIGHT arg count", () => {
+    expectError(evaluateFormula(`=LEFT("hi")`, c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=RIGHT()`, c), "WRONG_ARG_COUNT");
+  });
+
+  test("REPLACE substitutes all occurrences", () => {
+    expectOk(evaluateFormula(`=REPLACE("aaa", "a", "b")`, c), "bbb");
+    expectOk(evaluateFormula(`=REPLACE("hello world", "world", "there")`, c), "hello there");
+    expectOk(evaluateFormula(`=REPLACE("none here", "xyz", "abc")`, c), "none here");
+  });
+
+  test("REPLACE rejects empty search", () => {
+    expectError(evaluateFormula(`=REPLACE("hi", "", "x")`, c), "PARSE_ERROR");
+  });
+
+  test("REPLACE arg count", () => {
+    expectError(evaluateFormula(`=REPLACE("hi", "x")`, c), "WRONG_ARG_COUNT");
+  });
+});
+
+describe("NOW / TODAY / DATEDIFF", () => {
+  const c = ctx(["a"], [["1"]]);
+
+  test("NOW returns YYYY-MM-DD HH:MM:SS", () => {
+    const r = evaluateFormula("=NOW()", c);
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") {
+      expect(typeof r.value).toBe("string");
+      expect(r.value as string).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    }
+  });
+
+  test("TODAY returns YYYY-MM-DD", () => {
+    const r = evaluateFormula("=TODAY()", c);
+    expect(r.kind).toBe("ok");
+    if (r.kind === "ok") {
+      expect(r.value as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  test("NOW / TODAY reject arguments", () => {
+    expectError(evaluateFormula(`=NOW("hi")`, c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=TODAY(1)`, c), "WRONG_ARG_COUNT");
+  });
+
+  test("DATEDIFF default unit is days", () => {
+    expectOk(evaluateFormula(`=DATEDIFF("2026-01-01", "2026-01-11")`, c), 10);
+    expectOk(evaluateFormula(`=DATEDIFF("2026-01-11", "2026-01-01")`, c), -10);
+  });
+
+  test("DATEDIFF supports h / hours / m / minutes / s / seconds", () => {
+    expectOk(evaluateFormula(`=DATEDIFF("2026-01-01T00:00:00Z", "2026-01-01T03:00:00Z", "h")`, c), 3);
+    expectOk(evaluateFormula(`=DATEDIFF("2026-01-01T00:00:00Z", "2026-01-01T03:00:00Z", "hours")`, c), 3);
+    expectOk(evaluateFormula(`=DATEDIFF("2026-01-01T00:00:00Z", "2026-01-01T00:30:00Z", "m")`, c), 30);
+    expectOk(evaluateFormula(`=DATEDIFF("2026-01-01T00:00:00Z", "2026-01-01T00:00:45Z", "s")`, c), 45);
+  });
+
+  test("DATEDIFF returns 0 for same date", () => {
+    expectOk(evaluateFormula(`=DATEDIFF("2026-05-12", "2026-05-12")`, c), 0);
+  });
+
+  test("DATEDIFF rejects invalid date input", () => {
+    expectError(evaluateFormula(`=DATEDIFF("not-a-date", "2026-01-01")`, c), "PARSE_ERROR");
+    expectError(evaluateFormula(`=DATEDIFF("2026-01-01", "garbage")`, c), "PARSE_ERROR");
+  });
+
+  test("DATEDIFF rejects unknown unit", () => {
+    expectError(evaluateFormula(`=DATEDIFF("2026-01-01", "2026-01-02", "weeks")`, c), "PARSE_ERROR");
+  });
+
+  test("DATEDIFF arg count", () => {
+    expectError(evaluateFormula(`=DATEDIFF("2026-01-01")`, c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=DATEDIFF("2026-01-01", "2026-01-02", "d", "extra")`, c), "WRONG_ARG_COUNT");
   });
 });
 
