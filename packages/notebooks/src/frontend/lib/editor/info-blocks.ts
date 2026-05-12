@@ -1,7 +1,7 @@
-import { StateField, RangeSet } from "@codemirror/state";
+import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import type { DecorationSet } from "@codemirror/view";
+import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 
 type BlockType = "note" | "info" | "success" | "warning" | "danger";
 
@@ -124,31 +124,13 @@ class InfoBlockWidget extends WidgetType {
 
 const BLOCK_REGEX = /^:::(\w+)\s*\n([\s\S]*?)\n:::$/gm;
 
-type BlockRange = { from: number; to: number };
-type InfoBlocksState = {
-  decorations: DecorationSet;
-  /** Source-byte ranges of every `:::TYPE…:::` block in the doc.
-   *  Used by `update()` to detect whether the cursor moved INTO
-   *  or OUT OF a block (= the only state change that affects the
-   *  widget-vs-source visibility decision). */
-  blockRanges: BlockRange[];
-};
-
-/** Find which block (if any) contains the cursor. Returns the
- *  block's `from` as a stable key, or `null` for outside. Used by
- *  the cross-boundary check that gates the rescan. */
-const cursorBlockKey = (state: EditorState, ranges: BlockRange[]): number | null => {
-  if (ranges.length === 0) return null;
-  const cursor = state.selection.main;
-  for (const r of ranges) {
-    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
-  }
-  return null;
-};
-
-const findInfoBlocks = (state: EditorState): InfoBlocksState => {
+/** Source-byte ranges of every `:::TYPE…:::` block drive the
+ *  cursor-zone rebuild gate — cursor moves through plain prose
+ *  skip the full doc.toString() + matchAll() rescan because the
+ *  key (= which block contains the cursor) doesn't change. */
+const findInfoBlocks = (state: EditorState): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
-  const blockRanges: BlockRange[] = [];
+  const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
   const text = state.doc.toString();
 
@@ -163,7 +145,7 @@ const findInfoBlocks = (state: EditorState): InfoBlocksState => {
     const blockEnd = blockStart + match[0].length;
     const nextLine = state.doc.lineAt(Math.min(blockEnd + 1, state.doc.length));
     const sourceVisibleEnd = nextLine.to;
-    blockRanges.push({ from: blockStart, to: sourceVisibleEnd });
+    ranges.push({ from: blockStart, to: sourceVisibleEnd });
 
     // Cursor is inside the block → don't render the widget so the user
     // can edit the raw `:::xxx` markers.
@@ -181,36 +163,12 @@ const findInfoBlocks = (state: EditorState): InfoBlocksState => {
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
-    blockRanges,
+    ranges,
   };
 };
 
 export const infoBlocksExtension = (): Extension => {
-  const stateField = StateField.define<InfoBlocksState>({
-    create(state) {
-      return findInfoBlocks(state);
-    },
-    update(value, tr) {
-      if (tr.docChanged) {
-        return findInfoBlocks(tr.state);
-      }
-      if (!tr.selection) {
-        return value;
-      }
-      // Selection change — only rescan if cursor crossed an
-      // info-block boundary (entered, left, or moved between two
-      // blocks). Same pattern as tables.ts.
-      const oldKey = cursorBlockKey(tr.startState, value.blockRanges);
-      const newKey = cursorBlockKey(tr.state, value.blockRanges);
-      if (oldKey === newKey) {
-        return value;
-      }
-      return findInfoBlocks(tr.state);
-    },
-    provide(field) {
-      return EditorView.decorations.from(field, (v) => v.decorations);
-    },
-  });
+  const stateField = cursorZoneStateField(findInfoBlocks);
 
   const theme = EditorView.theme({
     ".cm-info-block-widget": {

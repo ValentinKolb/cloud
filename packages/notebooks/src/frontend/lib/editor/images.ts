@@ -1,8 +1,8 @@
 import { syntaxTree } from "@codemirror/language";
-import { StateField, RangeSet } from "@codemirror/state";
+import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import type { DecorationSet } from "@codemirror/view";
+import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 
 /** Match the optional `=WxH` size suffix Pandoc-style image syntax allows. */
@@ -107,27 +107,11 @@ class ImageWidget extends WidgetType {
   }
 }
 
-type ImageRange = { from: number; to: number };
-type ImagesState = {
-  decorations: DecorationSet;
-  /** Source-byte ranges of every Image node (incl. the next-line
-   *  source-visible extension). Used by `update()` to gate
-   *  rebuilds on cursor-boundary crossings. */
-  imageRanges: ImageRange[];
-};
-
-const cursorImageKey = (state: EditorState, ranges: ImageRange[]): number | null => {
-  if (ranges.length === 0) return null;
-  const cursor = state.selection.main;
-  for (const r of ranges) {
-    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
-  }
-  return null;
-};
-
-const findMarkdownImages = (state: EditorState, notebookId: string): ImagesState => {
+/** Source-byte ranges of every Image node (incl. the next-line
+ *  source-visible extension). Drives the cursor-zone rebuild gate. */
+const findMarkdownImages = (state: EditorState, notebookId: string): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
-  const imageRanges: ImageRange[] = [];
+  const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
 
   syntaxTree(state).iterate({
@@ -135,7 +119,7 @@ const findMarkdownImages = (state: EditorState, notebookId: string): ImagesState
       if (node.type.name !== "Image") return;
 
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
-      imageRanges.push({ from: node.from, to: nextLine.to });
+      ranges.push({ from: node.from, to: nextLine.to });
       if (cursor.from >= node.from && cursor.to <= nextLine.to) return false;
 
       const text = state.sliceDoc(node.from, node.to);
@@ -157,33 +141,12 @@ const findMarkdownImages = (state: EditorState, notebookId: string): ImagesState
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
-    imageRanges,
+    ranges,
   };
 };
 
 export const imageExtension = (notebookId: string): Extension => {
-  const stateField = StateField.define<ImagesState>({
-    create(state) {
-      return findMarkdownImages(state, notebookId);
-    },
-    update(value, tr) {
-      if (tr.docChanged) {
-        return findMarkdownImages(tr.state, notebookId);
-      }
-      if (!tr.selection) {
-        return value;
-      }
-      const oldKey = cursorImageKey(tr.startState, value.imageRanges);
-      const newKey = cursorImageKey(tr.state, value.imageRanges);
-      if (oldKey === newKey) {
-        return value;
-      }
-      return findMarkdownImages(tr.state, notebookId);
-    },
-    provide(field) {
-      return EditorView.decorations.from(field, (v) => v.decorations);
-    },
-  });
+  const stateField = cursorZoneStateField((state) => findMarkdownImages(state, notebookId));
 
   const theme = EditorView.theme({
     ".cm-image-widget": {

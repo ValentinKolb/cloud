@@ -1,9 +1,9 @@
 import { syntaxTree } from "@codemirror/language";
-import { RangeSet, StateField } from "@codemirror/state";
+import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import type { DecorationSet } from "@codemirror/view";
 import { fileIcons } from "@valentinkolb/stdlib";
+import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 
 /** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
@@ -167,30 +167,15 @@ const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
   };
 };
 
-type LinkRange = { from: number; to: number };
-type LinksState = {
-  decorations: DecorationSet;
-  linkRanges: LinkRange[];
-};
-
-const cursorLinkKey = (state: EditorState, ranges: LinkRange[]): number | null => {
-  if (ranges.length === 0) return null;
-  const cursor = state.selection.main;
-  for (const r of ranges) {
-    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
-  }
-  return null;
-};
-
-const findLinks = (state: EditorState, notebookId: string): LinksState => {
+const findLinks = (state: EditorState, notebookId: string): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
-  const linkRanges: LinkRange[] = [];
+  const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
 
   syntaxTree(state).iterate({
     enter: ({ type, from, to }) => {
       if (type.name !== "Link") return;
-      linkRanges.push({ from, to });
+      ranges.push({ from, to });
       if (cursor.from >= from && cursor.to <= to) return;
 
       const text = state.doc.sliceString(from, to);
@@ -204,33 +189,12 @@ const findLinks = (state: EditorState, notebookId: string): LinksState => {
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
-    linkRanges,
+    ranges,
   };
 };
 
 export const linksExtension = (notebookId: string): Extension => {
-  const stateField = StateField.define<LinksState>({
-    create(state) {
-      return findLinks(state, notebookId);
-    },
-    update(value, tr) {
-      if (tr.docChanged) {
-        return findLinks(tr.state, notebookId);
-      }
-      if (!tr.selection) {
-        return value;
-      }
-      const oldKey = cursorLinkKey(tr.startState, value.linkRanges);
-      const newKey = cursorLinkKey(tr.state, value.linkRanges);
-      if (oldKey === newKey) {
-        return value;
-      }
-      return findLinks(tr.state, notebookId);
-    },
-    provide(field) {
-      return EditorView.decorations.from(field, (v) => v.decorations);
-    },
-  });
+  const stateField = cursorZoneStateField((state) => findLinks(state, notebookId));
 
   const theme = EditorView.theme({
     ".cm-link-widget": {
