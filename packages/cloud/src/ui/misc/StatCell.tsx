@@ -136,20 +136,28 @@ const Body = (props: StatCellProps & { cellIsLink: boolean }): JSX.Element => {
       </span>
       {/* Optional trend sparkline. Sits inline between the value and
           the sub row so the eye lands on it right after parsing the
-          headline number. The fixed compact height is set via inline
-          `style` (not Tailwind's `h-8`) because the previous version
-          relied on the global `.stdlib-chart { height: 100% }` rule
-          resolving against a CSS-class-provided parent height — which
-          worked in our local tests but didn't survive every hot-
-          reload / cache combination in the wild. The inline style is
-          immune to that. */}
+          headline number.
+
+          Sizing: inline `style` for the height (Tailwind's h-8 class
+          didn't survive every hot-reload / cache combo in the wild;
+          inline style is immune). Full-bleed horizontally via -mx-4
+          to cancel the cell's px-4 padding so the line spans the
+          card edge-to-edge — the inset visual reads as "tucked-in
+          line in the middle", which the user reported as "doesn't
+          fit" against the surrounding card.
+
+          `showLast` + `showMinMax` add dots at the most-recent point
+          plus the min/max points so a flat-with-spikes series still
+          has visible anchor points (otherwise sparse data renders
+          as nearly-invisible horizontal lines). */}
       <Show when={props.trend && props.trend.length > 1}>
         <Chart
           kind="sparkline"
-          class="-mx-1 mt-0.5 self-stretch block"
+          class="-mx-4 self-stretch block"
           style={{ height: "32px" }}
           data={props.trend ?? []}
           showLast
+          showMinMax
         />
       </Show>
       {/* Sub row: rendered only when there's actual content. Keeping
