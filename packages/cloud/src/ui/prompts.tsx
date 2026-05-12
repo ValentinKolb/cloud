@@ -243,8 +243,13 @@ export const createFormState = <T extends Record<string, FieldSchema>>(schema: T
 
 export const DialogHeader = (props: { close: () => void; title?: string; icon?: string }) => {
   const { title, icon, close } = props || {};
+  // Hierarchy comes from the font-semibold title + per-section
+  // padding. The previous `border-b border-zinc-200` violated the
+  // project's "no horizontal dividers between header/body/footer"
+  // rule. `pb-2` is kept so the title still has breathing room
+  // before whatever the body renders.
   return (
-    <div class="flex flex-row items-center justify-start gap-4 border-b border-zinc-200 pb-2 dark:border-zinc-700">
+    <div class="flex flex-row items-center justify-start gap-4 pb-2">
       {icon && <i class={`${icon}`} />}
       {title && <p class="truncate font-semibold">{title}</p>}
       <button type="button" onClick={() => close()} class="ti ti-x ml-auto" aria-label="close dialog" />
