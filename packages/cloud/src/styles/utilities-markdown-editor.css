@@ -1,0 +1,247 @@
+/* Markdown editor — overtype-style layered textarea + preview.
+
+   The textarea has `color: transparent` so its glyphs are invisible; only
+   the cursor (caret-color) and selection show through. The preview div
+   beneath renders the same text with markdown syntax highlighted. Identical
+   font / padding / whitespace / wrapping on both layers is REQUIRED for
+   the cursor to line up exactly with the visible glyphs in the preview.
+
+   All glyph-affecting properties on `.md-editor-layer` use `!important` to
+   defeat any cascading style that would shift the layers relative to each
+   other. Headers are styled via font-weight + color ONLY (no font-size
+   change) — varying font-size desyncs the wrap points between layers. */
+
+.md-editor {
+  position: relative;
+  @apply rounded-md border;
+  @apply bg-zinc-100 border-zinc-100;
+  @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
+  @apply dark:bg-zinc-800 dark:border-zinc-800;
+  @apply dark:hover:bg-zinc-700 dark:hover:border-zinc-700;
+  @apply transition-colors;
+  @apply overflow-hidden;
+}
+
+.md-editor:focus-within {
+  @apply bg-white border-blue-400;
+  @apply dark:bg-zinc-900 dark:border-blue-400;
+}
+
+.md-editor[data-disabled="true"] {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Toolbar bar above the editor surface */
+.md-editor-toolbar {
+  @apply flex items-center gap-0.5 flex-wrap;
+  @apply px-1.5 py-1;
+  @apply border-b border-zinc-200 dark:border-zinc-700;
+}
+
+.md-editor:focus-within .md-editor-toolbar {
+  @apply border-zinc-200 dark:border-zinc-700;
+}
+
+.md-editor-tool {
+  @apply inline-flex items-center justify-center;
+  @apply w-7 h-7 rounded;
+  @apply text-zinc-500 dark:text-zinc-400;
+  @apply hover:bg-zinc-200 hover:text-zinc-800;
+  @apply dark:hover:bg-zinc-700 dark:hover:text-zinc-100;
+  @apply transition-colors;
+  font-size: 0.95rem;
+}
+
+.md-editor-tool[aria-pressed="true"] {
+  @apply bg-zinc-200 text-zinc-900;
+  @apply dark:bg-zinc-700 dark:text-zinc-100;
+}
+
+.md-editor-tool-sep {
+  @apply w-px h-4 bg-zinc-300 dark:bg-zinc-600 mx-1;
+}
+
+/* The two stacked layers. The wrapper has explicit height (set inline
+   via style="--md-h: ...em") so both layers can size to it via 100%. */
+.md-editor-surface {
+  position: relative;
+  height: var(--md-h, 8rem);
+}
+
+.md-editor-layer {
+  /* These properties MUST be identical on textarea and preview.
+     `!important` because user-agent textarea defaults + any stray rule
+     could otherwise shift one layer relative to the other. */
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+
+  /* Typography — identical glyph metrics on both layers */
+  font-family: var(--font-mono) !important;
+  font-size: 0.875rem !important; /* 14px */
+  line-height: 1.55 !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  font-variant: normal !important;
+  font-stretch: normal !important;
+  font-kerning: none !important;
+  font-feature-settings: normal !important;
+  letter-spacing: normal !important;
+  word-spacing: normal !important;
+  text-align: left !important;
+  text-indent: 0 !important;
+  text-transform: none !important;
+  text-rendering: auto !important;
+
+  /* Box model */
+  padding: 0.625rem 0.75rem !important;
+  margin: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-sizing: border-box !important;
+
+  /* Whitespace + wrapping — must agree on every char position */
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  tab-size: 2 !important;
+  -moz-tab-size: 2 !important;
+
+  /* Sizing */
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  max-width: none !important;
+
+  /* Scrolling — only the textarea scrolls; preview is scroll-synced */
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+
+  /* Background neutralised — wrapper owns the surface color */
+  background: transparent !important;
+
+  /* No animations that could shift glyph position */
+  animation: none !important;
+  transition: none !important;
+}
+
+.md-editor-input {
+  z-index: 2 !important;
+  resize: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  /* Hide own glyphs, show only cursor */
+  color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
+  caret-color: currentColor !important;
+  /* Prevent mobile double-tap zoom */
+  touch-action: manipulation !important;
+}
+
+/* Selection background visible even with transparent glyphs */
+.md-editor-input::selection {
+  background: rgb(59 130 246 / 0.35);
+  color: transparent;
+}
+
+.md-editor-preview {
+  z-index: 1 !important;
+  /* Click + selection happen on the textarea, not here */
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  @apply text-zinc-900 dark:text-zinc-100;
+}
+
+/* Placeholder shim — shown when the textarea is empty. Same layout
+   constraints as the layers so it doesn't shift things. */
+.md-editor-placeholder {
+  position: absolute !important;
+  inset: 0 !important;
+  padding: 0.625rem 0.75rem !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.55 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  z-index: 0 !important;
+  @apply text-zinc-400 dark:text-zinc-500;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+}
+
+/* Syntax highlighting classes — applied INSIDE the preview div by the
+   highlighter. Each rule must preserve glyph width (monospace font does
+   the heavy lifting; we only change weight, color, background). */
+
+/* The visible markdown syntax characters (**, #, -, >, etc.) — kept
+   on-screen but dimmed so prose stands out. */
+.md-syntax,
+.md-marker {
+  @apply text-zinc-400 dark:text-zinc-500;
+}
+
+/* Headers — font-weight + color only, NO font-size change.
+   This is the alignment-safety compromise (Option A): headers don't
+   render at typographic scale, but the cursor lines up perfectly. */
+.md-h1 {
+  font-weight: 700;
+}
+
+.md-h2 {
+  font-weight: 600;
+}
+
+.md-h3 {
+  font-weight: 500;
+}
+
+.md-bold {
+  font-weight: 600;
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+/* Inline code — background only, no width change.
+   Negative padding would break alignment; we just paint behind the
+   glyphs and accept that the highlight doesn't have inset. */
+.md-code {
+  @apply bg-zinc-200/60 dark:bg-zinc-700/50 rounded-sm;
+}
+
+/* Links — color + underline, both width-safe */
+.md-link {
+  @apply text-blue-600 dark:text-blue-400 underline;
+  text-underline-offset: 2px;
+}
+
+/* Blockquote — color + inset box-shadow for the left bar (box-shadow
+   doesn't affect layout, unlike border-left or padding-left). The bar
+   sits visually outside the text column edge so prose stays aligned. */
+.md-quote {
+  @apply text-zinc-600 dark:text-zinc-400;
+  box-shadow: inset 3px 0 0 var(--color-zinc-300);
+}
+
+.dark .md-quote {
+  box-shadow: inset 3px 0 0 var(--color-zinc-600);
+}
+
+/* Fenced code lines — background only */
+.md-code-block {
+  @apply bg-zinc-200/40 dark:bg-zinc-800;
+}
+
+/* Horizontal rule (---) — just dim the marker; can't draw an actual
+   rule line without inserting layout-shifting elements. */
+.md-hr {
+  @apply text-zinc-400 dark:text-zinc-500;
+}

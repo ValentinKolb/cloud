@@ -1,5 +1,6 @@
 import { createSignal, Show, type JSX } from "solid-js";
 import { InputWrapper, createInputA11y } from "./util";
+import MarkdownEditor from "./markdown/MarkdownEditor";
 
 type TextInputProps = {
   name?: string;
@@ -96,6 +97,39 @@ const TextInput = (props: TextInputProps) => {
     props.onInput?.("");
     props.onChange?.("");
   };
+
+  // Markdown editor takes over entirely — no icon overlay, no clear
+  // button, no prefix/suffix. The editor owns its own toolbar + chrome.
+  if (markdown()) {
+    return (
+      <InputWrapper
+        label={props.label}
+        description={props.description}
+        error={props.error?.()}
+        required={props.required}
+        inputId={a11y.inputId}
+        descriptionId={a11y.descriptionId}
+        errorId={a11y.errorId}
+      >
+        <MarkdownEditor
+          id={a11y.inputId}
+          name={props.name}
+          value={() => props.value?.() ?? ""}
+          onInput={props.onInput}
+          onChange={props.onChange}
+          onSubmit={props.onSubmit}
+          placeholder={props.placeholder}
+          disabled={disabled()}
+          lines={props.lines}
+          maxLength={props.maxLength}
+          ariaLabel={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
+          ariaDescribedBy={a11y.ariaDescribedBy()}
+          ariaInvalid={!!props.error?.()}
+          ariaRequired={props.required}
+        />
+      </InputWrapper>
+    );
+  }
 
   return (
     <InputWrapper
