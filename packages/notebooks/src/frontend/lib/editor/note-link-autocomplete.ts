@@ -38,6 +38,7 @@ import {
   pickedCompletion,
 } from "@codemirror/autocomplete";
 import { apiClient } from "../../../api/client";
+import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
 
@@ -47,60 +48,37 @@ type NoteRef = {
   title: string;
 };
 
-type CacheEntry = {
-  fetchedAt: number;
-  notes: NoteRef[];
-};
-
-const CACHE_TTL_MS = 45_000;
-
 /** Hard ceiling on notes fetched per notebook. For autocomplete we
  *  don't need thousands of entries — pagination beyond this is
  *  unhelpful for picker UX (no one scrolls 500 options). 200 covers
  *  any realistic notebook. */
 const FETCH_CAP = 200;
 
-const noteCache = new Map<string, CacheEntry>();
-const pendingFetch = new Map<string, Promise<NoteRef[]>>();
-
-const fetchNotes = async (notebookId: string): Promise<NoteRef[]> => {
-  const cached = noteCache.get(notebookId);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.notes;
-  const pending = pendingFetch.get(notebookId);
-  if (pending) return pending;
-
-  const promise = (async () => {
-    try {
-      // Fetch the first page (up to 100) and the second if needed,
-      // capped at FETCH_CAP. We use the same paginated endpoint
-      // `kit.notes.list()` uses so the autocomplete + scripts agree
-      // on what's in the notebook.
-      const all: NoteRef[] = [];
-      for (let page = 1; all.length < FETCH_CAP; page++) {
-        const res = await apiClient[":id"].notes.$get({
-          param: { id: notebookId },
-          query: { per_page: "100", page: String(page) },
-        });
-        if (!res.ok) break;
-        const payload = (await res.json()) as { data: Array<{ shortId: string; title: string }> };
-        if (payload.data.length === 0) break;
-        for (const n of payload.data) {
-          all.push({ shortId: n.shortId, title: n.title });
-          if (all.length >= FETCH_CAP) break;
-        }
-        if (payload.data.length < 100) break; // last page
+const noteCache = createNotebookFetchCache<NoteRef[]>(
+  async (notebookId) => {
+    // Fetch the first page (up to 100) and the second if needed,
+    // capped at FETCH_CAP. We use the same paginated endpoint
+    // `kit.notes.list()` uses so the autocomplete + scripts agree
+    // on what's in the notebook.
+    const all: NoteRef[] = [];
+    for (let page = 1; all.length < FETCH_CAP; page++) {
+      const res = await apiClient[":id"].notes.$get({
+        param: { id: notebookId },
+        query: { per_page: "100", page: String(page) },
+      });
+      if (!res.ok) break;
+      const payload = (await res.json()) as { data: Array<{ shortId: string; title: string }> };
+      if (payload.data.length === 0) break;
+      for (const n of payload.data) {
+        all.push({ shortId: n.shortId, title: n.title });
+        if (all.length >= FETCH_CAP) break;
       }
-      noteCache.set(notebookId, { fetchedAt: Date.now(), notes: all });
-      return all;
-    } catch {
-      return [];
-    } finally {
-      pendingFetch.delete(notebookId);
+      if (payload.data.length < 100) break; // last page
     }
-  })();
-  pendingFetch.set(notebookId, promise);
-  return promise;
-};
+    return all;
+  },
+  { fallback: [] },
+);
 
 /** Build a markdown link string for one note.
  *
@@ -193,7 +171,7 @@ const buildResult = (
  */
 export const buildNoteLinkCompletionSource = (notebookId: string): CompletionSource => {
   // Warm the cache eagerly.
-  void fetchNotes(notebookId);
+  void noteCache.fetch(notebookId);
 
   return (context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null => {
     // Trigger: `[[` followed by zero or more "title-body" chars.
@@ -217,10 +195,8 @@ export const buildNoteLinkCompletionSource = (notebookId: string): CompletionSou
     }
     if (isInsideFencedCode(context)) return null;
 
-    const cached = noteCache.get(notebookId);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-      return buildResult(word, cached.notes);
-    }
-    return fetchNotes(notebookId).then((notes) => buildResult(word, notes));
+    const fresh = noteCache.getFresh(notebookId);
+    if (fresh) return buildResult(word, fresh);
+    return noteCache.fetch(notebookId).then((notes) => buildResult(word, notes));
   };
 };

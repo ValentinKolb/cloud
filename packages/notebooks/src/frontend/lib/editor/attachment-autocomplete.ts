@@ -24,6 +24,7 @@ import {
   type CompletionSource,
   pickedCompletion,
 } from "@codemirror/autocomplete";
+import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
 
@@ -35,13 +36,6 @@ type AttRef = {
   sizeBytes: number;
   kind: "image" | "file";
 };
-
-type CacheEntry = {
-  fetchedAt: number;
-  attachments: AttRef[];
-};
-
-const CACHE_TTL_MS = 45_000;
 
 /** API response shape — minimal projection so the type doesn't bind
  *  us to fields we don't render. Mirrors `ApiAttachment` in
@@ -55,41 +49,24 @@ type ApiAttachment = {
   kind: "image" | "file";
 };
 
-const attachmentCache = new Map<string, CacheEntry>();
-const pendingFetch = new Map<string, Promise<AttRef[]>>();
-
-const fetchAttachments = async (notebookId: string): Promise<AttRef[]> => {
-  const cached = attachmentCache.get(notebookId);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.attachments;
-  const pending = pendingFetch.get(notebookId);
-  if (pending) return pending;
-
-  const promise = (async () => {
-    try {
-      // Non-paginated endpoint — returns a flat list. See
-      // `kit-attachments.ts` for why this is a raw fetch (the
-      // Hono-derived apiClient type doesn't include attachments).
-      const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/attachments`);
-      if (!res.ok) return [];
-      const payload = (await res.json()) as ApiAttachment[];
-      const out: AttRef[] = payload.map((a) => ({
-        shortId: a.shortId,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        sizeBytes: a.sizeBytes,
-        kind: a.kind,
-      }));
-      attachmentCache.set(notebookId, { fetchedAt: Date.now(), attachments: out });
-      return out;
-    } catch {
-      return [];
-    } finally {
-      pendingFetch.delete(notebookId);
-    }
-  })();
-  pendingFetch.set(notebookId, promise);
-  return promise;
-};
+const attachmentCache = createNotebookFetchCache<AttRef[]>(
+  async (notebookId) => {
+    // Non-paginated endpoint — returns a flat list. See
+    // `kit-attachments.ts` for why this is a raw fetch (the
+    // Hono-derived apiClient type doesn't include attachments).
+    const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/attachments`);
+    if (!res.ok) return [];
+    const payload = (await res.json()) as ApiAttachment[];
+    return payload.map((a) => ({
+      shortId: a.shortId,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+      kind: a.kind,
+    }));
+  },
+  { fallback: [] },
+);
 
 /** Pretty byte size — `42 KB`, `3.7 MB`, etc. Used in the option
  *  detail to give the user a sense of file weight before picking. */
@@ -169,7 +146,7 @@ const buildResult = (
  * right attachments endpoint.
  */
 export const buildAttachmentCompletionSource = (notebookId: string): CompletionSource => {
-  void fetchAttachments(notebookId);
+  void attachmentCache.fetch(notebookId);
 
   return (context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null => {
     // Trigger: `![[` optionally followed by filename body. We don't
@@ -179,10 +156,8 @@ export const buildAttachmentCompletionSource = (notebookId: string): CompletionS
     if (!word) return null;
     if (isInsideFencedCode(context)) return null;
 
-    const cached = attachmentCache.get(notebookId);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-      return buildResult(word, cached.attachments);
-    }
-    return fetchAttachments(notebookId).then((atts) => buildResult(word, atts));
+    const fresh = attachmentCache.getFresh(notebookId);
+    if (fresh) return buildResult(word, fresh);
+    return attachmentCache.fetch(notebookId).then((atts) => buildResult(word, atts));
   };
 };

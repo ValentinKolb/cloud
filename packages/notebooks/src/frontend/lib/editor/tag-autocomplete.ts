@@ -38,69 +38,29 @@ import type {
   CompletionResult,
   CompletionSource,
 } from "@codemirror/autocomplete";
+import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
 
 /** Server response shape — matches `KitTagSummary` in `kit-types.ts`. */
 type TagSummary = { tag: string; count: number };
 
-type CacheEntry = {
-  fetchedAt: number;
-  tags: TagSummary[];
-  /** Pre-built Completion array. Built ONCE when tags are
-   *  fetched/cached and reused across every keystroke that needs
-   *  the completion list. Without this cache, every matching
-   *  keystroke rebuilt N Completion objects + re-sorted them — a
-   *  measurable per-keystroke allocation cost. */
-  completions: Completion[];
-};
+/** Pre-built Completion array lives alongside the raw tags so we
+ *  don't rebuild N Completion objects + re-sort them on every
+ *  keystroke that triggers the popup. */
+type CachedTags = { tags: TagSummary[]; completions: Completion[] };
 
-/** Per-notebook cache. Keyed by notebookId so multiple editors for
- *  different notebooks open in the same tab don't share data. The
- *  cache is module-scoped (not per-source-factory) so reloading the
- *  same editor or remounting it doesn't re-fetch unnecessarily. */
-const TAG_CACHE = new Map<string, CacheEntry>();
+const EMPTY_CACHED: CachedTags = { tags: [], completions: [] };
 
-/** Time-to-live for cached tag lists. Short enough that tags added
- *  by collaborators show up promptly, long enough that rapid typing
- *  doesn't pound the API. */
-const CACHE_TTL_MS = 45_000;
-
-/** In-flight fetch promise per notebook — coalesces concurrent
- *  requests when several editor instances ask for tags at once. */
-const PENDING_FETCH = new Map<string, Promise<TagSummary[]>>();
-
-/** Fetch tags for the given notebook, returning from cache when
- *  fresh. Coalesces concurrent calls. */
-const fetchTags = async (notebookId: string): Promise<TagSummary[]> => {
-  const cached = TAG_CACHE.get(notebookId);
-  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.tags;
-  const pending = PENDING_FETCH.get(notebookId);
-  if (pending) return pending;
-
-  const promise = (async () => {
-    try {
-      const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/tags`);
-      if (!res.ok) return [];
-      const tags = (await res.json()) as TagSummary[];
-      TAG_CACHE.set(notebookId, {
-        fetchedAt: Date.now(),
-        tags,
-        completions: buildCompletions(tags),
-      });
-      return tags;
-    } catch {
-      // Network errors should not break the editor — degrade
-      // gracefully by surfacing an empty list. The cache stays
-      // empty so the next trigger retries.
-      return [];
-    } finally {
-      PENDING_FETCH.delete(notebookId);
-    }
-  })();
-  PENDING_FETCH.set(notebookId, promise);
-  return promise;
-};
+const tagCache = createNotebookFetchCache<CachedTags>(
+  async (notebookId) => {
+    const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/tags`);
+    if (!res.ok) return EMPTY_CACHED;
+    const tags = (await res.json()) as TagSummary[];
+    return { tags, completions: buildCompletions(tags) };
+  },
+  { fallback: EMPTY_CACHED },
+);
 
 /** Build the Completion list from server data. Pre-format the
  *  `detail` so we don't re-allocate strings on every keystroke
@@ -175,8 +135,8 @@ export const buildTagCompletionSource = (notebookId: string): CompletionSource =
   // Warm the cache early — most editors will have completed this
   // fetch before the user types their first `#`. No await: we don't
   // care about the result here, just the side effect of populating
-  // `TAG_CACHE`.
-  void fetchTags(notebookId);
+  // the cache.
+  void tagCache.fetch(notebookId);
 
   return (context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null => {
     // Two regex modes — strict (implicit) and lenient (explicit).
@@ -210,19 +170,16 @@ export const buildTagCompletionSource = (notebookId: string): CompletionSource =
       if (!/\s/.test(prev)) return null;
     }
 
-    const cached = TAG_CACHE.get(notebookId);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    const fresh = tagCache.getFresh(notebookId);
+    if (fresh) {
       // Cache hit — fully synchronous path. No microtask, no
       // Promise allocation. Completions are pre-built once when
       // the cache was warmed; we just hand the array back here.
-      return buildResult(word, cached.completions);
+      return buildResult(word, fresh.completions);
     }
 
     // Cold/stale cache — return a Promise. CM handles it gracefully
     // (popup may briefly delay opening or update once data lands).
-    return fetchTags(notebookId).then(() => {
-      const c = TAG_CACHE.get(notebookId);
-      return buildResult(word, c?.completions ?? []);
-    });
+    return tagCache.fetch(notebookId).then((data) => buildResult(word, data.completions));
   };
 };
