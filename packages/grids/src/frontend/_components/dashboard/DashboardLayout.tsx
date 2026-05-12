@@ -170,13 +170,14 @@ function CellRenderer(props: {
     case "stat":
       // A solo stat cell inside a mixed row gets its own paper-card
       // (vs the dense StatGrid hairline look reserved for all-stats
-      // rows). Wrap StatWidgetCell in a paper so it visually matches
-      // the sibling view / chart / form cards.
+      // rows). flex-col + justify-center centers the StatCell content
+      // vertically in the row's min-height tier. We deliberately
+      // avoid the previous `flex items-center justify-center` row-
+      // direction wrapper — its single `w-full` child path was
+      // forcing the sparkline below the sub-row in some layouts.
       return (
-        <div class="paper flex-1 w-full flex items-center justify-center min-h-0 overflow-hidden">
-          <div class="w-full">
-            <StatWidgetCell widget={props.widget} data={props.data} />
-          </div>
+        <div class="paper flex-1 w-full flex flex-col justify-center min-h-0 overflow-hidden">
+          <StatWidgetCell widget={props.widget} data={props.data} />
         </div>
       );
     case "view":

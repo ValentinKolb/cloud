@@ -538,7 +538,13 @@ function CellRow(props: {
 }) {
   const summary = () => summarizeCell(props.widget, props.ctx);
   return (
-    <div class="border border-zinc-200 dark:border-zinc-700/50 rounded-md flex items-stretch overflow-hidden">
+    // Hover bg lives on the WHOLE row (via `group`) — same pattern
+    // as TableEditPage's field rows. Without this, only the inner
+    // button (the click target) would highlight on hover, leaving
+    // the chevrons + action buttons feeling detached from the row.
+    // The pencil icon turns blue-500 on group-hover as an affordance
+    // cue that the whole row is clickable.
+    <div class="group border border-zinc-200 dark:border-zinc-700/50 rounded-md flex items-stretch overflow-hidden hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
       {/* Reorder column — same chevron-up/down stack as TableEditPage's
           field rows. Buttons disable at the boundaries; pl-2 inset
           matches the field-list rhythm. */}
@@ -564,10 +570,12 @@ function CellRow(props: {
           <i class="ti ti-chevron-down text-xs" />
         </button>
       </div>
-      {/* Summary — clickable; click anywhere opens the edit modal */}
+      {/* Summary — clickable; click anywhere opens the edit modal.
+          Hover bg is on the row (group), so we don't add it here —
+          the button just inherits. */}
       <button
         type="button"
-        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+        class="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
         onClick={props.onEdit}
         aria-label={`Edit ${summary().title}`}
       >
@@ -578,7 +586,7 @@ function CellRow(props: {
       <div class="flex items-center gap-1 pr-2 shrink-0">
         <button
           type="button"
-          class="text-dimmed hover:text-blue-500 p-1"
+          class="text-dimmed group-hover:text-blue-500 p-1 transition-colors"
           onClick={props.onEdit}
           title="Edit"
           aria-label="Edit cell"
