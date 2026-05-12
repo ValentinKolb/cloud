@@ -1,4 +1,4 @@
-export type ToolCategory = "generators" | "encoders" | "security" | "media";
+export type ToolCategory = "generators" | "encoders" | "security" | "media" | "network";
 
 export type ToolDef = {
   id: string;
@@ -16,6 +16,7 @@ export const categories: Record<ToolCategory, { label: string; icon: string }> =
   encoders: { label: "Encoders", icon: "ti ti-arrows-exchange" },
   security: { label: "Security", icon: "ti ti-shield-lock" },
   media: { label: "Media", icon: "ti ti-photo" },
+  network: { label: "Network", icon: "ti ti-network" },
 };
 
 export const tools: ToolDef[] = [
@@ -106,6 +107,16 @@ export const tools: ToolDef[] = [
     description: "Resize, crop, filter, rotate & export images",
     category: "media",
     color: "violet",
+    featured: true,
+  },
+  // Network
+  {
+    id: "speedtest",
+    name: "Internet Speed Test",
+    icon: "ti ti-gauge",
+    description: "Measure download, upload, ping & jitter against the cloud server",
+    category: "network",
+    color: "emerald",
     featured: true,
   },
 ];

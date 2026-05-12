@@ -13,6 +13,8 @@ import ColorConverter from "../tools/ColorConverter.island";
 import ImageProcessor from "../tools/ImageProcessor.island";
 import EncryptionTool from "../tools/EncryptionTool.island";
 import PasswordGenerator from "../tools/PasswordGenerator.island";
+import SpeedTest from "../tools/SpeedTest.island";
+import { resolveSpeedtestBase } from "../../api/_url";
 
 const toolComponents: Record<string, () => JSX.Element> = {
   mailto: () => <MailtoGenerator />,
@@ -47,6 +49,10 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
+  // Speedtest needs the public app URL so the CLI snippet can target the
+  // right host — resolve it from the settings snapshot at render time.
+  const speedtestBase = tool.id === "speedtest" ? resolveSpeedtestBase(c) : null;
+
   return () => (
     <Layout c={c} title={breadcrumbs}>
       <div class="max-w-4xl mx-auto">
@@ -59,7 +65,7 @@ export default ssr<AuthContext>(async (c) => {
             <p class="text-xs text-dimmed">{tool.description}</p>
           </div>
         </div>
-        {renderTool ? renderTool() : null}
+        {tool.id === "speedtest" && speedtestBase ? <SpeedTest cliBaseUrl={speedtestBase} /> : renderTool ? renderTool() : null}
       </div>
     </Layout>
   );
