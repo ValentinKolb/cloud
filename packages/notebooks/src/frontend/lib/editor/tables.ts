@@ -607,7 +607,7 @@ export const tablesExtension = (): Extension => {
     let targetLineNumber = caretLine.number + dir;
     while (targetLineNumber >= 1 && targetLineNumber <= view.state.doc.lines) {
       const line = view.state.doc.line(targetLineNumber);
-      const inside = tableRanges_isLineInBlockWidget(tablesState, line.from, line.to);
+      const inside = isLineInBlockWidget(tablesState, line.from, line.to);
       if (!inside) break;
       const widgetStartLine = view.state.doc.lineAt(inside.from).number;
       const widgetEndLine = view.state.doc.lineAt(inside.to).number;
@@ -653,7 +653,7 @@ export const tablesExtension = (): Extension => {
  *  source range when yes, null otherwise. Source-visible tables
  *  (cursor near them) are NOT in `blockWidgetDecorations`, so
  *  they don't trigger the widget-skip path. */
-const tableRanges_isLineInBlockWidget = (
+const isLineInBlockWidget = (
   state: TablesState,
   from: number,
   to: number,
