@@ -5,20 +5,77 @@ import type { DecorationSet } from "@codemirror/view";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import katex from "katex";
 
+// =============================================================================
+// Module-scoped render cache
+// =============================================================================
+//
+// KaTeX is fast (~1–5ms per formula), but on a Numpy-style note with 50+
+// formulas, repeatedly re-rendering on scroll-past-and-back adds up. CM's
+// widget reuse handles the in-viewport case via `eq()`, but widgets that
+// scroll out of the viewport are destroyed + recreated → fresh katex.render
+// every time. Cache the rendered DOM keyed by (mode, latex) and hand out
+// deep clones so callers can insert without aliasing.
+//
+// `cloneNode(true)` is safe here: katex output is plain spans + divs with
+// CSS classes (no event handlers, no shadow DOM, no canvas). The font
+// references live in global stylesheets so classes survive the clone.
+
+type RenderEntry = { node: HTMLElement; timestamp: number };
+const RENDER_CACHE_MAX = 200;
+const renderCache = new Map<string, RenderEntry>();
+
+/** Single-pass min-by-timestamp eviction (mirrors mermaid's
+ *  `evictOldestSvg`). LRU keeps the working set hot without
+ *  scanning + sorting on every overflow. */
+const evictOldestRender = (): void => {
+  let oldestKey: string | undefined;
+  let oldestTs = Number.POSITIVE_INFINITY;
+  for (const [k, e] of renderCache) {
+    if (e.timestamp < oldestTs) {
+      oldestTs = e.timestamp;
+      oldestKey = k;
+    }
+  }
+  if (oldestKey !== undefined) renderCache.delete(oldestKey);
+};
+
+/** Render LaTeX to a detached DOM element (block or inline). On
+ *  cache hit, returns a deep clone of the cached prototype and
+ *  bumps its timestamp for LRU. On miss, runs `katex.render` once,
+ *  caches the prototype, returns a clone. Returns `null` if katex
+ *  throws (rare with `throwOnError: false`, but defensive) so the
+ *  caller can render the error fallback instead. */
+const tryRenderKatex = (latex: string, displayMode: boolean): HTMLElement | null => {
+  const key = `${displayMode ? "B" : "I"}:${latex}`;
+  const entry = renderCache.get(key);
+  if (entry) {
+    entry.timestamp = Date.now();
+    return entry.node.cloneNode(true) as HTMLElement;
+  }
+  // Use a `div` host for block math (katex-display wraps as block)
+  // and a `span` for inline so the natural flow keeps inline math
+  // inline.
+  const prototype = document.createElement(displayMode ? "div" : "span");
+  try {
+    katex.render(latex, prototype, { throwOnError: false, displayMode });
+  } catch {
+    return null;
+  }
+  renderCache.set(key, { node: prototype, timestamp: Date.now() });
+  if (renderCache.size > RENDER_CACHE_MAX) evictOldestRender();
+  return prototype.cloneNode(true) as HTMLElement;
+};
+
 class InlineMathWidget extends WidgetType {
   constructor(private latex: string) {
     super();
   }
 
   override toDOM() {
-    const span = document.createElement("span");
+    const rendered = tryRenderKatex(this.latex, false);
+    const span = rendered ?? document.createElement("span");
     span.className = "cm-katex-inline";
-    try {
-      katex.render(this.latex, span, {
-        throwOnError: false,
-        displayMode: false,
-      });
-    } catch {
+    if (!rendered) {
       span.innerHTML = `<span class="cm-katex-error text-red-500">$${this.latex}$</span>`;
     }
     return span;
@@ -46,15 +103,10 @@ class BlockMathWidget extends WidgetType {
     const wrapper = document.createElement("div");
     wrapper.className = "p-1 overflow-x-auto flex items-center justify-center";
 
-    const mathDiv = document.createElement("div");
+    const rendered = tryRenderKatex(this.latex, true);
+    const mathDiv = rendered ?? document.createElement("div");
     mathDiv.className = "text-center";
-
-    try {
-      katex.render(this.latex, mathDiv, {
-        throwOnError: false,
-        displayMode: true,
-      });
-    } catch {
+    if (!rendered) {
       mathDiv.innerHTML = `
         <div class="text-red-500 font-mono text-sm">
           <i class="ti ti-alert-circle"></i> Invalid LaTeX
