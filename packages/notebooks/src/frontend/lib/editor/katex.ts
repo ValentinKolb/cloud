@@ -121,6 +121,25 @@ const mapRanges = (tr: Transaction, ranges: { from: number; to: number }[]): { f
     to: tr.changes.mapPos(range.to, -1),
   }));
 
+/** Identity of the math range the cursor currently sits inside, or
+ *  null if it sits in prose. A cursor-only transaction needs a
+ *  rebuild only when this answer changes between transactions —
+ *  same pattern the `_lib/cursor-zone-field` helper applies to
+ *  images/links/tag-pill/info-blocks. Inlined here rather than
+ *  reusing that helper because katex's state field carries extra
+ *  fields (hasMathSyntax + the math-marker change detector) that
+ *  don't fit the generic two-field shape. */
+const cursorMathKey = (
+  cursor: { from: number; to: number },
+  ranges: { from: number; to: number }[],
+): number | null => {
+  if (ranges.length === 0) return null;
+  for (const r of ranges) {
+    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
+  }
+  return null;
+};
+
 const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
   const decorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
@@ -217,6 +236,17 @@ export const katexExtension = (): Extension => {
         return buildKatexDecorations(tr.state);
       }
       if (tr.selection && value.hasMathSyntax) {
+        // Cursor moved — only rebuild when the cursor crossed a
+        // math boundary (entered, left, or moved between math
+        // spans). For most cursor moves through prose this is a
+        // no-op and we skip the full doc.toString + matchAll
+        // rescan. Note: `value.mathRanges` are pre-transaction
+        // positions but `!tr.docChanged` here, so positions are
+        // stable and we can compare directly against tr.state's
+        // cursor.
+        const oldKey = cursorMathKey(tr.startState.selection.main, value.mathRanges);
+        const newKey = cursorMathKey(tr.state.selection.main, value.mathRanges);
+        if (oldKey === newKey) return value;
         return buildKatexDecorations(tr.state);
       }
       return { ...value, decorations: value.decorations.map(tr.changes) };
