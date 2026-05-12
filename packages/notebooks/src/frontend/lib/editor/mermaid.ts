@@ -36,6 +36,36 @@ const initializeMermaid = () => {
 
 const globalSvgCache = new Map<string, { svg: string; timestamp: number }>();
 const renderTimers = new Map<string, NodeJS.Timeout>();
+const SVG_CACHE_MAX = 50;
+
+/** Constrain the first <svg> child of `host` so diagrams fit their
+ *  wrapper without overflowing. Called from both render paths
+ *  (cache-hit + fresh mermaid render); extracted to keep the two
+ *  in sync. */
+const applySvgConstraints = (host: HTMLElement): void => {
+  const svg = host.querySelector("svg");
+  if (!svg) return;
+  svg.style.maxWidth = "90%";
+  svg.style.maxHeight = "90%";
+  svg.style.width = "auto";
+  svg.style.height = "auto";
+  svg.style.objectFit = "contain";
+};
+
+/** Single-pass min-by-timestamp over the cache. The previous
+ *  `Array.from(...).sort()[0]` allocated + sorted the whole map
+ *  on every overflow; this is O(n) with no allocation. */
+const evictOldestSvg = (): void => {
+  let oldestKey: string | undefined;
+  let oldestTs = Number.POSITIVE_INFINITY;
+  for (const [key, entry] of globalSvgCache) {
+    if (entry.timestamp < oldestTs) {
+      oldestTs = entry.timestamp;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey !== undefined) globalSvgCache.delete(oldestKey);
+};
 
 interface MermaidBlockParams {
   code: string;
@@ -85,14 +115,7 @@ class MermaidWidget extends WidgetType {
     const cached = globalSvgCache.get(this.cacheKey);
     if (cached && cached.svg) {
       renderDiv.innerHTML = cached.svg;
-      const svgElement = renderDiv.querySelector("svg");
-      if (svgElement) {
-        svgElement.style.maxWidth = "90%";
-        svgElement.style.maxHeight = "90%";
-        svgElement.style.width = "auto";
-        svgElement.style.height = "auto";
-        svgElement.style.objectFit = "contain";
-      }
+      applySvgConstraints(renderDiv);
     } else {
       renderDiv.innerHTML = `
         <div class="flex items-center gap-2 text-gray-500">
@@ -129,22 +152,12 @@ class MermaidWidget extends WidgetType {
 
       globalSvgCache.set(this.cacheKey, { svg, timestamp: now });
 
-      if (globalSvgCache.size > 50) {
-        const oldestKey = Array.from(globalSvgCache.entries()).sort((a, b) => a[1].timestamp - b[1].timestamp)[0]![0];
-        globalSvgCache.delete(oldestKey);
-      }
+      if (globalSvgCache.size > SVG_CACHE_MAX) evictOldestSvg();
 
       if (!cached || cached.svg !== svg) {
         element.innerHTML = svg;
         element.className = "flex justify-center items-center w-full h-full";
-        const svgElement = element.querySelector("svg");
-        if (svgElement) {
-          svgElement.style.maxWidth = "90%";
-          svgElement.style.maxHeight = "90%";
-          svgElement.style.width = "auto";
-          svgElement.style.height = "auto";
-          svgElement.style.objectFit = "contain";
-        }
+        applySvgConstraints(element);
       }
     } catch (error) {
       element.innerHTML = `
