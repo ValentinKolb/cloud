@@ -1,5 +1,5 @@
 import { RangeSet } from "@codemirror/state";
-import type { EditorState, Extension, Range } from "@codemirror/state";
+import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 
@@ -127,12 +127,15 @@ const BLOCK_REGEX = /^:::(\w+)\s*\n([\s\S]*?)\n:::$/gm;
 /** Source-byte ranges of every `:::TYPE…:::` block drive the
  *  cursor-zone rebuild gate — cursor moves through plain prose
  *  skip the full doc.toString() + matchAll() rescan because the
- *  key (= which block contains the cursor) doesn't change. */
+ *  key (= which block contains the cursor) doesn't change. Doc
+ *  changes are gated by `changesMightAffectBlocks` below — typing
+ *  in prose without any `:` skips the rescan entirely. */
 const findInfoBlocks = (state: EditorState): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
   const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
   const text = state.doc.toString();
+  let hasSyntax = false;
 
   // `matchAll` yields an iterator that auto-advances per loop step, so a
   // `continue` (used to skip rendering when the cursor sits inside a block)
@@ -145,6 +148,7 @@ const findInfoBlocks = (state: EditorState): CursorZoneState => {
     const blockEnd = blockStart + match[0].length;
     const nextLine = state.doc.lineAt(Math.min(blockEnd + 1, state.doc.length));
     const sourceVisibleEnd = nextLine.to;
+    hasSyntax = true;
     ranges.push({ from: blockStart, to: sourceVisibleEnd });
 
     // Cursor is inside the block → don't render the widget so the user
@@ -164,11 +168,34 @@ const findInfoBlocks = (state: EditorState): CursorZoneState => {
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
     ranges,
+    hasSyntax,
   };
 };
 
+/** Predicate for the incremental cursor-zone mode. The block
+ *  fence is `:::` so any change involving `:` is suspect. False
+ *  positives (typing `:` in a URL, time, dict literal) fall back
+ *  to baseline (full rescan); false negatives would leave stale
+ *  widgets, so the predicate is intentionally generous. */
+const changesMightAffectBlocks = (tr: Transaction): boolean => {
+  let might = false;
+  tr.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
+    if (might) return;
+    if (inserted.toString().includes(":")) {
+      might = true;
+      return;
+    }
+    const from = Math.max(0, fromB - 2);
+    const to = Math.min(tr.state.doc.length, toB + 2);
+    might = tr.state.doc.sliceString(from, to).includes(":");
+  });
+  return might;
+};
+
 export const infoBlocksExtension = (): Extension => {
-  const stateField = cursorZoneStateField(findInfoBlocks);
+  const stateField = cursorZoneStateField(findInfoBlocks, {
+    changesMightAffectSyntax: changesMightAffectBlocks,
+  });
 
   const theme = EditorView.theme({
     ".cm-info-block-widget": {

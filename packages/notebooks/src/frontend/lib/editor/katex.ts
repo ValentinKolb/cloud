@@ -1,9 +1,9 @@
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
-import { RangeSet, StateField } from "@codemirror/state";
-import type { DecorationSet } from "@codemirror/view";
+import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import katex from "katex";
+import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 
 // =============================================================================
 // Module-scoped render cache
@@ -128,14 +128,14 @@ class BlockMathWidget extends WidgetType {
   }
 }
 
-type KatexDecorationState = {
-  decorations: DecorationSet;
-  hasMathSyntax: boolean;
-  mathRanges: { from: number; to: number }[];
-};
-
 const hasMathMarker = (text: string): boolean => text.includes("$") || text.includes("\\");
 
+/** Predicate for the incremental cursor-zone mode. Cheap O(insert + 4)
+ *  scan to decide whether a doc change might introduce or remove a
+ *  math marker — `$` or `\` in the inserted text or the ±2 char
+ *  window around it. False positives (e.g. typing `$` inside code)
+ *  fall back to a baseline rebuild; false negatives would leave
+ *  stale decorations, so the predicate is intentionally generous. */
 const changesMightAffectMath = (tr: Transaction): boolean => {
   let might = false;
   tr.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
@@ -144,7 +144,6 @@ const changesMightAffectMath = (tr: Transaction): boolean => {
       might = true;
       return;
     }
-
     const from = Math.max(0, fromB - 2);
     const to = Math.min(tr.state.doc.length, toB + 2);
     might = hasMathMarker(tr.state.doc.sliceString(from, to));
@@ -157,47 +156,12 @@ const intersectsAnyRange = (ranges: { from: number; to: number }[], from: number
     (range) => (from >= range.from && from < range.to) || (to > range.from && to <= range.to) || (from <= range.from && to >= range.to),
   );
 
-const changesIntersectRanges = (tr: Transaction, ranges: { from: number; to: number }[]): boolean => {
-  if (ranges.length === 0) return false;
-  let intersects = false;
-  tr.changes.iterChangedRanges((fromA, toA) => {
-    if (intersects) return;
-    intersects = intersectsAnyRange(ranges, fromA, toA) || ranges.some((range) => fromA === range.from || fromA === range.to);
-  });
-  return intersects;
-};
-
-const mapRanges = (tr: Transaction, ranges: { from: number; to: number }[]): { from: number; to: number }[] =>
-  ranges.map((range) => ({
-    from: tr.changes.mapPos(range.from, 1),
-    to: tr.changes.mapPos(range.to, -1),
-  }));
-
-/** Identity of the math range the cursor currently sits inside, or
- *  null if it sits in prose. A cursor-only transaction needs a
- *  rebuild only when this answer changes between transactions —
- *  same pattern the `_lib/cursor-zone-field` helper applies to
- *  images/links/tag-pill/info-blocks. Inlined here rather than
- *  reusing that helper because katex's state field carries extra
- *  fields (hasMathSyntax + the math-marker change detector) that
- *  don't fit the generic two-field shape. */
-const cursorMathKey = (
-  cursor: { from: number; to: number },
-  ranges: { from: number; to: number }[],
-): number | null => {
-  if (ranges.length === 0) return null;
-  for (const r of ranges) {
-    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
-  }
-  return null;
-};
-
-const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
+const buildKatexDecorations = (state: EditorState): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
   const doc = state.doc.toString();
-  let hasMathSyntax = false;
-  const mathRanges: { from: number; to: number }[] = [];
+  let hasSyntax = false;
+  const ranges: { from: number; to: number }[] = [];
 
   const codeRanges: { from: number; to: number }[] = [];
 
@@ -211,8 +175,8 @@ const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
         const language = lines[0]?.replace("```", "").trim().toLowerCase() || "";
 
         if (language === "math") {
-          hasMathSyntax = true;
-          mathRanges.push({ from: node.from, to: node.to });
+          hasSyntax = true;
+          ranges.push({ from: node.from, to: node.to });
           if (cursor.from >= node.from && cursor.to <= node.to) return false;
           const latex = lines.slice(1, -1).join("\n");
           decorations.push(
@@ -246,8 +210,8 @@ const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
       const from = match.index;
       const to = from + match[0].length;
       const latex = match[1] ?? match[2] ?? "";
-      hasMathSyntax = true;
-      mathRanges.push({ from, to });
+      hasSyntax = true;
+      ranges.push({ from, to });
       const cursorInside = cursor.from >= from && cursor.to <= to;
       const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
       match = re.exec(doc);
@@ -264,48 +228,14 @@ const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
-    hasMathSyntax,
-    mathRanges,
+    ranges,
+    hasSyntax,
   };
 };
 
 export const katexExtension = (): Extension => {
-  const stateField = StateField.define<KatexDecorationState>({
-    create(state) {
-      return buildKatexDecorations(state);
-    },
-    update(value, tr) {
-      if (tr.docChanged) {
-        const decorations = value.decorations.map(tr.changes);
-        const mathRanges = mapRanges(tr, value.mathRanges);
-        const mightAffectMath = changesMightAffectMath(tr);
-        if (!value.hasMathSyntax && !mightAffectMath) {
-          return { decorations, hasMathSyntax: false, mathRanges: [] };
-        }
-        if (value.hasMathSyntax && !changesIntersectRanges(tr, value.mathRanges) && !mightAffectMath) {
-          return { decorations, hasMathSyntax: true, mathRanges };
-        }
-        return buildKatexDecorations(tr.state);
-      }
-      if (tr.selection && value.hasMathSyntax) {
-        // Cursor moved — only rebuild when the cursor crossed a
-        // math boundary (entered, left, or moved between math
-        // spans). For most cursor moves through prose this is a
-        // no-op and we skip the full doc.toString + matchAll
-        // rescan. Note: `value.mathRanges` are pre-transaction
-        // positions but `!tr.docChanged` here, so positions are
-        // stable and we can compare directly against tr.state's
-        // cursor.
-        const oldKey = cursorMathKey(tr.startState.selection.main, value.mathRanges);
-        const newKey = cursorMathKey(tr.state.selection.main, value.mathRanges);
-        if (oldKey === newKey) return value;
-        return buildKatexDecorations(tr.state);
-      }
-      return { ...value, decorations: value.decorations.map(tr.changes) };
-    },
-    provide(field) {
-      return EditorView.decorations.from(field, (value) => value.decorations);
-    },
+  const stateField = cursorZoneStateField(buildKatexDecorations, {
+    changesMightAffectSyntax: changesMightAffectMath,
   });
 
   const theme = EditorView.theme({

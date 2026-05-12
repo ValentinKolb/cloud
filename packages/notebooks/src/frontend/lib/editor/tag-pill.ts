@@ -11,7 +11,7 @@
  */
 import { syntaxTree } from "@codemirror/language";
 import { RangeSet } from "@codemirror/state";
-import type { EditorState, Extension, Range } from "@codemirror/state";
+import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 
@@ -79,13 +79,16 @@ const isInsideExcluded = (excluded: { from: number; to: number }[], from: number
 
 /** Source ranges of every `#tag` occurrence drive the cursor-zone
  *  rebuild gate — cursor moves through plain prose skip the full
- *  doc.toString() + matchAll() rescan because the key doesn't change. */
+ *  doc.toString() + matchAll() rescan because the key doesn't change.
+ *  Doc changes are gated by `changesMightAffectTags` below — typing
+ *  plain prose without `#` chars skips the rescan entirely. */
 const findTags = (state: EditorState, notebookId: string): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
   const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
   const excluded = collectExcludedRanges(state);
   const text = state.doc.toString();
+  let hasSyntax = false;
 
   for (const m of text.matchAll(TAG_REGEX)) {
     // The match captures the leading whitespace (or empty for line-start)
@@ -97,6 +100,7 @@ const findTags = (state: EditorState, notebookId: string): CursorZoneState => {
     const to = from + 1 + m[2]!.length; // `#` + tag chars
 
     if (isInsideExcluded(excluded, from, to)) continue;
+    hasSyntax = true;
     ranges.push({ from, to });
     // Hide widget while cursor is inside its range so the user can edit
     // the literal `#tag` text without the pill swallowing clicks.
@@ -109,11 +113,34 @@ const findTags = (state: EditorState, notebookId: string): CursorZoneState => {
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
     ranges,
+    hasSyntax,
   };
 };
 
+/** Predicate for the incremental cursor-zone mode. Plain-prose
+ *  keystrokes (no `#` in the inserted text or its ±2 char window)
+ *  skip the full doc.toString + matchAll rescan. False positives
+ *  (e.g. typing `#` in a URL fragment) just fall back to baseline. */
+const changesMightAffectTags = (tr: Transaction): boolean => {
+  let might = false;
+  tr.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
+    if (might) return;
+    if (inserted.toString().includes("#")) {
+      might = true;
+      return;
+    }
+    const from = Math.max(0, fromB - 2);
+    const to = Math.min(tr.state.doc.length, toB + 2);
+    might = tr.state.doc.sliceString(from, to).includes("#");
+  });
+  return might;
+};
+
 export const tagPillExtension = (notebookId: string): Extension => {
-  const stateField = cursorZoneStateField((state) => findTags(state, notebookId));
+  const stateField = cursorZoneStateField(
+    (state) => findTags(state, notebookId),
+    { changesMightAffectSyntax: changesMightAffectTags },
+  );
 
   const theme = EditorView.theme({
     ".cm-tag-pill": {
