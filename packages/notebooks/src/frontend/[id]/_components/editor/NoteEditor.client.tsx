@@ -4,7 +4,7 @@ import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { editor } from "../../../lib/editor";
 import { getNotebookPresenceColor } from "../../../lib/yjs";
 import { yjs } from "../../../lib/yjs";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { createCodeMirror } from "solid-codemirror";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { dropzone } from "@valentinkolb/stdlib/solid";
@@ -29,7 +29,13 @@ import { extractTocFromMarkdown } from "../detail/toc";
 import { writeSettings } from "../settings/NotebookSettingsStore";
 import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
 import type { AttachmentRef } from "./attachments-client";
-import { insertAttachment, uploadAndInsert } from "./attachments-client";
+import {
+  MAX_ATTACHMENT_SIZE_BYTES,
+  formatBytes,
+  insertAttachment,
+  maybeShrinkOversizeImage,
+  uploadAndInsert,
+} from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 import { slashCommandsExtension } from "./slash-commands";
 
@@ -365,7 +371,19 @@ export default function NoteEditor(props: Props) {
     if (!view || fileList.length === 0) return;
     for (const file of fileList) {
       try {
-        await uploadAndInsert(view, props.notebookId, file);
+        // Try to bring oversize images under the limit by scaling
+        // their longer side. Returns null when no shrinking happened
+        // (small enough already, non-image, or pipeline error) — we
+        // upload the original and let the server enforce the limit.
+        const shrunk = await maybeShrinkOversizeImage(file);
+        const finalFile = shrunk ?? file;
+        if (shrunk) {
+          toast.success(
+            `${file.name}: ${formatBytes(file.size)} → ${formatBytes(shrunk.size)} (auto-resized to fit the ${formatBytes(MAX_ATTACHMENT_SIZE_BYTES)} limit)`,
+            { title: "Image resized", iconClass: "ti ti-photo-edit" },
+          );
+        }
+        await uploadAndInsert(view, props.notebookId, finalFile);
       } catch (error) {
         await prompts.error(error instanceof Error ? error.message : "Upload failed");
         return;

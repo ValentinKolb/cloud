@@ -4,7 +4,63 @@
  *
  * Browser-only. Uses fetch to the notebooks API (same-origin via gateway).
  */
+import { images } from "@valentinkolb/stdlib/browser";
 import type { EditorView } from "@codemirror/view";
+
+// =============================================================================
+// Auto-shrink oversize images
+// =============================================================================
+
+/** Frontend mirror of the API's `MAX_ATTACHMENT_SIZE`. If the admin
+ *  raises the server-side limit, frontend stays conservative — never
+ *  causes an upload failure, only triggers shrinking on files the
+ *  server would have accepted anyway. If admin lowers it, frontend
+ *  may attempt uploads that the server rejects (clear error path). */
+export const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
+
+/** Longest-side cap when an oversize image is shrunk before upload.
+ *  2048 covers most "looks-fine-on-retina" use cases for body images;
+ *  much larger and we're storing wasted pixels. */
+export const MAX_IMAGE_DIMENSION_PX = 2048;
+
+const IMAGE_MIME_RE = /^image\/(jpe?g|png|webp|gif|avif|heic|heif|bmp)$/i;
+
+const isImageFile = (file: File): boolean => IMAGE_MIME_RE.test(file.type);
+
+/** Attempt to bring an oversize image under `MAX_ATTACHMENT_SIZE_BYTES`
+ *  by scaling its longer side to `MAX_IMAGE_DIMENSION_PX` and re-encoding.
+ *
+ *  Returns `null` when no shrinking happened (small enough already, or
+ *  not an image, or the resize pipeline errored). Caller uploads the
+ *  original in that case — for non-image oversize files this surfaces
+ *  the same "file too large" server error as before.
+ *
+ *  Format policy: PNG inputs stay PNG (preserves transparency, even
+ *  though it's bigger). Everything else becomes WebP — well supported
+ *  by all modern browsers, smaller than JPEG at equal quality. GIF
+ *  loses animation, accepted tradeoff since >10MB GIFs are rare.
+ *  Aspect ratio is always preserved (only one dimension passed to
+ *  `images.resize`; the other is computed from the source ratio). */
+export const maybeShrinkOversizeImage = async (file: File): Promise<File | null> => {
+  if (file.size <= MAX_ATTACHMENT_SIZE_BYTES) return null;
+  if (!isImageFile(file)) return null;
+  try {
+    const data = await images.create(file);
+    const longerIsWidth = data.width >= data.height;
+    const transform = longerIsWidth
+      ? images.resize(MAX_IMAGE_DIMENSION_PX)
+      : images.resize(undefined, MAX_IMAGE_DIMENSION_PX);
+    const isPng = /png/i.test(file.type);
+    const fmt: "png" | "webp" = isPng ? "png" : "webp";
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return await transform(data).then(images.toFile(`${baseName}.${fmt}`, fmt, 0.85));
+  } catch {
+    // Decode / canvas tainting / encoder failure — fall back to
+    // uploading the original. Server will reject if oversize; user
+    // gets the same error message they would have seen pre-shrink.
+    return null;
+  }
+};
 
 // Re-exports — single import surface for components that want both upload
 // flow and the click-to-download confirm. Underlying helpers live in
