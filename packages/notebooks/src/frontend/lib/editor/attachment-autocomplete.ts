@@ -117,9 +117,14 @@ const buildCompletions = (attachments: AttRef[], triggerStart: number): Completi
           // Same fix as note-link-autocomplete.
           const after = view.state.sliceDoc(to, Math.min(to + 2, view.state.doc.length));
           const consumeTo = after === "]]" ? to + 2 : to;
+          // Trailing space so the user can keep typing prose after
+          // the inserted pill. Skip when followed by whitespace
+          // already (mid-sentence pick) to avoid double-spaces.
+          const charAfter = view.state.sliceDoc(consumeTo, Math.min(consumeTo + 1, view.state.doc.length));
+          const insert = charAfter === "" || !/\s/.test(charAfter) ? `${md} ` : md;
           view.dispatch({
-            changes: { from: triggerStart, to: consumeTo, insert: md },
-            selection: { anchor: triggerStart + md.length },
+            changes: { from: triggerStart, to: consumeTo, insert },
+            selection: { anchor: triggerStart + insert.length },
             annotations: pickedCompletion.of(completion),
             userEvent: "input.complete",
           });

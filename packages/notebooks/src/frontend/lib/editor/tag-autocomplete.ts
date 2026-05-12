@@ -32,11 +32,12 @@
  * (CSS selectors, shell comments, Python decorators, etc.), and
  * surfacing tag suggestions there would be confusing.
  */
-import type {
-  Completion,
-  CompletionContext,
-  CompletionResult,
-  CompletionSource,
+import {
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+  type CompletionSource,
+  pickedCompletion,
 } from "@codemirror/autocomplete";
 import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
@@ -70,16 +71,29 @@ const buildCompletions = (tags: TagSummary[]): Completion[] => {
     .slice()
     .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
     .map((t) => {
-      // No explicit `apply` — CM defaults to inserting `label` at
-      // the `from`-to-`to` range. Since the result's `from` is
-      // anchored AFTER the `#` the user already typed, inserting
-      // just the tag body produces the correct `#tag` result.
-      // (Earlier revision shipped `apply: \`#${t.tag}\`` which
-      // double-inserted the hash → `##tag`.)
+      // Custom `apply` to (a) append a trailing space so the user
+      // can keep typing prose without manually hitting space, and
+      // (b) skip that space when the next char is already
+      // whitespace so we don't produce double-spaces mid-sentence.
+      // The result's `from` is anchored AFTER the `#` the user
+      // already typed, so inserting just the tag body (no leading
+      // `#`) produces the correct `#tag` result. (Earlier revision
+      // shipped `apply: \`#${t.tag}\`` which double-inserted the
+      // hash → `##tag`.)
       const c: Completion = {
         label: t.tag,
         type: "constant",
         detail: t.count === 1 ? "1 note" : `${t.count} notes`,
+        apply: (view, completion, from, to) => {
+          const charAfter = view.state.sliceDoc(to, Math.min(to + 1, view.state.doc.length));
+          const insert = charAfter === "" || !/\s/.test(charAfter) ? `${t.tag} ` : t.tag;
+          view.dispatch({
+            changes: { from, to, insert },
+            selection: { anchor: from + insert.length },
+            annotations: pickedCompletion.of(completion),
+            userEvent: "input.complete",
+          });
+        },
       };
       withIcon(c, "ti-hash");
       return c;

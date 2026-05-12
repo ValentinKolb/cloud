@@ -174,10 +174,16 @@ const buildCompletions = (
           // but possible) doesn't get eaten.
           const after = view.state.sliceDoc(to, Math.min(to + 2, view.state.doc.length));
           const consumeTo = after === "]]" ? to + 2 : to;
+          // Trailing space so the user can keep typing prose
+          // without manually hitting space. Skip when the next
+          // char is already whitespace (mid-sentence pick) to
+          // avoid double-spaces.
+          const charAfter = view.state.sliceDoc(consumeTo, Math.min(consumeTo + 1, view.state.doc.length));
+          const insert = charAfter === "" || !/\s/.test(charAfter) ? `${linkText} ` : linkText;
           view.dispatch({
-            changes: { from: triggerStart, to: consumeTo, insert: linkText },
-            // Place caret right after the inserted link.
-            selection: { anchor: triggerStart + linkText.length },
+            changes: { from: triggerStart, to: consumeTo, insert },
+            // Place caret right after the inserted link (incl. the trailing space).
+            selection: { anchor: triggerStart + insert.length },
             annotations: pickedCompletion.of(completion),
             userEvent: "input.complete",
           });
