@@ -38,46 +38,53 @@ export const compose = (args: string[]) =>
   $`docker compose -f ${COMPOSE_FILE} --profile extra ${args}`;
 
 // =============================================================================
-// App discovery / validation
+// Service discovery / validation
 // =============================================================================
 
-/** Pull the list of every `app-*` service declared in the compose file.
- *  Cached for the duration of one script invocation — typical run does
- *  this once (validation) or twice (validation + status print). */
-let _appsCache: string[] | undefined;
+/** Pull every addressable service in the dev compose project. Two groups
+ *  show up here:
+ *
+ *    - `app-*` services — the workspace apps (notebooks, files, …)
+ *    - `gateway` — the reverse-proxy entry point at :3000
+ *
+ *  Both kinds are user-targetable: `dev:rebuild gateway` is a real use
+ *  case after gateway source changes, just like `dev:rebuild notebooks`.
+ *  Anything else compose lists (none today, but defensive against future
+ *  additions like a build container) also flows through.
+ *
+ *  Cached for the duration of one script invocation. */
+let _servicesCache: string[] | undefined;
 
-export const listAppServices = async (): Promise<string[]> => {
-  if (_appsCache) return _appsCache;
+export const listDevServices = async (): Promise<string[]> => {
+  if (_servicesCache) return _servicesCache;
   const raw = await compose(["config", "--services"]).text();
-  const services = raw.trim().split("\n").filter(Boolean);
-  _appsCache = services.filter((s) => s.startsWith("app-")).sort();
-  return _appsCache;
+  _servicesCache = raw.trim().split("\n").filter(Boolean).sort();
+  return _servicesCache;
 };
 
-/** Strip the `app-` prefix to get the short name humans type. */
+/** Strip the `app-` prefix to get the short name humans type. Non-app
+ *  services (e.g. `gateway`) pass through unchanged. */
 export const shortName = (service: string): string =>
   service.startsWith("app-") ? service.slice(4) : service;
 
-/** Accept either `notebooks` or `app-notebooks` — both normalize to the
- *  full service name `app-notebooks`. */
-export const toServiceName = (input: string): string =>
-  input.startsWith("app-") ? input : `app-${input}`;
-
-/** Normalize + validate a list of caller-supplied app names. On unknown
- *  app: print a helpful error listing available short names and exit 1.
- *  Returns the full service names ready to pass to compose. */
+/** Normalize + validate caller-supplied names. Each input is tried first
+ *  as an exact match (covers `gateway`, `app-notebooks`), then with an
+ *  `app-` prefix (covers `notebooks` → `app-notebooks`). On unknown:
+ *  print a helpful error listing available short names and exit 1. */
 export const resolveApps = async (inputs: string[]): Promise<string[]> => {
-  const available = await listAppServices();
+  const available = await listDevServices();
   const out: string[] = [];
   for (const raw of inputs) {
-    const service = toServiceName(raw);
-    if (!available.includes(service)) {
+    if (available.includes(raw)) {
+      out.push(raw);
+    } else if (available.includes(`app-${raw}`)) {
+      out.push(`app-${raw}`);
+    } else {
       const shorts = available.map(shortName).join(" ");
-      console.error(`${color.red}Error:${color.reset} unknown app "${raw}".`);
+      console.error(`${color.red}Error:${color.reset} unknown service "${raw}".`);
       console.error(`Available: ${shorts}`);
       process.exit(1);
     }
-    out.push(service);
   }
   return out;
 };

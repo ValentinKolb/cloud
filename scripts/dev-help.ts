@@ -11,10 +11,10 @@
  * "Per-app", "Apps in this project", "Examples") so a downstream
  * consumer (LLM or grep) has anchors to lock onto.
  */
-import { color, listAppServices, shortName } from "./dev-cli";
+import { color, listDevServices, shortName } from "./dev-cli";
 
-const apps = await listAppServices();
-const shorts = apps.map(shortName);
+const services = await listDevServices();
+const shorts = services.map(shortName);
 
 const lines: string[] = [];
 const p = (s = "") => lines.push(s);
@@ -36,7 +36,7 @@ p(`  ${color.cyan}bun run dev:status${color.reset}           list all apps + sta
 p(`  ${color.cyan}bun run dev:status <app>${color.reset}     detail + recent logs for one app`);
 p(`  ${color.cyan}bun run dev:help${color.reset}             this catalog`);
 p("");
-p(`${color.bold}Apps in this project${color.reset}`);
+p(`${color.bold}Addressable services${color.reset} (apps + gateway)`);
 // Wrap at ~70 chars for readability without breaking grep-ability.
 let row = "  ";
 for (const s of shorts) {

@@ -20,7 +20,7 @@ import {
   formatRelative,
   formatUptimeFromStatus,
   helpFor,
-  listAppServices,
+  listDevServices,
   resolveApps,
   shortName,
 } from "./dev-cli";
@@ -34,11 +34,13 @@ type ComposeRow = {
   Image: string;
 };
 
-/** Bulk-fetch image creation timestamps for every cloud-app-* image.
- *  One docker call → one map lookup per app, instead of N inspect
- *  calls. Missing image (never built) → undefined → renders as "—". */
+/** Bulk-fetch image creation timestamps for every cloud-* image. One
+ *  docker call → one map lookup per service, instead of N inspect calls.
+ *  Filter is `cloud-*` (not `cloud-app-*`) so the gateway image
+ *  (`cloud-gateway`) is included alongside `cloud-app-*`. Missing image
+ *  (never built) → undefined → renders as "—". */
 const fetchImageAges = async (): Promise<Map<string, Date>> => {
-  const raw = await $`docker images --filter ${"reference=cloud-app-*"} --format ${"{{.Repository}}\t{{.CreatedAt}}"}`
+  const raw = await $`docker images --filter ${"reference=cloud-*"} --format ${"{{.Repository}}\t{{.CreatedAt}}"}`
     .text()
     .catch(() => "");
   const out = new Map<string, Date>();
@@ -162,7 +164,7 @@ const printSummary = (rows: AppStatus[]) => {
 // =============================================================================
 
 const printDetail = async (s: AppStatus) => {
-  console.log(`${color.bold}App${color.reset}        ${s.short}`);
+  console.log(`${color.bold}Name${color.reset}       ${s.short}`);
   console.log(`Service    ${s.service}`);
   const stateLine = `${stateColor(s.state)}${s.state}${color.reset}`;
   console.log(`State      ${stateLine}`);
@@ -208,7 +210,7 @@ if (inputs[0] === "--help" || inputs[0] === "-h") {
 
 if (inputs.length === 0) {
   // Table view
-  const services = await listAppServices();
+  const services = await listDevServices();
   const rows = await buildStatuses(services);
   printTable(rows);
   console.log("");

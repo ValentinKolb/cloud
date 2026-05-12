@@ -49,7 +49,7 @@ The compose file uses **profiles** so `bun run dev` stays light. Full spin-up is
 | `bun run dev:status <app>` | Detail block + last 20 log lines for one app |
 | `bun run dev:help` | Catalog of all dev commands + the list of valid `<app>` short-names |
 
-`<app>` accepts either the short name (`notebooks`) or the full service name (`app-notebooks`).
+`<app>` accepts either the short name (`notebooks`) or the full service name (`app-notebooks`). The `gateway` service is also addressable by these commands (e.g. `bun run dev:rebuild gateway` after a gateway code change). Run `bun run dev:help` for the full list of valid names.
 
 The `dev:status` output is plain text by design — humans get a readable table, LLM agents capturing the output get stable, scannable section headers (`State`, `Uptime`, `Health`, `Image age`) and a closed state enum (`running` / `stopped` / `never built`). Run `bun run dev:help` first for orientation; `dev:status` + `dev:status <app>` cover most "what's the dev stack doing right now" questions in two calls.
 
