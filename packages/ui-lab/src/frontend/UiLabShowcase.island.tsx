@@ -350,6 +350,36 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
   const [markdownValue, setMarkdownValue] = createSignal(
     "## Hello\nThis is markdown text."
   );
+  const [markdownLongValue, setMarkdownLongValue] = createSignal(
+    [
+      "# Welcome to the markdown editor",
+      "",
+      "Type **bold** with `Cmd/Ctrl + B`, *italic* with `Cmd/Ctrl + I`.",
+      "Use the toolbar above, or paste a URL on a selection to make a link.",
+      "",
+      "## Features",
+      "",
+      "- Smart list continuation: press Enter to add another item",
+      "- Numbered lists auto-renumber:",
+      "  1. First",
+      "  2. Second",
+      "  3. Third",
+      "",
+      "> Quotes are dim with a left bar.",
+      "",
+      "Inline `code` and [link to docs](https://example.org) work too.",
+      "",
+      "```",
+      "code block: backticks fence the lines",
+      "```",
+      "",
+      "---",
+      "",
+      "_That's all you need to know._",
+    ].join("\n"),
+  );
+  const [markdownEmpty, setMarkdownEmpty] = createSignal("");
+  const [markdownError, setMarkdownError] = createSignal("# title\nNot long enough.");
   const [numberValue, setNumberValue] = createSignal<number | null>(42);
   const [numberOptional, setNumberOptional] = createSignal<number | null>(null);
   const [percentValue, setPercentValue] = createSignal<number | null>(25);
@@ -783,6 +813,48 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
               Danger
             </button>
           </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Markdown Editor"
+        description="Overtype-style overlay: invisible textarea on top of a syntax-highlighted preview. Try bold with Cmd/Ctrl+B, paste a URL on selected text to make a link, press Enter inside a list to continue it."
+      >
+        <div class="grid grid-cols-1 gap-4">
+          <TextInput
+            label="Empty"
+            description="Type to see the highlighter at work."
+            placeholder="Start writing markdown…"
+            markdown
+            lines={4}
+            value={markdownEmpty}
+            onInput={setMarkdownEmpty}
+          />
+          <TextInput
+            label="Pre-filled with all features"
+            description="Headers, lists, code, links, quote, hr — all visible at once."
+            markdown
+            lines={14}
+            value={markdownLongValue}
+            onInput={setMarkdownLongValue}
+          />
+          <TextInput
+            label="With error state"
+            description="Errors render via the standard InputWrapper chrome."
+            markdown
+            lines={4}
+            value={markdownError}
+            onInput={setMarkdownError}
+            error={() => (markdownError().length < 20 ? "Needs at least 20 characters" : undefined)}
+          />
+          <TextInput
+            label="Disabled"
+            markdown
+            lines={3}
+            value={markdownValue}
+            onInput={setMarkdownValue}
+            disabled
+          />
         </div>
       </Section>
 
