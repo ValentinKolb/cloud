@@ -83,6 +83,18 @@ export type KitContext = {
   isActive?: () => boolean;
 };
 
+/**
+ * Throw if the host has marked the script run as no longer active.
+ * Used by every kit method that performs a side effect (Y.Doc write,
+ * API call, DOM mutation, …) so a late-completing await from a
+ * superseded run can't corrupt the current state.
+ */
+export const assertActive = (ctx: KitContext): void => {
+  if (ctx.isActive && !ctx.isActive()) {
+    throw new Error("Script run is no longer active");
+  }
+};
+
 // =============================================================================
 // Public Kit shape
 // =============================================================================

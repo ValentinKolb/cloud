@@ -9,13 +9,12 @@
  * Other operations are HTTP-based and work in both modes.
  */
 import { files } from "@valentinkolb/stdlib/browser";
-import type { KitAttachment, KitAttachmentsAPI, KitContext } from "./kit-types";
-
-const assertActive = (ctx: KitContext): void => {
-  if (ctx.isActive && !ctx.isActive()) {
-    throw new Error("Script run is no longer active");
-  }
-};
+import {
+  assertActive,
+  type KitAttachment,
+  type KitAttachmentsAPI,
+  type KitContext,
+} from "./kit-types";
 
 // =============================================================================
 // Wire shape (matches AttachmentSchema in api/index.ts)

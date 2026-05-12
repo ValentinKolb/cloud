@@ -17,13 +17,7 @@
  * are impossible.
  */
 import { kvStore } from "@valentinkolb/stdlib/browser";
-import type { KitContext, KitLocalStateAPI } from "./kit-types";
-
-const assertActive = (ctx: KitContext): void => {
-  if (ctx.isActive && !ctx.isActive()) {
-    throw new Error("Script run is no longer active");
-  }
-};
+import { assertActive, type KitContext, type KitLocalStateAPI } from "./kit-types";
 
 const KEY_NAMESPACE = "notebooks:script-state";
 

@@ -15,13 +15,13 @@
  */
 import { apiClient } from "../../../api/client";
 import { extractTags } from "../tag-extract";
-import type { KitContext, KitNote, KitNotesAPI, KitQuery } from "./kit-types";
-
-const assertActive = (ctx: KitContext): void => {
-  if (ctx.isActive && !ctx.isActive()) {
-    throw new Error("Script run is no longer active");
-  }
-};
+import {
+  assertActive,
+  type KitContext,
+  type KitNote,
+  type KitNotesAPI,
+  type KitQuery,
+} from "./kit-types";
 
 // =============================================================================
 // Wire shape (matches NoteSchema in api/index.ts)

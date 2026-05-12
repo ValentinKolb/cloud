@@ -20,13 +20,7 @@
  * now keep it simple.
  */
 import * as Y from "yjs";
-import type { KitContext, KitStateAPI } from "./kit-types";
-
-const assertActive = (ctx: KitContext): void => {
-  if (ctx.isActive && !ctx.isActive()) {
-    throw new Error("Script run is no longer active");
-  }
-};
+import { assertActive, type KitContext, type KitStateAPI } from "./kit-types";
 
 const STATE_MAP_NAME = "kit:state";
 const READ_MODE_WARN = "kit.state.* is a no-op in read mode (no Y.Doc available)";
