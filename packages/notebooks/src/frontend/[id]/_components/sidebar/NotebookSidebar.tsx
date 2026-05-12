@@ -1,6 +1,7 @@
 import NoteTree from "./NoteTree.island";
 import SearchButton from "../search/SearchButton.island";
 import CreateNoteButton from "./CreateNoteButton.island";
+import HelpButton from "./HelpButton.island";
 import TagsButton from "./TagsButton.island";
 import { buildAttachmentsUrl } from "../../../params";
 import type { NotebookContext } from "./types";
@@ -61,6 +62,7 @@ export default function NotebookSidebar(props: Props) {
             <div style={`view-transition-name:${vt("search-mobile")}`}>
               <SearchButton notebookId={props.ctx.notebook.shortId} notebookName={props.ctx.notebook.name} variant="sidebar-mobile" />
             </div>
+            <HelpButton variant="sidebar-mobile" />
             {hasTags && (
               <div style={`view-transition-name:${vt("tags-mobile")}`}>
                 <TagsButton notebookId={props.ctx.notebook.shortId} tagCount={props.ctx.tagCount} variant="sidebar-mobile" />
@@ -124,31 +126,30 @@ export default function NotebookSidebar(props: Props) {
             </section>
           </div>
 
-          {/* Footer — pinned to the bottom via `mt-auto`. Tags + attachments
-              entries appear conditionally on their counts; the section
-              itself only renders if at least one of them is non-empty so
-              the bottom border doesn't show without content. */}
-          {(hasTags || hasAttachments) && (
-            <section class="sidebar-footer">
-              {hasTags && (
-                <div style={`view-transition-name:${vt("tags-desktop")}`}>
-                  <TagsButton notebookId={props.ctx.notebook.shortId} tagCount={props.ctx.tagCount} variant="sidebar" />
-                </div>
-              )}
-              {hasAttachments && (
-                <a
-                  href={attachmentsHref}
-                  class="sidebar-item text-xs"
-                  style={`view-transition-name:${vt("attachments-desktop")}`}
-                  title={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
-                >
-                  <i class="ti ti-paperclip text-sm" />
-                  <span class="flex-1">Attachments</span>
-                  <span class="text-dimmed tabular-nums">{props.ctx.attachmentCount}</span>
-                </a>
-              )}
-            </section>
-          )}
+          {/* Footer — pinned to the bottom via `mt-auto`. Help is
+              always shown (relevant even for a fresh notebook with no
+              tags / attachments). Tags + attachments appear when their
+              counts are non-zero. */}
+          <section class="sidebar-footer">
+            <HelpButton variant="sidebar" />
+            {hasTags && (
+              <div style={`view-transition-name:${vt("tags-desktop")}`}>
+                <TagsButton notebookId={props.ctx.notebook.shortId} tagCount={props.ctx.tagCount} variant="sidebar" />
+              </div>
+            )}
+            {hasAttachments && (
+              <a
+                href={attachmentsHref}
+                class="sidebar-item text-xs"
+                style={`view-transition-name:${vt("attachments-desktop")}`}
+                title={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
+              >
+                <i class="ti ti-paperclip text-sm" />
+                <span class="flex-1">Attachments</span>
+                <span class="text-dimmed tabular-nums">{props.ctx.attachmentCount}</span>
+              </a>
+            )}
+          </section>
         </div>
       </aside>
     </>
