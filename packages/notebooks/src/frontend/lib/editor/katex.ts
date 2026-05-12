@@ -158,50 +158,38 @@ const buildKatexDecorations = (state: EditorState): KatexDecorationState => {
     },
   });
 
-  const blockMathRegex = /\$\$([^$]+)\$\$|\\\[(.*?)\\\]/gs;
-  let match: RegExpExecArray | null = blockMathRegex.exec(doc);
-  while (match !== null) {
-    const from = match.index;
-    const to = from + match[0].length;
-    const latex = match[1] ?? match[2] ?? "";
-    hasMathSyntax = true;
-    mathRanges.push({ from, to });
-    // CRITICAL — advance `match` BEFORE any `continue`, otherwise
-    // the loop spins forever on a match that's inside code or under
-    // the caret. Previously the `.exec(doc)` call only ran at the
-    // end of the iteration; a `continue` skipped it and `lastIndex`
-    // stayed the same → same match → continue → infinite loop. The
-    // observable symptom is a complete tab freeze the moment the
-    // doc contains a `$$..$$` (or `\[..\]`) inside any code block.
-    const cursorInside = cursor.from >= from && cursor.to <= to;
-    const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
-    match = blockMathRegex.exec(doc);
-    if (skip) continue;
-    decorations.push(
-      Decoration.replace({
-        widget: new BlockMathWidget(latex),
-        block: true,
-      }).range(from, to),
-    );
-  }
+  /**
+   * Walk a global regex over the doc, push a decoration per match
+   * UNLESS the match falls inside a code range (handled separately)
+   * or the cursor sits inside it (= edit mode for that math snippet).
+   *
+   * CRITICAL: advance `match = re.exec(doc)` BEFORE any `continue`.
+   * The regex's `lastIndex` only moves when `.exec` runs; a `continue`
+   * after a skip-decision without re-exec would pin the regex on the
+   * same match → infinite loop → tab freeze. Observed when the doc
+   * contained a `$$…$$` or `\[…\]` inside a code block.
+   */
+  const scanMath = (re: RegExp, makeWidget: (latex: string) => WidgetType, blockWidget: boolean) => {
+    let match: RegExpExecArray | null = re.exec(doc);
+    while (match !== null) {
+      const from = match.index;
+      const to = from + match[0].length;
+      const latex = match[1] ?? match[2] ?? "";
+      hasMathSyntax = true;
+      mathRanges.push({ from, to });
+      const cursorInside = cursor.from >= from && cursor.to <= to;
+      const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
+      match = re.exec(doc);
+      if (skip) continue;
+      decorations.push(
+        Decoration.replace(blockWidget ? { widget: makeWidget(latex), block: true } : { widget: makeWidget(latex) })
+          .range(from, to),
+      );
+    }
+  };
 
-  const inlineMathRegex = /(?<!\$)\$(?!\$)([^$]+)\$(?!\$)|\\\((.*?)\\\)/g;
-  match = inlineMathRegex.exec(doc);
-  while (match !== null) {
-    const from = match.index;
-    const to = from + match[0].length;
-    const latex = match[1] ?? match[2] ?? "";
-    hasMathSyntax = true;
-    mathRanges.push({ from, to });
-    // Same infinite-loop guard as in `findBlockMathExpressions` —
-    // advance `match` BEFORE any `continue`. See the comment there
-    // for the freeze-on-`$`-in-code-range root cause.
-    const cursorInside = cursor.from >= from && cursor.to <= to;
-    const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
-    match = inlineMathRegex.exec(doc);
-    if (skip) continue;
-    decorations.push(Decoration.replace({ widget: new InlineMathWidget(latex) }).range(from, to));
-  }
+  scanMath(/\$\$([^$]+)\$\$|\\\[(.*?)\\\]/gs, (latex) => new BlockMathWidget(latex), true);
+  scanMath(/(?<!\$)\$(?!\$)([^$]+)\$(?!\$)|\\\((.*?)\\\)/g, (latex) => new InlineMathWidget(latex), false);
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
