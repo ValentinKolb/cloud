@@ -44,33 +44,9 @@
  */
 import type { Completion, CompletionContext, CompletionResult } from "@codemirror/autocomplete";
 import type { EditorState } from "@codemirror/state";
-
-/** Same row-detection as `table-formulas.ts`. Duplicated rather
- *  than shared to keep these two sources independent — they trigger
- *  in different parts of the cell and have different regexes; sharing
- *  helpers would only add an import without saving meaningful code. */
-const TABLE_SEPARATOR_RE = /^\s*\|?\s*[:\-|\s]+\|?\s*$/;
-const isTableRow = (lineText: string): boolean => {
-  const trimmed = lineText.trim();
-  if (!trimmed.startsWith("|") || !trimmed.endsWith("|")) return false;
-  const pipeCount = (trimmed.match(/\|/g) ?? []).length;
-  if (pipeCount < 2) return false;
-  if (TABLE_SEPARATOR_RE.test(lineText)) return false;
-  return true;
-};
+import { cellTextBeforeCursor, isTableRow, TABLE_SEPARATOR_RE } from "./_lib/table-cell";
 
 const isSeparatorRow = (lineText: string): boolean => TABLE_SEPARATOR_RE.test(lineText);
-
-/** Find the text between the nearest preceding `|` and the cursor.
- *  Returns null if no `|` separator exists on the line before the
- *  cursor (which means we're not yet in a cell). */
-type CellRange = { from: number; text: string };
-const cellTextBeforeCursor = (lineText: string, cursorCol: number): CellRange | null => {
-  let i = cursorCol - 1;
-  while (i >= 0 && lineText[i] !== "|") i--;
-  if (i < 0) return null;
-  return { from: i + 1, text: lineText.slice(i + 1, cursorCol) };
-};
 
 /** Walk backwards from the cursor's line to find the table's
  *  separator row, then return the cells of the line immediately
