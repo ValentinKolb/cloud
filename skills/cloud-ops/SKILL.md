@@ -28,13 +28,30 @@ To stop: `bun run dev:down` (includes extras via `--profile extra`) and `bun run
 
 The compose file uses **profiles** so `bun run dev` stays light. Full spin-up is opt-in.
 
+**Stack-level commands** (whole compose project):
+
 | Command | What it does |
 |---------|--------------|
 | `bun run dev` | Core set only — `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications` (7 containers) |
 | `bun run dev:full` | Core + all extras via `--profile extra` (20 containers total) |
-| `bun run dev:app <name>` | Start one extra app into the running stack — joins the existing network automatically |
-| `bun run dev:app stop <name>` / `logs <name>` | Stop / tail that app |
 | `bun run dev:down` | Tear down the dev stack |
+| `bun run dev:rebuild:all` | Rebuild every image in the stack |
+
+**Per-app commands** (operate on one or more app containers in the running stack):
+
+| Command | What it does |
+|---------|--------------|
+| `bun run dev:start <app...>` | Start one or more apps; joins existing network |
+| `bun run dev:stop <app...>` | Stop apps (containers stay around for fast restart) |
+| `bun run dev:rebuild <app...>` | Rebuild image(s) + restart — parallel via compose |
+| `bun run dev:logs <app>` | Follow one app's logs |
+| `bun run dev:status` | Plain-text inventory: state, uptime, health, image age |
+| `bun run dev:status <app>` | Detail block + last 20 log lines for one app |
+| `bun run dev:help` | Catalog of all dev commands + the list of valid `<app>` short-names |
+
+`<app>` accepts either the short name (`notebooks`) or the full service name (`app-notebooks`).
+
+The `dev:status` output is plain text by design — humans get a readable table, LLM agents capturing the output get stable, scannable section headers (`State`, `Uptime`, `Health`, `Image age`) and a closed state enum (`running` / `stopped` / `never built`). Run `bun run dev:help` first for orientation; `dev:status` + `dev:status <app>` cover most "what's the dev stack doing right now" questions in two calls.
 
 Why the split: the core set gives you login + dashboard + admin panel + log viewer + settings UI; extras (`notebooks`, `files`, `spaces`, `weather`, …) are spun up only when a specific app is under development.
 
@@ -59,7 +76,7 @@ Why the split: the core set gives you login + dashboard + admin panel + log view
 
 ## Network & Discovery
 
-Both compose files share the same **Docker Compose project name** (= folder name `cloud`), which means they share the default network. That's the mechanism that lets an ad-hoc `dev:app <name>` container reach `ipa_postgres`, `ipa_valkey`, and `gateway` without any explicit network config. Don't override the project name with `-p` unless you're running parallel stacks.
+Both compose files share the same **Docker Compose project name** (= folder name `cloud`), which means they share the default network. That's the mechanism that lets an ad-hoc `dev:start <name>` container reach `ipa_postgres`, `ipa_valkey`, and `gateway` without any explicit network config. Don't override the project name with `-p` unless you're running parallel stacks.
 
 Every app registers itself in Redis via `createHeartbeat` (60s interval, 2min TTL), carrying id, nav metadata, and `baseUrl` (e.g. `http://app-files:3000`). The gateway watches the registry and rebuilds its prefix-trie route table on change — usually within ≤5s of a new container appearing.
 
@@ -92,7 +109,7 @@ Every app container:
 
 **Core set (7, no profile — started by `bun run dev`):** `gateway`, `app-core`, `app-dashboard`, `app-accounts`, `app-logging`, `app-settings`, `app-notifications`.
 
-**Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:app`):** `app-api-docs`, `app-notebooks`, `app-contacts`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
+**Extras (13, `profiles: [extra]` — `bun run dev:full` or ad-hoc via `dev:start`):** `app-api-docs`, `app-notebooks`, `app-contacts`, `app-faq`, `app-files`, `app-ipa-hosts`, `app-oauth`, `app-proxy-auth`, `app-quotes`, `app-spaces`, `app-tools`, `app-ui-lab`, `app-weather`.
 
 ### Volume Mounts (Dev)
 
@@ -123,7 +140,7 @@ app-my-app:
 ```
 
 2. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
-3. Start it standalone during development: `bun run dev:app my-app`. The app self-registers in Redis via `createHeartbeat()` on startup; the gateway picks it up within ~5 s without any central registration step.
+3. Start it standalone during development: `bun run dev:start my-app`. The app self-registers in Redis via `createHeartbeat()` on startup; the gateway picks it up within ~5 s without any central registration step. After code changes that affect the build (Dockerfile, dependencies), use `bun run dev:rebuild my-app` to rebuild + restart in one step.
 
 ## Environment Variables
 

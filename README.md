@@ -108,10 +108,14 @@ Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the 
 |---|---|
 | `bun run dev` | Core 7 containers (gateway, core, dashboard, accounts, logging, settings, notifications) |
 | `bun run dev:full` | All containers, every app on |
-| `bun run dev:app <name>` | Add one extra app to the running stack |
-| `bun run dev:app stop \| logs <name>` | Stop / tail one app |
-| `bun run typecheck` | skills + boundaries + cycles + biome + tsc |
+| `bun run dev:start <app...>` | Add one or more extra apps to the running stack |
+| `bun run dev:stop <app...>` | Stop one or more apps |
+| `bun run dev:rebuild <app...>` | Rebuild image + restart (parallel for multiple) |
+| `bun run dev:logs <app>` | Follow one app's logs |
+| `bun run dev:status` | Plain-text inventory of all apps (state, uptime, image age) |
+| `bun run dev:help` | Catalog of every dev command |
 | `bun run dev:down` | Tear the dev stack down |
+| `bun run typecheck` | skills + boundaries + cycles + biome + tsc |
 
 ## Agent skills
 

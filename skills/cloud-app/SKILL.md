@@ -859,6 +859,6 @@ See the `notebooks` app for a complete WebSocket implementation.
 2. Create skeleton source files under `packages/my-app/src/`: `config.ts`, `index.ts`, `api/index.ts`, `api/client.ts`, `contracts.ts`, `migrate.ts`, `service/index.ts`, `styles/app.css`, `frontend/index.ts`, `frontend/page.tsx`.
 3. Add a service block in `compose.dev.yml` (see `cloud-ops` skill).
 4. Add a `COPY packages/my-app/package.json packages/my-app/` line in `Dockerfile.dev` so the install layer caches the new workspace.
-5. `bun install` to refresh the lockfile, then `bun run dev:app my-app` (or `bun run dev:full`). Migrations run on first startup; the gateway picks up the new app from Redis within ~5 s.
+5. `bun install` to refresh the lockfile, then `bun run dev:start my-app` (or `bun run dev:full` for everything). Migrations run on first startup; the gateway picks up the new app from Redis within ~5 s. Use `bun run dev:help` to see the full set of dev commands.
 
 The standalone reference implementation lives at [github.com/ValentinKolb/cloud-template](https://github.com/ValentinKolb/cloud-template) — clone it as a starting point. Inside the monorepo, `packages/weather` (simple) or `packages/contacts` (permissions/detail panels) are the closest analogues.
