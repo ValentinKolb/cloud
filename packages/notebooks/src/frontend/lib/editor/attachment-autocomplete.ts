@@ -112,8 +112,13 @@ const buildCompletions = (attachments: AttRef[], triggerStart: number): Completi
         // the leading `![[` typed-prefix. See `note-link-autocomplete.ts`
         // for the same pattern + rationale.
         apply: (view, completion, _from, to) => {
+          // Consume trailing `]]` left over from bracket-pair
+          // auto-close so we don't produce `![…](attach://…)]]`.
+          // Same fix as note-link-autocomplete.
+          const after = view.state.sliceDoc(to, Math.min(to + 2, view.state.doc.length));
+          const consumeTo = after === "]]" ? to + 2 : to;
           view.dispatch({
-            changes: { from: triggerStart, to, insert: md },
+            changes: { from: triggerStart, to: consumeTo, insert: md },
             selection: { anchor: triggerStart + md.length },
             annotations: pickedCompletion.of(completion),
             userEvent: "input.complete",

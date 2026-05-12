@@ -166,8 +166,16 @@ const buildCompletions = (
         // opened). pickedCompletion annotation tells CM to tear
         // the popup down cleanly.
         apply: (view, completion, _from, to) => {
+          // Consume a trailing `]]` if CodeMirror's bracket-pair
+          // extension auto-closed the trigger. Without this the
+          // doc ends up as `[…](note://…)]]` — observed bug. We
+          // only extend when the next two chars are EXACTLY `]]`,
+          // so an unmatched single `]` typed by the user (rare
+          // but possible) doesn't get eaten.
+          const after = view.state.sliceDoc(to, Math.min(to + 2, view.state.doc.length));
+          const consumeTo = after === "]]" ? to + 2 : to;
           view.dispatch({
-            changes: { from: triggerStart, to, insert: linkText },
+            changes: { from: triggerStart, to: consumeTo, insert: linkText },
             // Place caret right after the inserted link.
             selection: { anchor: triggerStart + linkText.length },
             annotations: pickedCompletion.of(completion),
