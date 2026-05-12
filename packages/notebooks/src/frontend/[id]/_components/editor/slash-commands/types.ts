@@ -32,8 +32,51 @@ export type SlashCommand = {
    * cannot reasonably belong to another future command.
    */
   aliases?: string[];
-  /** What the command does. May be async (e.g. opens a picker dialog). */
-  run: (view: EditorView, ctx: SlashCommandContext) => void | Promise<void>;
+  /**
+   * Optional parameters-suffix matcher. When the user types `/table2x4`,
+   * the slash source splits the input into `name = "table"` + `suffix = "2x4"`,
+   * runs this regex against the suffix, and if it matches passes the
+   * `RegExpMatchArray` to `run(view, ctx, params)`. When the user types
+   * just `/table` (no suffix), `params` is `undefined` and the command
+   * can fall back to its default behaviour (e.g. open a modal).
+   *
+   * Examples:
+   *   `params: /^([1-6])$/`      → `/h1`-`/h6` valid, `/h0` and `/h7` rejected
+   *   `params: /^(\d+)x(\d+)$/`  → `/table2x4` valid, `/tablefoo` rejected
+   *   `params: /^(\d+)$/`        → `/list5` valid, `/listfoo` rejected
+   *
+   * Without this field, the suffix MUST be empty (no chars beyond the
+   * name) for the command to match — preserves the original behaviour
+   * for non-parameterised commands.
+   */
+  params?: RegExp;
+  /**
+   * Whether the command's output stays inline with surrounding text
+   * (`true`) or wants to start a fresh line (`false`, default).
+   *
+   * When `false` and the user invokes the command mid-line (e.g.
+   * `some text /table2x4`), the slash source dispatches a leading
+   * newline before `run` is invoked. That lifts the inserted block
+   * onto its own line without the user having to position the caret
+   * manually. Inline commands (`true`) — date inserters, ID
+   * generators, tag pickers — skip this and let `run` insert directly
+   * at the caret.
+   *
+   * Default `false` (block) preserves the original behaviour for
+   * commands that weren't explicitly flagged.
+   */
+  inline?: boolean;
+  /**
+   * What the command does. May be async (e.g. opens a picker dialog).
+   * `params` is the captured-groups array from the `params` regex when
+   * the typed text included a suffix; `undefined` for the bare-name
+   * invocation.
+   */
+  run: (
+    view: EditorView,
+    ctx: SlashCommandContext,
+    params?: RegExpMatchArray,
+  ) => void | Promise<void>;
 };
 
 export type SlashCommandSection = "Formatting" | "Lists" | "Insert" | "Callouts" | "Navigation";

@@ -1,0 +1,187 @@
+/**
+ * Inline autocomplete für Attachment-Referenzen via `![[partial]]`.
+ *
+ * The leading `!` mirrors markdown's image-embed syntax (`![alt](src)`):
+ * an image attachment picked from the list inserts as `![filename]
+ * (attach://shortId)` (renders inline), a non-image attachment as
+ * `[filename](attach://shortId)` (renders as a link). The trigger
+ * distinguishes from the regular `[[partial]]` note-link picker.
+ *
+ * # Caching
+ *
+ * Same pattern as note-link / tag autocomplete: per-notebook
+ * Map<notebookId, …>, 45s TTL, coalesced concurrent fetches, eager
+ * warm-up at factory time.
+ *
+ * # Scope
+ *
+ * Skip inside fenced code via shared `editor-scope.ts`.
+ */
+import {
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
+  type CompletionSource,
+  pickedCompletion,
+} from "@codemirror/autocomplete";
+import { isInsideFencedCode } from "./editor-scope";
+
+/** Lightweight attachment projection — only what the picker needs. */
+type AttRef = {
+  shortId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: "image" | "file";
+};
+
+type CacheEntry = {
+  fetchedAt: number;
+  attachments: AttRef[];
+};
+
+const CACHE_TTL_MS = 45_000;
+
+/** API response shape — minimal projection so the type doesn't bind
+ *  us to fields we don't render. Mirrors `ApiAttachment` in
+ *  `lib/script/kit-attachments.ts` (kept duplicated to avoid a
+ *  cross-import that would pull in the whole kit runtime). */
+type ApiAttachment = {
+  shortId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: "image" | "file";
+};
+
+const attachmentCache = new Map<string, CacheEntry>();
+const pendingFetch = new Map<string, Promise<AttRef[]>>();
+
+const fetchAttachments = async (notebookId: string): Promise<AttRef[]> => {
+  const cached = attachmentCache.get(notebookId);
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.attachments;
+  const pending = pendingFetch.get(notebookId);
+  if (pending) return pending;
+
+  const promise = (async () => {
+    try {
+      // Non-paginated endpoint — returns a flat list. See
+      // `kit-attachments.ts` for why this is a raw fetch (the
+      // Hono-derived apiClient type doesn't include attachments).
+      const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/attachments`);
+      if (!res.ok) return [];
+      const payload = (await res.json()) as ApiAttachment[];
+      const out: AttRef[] = payload.map((a) => ({
+        shortId: a.shortId,
+        filename: a.filename,
+        mimeType: a.mimeType,
+        sizeBytes: a.sizeBytes,
+        kind: a.kind,
+      }));
+      attachmentCache.set(notebookId, { fetchedAt: Date.now(), attachments: out });
+      return out;
+    } catch {
+      return [];
+    } finally {
+      pendingFetch.delete(notebookId);
+    }
+  })();
+  pendingFetch.set(notebookId, promise);
+  return promise;
+};
+
+/** Pretty byte size — `42 KB`, `3.7 MB`, etc. Used in the option
+ *  detail to give the user a sense of file weight before picking. */
+const formatBytes = (n: number): string => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+};
+
+/** Markdown for one attachment. Image → embedded markdown image,
+ *  non-image → link. Filename is escaped against `]` and `\`. */
+const buildAttachmentMarkdown = (a: AttRef): string => {
+  const escapedName = a.filename.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
+  const url = `attach://${a.shortId}`;
+  const prefix = a.kind === "image" ? "!" : "";
+  return `${prefix}[${escapedName}](${url})`;
+};
+
+/** Tabler icon per attachment kind. Image attachments use `ti-photo`;
+ *  generic files use `ti-paperclip`. Could be smarter (PDF/audio/
+ *  video specific icons) but the binary image/file distinction
+ *  covers most use cases. */
+const iconFor = (a: AttRef): string => (a.kind === "image" ? "ti-photo" : "ti-paperclip");
+
+/** `triggerStart` is the doc position of the leading `!` (=
+ *  word.from), used by each option's apply function to replace the
+ *  WHOLE `![[…` typed prefix with the markdown — without this CM
+ *  would only replace from result.from (after the brackets) and the
+ *  user-typed `![[` would stay stuck before the inserted link
+ *  (observed bug: `![[![filename](attach://…))`). */
+const buildCompletions = (attachments: AttRef[], triggerStart: number): Completion[] => {
+  return attachments
+    .slice()
+    .sort((a, b) => a.filename.localeCompare(b.filename))
+    .map((a) => {
+      const md = buildAttachmentMarkdown(a);
+      const c: Completion = {
+        label: a.filename,
+        type: "namespace",
+        detail: `${a.kind} · ${formatBytes(a.sizeBytes)}`,
+        // Apply via explicit dispatch so the change range includes
+        // the leading `![[` typed-prefix. See `note-link-autocomplete.ts`
+        // for the same pattern + rationale.
+        apply: (view, completion, _from, to) => {
+          view.dispatch({
+            changes: { from: triggerStart, to, insert: md },
+            selection: { anchor: triggerStart + md.length },
+            annotations: pickedCompletion.of(completion),
+            userEvent: "input.complete",
+          });
+        },
+      };
+      (c as Completion & { kitIcon: string }).kitIcon = iconFor(a);
+      return c;
+    });
+};
+
+const buildResult = (
+  word: { from: number; to: number },
+  attachments: AttRef[],
+): CompletionResult | null => {
+  if (attachments.length === 0) return null;
+  return {
+    // `from` = right after the `![[` so CM's prefix filter matches
+    // the typed filename body against option labels. The apply
+    // dispatch covers replacing the `![[` chars themselves.
+    from: word.from + 3,
+    to: word.to,
+    options: buildCompletions(attachments, word.from),
+    validFor: /^[^\]\n]*$/,
+  };
+};
+
+/**
+ * Factory. Closes over the notebookId so the source can hit the
+ * right attachments endpoint.
+ */
+export const buildAttachmentCompletionSource = (notebookId: string): CompletionSource => {
+  void fetchAttachments(notebookId);
+
+  return (context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null => {
+    // Trigger: `![[` optionally followed by filename body. We don't
+    // require any chars after the brackets so the popup opens
+    // immediately on `![[`.
+    const word = context.matchBefore(/!\[\[[^\]\n]*/);
+    if (!word) return null;
+    if (isInsideFencedCode(context)) return null;
+
+    const cached = attachmentCache.get(notebookId);
+    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+      return buildResult(word, cached.attachments);
+    }
+    return fetchAttachments(notebookId).then((atts) => buildResult(word, atts));
+  };
+};

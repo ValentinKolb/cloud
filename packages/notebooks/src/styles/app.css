@@ -18,19 +18,19 @@
 
 .cm-tooltip.cm-tooltip-autocomplete {
   /* `popup` utility: rounded-lg, white/zinc-900 bg, zinc-200/800 border,
-     shadow-lg. Sized to feel like the platform Select dropdown — generous
-     min-width and per-item padding so it reads as a real palette, not a
-     code-completion hint. */
-  border-radius: 0.625rem !important;
+     shadow-lg. Sized to feel like the platform Select dropdown — but
+     compact-density per-row so a dozen suggestions fit in the
+     viewport without scrolling. */
+  border-radius: 0.5rem !important;
   background-color: white !important;
   border: 1px solid rgb(228 228 231) !important;
   box-shadow:
     0 10px 15px -3px rgb(0 0 0 / 0.1),
     0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
-  padding: 0.25rem !important;
-  min-width: 24rem;
+  padding: 0.1875rem !important;
+  min-width: 22rem;
   font-family: inherit !important;
-  font-size: 0.8125rem !important;
+  font-size: 0.75rem !important;
   overflow: hidden;
 }
 .dark .cm-tooltip.cm-tooltip-autocomplete {
@@ -49,37 +49,62 @@
 .cm-tooltip-autocomplete > ul > li {
   display: flex !important;
   align-items: center;
-  gap: 0.625rem;
-  padding: 0.375rem 0.75rem !important;
-  border-radius: 0.375rem;
-  /* Default: lighter (text-dimmed). Selected/hovered = blue accent —
-     contrast (not underline, not background fill) signals focus. */
+  gap: 0.5rem;
+  padding: 0.1875rem 0.375rem !important;
+  border-radius: 0.25rem;
+  /* Default colour. Hover paints a soft grey bg WITHOUT touching the
+     text — pure pointer affordance. Keyboard selection paints the
+     LABEL blue WITHOUT a bg — pure focus indicator. The two channels
+     (bg vs. text) don't fight, so the keyboard-selected row stays
+     unambiguous even when the mouse happens to hover a different
+     option in the list. */
   color: rgb(113 113 122) !important;
   cursor: pointer;
   user-select: none;
   border: 0 !important;
   background: transparent !important;
   text-decoration: none !important;
+  line-height: 1.3;
 }
 .dark .cm-tooltip-autocomplete > ul > li {
   color: rgb(161 161 170) !important;
 }
 
-.cm-tooltip-autocomplete > ul > li:hover,
+/* Hover = soft grey background, text colour unchanged. */
+.cm-tooltip-autocomplete > ul > li:hover {
+  background: rgb(244 244 245) !important;   /* zinc-100 */
+  text-decoration: none !important;
+}
+.dark .cm-tooltip-autocomplete > ul > li:hover {
+  background: rgb(39 39 42) !important;      /* zinc-800 */
+}
+
+/* Keyboard-selected = blue text, no background. Pairs cleanly with
+   hover (which only paints bg) so a row that's both selected AND
+   hovered shows blue text on grey bg. */
 .cm-tooltip-autocomplete > ul > li[aria-selected] {
-  color: rgb(59 130 246) !important;    /* blue-500 */
+  color: rgb(59 130 246) !important;         /* blue-500 */
   background: transparent !important;
   text-decoration: none !important;
 }
-.dark .cm-tooltip-autocomplete > ul > li:hover,
 .dark .cm-tooltip-autocomplete > ul > li[aria-selected] {
-  color: rgb(96 165 250) !important;    /* blue-400 */
+  color: rgb(96 165 250) !important;         /* blue-400 */
+}
+
+/* Selected + hovered = blue text on the hover-bg (so the user can
+   still see "this row is also under my cursor" without losing the
+   selection indicator). */
+.cm-tooltip-autocomplete > ul > li[aria-selected]:hover {
+  background: rgb(244 244 245) !important;
+}
+.dark .cm-tooltip-autocomplete > ul > li[aria-selected]:hover {
+  background: rgb(39 39 42) !important;
 }
 
 .cm-tooltip-autocomplete .cm-slash-icon {
   flex-shrink: 0;
-  width: 1rem;
-  font-size: 0.9375rem;
+  width: 0.875rem;
+  font-size: 0.8125rem;
   color: inherit;                       /* picks up the row's color */
 }
 
@@ -87,13 +112,316 @@
   flex: 0 0 auto;
 }
 
+/* Our custom kit/slash detail renderer — short signature or one-line
+   description shown inline next to the label. Dimmed so the label
+   reads as primary. Truncates with ellipsis at the popup edge. */
+.cm-tooltip-autocomplete .cm-kit-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 0.375rem;
+  font-size: 0.625rem;
+  color: rgb(161 161 170); /* zinc-400 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-kit-detail {
+  /* Selected row turns blue; keep the detail subtler — still
+     readable but visually secondary. Hover does NOT tint the detail
+     (hover is just a soft bg, see the rule above). */
+  color: rgb(96 165 250 / 0.85); /* blue-400 / 85% */
+}
+.dark .cm-tooltip-autocomplete .cm-kit-detail {
+  color: rgb(113 113 122); /* zinc-500 */
+}
+
 /* Hide every "extra" element CM emits — descriptions, section dividers,
-   section headings. KISS palette: just `[icon] Label` rows, in registry
-   order. */
+   section headings, AND the per-option info side panel. KISS palette:
+   just `[icon] Label  detail` rows, in registry order.
+
+   Why hide `.cm-tooltip.cm-completionInfo` too: CM renders it as a
+   floating panel on the selected option (the long-form `info` text).
+   When there's no room to the right of the popup it falls back to
+   rendering INSIDE the option list — observed as a "subbox" cutting
+   off the description mid-sentence. We already surface a one-liner
+   inline via `cm-kit-detail`, so the verbose info panel is dead
+   weight; killing it removes the cutoff bug and keeps the popup
+   compact + consistent. */
 .cm-tooltip-autocomplete .cm-completionDetail,
 .cm-tooltip-autocomplete .cm-completionSectionLabel,
 .cm-tooltip-autocomplete completion-section,
 .cm-tooltip-autocomplete .cm-completionListIncompleteTop,
-.cm-tooltip-autocomplete .cm-completionListIncompleteBottom {
+.cm-tooltip-autocomplete .cm-completionListIncompleteBottom,
+.cm-tooltip.cm-completionInfo {
   display: none !important;
+}
+
+/* ── ```script block output (rich-mode editor) ──────────────────────────
+   The output container is mounted as an INLINE CodeMirror widget at the
+   end of the closing-fence line (see `lib/editor/scripts.ts`). We
+   intentionally avoid `Decoration.widget({ block: true })` because
+   CM6's `posAtCoords(scanY)` upward-scan loop treats block widgets as
+   atomic non-Text blocks and skips past them — observed as ArrowUp from
+   anywhere in the doc jumping to the bottom of the first script block
+   in the document.
+
+   Inline-widget + `display: block` keeps the widget out of CM's block
+   layout (BlockType for the line stays Text) while visually placing
+   the output below the closing fence — which is what users expect. */
+/* Widget root — wraps both the output card and the error box as
+   siblings. No visual styling here; the children carry their own. */
+.md-script-block {
+  display: block;
+  margin: 0.5rem 0;
+  width: 100%;
+}
+
+.md-script-block > * + * {
+  margin-top: 0.5rem; /* gap between output card and error box */
+}
+
+.md-script-output {
+  display: block;
+  width: 100%;
+  /* Subtle teal-tinted card so the output reads as a distinct
+     "result" surface, not a stray div. Matches the kit's
+     interactive feel without competing with markdown content. */
+  border: 1px solid rgb(20 184 166 / 0.25); /* teal-500 / 25% */
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: rgb(20 184 166 / 0.04);
+}
+
+/* Error box — separate visual card, sibling of the output card.
+   Red theme to distinguish from "regular" output. Hidden when
+   empty so a script without errors doesn't render a stray empty
+   red box. */
+.md-script-errors {
+  display: block;
+  width: 100%;
+  border: 1px solid rgb(239 68 68 / 0.25); /* red-500 / 25% */
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  background: rgb(239 68 68 / 0.04);
+}
+.dark .md-script-errors {
+  border-color: rgb(239 68 68 / 0.4);
+  background: rgb(239 68 68 / 0.08);
+}
+.md-script-errors:empty {
+  display: none;
+}
+
+/* `display: block` (not flex) on the container keeps the kit's
+   default behaviour intuitive: bare `kit.ui.button(...)` calls
+   produce inline-flex buttons that flow side-by-side until they
+   wrap, while `console.log` / `kit.ui.text` produce block-level
+   `<div>` / `<p>` that stack vertically as expected. Layout
+   primitives (`kit.ui.row` / `col`) handle their own flex inside. */
+
+.dark .md-script-output {
+  border-color: rgb(20 184 166 / 0.35);
+  background: rgb(20 184 166 / 0.08);
+}
+
+/* Tight gap between adjacent block-level output (logs, headings,
+   layout cards) so they don't feel cramped or floaty. Inline
+   children (buttons in a row) are unaffected. */
+.md-script-output > * + * {
+  margin-top: 0.375rem;
+}
+
+/* Hide when no kit / console output produced anything yet (e.g.
+   during the 500 ms debounce before the first run completes, or for
+   scripts with no UI side-effects). Avoids a stray empty teal card
+   floating below every fence. */
+.md-script-output:empty {
+  display: none;
+}
+
+/* ── console.* output lines ─────────────────────────────────────── */
+
+.md-script-log {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.md-script-log-log,
+.md-script-log-info {
+  color: rgb(63 63 70); /* zinc-700 */
+}
+.dark .md-script-log-log,
+.dark .md-script-log-info {
+  color: rgb(212 212 216); /* zinc-300 */
+}
+
+.md-script-log-debug {
+  color: rgb(113 113 122); /* zinc-500 */
+  font-style: italic;
+}
+.dark .md-script-log-debug {
+  color: rgb(161 161 170);
+}
+
+.md-script-log-warn {
+  color: rgb(202 138 4); /* yellow-600 */
+}
+.dark .md-script-log-warn {
+  color: rgb(250 204 21); /* yellow-400 */
+}
+
+.md-script-log-error {
+  color: rgb(220 38 38); /* red-600 */
+}
+.dark .md-script-log-error {
+  color: rgb(248 113 113); /* red-400 */
+}
+
+/* ── console.table ──────────────────────────────────────────────── */
+
+.md-script-table-wrap {
+  overflow-x: auto;
+  margin: 0.25rem 0;
+}
+
+.md-script-table {
+  border-collapse: collapse;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 0.75rem;
+}
+
+.md-script-table th,
+.md-script-table td {
+  border: 1px solid rgb(228 228 231); /* zinc-200 */
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+  max-width: 28ch;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.md-script-table th {
+  background: rgb(244 244 245); /* zinc-100 */
+  font-weight: 600;
+}
+
+.dark .md-script-table th,
+.dark .md-script-table td {
+  border-color: rgb(63 63 70); /* zinc-700 */
+}
+
+.dark .md-script-table th {
+  background: rgb(39 39 42); /* zinc-800 */
+}
+
+/* ── console.html container — content is trusted (per-notebook
+       opt-in scripts), but we still want it to lay out as a clean
+       block inside the output card. ────────────────────────────── */
+
+.md-script-html {
+  margin: 0;
+}
+
+/* ── kit.ui layout primitives ───────────────────────────────────── */
+
+/* Row — horizontal flex with sane defaults: gap, wrap, align center
+   so buttons + text mix naturally on one line. */
+.md-script-ui-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Column — vertical flex with consistent gap. */
+.md-script-ui-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Card — visually grouped block with its own border + padding. */
+.md-script-ui-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid rgb(228 228 231); /* zinc-200 */
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  background: rgb(255 255 255 / 0.4);
+}
+.dark .md-script-ui-card {
+  border-color: rgb(63 63 70); /* zinc-700 */
+  background: rgb(0 0 0 / 0.2);
+}
+
+/* Reset margin-top inheritance from the output container's
+   "stack vertical spacing" rule for elements INSIDE row/col/card —
+   the parent's own gap handles spacing there. */
+.md-script-ui-row > * + *,
+.md-script-ui-col > * + *,
+.md-script-ui-card > * + * {
+  margin-top: 0;
+}
+
+/* Divider — horizontal rule scoped to the kit. */
+.md-script-ui-divider {
+  border: 0;
+  border-top: 1px solid rgb(228 228 231);
+  margin: 0.25rem 0;
+  width: 100%;
+}
+.dark .md-script-ui-divider {
+  border-top-color: rgb(63 63 70);
+}
+
+/* ── kit.ui content primitives ──────────────────────────────────── */
+
+.md-script-ui-text {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: rgb(63 63 70);
+}
+.dark .md-script-ui-text {
+  color: rgb(212 212 216);
+}
+
+.md-script-ui-heading {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  color: rgb(24 24 27);
+}
+.dark .md-script-ui-heading {
+  color: rgb(244 244 245);
+}
+.md-script-ui-heading-1 { font-size: 1.5rem; }
+.md-script-ui-heading-2 { font-size: 1.25rem; }
+.md-script-ui-heading-3 { font-size: 1.125rem; }
+.md-script-ui-heading-4 { font-size: 1rem; }
+.md-script-ui-heading-5 { font-size: 0.9375rem; }
+.md-script-ui-heading-6 { font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* Markdown-rendered region — relies on the same global markdown
+   styles the read-mode pipeline produces; here we just give it
+   a sane default font-size and reset top/bottom margins on the
+   first/last child so it nests cleanly inside the output card. */
+.md-script-ui-md {
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.md-script-ui-md > :first-child { margin-top: 0; }
+.md-script-ui-md > :last-child { margin-bottom: 0; }
+
+/* HTML escape hatch — no styling, content is whatever the script
+   put in. Trust model: per-notebook opt-in scripts. */
+.md-script-ui-html {
+  font-size: 0.875rem;
 }

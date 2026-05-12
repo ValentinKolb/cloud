@@ -154,16 +154,37 @@ export const insertBlock = (view: EditorView, block: string): void => {
  * Insert a fenced code block at the current line and place the cursor on
  * the empty line between the fences, ready for typing.
  */
-export const insertCodeBlock = (view: EditorView): void => {
+export const insertCodeBlock = (
+  view: EditorView,
+  options?: {
+    /** Language tag appended to the opening fence (e.g. `script`,
+     *  `python`, `mermaid`, `math`). Omit for an untagged fence. */
+    language?: string;
+    /** Pre-filled body content. If provided, the cursor lands at
+     *  the END of the body (so the user can extend it). If absent,
+     *  the body is empty and the cursor lands on the empty line
+     *  between the fences. */
+    body?: string;
+  },
+): void => {
+  const language = options?.language ?? "";
+  const body = options?.body ?? "";
   const { from } = view.state.selection.main;
   const line = view.state.doc.lineAt(from);
   const separator = line.text.trim() ? "\n\n" : "";
-  const opening = "```\n";
+  const opening = `\`\`\`${language}\n`;
   const closing = "\n```";
-  const insert = `${separator}${opening}${closing}\n`;
+  // Body sits between opening and closing fence. When body is
+  // non-empty we add it verbatim; when empty we leave a single
+  // empty line for the user to fill in.
+  const insert = `${separator}${opening}${body}${closing}\n`;
+  // Caret position: end of body when body is pre-filled (so the
+  // user can keep typing the snippet); otherwise the empty line
+  // between the fences (the "blank canvas" UX).
+  const caretOffset = separator.length + opening.length + body.length;
   view.dispatch({
     changes: { from: line.to, insert },
-    selection: { anchor: line.to + separator.length + opening.length },
+    selection: { anchor: line.to + caretOffset },
   });
   view.focus();
 };
@@ -202,24 +223,48 @@ export const buildTable = (rows: number, cols: number): string => {
 };
 
 /**
- * Prompt the user for table dimensions, then insert.
+ * Insert a markdown table at the cursor.
+ *
+ * Two paths:
+ *
+ *   1. **Modal path** — `insertTable(view)` with no dimensions opens
+ *      a prompt asking for rows/cols (default 3×3). Used by the
+ *      `/table` slash command and the toolbar button.
+ *
+ *   2. **Direct path** — `insertTable(view, { rows, cols })` skips
+ *      the prompt entirely. Used by the `/table<R>x<C>` power
+ *      command so `/table2x4` inserts a 2×4 table immediately.
  *
  * After the table is in the document, the caret pre-selects the first
  * header cell's placeholder text (`Header 1`) so the user can start
  * typing immediately to replace it.
  */
-export const insertTable = async (view: EditorView): Promise<void> => {
-  const result = await prompts.form({
-    title: "Insert Table",
-    icon: "ti ti-table",
-    fields: {
-      rows: { type: "number", label: "Rows", default: 3, min: 1, max: 50, required: true },
-      cols: { type: "number", label: "Columns", default: 3, min: 1, max: 20, required: true },
-    },
-  });
-  if (!result) return;
+export const insertTable = async (
+  view: EditorView,
+  dimensions?: { rows: number; cols: number },
+): Promise<void> => {
+  let rows: number;
+  let cols: number;
+  if (dimensions) {
+    // Clamp to the same ranges the modal accepts — defends against a
+    // pathological `/table999x999` from someone testing edge cases.
+    rows = Math.max(1, Math.min(50, Math.floor(dimensions.rows)));
+    cols = Math.max(1, Math.min(20, Math.floor(dimensions.cols)));
+  } else {
+    const result = await prompts.form({
+      title: "Insert Table",
+      icon: "ti ti-table",
+      fields: {
+        rows: { type: "number", label: "Rows", default: 3, min: 1, max: 50, required: true },
+        cols: { type: "number", label: "Columns", default: 3, min: 1, max: 20, required: true },
+      },
+    });
+    if (!result) return;
+    rows = result.rows;
+    cols = result.cols;
+  }
 
-  const block = buildTable(result.rows, result.cols);
+  const block = buildTable(rows, cols);
   const { from } = view.state.selection.main;
   const line = view.state.doc.lineAt(from);
   const separator = line.text.trim() ? "\n\n" : "";
