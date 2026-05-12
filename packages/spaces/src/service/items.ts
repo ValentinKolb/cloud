@@ -499,6 +499,94 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
 };
 
 /**
+ * Cross-space item search for the global search dialog.
+ *
+ * Single SQL query joining items to their parent space, scoped by the same
+ * permission predicate the space list uses. Replaces the per-space
+ * `listFiltered` fan-out the capabilities layer used to do, which hit one
+ * query per user-visible space. Skips `hydrateRelations` since the dialog
+ * doesn't render assignees/tags.
+ *
+ * `kinds`:
+ *   - "task"  → items without a starts_at/ends_at pair
+ *   - "event" → items with both starts_at and ends_at
+ *   - "all"   → both
+ */
+export type ItemAcrossKind = "task" | "event" | "all";
+
+export type ItemAcrossResult = {
+  item: SpaceItem;
+  space: { id: string; name: string };
+};
+
+type DbItemAcross = DbItem & {
+  space_name: string;
+};
+
+export const searchAcross = async (params: {
+  userId: string | null;
+  groups: string[];
+  query: string;
+  kinds: ItemAcrossKind;
+  limit: number;
+}): Promise<ItemAcrossResult[]> => {
+  const { userId, query, kinds, limit } = params;
+  const groups = params.groups ?? [];
+  const trimmed = query.trim();
+  // Empty query is valid — used by tag-only searches like `#task` or `#event`.
+  // Pattern becomes `%%` which ILIKE-matches every row; the title-match
+  // ranking CASE collapses to a constant so results sort by `updated_at DESC`.
+  const pattern = `%${trimmed}%`;
+
+  let kindCondition = sql`TRUE`;
+  if (kinds === "task") {
+    kindCondition = sql`(i.starts_at IS NULL OR i.ends_at IS NULL)`;
+  } else if (kinds === "event") {
+    kindCondition = sql`(i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL)`;
+  }
+
+  // Permission check via EXISTS subquery rather than LEFT JOIN. The previous
+  // join approach needed `SELECT DISTINCT` to dedupe items joined to multiple
+  // ACL rows, but `DISTINCT` combined with `ORDER BY CASE WHEN i.title ILIKE
+  // pattern THEN 0 ELSE 1 END` is illegal in Postgres (the CASE expression
+  // isn't in the distinct projection). The EXISTS form has neither problem
+  // and is what notebooks.searchAcross uses.
+  const rows = await sql<DbItemAcross[]>`
+    SELECT
+      i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at,
+      i.deadline, i.priority, i.rank::text AS rank,
+      i.completed_at, i.email_thread_id,
+      i.created_by, i.created_at, i.updated_at,
+      s.name AS space_name
+    FROM spaces.items i
+    JOIN spaces.spaces s ON s.id = i.space_id
+    WHERE EXISTS (
+      SELECT 1
+      FROM spaces.space_access sa
+      JOIN auth.access a ON a.id = sa.access_id
+      WHERE sa.space_id = s.id
+        AND (
+          a.user_id = ${userId}::uuid
+          OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
+          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        )
+    )
+      AND ${kindCondition}
+      AND (i.title ILIKE ${pattern} OR i.description ILIKE ${pattern})
+    ORDER BY
+      CASE WHEN i.title ILIKE ${pattern} THEN 0 ELSE 1 END,
+      i.updated_at DESC
+    LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({
+    item: mapToItem(row),
+    space: { id: row.space_id, name: row.space_name },
+  }));
+};
+
+/**
  * Get an item by ID with relations
  */
 export const get = async (params: { id: string }): Promise<SpaceItem | null> => {

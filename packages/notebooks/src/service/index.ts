@@ -156,6 +156,8 @@ export const notebooksService = {
     },
     copyToNotebook: notes.copyToNotebook,
     search: notes.search,
+    /** Single-query cross-notebook search used by the global search dialog. */
+    searchAcross: notes.searchAcross,
     recentForUser: notes.recentForUser,
     backlinks: {
       list: links.listBacklinks,

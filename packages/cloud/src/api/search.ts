@@ -8,11 +8,18 @@ import { SearchItemSchema, SearchQuerySchema, SearchResponseSchema, type SearchI
 
 const log = logger("search");
 
+/**
+ * Maximum items returned to the client after merging across providers.
+ * The frontend has no further limit — this caps the rendered list.
+ */
+const GLOBAL_RESULT_LIMIT = 30;
+
 type HttpSearchProvider = {
   appId: string;
   appName: string;
   appIcon: string;
   endpoint: string;
+  tags: string[];
 };
 
 /**
@@ -28,6 +35,7 @@ const getSearchProviders = async (): Promise<HttpSearchProvider[]> => {
       appName: e.name,
       appIcon: e.icon,
       endpoint: e.search!.endpoint,
+      tags: [...e.search!.tags],
     }));
 };
 
@@ -57,8 +65,43 @@ export const createSearchRoutes = () =>
         const query = c.req.valid("query");
         const providers = await getSearchProviders();
 
+        // Pre-filter providers by tag overlap. With no tags, every provider
+        // runs (text-only search). With tags, only providers that own at least
+        // one requested tag participate — saves fanout to apps that can't
+        // contribute. Tags the user typed that no provider declares are
+        // returned to the client so it can render a helpful empty state.
+        const knownTags = new Set(providers.flatMap((p) => p.tags));
+        const unsupportedTags = query.tag.filter((t) => !knownTags.has(t));
+        const active =
+          query.tag.length === 0
+            ? providers
+            : providers.filter((p) => p.tags.some((t) => query.tag.includes(t)));
+
+        if (query.tag.length > 0 && active.length === 0) {
+          return c.json({
+            query: query.q,
+            count: 0,
+            items: [],
+            unsupportedTags,
+          });
+        }
+
+        // Single-provider queries get a larger sample for better local
+        // ranking — the global slice below still caps the response. Capped
+        // at GLOBAL_RESULT_LIMIT so a single app can saturate the response
+        // but no more.
+        const effectiveProviderLimit =
+          active.length === 1
+            ? Math.min(GLOBAL_RESULT_LIMIT, query.provider_limit * 3)
+            : query.provider_limit;
+
         const settled = await Promise.allSettled(
-          providers.map(async (provider) => {
+          active.map(async (provider) => {
+            // Scope tags to those this provider declared. Apps no longer need
+            // their own gate — the framework guarantees they only see tags
+            // they understand.
+            const scopedTags = query.tag.filter((t) => provider.tags.includes(t));
+
             const res = await fetch(provider.endpoint, {
               method: "POST",
               headers: {
@@ -68,8 +111,8 @@ export const createSearchRoutes = () =>
               },
               body: JSON.stringify({
                 query: query.q,
-                tags: query.tag,
-                limit: query.provider_limit,
+                tags: scopedTags,
+                limit: effectiveProviderLimit,
               }),
             });
 
@@ -106,7 +149,7 @@ export const createSearchRoutes = () =>
           if (result.status === "fulfilled") return result.value;
 
           log.warn("Search provider failed", {
-            appId: providers[index]?.appId ?? "unknown",
+            appId: active[index]?.appId ?? "unknown",
             tags: query.tag,
             error: result.reason instanceof Error ? result.reason.message : String(result.reason),
           });
@@ -119,10 +162,13 @@ export const createSearchRoutes = () =>
           return a.title.localeCompare(b.title);
         });
 
+        const sliced = items.slice(0, GLOBAL_RESULT_LIMIT);
+
         return c.json({
           query: query.q,
-          count: items.length,
-          items,
+          count: sliced.length,
+          items: sliced,
+          ...(unsupportedTags.length > 0 ? { unsupportedTags } : {}),
         });
       },
     );

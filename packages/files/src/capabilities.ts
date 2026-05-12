@@ -4,15 +4,14 @@ import { filesService } from "./service";
 const SEARCH_TAGS = ["file", "folder", "directory", "image", "excel", "pdf"] as const;
 const SEARCH_HELP = "Find files and folders in your personal and shared storage.";
 const SEARCH_TAG_HELP = [
-  { tag: "file", help: "Show files." },
-  { tag: "folder", help: "Show folders." },
-  { tag: "directory", help: "Show directory results." },
-  { tag: "image", help: "Focus on image files." },
-  { tag: "excel", help: "Focus on spreadsheet files." },
-  { tag: "pdf", help: "Focus on PDF documents." },
+  { tag: "file", help: "Show files only." },
+  { tag: "folder", help: "Show folders only." },
+  { tag: "directory", help: "Show folders only (alias of #folder)." },
+  { tag: "image", help: "Show image files only." },
+  { tag: "excel", help: "Show spreadsheet files only (xlsx, xls, csv)." },
+  { tag: "pdf", help: "Show PDF documents only." },
 ] as const;
 const supportsFilesApp = (user: { provider: string; profile: string }) => user.provider === "ipa" && user.profile === "user";
-const hasAllTags = (requested: string[]) => requested.every((tag) => SEARCH_TAGS.includes(tag as (typeof SEARCH_TAGS)[number]));
 
 const normalizePath = (path: string): string => {
   if (!path || path === "/") return "/";
@@ -42,26 +41,64 @@ const isImage = (mimeType?: string) => typeof mimeType === "string" && mimeType.
 const buildPreviewUrl = (baseType: "home" | "group", baseId: string, path: string) =>
   `/api/files/${baseType}/${encodeURIComponent(baseId)}/thumbnail?path=${encodeURIComponent(path)}`;
 
+// Over-fetch multiplier when post-filtering by tag predicates. The filegate
+// glob already enforces a hard limit, so a tag-only `**/*` search could see
+// the limit fully consumed by non-matching files (e.g. for `#image` the first
+// `limit` files happen to all be PDFs). 5× (capped at 200) gives the post-
+// filter enough headroom for realistic directory sizes without pushing
+// MIME-aware filtering down into the storage layer.
+const TAG_OVERFETCH_MULTIPLIER = 5;
+const TAG_OVERFETCH_CAP = 200;
+
+type FileLike = { type: "file" | "directory"; mimeType?: string; name: string };
+
+const TAG_FILTERS: Record<string, (f: FileLike) => boolean> = {
+  file: (f) => f.type === "file",
+  folder: (f) => f.type === "directory",
+  directory: (f) => f.type === "directory",
+  image: (f) => f.type === "file" && isImage(f.mimeType),
+  pdf: (f) =>
+    f.type === "file" && (f.mimeType === "application/pdf" || /\.pdf$/i.test(f.name)),
+  excel: (f) =>
+    f.type === "file" &&
+    (/(spreadsheet|excel|csv)/i.test(f.mimeType ?? "") || /\.(xlsx|xls|csv)$/i.test(f.name)),
+};
+
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = input.ctx.get("user");
   if (!supportsFilesApp(user)) return [];
-  if (input.tags.length > 0 && !hasAllTags(input.tags)) return [];
+
+  const tagPredicates = input.tags.map((t) => TAG_FILTERS[t]).filter((p): p is (f: FileLike) => boolean => Boolean(p));
+
+  // Guard against full-tree scans: an empty query without any narrowing tag
+  // filter would expand `toPattern("")` to `**/**` and walk every base. With
+  // at least one tag predicate, the recursive scan is bounded by the limit
+  // and the post-filter discards non-matching entries cheaply.
+  if (input.query.length === 0 && tagPredicates.length === 0) return [];
 
   const bases = await filesService.base.listResolved({ user });
   if (bases.length === 0) return [];
 
+  const pattern = input.query.length === 0 ? "**/*" : toPattern(input.query);
+
+  const fetchLimit = tagPredicates.length > 0
+    ? Math.min(TAG_OVERFETCH_CAP, input.limit * TAG_OVERFETCH_MULTIPLIER)
+    : input.limit;
+
   const result = await filesService.search.list({
     bases,
-    pattern: toPattern(input.query),
+    pattern,
     showHidden: false,
-    limit: input.limit,
+    limit: fetchLimit,
   });
 
   if (!result.ok) return [];
 
+  const matches = (file: FileLike) => tagPredicates.every((p) => p(file));
+
   return result.data.results
     .flatMap((group) =>
-      group.files.map((file) => ({
+      group.files.filter(matches).map((file) => ({
         id: `${group.base.type}:${group.base.id}:${file.path}`,
         title: file.name,
         href: buildFileHref(group.base.type, group.base.id, file.path),

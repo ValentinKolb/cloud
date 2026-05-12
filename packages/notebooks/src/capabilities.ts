@@ -4,11 +4,10 @@ import { notebooksService } from "./service";
 const SEARCH_TAGS = ["note", "notebook", "markdown"] as const;
 const SEARCH_HELP = "Find notebooks and notes by title or content.";
 const SEARCH_TAG_HELP = [
-  { tag: "note", help: "Show notes." },
-  { tag: "notebook", help: "Show notebook entries." },
-  { tag: "markdown", help: "Search markdown-based notes." },
+  { tag: "note", help: "Show notes only." },
+  { tag: "notebook", help: "Show notebooks only." },
+  { tag: "markdown", help: "Show notes only (alias of #note)." },
 ] as const;
-const hasAllTags = (requested: string[]) => requested.every((tag) => SEARCH_TAGS.includes(tag as (typeof SEARCH_TAGS)[number]));
 
 const snippet = (content: string | null) => {
   if (!content) return undefined;
@@ -19,14 +18,36 @@ const snippet = (content: string | null) => {
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = input.ctx.get("user");
-  if (input.tags.length > 0 && !hasAllTags(input.tags)) return [];
+  const tags = new Set(input.tags);
 
-  const notebooksPage = await notebooksService.notebook.list({
-    userId: user.id,
-    groups: user.memberofGroupIds,
-    pagination: { page: 1, perPage: input.limit },
-    filter: { query: input.query },
-  });
+  // Kind-tags are OR-merged within this app (they pick result kinds, not facets).
+  // No tag → both kinds.
+  const kindActive = tags.has("note") || tags.has("notebook") || tags.has("markdown");
+  const includeNotebooks = !kindActive || tags.has("notebook");
+  const includeNotes = !kindActive || tags.has("note") || tags.has("markdown");
+
+  if (!includeNotebooks && !includeNotes) return [];
+
+  // Notebook list is needed only when we render notebook results. Note search
+  // goes through `searchAcross` which carries its own permission boundary.
+  const [notebooksPage, noteHits] = await Promise.all([
+    includeNotebooks
+      ? notebooksService.notebook.list({
+          userId: user.id,
+          groups: user.memberofGroupIds,
+          pagination: { page: 1, perPage: input.limit },
+          filter: { query: input.query },
+        })
+      : Promise.resolve({ items: [], page: 1, perPage: 0, total: 0, hasNext: false }),
+    includeNotes
+      ? notebooksService.note.searchAcross({
+          userId: user.id,
+          groups: user.memberofGroupIds,
+          query: input.query,
+          limit: input.limit,
+        })
+      : Promise.resolve([]),
+  ]);
 
   const notebookItems = notebooksPage.items.map((entry) => ({
     id: `notebook:${entry.id}`,
@@ -41,37 +62,18 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
     ],
   }));
 
-  const notebooksForNotes = notebooksPage.items;
-  const notePages = await Promise.all(
-    notebooksForNotes.map((notebook) =>
-      notebooksService.note.search({
-        notebookId: notebook.id,
-        query: input.query,
-        pagination: {
-          page: 1,
-          perPage: input.limit,
-          offset: 0,
-        },
-      }),
-    ),
-  );
-
-  const noteItems = notePages.flatMap((page, index) => {
-    const notebook = notebooksForNotes[index];
-    if (!notebook) return [];
-    return page.notes.map((note) => ({
-      id: `note:${note.id}`,
-      title: note.title,
-      href: `/app/notebooks/${notebook.id}?note=${note.id}`,
-      preview: snippet(note.contentMd),
-      icon: "ti ti-file-text",
-      priority: 8 as const,
-      metadata: [
-        { label: "Type", value: "Note" },
-        { label: "Notebook", value: notebook.name },
-      ],
-    }));
-  });
+  const noteItems: AppSearchResult[] = noteHits.map(({ note, notebook }) => ({
+    id: `note:${note.id}`,
+    title: note.title,
+    href: `/app/notebooks/${notebook.id}?note=${note.id}`,
+    preview: snippet(note.contentMd),
+    icon: "ti ti-file-text",
+    priority: 8 as const,
+    metadata: [
+      { label: "Type", value: "Note" },
+      { label: "Notebook", value: notebook.name },
+    ],
+  }));
 
   return [...noteItems, ...notebookItems].slice(0, input.limit);
 };
@@ -84,3 +86,4 @@ export const notebooksCapabilities = {
     run: search,
   },
 } as const;
+

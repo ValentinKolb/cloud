@@ -133,6 +133,8 @@ export const spacesService = {
       return paginateItems(filtered, config.pagination);
     },
     listFiltered: items.listFiltered,
+    /** Single-query cross-space search used by the global search dialog. */
+    searchAcross: items.searchAcross,
     get: items.get,
     create: items.create,
     update: items.update,
@@ -219,5 +221,5 @@ export const spacesService = {
 export { spaces, columns, tags, items, comments, access, ical };
 
 // Re-export types needed by widgets
-export type { TaskItem } from "./items";
+export type { TaskItem, ItemAcrossKind, ItemAcrossResult } from "./items";
 export type { SpaceAdminListItem } from "./spaces";

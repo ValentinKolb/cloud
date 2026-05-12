@@ -37,6 +37,7 @@ export const SearchResponseSchema = z.object({
   query: z.string(),
   count: z.number().int().nonnegative(),
   items: z.array(SearchItemSchema),
+  unsupportedTags: z.array(z.string()).optional(),
 });
 
 export type SearchItem = z.infer<typeof SearchItemSchema>;

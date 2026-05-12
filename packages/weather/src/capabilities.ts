@@ -2,20 +2,21 @@ import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contra
 import { weatherService } from "@valentinkolb/cloud/services";
 
 const SEARCH_TAGS = ["weather", "forecast", "location", "temperature"] as const;
-const SEARCH_HELP = "Find saved weather locations and forecasts.";
+const SEARCH_HELP = "Find saved weather locations.";
+// All four tags act as routing aliases for "include the weather app". The
+// underlying data set (saved locations) is the same regardless of which one
+// the user typed — there is no useful sub-facet to filter by.
 const SEARCH_TAG_HELP = [
-  { tag: "weather", help: "Search weather-related results." },
-  { tag: "forecast", help: "Focus on forecast locations." },
-  { tag: "location", help: "Find saved locations." },
-  { tag: "temperature", help: "Focus on temperature context." },
+  { tag: "weather", help: "Show saved weather locations." },
+  { tag: "forecast", help: "Show saved weather locations (alias of #weather)." },
+  { tag: "location", help: "Show saved weather locations (alias of #weather)." },
+  { tag: "temperature", help: "Show saved weather locations (alias of #weather)." },
 ] as const;
 const supportsWeatherApp = (roles: string[]) => roles.includes("user");
-const hasAllTags = (requested: string[]) => requested.every((tag) => SEARCH_TAGS.includes(tag as (typeof SEARCH_TAGS)[number]));
 
 export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> => {
   const user = input.ctx.get("user");
   if (!supportsWeatherApp(user.roles)) return [];
-  if (input.tags.length > 0 && !hasAllTags(input.tags)) return [];
 
   const page = await weatherService.location.saved.list({
     userId: user.id,

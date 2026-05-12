@@ -1006,6 +1006,86 @@ export const search = async (params: {
 };
 
 /**
+ * Cross-notebook note search for the global search dialog.
+ *
+ * Single SQL query (vs. one per notebook in the per-notebook `search`):
+ * joins notes to notebooks, applies the same permission predicate the
+ * notebook list uses, and returns notebook metadata alongside each note so
+ * the caller doesn't need a second lookup. Capped by `limit` after global
+ * ranking (title-match first, then `updated_at DESC`).
+ */
+type DbNoteAcross = DbNote & {
+  notebook_short_id: string;
+  notebook_name: string;
+  notebook_icon: string | null;
+};
+
+const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
+
+export type NoteAcrossResult = {
+  note: Note;
+  notebook: { id: string; shortId: string; name: string; icon: string | null };
+};
+
+export const searchAcross = async (params: {
+  userId: string | null;
+  groups: string[];
+  query: string;
+  limit: number;
+}): Promise<NoteAcrossResult[]> => {
+  const { userId, query, limit } = params;
+  const groups = params.groups ?? [];
+  const trimmed = query.trim();
+  // Empty query is valid — used by tag-only searches like `#note`. The pattern
+  // becomes `%%` which ILIKE-matches every row; the title-match ranking CASE
+  // collapses to a constant so the result orders purely by `updated_at DESC`.
+  // Result count is still bounded by `limit`, so this is safe.
+  const pattern = `%${trimmed}%`;
+
+  const rows = await sql<DbNoteAcross[]>`
+    SELECT
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+      EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children,
+      nb.short_id as notebook_short_id,
+      nb.name as notebook_name,
+      nb.icon as notebook_icon
+    FROM notebooks.notes n
+    JOIN notebooks.notebooks nb ON nb.id = n.notebook_id
+    WHERE EXISTS (
+      SELECT 1
+      FROM notebooks.notebook_access na
+      JOIN auth.access a ON a.id = na.access_id
+      WHERE na.notebook_id = nb.id
+        AND (
+          a.user_id = ${userId}::uuid
+          OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
+          OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        )
+    )
+      AND (n.title ILIKE ${pattern} OR n.content_md ILIKE ${pattern})
+    ORDER BY
+      CASE WHEN n.title ILIKE ${pattern} THEN 0 ELSE 1 END,
+      n.updated_at DESC
+    LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({
+    note: mapToNote(row),
+    notebook: {
+      id: row.notebook_id,
+      shortId: row.notebook_short_id,
+      name: row.notebook_name,
+      icon: row.notebook_icon,
+    },
+  }));
+};
+
+/**
  * Copy a note to another notebook.
  */
 export const copyToNotebook = async (params: {

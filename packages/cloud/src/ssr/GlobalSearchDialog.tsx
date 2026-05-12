@@ -26,6 +26,7 @@ type SearchResponse = {
   query: string;
   count: number;
   items: SearchItem[];
+  unsupportedTags?: string[];
 };
 
 type ParsedInput = {
@@ -36,6 +37,12 @@ type ParsedInput = {
 type GlobalSearchDialogProps = {
   close: () => void;
   helpApps: GlobalSearchHelpApp[];
+};
+
+type TagSuggestion = {
+  tag: string;
+  appName: string;
+  appIcon: string;
 };
 
 const PROVIDER_LIMIT = 10;
@@ -49,6 +56,60 @@ const sortByPriorityAndTitle = (a: SearchItem, b: SearchItem) => {
   const byPriority = (b.priority ?? 0) - (a.priority ?? 0);
   if (byPriority !== 0) return byPriority;
   return a.title.localeCompare(b.title);
+};
+
+/**
+ * Cluster items by their owning app while preserving the global priority
+ * order across groups: the first occurrence of each app fixes its slot, and
+ * items within a group keep their original (already sorted) order. Map
+ * iteration order in JS is insertion order, so this is stable.
+ */
+const groupByApp = (items: SearchItem[]): SearchItem[] => {
+  const groups = new Map<string, SearchItem[]>();
+  for (const item of items) {
+    const arr = groups.get(item.appId);
+    if (arr) arr.push(item);
+    else groups.set(item.appId, [item]);
+  }
+  const out: SearchItem[] = [];
+  for (const group of groups.values()) out.push(...group);
+  return out;
+};
+
+type ListEntry =
+  | { kind: "header"; appId: string; appName: string; appIcon: string; count: number }
+  | { kind: "item"; item: SearchItem; flatIndex: number };
+
+/**
+ * Build the flat render list with optional group headers interleaved.
+ * Headers only appear when 2+ apps have results (single-app queries stay
+ * uncluttered). `flatIndex` on each item entry mirrors the index into the
+ * underlying sorted list — used for selection/scroll/keyboard nav.
+ */
+const buildListEntries = (items: SearchItem[]): ListEntry[] => {
+  if (items.length === 0) return [];
+
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.appId, (counts.get(item.appId) ?? 0) + 1);
+  const showHeaders = counts.size >= 2;
+
+  const entries: ListEntry[] = [];
+  let prevAppId: string | null = null;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (showHeaders && item.appId !== prevAppId) {
+      entries.push({
+        kind: "header",
+        appId: item.appId,
+        appName: item.appName,
+        appIcon: item.appIcon,
+        count: counts.get(item.appId) ?? 0,
+      });
+      prevAppId = item.appId;
+    }
+    entries.push({ kind: "item", item, flatIndex: i });
+  }
+  return entries;
 };
 
 const parseInput = (raw: string): ParsedInput => {
@@ -74,6 +135,13 @@ const parseInput = (raw: string): ParsedInput => {
   };
 };
 
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const removeTagFromInput = (raw: string, tag: string): string => {
+  const pattern = new RegExp(`(^|\\s)#${escapeRegex(tag)}(?=\\s|$)`, "gi");
+  return raw.replace(pattern, "").replace(/\s+/g, " ").trim();
+};
+
 const metadataRows = (metadata?: SearchMetadata[]) =>
   (metadata ?? [])
     .filter((entry) => entry.label.trim().length > 0 && entry.value.trim().length > 0)
@@ -82,9 +150,13 @@ const metadataRows = (metadata?: SearchMetadata[]) =>
 export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   const [rawInput, setRawInput] = createSignal("");
   const [resultItems, setResultItems] = createSignal<SearchItem[]>([]);
+  const [unsupportedTags, setUnsupportedTags] = createSignal<string[]>([]);
   const [activeIndex, setActiveIndex] = createSignal(0);
   const [previewFailed, setPreviewFailed] = createSignal(false);
   const [requestError, setRequestError] = createSignal<string | null>(null);
+  const [hasReceivedResponse, setHasReceivedResponse] = createSignal(false);
+  const [cursorPos, setCursorPos] = createSignal(0);
+  const [suggestionIndex, setSuggestionIndex] = createSignal(0);
 
   let inputRef: HTMLInputElement | undefined;
   const rowRefs = new Map<string, HTMLButtonElement>();
@@ -93,7 +165,113 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   const canSearch = createMemo(
     () => parsedInput().tags.length > 0 || parsedInput().query.length >= MIN_QUERY_LENGTH,
   );
-  const shouldShowList = createMemo(() => canSearch());
+
+  // Tag suggestions for the empty state — flat list of every tag declared by
+  // any app, deduped on tag name (first declaration wins) so we don't render
+  // the same chip twice when two apps share a tag.
+  const tagSuggestions = createMemo<TagSuggestion[]>(() => {
+    const seen = new Set<string>();
+    const out: TagSuggestion[] = [];
+    for (const app of props.helpApps) {
+      for (const tag of app.tags) {
+        const lower = tag.toLowerCase();
+        if (seen.has(lower)) continue;
+        seen.add(lower);
+        out.push({ tag: lower, appName: app.appName, appIcon: app.appIcon });
+      }
+    }
+    return out;
+  });
+
+  /**
+   * Detect whether the caret is currently inside a tag token (i.e. the user
+   * is mid-typing `#...`). Returns the token's start/end indices in rawInput
+   * plus the lowercased prefix typed after `#`. Returns null otherwise — no
+   * autocomplete popover should show.
+   *
+   * Walks back from the cursor to the last whitespace; if the token starts
+   * with `#`, we're in tag-input mode. If the prefix contains a non-tag
+   * character (`#` or whitespace), bails — the parser would reject it
+   * anyway, so suggestions would be misleading.
+   */
+  const tagContext = createMemo(() => {
+    const text = rawInput();
+    const pos = Math.min(cursorPos(), text.length);
+    let start = pos;
+    while (start > 0 && !/\s/.test(text[start - 1] ?? "")) start--;
+    // Extend to the next whitespace so we replace the WHOLE token, not just
+    // up to the caret. Otherwise editing in the middle of an existing tag
+    // (e.g. caret after `#no` in `#notebook`) leaves `tebook` dangling after
+    // the inserted suggestion. Prefix used for matching is still the part
+    // BEFORE the caret — that's what the user has committed to typing.
+    let end = pos;
+    while (end < text.length && !/\s/.test(text[end] ?? "")) end++;
+    const fullToken = text.slice(start, end);
+    if (!fullToken.startsWith("#")) return null;
+    const prefix = text.slice(start + 1, pos).toLowerCase();
+    if (prefix.length > 0 && !TAG_TOKEN_PATTERN.test(prefix)) return null;
+    return { start, end, prefix };
+  });
+
+  /**
+   * Tags filtered by the current prefix, with already-active tags excluded
+   * (no point suggesting one the user has). Starts-with match for predictability.
+   */
+  const filteredSuggestions = createMemo<TagSuggestion[]>(() => {
+    const ctx = tagContext();
+    if (!ctx) return [];
+    const active = new Set(parsedInput().tags);
+    const all = tagSuggestions().filter((s) => !active.has(s.tag));
+    if (ctx.prefix.length === 0) return all;
+    return all.filter((s) => s.tag.startsWith(ctx.prefix));
+  });
+
+  const popoverOpen = createMemo(() => filteredSuggestions().length > 0);
+
+  // Reset highlight when the filtered list changes shape (new prefix, etc.).
+  createEffect(() => {
+    filteredSuggestions();
+    setSuggestionIndex(0);
+  });
+
+  const updateCursor = () => {
+    if (!inputRef) return;
+    setCursorPos(inputRef.selectionStart ?? rawInput().length);
+  };
+
+  const insertTagAtCursor = (tag: string) => {
+    const ctx = tagContext();
+    const text = rawInput();
+    if (!ctx) {
+      // No tag context — append. Used by suggestion-mode chips.
+      if (parsedInput().tags.includes(tag)) {
+        inputRef?.focus();
+        return;
+      }
+      const next = text.length > 0 ? `${text.trimEnd()} #${tag} ` : `#${tag} `;
+      setRawInput(next);
+      const newPos = next.length;
+      queueMicrotask(() => {
+        if (inputRef) inputRef.setSelectionRange(newPos, newPos);
+        setCursorPos(newPos);
+      });
+      inputRef?.focus();
+      return;
+    }
+    const before = text.slice(0, ctx.start);
+    const after = text.slice(ctx.end).replace(/^\s+/, "");
+    // Always emit `#tag ` with one trailing space so the user can keep
+    // typing the next token without manual spacing.
+    const insertion = `#${tag} `;
+    const next = before + insertion + after;
+    setRawInput(next);
+    const newPos = before.length + insertion.length;
+    queueMicrotask(() => {
+      if (inputRef) inputRef.setSelectionRange(newPos, newPos);
+      setCursorPos(newPos);
+    });
+    inputRef?.focus();
+  };
 
   const searchMutation = mutation.create<SearchResponse, ParsedInput>({
     mutation: async (input, ctx) => {
@@ -113,23 +291,46 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
       return payload as SearchResponse;
     },
     onSuccess: (payload) => {
-      setResultItems((payload.items ?? []).slice().sort(sortByPriorityAndTitle));
+      const sorted = (payload.items ?? []).slice().sort(sortByPriorityAndTitle);
+      setResultItems(groupByApp(sorted));
+      setUnsupportedTags(payload.unsupportedTags ?? []);
       setActiveIndex(0);
       setRequestError(null);
+      setHasReceivedResponse(true);
     },
     onError: (error) => {
       if (error.name === "AbortError") return;
       setResultItems([]);
+      setUnsupportedTags([]);
       setActiveIndex(0);
       setRequestError(error.message || "Search failed.");
+      setHasReceivedResponse(true);
     },
   });
 
   const activeItem = createMemo(() => resultItems()[activeIndex()] ?? null);
+  const listEntries = createMemo(() => buildListEntries(resultItems()));
+
+  // Empty-state branching. Single source of truth for what the body renders.
+  // - suggestions: user hasn't typed enough to search; show what's possible.
+  // - unsupported-tags: response told us no app accepts these tags.
+  // - no-results: search ran, returned nothing.
+  // - ready: render results.
+  // - idle: search debounced or in flight, no decision yet.
+  type BodyMode = "suggestions" | "unsupported-tags" | "no-results" | "ready" | "idle";
+  const bodyMode = createMemo<BodyMode>(() => {
+    if (!canSearch()) return "suggestions";
+    if (resultItems().length > 0) return "ready";
+    if (searchMutation.loading() || !hasReceivedResponse()) return "idle";
+    if (unsupportedTags().length > 0) return "unsupported-tags";
+    return "no-results";
+  });
 
   const { debouncedFn: debounceSearch, cancel: cancelDebounce } = timed.debounce((input: ParsedInput) => {
     setResultItems([]);
+    setUnsupportedTags([]);
     setActiveIndex(0);
+    setHasReceivedResponse(false);
     searchMutation.abort();
     void searchMutation.mutate(input);
   }, SEARCH_DEBOUNCE_MS);
@@ -162,7 +363,56 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
     setActiveIndex(next);
   };
 
+  const removeTag = (tag: string) => {
+    setRawInput((prev) => removeTagFromInput(prev, tag));
+    inputRef?.focus();
+  };
+
   const handleKeyDown = (event: KeyboardEvent) => {
+    // Tag autocomplete intercepts navigation when the popover is open. Only
+    // reaches results-list nav when no suggestion is being chosen.
+    if (popoverOpen()) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        const list = filteredSuggestions();
+        setSuggestionIndex((i) => (i + 1) % list.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        const list = filteredSuggestions();
+        setSuggestionIndex((i) => (i - 1 + list.length) % list.length);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        const list = filteredSuggestions();
+        const choice = list[suggestionIndex()];
+        if (choice) insertTagAtCursor(choice.tag);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        // Close popover by erasing the in-flight tag token (caret-prefixed
+        // `#xyz`) — leaves the rest of the query intact. If the user wants
+        // to keep `#xyz`, they can press Space instead.
+        const ctx = tagContext();
+        if (ctx) {
+          const text = rawInput();
+          const next = text.slice(0, ctx.start) + text.slice(ctx.end).replace(/^\s+/, "");
+          setRawInput(next);
+          queueMicrotask(() => {
+            if (inputRef) inputRef.setSelectionRange(ctx.start, ctx.start);
+            setCursorPos(ctx.start);
+          });
+        }
+        return;
+      }
+      // Space commits the current token as-is and closes the popover by
+      // virtue of advancing the cursor past `#`. No special handling needed —
+      // tagContext recomputes naturally.
+    }
+
     if (event.key === "ArrowDown") {
       event.preventDefault();
       moveSelection(1);
@@ -211,7 +461,9 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
       cancelDebounce();
       searchMutation.abort();
       setResultItems([]);
+      setUnsupportedTags([]);
       setActiveIndex(0);
+      setHasReceivedResponse(false);
       return;
     }
 
@@ -232,144 +484,320 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
       class="flex h-full min-h-0 flex-col text-zinc-900 dark:text-zinc-100 [--spotlight-body-max:calc(50vh-5.5rem)] [@media(min-height:1100px)]:[--spotlight-body-max:calc(33vh-5.5rem)]"
       onWheel={(event) => event.stopPropagation()}
     >
-      <label class="flex items-center gap-3 px-4 py-3.5">
-        <i class="ti ti-search text-xl text-dimmed" />
-        <input
-          id="spotlight-input"
-          ref={inputRef}
-          type="search"
-          value={rawInput()}
-          onInput={(event) => setRawInput(event.currentTarget.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Search across apps..."
-          aria-label="Global search"
-          class="w-full border-0 bg-transparent text-base outline-none placeholder:text-dimmed md:text-lg"
-          spellcheck={false}
-          autocapitalize="off"
-          autocomplete="off"
-          autocorrect="off"
-        />
-        <Show when={searchMutation.loading()}>
-          <i class="ti ti-loader-2 animate-spin text-dimmed" />
+      <div class="relative">
+        <label class="flex items-center gap-3 px-4 py-3.5">
+          <i class="ti ti-search text-xl text-dimmed" />
+          <input
+            id="spotlight-input"
+            ref={inputRef}
+            type="search"
+            value={rawInput()}
+            onInput={(event) => {
+              setRawInput(event.currentTarget.value);
+              setCursorPos(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
+            }}
+            onKeyUp={updateCursor}
+            onClick={updateCursor}
+            onSelect={updateCursor}
+            onKeyDown={handleKeyDown}
+            placeholder="Search across apps..."
+            aria-label="Global search"
+            class="w-full border-0 bg-transparent text-base outline-none placeholder:text-dimmed md:text-lg"
+            spellcheck={false}
+            autocapitalize="off"
+            autocomplete="off"
+            autocorrect="off"
+          />
+          <Show when={searchMutation.loading()}>
+            <i class="ti ti-loader-2 animate-spin text-dimmed" />
+          </Show>
+        </label>
+
+        {/* Tag autocomplete popover. Anchored to the input row, overlays the
+            body when the user is mid-typing a `#tag` token. Keyboard nav
+            (Up/Down/Tab/Enter/Escape) is intercepted by handleKeyDown. */}
+        <Show when={popoverOpen()}>
+          <div
+            class="absolute left-3 right-3 top-full z-30 -mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-xl bg-white/95 p-1.5 shadow-lg ring-1 ring-inset ring-zinc-300/60 backdrop-blur-sm dark:bg-zinc-900/95 dark:ring-zinc-700/60"
+            role="listbox"
+            aria-label="Tag suggestions"
+          >
+            <For each={filteredSuggestions()}>
+              {(suggestion, index) => {
+                const selected = () => index() === suggestionIndex();
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected()}
+                    onMouseEnter={() => setSuggestionIndex(index())}
+                    onMouseDown={(e) => {
+                      // mousedown so the input doesn't lose focus to the click.
+                      e.preventDefault();
+                      insertTagAtCursor(suggestion.tag);
+                    }}
+                    class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors"
+                    classList={{
+                      "bg-blue-50/85 dark:bg-blue-950/45": selected(),
+                      "hover:bg-zinc-100/85 dark:hover:bg-zinc-800/60": !selected(),
+                    }}
+                  >
+                    <i class={`${suggestion.appIcon} text-[12px] text-dimmed`} />
+                    <span class="font-medium">#{suggestion.tag}</span>
+                    <span class="text-[10px] text-dimmed">{suggestion.appName}</span>
+                  </button>
+                );
+              }}
+            </For>
+          </div>
         </Show>
-      </label>
+      </div>
 
       <div
         class="overflow-hidden transition-[height,opacity] duration-200 ease-out"
         style={{
-          height: shouldShowList() ? "var(--spotlight-body-max)" : "0px",
-          opacity: shouldShowList() ? "1" : "0",
+          height: "var(--spotlight-body-max)",
+          opacity: "1",
         }}
       >
         <div class="flex h-full min-h-0 flex-col gap-2 px-3 pb-3">
-          <div class="flex h-8 items-center justify-between gap-3">
-            <div class="flex min-w-0 items-center gap-2 text-[11px] text-dimmed">
-              <Show when={parsedInput().tags.length > 0}>
-                <div class="flex items-center gap-1">
-                  <For each={parsedInput().tags}>
-                    {(tag) => <span class="rounded bg-zinc-200/70 px-1.5 py-0.5 text-[10px] dark:bg-zinc-800/70">#{tag}</span>}
-                  </For>
-                </div>
-              </Show>
-              <span>
-                {resultItems().length} results found{" "}
-                <span aria-hidden="true">•</span>{" "}
-                <button type="button" class="text-blue-500 hover:underline dark:text-blue-400" onClick={openHelp}>
-                  improve with tags
-                </button>
-              </span>
+          {/* Active-tag chip row + meta. Hidden in suggestions mode. */}
+          <Show when={bodyMode() !== "suggestions"}>
+            <div class="flex h-8 items-center justify-between gap-3">
+              <div class="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-dimmed">
+                <Show when={parsedInput().tags.length > 0}>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <For each={parsedInput().tags}>
+                      {(tag) => {
+                        const isUnsupported = () => unsupportedTags().includes(tag);
+                        return (
+                          <span
+                            class="group inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+                            classList={{
+                              "bg-zinc-200/70 dark:bg-zinc-800/70": !isUnsupported(),
+                              "bg-amber-200/60 text-amber-900 dark:bg-amber-900/35 dark:text-amber-200": isUnsupported(),
+                            }}
+                          >
+                            #{tag}
+                            <button
+                              type="button"
+                              class="opacity-60 hover:opacity-100"
+                              onClick={() => removeTag(tag)}
+                              aria-label={`Remove tag ${tag}`}
+                              title={`Remove #${tag}`}
+                            >
+                              <i class="ti ti-x text-[10px]" />
+                            </button>
+                          </span>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Show>
+                <Show when={bodyMode() === "ready"}>
+                  <span>
+                    {resultItems().length} result{resultItems().length === 1 ? "" : "s"}{" "}
+                    <span aria-hidden="true">•</span>{" "}
+                    <button type="button" class="text-blue-500 hover:underline dark:text-blue-400" onClick={openHelp}>
+                      tag help
+                    </button>
+                  </span>
+                </Show>
+              </div>
             </div>
-          </div>
+          </Show>
 
           <div class="min-h-0 flex-1 overflow-hidden">
             <Show when={requestError()}>{(message) => <div class="info-block-danger mb-2 text-xs">{message()}</div>}</Show>
 
-            <div class="grid h-full min-h-0 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_18rem]">
-              <section class="min-h-0 overflow-y-auto overscroll-y-contain pr-1" onWheel={(event) => event.stopPropagation()}>
-                <div class="flex flex-col gap-1.5">
-                  <For each={resultItems()}>
-                    {(row, index) => {
-                      const selected = () => index() === activeIndex();
-                      const item = row;
-                      return (
+            {/* Suggestions: empty input, show available tags as clickable chips. */}
+            <Show when={bodyMode() === "suggestions"}>
+              <div class="flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+                <p class="text-xs text-dimmed">Type to search, or use a <code class="rounded bg-zinc-100 px-1 py-0.5 text-[10px] dark:bg-zinc-900">#tag</code> to focus on one app.</p>
+                <Show
+                  when={tagSuggestions().length > 0}
+                  fallback={<p class="text-xs text-dimmed">No tags available.</p>}
+                >
+                  <div class="flex flex-wrap gap-1.5">
+                    <For each={tagSuggestions()}>
+                      {(suggestion) => (
                         <button
-                          ref={(element) => bindRowRef(rowKey(item), element)}
                           type="button"
-                          onMouseEnter={() => setActiveIndex(index())}
-                          onClick={() => openItem(item)}
-                          class="w-full rounded-xl p-2.5 text-left transition-colors"
-                          classList={{
-                            "bg-blue-50/85 dark:bg-blue-950/45": selected(),
-                            "bg-zinc-50/75 hover:bg-zinc-100/85 dark:bg-zinc-900/45 dark:hover:bg-zinc-900/65": !selected(),
-                          }}
+                          onClick={() => insertTagAtCursor(suggestion.tag)}
+                          class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100/80 px-2.5 py-1 text-[11px] text-zinc-700 transition-colors hover:bg-zinc-200/80 dark:bg-zinc-900/55 dark:text-zinc-200 dark:hover:bg-zinc-800/80"
+                          title={`Add #${suggestion.tag} (${suggestion.appName})`}
                         >
-                          <div class="flex items-start gap-2.5">
-                            <i class={`${item.icon ?? item.appIcon} mt-0.5 text-[13px] text-dimmed`} />
-                            <div class="min-w-0">
-                              <p class="truncate text-xs">{item.title}</p>
-                              <Show when={item.preview}>
-                                <p class="mt-0.5 truncate text-[11px] text-dimmed">{item.preview}</p>
-                              </Show>
-                              <p class="mt-1 text-[10px] text-dimmed">{item.appName}</p>
-                            </div>
-                          </div>
+                          <i class={`${suggestion.appIcon} text-[11px] text-dimmed`} />
+                          <span>#{suggestion.tag}</span>
                         </button>
-                      );
-                    }}
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <button
+                  type="button"
+                  class="self-start text-[11px] text-blue-500 hover:underline dark:text-blue-400"
+                  onClick={openHelp}
+                >
+                  See all tag descriptions
+                </button>
+              </div>
+            </Show>
+
+            {/* Unsupported tags: response told us no app handles them. */}
+            <Show when={bodyMode() === "unsupported-tags"}>
+              <div class="flex h-full min-h-0 flex-col items-center justify-center gap-3 text-center">
+                <i class="ti ti-tag-off text-2xl text-dimmed" />
+                <div class="flex flex-col gap-1">
+                  <p class="text-xs">
+                    No app supports{" "}
+                    <For each={unsupportedTags()}>
+                      {(tag, index) => (
+                        <>
+                          <code class="rounded bg-amber-200/60 px-1 py-0.5 text-[10px] text-amber-900 dark:bg-amber-900/35 dark:text-amber-200">#{tag}</code>
+                          <Show when={index() < unsupportedTags().length - 1}>{" "}</Show>
+                        </>
+                      )}
+                    </For>
+                    .
+                  </p>
+                  <p class="text-[11px] text-dimmed">Remove the tag or pick one below.</p>
+                </div>
+                <div class="flex flex-wrap items-center justify-center gap-1.5">
+                  <For each={unsupportedTags()}>
+                    {(tag) => (
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        class="inline-flex items-center gap-1 rounded-full bg-amber-200/60 px-2.5 py-1 text-[11px] text-amber-900 hover:bg-amber-300/60 dark:bg-amber-900/35 dark:text-amber-200 dark:hover:bg-amber-900/55"
+                      >
+                        <span>Remove #{tag}</span>
+                        <i class="ti ti-x text-[10px]" />
+                      </button>
+                    )}
                   </For>
                 </div>
-              </section>
+              </div>
+            </Show>
 
-              <aside
-                class="hidden min-h-0 overflow-y-auto overscroll-y-contain rounded-xl bg-zinc-50/80 p-3 dark:bg-zinc-900/55 md:block"
-                onWheel={(event) => event.stopPropagation()}
-              >
-                <Show when={activeItem()} fallback={<div class="text-xs text-dimmed">Select a result to preview details.</div>}>
-                  {(item) => (
-                    <div class="flex flex-col gap-4">
-                      <div class="flex items-center gap-3">
-                        <div class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-900">
-                          <Show
-                            when={isValidImagePreviewUrl(item().previewUrl) && !previewFailed()}
-                            fallback={<i class={`${item().icon ?? item().appIcon} text-lg text-dimmed`} />}
+            {/* No matches at all (query/tags valid, just empty result set). */}
+            <Show when={bodyMode() === "no-results"}>
+              <div class="flex h-full min-h-0 flex-col items-center justify-center gap-2 text-center">
+                <i class="ti ti-mood-empty text-2xl text-dimmed" />
+                <p class="text-xs text-dimmed">
+                  No matches{parsedInput().query.length > 0 ? <> for <span class="text-zinc-700 dark:text-zinc-200">"{parsedInput().query}"</span></> : null}.
+                </p>
+              </div>
+            </Show>
+
+            {/* Idle (debounce / loading first response) — keep the area quiet. */}
+            <Show when={bodyMode() === "idle"}>
+              <div class="flex h-full min-h-0 flex-col items-center justify-center text-dimmed">
+                <i class="ti ti-loader-2 animate-spin text-base" />
+              </div>
+            </Show>
+
+            {/* Ready: results list + detail aside. */}
+            <Show when={bodyMode() === "ready"}>
+              <div class="grid h-full min-h-0 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_18rem]">
+                <section class="min-h-0 overflow-y-auto overscroll-y-contain pr-1" onWheel={(event) => event.stopPropagation()}>
+                  <div class="flex flex-col">
+                    <For each={listEntries()}>
+                      {(entry) => {
+                        if (entry.kind === "header") {
+                          // Faint section header — no <hr>, no border. First
+                          // header gets less top spacing so it doesn't shove
+                          // the list down on group transitions.
+                          return (
+                            <div class="flex items-center gap-1.5 px-1 pt-3 pb-1 text-[10px] uppercase tracking-wide text-dimmed first:pt-1">
+                              <i class={`${entry.appIcon} text-[11px]`} />
+                              <span>{entry.appName}</span>
+                              <span class="opacity-60">· {entry.count}</span>
+                            </div>
+                          );
+                        }
+                        const item = entry.item;
+                        const selected = () => entry.flatIndex === activeIndex();
+                        return (
+                          <button
+                            ref={(element) => bindRowRef(rowKey(item), element)}
+                            type="button"
+                            onMouseEnter={() => setActiveIndex(entry.flatIndex)}
+                            onClick={() => openItem(item)}
+                            class="mt-1.5 w-full rounded-xl p-2.5 text-left transition-colors first:mt-0"
+                            classList={{
+                              "bg-blue-50/85 dark:bg-blue-950/45": selected(),
+                              "bg-zinc-50/75 hover:bg-zinc-100/85 dark:bg-zinc-900/45 dark:hover:bg-zinc-900/65": !selected(),
+                            }}
                           >
-                            <img
-                              src={item().previewUrl}
-                              alt={item().title}
-                              class="h-full w-full object-cover"
-                              onError={() => setPreviewFailed(true)}
-                            />
-                          </Show>
-                        </div>
-                        <div class="min-w-0">
-                          <p class="truncate text-sm">{item().title}</p>
-                          <p class="mt-0.5 truncate text-xs text-dimmed">{item().appName}</p>
-                        </div>
-                      </div>
-
-                      <Show when={item().preview}>
-                        <p class="text-xs leading-relaxed text-dimmed">{item().preview}</p>
-                      </Show>
-
-                      <Show when={metadataRows(item().metadata).length > 0}>
-                        <div class="rounded-lg bg-zinc-100/65 p-2 dark:bg-zinc-900/65">
-                          <div class="divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
-                          <For each={metadataRows(item().metadata)}>
-                            {(entry) => (
-                              <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 py-1.5 text-xs first:pt-0 last:pb-0">
-                                <span class="truncate text-dimmed">{entry.label}</span>
-                                <span class="truncate">{entry.value}</span>
+                            <div class="flex items-start gap-2.5">
+                              <i class={`${item.icon ?? item.appIcon} mt-0.5 text-[13px] text-dimmed`} />
+                              <div class="min-w-0">
+                                <p class="truncate text-xs">{item.title}</p>
+                                <Show when={item.preview}>
+                                  <p class="mt-0.5 truncate text-[11px] text-dimmed">{item.preview}</p>
+                                </Show>
+                                <p class="mt-1 text-[10px] text-dimmed">{item.appName}</p>
                               </div>
-                            )}
-                          </For>
+                            </div>
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </section>
+
+                <aside
+                  class="hidden min-h-0 overflow-y-auto overscroll-y-contain rounded-xl bg-zinc-50/80 p-3 dark:bg-zinc-900/55 md:block"
+                  onWheel={(event) => event.stopPropagation()}
+                >
+                  <Show when={activeItem()} fallback={<div class="text-xs text-dimmed">Select a result to preview details.</div>}>
+                    {(item) => (
+                      <div class="flex flex-col gap-4">
+                        <div class="flex items-center gap-3">
+                          <div class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-900">
+                            <Show
+                              when={isValidImagePreviewUrl(item().previewUrl) && !previewFailed()}
+                              fallback={<i class={`${item().icon ?? item().appIcon} text-lg text-dimmed`} />}
+                            >
+                              <img
+                                src={item().previewUrl}
+                                alt={item().title}
+                                class="h-full w-full object-cover"
+                                onError={() => setPreviewFailed(true)}
+                              />
+                            </Show>
+                          </div>
+                          <div class="min-w-0">
+                            <p class="truncate text-sm">{item().title}</p>
+                            <p class="mt-0.5 truncate text-xs text-dimmed">{item().appName}</p>
                           </div>
                         </div>
-                      </Show>
-                    </div>
-                  )}
-                </Show>
-              </aside>
-            </div>
+
+                        <Show when={item().preview}>
+                          <p class="text-xs leading-relaxed text-dimmed">{item().preview}</p>
+                        </Show>
+
+                        <Show when={metadataRows(item().metadata).length > 0}>
+                          <div class="rounded-lg bg-zinc-100/65 p-2 dark:bg-zinc-900/65">
+                            <div class="divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+                            <For each={metadataRows(item().metadata)}>
+                              {(entry) => (
+                                <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 py-1.5 text-xs first:pt-0 last:pb-0">
+                                  <span class="truncate text-dimmed">{entry.label}</span>
+                                  <span class="truncate">{entry.value}</span>
+                                </div>
+                              )}
+                            </For>
+                            </div>
+                          </div>
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
+                </aside>
+              </div>
+            </Show>
           </div>
         </div>
       </div>
