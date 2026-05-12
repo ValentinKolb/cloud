@@ -28,16 +28,53 @@
  * during the rewrite — keep that bar if you edit.
  */
 import { prompts } from "@valentinkolb/cloud/ui";
-import type { JSX } from "solid-js";
+import { createResource, type JSX } from "solid-js";
+
+// =============================================================================
+// Live limits — fetched once, mirrored from the admin settings so the
+// help text always shows the current values instead of a hardcoded mirror
+// of the install defaults.
+// =============================================================================
+
+type Limits = { maxAttachmentSizeMb: number; maxImageDimensionPx: number };
+
+/** Defaults match the registered setting defaults — used as the seed value
+ *  for `createResource` so the modal renders with sensible numbers from
+ *  the first paint, then updates if the actual values differ. */
+const DEFAULT_LIMITS: Limits = { maxAttachmentSizeMb: 10, maxImageDimensionPx: 2048 };
+
+const fetchLimits = async (): Promise<Limits> => {
+  try {
+    const res = await fetch("/api/notebooks/limits");
+    if (!res.ok) return DEFAULT_LIMITS;
+    const data = (await res.json()) as Partial<Limits>;
+    return {
+      maxAttachmentSizeMb: typeof data.maxAttachmentSizeMb === "number" ? data.maxAttachmentSizeMb : DEFAULT_LIMITS.maxAttachmentSizeMb,
+      maxImageDimensionPx: typeof data.maxImageDimensionPx === "number" ? data.maxImageDimensionPx : DEFAULT_LIMITS.maxImageDimensionPx,
+    };
+  } catch {
+    return DEFAULT_LIMITS;
+  }
+};
 
 // =============================================================================
 // Visual building blocks
 // =============================================================================
 
-type Tone = "zinc" | "blue" | "emerald" | "violet" | "amber" | "purple" | "rose" | "red" | "sky";
+type Tone =
+  | "indigo"
+  | "blue"
+  | "emerald"
+  | "violet"
+  | "amber"
+  | "purple"
+  | "rose"
+  | "red"
+  | "sky"
+  | "teal";
 
 const TONE_ICON: Record<Tone, string> = {
-  zinc: "text-zinc-500 dark:text-zinc-400",
+  indigo: "text-indigo-600 dark:text-indigo-400",
   blue: "text-blue-600 dark:text-blue-400",
   emerald: "text-emerald-600 dark:text-emerald-400",
   violet: "text-violet-600 dark:text-violet-400",
@@ -46,6 +83,7 @@ const TONE_ICON: Record<Tone, string> = {
   rose: "text-rose-600 dark:text-rose-400",
   red: "text-red-600 dark:text-red-400",
   sky: "text-sky-600 dark:text-sky-400",
+  teal: "text-teal-600 dark:text-teal-400",
 };
 
 /** Section heading with topic-coloured icon. The colour only lives
@@ -142,7 +180,13 @@ const Callout = (props: {
 // Modal body
 // =============================================================================
 
-const HelpModalBody = () => (
+const HelpModalBody = () => {
+  // Limits are fetched once when the modal opens. `initialValue` keeps
+  // the help text legible during the brief fetch window (we render the
+  // defaults, which match the install state for 99% of deployments).
+  const [limits] = createResource(fetchLimits, { initialValue: DEFAULT_LIMITS });
+
+  return (
   <div class="w-full max-w-full flex flex-col text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-300 min-w-[28rem]">
     {/* --- Lead: no header, just the pitch --- */}
     <p>
@@ -155,7 +199,7 @@ const HelpModalBody = () => (
     </ul>
 
     {/* --- Markdown basics --- */}
-    <H icon="ti-markdown" tone="zinc">Markdown basics</H>
+    <H icon="ti-markdown" tone="indigo">Markdown basics</H>
     <p>Markdown is plain text with a few symbols that turn into formatting.</p>
     <RefTable
       rows={[
@@ -227,7 +271,9 @@ const HelpModalBody = () => (
     </p>
     <p>Drag files onto the editor or paste from the clipboard. Screenshots work.</p>
     <Callout variant="info">
-      <p>Images over 10 MB get auto-resized to fit. The original is not stored — what you see is what gets saved.</p>
+      <p>
+        Images over {limits().maxAttachmentSizeMb} MB get auto-resized so the longer side fits {limits().maxImageDimensionPx} px. The original is not stored — what you see is what gets saved.
+      </p>
     </Callout>
 
     {/* --- Tables + formulas --- */}
@@ -331,14 +377,16 @@ return \`This notebook has \${notes.length} notes.\`;
     <H icon="ti-paperclip" tone="sky">Files and images</H>
     <ul class="ml-4 list-disc space-y-1">
       <li>Drag files onto the editor, or paste from the clipboard (screenshots work).</li>
-      <li>Images larger than 10 MB are auto-resized. A toast tells you the new size.</li>
-      <li>Non-image files larger than 10 MB are rejected — pick a smaller file.</li>
+      <li>
+        Images larger than {limits().maxAttachmentSizeMb} MB are auto-resized to fit (longer side {limits().maxImageDimensionPx} px). A toast reports the new size.
+      </li>
+      <li>Non-image files larger than {limits().maxAttachmentSizeMb} MB are rejected — pick a smaller file.</li>
       <li>All attachments live with the notebook. Open the Attachments view from the sidebar to manage them.</li>
       <li>Markdown links use <C>attach://shortId</C> so renames don't break references.</li>
     </ul>
 
     {/* --- Keyboard shortcuts --- */}
-    <H icon="ti-keyboard" tone="zinc">Keyboard shortcuts</H>
+    <H icon="ti-keyboard" tone="teal">Keyboard shortcuts</H>
     <p class="text-[12px] text-zinc-500 dark:text-zinc-400">
       <C>Mod</C> = <Key>⌘</Key> on Mac, <Key>Ctrl</Key> on Windows / Linux.
     </p>
@@ -359,7 +407,8 @@ return \`This notebook has \${notes.length} notes.\`;
       ]}
     />
   </div>
-);
+  );
+};
 
 // =============================================================================
 // Trigger

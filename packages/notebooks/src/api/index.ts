@@ -147,11 +147,20 @@ const AttachmentUsageSchema = z.object({ count: z.number().int() });
  *  in attachments-client.ts so a fresh install matches client-side
  *  expectations. Larger files → 413. */
 const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 10;
+const DEFAULT_MAX_IMAGE_DIMENSION_PX = 2048;
+
+const getMaxAttachmentSizeMb = async (): Promise<number> => {
+  const mb = await settings.get<number>("notebooks.max_attachment_size_mb");
+  return typeof mb === "number" && Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_MAX_ATTACHMENT_SIZE_MB;
+};
+
+const getMaxImageDimensionPx = async (): Promise<number> => {
+  const px = await settings.get<number>("notebooks.max_image_dimension_px");
+  return typeof px === "number" && Number.isFinite(px) && px > 0 ? px : DEFAULT_MAX_IMAGE_DIMENSION_PX;
+};
 
 const getMaxAttachmentSizeBytes = async (): Promise<number> => {
-  const mb = await settings.get<number>("notebooks.max_attachment_size_mb");
-  const resolved = typeof mb === "number" && Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_MAX_ATTACHMENT_SIZE_MB;
-  return resolved * 1024 * 1024;
+  return (await getMaxAttachmentSizeMb()) * 1024 * 1024;
 };
 
 const ListNotebooksQuerySchema = z.object({
@@ -1416,6 +1425,39 @@ app.get(
     if (error) return error;
     notebookId = notebook!.id;
     return respond(c, ok(await notebooksService.tag.listForNotebook({ notebookId })));
+  },
+);
+
+// =============================================================================
+// Client-facing limits — read-only echo of the user-visible parts of the
+// settings so the Help modal / editor frontend can render the current
+// numbers instead of hardcoding mirrors of the defaults. Authenticated
+// but not admin-gated: these numbers are non-sensitive and visible to
+// every user the moment they try an upload anyway.
+// =============================================================================
+
+const LimitsSchema = z.object({
+  maxAttachmentSizeMb: z.number().int().positive(),
+  maxImageDimensionPx: z.number().int().positive(),
+});
+
+app.get(
+  "/limits",
+  describeRoute({
+    tags: ["Notebooks"],
+    summary: "Current user-facing limits",
+    description: "Live values of `notebooks.max_attachment_size_mb` and `notebooks.max_image_dimension_px`. Used by the Help modal and the client-side image shrink pipeline so they stay in sync when an admin tweaks the settings.",
+    ...requiresAuth,
+    responses: {
+      200: jsonResponse(LimitsSchema, "Limits"),
+    },
+  }),
+  async (c) => {
+    const [maxAttachmentSizeMb, maxImageDimensionPx] = await Promise.all([
+      getMaxAttachmentSizeMb(),
+      getMaxImageDimensionPx(),
+    ]);
+    return respond(c, ok({ maxAttachmentSizeMb, maxImageDimensionPx }));
   },
 );
 
