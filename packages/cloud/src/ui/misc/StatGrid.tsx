@@ -78,6 +78,12 @@ type StatGridProps = {
    * outside 1-6 fall back to the 6-column ladder.
    */
   columns?: number;
+  /**
+   * Extra classes on the outer paper element — primarily for sizing
+   * (`h-full`, `flex-1`) when the grid needs to fill a parent
+   * container rather than collapse to its natural content height.
+   */
+  class?: string;
 };
 
 /**
@@ -104,7 +110,7 @@ const StatGrid = (props: StatGridProps): JSX.Element => {
     props.columns ? GRID_COLS_CLASS[props.columns] ?? DEFAULT_GRID_COLS : DEFAULT_GRID_COLS;
 
   return (
-    <div class="paper overflow-hidden">
+    <div class={`paper overflow-hidden flex flex-col ${props.class ?? ""}`}>
       <Show when={props.title}>
         <header class="px-3 py-2 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800/60">
           <span class="text-xs font-semibold text-primary truncate">
@@ -126,8 +132,9 @@ const StatGrid = (props: StatGridProps): JSX.Element => {
       {/* Cell grid: `gap-px` carves 1px channels between cells, the
           body `bg-zinc-100` bleeds through those channels, and each
           cell's own `bg-white` covers the rest. No `p-px` — see the
-          docblock for why. */}
-      <div class={`grid ${gridCols()} gap-px bg-zinc-100 dark:bg-zinc-800`}>
+          docblock for why. `flex-1` lets the grid expand to fill the
+          paper when the caller passes a sizing class like `h-full`. */}
+      <div class={`grid ${gridCols()} gap-px bg-zinc-100 dark:bg-zinc-800 flex-1`}>
         {props.children}
       </div>
     </div>

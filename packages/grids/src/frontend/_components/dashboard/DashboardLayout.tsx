@@ -105,22 +105,39 @@ function RowRenderer(props: {
 
 /** All-stats row → one paper with hairline dividers between cells.
  *  Uses cloud/ui StatGrid + StatCell; the dense "small-grid" rhythm
- *  matches the rest of the platform's KPI strips. */
+ *  matches the rest of the platform's KPI strips.
+ *
+ *  Respects the row's `height` tier (via wrapping flex-col + inline
+ *  min-height) so the visual weight matches the user's chosen layout
+ *  — "sm" stays compact (96px), "md" and "lg" give the KPI strip
+ *  room to breathe. The `h-full` on StatGrid + `flex-1` inside it
+ *  means the cells stretch to fill the picked tier; content stays
+ *  top-aligned within each cell (StatCell's flex-col gap-0.5 stacks
+ *  label/value/sub naturally near the top).
+ *
+ *  Without this, every all-stats row collapsed to its content height
+ *  (~91px) regardless of tier — the user reported that visually as
+ *  "just a thin border" next to a 360px chart row. */
 function StatsOnlyRow(props: {
   row: DashboardRow;
   widgetData: Record<string, WidgetData>;
 }) {
   return (
-    <StatGrid columns={props.row.cells.length}>
-      <For each={props.row.cells}>
-        {(cell) => {
-          // The all-stats guard above means every cell here is "stat".
-          // Narrow explicitly so the StatWidgetCell prop type is happy.
-          if (cell.kind !== "stat") return null;
-          return <StatWidgetCell widget={cell} data={props.widgetData[cell.id]} />;
-        }}
-      </For>
-    </StatGrid>
+    <div
+      class="flex flex-col"
+      style={`min-height: ${ROW_MIN_HEIGHT_PX[props.row.height]}px`}
+    >
+      <StatGrid columns={props.row.cells.length} class="h-full">
+        <For each={props.row.cells}>
+          {(cell) => {
+            // The all-stats guard above means every cell here is "stat".
+            // Narrow explicitly so the StatWidgetCell prop type is happy.
+            if (cell.kind !== "stat") return null;
+            return <StatWidgetCell widget={cell} data={props.widgetData[cell.id]} />;
+          }}
+        </For>
+      </StatGrid>
+    </div>
   );
 }
 
