@@ -114,20 +114,44 @@ class MermaidWidget extends WidgetType {
 
     const cached = globalSvgCache.get(this.cacheKey);
     if (cached && cached.svg) {
+      // Cache hit: write the SVG straight in and skip the
+      // mermaid.render call entirely. The cache key is a hash of
+      // `this.code`, so a hit means the input is unchanged — a
+      // re-render would just produce the same SVG. Bump the
+      // timestamp so the LRU reflects "recently used", not
+      // "recently fetched".
       renderDiv.innerHTML = cached.svg;
       applySvgConstraints(renderDiv);
+      cached.timestamp = Date.now();
     } else {
       renderDiv.innerHTML = `
         <div class="flex items-center gap-2 text-gray-500">
           <i class="ti ti-loader animate-spin"></i>
           <span class="text-sm">Loading diagram...</span>
         </div>`;
+      // Only schedule the expensive mermaid.render (~50–200ms
+      // Dagre layout) when there is nothing cached to display.
+      this.debouncedRender(renderDiv);
     }
 
     wrapper.appendChild(renderDiv);
     container.appendChild(wrapper);
-    this.debouncedRender(renderDiv);
     return container;
+  }
+
+  /** Called by CM when the widget's DOM is being removed (user
+   *  deleted the code block, scrolled it out of the viewport, or
+   *  the doc changed enough to invalidate the decoration). Without
+   *  this, the 500ms debounced timer keeps a reference to the
+   *  detached element and fires `element.innerHTML = svg` on a
+   *  node that is no longer in the document — wasted work that
+   *  piles up on rapid edits. */
+  override destroy(_dom: HTMLElement) {
+    const t = renderTimers.get(this.cacheKey);
+    if (t) {
+      clearTimeout(t);
+      renderTimers.delete(this.cacheKey);
+    }
   }
 
   private debouncedRender(element: HTMLElement) {
