@@ -48,19 +48,30 @@ type NoteRef = {
   title: string;
 };
 
+/** Cached payload — the raw refs plus a `truncated` flag so the
+ *  popup can surface "+ more notes — type to filter" when the
+ *  notebook has more notes than FETCH_CAP. Without this signal,
+ *  notes beyond the cap were silently unreachable via [[. */
+type CachedNotes = {
+  notes: NoteRef[];
+  truncated: boolean;
+};
+
 /** Hard ceiling on notes fetched per notebook. For autocomplete we
  *  don't need thousands of entries — pagination beyond this is
  *  unhelpful for picker UX (no one scrolls 500 options). 200 covers
- *  any realistic notebook. */
+ *  any realistic notebook; notes beyond the cap surface as a
+ *  non-selectable "more notes" hint that points the user at the
+ *  type-to-filter affordance. */
 const FETCH_CAP = 200;
 
-const noteCache = createNotebookFetchCache<NoteRef[]>(
+const noteCache = createNotebookFetchCache<CachedNotes>(
   async (notebookId) => {
-    // Fetch the first page (up to 100) and the second if needed,
-    // capped at FETCH_CAP. We use the same paginated endpoint
-    // `kit.notes.list()` uses so the autocomplete + scripts agree
-    // on what's in the notebook.
+    // Fetch pages up to FETCH_CAP. We use the same paginated
+    // endpoint `kit.notes.list()` uses so the autocomplete +
+    // scripts agree on what's in the notebook.
     const all: NoteRef[] = [];
+    let truncated = false;
     for (let page = 1; all.length < FETCH_CAP; page++) {
       const res = await apiClient[":id"].notes.$get({
         param: { id: notebookId },
@@ -71,13 +82,19 @@ const noteCache = createNotebookFetchCache<NoteRef[]>(
       if (payload.data.length === 0) break;
       for (const n of payload.data) {
         all.push({ shortId: n.shortId, title: n.title });
-        if (all.length >= FETCH_CAP) break;
       }
-      if (payload.data.length < 100) break; // last page
+      // Last page = the API returned fewer than the page size, so
+      // we're done. Otherwise: if we hit the cap on this iteration
+      // with a full page, more might exist server-side.
+      if (payload.data.length < 100) break;
+      if (all.length >= FETCH_CAP) {
+        truncated = true;
+        break;
+      }
     }
-    return all;
+    return { notes: all, truncated };
   },
-  { fallback: [] },
+  { fallback: { notes: [], truncated: false } },
 );
 
 /** Build a markdown link string for one note.
@@ -109,11 +126,28 @@ const buildMarkdownLink = (note: NoteRef): string => {
  *  CM would only replace from `result.from` (after the brackets)
  *  to the cursor, leaving the typed `[[` stuck before the inserted
  *  link (observed bug: `[[[Title](…))`). */
+/** Non-selectable hint surfaced at the bottom of the popup when
+ *  the notebook has more notes than FETCH_CAP. `apply` is a no-op
+ *  (closes the popup without inserting anything); a negative
+ *  `boost` keeps it pinned to the bottom regardless of how the
+ *  user's typing reranks the rest. */
+const truncationHint: Completion = {
+  label: "… more notes available — keep typing to filter",
+  type: "text",
+  boost: -99,
+  apply: (view, _completion, _from, _to) => {
+    // Close popup; do not modify the doc. The user can then keep
+    // typing the title to narrow the cached list.
+    view.dispatch({ userEvent: "input.complete" });
+  },
+};
+
 const buildCompletions = (
   notes: NoteRef[],
   triggerStart: number,
+  truncated: boolean,
 ): Completion[] => {
-  return notes
+  const out = notes
     .slice()
     .sort((a, b) => a.title.localeCompare(b.title))
     .map((n) => {
@@ -144,15 +178,17 @@ const buildCompletions = (
       withIcon(c, "ti-note");
       return c;
     });
+  if (truncated) out.push(truncationHint);
+  return out;
 };
 
 /** Build a result for a given trigger match. Shared by sync + async
  *  paths so the cache-hit case can return without a Promise wrap. */
 const buildResult = (
   word: { from: number; to: number },
-  notes: NoteRef[],
+  data: CachedNotes,
 ): CompletionResult | null => {
-  if (notes.length === 0) return null;
+  if (data.notes.length === 0) return null;
   return {
     // `from` = right after the `[[` so CM's prefix filter matches
     // the user-typed title body (NOT the literal `[[` chars) against
@@ -160,7 +196,7 @@ const buildResult = (
     // brackets themselves via an explicit dispatch from word.from.
     from: word.from + 2,
     to: word.to,
-    options: buildCompletions(notes, word.from),
+    options: buildCompletions(data.notes, word.from, data.truncated),
     validFor: /^[^\]\n]*$/,
   };
 };
@@ -197,6 +233,6 @@ export const buildNoteLinkCompletionSource = (notebookId: string): CompletionSou
 
     const fresh = noteCache.getFresh(notebookId);
     if (fresh) return buildResult(word, fresh);
-    return noteCache.fetch(notebookId).then((notes) => buildResult(word, notes));
+    return noteCache.fetch(notebookId).then((data) => buildResult(word, data));
   };
 };
