@@ -53,10 +53,11 @@
  * tables are hand-edited and small. Data tables belong in the Grids app.
  */
 import { syntaxTree } from "@codemirror/language";
-import { Prec, StateField, RangeSet, EditorState, type Extension, Range } from "@codemirror/state";
+import { Prec, StateField, RangeSet, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { evaluateFormula, formatValue, isFormula, isTotalRow, type EvalContext } from "@valentinkolb/cloud/shared";
+import { refreshMarkdownDecorationsEffect } from "./_lib/cursor-zone-field";
 
 type Align = "left" | "right" | "center" | null;
 
@@ -488,6 +489,9 @@ export const tablesExtension = (): Extension => {
       return scanTables(state);
     },
     update(value, tr) {
+      if (tr.effects.some((effect) => effect.is(refreshMarkdownDecorationsEffect))) {
+        return scanTables(tr.state);
+      }
       // Doc changed → tables may have appeared / disappeared / shifted
       // positions. Full rescan.
       if (tr.docChanged) {

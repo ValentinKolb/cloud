@@ -36,9 +36,10 @@
  * an extra cached `blockWidgetDecorations` field that doesn't fit
  * the standard shape.
  */
-import { StateField } from "@codemirror/state";
+import { forceParsing } from "@codemirror/language";
+import { StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Transaction } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, ViewPlugin } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 export type CursorZoneRange = { from: number; to: number };
@@ -64,6 +65,37 @@ export type IncrementalOptions = {
    *  decorations stale, so the predicate MUST be conservative. */
   changesMightAffectSyntax: (tr: Transaction) => boolean;
 };
+
+export const refreshMarkdownDecorationsEffect = StateEffect.define<void>();
+
+export const initialMarkdownDecorationRefreshExtension = (): Extension =>
+  ViewPlugin.fromClass(
+    class {
+      private raf: number | null = null;
+      private attempts = 0;
+
+      constructor(private view: EditorView) {
+        this.schedule();
+      }
+
+      private schedule() {
+        this.raf = window.requestAnimationFrame(() => {
+          this.raf = null;
+          this.attempts += 1;
+          // Markdown parsing is viewport/background-driven. Force one parse
+          // pass after mount so syntax-tree based widgets don't stay raw until
+          // the first cursor transaction.
+          const parsed = forceParsing(this.view, this.view.state.doc.length, 50);
+          this.view.dispatch({ effects: refreshMarkdownDecorationsEffect.of() });
+          if (!parsed && this.attempts < 4) this.schedule();
+        });
+      }
+
+      destroy() {
+        if (this.raf !== null) window.cancelAnimationFrame(this.raf);
+      }
+    },
+  );
 
 /** Identity of the range the cursor currently sits inside, or
  *  `null` if it sits outside all ranges. A cursor-only transaction
@@ -116,6 +148,9 @@ export const cursorZoneStateField = (
   return StateField.define<CursorZoneState>({
     create: build,
     update(value, tr) {
+      if (tr.effects.some((effect) => effect.is(refreshMarkdownDecorationsEffect))) {
+        return build(tr.state);
+      }
       if (tr.docChanged) {
         if (incremental) {
           const decorations = value.decorations.map(tr.changes);

@@ -26,9 +26,23 @@ const log = logger("notebooks:links");
  * tag from scratch.
  */
 const NOTE_LINK_HTML_REGEX = /<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>([\s\S]*?)<\/a>/g;
+const MARKED_NOTE_LINK_HTML_REGEX =
+  /<span class="md-link-widget[^"]*">\s*<span class="md-link-label[^"]*">\[([\s\S]*?)\]<\/span>\s*<a\s[^>]*\bhref="note:\/\/([0-9a-zA-Z]{6})"[^>]*>[\s\S]*?<\/a>\s*<\/span>/g;
 
 const NOTE_PILL_CLASS =
-  "note-link inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 no-underline hover:bg-blue-100 dark:hover:bg-blue-900/50";
+  "cm-note-link note-link inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 no-underline hover:bg-blue-100 dark:hover:bg-blue-900/50 align-baseline font-medium";
+
+const renderNotePill = (href: string, label: string): string =>
+  `<a class="${NOTE_PILL_CLASS}" href="${href}">` +
+  `<i class="ti ti-connection text-xs"></i>` +
+  `<span>${label}</span>` +
+  `</a>`;
+
+const renderBrokenNotePill = (shortId: string, label: string): string =>
+  `<a class="cm-note-link note-link note-link-broken inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 no-underline align-baseline font-medium" title="Note ${shortId} not found">` +
+  `<i class="ti ti-link-off text-xs"></i>` +
+  `<span>${label}</span>` +
+  `</a>`;
 
 /**
  * Rewrites `<a href="note://<shortId>">` into a navigable pill-style
@@ -45,26 +59,15 @@ export const transformNoteLinks = (
   html: string,
   params: { noteShortIdToHref: Map<string, string> },
 ): string =>
-  html.replace(NOTE_LINK_HTML_REGEX, (_match, shortId: string, label: string) => {
-    const href = params.noteShortIdToHref.get(shortId);
-    if (!href) {
-      // Dangling reference — keep the original short-id visible so the
-      // author can find + fix it. Red palette mirrors the formula
-      // error styling in `utilities-table-tile.css`.
-      return (
-        `<a class="note-link note-link-broken inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 no-underline" title="Note ${shortId} not found">` +
-        `<i class="ti ti-link-off text-xs"></i>` +
-        `<span>${label}</span>` +
-        `</a>`
-      );
-    }
-    return (
-      `<a class="${NOTE_PILL_CLASS}" href="${href}">` +
-      `<i class="ti ti-connection text-xs"></i>` +
-      `<span>${label}</span>` +
-      `</a>`
-    );
-  });
+  html
+    .replace(MARKED_NOTE_LINK_HTML_REGEX, (_match, label: string, shortId: string) => {
+      const href = params.noteShortIdToHref.get(shortId);
+      return href ? renderNotePill(href, label) : renderBrokenNotePill(shortId, label);
+    })
+    .replace(NOTE_LINK_HTML_REGEX, (_match, shortId: string, label: string) => {
+      const href = params.noteShortIdToHref.get(shortId);
+      return href ? renderNotePill(href, label) : renderBrokenNotePill(shortId, label);
+    });
 
 // ==========================
 // Types
@@ -77,8 +80,10 @@ export type NoteLink = {
 
 export type Backlink = {
   noteId: string;
+  noteShortId: string;
   title: string;
   notebookId: string;
+  notebookShortId: string;
   notebookName: string;
   updatedAt: string;
 };
@@ -185,6 +190,16 @@ export const reindexLinksSafe = async (sourceNoteId: string, contentMd: string |
 
 const toPgUuidArray = (values: string[]): string => `{${values.join(",")}}`;
 
+type BacklinkRow = {
+  note_id: string;
+  note_short_id: string;
+  title: string;
+  notebook_id: string;
+  notebook_short_id: string;
+  notebook_name: string;
+  updated_at: Date;
+};
+
 /**
  * List notes that link to `noteId`, filtered by access on the *source*
  * notebook so a backlink only appears if the requester can read where it's
@@ -202,17 +217,13 @@ export const listBacklinks = async (params: {
   const { noteId, userId, userGroups, bypassAccess = false } = params;
 
   const rows = bypassAccess
-    ? await sql<{
-        note_id: string;
-        title: string;
-        notebook_id: string;
-        notebook_name: string;
-        updated_at: Date;
-      }[]>`
+    ? await sql<BacklinkRow[]>`
         SELECT DISTINCT
           src.id AS note_id,
+          src.short_id AS note_short_id,
           src.title,
           src.notebook_id,
+          nb.short_id AS notebook_short_id,
           nb.name AS notebook_name,
           src.updated_at
         FROM notebooks.note_links nl
@@ -221,17 +232,13 @@ export const listBacklinks = async (params: {
         WHERE nl.target_note_id = ${noteId}::uuid
         ORDER BY src.updated_at DESC
       `
-    : await sql<{
-        note_id: string;
-        title: string;
-        notebook_id: string;
-        notebook_name: string;
-        updated_at: Date;
-      }[]>`
+    : await sql<BacklinkRow[]>`
         SELECT DISTINCT
           src.id AS note_id,
+          src.short_id AS note_short_id,
           src.title,
           src.notebook_id,
+          nb.short_id AS notebook_short_id,
           nb.name AS notebook_name,
           src.updated_at
         FROM notebooks.note_links nl
@@ -255,8 +262,10 @@ export const listBacklinks = async (params: {
 
   return rows.map((r) => ({
     noteId: r.note_id,
+    noteShortId: r.note_short_id,
     title: r.title,
     notebookId: r.notebook_id,
+    notebookShortId: r.notebook_short_id,
     notebookName: r.notebook_name,
     updatedAt: r.updated_at.toISOString(),
   }));

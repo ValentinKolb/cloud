@@ -15,8 +15,10 @@ import { subSupExtension } from "./sub-sup";
 import { tablesExtension } from "./tables";
 import { tagPillExtension } from "./tag-pill";
 import { customDarkInit, customLightInit, rawDarkInit, rawLightInit } from "./theme";
+import { initialMarkdownDecorationRefreshExtension } from "./_lib/cursor-zone-field";
 
 export {
+  initialMarkdownDecorationRefreshExtension,
   basicExtensions,
   codeFontExtension,
   imageExtension,
@@ -40,6 +42,7 @@ export {
 };
 
 export const editor = {
+  initialMarkdownDecorationRefreshExtension,
   basicExtensions,
   codeFontExtension,
   imageExtension,

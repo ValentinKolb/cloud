@@ -188,7 +188,7 @@ const TAG_HTML_REGEX = /(^|\s|>)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
 
 const renderPill = (notebookId: string, tag: string): string => {
   const href = `/app/notebooks/${notebookId}/tags/${encodeURIComponent(tag)}`;
-  return `<a href="${href}" class="cm-tag-pill inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 no-underline" title="Show notes with #${escapeHtml(tag)}">#${escapeHtml(tag)}</a>`;
+  return `<a href="${href}" class="cm-tag-pill inline-flex items-center px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 no-underline align-baseline font-medium" title="Show notes with #${escapeHtml(tag)}">#${escapeHtml(tag)}</a>`;
 };
 
 /** Wrap `#tag` references in HTML as pill anchors — but skip content
@@ -205,8 +205,8 @@ export const transformTags = (html: string, params: { notebookId: string }): str
   let result = "";
   let cursor = 0;
   const open = /<(pre|code)\b[^>]*>/gi;
-  let openMatch: RegExpExecArray | null;
-  while ((openMatch = open.exec(html)) !== null) {
+  let openMatch = open.exec(html);
+  while (openMatch !== null) {
     // Transform the text leading up to the open tag.
     result += transformText(html.slice(cursor, openMatch.index));
 
@@ -225,6 +225,7 @@ export const transformTags = (html: string, params: { notebookId: string }): str
     result += html.slice(openMatch.index, blockEnd);
     cursor = blockEnd;
     open.lastIndex = blockEnd;
+    openMatch = open.exec(html);
   }
   // Transform the trailing text after the last code block.
   result += transformText(html.slice(cursor));

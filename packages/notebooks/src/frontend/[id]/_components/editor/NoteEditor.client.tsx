@@ -174,6 +174,7 @@ export default function NoteEditor(props: Props) {
           editor.markupExtension(),
           editor.markExtension(),
           editor.subSupExtension(),
+          editor.initialMarkdownDecorationRefreshExtension(),
           editor.mermaidExtension(),
           editor.katexExtension(),
           editor.codeFontExtension(),
