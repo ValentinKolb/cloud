@@ -115,7 +115,8 @@ const RERUN_DEBOUNCE_MS = 1200;
  * (timer, disposers, output/error refs, runId, scriptIndex) on the
  * dom element itself via a symbol key, so successive widget
  * instances all schedule runs against the same persistent state.
- * Source changes only re-arm the debounce timer; no DOM teardown
+ * The first run starts immediately after the widget mounts; later
+ * source changes only re-arm the debounce timer. No DOM teardown
  * happens until the widget is actually removed (script deleted /
  * editor unmounted) or it migrates to a different `scriptIndex`
  * (defensive guard against CM matching the wrong decoration).
@@ -225,7 +226,7 @@ class OutputWidget extends WidgetType {
       scriptIndex: this.scriptIndex,
     };
     root[RUN_STATE_KEY] = state;
-    this.scheduleRun(state);
+    this.scheduleRun(state, 0);
     return root;
   }
 
@@ -278,12 +279,12 @@ class OutputWidget extends WidgetType {
     state.disposers = [];
   }
 
-  private scheduleRun(state: WidgetRunState): void {
+  private scheduleRun(state: WidgetRunState, delayMs = RERUN_DEBOUNCE_MS): void {
     if (state.timer !== null) clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       state.timer = null;
       this.run(state);
-    }, RERUN_DEBOUNCE_MS);
+    }, delayMs);
   }
 
   private run(state: WidgetRunState): void {
