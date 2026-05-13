@@ -20,11 +20,20 @@ import { kvStore } from "@valentinkolb/stdlib/browser";
 import { assertActive, type KitContext, type KitLocalStateAPI } from "./kit-types";
 
 const KEY_NAMESPACE = "notebooks:script-state";
+type LocalStateObserver = (newValue: unknown) => void;
 
 export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
   /** Namespace prefix for THIS notebook's local state. */
   const prefix = `${KEY_NAMESPACE}:${ctx.notebookId}:`;
   const fullKey = (key: string): string => `${prefix}${key}`;
+  const observers = new Map<string, Set<LocalStateObserver>>();
+  const suppressedWatchKeys = new Set<string>();
+
+  const notifyObservers = <T>(key: string, value: T | undefined): void => {
+    const callbacks = observers.get(key);
+    if (!callbacks) return;
+    for (const cb of callbacks) cb(value);
+  };
 
   const get = async <T = unknown>(key: string): Promise<T | undefined> => {
     return kvStore.get<T>(fullKey(key));
@@ -32,12 +41,26 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
 
   const set = async <T>(key: string, value: T): Promise<void> => {
     assertActive(ctx);
-    await kvStore.set(fullKey(key), value);
+    const full = fullKey(key);
+    suppressedWatchKeys.add(full);
+    try {
+      await kvStore.set(full, value);
+      notifyObservers(key, value);
+    } finally {
+      suppressedWatchKeys.delete(full);
+    }
   };
 
   const del = async (key: string): Promise<void> => {
     assertActive(ctx);
-    await kvStore.delete(fullKey(key));
+    const full = fullKey(key);
+    suppressedWatchKeys.add(full);
+    try {
+      await kvStore.delete(full);
+      notifyObservers(key, undefined);
+    } finally {
+      suppressedWatchKeys.delete(full);
+    }
   };
 
   const keys = async (): Promise<string[]> => {
@@ -56,8 +79,14 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
     // and then filter by exact match in the callback so we only
     // fire for THIS key, not siblings under the same notebook.
     const full = fullKey(key);
+    const observer = cb as LocalStateObserver;
+    const callbacks = observers.get(key) ?? new Set<LocalStateObserver>();
+    callbacks.add(observer);
+    observers.set(key, callbacks);
+
     const unwatch = kvStore.watch((event) => {
       if (event.key !== full) return;
+      if (suppressedWatchKeys.has(full)) return;
       // Re-read async so the callback sees the current value (or
       // undefined on delete). `kvStore.watch` is cross-tab via
       // BroadcastChannel, so updates from OTHER browser tabs / other
@@ -66,7 +95,7 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
         const value = await kvStore.get<T>(full);
         cb(value);
       })();
-    }, prefix);
+    }, full);
 
     // Auto-cleanup on script re-run / widget destroy. Identical
     // pattern to `kit.state.observe`'s `registerDisposer` usage.
@@ -75,6 +104,8 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
       if (disposed) return;
       disposed = true;
       unwatch();
+      callbacks.delete(observer);
+      if (callbacks.size === 0) observers.delete(key);
     };
     ctx.registerDisposer?.(dispose);
     return dispose;

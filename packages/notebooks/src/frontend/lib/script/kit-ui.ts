@@ -29,6 +29,7 @@ import type {
   KitChild,
   KitContext,
   KitElement,
+  KitFormField,
   KitFormSpec,
   KitHeadingLevel,
   KitPromptAPI,
@@ -262,15 +263,26 @@ const createPromptAPI = (ctx: KitContext): KitPromptAPI => ({
   },
   confirm: async (message, options) => {
     if (ctx.isActive && !ctx.isActive()) return false;
-    return await prompts.confirm(message, { title: options?.title, icon: options?.icon });
+    return (await prompts.confirm(message, { title: options?.title, icon: options?.icon })) ?? false;
   },
   text: async (message, defaultValue, options) => {
     if (ctx.isActive && !ctx.isActive()) return null;
-    const result = await prompts.prompt(message, defaultValue ?? "", {
+    const result = await prompts.form({
       title: options?.title,
-      placeholder: options?.placeholder,
+      fields: {
+        message: {
+          type: "info",
+          content: message,
+        },
+        value: {
+          type: "text",
+          label: false,
+          default: defaultValue ?? "",
+          placeholder: options?.placeholder,
+        },
+      },
     });
-    return result;
+    return result?.value ?? null;
   },
   form: async (spec: KitFormSpec) => {
     if (ctx.isActive && !ctx.isActive()) return null;
@@ -281,10 +293,30 @@ const createPromptAPI = (ctx: KitContext): KitPromptAPI => ({
     const result = await prompts.form({
       title: spec.title,
       icon: spec.icon,
-      submitText: spec.submitText,
+      confirmText: spec.submitText,
       cancelText: spec.cancelText,
-      fields: spec.fields as never,
+      fields: normalizeFormFields(spec.fields) as never,
     });
     return result as Record<string, unknown> | null;
   },
 });
+
+const normalizeFormFields = (fields: Record<string, KitFormField>): Record<string, KitFormField> => {
+  const normalized: Record<string, KitFormField> = {};
+  for (const [key, field] of Object.entries(fields)) {
+    if (field.type === "textarea") {
+      normalized[key] = {
+        type: "text",
+        label: field.label,
+        placeholder: field.placeholder,
+        required: field.required,
+        default: field.default,
+        multiline: true,
+        lines: field.rows ?? field.lines,
+      };
+    } else {
+      normalized[key] = field;
+    }
+  }
+  return normalized;
+};

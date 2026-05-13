@@ -3,7 +3,7 @@ import { defineApp } from "@valentinkolb/cloud";
 export const app = defineApp({
   id: "notebooks",
   name: "Notebooks",
-  icon: "ti ti-notebook",
+  icon: "ti ti-note",
   description: "Collaborative notebooks with structured notes and realtime sync.",
   basePath: "/app/notebooks",
   baseUrl: "http://app-notebooks:3000",

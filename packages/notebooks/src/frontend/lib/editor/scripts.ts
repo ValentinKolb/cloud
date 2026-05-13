@@ -82,12 +82,12 @@ export type ScriptsConfig = {
   ydoc: Y.Doc;
 };
 
-/** Debounce window for re-runs after a source change. Picked at
- *  500 ms because: (a) AsyncFunction parse + execute on small bodies
- *  is sub-ms, but (b) kit calls hit the network / Y.Doc, and (c) the
- *  user rarely needs sub-500 ms feedback while TYPING the script —
- *  most edits land settled. */
-const RERUN_DEBOUNCE_MS = 500;
+/** Debounce window for re-runs after a source change. Keep it above
+ *  normal typing cadence: showcase scripts often perform several API
+ *  calls and rebuild a large output tree, so re-running after every
+ *  slow keystroke makes the editor feel like the keystroke itself is
+ *  delayed. */
+const RERUN_DEBOUNCE_MS = 1200;
 
 // =============================================================================
 // Output widget — visually block-level widget below the script

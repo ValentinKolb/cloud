@@ -479,11 +479,9 @@ export type KitPromptAPI = {
 };
 
 /** Shape of the `kit.ui.prompt.form` argument. Mirrors the platform
- *  `prompts.form` config — fields can be text / number / boolean /
- *  select. Multi-line input via `{ type: "text", multiline: true }`
- *  (the platform doesn't have a separate `textarea` type — a `text`
- *  field with `multiline: true` and an optional `lines` count
- *  IS the textarea). The platform supports more types (tags, image,
+ *  `prompts.form` config — fields can be text / textarea / number /
+ *  boolean / select. Multi-line input is normalized to the platform's
+ *  `{ type: "text", multiline: true }` shape at runtime. The platform supports more types (tags, image,
  *  currency, pin, datetime) — scripts needing those can drop down
  *  to `kit.ui.html` + a manual form. */
 export type KitFormField =
@@ -496,6 +494,17 @@ export type KitFormField =
       /** Render as multi-line textarea. */
       multiline?: boolean;
       /** Visible rows when `multiline` is true. Default ~3. */
+      lines?: number;
+    }
+  | {
+      type: "textarea";
+      label?: string;
+      placeholder?: string;
+      required?: boolean;
+      default?: string;
+      /** Alias accepted by examples and common form APIs. */
+      rows?: number;
+      /** Platform-native row count alias. */
       lines?: number;
     }
   | { type: "number"; label?: string; placeholder?: string; required?: boolean; default?: number; min?: number; max?: number }
