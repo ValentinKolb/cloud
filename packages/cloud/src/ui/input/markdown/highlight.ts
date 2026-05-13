@@ -32,22 +32,12 @@ const PH_CLOSE = "";
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-/**
- * Conservative URL sanitiser — accepts http/https/mailto and relative
- * URLs, rejects javascript:, data:, etc. Returns "#" for rejected URLs
- * so the rendered anchor remains harmless if clicked.
- */
-const sanitizeUrl = (raw: string): string => {
-  const trimmed = raw.trim();
-  if (!trimmed) return "#";
-  // Relative or anchor
-  if (trimmed.startsWith("/") || trimmed.startsWith("#") || trimmed.startsWith("?")) return trimmed;
-  const lower = trimmed.toLowerCase();
-  if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("mailto:")) return trimmed;
-  // No protocol — treat as http
-  if (!/^[a-z][a-z0-9+.-]*:/.test(lower)) return trimmed;
-  return "#";
-};
+// NOTE: link previews are rendered as `<span>`, never `<a href>`, so
+// the editor itself never produces a clickable target — clicks pass
+// through the textarea overlay anyway. URL sanitisation only matters
+// in the downstream renderer (the `.prose` HTML in read-mode), not
+// here. Keeping link payloads as escaped text + dim-coloured syntax
+// is enough for the preview-as-cursor-alignment-mirror use case.
 
 type Sanctuaries = Map<string, string>;
 
@@ -59,9 +49,11 @@ const extractSanctuaries = (input: string): { text: string; sanctuaries: Sanctua
   let text = input;
 
   // Inline code first — match runs of N backticks paired by N backticks.
-  // Negative look-behind/-ahead so adjacent backticks don't accidentally
-  // form a longer fence. Mirrors overtype/parser.js inline-code rule.
-  text = text.replace(/(?<!`)(`+)(?!`)([\s\S]+?)\1(?!`)/g, (_match, ticks: string, content: string) => {
+  // Content is restricted to single-line (no `\n`) so this regex can't
+  // accidentally swallow a fenced code block like ```\n…\n``` — fences
+  // are detected later in the block-level pass. Mirrors overtype's
+  // parser logic but with stricter single-line scope.
+  text = text.replace(/(?<!`)(`+)(?!`)([^\n]+?)\1(?!`)/g, (_match, ticks: string, content: string) => {
     const ph = issue();
     sanctuaries.set(
       ph,
@@ -78,11 +70,6 @@ const extractSanctuaries = (input: string): { text: string; sanctuaries: Sanctua
   // don't follow the link by default — that's intentional, otherwise
   // selecting text by clicking would navigate away mid-edit.
   text = text.replace(/\[([^\]\n]+?)\]\(([^)\n]+?)\)/g, (_match, label: string, url: string) => {
-    // sanitizeUrl is called for its validation side; the displayed
-    // URL stays raw so the user sees what they typed. The preview has
-    // pointer-events: none so clicks never reach a link target — the
-    // editor is for editing, not navigation.
-    sanitizeUrl(url);
     const ph = issue();
     sanctuaries.set(
       ph,
@@ -97,31 +84,30 @@ const extractSanctuaries = (input: string): { text: string; sanctuaries: Sanctua
 const restoreSanctuaries = (html: string, sanctuaries: Sanctuaries): string => {
   // Sanctuaries are unique unicode markers; a single split/join per
   // placeholder is cheap and avoids any regex parsing of the markers.
-  for (const [ph, replacement] of sanctuaries) {
+  //
+  // Order matters: we restore in REVERSE insertion order so that
+  // outer wrappers (links) are restored before their inner content
+  // (code spans) — the link's stored HTML contains the code
+  // placeholder, and we need that placeholder to land in the live
+  // string BEFORE we try to substitute it with the code HTML. Without
+  // this, `[`x`](url)` would leak the raw code placeholder into the
+  // rendered link label.
+  const entries = [...sanctuaries].reverse();
+  for (const [ph, replacement] of entries) {
     if (html.includes(ph)) html = html.split(ph).join(replacement);
   }
   return html;
 };
 
-/**
- * Inline-level transforms: bold, italic. Order matters — `**bold**`
- * MUST be processed before `*italic*` so the outer asterisks aren't
- * mistaken for italic delimiters.
- */
-const processInline = (text: string): string => {
-  // Bold: ** … ** and __ … __
-  text = text.replace(
-    /\*\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*\*/g,
-    '<span class="md-bold"><span class="md-syntax">**</span>$1<span class="md-syntax">**</span></span>',
-  );
-  text = text.replace(
-    /__([^\s_][^_\n]*?[^\s_]|[^\s_])__/g,
-    '<span class="md-bold"><span class="md-syntax">__</span>$1<span class="md-syntax">__</span></span>',
-  );
-  // Italic: single `*` not adjacent to `*`, single `_` at word
-  // boundaries (avoid matching inside_words and bullet markers like
-  // `* foo` at column 0 — those are handled at block level before this
-  // function runs). Lesson from overtype issue #81.
+// Separate PUA range for the bold sanctuary, so its placeholders can't
+// collide with the outer code/link sanctuaries (those use /).
+const BOLD_PH_OPEN = "";
+const BOLD_PH_CLOSE = "";
+
+/** Italic-only pass — split out so we can call it recursively on a
+ *  bold span's inner content (so things like `**foo *bar* baz**`
+ *  render with italic inside bold). */
+const processItalic = (text: string): string => {
   text = text.replace(
     /(^|[^*\w])\*([^\s*][^*\n]*?[^\s*]|[^\s*])\*(?!\*)/g,
     '$1<span class="md-italic"><span class="md-syntax">*</span>$2<span class="md-syntax">*</span></span>',
@@ -130,6 +116,55 @@ const processInline = (text: string): string => {
     /(^|[^\w_])_([^\s_][^_\n]*?[^\s_]|[^\s_])_(?!\w)/g,
     '$1<span class="md-italic"><span class="md-syntax">_</span>$2<span class="md-syntax">_</span></span>',
   );
+  return text;
+};
+
+/**
+ * Inline pass — bold + italic with nesting support.
+ *
+ * Naïve order (bold-then-italic) breaks symmetric nesting:
+ *   - `*foo **bar** baz*` — the outer italic can't span the bold span
+ *     because the bold pass writes `*` into the visible syntax markers
+ *     and the italic regex can't cross those literal asterisks.
+ *
+ * Fix: bold is sanctuarised first. The bold content is recursively
+ * italic-processed and stored under a placeholder (PUA chars), so the
+ * italic pass sees only plain text + opaque markers. Both directions
+ * of nesting (italic-in-bold and bold-in-italic) work.
+ *
+ * Bold's inner-content regex `(?:[^*\n]|\*[^*\n]+?\*)+?` allows either
+ * plain non-asterisk chars OR an `*…*` italic pair, so a bold can
+ * still match across embedded italic — same pattern, mirrored for `__`.
+ */
+const processInline = (text: string): string => {
+  const sanctuaries = new Map<string, string>();
+  let counter = 0;
+  const issue = (): string => `${BOLD_PH_OPEN}${counter++}${BOLD_PH_CLOSE}`;
+
+  text = text.replace(/\*\*((?:[^*\n]|\*[^*\n]+?\*)+?)\*\*/g, (_match, inner: string) => {
+    const innerProcessed = processItalic(inner);
+    const ph = issue();
+    sanctuaries.set(
+      ph,
+      `<span class="md-bold"><span class="md-syntax">**</span>${innerProcessed}<span class="md-syntax">**</span></span>`,
+    );
+    return ph;
+  });
+  text = text.replace(/__((?:[^_\n]|_[^_\n]+?_)+?)__/g, (_match, inner: string) => {
+    const innerProcessed = processItalic(inner);
+    const ph = issue();
+    sanctuaries.set(
+      ph,
+      `<span class="md-bold"><span class="md-syntax">__</span>${innerProcessed}<span class="md-syntax">__</span></span>`,
+    );
+    return ph;
+  });
+
+  text = processItalic(text);
+
+  for (const [ph, html] of sanctuaries) {
+    if (text.includes(ph)) text = text.split(ph).join(html);
+  }
   return text;
 };
 

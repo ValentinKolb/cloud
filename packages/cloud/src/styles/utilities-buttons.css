@@ -98,6 +98,17 @@
   @apply dark:hover:bg-blue-900 dark:hover:border-blue-700;
 }
 
+@utility btn-input-primary {
+  @apply btn-input bg-white text-blue-600 border-blue-400;
+  @apply hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500;
+  @apply active:bg-blue-100 active:border-blue-500;
+  @apply focus-visible:bg-white focus-visible:border-blue-500;
+  @apply dark:bg-transparent dark:text-blue-400 dark:border-blue-400;
+  @apply dark:hover:bg-blue-950 dark:hover:text-blue-300 dark:hover:border-blue-400;
+  @apply dark:active:bg-blue-900;
+  @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:border-blue-400;
+}
+
 /* Input: grey bg + matching border unfocused, white bg + blue border on focus */
 @utility input {
   padding: var(--theme-input-py) var(--theme-input-px);

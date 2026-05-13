@@ -28,12 +28,25 @@ type TextInputProps = {
    */
   markdown?: boolean;
   /**
-   * Called when Enter is pressed (without Shift/Cmd) in multiline mode.
-   * Useful for submitting forms with Enter while keeping Shift+Enter for newlines.
+   * Called when the user submits the field. The trigger differs by mode:
+   *
+   *   - `multiline` (plain textarea): bare Enter fires onSubmit;
+   *     Shift+Enter inserts a newline.
+   *   - `markdown`: Cmd/Ctrl+Enter fires onSubmit. Bare Enter is reserved
+   *     for newlines and smart list continuation — submitting on bare
+   *     Enter would be hostile in a prose / multi-paragraph editor.
+   *   - Single-line: not fired (the form's own Enter handling applies).
    */
   onSubmit?: () => void;
   /** Approximate visible lines for multiline mode. Overrides default height. */
   lines?: number;
+  /**
+   * AutoText dictionary for markdown mode — typing a key followed by a
+   * word-boundary (space, punctuation, newline) replaces the key with
+   * its value verbatim. Case-insensitive lookup; the dictionary value
+   * is inserted literally. Ignored outside `markdown={true}`.
+   */
+  abbreviations?: Record<string, string>;
   /**
    * Mobile keyboard hint. Pass-through to the underlying `<input>`.
    * Use "numeric" for digits-only inputs, "decimal" for floats,
@@ -122,6 +135,8 @@ const TextInput = (props: TextInputProps) => {
           disabled={disabled()}
           lines={props.lines}
           maxLength={props.maxLength}
+          abbreviations={props.abbreviations}
+          error={!!props.error?.()}
           ariaLabel={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
           ariaDescribedBy={a11y.ariaDescribedBy()}
           ariaInvalid={!!props.error?.()}

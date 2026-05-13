@@ -380,6 +380,16 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
   );
   const [markdownEmpty, setMarkdownEmpty] = createSignal("");
   const [markdownError, setMarkdownError] = createSignal("# title\nNot long enough.");
+  const [markdownAbbr, setMarkdownAbbr] = createSignal(
+    "Type one of the abbreviations followed by a space:\n\n- mfg\n- lg\n- bsnk\n- asap\n- adr",
+  );
+  const demoAbbreviations: Record<string, string> = {
+    mfg: "Mit freundlichen Grüßen",
+    lg: "Liebe Grüße",
+    bsnk: "beschädigt aber nicht kaputt",
+    asap: "as soon as possible",
+    adr: "Musterstraße 12, 12345 Musterstadt",
+  };
   const [numberValue, setNumberValue] = createSignal<number | null>(42);
   const [numberOptional, setNumberOptional] = createSignal<number | null>(null);
   const [percentValue, setPercentValue] = createSignal<number | null>(25);
@@ -840,12 +850,12 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
           />
           <TextInput
             label="With error state"
-            description="Errors render via the standard InputWrapper chrome."
+            description="Editor border turns red; error message renders below via InputWrapper. Type more characters to clear."
             markdown
             lines={4}
             value={markdownError}
             onInput={setMarkdownError}
-            error={() => (markdownError().length < 20 ? "Needs at least 20 characters" : undefined)}
+            error={() => (markdownError().length < 50 ? "Needs at least 50 characters" : undefined)}
           />
           <TextInput
             label="Disabled"
@@ -854,6 +864,20 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
             value={markdownValue}
             onInput={setMarkdownValue}
             disabled
+          />
+          <TextInput
+            label="With AutoText abbreviations"
+            description={
+              "Custom shortcuts. Type the key + space/punctuation to expand. Cmd/Ctrl+Z or Backspace immediately after reverts. Dictionary: " +
+              Object.entries(demoAbbreviations)
+                .map(([k, v]) => `${k} → "${v}"`)
+                .join(", ")
+            }
+            markdown
+            lines={6}
+            value={markdownAbbr}
+            onInput={setMarkdownAbbr}
+            abbreviations={demoAbbreviations}
           />
         </div>
       </Section>
@@ -1363,7 +1387,7 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
                       <i class="ti ti-search" />
                       Search
                     </button>
-                    <button type="button" class="btn-primary btn-sm">
+                    <button type="button" class="btn-input-primary btn-input-sm">
                       <i class="ti ti-plus" />
                       New Item
                     </button>
@@ -1549,7 +1573,7 @@ export default function UiLabShowcase(props: UiLabShowcaseProps) {
                       <i class="ti ti-search" />
                       Search
                     </button>
-                    <button type="button" class="btn-primary btn-sm">
+                    <button type="button" class="btn-input-primary btn-input-sm">
                       <i class="ti ti-plus" />
                       New Note
                     </button>

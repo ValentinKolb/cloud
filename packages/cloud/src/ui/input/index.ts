@@ -1,4 +1,5 @@
 export { default as TextInput } from "./TextInput";
+export { default as MarkdownEditor, type MarkdownEditorProps } from "./markdown/MarkdownEditor";
 export { default as NumberInput } from "./NumberInput";
 export { Checkbox, CheckboxInput } from "./Checkbox";
 export { Select, SelectInput } from "./Select";

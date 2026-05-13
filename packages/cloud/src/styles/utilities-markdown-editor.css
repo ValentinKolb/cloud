@@ -8,8 +8,10 @@
 
    All glyph-affecting properties on `.md-editor-layer` use `!important` to
    defeat any cascading style that would shift the layers relative to each
-   other. Headers are styled via font-weight + color ONLY (no font-size
-   change) — varying font-size desyncs the wrap points between layers. */
+   other. No font-size, font-weight, or font-style is ever varied between
+   the textarea and inner preview spans — bold uses a text-shadow trick,
+   italic uses colour. Any real weight/style change risks glyph-width
+   drift even on nominally monospace fonts. */
 
 .md-editor {
   position: relative;
@@ -29,6 +31,15 @@
 
 .md-editor[data-disabled="true"] {
   @apply opacity-50 cursor-not-allowed;
+}
+
+/* Error state — red border, both unfocused and focused, mirroring how
+   the standard `.input` utility would visually signal an error. The
+   error MESSAGE itself is rendered separately by `InputWrapper` below
+   the editor. */
+.md-editor[data-error="true"],
+.md-editor[data-error="true"]:focus-within {
+  @apply border-red-400 dark:border-red-500;
 }
 
 /* Toolbar bar above the editor surface */
@@ -52,9 +63,18 @@
   font-size: 0.95rem;
 }
 
+/* Active formatting at the caret — blue tint + faint blue background
+   so the active state is unmistakable at a glance, without becoming
+   visually loud. Hover on an active button keeps the blue surface
+   tone (not the zinc one) so the colour doesn't flicker. */
 .md-editor-tool[aria-pressed="true"] {
-  @apply bg-zinc-200 text-zinc-900;
-  @apply dark:bg-zinc-700 dark:text-zinc-100;
+  @apply text-blue-600 bg-blue-50;
+  @apply dark:text-blue-400 dark:bg-blue-950/40;
+}
+
+.md-editor-tool[aria-pressed="true"]:hover {
+  @apply bg-blue-100 text-blue-700;
+  @apply dark:bg-blue-900/40 dark:text-blue-300;
 }
 
 .md-editor-tool-sep {
@@ -71,27 +91,61 @@
 .md-editor-layer {
   /* These properties MUST be identical on textarea and preview.
      `!important` because user-agent textarea defaults + any stray rule
-     could otherwise shift one layer relative to the other. */
+     could otherwise shift one layer relative to the other.
+
+     Bold + italic are NOT done via font-weight / font-style on this
+     layer — see the rules further down. We rely on text-shadow for
+     fake-bold and colour-only for italic so the glyph advance widths
+     stay identical between the textarea and the preview. */
   position: absolute !important;
   inset: 0 !important;
   display: block !important;
 
-  /* Typography — identical glyph metrics on both layers */
-  font-family: var(--font-mono) !important;
+  /* Typography — identical glyph metrics on both layers.
+     Every property here is locked down so the textarea and preview
+     can never disagree on glyph advance widths. The four critical
+     subtleties:
+       1. `font-synthesis: none` — only-loaded weights (400/500/600
+          for IBM Plex Mono) get used. Asking for 700 would synthesise
+          a faux-bold, and synthesised bold does NOT preserve mono
+          glyph widths.
+       2. `font-variant-ligatures: none` + `font-feature-settings`
+          disable ligatures (`==` → `≡` etc.) and contextual
+          alternates. Both reshape glyph runs and break alignment.
+       3. `letter-spacing: 0` (NOT `normal`) — `normal` lets the font
+          decide and some shells inject a fractional value.
+       4. `text-rendering: geometricPrecision` — disables kerning so
+          even non-monospace fallback fonts don't shift glyph X
+          positions across layers. */
+  /* IBM Plex Mono is shipped via @fontsource (regular + italic + 500
+     + 600 weights — see global.css). Pinning the font here means the
+     editor looks identical across OSes and we control the italic
+     variant precisely. The bold/heading "weight" is faked via
+     text-shadow further down so we never actually request a weight
+     the loaded font lacks. The trailing `monospace` is a last-ditch
+     fallback if Plex Mono ever fails to load. */
+  font-family: "IBM Plex Mono", monospace !important;
   font-size: 0.875rem !important; /* 14px */
   line-height: 1.55 !important;
   font-weight: 400 !important;
   font-style: normal !important;
   font-variant: normal !important;
+  font-variant-ligatures: none !important;
+  font-variant-numeric: tabular-nums !important;
+  font-variant-position: normal !important;
   font-stretch: normal !important;
   font-kerning: none !important;
-  font-feature-settings: normal !important;
-  letter-spacing: normal !important;
-  word-spacing: normal !important;
+  font-synthesis: none !important;
+  -webkit-font-synthesis: none !important;
+  font-feature-settings: "liga" 0, "clig" 0, "calt" 0 !important;
+  font-variation-settings: normal !important;
+  font-optical-sizing: none !important;
+  letter-spacing: 0 !important;
+  word-spacing: 0 !important;
   text-align: left !important;
   text-indent: 0 !important;
   text-transform: none !important;
-  text-rendering: auto !important;
+  text-rendering: geometricPrecision !important;
 
   /* Box model */
   padding: 0.625rem 0.75rem !important;
@@ -116,9 +170,15 @@
   min-width: 0 !important;
   max-width: none !important;
 
-  /* Scrolling — only the textarea scrolls; preview is scroll-synced */
-  overflow-y: auto !important;
+  /* Scrolling — both layers must reserve scrollbar space identically
+     or the content widths diverge and long lines wrap at different
+     columns. We force `overflow-y: scroll` on both so the gutter is
+     always present. The textarea shows its native scrollbar; the
+     preview's scrollbar is rendered but painted transparent (see
+     `.md-editor-preview` block) — the gutter stays, the visual goes. */
+  overflow-y: scroll !important;
   overflow-x: hidden !important;
+  scrollbar-width: thin !important;
 
   /* Background neutralised — wrapper owns the surface color */
   background: transparent !important;
@@ -134,12 +194,20 @@
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
-  /* Hide own glyphs, show only cursor */
+  /* Hide own glyphs, show only cursor.
+     `caret-color` must be an explicit colour, NOT `currentColor` — the
+     textarea's own `color` is `transparent`, so `currentColor` would
+     resolve to transparent and the cursor would vanish. We mirror the
+     preview's prose colour (zinc-900 light / zinc-100 dark). */
   color: transparent !important;
   -webkit-text-fill-color: transparent !important;
-  caret-color: currentColor !important;
+  caret-color: #18181b !important; /* zinc-900 */
   /* Prevent mobile double-tap zoom */
   touch-action: manipulation !important;
+}
+
+.dark .md-editor-input {
+  caret-color: #f4f4f5 !important; /* zinc-100 */
 }
 
 /* Selection background visible even with transparent glyphs */
@@ -155,17 +223,63 @@
   user-select: none !important;
   -webkit-user-select: none !important;
   @apply text-zinc-900 dark:text-zinc-100;
+  /* Paint the preview's scrollbar transparent so only the textarea's
+     scrollbar (sitting on top, z-index: 2) is visible. We CAN'T set
+     `scrollbar-width: none` here — that would also remove the gutter
+     and the preview's content width would no longer match the
+     textarea's, breaking wrap alignment. The transparent-colour trick
+     preserves the gutter while hiding the visual. */
+  scrollbar-color: transparent transparent !important;
 }
 
-/* Placeholder shim — shown when the textarea is empty. Same layout
-   constraints as the layers so it doesn't shift things. */
+.md-editor-preview::-webkit-scrollbar-thumb,
+.md-editor-preview::-webkit-scrollbar-track,
+.md-editor-preview::-webkit-scrollbar-corner {
+  background: transparent !important;
+  border: 0 !important;
+}
+
+/* Critical alignment safeguard (overtype lesson, styles.js:256-264):
+   force EVERY descendant inside the preview to inherit font-family,
+   font-size, and line-height from the preview itself. Without this,
+   external CSS (Tailwind base, @tailwindcss/typography, etc.) can
+   set element-specific font-size on, say, `<span>` or implicit
+   `<h2>` elements. Any such per-element metric difference inflates
+   the line-box height and drifts the overlay relative to the
+   textarea — visible as a "cursor far to the right of the visible
+   text" symptom. Also reset margin/padding/border so no inner
+   element can add box-model space the textarea doesn't have. */
+.md-editor-preview *,
+.md-editor-preview *::before,
+.md-editor-preview *::after {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  font-stretch: inherit !important;
+  letter-spacing: inherit !important;
+  word-spacing: inherit !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  text-indent: 0 !important;
+  vertical-align: baseline !important;
+  display: inline !important;
+}
+
+/* Placeholder shim — shown when the textarea is empty. MUST use the
+   exact same typography stack as `.md-editor-layer` so the cursor
+   position doesn't visibly jump when the first character is typed
+   and the placeholder fades out. */
 .md-editor-placeholder {
   position: absolute !important;
   inset: 0 !important;
   padding: 0.625rem 0.75rem !important;
-  font-family: var(--font-mono) !important;
+  font-family: "IBM Plex Mono", monospace !important;
   font-size: 0.875rem !important;
   line-height: 1.55 !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  word-spacing: 0 !important;
   pointer-events: none !important;
   user-select: none !important;
   z-index: 0 !important;
@@ -187,27 +301,50 @@
   @apply text-zinc-400 dark:text-zinc-500;
 }
 
-/* Headers — font-weight + color only, NO font-size change.
-   This is the alignment-safety compromise (Option A): headers don't
-   render at typographic scale, but the cursor lines up perfectly. */
+/* Bold + headers via `text-shadow` instead of `font-weight`.
+
+   Why: any font-weight change risks glyph-advance-width drift between
+   the textarea (locked at weight 400) and the preview. Even nominal
+   monospace fonts can have subtle weight-dependent width changes,
+   especially in browser rasterisers. `text-shadow: 0.5px 0 0
+   currentColor` paints a copy of each glyph 0.5px to the right —
+   visually equivalent to a heavier stroke, but the underlying glyph
+   advance is UNCHANGED. The cursor in the textarea (running at
+   weight 400) lines up perfectly with the visibly "bold" glyphs in
+   the preview because they ARE rendered at weight 400 underneath.
+
+   Italics: same logic — `font-style: italic` swaps in a different
+   font face whose glyph metrics may not perfectly match upright. We
+   simulate italic via colour + a transparent overlay we can't get
+   in CSS, so for italic we accept a colour-only differentiation. */
+.md-h1,
+.md-h2,
+.md-h3,
+.md-bold {
+  text-shadow: 0.5px 0 0 currentColor;
+}
+
+/* Slight tonal ladder so the heading levels are still distinguishable
+   at a glance, even though they share the same weight + size. */
 .md-h1 {
-  font-weight: 700;
+  @apply text-zinc-950 dark:text-white;
 }
 
 .md-h2 {
-  font-weight: 600;
+  @apply text-zinc-900 dark:text-zinc-50;
 }
 
 .md-h3 {
-  font-weight: 500;
+  @apply text-zinc-800 dark:text-zinc-200;
 }
 
-.md-bold {
-  font-weight: 600;
-}
-
+/* Italic: real `font-style: italic`. IBM Plex Mono Italic 400 is
+   loaded as a separate face (see global.css) and is designed as
+   monospace — its glyph advance widths match the regular face. The
+   `!important` defeats the layer-level `font-style: normal !important`
+   so the .md-italic span actually picks up italic. */
 .md-italic {
-  font-style: italic;
+  font-style: italic !important;
 }
 
 /* Inline code — background only, no width change.
@@ -244,4 +381,24 @@
    rule line without inserting layout-shifting elements. */
 .md-hr {
   @apply text-zinc-400 dark:text-zinc-500;
+}
+
+/* Stats footer — lines / words / chars, anchored at the bottom-left
+   of the editor. No border, no background tint — it inherits the
+   editor body colour and sits as a quiet meta-row separated from the
+   content only by its dim mono text and a hair of padding.
+   When the editor is empty we keep the element rendered (so the
+   editor's outer height stays constant — no layout shift across all
+   sibling fields when the user starts / clears typing) but flip
+   `visibility: hidden` to remove the stats from sight. */
+.md-editor-stats {
+  @apply flex justify-start items-center gap-3;
+  @apply px-3 py-1;
+  @apply text-[10px] text-zinc-400 dark:text-zinc-500;
+  @apply font-mono select-none;
+  letter-spacing: 0.02em;
+}
+
+.md-editor-stats[data-empty="true"] {
+  visibility: hidden;
 }

@@ -742,12 +742,16 @@ export const prompts = {
         datetime: (props, field) => <DateTimeInput {...props} dateOnly={field.dateOnly} />,
       };
 
-      // Handle form submission
-      const handleSubmit = (e: Event) => {
-        e.preventDefault();
+      const submit = () => {
         if (state.validateAll()) {
           close(state.values as InferFormValues<T>);
         }
+      };
+
+      // Handle form submission
+      const handleSubmit = (e: Event) => {
+        e.preventDefault();
+        submit();
       };
 
       // Determine button variant class
@@ -785,6 +789,7 @@ export const prompts = {
                   required: field.required,
                   value: () => state.values[key],
                   onChange: (v: any) => state.updateField(key, v),
+                  onSubmit: submit,
                   error: () => state.errors[key],
                 };
 

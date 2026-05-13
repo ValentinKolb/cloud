@@ -1,3 +1,14 @@
+/**
+ * Toolbar button strip for the markdown editor. Mouse-only by design:
+ * each button has `tabIndex=-1` so Tab navigates AROUND the editor's
+ * toolbar straight to the textarea body. Keyboard users get the same
+ * actions via `Cmd/Ctrl + B/I/E/K` and the shift-digit shortcuts.
+ *
+ * Buttons display in an active state (blue tint + faint background)
+ * when `activeFormats` contains their `id` — feedback that the caret
+ * currently sits inside a styled span. The set is computed by
+ * `active-formats.ts` and pushed in from the host component.
+ */
 import { For } from "solid-js";
 import {
   toggleBold,
@@ -13,6 +24,11 @@ import {
 type ToolbarProps = {
   /** Reactive accessor returning the textarea element (or null before mount). */
   textarea: () => HTMLTextAreaElement | null;
+  /** Reactive set of "currently active" format IDs at the caret. The
+   * button whose `id` is in the set renders in the active visual state
+   * (overtype convention — gives the user feedback that the cursor sits
+   * inside a styled span). */
+  activeFormats?: () => Set<string>;
   disabled?: boolean;
 };
 
@@ -48,7 +64,13 @@ export default function Toolbar(props: ToolbarProps) {
               class="md-editor-tool"
               title={tool.title}
               aria-label={tool.title}
+              aria-pressed={props.activeFormats?.().has(tool.id) ? "true" : undefined}
               disabled={props.disabled}
+              // tabIndex=-1 so Tab doesn't land on 10 formatting buttons
+              // before reaching the editor body. Keyboard users have all
+              // the same actions available via Cmd/Ctrl shortcuts; the
+              // toolbar stays a mouse-friendly affordance.
+              tabIndex={-1}
               // Prevent the button from stealing focus from the textarea —
               // we want the textarea to stay focused so the cursor stays
               // visible during action.

@@ -719,6 +719,12 @@ The `app-cols` class creates a responsive sidebar + content grid (sidebar hidden
 
 Note: Input components expect **accessor functions** for reactive props (e.g., `value={() => mySignal()}`, `error={() => errors().name}`).
 
+Markdown editing (overtype-style overlay: toolbar with active-state, shortcuts, smart list continuation, URL-on-selection paste, optional `abbreviations` AutoText) has two entry points:
+- `<TextInput markdown />` for form fields (wraps in standard `InputWrapper` chrome)
+- `<MarkdownEditor />` for standalone editors like email composers or full-page notes (no chrome, raw surface)
+
+Details in `references/frontend.md`.
+
 ### URL State Management
 
 Filters and pagination live in URL params (SSR-friendly).

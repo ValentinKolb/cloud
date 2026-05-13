@@ -354,6 +354,54 @@ import { TextInput, NumberInput, Select, Switch, Checkbox, TagsInput } from "@va
 />
 ```
 
+#### Markdown editing — two entry points
+
+The same overtype-style markdown editor (invisible-textarea overlay on a
+syntax-highlighted preview) is exposed in two shapes. Pick by use-case:
+
+**`<TextInput markdown />`** — for **form fields**. Wraps the editor in the
+standard `InputWrapper` chrome so it inherits label / description / error
+rendering and matches the visual rhythm of `TextInput`, `NumberInput`, etc.
+in a form column.
+
+```jsx
+<TextInput
+  markdown
+  label="Description"
+  value={() => description()}
+  onInput={setDescription}
+  lines={8}
+  abbreviations={{ mfg: "Mit freundlichen Grüßen", lg: "Liebe Grüße" }}
+/>
+```
+
+**`<MarkdownEditor />`** — for **standalone editors** (email composer,
+full-page note, doc body). No `InputWrapper`, no label slot — the
+surrounding UI provides its own context. Same prop shape as the TextInput
+markdown branch otherwise; `error` is a `boolean` flag (just toggles the
+red border) rather than an accessor returning a message string, since
+there's no chrome to render the message itself.
+
+```jsx
+<MarkdownEditor
+  value={() => body()}
+  onInput={setBody}
+  onSubmit={send}                          // Cmd/Ctrl+Enter — bare Enter never submits
+  placeholder="Write your message…"
+  lines={20}
+  abbreviations={signatureDict}
+  spellcheck
+/>
+```
+
+Both share: toolbar (B/I/code/link/H1-3/lists/quote with active-state on
+the caret's current format), `Cmd/Ctrl + B/I/E/K/Shift+1-3/7/8` shortcuts,
+smart Enter in lists (auto-continues marker, exits on empty item),
+URL-on-selection paste → `[selection](url)`, optional `abbreviations` dict
+for AutoText expansion (Cmd+Z or immediate Backspace reverts), lines /
+words / chars footer. All mutations go through `execCommand("insertText")`
+so native undo works.
+
 ### FilterChip
 
 Dropdown filter with sections:
