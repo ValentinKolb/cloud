@@ -183,13 +183,9 @@
 .md-script-output {
   display: block;
   width: 100%;
-  /* Subtle teal-tinted card so the output reads as a distinct
-     "result" surface, not a stray div. Matches the kit's
-     interactive feel without competing with markdown content. */
-  border: 1px solid rgb(20 184 166 / 0.25); /* teal-500 / 25% */
   border-radius: 0.5rem;
   padding: 0.75rem;
-  background: rgb(20 184 166 / 0.04);
+  background: rgb(59 130 246 / 0.045);
 }
 
 /* Error box — separate visual card, sibling of the output card.
@@ -220,8 +216,7 @@
    primitives (`kit.ui.row` / `col`) handle their own flex inside. */
 
 .dark .md-script-output {
-  border-color: rgb(20 184 166 / 0.35);
-  background: rgb(20 184 166 / 0.08);
+  background: rgb(30 64 175 / 0.14);
 }
 
 /* Tight gap between adjacent block-level output (logs, headings,
@@ -346,19 +341,18 @@
   gap: 0.5rem;
 }
 
-/* Card — visually grouped block with its own border + padding. */
+/* Card — visually grouped block with padding only; the script block
+   already provides the containing surface. */
 .md-script-ui-card {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  border: 1px solid rgb(228 228 231); /* zinc-200 */
   border-radius: 0.375rem;
   padding: 0.75rem;
-  background: rgb(255 255 255 / 0.4);
+  background: rgb(255 255 255);
 }
 .dark .md-script-ui-card {
-  border-color: rgb(63 63 70); /* zinc-700 */
-  background: rgb(0 0 0 / 0.2);
+  background: rgb(24 24 27);
 }
 
 /* Reset margin-top inheritance from the output container's

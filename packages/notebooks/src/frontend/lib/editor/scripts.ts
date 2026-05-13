@@ -820,9 +820,9 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
     },
     ".cm-script-output-frame": {
       boxSizing: "border-box",
-      border: "1px solid rgb(59 130 246 / 0.32)",
+      border: "0",
       borderRadius: "6px",
-      backgroundColor: "rgb(59 130 246 / 0.035)",
+      backgroundColor: "rgb(59 130 246 / 0.045)",
       padding: "0.5rem",
     },
     ".cm-script-output-header": {
@@ -856,7 +856,6 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
       marginTop: "0.5rem",
     },
     ".dark .cm-script-output-frame": {
-      borderColor: "rgb(96 165 250 / 0.36)",
       backgroundColor: "rgb(30 64 175 / 0.14)",
     },
     ".dark .cm-script-output-header": {

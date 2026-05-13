@@ -53,9 +53,8 @@ const ACTION_BTN = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimm
  * documents (no `gap-*` needed, no per-section `<solid-island>` wrappers
  * fighting `:first-child`).
  *
- * Visibility is closed via the toolbar's panel-toggle button; there is no
- * close button inside the panel itself — that's intentional and lets the
- * sections live edge-to-edge without a header bar.
+ * Visibility is controlled via the toolbar's panel-toggle button and the
+ * mobile-only "Close panel" action inside the panel.
  *
  * Event flow (all through window CustomEvents, see `events.ts`):
  *  - editor toolbar / readonly footer → DETAIL_PANEL_TOGGLE_EVENT → toggles open
@@ -110,6 +109,11 @@ export default function NotebookDetailPanel(props: Props) {
     const next = !open();
     setOpen(next);
     setDetailPanelOpen(next);
+  };
+
+  const closePanel = () => {
+    setOpen(false);
+    setDetailPanelOpen(false);
   };
 
   // Broadcast open state so the editor toolbar's toggle button can flip its
@@ -318,6 +322,11 @@ export default function NotebookDetailPanel(props: Props) {
       <section class="detail-section">
         <h3 class="detail-section-label">Actions</h3>
         <div class="flex flex-col gap-0.5">
+          <button type="button" class={`${ACTION_BTN} lg:hidden`} onClick={closePanel}>
+            <i class="ti ti-layout-sidebar-right-collapse" />
+            <span>Close panel</span>
+          </button>
+
           <Show when={props.mode === "edit"}>
             <button type="button" class={ACTION_BTN} onClick={toggleRichMode}>
               <i class={`ti ${isRich() ? "ti-markdown" : "ti-typography"}`} />
