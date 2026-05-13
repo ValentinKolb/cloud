@@ -91,6 +91,11 @@ type DbNoteVersion = {
 
 const VERSION_MIN_INTERVAL = "5 minutes";
 
+const toPgUuidArray = (values: string[] | null | undefined): string => {
+  if (!Array.isArray(values) || values.length === 0) return "{}";
+  return `{${values.join(",")}}`;
+};
+
 // ==========================
 // Helpers
 // ==========================
@@ -121,6 +126,18 @@ const mapToNoteWithContent = (row: DbNote): NoteWithContent => ({
   ...mapToNote(row),
   yjsSnapshot: row.yjs_snapshot ? row.yjs_snapshot.toString("base64") : null,
 });
+
+const parentExistsInNotebook = async (parentId: string, notebookId: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1
+      FROM notebooks.notes
+      WHERE id = ${parentId}::uuid
+        AND notebook_id = ${notebookId}::uuid
+    ) AS exists
+  `;
+  return row?.exists ?? false;
+};
 
 /**
  * Converts one version row into the lightweight note-version DTO for history views.
@@ -453,15 +470,37 @@ export const getWithContent = async (params: { id: string }): Promise<NoteWithCo
  */
 export const resolveShortIdsToNotebookShortIds = async (params: {
   shortIds: string[];
+  userId: string | null;
+  userGroups: string[];
+  bypassAccess?: boolean;
 }): Promise<Map<string, { notebookShortId: string; noteShortId: string }>> => {
   if (params.shortIds.length === 0) return new Map();
   const arr = `{${params.shortIds.join(",")}}`;
-  const rows = await sql<{ note_short_id: string; notebook_short_id: string }[]>`
-    SELECT n.short_id AS note_short_id, nb.short_id AS notebook_short_id
-    FROM notebooks.notes n
-    JOIN notebooks.notebooks nb ON nb.id = n.notebook_id
-    WHERE n.short_id = ANY(${arr}::text[])
-  `;
+  const rows = params.bypassAccess
+    ? await sql<{ note_short_id: string; notebook_short_id: string }[]>`
+      SELECT n.short_id AS note_short_id, nb.short_id AS notebook_short_id
+      FROM notebooks.notes n
+      JOIN notebooks.notebooks nb ON nb.id = n.notebook_id
+      WHERE n.short_id = ANY(${arr}::text[])
+    `
+    : await sql<{ note_short_id: string; notebook_short_id: string }[]>`
+      SELECT n.short_id AS note_short_id, nb.short_id AS notebook_short_id
+      FROM notebooks.notes n
+      JOIN notebooks.notebooks nb ON nb.id = n.notebook_id
+      WHERE n.short_id = ANY(${arr}::text[])
+        AND EXISTS (
+          SELECT 1
+          FROM notebooks.notebook_access na
+          JOIN auth.access a ON a.id = na.access_id
+          WHERE na.notebook_id = n.notebook_id
+            AND (
+              a.user_id = ${params.userId}::uuid
+              OR a.group_id = ANY(${toPgUuidArray(params.userGroups)}::uuid[])
+              OR (${params.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+              OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+            )
+        )
+    `;
   const map = new Map<string, { notebookShortId: string; noteShortId: string }>();
   for (const r of rows) {
     map.set(r.note_short_id, { notebookShortId: r.notebook_short_id, noteShortId: r.note_short_id });
@@ -493,6 +532,10 @@ export const getWithContentByIdOrShortId = async (params: { idOrShortId: string 
  */
 export const create = async (params: { data: CreateNote; creatorId: string | null }): Promise<MutationResult<Note>> => {
   const { data, creatorId } = params;
+
+  if (data.parentId && !(await parentExistsInNotebook(data.parentId, data.notebookId))) {
+    return { ok: false, error: "Parent note not found in notebook", status: 404 };
+  }
 
   // Get next position if not provided
   let position = data.position;
@@ -562,6 +605,10 @@ export const update = async (params: { id: string; data: UpdateNote }): Promise<
 
   // Prevent moving note to be its own descendant
   if (parentId !== existing.parentId && parentId !== null) {
+    if (!(await parentExistsInNotebook(parentId, existing.notebookId))) {
+      return { ok: false, error: "Parent note not found in notebook", status: 404 };
+    }
+
     const isDescendant = await checkIsDescendant(id, parentId);
     if (isDescendant) {
       return {
@@ -1018,11 +1065,6 @@ type DbNoteAcross = DbNote & {
   notebook_short_id: string;
   notebook_name: string;
   notebook_icon: string | null;
-};
-
-const toPgUuidArray = (values: string[] | null | undefined): string => {
-  if (!Array.isArray(values) || values.length === 0) return "{}";
-  return `{${values.join(",")}}`;
 };
 
 export type NoteAcrossResult = {

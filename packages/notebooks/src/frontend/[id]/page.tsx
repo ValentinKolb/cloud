@@ -66,6 +66,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const isAdmin = permission === "admin";
   const canWrite = permission === "write" || isAdmin;
+  const canRunScripts = notebook.scriptsEnabled && isAdmin;
 
   // Check mode
   const mode = c.req.query("mode");
@@ -78,6 +79,12 @@ export default ssr<AuthContext>(async (c) => {
   // Load note tree
   const tree = await notebooksService.note.getTree({ notebookId });
 
+  const resolveNoteInNotebook = async (idOrShortId: string | null | undefined): Promise<string | null> => {
+    if (!idOrShortId) return null;
+    const note = await notebooksService.note.getByIdOrShortId({ idOrShortId });
+    return note?.notebookId === notebookId ? note.id : null;
+  };
+
   // Load access entries for settings mode (admin only)
   const accessEntries = isSettingsMode && isAdmin ? (await notebooksService.notebook.access.list({ notebookId })).items : [];
 
@@ -86,13 +93,12 @@ export default ssr<AuthContext>(async (c) => {
   // (or, tolerantly, a UUID). We resolve to the canonical UUID once
   // here so everything below stays UUID-driven.
   const cookieHeader = c.req.header("Cookie");
-  const settings = parseSettings(cookieHeader, notebookId);
+  const settings = parseSettings(cookieHeader, notebook.shortId);
   const detailPanelOpen = parseDetailPanelOpen(cookieHeader);
   const noteParam = c.req.param("noteId");
-  const resolvedFromPath = noteParam
-    ? (await notebooksService.note.getByIdOrShortId({ idOrShortId: noteParam }))?.id ?? null
-    : null;
-  const selectedNoteId = resolvedFromPath ?? settings.lastNoteId ?? tree[0]?.id ?? null;
+  const resolvedFromPath = await resolveNoteInNotebook(noteParam);
+  const resolvedFromCookie = await resolveNoteInNotebook(settings.lastNoteId);
+  const selectedNoteId = resolvedFromPath ?? resolvedFromCookie ?? tree[0]?.id ?? null;
 
   // Load selected note content (Yjs snapshot) for SSR → editor.
   // Also pull metadata used by the detail panel's Info section.
@@ -118,7 +124,7 @@ export default ssr<AuthContext>(async (c) => {
     if (isVersionsMode) {
       // Only metadata for version history (no Yjs content needed)
       const noteMeta = await notebooksService.note.get({ id: selectedNoteId });
-      if (noteMeta) {
+      if (noteMeta?.notebookId === notebookId) {
         selectedNote = {
           id: noteMeta.id,
           shortId: noteMeta.shortId,
@@ -138,7 +144,7 @@ export default ssr<AuthContext>(async (c) => {
       const noteWithContent = await notebooksService.note.getWithContent({
         id: selectedNoteId,
       });
-      if (noteWithContent) {
+      if (noteWithContent?.notebookId === notebookId) {
         // Force read mode for locked notes
         const isNoteLocked = !!noteWithContent.lockedAt;
         const shouldRenderHtml = isReadMode || isNoteLocked || !canWrite;
@@ -153,10 +159,15 @@ export default ssr<AuthContext>(async (c) => {
         const noteLinkShortIds = notebooksService.note.extractLinks(noteWithContent.contentMd);
         const [referencedAttachments, noteLinkResolutions] = await Promise.all([
           attachmentShortIds.length > 0
-            ? notebooksService.attachment.listByShortIds({ shortIds: attachmentShortIds })
+            ? notebooksService.attachment.listByShortIds({ shortIds: attachmentShortIds, notebookId })
             : Promise.resolve([]),
           noteLinkShortIds.length > 0
-            ? notebooksService.note.resolveShortIdsToNotebookShortIds({ shortIds: noteLinkShortIds })
+            ? notebooksService.note.resolveShortIdsToNotebookShortIds({
+                shortIds: noteLinkShortIds,
+                userId: user.id,
+                userGroups: user.memberofGroupIds,
+                bypassAccess: hasRole(user, "admin"),
+              })
             : Promise.resolve(new Map<string, { notebookShortId: string; noteShortId: string }>()),
         ]);
         const shortIdToFilename = new Map(referencedAttachments.map((a) => [a.shortId, a.filename]));
@@ -205,9 +216,9 @@ export default ssr<AuthContext>(async (c) => {
   // Backlinks: only loaded for actual note views (skip settings + versions
   // modes). Cheap query; rendered server-side via SSR — no client fetch.
   const backlinks =
-    selectedNoteId && !isSettingsMode && !isVersionsMode && !isGraphMode
+    selectedNote && !isSettingsMode && !isVersionsMode && !isGraphMode
       ? await notebooksService.note.backlinks.list({
-          noteId: selectedNoteId,
+          noteId: selectedNote.id,
           userId: user.id,
           userGroups: user.memberofGroupIds,
           bypassAccess: hasRole(user, "admin"),
@@ -250,7 +261,7 @@ export default ssr<AuthContext>(async (c) => {
   // `extractIds` returns short-ids (the form carried in `attach://`).
   const panelAttachmentShortIds = showDetailPanel ? notebooksService.attachment.extractIds(selectedNote!.contentMd) : [];
   const panelAttachments = panelAttachmentShortIds.length > 0
-    ? await notebooksService.attachment.listByShortIds({ shortIds: panelAttachmentShortIds })
+    ? await notebooksService.attachment.listByShortIds({ shortIds: panelAttachmentShortIds, notebookId })
     : [];
 
   return () => (
@@ -298,7 +309,7 @@ export default ssr<AuthContext>(async (c) => {
                 noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
-                scriptsEnabled={notebook.scriptsEnabled}
+                scriptsEnabled={canRunScripts}
                 noteShortId={selectedNote.shortId}
                 noteContent={selectedNote.contentMd ?? ""}
                 noteCreatedAt={selectedNote.createdAt}
@@ -314,7 +325,7 @@ export default ssr<AuthContext>(async (c) => {
                 noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
                 notebookId={notebook.shortId}
-                scriptsEnabled={notebook.scriptsEnabled}
+                scriptsEnabled={canRunScripts}
                 noteShortId={selectedNote.shortId}
                 noteCreatedAt={selectedNote.createdAt}
                 noteUpdatedAt={selectedNote.updatedAt}

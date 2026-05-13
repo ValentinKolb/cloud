@@ -105,8 +105,10 @@ const NoteVersionSchema = z.object({
 
 const BacklinkSchema = z.object({
   noteId: z.uuid(),
+  noteShortId: z.string(),
   title: z.string(),
   notebookId: z.uuid(),
+  notebookShortId: z.string(),
   notebookName: z.string(),
   updatedAt: z.string(),
 });
@@ -254,6 +256,18 @@ const requireNoteInNotebook = async (notebookId: string, noteIdOrShortId: string
   }
   return ok(note);
 };
+
+const fileTooLarge = (maxBytes: number) =>
+  new Response(
+    JSON.stringify({
+      message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`,
+      code: "PAYLOAD_TOO_LARGE",
+    }),
+    {
+      status: 413,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 
 // ==========================
 // Routes
@@ -727,11 +741,12 @@ const app = new Hono<AuthContext>()
       const { targetNotebookId, targetParentId } = c.req.valid("json");
 
       // Check source notebook access (read)
-      const { error: sourceError } = await checkNotebookAccess(c, notebookId);
+      const { notebook: sourceNotebook, error: sourceError } = await checkNotebookAccess(c, notebookId);
       if (sourceError) return sourceError;
+      notebookId = sourceNotebook!.id;
 
       // Check target notebook access (write)
-      const { error: targetError } = await checkNotebookAccess(c, targetNotebookId, "write");
+      const { notebook: targetNotebook, error: targetError } = await checkNotebookAccess(c, targetNotebookId, "write");
       if (targetError) return targetError;
 
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
@@ -741,7 +756,7 @@ const app = new Hono<AuthContext>()
         c,
         notebooksService.note.copyToNotebook({
           noteId,
-          targetNotebookId,
+          targetNotebookId: targetNotebook!.id,
           targetParentId,
           creatorId: user.id,
         }),
@@ -1226,12 +1241,17 @@ app
       if (error) return error;
       notebookId = notebook!.id;
 
+      const maxBytes = await getMaxAttachmentSizeBytes();
+      const contentLength = Number(c.req.header("content-length") ?? 0);
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        return fileTooLarge(maxBytes);
+      }
+
       const form = await c.req.formData().catch(() => null);
       const file = form?.get("file");
       if (!(file instanceof File)) return respond(c, fail(err.badInput("Missing 'file' field")));
-      const maxBytes = await getMaxAttachmentSizeBytes();
       if (file.size > maxBytes) {
-        return respond(c, fail(err.badInput(`File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`)));
+        return fileTooLarge(maxBytes);
       }
 
       const content = new Uint8Array(await file.arrayBuffer());
@@ -1294,16 +1314,22 @@ app
       const att = await notebooksService.attachment.getContentByIdOrShortId({ idOrShortId: attId });
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
 
-      // `inline` query → render-in-browser (images, pdfs); else attachment download
-      const inline = c.req.query("inline") === "true" || att.kind === "image";
+      const isSafeInline =
+        att.mimeType === "application/pdf" ||
+        att.mimeType === "text/plain" ||
+        (att.mimeType.startsWith("image/") && att.mimeType !== "image/svg+xml");
+      // `inline` query → render-in-browser only for inert media; else download.
+      const inline = isSafeInline && (c.req.query("inline") === "true" || att.kind === "image");
       const disposition = `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(att.filename)}"`;
       // Wrap bytea in a fresh ArrayBuffer slice — Postgres' returned
       // Uint8Array is typed `<ArrayBufferLike>` which TS rejects for `BlobPart`.
       const buffer = att.content.buffer.slice(att.content.byteOffset, att.content.byteOffset + att.content.byteLength) as ArrayBuffer;
-      return new Response(new Blob([buffer], { type: att.mimeType }), {
+      const contentType = inline ? att.mimeType : "application/octet-stream";
+      return new Response(new Blob([buffer], { type: contentType }), {
         headers: {
-          "Content-Type": att.mimeType,
+          "Content-Type": contentType,
           "Content-Disposition": disposition,
+          "X-Content-Type-Options": "nosniff",
           "Cache-Control": "private, max-age=300",
         },
       });

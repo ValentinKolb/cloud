@@ -275,10 +275,10 @@ export default function NotebookDetailPanel(props: Props) {
           <ul class="flex flex-col">
             <For each={props.backlinks}>
               {(bl) => {
-                const showNotebook = bl.notebookId !== props.currentNotebookId;
+                const showNotebook = bl.notebookShortId !== props.currentNotebookId;
                 return (
                   <li>
-                    <a href={`/app/notebooks/${bl.notebookId}?note=${bl.noteId}`} class="detail-row hover:text-blue-500">
+                    <a href={`/app/notebooks/${bl.notebookShortId}/notes/${bl.noteShortId}`} class="detail-row hover:text-blue-500">
                       <i class="ti ti-file-text detail-row-icon" />
                       <span class="truncate">{bl.title || "Untitled"}</span>
                       {showNotebook && (

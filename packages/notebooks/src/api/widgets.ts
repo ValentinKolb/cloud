@@ -18,8 +18,8 @@ const app = new Hono<AuthContext>()
   .use(auth.requireRole("*"))
   .get("/recent", async (c) => {
     const user = c.get("user");
-    // 403 = unauthenticated; signed-in users always have access (data may be empty → 204).
-    if (!user) return c.body(null, 403);
+    // Anonymous dashboard probes should silently skip this widget.
+    if (!user) return c.body(null, 204);
 
     // Defensive: `memberofGroupIds` is typed `string[]` but the runtime sometimes
     // hands us a Postgres array literal ("{}") that wasn't unwrapped by the

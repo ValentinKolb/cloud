@@ -167,13 +167,14 @@ export const listByIds = async (params: { ids: string[] }): Promise<Attachment[]
  *  it has just extracted `attach://<shortId>` refs from a markdown body
  *  and needs filenames for the file-pill rendering. Single batched
  *  query, served from the unique `short_id` index. */
-export const listByShortIds = async (params: { shortIds: string[] }): Promise<Attachment[]> => {
+export const listByShortIds = async (params: { shortIds: string[]; notebookId?: string }): Promise<Attachment[]> => {
   if (params.shortIds.length === 0) return [];
   const arr = `{${params.shortIds.join(",")}}`;
   const rows = await sql<DbRow[]>`
     SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
     FROM notebooks.attachments
     WHERE short_id = ANY(${arr}::text[])
+      AND (${params.notebookId ?? null}::uuid IS NULL OR notebook_id = ${params.notebookId ?? null}::uuid)
   `;
   return rows.map(mapRow);
 };
