@@ -341,18 +341,18 @@ export default function NoteEditor(props: Props) {
     view.dispatch({ selection: { anchor: lineFrom }, scrollIntoView: true });
   };
 
-  const focusEditor = (attempts = 0): boolean => {
+  const focusEditor = (attempts = 0, target: "start" | "end" = "start"): boolean => {
     const view = editorView();
     if (!view) {
       if (attempts < 8) {
         requestAnimationFrame(() => {
-          focusEditor(attempts + 1);
+          focusEditor(attempts + 1, target);
         });
       }
       return false;
     }
 
-    const at = view.state.doc.length;
+    const at = target === "end" ? view.state.doc.length : 0;
     view.dispatch({
       selection: { anchor: at },
       scrollIntoView: true,
@@ -462,7 +462,7 @@ export default function NoteEditor(props: Props) {
           const target = event.target as HTMLElement | null;
           if (target?.closest(".cm-editor")) return;
           event.preventDefault();
-          if (focusEditor()) {
+          if (focusEditor(0, "end")) {
             const view = editorView();
             if (view) {
               markCursorActivity(view);
