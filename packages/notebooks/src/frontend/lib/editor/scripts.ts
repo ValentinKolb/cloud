@@ -9,26 +9,26 @@
  *
  * # Architecture — minimal, mirrors the homepage app's `code` ext
  *
- * Each `\`\`\`script` block gets ONE additive `Decoration.widget`
- * (NOT `Decoration.replace`) anchored at the end of the closing-fence
- * line with `side: 1` as an inline widget. CSS makes the widget
- * visually block-level. The widget hosts the kit-driven UI (buttons,
- * toasts, error blocks). The source code itself is UNTOUCHED — it
- * stays as plain markdown so cursor / selection / mouse interactions
- * all work exactly like a regular ` ```js ` fence.
+ * Each `\`\`\`script` block gets ONE additive output `Decoration.widget`
+ * anchored at the end of the closing-fence line with `side: 1` as an
+ * inline widget. CSS makes the widget visually block-level. The widget
+ * hosts the kit-driven UI (buttons, toasts, error blocks). The source
+ * stays visible while the cursor is in or near the fence; otherwise
+ * the source range is collapsed with the same table-style replace /
+ * atomic-ranges pattern and the output frame's header becomes the
+ * visible "Script" affordance.
  *
- * No `estimatedHeight`, no `requestMeasure`, no fold support, no
- * decoration on the source — every previous attempt at adding any
- * of those caused the "ArrowUp jumps to a random script block"
- * regression. CM measures the widget DOM after mount and adjusts
- * layout heights from there; trust that.
+ * No `requestMeasure`, no fold support — every previous attempt at
+ * auto-folding caused the "ArrowUp jumps to a random script block"
+ * regression. Source collapsing is table-style `Decoration.replace`
+ * with a zero-height placeholder and atomic ranges; the runtime output
+ * remains the stable inline widget below the fence.
  *
  * # Output widget — runtime isolation
  *
- * - `eq()` is source-only — re-runs on positional shifts would
- *   cost a kit invocation each time, which means network calls /
- *   Y.Doc transactions for shifts that have nothing to do with
- *   the script.
+ * - `updateDOM()` reuses the output DOM and only re-runs when the
+ *   source changes. Positional shifts update header metadata without
+ *   re-invoking the script.
  * - `contenteditable=false` on the widget root keeps CM6's
  *   MutationObserver out of the kit's runtime DOM mutations
  *   (kit.ui.button, error blocks, toasts). Without this, those
@@ -127,6 +127,8 @@ const RERUN_DEBOUNCE_MS = 1200;
  *  edits create new widgets every keystroke; the DOM and its state
  *  are reused). */
 type WidgetRunState = {
+  source: string;
+  metaEl: HTMLElement;
   outputEl: HTMLElement;
   errorEl: HTMLElement;
   /** Pending debounce timer for the next script execution. */
@@ -150,11 +152,15 @@ type WidgetRunState = {
 const RUN_STATE_KEY = Symbol("kit-script-run-state");
 
 type DomWithState = HTMLElement & { [RUN_STATE_KEY]?: WidgetRunState };
+const formatScriptLineCount = (lineCount: number): string =>
+  `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
 
 class OutputWidget extends WidgetType {
   constructor(
     private readonly source: string,
     private readonly config: ScriptsConfig,
+    private readonly fromPos: number,
+    private readonly lineCount: number,
     /** Positional index of this script block within the document
      *  (0 for the first `\`\`\`script` fence, 1 for the second, …).
      *  Included in `eq()` so CM treats two scripts with the SAME
@@ -169,18 +175,15 @@ class OutputWidget extends WidgetType {
   }
 
   override eq(other: WidgetType): boolean {
-    // Source AND positional index — see ctor doc for why index is
-    // required. Two scripts with the same body at different doc
-    // positions must NOT be eq, otherwise CM's decoration-diff
-    // tries to reuse one's DOM for the other and the update cycle
-    // hangs.
-    //
-    // Note: when source DIFFERS but scriptIndex matches, eq returns
-    // false (correct — CM will then try `updateDOM` next, which we
-    // override to reuse the DOM without tearing it down).
+    // Source, source position, line count, and positional index. Any
+    // change should give `updateDOM()` a chance to refresh header
+    // metadata or schedule a source re-run while still keeping the
+    // DOM alive.
     return (
       other instanceof OutputWidget &&
       other.source === this.source &&
+      other.fromPos === this.fromPos &&
+      other.lineCount === this.lineCount &&
       other.scriptIndex === this.scriptIndex
     );
   }
@@ -205,8 +208,25 @@ class OutputWidget extends WidgetType {
 
   override toDOM(): HTMLElement {
     const root = document.createElement("div") as DomWithState;
-    root.className = "md-script-block";
+    root.className = "md-script-block cm-script-output-frame";
     root.setAttribute("contenteditable", "false");
+
+    const header = document.createElement("div");
+    header.className = "cm-script-output-header";
+
+    const icon = document.createElement("i");
+    icon.className = "ti ti-code text-sm";
+
+    const label = document.createElement("span");
+    label.className = "cm-script-output-title";
+    label.textContent = "Script";
+
+    const meta = document.createElement("span");
+    meta.className = "cm-script-output-meta";
+    meta.textContent = formatScriptLineCount(this.lineCount);
+
+    header.append(icon, label, meta);
+    root.appendChild(header);
 
     const output = document.createElement("div");
     output.className = "md-script-output";
@@ -217,6 +237,8 @@ class OutputWidget extends WidgetType {
     root.appendChild(errors);
 
     const state: WidgetRunState = {
+      source: this.source,
+      metaEl: meta,
       outputEl: output,
       errorEl: errors,
       timer: null,
@@ -248,7 +270,11 @@ class OutputWidget extends WidgetType {
     const state = (dom as DomWithState)[RUN_STATE_KEY];
     if (!state || state.disposed) return false;
     if (state.scriptIndex !== this.scriptIndex) return false;
-    this.scheduleRun(state);
+    state.metaEl.textContent = formatScriptLineCount(this.lineCount);
+    if (state.source !== this.source) {
+      state.source = this.source;
+      this.scheduleRun(state);
+    }
     return true;
   }
 
@@ -362,9 +388,10 @@ class OutputWidget extends WidgetType {
  * Returns null when the fence isn't a `script` block.
  */
 type FenceParts = { body: string };
-type ScriptRange = { from: number; to: number };
+type ScriptRange = { from: number; to: number; collapseTo: number };
 type ScriptDecorationState = {
   decorations: DecorationSet;
+  collapsedSourceDecorations: DecorationSet;
   scriptRanges: ScriptRange[];
 };
 
@@ -394,14 +421,37 @@ const parseScriptFence = (state: EditorState, node: SyntaxNode): FenceParts | nu
 // Output widget decoration
 // =============================================================================
 
+class HiddenScriptSourceWidget extends WidgetType {
+  override toDOM(): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "cm-script-source-collapsed";
+    el.setAttribute("aria-hidden", "true");
+    return el;
+  }
+
+  override eq(other: WidgetType): boolean {
+    return other instanceof HiddenScriptSourceWidget;
+  }
+
+  override ignoreEvent(): boolean {
+    return true;
+  }
+
+  override get estimatedHeight(): number {
+    return 0;
+  }
+}
+
 /**
  * Walk the doc and emit ONE additive block widget per `\`\`\`script`
- * fence, anchored just past the FencedCode end. Source is left
- * untouched.
+ * fence, anchored just past the FencedCode end. When the cursor is
+ * away from the fence, also collapse the source with a zero-height
+ * replacement. The output widget is never folded into that replace
+ * widget because it owns script runtime lifecycle state.
  *
- * The widget's `eq()` returns true for same-source widgets, so
- * unrelated edits (typing OUTSIDE the script, edits ABOVE it that
- * shift its position) don't tear down a running kit / output DOM.
+ * `updateDOM()` keeps the output DOM alive across source and position
+ * changes, so typing outside the script or moving it in the document
+ * does not tear down the running kit output.
  */
 const changeMightAffectScriptFence = (tr: Transaction): boolean => {
   let might = false;
@@ -431,18 +481,80 @@ const changesIntersectScriptRanges = (tr: Transaction, ranges: ScriptRange[]): b
   return intersects;
 };
 
-const decorateOutputs = (state: EditorState, config: ScriptsConfig): ScriptDecorationState => {
-  if (!config.scriptsEnabled()) return { decorations: Decoration.none, scriptRanges: [] };
+const cursorScriptKey = (state: EditorState, ranges: ScriptRange[]): number | null => {
+  if (ranges.length === 0) return null;
+  const cursor = state.selection.main;
+  for (const r of ranges) {
+    const prevLineStart = state.doc.lineAt(Math.max(r.from - 1, 0)).from;
+    const nextLineEnd = state.doc.lineAt(Math.min(r.to + 1, state.doc.length)).to;
+    if (cursor.from >= prevLineStart && cursor.to <= nextLineEnd) return r.from;
+  }
+  return null;
+};
+
+const isCollapsedScriptRange = (
+  collapsedSourceDecorations: DecorationSet,
+  range: ScriptRange,
+): boolean => {
+  let collapsed = false;
+  collapsedSourceDecorations.between(range.from, range.collapseTo, (from, to) => {
+    if (from === range.from && to === range.collapseTo) {
+      collapsed = true;
+      return false;
+    }
+    return undefined;
+  });
+  return collapsed;
+};
+
+const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecorationState => {
+  if (!config.scriptsEnabled()) {
+    return {
+      decorations: Decoration.none,
+      collapsedSourceDecorations: Decoration.none,
+      scriptRanges: [],
+    };
+  }
 
   const widgets: Range<Decoration>[] = [];
+  const collapsedSourceWidgets: Range<Decoration>[] = [];
   const scriptRanges: ScriptRange[] = [];
+  const cursor = state.selection.main;
   let scriptIndex = 0;
   syntaxTree(state).iterate({
     enter: (nodeRef) => {
       if (nodeRef.type.name !== "FencedCode") return;
       const parts = parseScriptFence(state, nodeRef.node);
       if (!parts) return;
-      scriptRanges.push({ from: nodeRef.from, to: nodeRef.to });
+
+      const closingLine = state.doc.lineAt(Math.max(0, nodeRef.to - 1));
+      const firstLine = state.doc.lineAt(nodeRef.from);
+      const sourceFrom = firstLine.from;
+      const sourceTo = closingLine.to;
+      const outputPos = nodeRef.to > sourceTo ? nodeRef.to : sourceTo;
+      // Keep the output widget OUTSIDE the replaced range. Most fenced-code
+      // nodes include the trailing newline, so `nodeRef.to` is safely after
+      // the closing-fence line. If the script is at EOF and there is no
+      // trailing newline, leave the closing fence visible as a fallback rather
+      // than replacing the position that owns the output widget.
+      const collapseTo = sourceTo;
+      const range = { from: sourceFrom, to: nodeRef.to, collapseTo };
+      scriptRanges.push(range);
+      const lineCount = closingLine.number - firstLine.number + 1;
+
+      const prevLine = state.doc.lineAt(Math.max(sourceFrom - 1, 0));
+      const nextLine = state.doc.lineAt(Math.min(nodeRef.to + 1, state.doc.length));
+      const sourceVisible = cursor.from >= prevLine.from && cursor.to <= nextLine.to;
+      if (!sourceVisible && collapseTo > sourceFrom) {
+        const collapsedSource = Decoration.replace({
+          widget: new HiddenScriptSourceWidget(),
+          block: true,
+          inclusiveEnd: false,
+        }).range(sourceFrom, collapseTo);
+        widgets.push(collapsedSource);
+        collapsedSourceWidgets.push(collapsedSource);
+      }
+
       // INLINE widget (block: false). This is the critical
       // difference from earlier revisions:
       //
@@ -472,19 +584,20 @@ const decorateOutputs = (state: EditorState, config: ScriptsConfig): ScriptDecor
       // `display: block`. `lineAt(nodeRef.to - 1).to` resolves to
       // the closing fence's line end regardless of whether
       // FencedCode includes the trailing `\n` in its range.
-      const closingLine = state.doc.lineAt(Math.max(0, nodeRef.to - 1));
       widgets.push(
         Decoration.widget({
-          widget: new OutputWidget(parts.body, config, scriptIndex),
+          widget: new OutputWidget(parts.body, config, sourceFrom, lineCount, scriptIndex),
           side: 1,
           // block: false (default) — INLINE widget, see comment above.
-        }).range(closingLine.to),
+        }).range(outputPos),
       );
       scriptIndex++;
     },
   });
   return {
     decorations: widgets.length > 0 ? RangeSet.of(widgets, true) : Decoration.none,
+    collapsedSourceDecorations:
+      collapsedSourceWidgets.length > 0 ? RangeSet.of(collapsedSourceWidgets, true) : Decoration.none,
     scriptRanges,
   };
 };
@@ -599,14 +712,14 @@ const arrowDownPastWidgetKeymap = (config: ScriptsConfig) =>
  * extensions in `NoteEditor.client.tsx`.
  *
  * Returns:
- *  1. The output-widget StateField — emits one additive INLINE
- *     widget per `\`\`\`script` fence at the end of the closing-fence
- *     line. The widget is styled `display: block` (see app.css) so
- *     it visually appears below the source. This shape avoids the
- *     `WidgetAfter` block-decoration cursor-jump bug we hit with
- *     earlier revisions (block widgets become "attractors" in CM's
- *     vertical-navigation scan loop).
- *  2. The ArrowDown interceptor — fixes the caret-stuck-at-
+ *  1. The script StateField — emits one additive INLINE output
+ *     widget per `\`\`\`script` fence and one zero-height source
+ *     collapse `Decoration.replace({ block: true })` when the cursor
+ *     is outside the script zone. The runtime output stays in the
+ *     inline widget shape that avoids the `WidgetAfter` cursor-jump
+ *     bug we hit with earlier revisions.
+ *  2. The output-frame theme.
+ *  3. The ArrowDown interceptor — fixes the caret-stuck-at-
  *     closing-fence-end edge case that comes with inline widgets
  *     styled as blocks.
  *
@@ -619,30 +732,140 @@ const arrowDownPastWidgetKeymap = (config: ScriptsConfig) =>
  */
 export const scriptsExtension = (config: ScriptsConfig): Extension => {
   const outputField = StateField.define<ScriptDecorationState>({
-    create: (state) => decorateOutputs(state, config),
+    create: (state) => scanScripts(state, config),
     update: (value, tx) => {
-      if (!config.scriptsEnabled()) return { decorations: Decoration.none, scriptRanges: [] };
+      if (!config.scriptsEnabled()) {
+        return {
+          decorations: Decoration.none,
+          collapsedSourceDecorations: Decoration.none,
+          scriptRanges: [],
+        };
+      }
+
       if (tx.docChanged) {
         const decorations = value.decorations.map(tx.changes);
+        const collapsedSourceDecorations = value.collapsedSourceDecorations.map(tx.changes);
         const mightAffectScriptFence = changeMightAffectScriptFence(tx);
         if (value.scriptRanges.length === 0 && !mightAffectScriptFence) {
-          return { decorations, scriptRanges: [] };
+          return { decorations, collapsedSourceDecorations, scriptRanges: [] };
         }
         if (!changesIntersectScriptRanges(tx, value.scriptRanges) && !mightAffectScriptFence) {
           return {
             decorations,
+            collapsedSourceDecorations,
             scriptRanges: value.scriptRanges.map((range) => ({
               from: tx.changes.mapPos(range.from, 1),
               to: tx.changes.mapPos(range.to, -1),
+              collapseTo: tx.changes.mapPos(range.collapseTo, -1),
             })),
           };
         }
-        return decorateOutputs(tx.state, config);
+        return scanScripts(tx.state, config);
       }
-      return { ...value, decorations: value.decorations.map(tx.changes) };
+      if (!tx.selection) {
+        return value;
+      }
+      const oldKey = cursorScriptKey(tx.startState, value.scriptRanges);
+      const newKey = cursorScriptKey(tx.state, value.scriptRanges);
+      if (oldKey === newKey) return value;
+      return scanScripts(tx.state, config);
     },
-    provide: (f) => EditorView.decorations.from(f, (value) => value.decorations),
+    provide: (f) => [
+      EditorView.decorations.from(f, (value) => value.decorations),
+      EditorView.atomicRanges.of((view) => view.state.field(f).collapsedSourceDecorations),
+    ],
   });
 
-  return [outputField, arrowDownPastWidgetKeymap(config)];
+  const collapsedSourceEditKeymap = Prec.highest(
+    keymap.of([
+      {
+        key: "Backspace",
+        run: (view) => openCollapsedSourceInsteadOfDeleting(view, -1),
+      },
+      {
+        key: "Delete",
+        run: (view) => openCollapsedSourceInsteadOfDeleting(view, 1),
+      },
+    ]),
+  );
+
+  function openCollapsedSourceInsteadOfDeleting(view: EditorView, dir: -1 | 1): boolean {
+    const scriptState = view.state.field(outputField, false);
+    if (!scriptState) return false;
+    const selection = view.state.selection.main;
+
+    const target = scriptState.scriptRanges.find((range) => {
+      if (!isCollapsedScriptRange(scriptState.collapsedSourceDecorations, range)) return false;
+      if (!selection.empty) return selection.from < range.collapseTo && selection.to > range.from;
+      return dir < 0 ? selection.head === range.collapseTo : selection.head === range.from;
+    });
+    if (!target) return false;
+
+    view.dispatch({
+      selection: { anchor: dir < 0 ? target.collapseTo : target.from },
+      scrollIntoView: true,
+      userEvent: "select",
+    });
+    return true;
+  }
+
+  const outputFrameTheme = EditorView.theme({
+    ".cm-script-source-collapsed": {
+      display: "block",
+      height: "0 !important",
+      minHeight: "0 !important",
+      margin: "0 !important",
+      padding: "0 !important",
+      overflow: "hidden",
+    },
+    ".cm-script-output-frame": {
+      boxSizing: "border-box",
+      border: "1px solid rgb(59 130 246 / 0.32)",
+      borderRadius: "6px",
+      backgroundColor: "rgb(59 130 246 / 0.035)",
+      padding: "0.5rem",
+    },
+    ".cm-script-output-header": {
+      display: "flex",
+      alignItems: "center",
+      gap: "0.45rem",
+      minHeight: "1.25rem",
+      color: "#1d4ed8",
+      cursor: "pointer",
+      fontSize: "0.75rem",
+      lineHeight: "1rem",
+      userSelect: "none",
+    },
+    ".cm-script-output-header:hover": {
+      color: "#1e40af",
+    },
+    ".cm-script-output-title": {
+      fontWeight: "600",
+    },
+    ".cm-script-output-meta": {
+      marginLeft: "auto",
+      opacity: "0.72",
+    },
+    ".cm-script-output-frame .md-script-output": {
+      border: "0",
+      borderRadius: "0",
+      background: "transparent",
+      padding: "0.5rem 0 0",
+    },
+    ".cm-script-output-frame .md-script-errors": {
+      marginTop: "0.5rem",
+    },
+    ".dark .cm-script-output-frame": {
+      borderColor: "rgb(96 165 250 / 0.36)",
+      backgroundColor: "rgb(30 64 175 / 0.14)",
+    },
+    ".dark .cm-script-output-header": {
+      color: "#bfdbfe",
+    },
+    ".dark .cm-script-output-header:hover": {
+      color: "#dbeafe",
+    },
+  });
+
+  return [outputField, outputFrameTheme, collapsedSourceEditKeymap, arrowDownPastWidgetKeymap(config)];
 };
