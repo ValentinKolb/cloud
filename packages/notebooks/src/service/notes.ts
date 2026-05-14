@@ -40,6 +40,7 @@ export type CreateNote = {
   parentId?: string;
   title: string;
   position?: number;
+  contentMd?: string;
 };
 
 export type UpdateNote = {
@@ -569,7 +570,23 @@ export const create = async (params: { data: CreateNote; creatorId: string | nul
       return { ok: false, error: "Failed to create note", status: 500 };
     }
 
-    return { ok: true, data: mapToNote({ ...row, has_children: false }) };
+    if (data.contentMd !== undefined) {
+      const doc = new Y.Doc();
+      doc.getText("codemirror").insert(0, data.contentMd);
+      const snapshot = Y.encodeStateAsUpdate(doc);
+      doc.destroy();
+
+      const saveResult = await save({
+        noteId: row.id,
+        yjsState: snapshot,
+        contentMd: data.contentMd,
+        createdBy: creatorId,
+      });
+      if (!saveResult.ok) return { ok: false, error: saveResult.error, status: saveResult.status };
+    }
+
+    const note = await get({ id: row.id });
+    return { ok: true, data: note ?? mapToNote({ ...row, content_md: data.contentMd ?? null, has_children: false }) };
   } catch (e: unknown) {
     const error = e as { code?: string };
     if (error.code === "23503") {

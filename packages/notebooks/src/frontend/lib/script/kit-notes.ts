@@ -39,7 +39,7 @@ type ApiNote = {
   lockedAt: string | null;
 };
 
-const toKitNote = (n: ApiNote): KitNote => {
+const toKitNote = (n: ApiNote, parentId: string | null): KitNote => {
   let tags: string[] | undefined;
   return {
     id: n.shortId,
@@ -49,11 +49,16 @@ const toKitNote = (n: ApiNote): KitNote => {
       tags ??= extractTags(n.contentMd);
       return tags;
     },
-    parentId: n.parentId,
+    parentId,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
     lockedAt: n.lockedAt,
   };
+};
+
+const toKitNotesWithShortParents = (notes: ApiNote[]): KitNote[] => {
+  const shortByUuid = new Map(notes.map((note) => [note.id, note.shortId]));
+  return notes.map((note) => toKitNote(note, note.parentId ? (shortByUuid.get(note.parentId) ?? null) : null));
 };
 
 // =============================================================================
@@ -100,7 +105,7 @@ const fetchPagesUpTo = async (
   searchQuery?: string,
   startPage = 1,
 ): Promise<{ items: KitNote[]; truncated: boolean }> => {
-  const out: KitNote[] = [];
+  const out: ApiNote[] = [];
   let page = startPage;
   while (out.length < maxItems) {
     const apiQuery: Record<string, string> = {
@@ -114,14 +119,14 @@ const fetchPagesUpTo = async (
     });
     if (!res.ok) throw new Error("kit.notes: API call failed");
     const payload = (await res.json()) as { data: ApiNote[]; pagination?: { total?: number } };
-    if (payload.data.length === 0) return { items: out, truncated: false };
-    for (const n of payload.data) out.push(toKitNote(n));
-    if (payload.data.length < API_PER_PAGE_MAX) return { items: out, truncated: false }; // last page
+    if (payload.data.length === 0) return { items: toKitNotesWithShortParents(out), truncated: false };
+    for (const n of payload.data) out.push(n);
+    if (payload.data.length < API_PER_PAGE_MAX) return { items: toKitNotesWithShortParents(out), truncated: false }; // last page
     page++;
   }
   // Loop exited via the `out.length < maxItems` guard failing —
   // last page was full AND we hit the cap. Server may have more.
-  return { items: out, truncated: true };
+  return { items: toKitNotesWithShortParents(out), truncated: true };
 };
 
 // =============================================================================
@@ -185,13 +190,20 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     if (res.status === 404) return null;
     if (!res.ok) throw new Error("kit.notes.get: API call failed");
     const note = (await res.json()) as ApiNote;
+    let parentId: string | null = null;
+    if (note.parentId) {
+      const parentRes = await apiClient[":id"].notes[":noteId"].$get({
+        param: { id: ctx.notebookId, noteId: note.parentId },
+      });
+      if (parentRes.ok) parentId = ((await parentRes.json()) as ApiNote).shortId;
+    }
     // The API endpoint already enforces notebook membership via
     // `requireNoteInNotebook` — a 404 above covers cross-notebook
     // ids. Don't re-check on the client: `note.notebookId` is the
     // canonical UUID and `ctx.notebookId` is the short-id, so a
     // local comparison would always reject (codex review on
     // commit 7ee5fdc, finding 2).
-    return toKitNote(note);
+    return toKitNote(note, parentId);
   };
 
   const search = async (query: string | KitQuery): Promise<KitNote[]> => {
@@ -247,15 +259,15 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     return truncated ? flagTruncated(sliced) : sliced;
   };
 
-  const create = async (data: { title: string; parentId?: string }): Promise<KitNote> => {
+  const create = async (data: { title: string; parentId?: string; content?: string }): Promise<KitNote> => {
     assertActive(ctx);
     const res = await apiClient[":id"].notes.$post({
       param: { id: ctx.notebookId },
-      json: data,
+      json: { title: data.title, parentId: data.parentId, contentMd: data.content },
     });
     if (!res.ok) throw new Error("kit.notes.create: API call failed");
     const note = (await res.json()) as ApiNote;
-    return toKitNote(note);
+    return toKitNote(note, data.parentId ?? null);
   };
 
   const update = async (
@@ -269,7 +281,8 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     });
     if (!res.ok) throw new Error("kit.notes.update: API call failed");
     const note = (await res.json()) as ApiNote;
-    return toKitNote(note);
+    const parentId = data.parentId === undefined ? (note.parentId ? (await get(note.shortId))?.parentId ?? null : null) : data.parentId;
+    return toKitNote(note, parentId);
   };
 
   const remove = async (shortId: string): Promise<void> => {

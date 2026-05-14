@@ -1,6 +1,6 @@
 import { startCompletion } from "@codemirror/autocomplete";
-import { navigateTo } from "@valentinkolb/cloud/ui";
 import { crypto as stdCrypto } from "@valentinkolb/stdlib";
+import { navigateToNotebookNote } from "../../../../lib/soft-navigation";
 import { buildNoteUrl } from "../../../../params";
 import { openNoteSwitchPrompt } from "../../search/openNoteSearchPrompt";
 import { openAttachmentPicker } from "../AttachmentPicker";
@@ -585,7 +585,7 @@ export const slashCommands: SlashCommand[] = [
     run: async (_view, ctx) => {
       const picked = await openNoteSwitchPrompt(ctx.notebookId);
       if (!picked) return;
-      navigateTo(buildNoteUrl(ctx.notebookId, picked.shortId));
+      await navigateToNotebookNote(buildNoteUrl(ctx.notebookId, picked.shortId));
     },
   },
 ];

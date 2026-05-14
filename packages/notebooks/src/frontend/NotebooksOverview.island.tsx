@@ -1,0 +1,248 @@
+import { createMemo, createSignal, For, Show } from "solid-js";
+import { navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@/api/client";
+import type { Notebook } from "../service/notebooks";
+import { setLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
+
+type TemplateSummary = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+};
+
+type Props = {
+  notebooks: Notebook[];
+  templates: TemplateSummary[];
+  initialQuery: string;
+};
+
+type CreatedNotebook = {
+  id: string;
+  shortId: string;
+};
+
+const notebookMatches = (notebook: Notebook, query: string) => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return `${notebook.name} ${notebook.description ?? ""} ${notebook.shortId}`.toLowerCase().includes(q);
+};
+
+const setQueryParam = (value: string) => {
+  const url = new URL(window.location.href);
+  const trimmed = value.trim();
+  if (trimmed) url.searchParams.set("q", trimmed);
+  else url.searchParams.delete("q");
+  window.history.replaceState({}, "", url.toString());
+};
+
+const errorMessage = async (res: Response, fallback: string) => {
+  try {
+    const body = await res.json();
+    if (body && typeof body === "object" && "message" in body && typeof body.message === "string") return body.message;
+  } catch {
+    // Keep fallback.
+  }
+  return fallback;
+};
+
+export default function NotebooksOverview(props: Props) {
+  const [query, setQuery] = createSignal(props.initialQuery);
+
+  const filteredNotebooks = createMemo(() => props.notebooks.filter((notebook) => notebookMatches(notebook, query())));
+
+  const openNotebook = (notebook: CreatedNotebook) => {
+    setLastNotebookId(notebook.shortId);
+    navigateTo(`/app/notebooks/${notebook.shortId}`);
+  };
+
+  const createNotebookMutation = mutations.create<CreatedNotebook, { name: string; description?: string }>({
+    mutation: async (input) => {
+      const res = await apiClient.index.$post({
+        json: { name: input.name, description: input.description || undefined },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create notebook"));
+      return (await res.json()) as CreatedNotebook;
+    },
+    onSuccess: openNotebook,
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const createFromTemplateMutation = mutations.create<CreatedNotebook, { templateId: string; name?: string }>({
+    mutation: async (input) => {
+      const res = await apiClient.templates[":templateId"].$post({
+        param: { templateId: input.templateId },
+        json: { name: input.name?.trim() || undefined },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create notebook from template"));
+      return (await res.json()) as CreatedNotebook;
+    },
+    onSuccess: openNotebook,
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const createBlank = async () => {
+    const result = await prompts.form({
+      title: "New notebook",
+      icon: "ti ti-notebook",
+      fields: {
+        name: { type: "text", label: "Name", required: true, placeholder: "Notebook name" },
+        description: { type: "text", label: "Description", multiline: true, placeholder: "Optional description" },
+      },
+      confirmText: "Create",
+    });
+    if (!result) return;
+    createNotebookMutation.mutate({
+      name: String(result.name).trim(),
+      description: String(result.description ?? "").trim(),
+    });
+  };
+
+  const createFromTemplate = async (template: TemplateSummary) => {
+    const result = await prompts.form({
+      title: template.name,
+      icon: template.icon,
+      fields: {
+        name: {
+          type: "text",
+          label: "Name",
+          placeholder: template.name,
+        },
+      },
+      confirmText: "Create",
+    });
+    if (!result) return;
+    createFromTemplateMutation.mutate({
+      templateId: template.id,
+      name: String(result.name ?? "").trim() || undefined,
+    });
+  };
+
+  const onSearchInput = (value: string) => {
+    setQuery(value);
+    setQueryParam(value);
+  };
+
+  return (
+    <div class="flex flex-col lg:flex-row gap-4 items-start">
+      <section class="min-w-0 flex-1 w-full">
+        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
+          <div>
+            <h2 class="text-sm font-semibold text-primary">Your notebooks</h2>
+            <p class="text-xs text-dimmed">
+              {props.notebooks.length === 0
+                ? "Start from a template, or create a blank notebook."
+                : `${props.notebooks.length} notebook${props.notebooks.length === 1 ? "" : "s"} available`}
+            </p>
+          </div>
+          <div class="w-full sm:w-80">
+            <TextInput
+              name="notebooks-search"
+              type="search"
+              ariaLabel="Search notebooks"
+              placeholder="Search notebooks..."
+              icon="ti ti-search"
+              activeIcon="ti ti-search"
+              value={query}
+              onInput={onSearchInput}
+              clearable
+              onClear={() => onSearchInput("")}
+            />
+          </div>
+        </div>
+
+        <Show
+          when={props.notebooks.length > 0}
+          fallback={
+            <div class="paper p-8 min-h-72 flex flex-col items-center justify-center text-center">
+              <div class="w-12 h-12 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mb-3">
+                <i class="ti ti-notebook text-xl text-dimmed" />
+              </div>
+              <h3 class="text-sm font-semibold text-primary mb-1">No notebooks yet</h3>
+              <p class="text-xs text-dimmed max-w-sm">
+                Templates create a complete starter workspace with useful notes, links, tables, and small automations.
+              </p>
+            </div>
+          }
+        >
+          <Show
+            when={filteredNotebooks().length > 0}
+            fallback={
+              <div class="paper p-8 min-h-56 flex flex-col items-center justify-center text-center">
+                <i class="ti ti-search text-2xl text-dimmed mb-2" />
+                <h3 class="text-sm font-semibold text-primary mb-1">No matching notebooks</h3>
+                <p class="text-xs text-dimmed">Try a different search term.</p>
+              </div>
+            }
+          >
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <For each={filteredNotebooks()}>
+                {(notebook) => (
+                  <a
+                    href={`/app/notebooks/${notebook.shortId}`}
+                    class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
+                  >
+                    <div class="w-10 h-10 thumbnail bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+                      <i class={`${notebook.icon || "ti ti-notebook"} text-lg text-blue-600 dark:text-blue-400`} />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <span class="text-sm font-semibold text-primary block truncate">{notebook.name}</span>
+                      <p class="text-xs text-dimmed truncate">{notebook.description || "No description"}</p>
+                    </div>
+                    <i class="ti ti-chevron-right text-dimmed" />
+                  </a>
+                )}
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </section>
+
+      <aside class="min-w-0 w-full lg:w-96 shrink-0">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-sm font-semibold text-primary">Create</h2>
+            <p class="text-xs text-dimmed">Choose a useful starter, or start blank.</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2">
+          <For each={props.templates}>
+            {(template) => (
+              <button
+                type="button"
+                class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
+                onClick={() => createFromTemplate(template)}
+                disabled={createFromTemplateMutation.loading()}
+              >
+                <span class="w-9 h-9 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
+                  <i class={`${template.icon} text-lg text-primary`} />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-semibold text-primary">{template.name}</span>
+                  <span class="block text-xs text-dimmed leading-snug line-clamp-2">{template.description}</span>
+                </span>
+              </button>
+            )}
+          </For>
+
+          <button
+            type="button"
+            class="paper p-4 text-left flex items-start gap-3 hover:paper-highlighted transition-all"
+            onClick={createBlank}
+            disabled={createNotebookMutation.loading()}
+          >
+            <span class="w-9 h-9 thumbnail bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+              <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-semibold text-primary">Blank notebook</span>
+              <span class="block text-xs text-dimmed leading-snug">Create an empty notebook with the standard welcome note.</span>
+            </span>
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}

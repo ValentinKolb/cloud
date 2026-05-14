@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import AdminNotebookActions from "./_components/AdminNotebookActions.island";
 import AdminNotebooksAppSettings from "./_components/AdminNotebooksAppSettings.island";
@@ -29,6 +29,23 @@ export default ssr<AuthContext>(async (c) => {
 
   const orphanedCount = summary.orphaned;
   const totalPermissions = summary.totalPermissions;
+  type NotebookRow = (typeof notebooks.items)[number];
+  const columns: DataTableColumn<NotebookRow>[] = [
+    { id: "notebook", header: "Notebook", value: (notebook) => notebook.name },
+    { id: "description", header: "Description", value: (notebook) => notebook.description, cellClass: "max-w-xl" },
+    { id: "permissions", header: "Permissions", value: (notebook) => notebook.permissionCount, cellClass: "whitespace-nowrap" },
+    {
+      id: "actions",
+      header: (
+        <>
+          <span class="sr-only">Actions</span>
+          <i class="ti ti-settings text-sm" aria-hidden="true" />
+        </>
+      ),
+      headerClass: "w-px text-right",
+      cellClass: "text-right whitespace-nowrap",
+    },
+  ];
 
   return () => (
     <AdminLayout c={c} title="Notebooks" stretch>
@@ -53,11 +70,7 @@ export default ssr<AuthContext>(async (c) => {
               valueClass={orphanedCount > 0 ? "text-red-500" : "text-primary"}
               accent={orphanedCount > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
             />
-            <StatCell
-              label="Access entries"
-              value={totalPermissions}
-              sub={search ? "in search" : "across all notebooks"}
-            />
+            <StatCell label="Access entries" value={totalPermissions} sub={search ? "in search" : "across all notebooks"} />
           </StatGrid>
 
           <div class="flex items-stretch gap-2">
@@ -69,55 +82,50 @@ export default ssr<AuthContext>(async (c) => {
 
           {notebooks.items.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-notebooks-table">
-              <div class="overflow-x-auto">
-                <table class="w-full text-xs">
-                  <thead>
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Notebook</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Permissions</th>
-                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
-                        <span class="sr-only">Actions</span>
-                        <i class="ti ti-settings text-sm" aria-hidden="true" />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {notebooks.items.map((notebook) => (
-                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                        <td class="px-3 py-1.5">
-                          <div class="flex min-w-52 items-center gap-2">
-                            <i class={`${notebook.icon ?? "ti ti-notebook"} text-dimmed`} />
-                            <span class="truncate font-medium text-primary">{notebook.name}</span>
-                          </div>
-                        </td>
-                        <td class="max-w-xl px-3 py-1.5 text-dimmed">
-                          <span class="block truncate" title={notebook.description ?? "No description"}>
-                            {notebook.description || <span class="italic">No description</span>}
-                          </span>
-                        </td>
-                        <td class="px-3 py-1.5 whitespace-nowrap">
-                          <span
-                            class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                              notebook.permissionCount === 0
-                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                            }`}
-                          >
-                            {notebook.permissionCount} access {notebook.permissionCount === 1 ? "entry" : "entries"}
-                          </span>
-                        </td>
-                        <td class="px-3 py-1.5 text-right">
-                          <AdminNotebookActions notebookId={notebook.id} notebookName={notebook.name} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                rows={notebooks.items}
+                columns={columns}
+                getRowId={(notebook) => notebook.id}
+                hoverRows
+                class="overflow-x-auto"
+                renderCell={({ row: notebook, col }) => {
+                  if (col.id === "notebook") {
+                    return (
+                      <div class="flex min-w-52 items-center gap-2">
+                        <i class={`${notebook.icon ?? "ti ti-notebook"} text-dimmed`} />
+                        <span class="truncate font-medium text-primary">{notebook.name}</span>
+                      </div>
+                    );
+                  }
+                  if (col.id === "description") {
+                    return (
+                      <span class="block truncate" title={notebook.description ?? "No description"}>
+                        {notebook.description || <span class="italic">No description</span>}
+                      </span>
+                    );
+                  }
+                  if (col.id === "permissions") {
+                    return (
+                      <span
+                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          notebook.permissionCount === 0
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {notebook.permissionCount} access {notebook.permissionCount === 1 ? "entry" : "entries"}
+                      </span>
+                    );
+                  }
+                  if (col.id === "actions") return <AdminNotebookActions notebookId={notebook.id} notebookName={notebook.name} />;
+                  return "";
+                }}
+              />
             </section>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">{search ? `No notebooks matching "${search}".` : "No notebooks found."}</section>
+            <section class="paper p-6 text-center text-sm text-dimmed">
+              {search ? `No notebooks matching "${search}".` : "No notebooks found."}
+            </section>
           )}
 
           <Pagination currentPage={notebooks.page} totalPages={totalPages} baseUrl={baseUrl} />

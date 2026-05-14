@@ -29,7 +29,7 @@ export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   // Route param accepts either UUID or short-id — same boundary trick
   // as `[id]/page.tsx`. Local `notebookId` holds the canonical UUID.
-  const idOrShort = c.req.param("id");
+  const idOrShort = c.req.param("id")!;
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
 
@@ -86,14 +86,9 @@ export default ssr<AuthContext>(async (c) => {
     notebooksService.tag.count({ notebookId }),
   ]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(paginatedResult.total / paginatedResult.perPage)
-  );
+  const totalPages = Math.max(1, Math.ceil(paginatedResult.total / paginatedResult.perPage));
   const baseHref = buildAttachmentsUrl(notebook.shortId);
-  const paginationBaseUrl = search
-    ? `${baseHref}?search=${encodeURIComponent(search)}&page=`
-    : `${baseHref}?page=`;
+  const paginationBaseUrl = search ? `${baseHref}?search=${encodeURIComponent(search)}&page=` : `${baseHref}?page=`;
 
   const ctx: NotebookContext = {
     notebook,
@@ -122,24 +117,11 @@ export default ssr<AuthContext>(async (c) => {
         <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {/* Search bar across the full content width. The breadcrumb already
               labels the page — no additional title above. */}
-          <SearchBar
-            value={search}
-            action={baseHref}
-            placeholder="Search attachments…"
-            ariaLabel="Search attachments"
-          />
+          <SearchBar value={search} action={baseHref} placeholder="Search attachments…" ariaLabel="Search attachments" />
 
           <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
-            <AttachmentsOverview
-              notebookId={notebook.shortId}
-              initial={paginatedResult.items}
-              searchQuery={search}
-            />
-            <Pagination
-              currentPage={paginatedResult.page}
-              totalPages={totalPages}
-              baseUrl={paginationBaseUrl}
-            />
+            <AttachmentsOverview notebookId={notebook.shortId} initial={paginatedResult.items} searchQuery={search} />
+            <Pagination currentPage={paginatedResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
           </div>
         </div>
       </div>

@@ -1,16 +1,35 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { IconInput, navigateTo, PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { IconInput, navigateTo, PermissionEditor, prompts, refreshCurrentPath, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Notebook } from "../sidebar/types";
+import type { Notebook, NoteTreeNode } from "../sidebar/types";
 
 type Props = {
   notebook: Notebook;
+  tree: NoteTreeNode[];
   accessEntries: AccessEntry[];
   isAdmin: boolean;
   canWrite: boolean;
 };
+
+type NoteSelectOption = {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+};
+
+const flattenNoteOptions = (nodes: NoteTreeNode[], depth = 0): NoteSelectOption[] =>
+  nodes.flatMap((note) => [
+    {
+      id: note.shortId,
+      label: `${"\u00A0\u00A0".repeat(depth)}${note.title || "Untitled"}`,
+      description: `#${note.shortId}`,
+      icon: note.lockedAt ? "ti ti-lock" : "ti ti-file-text",
+    },
+    ...flattenNoteOptions(note.children, depth + 1),
+  ]);
 
 // =============================================================================
 // General Settings
@@ -24,7 +43,7 @@ function GeneralSection(props: { notebook: Notebook }) {
   const mutation = mutations.create({
     mutation: async (data: { name?: string; description?: string | null; icon?: string | null }) => {
       const res = await apiClient[":id"].$patch({
-        param: { id: props.notebook.id },
+        param: { id: props.notebook.shortId },
         json: data,
       });
       if (!res.ok) throw new Error("Failed to update notebook");
@@ -80,6 +99,70 @@ function GeneralSection(props: { notebook: Notebook }) {
 }
 
 // =============================================================================
+// Homepage
+// =============================================================================
+
+function HomepageSection(props: { notebook: Notebook; tree: NoteTreeNode[] }) {
+  const options = createMemo(() => flattenNoteOptions(props.tree));
+  const initialValue = props.notebook.homepageNoteShortId ?? "";
+  const [homepageNoteId, setHomepageNoteId] = createSignal(initialValue);
+
+  const selectedLabel = () => options().find((option) => option.id === homepageNoteId())?.label;
+  const hasChanges = () => homepageNoteId() !== initialValue;
+
+  const mutation = mutations.create({
+    mutation: async (value: string) => {
+      const res = await apiClient[":id"].$patch({
+        param: { id: props.notebook.shortId },
+        json: { homepageNoteId: value || null },
+      });
+      if (!res.ok) throw new Error("Failed to update homepage note");
+      return res.json();
+    },
+    onSuccess: () => refreshCurrentPath(),
+    onError: (err) => prompts.error(err.message),
+  });
+
+  const fetchNotes = async (query: string, signal: AbortSignal): Promise<NoteSelectOption[]> => {
+    if (signal.aborted) return [];
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? options().filter((option) => `${option.label} ${option.description ?? ""}`.toLowerCase().includes(q))
+      : options();
+    return filtered.slice(0, 50);
+  };
+
+  return (
+    <div class="flex flex-col gap-4">
+      <h3 class="section-label mb-0 flex items-center gap-2">
+        <i class="ti ti-home text-dimmed" />
+        Homepage
+      </h3>
+      <SelectInput
+        label="Homepage note"
+        description="Opened when this notebook has no URL note and no valid last active note."
+        value={() => homepageNoteId()}
+        onChange={setHomepageNoteId}
+        selectedLabel={selectedLabel}
+        fetchData={fetchNotes}
+        placeholder="Select a note..."
+        icon="ti ti-home"
+        activeIcon="ti ti-search"
+        clearable
+      />
+      <button
+        type="button"
+        onClick={() => mutation.mutate(homepageNoteId())}
+        disabled={mutation.loading() || !hasChanges()}
+        class="btn-primary btn-md self-start"
+      >
+        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save homepage"}
+      </button>
+    </div>
+  );
+}
+
+// =============================================================================
 // Scripting (admin-only) — toggles the per-notebook opt-in for
 // `\`\`\`script` block execution. Off by default. Toggling triggers a
 // PATCH /:id with `scriptsEnabled` which the API gates to admin only.
@@ -91,7 +174,7 @@ function ScriptingSection(props: { notebook: Notebook }) {
   const mutation = mutations.create({
     mutation: async (next: boolean) => {
       const res = await apiClient[":id"].$patch({
-        param: { id: props.notebook.id },
+        param: { id: props.notebook.shortId },
         json: { scriptsEnabled: next },
       });
       if (!res.ok) throw new Error("Failed to update scripting setting");
@@ -171,7 +254,7 @@ function DangerZone(props: { notebook: Notebook }) {
   const mutation = mutations.create({
     mutation: async () => {
       const res = await apiClient[":id"].$delete({
-        param: { id: props.notebook.id },
+        param: { id: props.notebook.shortId },
       });
       if (!res.ok) throw new Error("Failed to delete notebook");
     },
@@ -217,7 +300,7 @@ function DangerZone(props: { notebook: Notebook }) {
 // =============================================================================
 
 export default function NotebookSettingsPanel(props: Props) {
-  const backUrl = `/app/notebooks/${props.notebook.id}`;
+  const backUrl = `/app/notebooks/${props.notebook.shortId}`;
 
   return (
     <div class="flex-1 overflow-y-auto">
@@ -232,6 +315,9 @@ export default function NotebookSettingsPanel(props: Props) {
 
         {/* General */}
         {props.canWrite && <GeneralSection notebook={props.notebook} />}
+
+        {/* Homepage */}
+        {props.canWrite && <HomepageSection notebook={props.notebook} tree={props.tree} />}
 
         {/* Scripting (admin-only opt-in for `\`\`\`script` blocks) */}
         {props.isAdmin && <ScriptingSection notebook={props.notebook} />}
@@ -250,7 +336,7 @@ export default function NotebookSettingsPanel(props: Props) {
                 canEdit
                 grantAccess={async (principal, permission) => {
                   const res = await apiClient[":id"].access.$post({
-                    param: { id: props.notebook.id },
+                    param: { id: props.notebook.shortId },
                     json: { principal, permission },
                   });
                   if (!res.ok) throw new Error("Failed to grant access");
@@ -258,14 +344,14 @@ export default function NotebookSettingsPanel(props: Props) {
                 }}
                 updateAccess={async (accessId, permission) => {
                   const res = await apiClient[":id"].access[":accessId"].$patch({
-                    param: { id: props.notebook.id, accessId },
+                    param: { id: props.notebook.shortId, accessId },
                     json: { permission },
                   });
                   if (!res.ok) throw new Error("Failed to update access");
                 }}
                 revokeAccess={async (accessId) => {
                   const res = await apiClient[":id"].access[":accessId"].$delete({
-                    param: { id: props.notebook.id, accessId },
+                    param: { id: props.notebook.shortId, accessId },
                   });
                   if (!res.ok) throw new Error("Failed to revoke access");
                 }}

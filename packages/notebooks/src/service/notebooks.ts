@@ -1,5 +1,4 @@
 import { sql } from "bun";
-import * as Y from "yjs";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { getNotebookPermission, grantNotebookAccess } from "./access";
@@ -17,6 +16,8 @@ export type Notebook = {
   name: string;
   description: string | null;
   icon: string | null;
+  homepageNoteId: string | null;
+  homepageNoteShortId: string | null;
   /** Per-notebook opt-in for the JS scripting feature. Default false.
    *  Only notebook admins can flip this; the editor consults this flag
    *  before evaluating any `\`\`\`script` blocks. */
@@ -36,6 +37,7 @@ export type UpdateNotebook = {
   name?: string;
   description?: string | null;
   icon?: string | null;
+  homepageNoteId?: string | null;
   scriptsEnabled?: boolean;
 };
 
@@ -45,6 +47,8 @@ type DbNotebook = {
   name: string;
   description: string | null;
   icon: string | null;
+  homepage_note_id: string | null;
+  homepage_note_short_id: string | null;
   scripts_enabled: boolean;
   created_by: string | null;
   created_at: Date;
@@ -80,6 +84,8 @@ const mapToNotebook = (row: DbNotebook): Notebook => ({
   name: row.name,
   description: row.description,
   icon: row.icon,
+  homepageNoteId: row.homepage_note_id,
+  homepageNoteShortId: row.homepage_note_short_id,
   scriptsEnabled: row.scripts_enabled,
   createdBy: row.created_by,
   createdAt: row.created_at.toISOString(),
@@ -90,6 +96,18 @@ const mapToNotebookAdminItem = (row: DbNotebookAdmin): NotebookAdminListItem => 
   ...mapToNotebook(row),
   permissionCount: row.permission_count,
 });
+
+const noteExistsInNotebook = async (noteId: string, notebookId: string): Promise<boolean> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM notebooks.notes
+      WHERE id = ${noteId}::uuid
+        AND notebook_id = ${notebookId}::uuid
+    ) AS exists
+  `;
+  return row?.exists ?? false;
+};
 
 // ==========================
 // Service
@@ -143,11 +161,14 @@ export const list = async (params: {
             n.name,
             n.description,
             n.icon,
+            n.homepage_note_id,
+            h.short_id AS homepage_note_short_id,
             n.scripts_enabled,
             n.created_by,
             n.created_at,
             n.updated_at
           FROM notebooks.notebooks n
+          LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
           WHERE EXISTS (
             SELECT 1
             FROM notebooks.notebook_access na
@@ -174,11 +195,14 @@ export const list = async (params: {
             n.name,
             n.description,
             n.icon,
+            n.homepage_note_id,
+            h.short_id AS homepage_note_short_id,
             n.scripts_enabled,
             n.created_by,
             n.created_at,
             n.updated_at
           FROM notebooks.notebooks n
+          LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
           WHERE EXISTS (
             SELECT 1
             FROM notebooks.notebook_access na
@@ -246,6 +270,8 @@ export const listAdmin = async (params: {
       n.name,
       n.description,
       n.icon,
+      n.homepage_note_id,
+      h.short_id AS homepage_note_short_id,
       n.scripts_enabled,
       n.created_by,
       n.created_at,
@@ -253,11 +279,12 @@ export const listAdmin = async (params: {
       COUNT(na.access_id)::int AS permission_count
     FROM notebooks.notebooks n
     LEFT JOIN notebooks.notebook_access na ON na.notebook_id = n.id
+    LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
     WHERE (
       ${pattern}::text IS NULL
       OR LOWER(n.name) LIKE ${pattern}
     )
-    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.scripts_enabled, n.created_by, n.created_at, n.updated_at
+    GROUP BY n.id, n.short_id, n.name, n.description, n.icon, n.homepage_note_id, h.short_id, n.scripts_enabled, n.created_by, n.created_at, n.updated_at
     ORDER BY LOWER(n.name) ASC, n.created_at ASC
     LIMIT ${params.pagination.limit}
     OFFSET ${params.pagination.offset}
@@ -317,9 +344,21 @@ export const adminSummary = async (params: { search?: string }): Promise<{
  */
 export const get = async (params: { id: string }): Promise<Notebook | null> => {
   const [row] = await sql<DbNotebook[]>`
-    SELECT id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
-    FROM notebooks.notebooks
-    WHERE id = ${params.id}::uuid
+    SELECT
+      n.id,
+      n.short_id,
+      n.name,
+      n.description,
+      n.icon,
+      n.homepage_note_id,
+      h.short_id AS homepage_note_short_id,
+      n.scripts_enabled,
+      n.created_by,
+      n.created_at,
+      n.updated_at
+    FROM notebooks.notebooks n
+    LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
+    WHERE n.id = ${params.id}::uuid
   `;
   return row ? mapToNotebook(row) : null;
 };
@@ -335,9 +374,21 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
   const v = params.idOrShortId;
   if (isShortId(v)) {
     const [row] = await sql<DbNotebook[]>`
-      SELECT id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
-      FROM notebooks.notebooks
-      WHERE short_id = ${v}
+      SELECT
+        n.id,
+        n.short_id,
+        n.name,
+        n.description,
+        n.icon,
+        n.homepage_note_id,
+        h.short_id AS homepage_note_short_id,
+        n.scripts_enabled,
+        n.created_by,
+        n.created_at,
+        n.updated_at
+      FROM notebooks.notebooks n
+      LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
+      WHERE n.short_id = ${v}
     `;
     return row ? mapToNotebook(row) : null;
   }
@@ -348,14 +399,30 @@ export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise
  * Create a new notebook.
  * Automatically grants admin access to the creator.
  */
-export const create = async (params: { data: CreateNotebook; creatorId: string }): Promise<MutationResult<Notebook>> => {
+export const create = async (params: {
+  data: CreateNotebook;
+  creatorId: string;
+  seedWelcome?: boolean;
+}): Promise<MutationResult<Notebook>> => {
   const { data, creatorId } = params;
+  const seedWelcome = params.seedWelcome ?? true;
 
   const shortId = await generateUniqueShortId("notebook");
   const [row] = await sql<DbNotebook[]>`
     INSERT INTO notebooks.notebooks (short_id, name, description, icon, created_by)
     VALUES (${shortId}, ${data.name}, ${data.description ?? null}, ${data.icon ?? null}, ${creatorId}::uuid)
-    RETURNING id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
+    RETURNING
+      id,
+      short_id,
+      name,
+      description,
+      icon,
+      homepage_note_id,
+      NULL::text AS homepage_note_short_id,
+      scripts_enabled,
+      created_by,
+      created_at,
+      updated_at
   `;
 
   if (!row) {
@@ -369,27 +436,14 @@ export const create = async (params: { data: CreateNotebook; creatorId: string }
     permission: "admin",
   });
 
-  // Create a welcome note with markdown content
-  const noteResult = await notes.create({
-    data: {
-      notebookId: row.id,
-      title: "Welcome",
-    },
-    creatorId,
-  });
-
-  if (noteResult.ok) {
-    // Create a Yjs doc with the markdown content
-    const doc = new Y.Doc();
-    doc.getText("codemirror").insert(0, helloMd);
-    const snapshot = Y.encodeStateAsUpdate(doc);
-    doc.destroy();
-
-    await notes.save({
-      noteId: noteResult.data.id,
-      yjsState: snapshot,
-      contentMd: helloMd,
-      createdBy: creatorId,
+  if (seedWelcome) {
+    await notes.create({
+      data: {
+        notebookId: row.id,
+        title: "Welcome",
+        contentMd: helloMd,
+      },
+      creatorId,
     });
   }
 
@@ -410,24 +464,41 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
   const name = data.name ?? existing.name;
   const description = data.description === undefined ? existing.description : data.description;
   const icon = data.icon === undefined ? existing.icon : data.icon;
+  const homepageNoteId = data.homepageNoteId === undefined ? existing.homepageNoteId : data.homepageNoteId;
   const scriptsEnabled = data.scriptsEnabled ?? existing.scriptsEnabled;
+
+  if (homepageNoteId && !(await noteExistsInNotebook(homepageNoteId, id))) {
+    return { ok: false, error: "Homepage note not found", status: 404 };
+  }
 
   const [row] = await sql<DbNotebook[]>`
     UPDATE notebooks.notebooks
     SET name = ${name},
         description = ${description},
         icon = ${icon},
+        homepage_note_id = ${homepageNoteId}::uuid,
         scripts_enabled = ${scriptsEnabled},
         updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, short_id, name, description, icon, scripts_enabled, created_by, created_at, updated_at
+    RETURNING
+      id,
+      short_id,
+      name,
+      description,
+      icon,
+      homepage_note_id,
+      NULL::text AS homepage_note_short_id,
+      scripts_enabled,
+      created_by,
+      created_at,
+      updated_at
   `;
 
   if (!row) {
     return { ok: false, error: "Failed to update notebook", status: 500 };
   }
 
-  return { ok: true, data: mapToNotebook(row) };
+  return { ok: true, data: (await get({ id: row.id })) ?? mapToNotebook(row) };
 };
 
 /**

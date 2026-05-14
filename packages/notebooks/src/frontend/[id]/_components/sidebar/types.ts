@@ -7,6 +7,8 @@ export type Notebook = {
   name: string;
   description: string | null;
   icon: string | null;
+  homepageNoteId: string | null;
+  homepageNoteShortId: string | null;
   /** Per-notebook opt-in for `\`\`\`script` block execution. */
   scriptsEnabled: boolean;
   createdBy: string | null;

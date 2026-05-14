@@ -15,6 +15,7 @@ import {
   EDITOR_DOWNLOAD_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
+  NOTE_SOFT_NAVIGATED_EVENT,
   TASKS_UPDATE_EVENT,
   TOC_SCROLL_EVENT,
   TOC_UPDATE_EVENT,
@@ -41,6 +42,20 @@ type Props = {
   updatedAt: string;
   lockedAt: string | null;
   isLocked: boolean;
+};
+
+type SoftNavigatedDetail = {
+  noteId: string;
+  noteTitle: string;
+  contentMd: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lockedAt: string | null;
+  isLocked: boolean;
+  tocItems: TocItem[];
+  taskProgress: TaskProgress;
+  attachments: Attachment[];
+  backlinks: Backlink[];
 };
 
 const ACTION_BTN = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
@@ -70,6 +85,14 @@ export default function NotebookDetailPanel(props: Props) {
   const [open, setOpen] = createSignal(props.initiallyOpen);
   const [tocItems, setTocItems] = createSignal<TocItem[]>(props.tocItems);
   const [tasks, setTasks] = createSignal<TaskProgress>(props.taskProgress);
+  const [noteId, setNoteId] = createSignal(props.noteId);
+  const [noteTitle, setNoteTitle] = createSignal(props.noteTitle);
+  const [contentMd, setContentMd] = createSignal(props.contentMd);
+  const [backlinks, setBacklinks] = createSignal<Backlink[]>(props.backlinks);
+  const [createdAt, setCreatedAt] = createSignal(props.createdAt);
+  const [updatedAt, setUpdatedAt] = createSignal(props.updatedAt);
+  const [lockedAt, setLockedAt] = createSignal(props.lockedAt);
+  const [isLocked, setIsLocked] = createSignal(props.isLocked);
 
   // Attachment state: a cache (shortId → Attachment) plus the ordered
   // shortId list of what's currently referenced in the doc. The
@@ -103,7 +126,7 @@ export default function NotebookDetailPanel(props: Props) {
   // client render agree even if the editor's broadcast hasn't arrived yet.
   const [isRich, setIsRich] = createSignal(true);
 
-  const downloadFilename = () => `${(props.noteTitle || "note").trim() || "note"}.md`;
+  const downloadFilename = () => `${(noteTitle() || "note").trim() || "note"}.md`;
 
   const toggleOpen = () => {
     const next = !open();
@@ -131,7 +154,7 @@ export default function NotebookDetailPanel(props: Props) {
     if (props.mode === "edit") {
       window.dispatchEvent(new CustomEvent(EDITOR_COPY_EVENT));
     } else {
-      void clipboard.copy(props.contentMd ?? "");
+      void clipboard.copy(contentMd() ?? "");
     }
   };
 
@@ -139,7 +162,7 @@ export default function NotebookDetailPanel(props: Props) {
     if (props.mode === "edit") {
       window.dispatchEvent(new CustomEvent(EDITOR_DOWNLOAD_EVENT));
     } else {
-      files.downloadFileFromContent(props.contentMd ?? "", downloadFilename(), "text/markdown");
+      files.downloadFileFromContent(contentMd() ?? "", downloadFilename(), "text/markdown");
     }
   };
 
@@ -177,6 +200,22 @@ export default function NotebookDetailPanel(props: Props) {
       // no metadata for (e.g. fresh upload, or another client added it).
       if (ids.some((id) => !attachmentCache().has(id))) void refetchAttachments();
     };
+    const onSoftNavigated = (event: Event) => {
+      const detail = (event as CustomEvent<SoftNavigatedDetail>).detail;
+      if (!detail?.noteId) return;
+      setNoteId(detail.noteId);
+      setNoteTitle(detail.noteTitle);
+      setContentMd(detail.contentMd);
+      setCreatedAt(detail.createdAt);
+      setUpdatedAt(detail.updatedAt);
+      setLockedAt(detail.lockedAt);
+      setIsLocked(detail.isLocked);
+      setTocItems(detail.tocItems);
+      setTasks(detail.taskProgress);
+      setBacklinks(detail.backlinks);
+      setAttachmentCache(new Map(detail.attachments.map((a) => [a.shortId, a])));
+      setAttachmentIds(detail.attachments.map((a) => a.shortId));
+    };
 
     window.addEventListener(TOC_UPDATE_EVENT, onTocUpdate);
     window.addEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
@@ -184,6 +223,7 @@ export default function NotebookDetailPanel(props: Props) {
     window.addEventListener(PRESENCE_EVENT, onPresenceUpdate);
     window.addEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
     window.addEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
+    window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
 
     onCleanup(() => {
       window.removeEventListener(TOC_UPDATE_EVENT, onTocUpdate);
@@ -192,6 +232,7 @@ export default function NotebookDetailPanel(props: Props) {
       window.removeEventListener(PRESENCE_EVENT, onPresenceUpdate);
       window.removeEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
       window.removeEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
+      window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
     });
   });
 
@@ -273,11 +314,11 @@ export default function NotebookDetailPanel(props: Props) {
       </Show>
 
       {/* Backlinks */}
-      <Show when={props.backlinks.length > 0}>
+      <Show when={backlinks().length > 0}>
         <section class="detail-section">
           <h3 class="detail-section-label">Linked by</h3>
           <ul class="flex flex-col">
-            <For each={props.backlinks}>
+            <For each={backlinks()}>
               {(bl) => {
                 const showNotebook = bl.notebookShortId !== props.currentNotebookId;
                 return (
@@ -335,12 +376,12 @@ export default function NotebookDetailPanel(props: Props) {
           </Show>
 
           {props.mode === "edit" ? (
-            <a href={buildReadUrl(props.notebookId, props.noteId)} class={ACTION_BTN}>
+            <a href={buildReadUrl(props.notebookId, noteId())} class={ACTION_BTN}>
               <i class="ti ti-eye" />
               <span>Read view</span>
             </a>
-          ) : !props.isLocked ? (
-            <a href={buildNoteUrl(props.notebookId, props.noteId)} class={ACTION_BTN}>
+          ) : !isLocked() ? (
+            <a href={buildNoteUrl(props.notebookId, noteId())} class={ACTION_BTN}>
               <i class="ti ti-pencil" />
               <span>Edit</span>
             </a>
@@ -356,12 +397,12 @@ export default function NotebookDetailPanel(props: Props) {
             <span>Download as .md</span>
           </button>
 
-          <a href={buildVersionsUrl(props.notebookId, props.noteId)} class={ACTION_BTN}>
+          <a href={buildVersionsUrl(props.notebookId, noteId())} class={ACTION_BTN}>
             <i class="ti ti-history" />
             <span>Version history</span>
           </a>
 
-          <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${props.noteId}`} class={ACTION_BTN}>
+          <a href={`/app/notebooks/${props.notebookId}?mode=graph&note=${noteId()}`} class={ACTION_BTN}>
             <i class="ti ti-vector" />
             <span>Graph view</span>
           </a>
@@ -373,13 +414,13 @@ export default function NotebookDetailPanel(props: Props) {
         <h3 class="detail-section-label">Info</h3>
         <dl class="detail-facts">
           <dt class="detail-fact-key">Created</dt>
-          <dd>{dates.formatDateTimeRelative(props.createdAt)}</dd>
+          <dd>{dates.formatDateTimeRelative(createdAt())}</dd>
           <dt class="detail-fact-key">Updated</dt>
-          <dd>{dates.formatDateTimeRelative(props.updatedAt)}</dd>
-          {props.lockedAt && (
+          <dd>{dates.formatDateTimeRelative(updatedAt())}</dd>
+          {lockedAt() && (
             <>
               <dt class="detail-fact-key">Locked</dt>
-              <dd class="text-amber-600 dark:text-amber-400">{dates.formatDateTimeRelative(props.lockedAt)}</dd>
+              <dd class="text-amber-600 dark:text-amber-400">{dates.formatDateTimeRelative(lockedAt()!)}</dd>
             </>
           )}
         </dl>

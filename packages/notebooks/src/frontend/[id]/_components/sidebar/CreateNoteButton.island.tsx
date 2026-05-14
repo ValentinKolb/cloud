@@ -2,7 +2,7 @@ import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { buildNoteUrl } from "../../../params";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 
 type Props = {
   notebookId: string;
@@ -25,7 +25,7 @@ const CreateNoteButton = (props: Props) => {
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(props.notebookId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId));
     },
     onError: (err) => prompts.error(err.message),
   });

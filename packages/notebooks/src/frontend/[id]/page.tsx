@@ -20,6 +20,7 @@ import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
 import NotebookSidebar from "./_components/sidebar/NotebookSidebar";
 import type { NotebookContext } from "./_components/sidebar/types";
 import VersionHistory from "./_components/versions/VersionHistory.island";
+import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../params";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -27,7 +28,7 @@ export default ssr<AuthContext>(async (c) => {
   // Route param is the notebook short-id (or, for tolerance, a UUID —
   // resolved via `getByIdOrShortId`). Service layer below the boundary
   // continues to use the canonical UUID `notebookId`.
-  const notebookIdOrShort = c.req.param("id");
+  const notebookIdOrShort = c.req.param("id")!;
 
   // Get notebook
   const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShort });
@@ -88,7 +89,7 @@ export default ssr<AuthContext>(async (c) => {
   // Load access entries for settings mode (admin only)
   const accessEntries = isSettingsMode && isAdmin ? (await notebooksService.notebook.access.list({ notebookId })).items : [];
 
-  // Determine selected note: path param > cookie > first note.
+  // Determine selected note: path param > cookie > homepage > first note.
   // Path is `/notebooks/:nbId/notes/:noteId` — `noteId` is a short-id
   // (or, tolerantly, a UUID). We resolve to the canonical UUID once
   // here so everything below stays UUID-driven.
@@ -98,7 +99,8 @@ export default ssr<AuthContext>(async (c) => {
   const noteParam = c.req.param("noteId");
   const resolvedFromPath = await resolveNoteInNotebook(noteParam);
   const resolvedFromCookie = await resolveNoteInNotebook(settings.lastNoteId);
-  const selectedNoteId = resolvedFromPath ?? resolvedFromCookie ?? tree[0]?.id ?? null;
+  const resolvedHomepage = await resolveNoteInNotebook(notebook.homepageNoteId);
+  const selectedNoteId = resolvedFromPath ?? resolvedFromCookie ?? resolvedHomepage ?? tree[0]?.id ?? null;
 
   // Load selected note content (Yjs snapshot) for SSR → editor.
   // Also pull metadata used by the detail panel's Info section.
@@ -209,6 +211,19 @@ export default ssr<AuthContext>(async (c) => {
     }
   }
 
+  // Resource state policy: the opened note belongs in the URL. A bare
+  // notebook URL may use lastNoteId/homepage/first-note fallback, but once SSR
+  // resolves a note we canonicalize to `/notes/:noteShortId` so reloads keep
+  // the same note instead of re-running fallback selection.
+  if (!noteParam && selectedNote && !isSettingsMode && !isGraphMode) {
+    const href = isVersionsMode
+      ? buildVersionsUrl(notebook.shortId, selectedNote.shortId)
+      : isReadMode
+        ? buildReadUrl(notebook.shortId, selectedNote.shortId)
+        : buildNoteUrl(notebook.shortId, selectedNote.shortId);
+    return c.redirect(href);
+  }
+
   // Determine actual read mode. Users without write permission must
   // not mount the edit-mode Y.Doc/kit surface.
   const actualReadMode = isReadMode || !canWrite || !!selectedNote?.lockedAt;
@@ -284,7 +299,13 @@ export default ssr<AuthContext>(async (c) => {
         {/* Main Content */}
         <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {isSettingsMode ? (
-            <NotebookSettingsPanel notebook={notebook} accessEntries={accessEntries} isAdmin={isAdmin} canWrite={canWrite} />
+            <NotebookSettingsPanel
+              notebook={notebook}
+              tree={tree}
+              accessEntries={accessEntries}
+              isAdmin={isAdmin}
+              canWrite={canWrite}
+            />
           ) : isVersionsMode && selectedNoteId ? (
             <VersionHistory
               notebookId={notebook.shortId}

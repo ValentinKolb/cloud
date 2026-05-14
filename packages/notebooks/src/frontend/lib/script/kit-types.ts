@@ -233,10 +233,12 @@ export type KitCurrentNote = {
 // ----- kit.notes ---------------------------------------------------
 
 export type KitNote = {
+  /** Short-id used in URLs and `note://...` links. */
   id: string;
   title: string;
   content: string | null;
   tags: string[];
+  /** Parent note short-id, or null for root notes. */
   parentId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -280,7 +282,7 @@ export type KitNotesAPI = {
    *  String-only searches forwarded to the server are NOT subject
    *  to this cap — the API handles offset/limit natively. */
   search(query: string | KitQuery): Promise<KitNote[] & { __truncated?: boolean }>;
-  create(data: { title: string; parentId?: string }): Promise<KitNote>;
+  create(data: { title: string; parentId?: string; content?: string }): Promise<KitNote>;
   update(shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote>;
   remove(shortId: string): Promise<void>;
 };
@@ -417,9 +419,8 @@ export type KitUI = {
   row: (...children: KitChild[]) => KitElement;
   /** Vertical flex column with gap. */
   col: (...children: KitChild[]) => KitElement;
-  /** Bordered container with padding — visual grouping for related
-   *  content. Lays out children vertically (same as `col`) by
-   *  default. */
+  /** Container with padding — visual grouping for related content.
+   *  Lays out children vertically (same as `col`) by default. */
   card: (...children: KitChild[]) => KitElement;
   /** Horizontal rule. */
   divider: () => KitElement;
@@ -432,6 +433,11 @@ export type KitUI = {
   /** Render arbitrary markdown (same engine as the read-mode
    *  pipeline). Trusted scripts only — output is not sanitised. */
   md: (markdown: string) => KitElement;
+  /** Render a clickable link to a note. Accepts a `KitNote` or a
+   *  short-id string. */
+  noteLink: (note: KitNote | string, label?: string) => KitElement;
+  /** Render notes as a compact vertical list of note links. */
+  noteList: (notes: KitNote[], options?: { emptyText?: string }) => KitElement;
 
   // ── Interactive ────────────────────────────────────────────────
   /** Button. Async `onClick` errors are caught and rendered as a

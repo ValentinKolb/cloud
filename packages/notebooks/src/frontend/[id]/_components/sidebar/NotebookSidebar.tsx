@@ -3,11 +3,21 @@ import SearchButton from "../search/SearchButton.island";
 import CreateNoteButton from "./CreateNoteButton.island";
 import HelpButton from "./HelpButton.island";
 import TagsButton from "./TagsButton.island";
-import { buildAttachmentsUrl } from "../../../params";
-import type { NotebookContext } from "./types";
+import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
+import type { NotebookContext, NoteTreeNode } from "./types";
 
 type Props = {
   ctx: NotebookContext;
+};
+
+const findNoteByShortId = (nodes: NoteTreeNode[], shortId: string | null): NoteTreeNode | null => {
+  if (!shortId) return null;
+  for (const node of nodes) {
+    if (node.shortId === shortId) return node;
+    const child = findNoteByShortId(node.children, shortId);
+    if (child) return child;
+  }
+  return null;
 };
 
 export default function NotebookSidebar(props: Props) {
@@ -17,6 +27,9 @@ export default function NotebookSidebar(props: Props) {
   const hasAttachments = props.ctx.attachmentCount > 0;
   const hasTags = props.ctx.tagCount > 0;
   const allNotebooksHref = "/app/notebooks";
+  const homepageNote = findNoteByShortId(props.ctx.tree, props.ctx.notebook.homepageNoteShortId);
+  const homepageHref = homepageNote ? buildNoteUrl(props.ctx.notebook.shortId, homepageNote.shortId) : null;
+  const homepageIsActive = homepageNote?.id === props.ctx.selectedNoteId;
   const vt = (key: string) => `notebook-sidebar-${props.ctx.notebook.shortId}-${key}`;
 
   const tree = (
@@ -54,6 +67,17 @@ export default function NotebookSidebar(props: Props) {
               <div style={`view-transition-name:${vt("create-mobile")}`}>
                 <CreateNoteButton notebookId={props.ctx.notebook.shortId} variant="chip" />
               </div>
+            )}
+            {homepageHref && (
+              <a
+                href={homepageHref}
+                class={`sidebar-item-mobile ${homepageIsActive ? "sidebar-item-active" : ""}`}
+                data-notebooks-homepage-note-id={homepageNote?.id}
+                style={`view-transition-name:${vt("homepage-mobile")}`}
+              >
+                <i class="ti ti-home" />
+                Homepage
+              </a>
             )}
             <a href={allNotebooksHref} class="sidebar-item-mobile" style={`view-transition-name:${vt("all-notebooks-mobile")}`}>
               <i class="ti ti-notebook" />
@@ -104,6 +128,17 @@ export default function NotebookSidebar(props: Props) {
                   <CreateNoteButton notebookId={props.ctx.notebook.shortId} variant="sidebar" />
                 </div>
               )}
+              {homepageHref && (
+                <a
+                  href={homepageHref}
+                  class={`sidebar-item text-xs ${homepageIsActive ? "sidebar-item-active" : ""}`}
+                  data-notebooks-homepage-note-id={homepageNote?.id}
+                  style={`view-transition-name:${vt("homepage-desktop")}`}
+                >
+                  <i class="ti ti-home text-sm" />
+                  <span>Homepage</span>
+                </a>
+              )}
               <a
                 href={allNotebooksHref}
                 class="sidebar-item text-xs"
@@ -120,7 +155,7 @@ export default function NotebookSidebar(props: Props) {
 
           {/* Notes — fills remaining space, scrolls when long. */}
           <div class="sidebar-body">
-            <section class="sidebar-group">
+            <section class="sidebar-group min-h-0 flex-1">
               <p class="sidebar-section-title">Notes</p>
               {tree}
             </section>

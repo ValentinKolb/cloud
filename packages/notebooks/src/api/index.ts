@@ -28,6 +28,8 @@ const NotebookSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   icon: z.string().nullable(),
+  homepageNoteId: z.uuid().nullable(),
+  homepageNoteShortId: z.string().nullable().describe("Homepage note short-id"),
   scriptsEnabled: z.boolean().describe("Per-notebook opt-in for `\`\`\`script` block execution"),
   createdBy: z.uuid().nullable(),
   createdAt: z.string(),
@@ -44,6 +46,7 @@ const UpdateNotebookSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
+  homepageNoteId: z.string().nullable().optional().describe("Homepage note short-id"),
   // Toggling scripts_enabled is admin-only — see the PATCH handler
   // for the role check. Schema-level it's just a boolean field.
   scriptsEnabled: z.boolean().optional(),
@@ -74,9 +77,10 @@ const NoteTreeNodeSchema: z.ZodType<unknown> = NoteSchema.extend({
 });
 
 const CreateNoteSchema = z.object({
-  parentId: z.uuid().optional(),
+  parentId: z.string().min(1).optional().describe("Parent note UUID or short-id"),
   title: z.string().min(1).max(200),
   position: z.number().int().min(0).optional(),
+  contentMd: z.string().optional(),
 });
 
 const UpdateNoteSchema = z.object({
@@ -282,6 +286,7 @@ const fileTooLarge = (maxBytes: number) =>
 // permission gating instead of inheriting `requireRole("authenticated")`.
 
 import widgetRoutes from "./widgets";
+import templatesRoutes from "./templates";
 import wsRoutes from "../ws";
 
 const app = new Hono<AuthContext>()
@@ -289,6 +294,7 @@ const app = new Hono<AuthContext>()
   .route("/ws", wsRoutes)
   .use(rateLimit())
   .use(auth.requireRole("authenticated"))
+  .route("/templates", templatesRoutes)
 
   // ==========================
   // NOTEBOOKS
@@ -369,7 +375,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id")!;
 
       const { notebook, error } = await checkNotebookAccess(c, id);
       if (error) return error;
@@ -399,9 +405,17 @@ const app = new Hono<AuthContext>()
       // Toggling `scriptsEnabled` requires admin (it gates execution
       // of arbitrary JS in the editor). Other fields only need write.
       const requiredLevel = data.scriptsEnabled !== undefined ? "admin" : "write";
-      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id"), requiredLevel);
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, requiredLevel);
       if (error) return error;
-      return respond(c, notebooksService.notebook.update({ id: notebook!.id, data }));
+
+      let homepageNoteId = data.homepageNoteId;
+      if (homepageNoteId) {
+        const homepage = await requireNoteInNotebook(notebook!.id, homepageNoteId);
+        if (!homepage.ok) return respond(c, homepage);
+        homepageNoteId = homepage.data.id;
+      }
+
+      return respond(c, notebooksService.notebook.update({ id: notebook!.id, data: { ...data, homepageNoteId } }));
     },
   )
 
@@ -420,7 +434,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id"), "admin");
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
       return respondMessage(c, notebooksService.notebook.remove({ id: notebook!.id }), "Notebook deleted");
     },
@@ -445,7 +459,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -478,7 +492,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListNotesQuerySchema),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
@@ -522,16 +536,22 @@ const app = new Hono<AuthContext>()
     v("json", CreateNoteSchema),
     async (c) => {
       const user = c.get("user");
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
       const data = c.req.valid("json");
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
       notebookId = notebook!.id;
+      let parentId = data.parentId;
+      if (parentId) {
+        const parentResult = await requireNoteInNotebook(notebookId, parentId);
+        if (!parentResult.ok) return respond(c, parentResult);
+        parentId = parentResult.data.id;
+      }
       return respond(
         c,
         notebooksService.note.create({
-          data: { ...data, notebookId },
+          data: { ...data, notebookId, parentId },
           creatorId: user.id,
         }),
       );
@@ -553,8 +573,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -584,8 +604,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -617,8 +637,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateNoteSchema),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
       const data = c.req.valid("json");
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
@@ -648,8 +668,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", MoveNoteSchema),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
       const { parentId, position } = c.req.valid("json");
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
@@ -677,8 +697,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
@@ -706,8 +726,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
@@ -736,8 +756,8 @@ const app = new Hono<AuthContext>()
     v("json", CopyNoteSchema),
     async (c) => {
       const user = c.get("user");
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
       const { targetNotebookId, targetParentId } = c.req.valid("json");
 
       // Check source notebook access (read)
@@ -790,8 +810,8 @@ const app = new Hono<AuthContext>()
     }),
     v("query", PaginationQuerySchema),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
       const pagination = parsePagination(c.req.valid("query"));
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
@@ -830,9 +850,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
-      const versionId = c.req.param("versionId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
+      const versionId = c.req.param("versionId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -875,8 +895,8 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ yjsSnapshot: z.string() })),
     async (c) => {
       const user = c.get("user");
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
       const { yjsSnapshot } = c.req.valid("json");
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
@@ -918,7 +938,7 @@ const app = new Hono<AuthContext>()
     }),
     v("query", z.object({ q: z.string().min(1) }).merge(PaginationQuerySchema)),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
@@ -962,9 +982,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
-      const versionId = c.req.param("versionId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
+      const versionId = c.req.param("versionId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -1010,8 +1030,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      let noteId = c.req.param("noteId");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -1051,7 +1071,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
@@ -1079,7 +1099,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
       if (error) return error;
@@ -1107,7 +1127,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
       const { principal, permission } = c.req.valid("json");
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
@@ -1141,8 +1161,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
-      let notebookId = c.req.param("id");
-      const accessId = c.req.param("accessId");
+      let notebookId = c.req.param("id")!;
+      const accessId = c.req.param("accessId")!;
       const { permission } = c.req.valid("json");
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
@@ -1180,8 +1200,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      const accessId = c.req.param("accessId");
+      let notebookId = c.req.param("id")!;
+      const accessId = c.req.param("accessId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
       if (error) return error;
@@ -1235,7 +1255,7 @@ app
     }),
     async (c) => {
       const user = c.get("user");
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
@@ -1279,7 +1299,7 @@ app
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
+      let notebookId = c.req.param("id")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
@@ -1301,8 +1321,8 @@ app
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      const attId = c.req.param("attId");
+      let notebookId = c.req.param("id")!;
+      const attId = c.req.param("attId")!;
 
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
@@ -1349,8 +1369,8 @@ app
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      const attIdOrShort = c.req.param("attId");
+      let notebookId = c.req.param("id")!;
+      const attIdOrShort = c.req.param("attId")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
@@ -1381,8 +1401,8 @@ app
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      const attIdOrShort = c.req.param("attId");
+      let notebookId = c.req.param("id")!;
+      const attIdOrShort = c.req.param("attId")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
@@ -1407,8 +1427,8 @@ app
       },
     }),
     async (c) => {
-      let notebookId = c.req.param("id");
-      const attIdOrShort = c.req.param("attId");
+      let notebookId = c.req.param("id")!;
+      const attIdOrShort = c.req.param("attId")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
       notebookId = notebook!.id;
@@ -1440,7 +1460,7 @@ app.get(
     },
   }),
   async (c) => {
-    let notebookId = c.req.param("id");
+    let notebookId = c.req.param("id")!;
     // Canonicalize: `checkNotebookAccess` accepts either short-id
     // or UUID; the service layer needs the UUID for the SQL cast.
     // Without this re-assignment, callers passing a short-id (kit
@@ -1472,17 +1492,15 @@ app.get(
   describeRoute({
     tags: ["Notebooks"],
     summary: "Current user-facing limits",
-    description: "Live values of `notebooks.max_attachment_size_mb` and `notebooks.max_image_dimension_px`. Used by the Help modal and the client-side image shrink pipeline so they stay in sync when an admin tweaks the settings.",
+    description:
+      "Live values of `notebooks.max_attachment_size_mb` and `notebooks.max_image_dimension_px`. Used by the Help modal and the client-side image shrink pipeline so they stay in sync when an admin tweaks the settings.",
     ...requiresAuth,
     responses: {
       200: jsonResponse(LimitsSchema, "Limits"),
     },
   }),
   async (c) => {
-    const [maxAttachmentSizeMb, maxImageDimensionPx] = await Promise.all([
-      getMaxAttachmentSizeMb(),
-      getMaxImageDimensionPx(),
-    ]);
+    const [maxAttachmentSizeMb, maxImageDimensionPx] = await Promise.all([getMaxAttachmentSizeMb(), getMaxImageDimensionPx()]);
     return respond(c, ok({ maxAttachmentSizeMb, maxImageDimensionPx }));
   },
 );
@@ -1558,7 +1576,7 @@ app
     async (c) => {
       const denied = requireAdmin(c);
       if (denied) return denied;
-      const key = c.req.param("key");
+      const key = c.req.param("key")!;
       if (!key.startsWith(NOTEBOOKS_SETTING_PREFIX)) {
         return respond(c, fail(err.badInput(`Setting "${key}" is not in the notebooks namespace`)));
       }
@@ -1571,7 +1589,10 @@ app
         try {
           await reindexRuntime.updateCron(value);
         } catch (error) {
-          return respond(c, fail(err.badInput(`Setting saved but rescheduling failed: ${error instanceof Error ? error.message : String(error)}`)));
+          return respond(
+            c,
+            fail(err.badInput(`Setting saved but rescheduling failed: ${error instanceof Error ? error.message : String(error)}`)),
+          );
         }
       }
       return respond(c, ok({ message: "Setting updated" }));
@@ -1584,7 +1605,8 @@ app
     describeRoute({
       tags: ["Notebooks", "Admin"],
       summary: "Run note-refs reindex now",
-      description: "Submits an immediate reindex job. Returns once submitted — actual work runs async in the scheduler worker. Watch logs for progress.",
+      description:
+        "Submits an immediate reindex job. Returns once submitted — actual work runs async in the scheduler worker. Watch logs for progress.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Reindex submitted"),

@@ -6,7 +6,7 @@ import { getNotebookPresenceColor } from "../../../lib/yjs";
 import { yjs } from "../../../lib/yjs";
 import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { createCodeMirror } from "solid-codemirror";
-import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { dropzone } from "@valentinkolb/stdlib/solid";
 import { yCollab } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
@@ -17,6 +17,7 @@ import {
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
   EDITOR_INSERT_ATTACHMENT_EVENT,
+  NOTE_SOFT_NAVIGATED_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -26,20 +27,17 @@ import {
 } from "../detail/events";
 import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
-import { writeSettings } from "../settings/NotebookSettingsStore";
+import { readSettings, writeSettings } from "../settings/NotebookSettingsStore";
 import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
-import type { AttachmentRef } from "./attachments-client";
-import {
-  MAX_ATTACHMENT_SIZE_BYTES,
-  formatBytes,
-  insertAttachment,
-  maybeShrinkOversizeImage,
-  uploadAndInsert,
-} from "./attachments-client";
+import { handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
+import type { Attachment, AttachmentRef } from "./attachments-client";
+import type { Backlink } from "../../../../service/links";
+import { MAX_ATTACHMENT_SIZE_BYTES, formatBytes, insertAttachment, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 import { slashCommandsExtension } from "./slash-commands";
 
 const TOC_DEBOUNCE_MS = 300;
+const NOTE_NAV_LOADING_MIN_MS = 150;
 
 type Props = {
   noteId: string;
@@ -72,10 +70,204 @@ type Props = {
 
 const CURSOR_IDLE_TIMEOUT_MS = 8_000;
 
+type NoteContentPayload = {
+  id: string;
+  shortId: string;
+  title: string;
+  yjsSnapshot: string | null;
+  contentMd: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lockedAt: string | null;
+  parentId: string | null;
+};
+
+type SoftNavigatedDetail = {
+  canonicalNoteId: string;
+  noteId: string;
+  noteTitle: string;
+  contentMd: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lockedAt: string | null;
+  isLocked: boolean;
+  tocItems: ReturnType<typeof extractTocFromMarkdown>;
+  taskProgress: ReturnType<typeof extractTaskProgress>;
+  attachments: Attachment[];
+  backlinks: Backlink[];
+};
+
+type LoadedNote = {
+  props: Props;
+  eventDetail: SoftNavigatedDetail;
+};
+
+type SameNotebookNoteHref = {
+  noteShortId: string;
+  canonicalHref: string;
+};
+
+const parseSameNotebookEditNoteUrl = (href: string, notebookId: string): SameNotebookNoteHref | null => {
+  const noteSchemeMatch = href.match(/^note:\/\/([0-9a-zA-Z]{6})$/);
+  if (noteSchemeMatch?.[1]) {
+    const noteShortId = noteSchemeMatch[1];
+    return {
+      noteShortId,
+      canonicalHref: `/app/notebooks/${encodeURIComponent(notebookId)}/notes/${encodeURIComponent(noteShortId)}`,
+    };
+  }
+
+  try {
+    const url = new URL(href, window.location.href);
+    if (url.origin !== window.location.origin) return null;
+    if (url.search || url.hash) return null;
+    const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
+    if (!match || match[1] !== notebookId) return null;
+    return {
+      noteShortId: decodeURIComponent(match[2]!),
+      canonicalHref: url.pathname,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const fetchJson = async <T,>(url: string): Promise<T> => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return (await res.json()) as T;
+};
+
 export default function NoteEditor(props: Props) {
+  const [current, setCurrent] = createSignal<Props>(props);
+  const [isNavigating, setIsNavigating] = createSignal(false);
+  let navigationSeq = 0;
+
+  const finishMinimumLoading = async (startedAt: number, seq: number) => {
+    const remainingMs = NOTE_NAV_LOADING_MIN_MS - (performance.now() - startedAt);
+    if (remainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remainingMs));
+    }
+    if (seq === navigationSeq) setIsNavigating(false);
+  };
+
+  const loadNote = async (noteShortId: string): Promise<LoadedNote | null> => {
+    const encodedNotebookId = encodeURIComponent(props.notebookId);
+    const encodedNoteId = encodeURIComponent(noteShortId);
+    const note = await fetchJson<NoteContentPayload>(`/api/notebooks/${encodedNotebookId}/notes/${encodedNoteId}/content`);
+    if (note.lockedAt) return null;
+
+    const [backlinksPayload, allAttachments] = await Promise.all([
+      fetchJson<{ data: Backlink[] }>(`/api/notebooks/${encodedNotebookId}/notes/${encodedNoteId}/backlinks`),
+      fetchJson<Attachment[]>(`/api/notebooks/${encodedNotebookId}/attachments`),
+    ]);
+    const attachmentIds = new Set(extractAttachmentIds(note.contentMd ?? ""));
+    const attachments = allAttachments.filter((attachment) => attachmentIds.has(attachment.shortId));
+    const tocItems = extractTocFromMarkdown(note.contentMd);
+    const taskProgress = extractTaskProgress(note.contentMd);
+
+    return {
+      props: {
+        ...current(),
+        noteId: note.id,
+        noteShortId: note.shortId,
+        noteTitle: note.title,
+        noteCreatedAt: note.createdAt,
+        noteUpdatedAt: note.updatedAt,
+        noteLockedAt: note.lockedAt,
+        noteParentId: note.parentId,
+        initialSnapshot: note.yjsSnapshot,
+      },
+      eventDetail: {
+        canonicalNoteId: note.id,
+        noteId: note.shortId,
+        noteTitle: note.title,
+        contentMd: note.contentMd,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        lockedAt: note.lockedAt,
+        isLocked: false,
+        tocItems,
+        taskProgress,
+        attachments,
+        backlinks: backlinksPayload.data,
+      },
+    };
+  };
+
+  const navigateSoft = async (href: string, push: boolean): Promise<boolean> => {
+    const target = parseSameNotebookEditNoteUrl(href, props.notebookId);
+    if (!target) return false;
+    if (target.noteShortId === current().noteShortId) return true;
+    const seq = ++navigationSeq;
+    const startedAt = performance.now();
+    setIsNavigating(true);
+    try {
+      const loaded = await loadNote(target.noteShortId);
+      if (seq !== navigationSeq) return true;
+      if (!loaded) return false;
+      setCurrent(loaded.props);
+      window.dispatchEvent(new CustomEvent(NOTE_SOFT_NAVIGATED_EVENT, { detail: loaded.eventDetail }));
+      if (push) window.history.pushState({}, "", target.canonicalHref);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await finishMinimumLoading(startedAt, seq);
+    }
+  };
+
+  onMount(() => {
+    const onClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.target || anchor.hasAttribute("download")) return;
+      const href = anchor.getAttribute("href") ?? anchor.href;
+      const target = parseSameNotebookEditNoteUrl(href, props.notebookId);
+      if (!target) return;
+      event.preventDefault();
+      void navigateSoft(href, true).then((handled) => {
+        if (!handled) window.location.assign(target.canonicalHref);
+      });
+    };
+
+    const onPopState = () => {
+      void navigateSoft(window.location.href, false).then((handled) => {
+        if (!handled) window.location.reload();
+      });
+    };
+
+    document.addEventListener("click", onClick);
+    window.addEventListener("popstate", onPopState);
+    const offSoftRequests = handleSoftNoteNavigationRequests((href) => navigateSoft(href, true));
+    onCleanup(() => {
+      document.removeEventListener("click", onClick);
+      window.removeEventListener("popstate", onPopState);
+      offSoftRequests();
+    });
+  });
+
+  return (
+    <div class="relative flex-1 min-w-0 flex flex-col overflow-hidden">
+      <Show when={current()} keyed>
+        {(note) => <EditorInstance {...note} />}
+      </Show>
+      <Show when={isNavigating()}>
+        <div class="pointer-events-none absolute inset-0 z-30 flex items-start justify-center pt-4" aria-live="polite" aria-busy="true">
+          <div class="inline-flex items-center gap-2 rounded-md bg-white/95 px-3 py-1.5 text-xs font-medium text-zinc-700 shadow-sm ring-1 ring-zinc-950/10 dark:bg-zinc-900/95 dark:text-zinc-200 dark:ring-white/10">
+            <i class="ti ti-loader-2 animate-spin text-blue-600 dark:text-blue-400" aria-hidden="true" />
+            <span>Loading note...</span>
+          </div>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function EditorInstance(props: Props) {
   const [connected, setConnected] = createSignal(false);
   const [isDark, setIsDark] = createSignal(document.documentElement.classList.contains("dark"));
-  const [richMode, setRichMode] = createSignal(true);
+  const [richMode, setRichMode] = createSignal(readSettings(props.notebookId).richMode !== "source");
 
   const doc = new Y.Doc({ gc: true });
   if (props.initialSnapshot) {
@@ -292,7 +484,12 @@ export default function NoteEditor(props: Props) {
   const onTextUpdate = () => scheduleDerivedEmit();
   ytext.observe(onTextUpdate);
 
-  const onToggleRich = () => setRichMode((value) => !value);
+  const onToggleRich = () =>
+    setRichMode((value) => {
+      const next = !value;
+      writeSettings(props.notebookId, { richMode: next ? "rich" : "source" });
+      return next;
+    });
 
   // Broadcast richMode whenever it changes so the detail panel's "Markdown
   // source" / "Rich text mode" label can flip accordingly. Fires once on

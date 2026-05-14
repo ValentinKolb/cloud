@@ -32,6 +32,7 @@ import type {
   KitFormField,
   KitFormSpec,
   KitHeadingLevel,
+  KitNote,
   KitPromptAPI,
   KitUI,
 } from "./kit-types";
@@ -112,6 +113,36 @@ const makeMd = (markdownSrc: string, ctx: KitContext): KitElement => {
   // (info blocks, task lists, etc.).
   el.innerHTML = markdown.renderSync(markdownSrc);
   return brand(el, ctx);
+};
+
+const noteHref = (ctx: KitContext, note: KitNote | string): string => {
+  const shortId = typeof note === "string" ? note : note.id;
+  return `/app/notebooks/${ctx.notebookId}/notes/${shortId}`;
+};
+
+const makeNoteLink = (note: KitNote | string, label: string | undefined, ctx: KitContext): KitElement => {
+  const el = document.createElement("a");
+  el.className =
+    "md-script-ui-note-link inline-flex items-center gap-1 text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200";
+  el.href = noteHref(ctx, note);
+  const icon = document.createElement("i");
+  icon.className = "ti ti-connection text-xs";
+  const text = document.createElement("span");
+  text.textContent = label ?? (typeof note === "string" ? note : note.title);
+  el.append(icon, text);
+  return brand(el, ctx);
+};
+
+const makeNoteList = (notes: KitNote[], options: { emptyText?: string } | undefined, ctx: KitContext): KitElement => {
+  if (notes.length === 0) return makeText(options?.emptyText ?? "No notes", ctx);
+  const list = document.createElement("ul");
+  list.className = "md-script-ui-note-list";
+  for (const note of notes) {
+    const item = document.createElement("li");
+    item.appendChild(makeNoteLink(note, undefined, ctx));
+    list.appendChild(item);
+  }
+  return brand(list, ctx);
 };
 
 // ── Layout ───────────────────────────────────────────────────────
@@ -229,6 +260,8 @@ export const createKitUI = (ctx: KitContext): KitUI => ({
   text: (content) => makeText(content, ctx),
   heading: (content, level) => makeHeading(content, ctx, level),
   md: (mdSrc) => makeMd(mdSrc, ctx),
+  noteLink: (note, label) => makeNoteLink(note, label, ctx),
+  noteList: (notes, options) => makeNoteList(notes, options, ctx),
 
   // Interactive
   button: (label, onClick, options) => makeButton(label, onClick, options, ctx),

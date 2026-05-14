@@ -6,6 +6,7 @@ import { navigateTo } from "@valentinkolb/cloud/ui";
 
 type CreatedNotebook = {
   id: string;
+  shortId: string;
 };
 
 const CreateNotebookButton = () => {
@@ -19,8 +20,8 @@ const CreateNotebookButton = () => {
       return (await res.json()) as CreatedNotebook;
     },
     onSuccess: (data) => {
-      setLastNotebookId(data.id);
-      navigateTo(`/app/notebooks/${data.id}`);
+      setLastNotebookId(data.shortId);
+      navigateTo(`/app/notebooks/${data.shortId}`);
     },
     onError: (err) => prompts.error(err.message),
   });

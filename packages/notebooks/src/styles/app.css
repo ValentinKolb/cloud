@@ -364,6 +364,19 @@
   margin-top: 0;
 }
 
+.md-script-ui-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.md-script-ui-note-list > li {
+  margin: 0;
+}
+
 /* Divider — horizontal rule scoped to the kit. */
 .md-script-ui-divider {
   border: 0;

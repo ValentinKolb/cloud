@@ -191,8 +191,8 @@ const notesCompletions: Completion[] = [
   snippetCompletion("create({ title: ${1:'New note'} })", {
     label: "create",
     type: "method",
-    detail: "({ title, parentId? }) → Promise<KitNote>",
-    info: "Create a new note. Currently only sets the title — body is empty (collab-pipeline limitation).",
+    detail: "({ title, parentId?, content? }) → Promise<KitNote>",
+    info: "Create a new note. `parentId` is a note short-id; optional `content` seeds initial markdown.",
   }),
   snippetCompletion("update(${1:'shortId'}, { title: ${2:'updated'} })", {
     label: "update",
@@ -332,7 +332,7 @@ const uiCompletions: Completion[] = [
     label: "card",
     type: "method",
     detail: "(...children) → KitElement",
-    info: "Bordered container with padding — visual grouping.",
+    info: "Container with padding — visual grouping.",
   }),
   { label: "divider", type: "method", detail: "() → KitElement", info: "Horizontal rule." },
   // Content
@@ -353,6 +353,18 @@ const uiCompletions: Completion[] = [
     type: "method",
     detail: "(markdown) → KitElement",
     info: "Render arbitrary markdown using the same engine as read-mode.",
+  }),
+  snippetCompletion("noteLink(${1:note})", {
+    label: "noteLink",
+    type: "method",
+    detail: "(note | shortId, label?) → KitElement",
+    info: "Render a clickable link to a note. Accepts a KitNote or a short-id.",
+  }),
+  snippetCompletion("noteList(${1:notes})", {
+    label: "noteList",
+    type: "method",
+    detail: "(notes, options?) → KitElement",
+    info: "Render a compact vertical list of note links. Options: { emptyText }.",
   }),
   // Interactive
   snippetCompletion("button(${1:'label'}, () => ${2:kit.ui.toast('clicked')})", {

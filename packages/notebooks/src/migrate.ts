@@ -77,6 +77,29 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_short_id ON notebooks.notes(short_id)`.simple();
   console.log("  ✓ notebooks.notes table");
 
+  await sql`ALTER TABLE notebooks.notebooks ADD COLUMN IF NOT EXISTS homepage_note_id UUID`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'fk_notebooks_homepage_note'
+      ) THEN
+        ALTER TABLE notebooks.notebooks
+        ADD CONSTRAINT fk_notebooks_homepage_note
+        FOREIGN KEY (homepage_note_id)
+        REFERENCES notebooks.notes(id)
+        ON DELETE SET NULL;
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_notebooks_homepage_note
+    ON notebooks.notebooks(homepage_note_id)
+  `.simple();
+  console.log("  ✓ notebooks homepage note column");
+
   await sql`
     CREATE TABLE IF NOT EXISTS notebooks.note_versions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

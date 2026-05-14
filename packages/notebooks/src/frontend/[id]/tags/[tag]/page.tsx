@@ -31,7 +31,7 @@ export default ssr<AuthContext>(async (c) => {
   // Route param accepts either UUID or short-id — resolved to canonical
   // UUID via `getByIdOrShortId`. The local `notebookId` variable below
   // holds the UUID; `notebook.shortId` is what we hand to URL builders.
-  const idOrShort = c.req.param("id");
+  const idOrShort = c.req.param("id")!;
   const tagParam = (c.req.param("tag") ?? "").toLowerCase();
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
@@ -149,9 +149,7 @@ export default ssr<AuthContext>(async (c) => {
                         <span class="flex-1 truncate text-xs text-primary">{n.title}</span>
                         <span class="shrink-0 text-[10px] text-dimmed tabular-nums">{formatDate(n.updatedAt)}</span>
                       </div>
-                      {n.preview && (
-                        <p class="text-[11px] text-dimmed line-clamp-2 pl-5">{n.preview}</p>
-                      )}
+                      {n.preview && <p class="text-[11px] text-dimmed line-clamp-2 pl-5">{n.preview}</p>}
                     </a>
                   </li>
                 ))}
@@ -160,7 +158,9 @@ export default ssr<AuthContext>(async (c) => {
               <div class="paper p-8 flex flex-col items-center justify-center gap-2 text-xs text-dimmed">
                 <i class="ti ti-search-off text-2xl" />
                 {search ? (
-                  <p>No notes tagged #{tagParam} match "{search}".</p>
+                  <p>
+                    No notes tagged #{tagParam} match "{search}".
+                  </p>
                 ) : totalNotesForTag === 0 ? (
                   <>
                     <p>No notes tagged #{tagParam}.</p>

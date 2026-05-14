@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -8,6 +8,8 @@ import SearchButton from "../search/SearchButton.island";
 import { listAccessibleNotebooks } from "./notebooks";
 import type { NoteTreeNode, Notebook } from "./types";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
+import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 
 type Props = {
   tree: NoteTreeNode[];
@@ -79,7 +81,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
       return (await res.json()) as { id: string; shortId: string };
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(notebookId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(notebookId, data.shortId));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -141,7 +143,7 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
       return { ...json, notebookShortId: json.notebookId };
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(data.notebookShortId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(data.notebookShortId, data.shortId));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -394,14 +396,14 @@ function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
 function TreeNode(props: {
   node: NoteTreeNode;
   depth: number;
-  selectedNoteId: string | null;
+  selectedNoteId: () => string | null;
   notebookId: string;
   canWrite: boolean;
   viewMode: "read" | "edit";
   actions: ReturnType<typeof useNoteActions>;
 }) {
   const [expanded, setExpanded] = createSignal(true);
-  const isSelected = () => props.node.id === props.selectedNoteId;
+  const isSelected = () => props.node.id === props.selectedNoteId();
   const hasChildren = () => props.node.children.length > 0;
   const href = () => {
     return props.viewMode === "read"
@@ -549,9 +551,23 @@ function TreeNode(props: {
 export default function NoteTree(props: Props) {
   const actions = useNoteActions(props.notebookId, () => props.tree);
   const showHeaderActions = () => props.showHeaderActions ?? true;
+  const [selectedNoteId, setSelectedNoteId] = createSignal(props.selectedNoteId);
+
+  onMount(() => {
+    const onSoftNavigated = (event: Event) => {
+      const detail = (event as CustomEvent<{ canonicalNoteId?: string }>).detail;
+      if (!detail?.canonicalNoteId) return;
+      setSelectedNoteId(detail.canonicalNoteId);
+      document.querySelectorAll<HTMLElement>("[data-notebooks-homepage-note-id]").forEach((el) => {
+        el.classList.toggle("sidebar-item-active", el.dataset.notebooksHomepageNoteId === detail.canonicalNoteId);
+      });
+    };
+    window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+    onCleanup(() => window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated));
+  });
 
   return (
-    <div class="sidebar-tree">
+    <div class="sidebar-tree min-h-0 flex-1">
       {/* Header with search + add buttons */}
       <Show when={showHeaderActions()}>
         <div class="flex items-center justify-between px-2 py-1">
@@ -583,13 +599,13 @@ export default function NoteTree(props: Props) {
         </div>
       </Show>
 
-      <div class="max-h-[42vh] overflow-y-auto">
+      <div class="min-h-0 flex-1 overflow-y-auto">
         <For each={props.tree}>
           {(node) => (
             <TreeNode
               node={node}
               depth={0}
-              selectedNoteId={props.selectedNoteId}
+              selectedNoteId={selectedNoteId}
               notebookId={props.notebookId}
               canWrite={props.canWrite ?? false}
               viewMode={props.viewMode ?? "edit"}

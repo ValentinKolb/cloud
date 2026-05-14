@@ -5,6 +5,7 @@ import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
+import { navigateToNotebookNote } from "../soft-navigation";
 
 /** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
 /** Internal `note://<shortId>` markdown scheme — distinct from
@@ -84,8 +85,10 @@ class LinkWidget extends WidgetType {
         e.preventDefault();
         e.stopPropagation();
         // Navigate to the resolved URL — `note://<shortId>` is internal
-        // and not navigable; `resolvedUrl` carries the full path.
-        window.location.assign(this.linkData.resolvedUrl);
+        // and not navigable; `resolvedUrl` carries the full path. The
+        // shared helper uses client-side editor navigation when mounted and
+        // falls back to normal SSR navigation otherwise.
+        void navigateToNotebookNote(this.linkData.resolvedUrl);
       };
 
       return el;

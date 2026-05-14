@@ -3,8 +3,8 @@ import { apiClient } from "@/api/client";
 import { hotkeys, mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { buildNoteUrl } from "../../../params";
-import { navigateTo } from "@valentinkolb/cloud/ui";
 import { onNotebookSearchRequest } from "../../../lib/hotkeys";
+import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import { openNoteSearchPrompt } from "../search/openNoteSearchPrompt";
 
 type Props = {
@@ -30,7 +30,7 @@ export default function NotebookHotkeys(props: Props) {
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(props.notebookId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -38,7 +38,7 @@ export default function NotebookHotkeys(props: Props) {
   const openSearch = async () => {
     const picked = await openNoteSearchPrompt(props.notebookId, props.notebookName);
     if (picked) {
-      navigateTo(buildNoteUrl(props.notebookId, picked.shortId));
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, picked.shortId));
     }
   };
 

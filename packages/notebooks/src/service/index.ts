@@ -9,6 +9,7 @@ import * as notes from "./notes";
 import * as presence from "./presence";
 import { reindexRuntime } from "./reindex-scheduler";
 import * as tags from "./tags";
+import * as templates from "./templates";
 import { yjsSnapshotWorker } from "./yjs-snapshot-worker";
 
 const pageFromPagination = (pagination?: PageParams) => {
@@ -110,6 +111,11 @@ export const notebooksService = {
       guard: (config: { notebookId: string; accessId: string }) => access.getNotebookAccessGuard(config),
       getPermission: access.getNotebookPermission,
     },
+  },
+  template: {
+    list: templates.list,
+    get: templates.get,
+    instantiate: templates.instantiate,
   },
   note: {
     list: async (config: {

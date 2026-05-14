@@ -52,7 +52,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
   const notebookItems = notebooksPage.items.map((entry) => ({
     id: `notebook:${entry.id}`,
     title: entry.name,
-    href: `/app/notebooks/${entry.id}`,
+    href: `/app/notebooks/${entry.shortId}`,
     preview: entry.description ?? undefined,
     icon: entry.icon ?? "ti ti-notebook",
     priority: 7 as const,
@@ -65,7 +65,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
   const noteItems: AppSearchResult[] = noteHits.map(({ note, notebook }) => ({
     id: `note:${note.id}`,
     title: note.title,
-    href: `/app/notebooks/${notebook.id}?note=${note.id}`,
+    href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}`,
     preview: snippet(note.contentMd),
     icon: "ti ti-file-text",
     priority: 8 as const,
@@ -86,4 +86,3 @@ export const notebooksCapabilities = {
     run: search,
   },
 } as const;
-

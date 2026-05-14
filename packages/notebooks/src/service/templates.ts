@@ -1,0 +1,172 @@
+import { sql } from "bun";
+import * as Y from "yjs";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import {
+  getTemplate,
+  materializeTemplate,
+  noteLink,
+  templates,
+  type NotebookTemplate,
+  type TemplateNoteContentContext,
+} from "../templates";
+import type { Notebook } from "./notebooks";
+import * as notebooks from "./notebooks";
+import * as notes from "./notes";
+
+export type TemplateSummary = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+};
+
+export type InstantiateTemplateInput = {
+  name?: string;
+};
+
+type ResultError = Extract<Result<unknown>, { ok: false }>["error"];
+
+class TemplateError extends Error {
+  constructor(public readonly resultError: ResultError) {
+    super(resultError.message);
+  }
+}
+
+const toServiceError = (message: string, status: number): ResultError => {
+  if (status === 404) return err.notFound(message.replace(/ not found$/i, ""));
+  if (status === 403) return err.forbidden(message);
+  if (status === 409) return err.conflict(message);
+  if (status === 500) return err.internal(message);
+  return err.badInput(message);
+};
+
+const requireResult = <T>(result: Result<T> | { ok: true; data: T } | { ok: false; error: string; status: number }): T => {
+  if (!result.ok) {
+    throw new TemplateError(
+      typeof result.error === "string" ? toServiceError(result.error, "status" in result ? result.status : 400) : result.error,
+    );
+  }
+  return result.data;
+};
+
+const markdownToYjsUpdate = (content: string): Uint8Array => {
+  const doc = new Y.Doc();
+  doc.getText("codemirror").insert(0, content);
+  const update = Y.encodeStateAsUpdate(doc);
+  doc.destroy();
+  return update;
+};
+
+export const list = (): TemplateSummary[] =>
+  templates.map((template) => ({
+    id: template.id,
+    name: template.name,
+    description: template.description,
+    icon: template.icon,
+  }));
+
+export const get = (id: string): TemplateSummary | null => {
+  const template = getTemplate(id);
+  return template ? { id: template.id, name: template.name, description: template.description, icon: template.icon } : null;
+};
+
+const createNotes = async (
+  template: NotebookTemplate,
+  notebook: Notebook,
+  actorId: string,
+  now: Date,
+): Promise<Map<string, notes.Note>> => {
+  const materialized = materializeTemplate(template, now);
+  const created = new Map<string, notes.Note>();
+
+  for (const item of materialized.notes) {
+    const parent = item.parentKey ? created.get(item.parentKey) : null;
+    if (item.parentKey && !parent) {
+      throw new TemplateError(err.badInput(`template parent note not found: ${item.parentKey}`));
+    }
+    const note = requireResult(
+      await notes.create({
+        data: {
+          notebookId: notebook.id,
+          parentId: parent?.id,
+          title: item.title,
+          position: item.position,
+        },
+        creatorId: actorId,
+      }),
+    );
+    created.set(item.key, note);
+  }
+
+  const contentCtx: TemplateNoteContentContext = {
+    now,
+    notebook,
+    notes: created,
+    link: (key: string, label?: string) => noteLink(contentCtx, key, label),
+    noteId: (key: string) => {
+      const note = created.get(key);
+      if (!note) throw new TemplateError(err.badInput(`template note not found: ${key}`));
+      return note.shortId;
+    },
+  };
+
+  for (const item of materialized.notes) {
+    if (item.content === undefined) continue;
+    const note = created.get(item.key);
+    if (!note) throw new TemplateError(err.badInput(`template note not found: ${item.key}`));
+    const content = typeof item.content === "function" ? item.content(contentCtx) : item.content;
+    requireResult(
+      await notes.save({
+        noteId: note.id,
+        yjsState: markdownToYjsUpdate(content),
+        contentMd: content,
+        createdBy: actorId,
+      }),
+    );
+  }
+
+  return created;
+};
+
+export const instantiate = async (
+  templateId: string,
+  input: InstantiateTemplateInput,
+  actorId: string,
+): Promise<Result<Notebook>> => {
+  const template = getTemplate(templateId);
+  if (!template) return fail(err.notFound("Template"));
+
+  const now = new Date();
+  const materialized = materializeTemplate(template, now);
+  const notebook = requireResult(
+    await notebooks.create({
+      data: {
+        name: input.name?.trim() || materialized.notebookName,
+        description: materialized.notebookDescription,
+        icon: materialized.icon,
+      },
+      creatorId: actorId,
+      seedWelcome: false,
+    }),
+  );
+
+  try {
+    let finalNotebook = materialized.scriptsEnabled
+      ? requireResult(await notebooks.update({ id: notebook.id, data: { scriptsEnabled: true } }))
+      : notebook;
+
+    const createdNotes = await createNotes(template, finalNotebook, actorId, now);
+    if (materialized.homepageNoteKey) {
+      const homepage = createdNotes.get(materialized.homepageNoteKey);
+      if (!homepage) throw new TemplateError(err.badInput(`template homepage note not found: ${materialized.homepageNoteKey}`));
+      finalNotebook = requireResult(await notebooks.update({ id: notebook.id, data: { homepageNoteId: homepage.id } }));
+    }
+
+    return ok(finalNotebook);
+  } catch (error) {
+    await sql`DELETE FROM notebooks.notebooks WHERE id = ${notebook.id}::uuid`.catch(() => {});
+    if (error instanceof TemplateError) return fail(error.resultError);
+    const message = error instanceof Error ? error.message : "unknown error";
+    return fail(err.internal(`template instantiation failed: ${message}`));
+  }
+};
