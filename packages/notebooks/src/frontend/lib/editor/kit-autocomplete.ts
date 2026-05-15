@@ -31,12 +31,7 @@
  * so accepting the completion inserts a parameter scaffold the user
  * can tab through.
  */
-import {
-  type Completion,
-  type CompletionContext,
-  type CompletionResult,
-  snippetCompletion,
-} from "@codemirror/autocomplete";
+import { type Completion, type CompletionContext, type CompletionResult, snippetCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 
@@ -76,34 +71,136 @@ export const withIcon = <C extends Completion>(c: C, icon: string): C => {
 
 /** Top-level namespace entry shortcut — assigns a Tabler icon
  *  per namespace so the option-list reads like a sidebar nav. */
-const ns = (
-  label: string,
-  kitIcon: string,
-  detail: string,
-  info: string,
-): KitCompletion => ({ label, type: "namespace", detail, info, kitIcon });
+const ns = (label: string, kitIcon: string, detail: string, info: string): KitCompletion => ({
+  label,
+  type: "namespace",
+  detail,
+  info,
+  kitIcon,
+});
 
 const topLevelCompletions: KitCompletion[] = [
   // App-aware modules ──────────────────────────────────────────
-  ns("note", "ti-note", "Current note", "Read getters (title, content, tags, tasks, …) and write methods (setTitle, appendContent, …) for the note this script lives in."),
-  ns("notes", "ti-files", "Notes in this notebook", "List, search, fetch, create, update, delete notes within the current notebook (notebook-scoped — no cross-notebook access)."),
-  ns("attachments", "ti-paperclip", "Notebook attachments", "Upload via picker or programmatically, list all or just those referenced from this note, insert as markdown links."),
+  ns(
+    "note",
+    "ti-note",
+    "Current note",
+    "Read getters (title, content, tags, tasks, …) and write methods (setTitle, appendContent, …) for the note this script lives in.",
+  ),
+  ns(
+    "notes",
+    "ti-files",
+    "Notes in this notebook",
+    "List, search, fetch, create, update, delete notes within the current notebook (notebook-scoped — no cross-notebook access).",
+  ),
+  ns(
+    "attachments",
+    "ti-paperclip",
+    "Notebook attachments",
+    "Upload via picker or programmatically, list all or just those referenced from this note, insert as markdown links.",
+  ),
   ns("tags", "ti-tag", "Tag index", "List all `#tags` used in the notebook with counts, find every note that references a given tag."),
-  ns("state", "ti-users-group", "Collaborative Y.Map", "Per-note key-value store that syncs across all viewers via yjs. Edit-mode only. Use `observe(key, cb)` for live updates."),
-  ns("localState", "ti-device-floppy", "Per-user OPFS store", "Per-user, per-notebook persistent key-value (not collaborative). Backed by Origin Private File System. Cross-tab sync via BroadcastChannel."),
-  ns("ui", "ti-layout-grid", "Declarative UI", "Build the output block: layout (row/col/card), content (text/heading/md), interactive (button), modals via `kit.ui.prompt.*`, toasts."),
+  withIcon(
+    snippetCompletion("table(${1:'ideas'})", {
+      label: "table",
+      type: "method",
+      detail: "(name) → KitTableBlockAPI",
+      info: "Target an `@name` table in the current note and append rows from script data.",
+    }),
+    "ti-table",
+  ),
+  withIcon(
+    snippetCompletion("list(${1:'shopping'})", {
+      label: "list",
+      type: "method",
+      detail: "(name) → KitListBlockAPI",
+      info: "Target an `@name` list in the current note and append list items.",
+    }),
+    "ti-list",
+  ),
+  withIcon(
+    snippetCompletion("data(${1:'recipe'})", {
+      label: "data",
+      type: "method",
+      detail: "(name) → KitDataBlockAPI",
+      info: "Read or replace an `@name` / `:::data` block in the current note.",
+    }),
+    "ti-database",
+  ),
+  withIcon(
+    snippetCompletion("section(${1:'materials'})", {
+      label: "section",
+      type: "method",
+      detail: "(name) → KitSectionBlockAPI",
+      info: "Target an `@name` heading section in the current note and append markdown.",
+    }),
+    "ti-section",
+  ),
+  ns(
+    "state",
+    "ti-users-group",
+    "Collaborative Y.Map",
+    "Per-note key-value store that syncs across all viewers via yjs. Edit-mode only. Use `observe(key, cb)` for live updates.",
+  ),
+  ns(
+    "localState",
+    "ti-device-floppy",
+    "Per-user OPFS store",
+    "Per-user, per-notebook persistent key-value (not collaborative). Backed by Origin Private File System. Cross-tab sync via BroadcastChannel.",
+  ),
+  ns(
+    "ui",
+    "ti-layout-grid",
+    "Declarative UI",
+    "Build the output block: layout (row/col/card), content (text/heading/md), interactive (button), modals via `kit.ui.prompt.*`, toasts.",
+  ),
   // stdlib pass-throughs ───────────────────────────────────────
   ns("text", "ti-typography", "Text manipulation", "slugify, humanize, titleify, truncate, summarize, case conversions, pprintBytes."),
-  ns("dates", "ti-calendar", "Date / time formatting", "formatDate, formatDateTime, formatDateTimeRelative (\"3 mins ago\"), formatDuration, getMonthGrid."),
-  ns("fuzzy", "ti-search", "Fuzzy search", "match / filter / segments / closest / distance — useful for in-script command palettes and typo-correction."),
-  ns("crypto", "ti-shield-lock", "Hashing + crypto", "common (hash, uuid, readableId, fnv1aHash), asymmetric (ECDSA, ECDH+AES-GCM), symmetric (AES-GCM), totp."),
+  ns(
+    "dates",
+    "ti-calendar",
+    "Date / time formatting",
+    'formatDate, formatDateTime, formatDateTimeRelative ("3 mins ago"), formatDuration, getMonthGrid.',
+  ),
+  ns(
+    "fuzzy",
+    "ti-search",
+    "Fuzzy search",
+    "match / filter / segments / closest / distance — useful for in-script command palettes and typo-correction.",
+  ),
+  ns(
+    "crypto",
+    "ti-shield-lock",
+    "Hashing + crypto",
+    "common (hash, uuid, readableId, fnv1aHash), asymmetric (ECDSA, ECDH+AES-GCM), symmetric (AES-GCM), totp.",
+  ),
   ns("encoding", "ti-binary", "Byte ↔ string", "toBase64 / fromBase64, toHex / fromHex, toBase62 / fromBase62."),
-  ns("charts", "ti-chart-bar", "SVG charts", "scatter / line / bar / pie / donut / histogram / boxplot / sparkline — return SVG strings, render via `kit.ui.html(svg)`."),
-  ns("qr", "ti-qrcode", "QR code generators", "Generate payloads for wifi / email / tel / vcard / event, then render as SVG via `kit.qr.toSvg(payload)`."),
+  ns(
+    "charts",
+    "ti-chart-bar",
+    "SVG charts",
+    "scatter / line / bar / pie / donut / histogram / boxplot / sparkline — return SVG strings, render via `kit.ui.html(svg)`.",
+  ),
+  ns(
+    "qr",
+    "ti-qrcode",
+    "QR code generators",
+    "Generate payloads for wifi / email / tel / vcard / event, then render as SVG via `kit.qr.toSvg(payload)`.",
+  ),
   ns("password", "ti-key", "Password generation", "random, memorable (EFF wordlist), pin, strength meter."),
   ns("timing", "ti-clock", "Timing helpers", "sleep, debounce, throttle, jitter, random, shuffle, buffer, withMinLoadTime."),
-  ns("files", "ti-file-download", "File downloads + dialogs", "downloadFileFromContent, createZip / downloadAsZip, showFileDialog / showFolderDialog, getMimeType, OPFS."),
-  ns("images", "ti-photo", "Image processing", "Chainable pipeline: create → resize / crop / filter / rotate / flip → toBlob / toFile / toBase64. Presets: avatar, thumbnail."),
+  ns(
+    "files",
+    "ti-file-download",
+    "File downloads + dialogs",
+    "downloadFileFromContent, createZip / downloadAsZip, showFileDialog / showFolderDialog, getMimeType, OPFS.",
+  ),
+  ns(
+    "images",
+    "ti-photo",
+    "Image processing",
+    "Chainable pipeline: create → resize / crop / filter / rotate / flip → toBlob / toFile / toBase64. Presets: avatar, thumbnail.",
+  ),
   ns("clipboard", "ti-clipboard", "Clipboard", "Single method: `kit.clipboard.copy(text)`."),
 ];
 
@@ -188,6 +285,12 @@ const notesCompletions: Completion[] = [
     detail: "(query | KitQuery) → Promise<KitNote[]>",
     info: "Search by string (title + content) or structured query with tags / date ranges / limit / offset.",
   }),
+  snippetCompletion("searchTags(${1:'tag'})", {
+    label: "searchTags",
+    type: "method",
+    detail: "(tag | tags, options?) → Promise<KitNote[]>",
+    info: "Find notes that contain all given tags. `search('#garden')` also takes this path.",
+  }),
   snippetCompletion("create({ title: ${1:'New note'} })", {
     label: "create",
     type: "method",
@@ -211,7 +314,12 @@ const notesCompletions: Completion[] = [
 // ── kit.attachments ──────────────────────────────────────────────
 const attachmentsCompletions: Completion[] = [
   { label: "list", type: "method", detail: "() → Promise<KitAttachment[]>", info: "All attachments in this notebook." },
-  { label: "listInNote", type: "method", detail: "() → Promise<KitAttachment[]>", info: "Only attachments referenced (`attach://shortId`) from the CURRENT note's content." },
+  {
+    label: "listInNote",
+    type: "method",
+    detail: "() → Promise<KitAttachment[]>",
+    info: "Only attachments referenced (`attach://shortId`) from the CURRENT note's content.",
+  },
   snippetCompletion("get(${1:'shortId'})", {
     label: "get",
     type: "method",
@@ -252,6 +360,44 @@ const tagsCompletions: Completion[] = [
     type: "method",
     detail: "(tag) → Promise<KitNote[]>",
     info: "Find every note in the notebook that references the given tag.",
+  }),
+];
+
+// ── named blocks ─────────────────────────────────────────────────
+const tableBlockCompletions: Completion[] = [
+  snippetCompletion("add(${1:...cells})", {
+    label: "add",
+    type: "method",
+    detail: "(...cells | rowObject) → Promise<void>",
+    info: "Append a row to every matching named table in the current note. Notes become note links; tag arrays become `#tags`.",
+  }),
+];
+
+const listBlockCompletions: Completion[] = [
+  snippetCompletion("add(${1:...items})", {
+    label: "add",
+    type: "method",
+    detail: "(...items) → Promise<void>",
+    info: "Append one or more items to every matching named list in the current note.",
+  }),
+];
+
+const dataBlockCompletions: Completion[] = [
+  { label: "get", type: "method", detail: "() → Record<string, unknown> | null", info: "Read the first matching named data block." },
+  snippetCompletion("set(${1:{ key: 'value' }})", {
+    label: "set",
+    type: "method",
+    detail: "(object) → Promise<void>",
+    info: "Replace every matching named data block in the current note.",
+  }),
+];
+
+const sectionBlockCompletions: Completion[] = [
+  snippetCompletion("append(${1:'markdown'})", {
+    label: "append",
+    type: "method",
+    detail: "(markdown) → Promise<void>",
+    info: "Append markdown to every matching named heading section in the current note.",
   }),
 ];
 
@@ -366,6 +512,12 @@ const uiCompletions: Completion[] = [
     detail: "(notes, options?) → KitElement",
     info: "Render a compact vertical list of note links. Options: { emptyText }.",
   }),
+  snippetCompletion("table(${1:rows})", {
+    label: "table",
+    type: "method",
+    detail: "(rows, options?) → KitElement",
+    info: "Render rows with the same tile table surface as markdown tables. KitNote values become note links; tag arrays become pills.",
+  }),
   // Interactive
   snippetCompletion("button(${1:'label'}, () => ${2:kit.ui.toast('clicked')})", {
     label: "button",
@@ -444,30 +596,80 @@ const uiPromptCompletions: Completion[] = [
 
 const textCompletions: Completion[] = [
   snippetCompletion("slugify(${1:'input'})", { label: "slugify", type: "method", detail: "(text) → string", info: "URL-safe slug." }),
-  snippetCompletion("humanize(${1:'snake_case'})", { label: "humanize", type: "method", detail: "(text) → string", info: "humanize-string → \"Snake case\"." }),
+  snippetCompletion("humanize(${1:'snake_case'})", {
+    label: "humanize",
+    type: "method",
+    detail: "(text) → string",
+    info: 'humanize-string → "Snake case".',
+  }),
   snippetCompletion("titleify(${1:'lorem ipsum'})", { label: "titleify", type: "method", detail: "(text) → string", info: "Title case." }),
-  snippetCompletion("truncate(${1:'long text'}, ${2:80})", { label: "truncate", type: "method", detail: "(text, max) → string", info: "Cut + add ellipsis." }),
-  snippetCompletion("summarize(${1:'markdown'}, ${2:200})", { label: "summarize", type: "method", detail: "(text, max) → string", info: "Strip formatting + truncate." }),
+  snippetCompletion("truncate(${1:'long text'}, ${2:80})", {
+    label: "truncate",
+    type: "method",
+    detail: "(text, max) → string",
+    info: "Cut + add ellipsis.",
+  }),
+  snippetCompletion("summarize(${1:'markdown'}, ${2:200})", {
+    label: "summarize",
+    type: "method",
+    detail: "(text, max) → string",
+    info: "Strip formatting + truncate.",
+  }),
   snippetCompletion("camelCase(${1:'hello-world'})", { label: "camelCase", type: "method", detail: "(text) → string" }),
   snippetCompletion("snakeCase(${1:'helloWorld'})", { label: "snakeCase", type: "method", detail: "(text) → string" }),
   snippetCompletion("kebabCase(${1:'hello World'})", { label: "kebabCase", type: "method", detail: "(text) → string" }),
   snippetCompletion("pascalCase(${1:'hello-world'})", { label: "pascalCase", type: "method", detail: "(text) → string" }),
-  snippetCompletion("pprintBytes(${1:1234567})", { label: "pprintBytes", type: "method", detail: "(bytes) → string", info: "\"1.23 MB\"." }),
+  snippetCompletion("pprintBytes(${1:1234567})", { label: "pprintBytes", type: "method", detail: "(bytes) → string", info: '"1.23 MB".' }),
 ];
 
 const datesCompletions: Completion[] = [
-  snippetCompletion("formatDate(${1:new Date()})", { label: "formatDate", type: "method", detail: "(date) → string", info: "e.g. \"05 Mar 2025\"." }),
+  snippetCompletion("formatDate(${1:new Date()})", {
+    label: "formatDate",
+    type: "method",
+    detail: "(date) → string",
+    info: 'e.g. "05 Mar 2025".',
+  }),
   snippetCompletion("formatDateTime(${1:new Date()})", { label: "formatDateTime", type: "method", detail: "(date) → string" }),
-  snippetCompletion("formatDateTimeRelative(${1:new Date()})", { label: "formatDateTimeRelative", type: "method", detail: "(date) → string", info: "\"3 mins ago\"." }),
+  snippetCompletion("formatDateTimeRelative(${1:new Date()})", {
+    label: "formatDateTimeRelative",
+    type: "method",
+    detail: "(date) → string",
+    info: '"3 mins ago".',
+  }),
   snippetCompletion("formatDuration(${1:5400000})", { label: "formatDuration", type: "method", detail: "(ms) → string" }),
-  snippetCompletion("getMonthGrid(${1:new Date()})", { label: "getMonthGrid", type: "method", detail: "(date) → Date[][]", info: "6-row calendar grid." }),
+  snippetCompletion("getMonthGrid(${1:new Date()})", {
+    label: "getMonthGrid",
+    type: "method",
+    detail: "(date) → Date[][]",
+    info: "6-row calendar grid.",
+  }),
 ];
 
 const fuzzyCompletions: Completion[] = [
-  snippetCompletion("match(${1:'query'}, ${2:'haystack'})", { label: "match", type: "method", detail: "(query, target) → number", info: "Score; higher = better." }),
-  snippetCompletion("filter(${1:'query'}, ${2:items}, ${3:(it) => it.title})", { label: "filter", type: "method", detail: "(query, items, getString?) → items[]", info: "Sorted by score, non-matches dropped." }),
-  snippetCompletion("segments(${1:'query'}, ${2:'haystack'})", { label: "segments", type: "method", detail: "(query, target) → Segment[]", info: "Match / non-match segments for highlight rendering." }),
-  snippetCompletion("closest(${1:'typo'}, ${2:choices})", { label: "closest", type: "method", detail: "(input, choices) → string | null", info: "Edit-distance based typo correction." }),
+  snippetCompletion("match(${1:'query'}, ${2:'haystack'})", {
+    label: "match",
+    type: "method",
+    detail: "(query, target) → number",
+    info: "Score; higher = better.",
+  }),
+  snippetCompletion("filter(${1:'query'}, ${2:items}, ${3:(it) => it.title})", {
+    label: "filter",
+    type: "method",
+    detail: "(query, items, getString?) → items[]",
+    info: "Sorted by score, non-matches dropped.",
+  }),
+  snippetCompletion("segments(${1:'query'}, ${2:'haystack'})", {
+    label: "segments",
+    type: "method",
+    detail: "(query, target) → Segment[]",
+    info: "Match / non-match segments for highlight rendering.",
+  }),
+  snippetCompletion("closest(${1:'typo'}, ${2:choices})", {
+    label: "closest",
+    type: "method",
+    detail: "(input, choices) → string | null",
+    info: "Edit-distance based typo correction.",
+  }),
   snippetCompletion("distance(${1:'a'}, ${2:'b'})", { label: "distance", type: "method", detail: "(a, b) → number", info: "Levenshtein." }),
 ];
 
@@ -483,60 +685,159 @@ const encodingCompletions: Completion[] = [
   snippetCompletion("fromBase64(${1:'base64'})", { label: "fromBase64", type: "method", detail: "(string) → Uint8Array" }),
   snippetCompletion("toHex(${1:bytes})", { label: "toHex", type: "method", detail: "(bytes) → string" }),
   snippetCompletion("fromHex(${1:'deadbeef'})", { label: "fromHex", type: "method", detail: "(string) → Uint8Array" }),
-  snippetCompletion("toBase62(${1:12345})", { label: "toBase62", type: "method", detail: "(bigint | number) → string", info: "URL-safe alphanumeric." }),
+  snippetCompletion("toBase62(${1:12345})", {
+    label: "toBase62",
+    type: "method",
+    detail: "(bigint | number) → string",
+    info: "URL-safe alphanumeric.",
+  }),
   snippetCompletion("fromBase62(${1:'abc'})", { label: "fromBase62", type: "method", detail: "(string) → bigint" }),
 ];
 
 const chartsCompletions: Completion[] = [
-  snippetCompletion("scatter(${1:dataPoints}, ${2:{ width: 400, height: 200 }})", { label: "scatter", type: "method", detail: "(data, options?) → string", info: "SVG scatter plot." }),
-  snippetCompletion("line(${1:series}, ${2:{ width: 400, height: 200 }})", { label: "line", type: "method", detail: "(data, options?) → string" }),
-  snippetCompletion("bar(${1:[{label, value}]}, ${2:{ width: 400, height: 200 }})", { label: "bar", type: "method", detail: "(data, options?) → string" }),
+  snippetCompletion("scatter(${1:dataPoints}, ${2:{ width: 400, height: 200 }})", {
+    label: "scatter",
+    type: "method",
+    detail: "(data, options?) → string",
+    info: "SVG scatter plot.",
+  }),
+  snippetCompletion("line(${1:series}, ${2:{ width: 400, height: 200 }})", {
+    label: "line",
+    type: "method",
+    detail: "(data, options?) → string",
+  }),
+  snippetCompletion("bar(${1:[{label, value}]}, ${2:{ width: 400, height: 200 }})", {
+    label: "bar",
+    type: "method",
+    detail: "(data, options?) → string",
+  }),
   snippetCompletion("pie(${1:[{label, value}]})", { label: "pie", type: "method", detail: "(data, options?) → string" }),
   snippetCompletion("donut(${1:[{label, value}]})", { label: "donut", type: "method", detail: "(data, options?) → string" }),
   snippetCompletion("histogram(${1:numbers})", { label: "histogram", type: "method", detail: "(data, options?) → string" }),
   snippetCompletion("boxplot(${1:numbers})", { label: "boxplot", type: "method", detail: "(data, options?) → string" }),
-  snippetCompletion("sparkline(${1:numbers})", { label: "sparkline", type: "method", detail: "(data, options?) → string", info: "Minimalist inline trend line." }),
+  snippetCompletion("sparkline(${1:numbers})", {
+    label: "sparkline",
+    type: "method",
+    detail: "(data, options?) → string",
+    info: "Minimalist inline trend line.",
+  }),
 ];
 
 const qrCompletions: Completion[] = [
-  snippetCompletion("wifi(${1:{ ssid: 'name', password: 'pass', security: 'WPA' }})", { label: "wifi", type: "method", detail: "({ ssid, password, security, hidden? }) → string", info: "WiFi-config payload string." }),
-  snippetCompletion("email(${1:'to@example.com'})", { label: "email", type: "method", detail: "(email, opts?) → string", info: "Mailto payload — to, subject, body." }),
+  snippetCompletion("wifi(${1:{ ssid: 'name', password: 'pass', security: 'WPA' }})", {
+    label: "wifi",
+    type: "method",
+    detail: "({ ssid, password, security, hidden? }) → string",
+    info: "WiFi-config payload string.",
+  }),
+  snippetCompletion("email(${1:'to@example.com'})", {
+    label: "email",
+    type: "method",
+    detail: "(email, opts?) → string",
+    info: "Mailto payload — to, subject, body.",
+  }),
   snippetCompletion("tel(${1:'+491234567'})", { label: "tel", type: "method", detail: "(phone) → string" }),
-  snippetCompletion("vcard(${1:{ name: 'Alice' }})", { label: "vcard", type: "method", detail: "(contact) → string", info: "vCard 3.0 string." }),
-  snippetCompletion("event(${1:{ title, start, end }})", { label: "event", type: "method", detail: "(event) → string", info: "iCalendar VEVENT payload." }),
-  snippetCompletion("toSvg(${1:payload})", { label: "toSvg", type: "method", detail: "(payload, options?) → string", info: "Render any QR payload as an SVG string." }),
+  snippetCompletion("vcard(${1:{ name: 'Alice' }})", {
+    label: "vcard",
+    type: "method",
+    detail: "(contact) → string",
+    info: "vCard 3.0 string.",
+  }),
+  snippetCompletion("event(${1:{ title, start, end }})", {
+    label: "event",
+    type: "method",
+    detail: "(event) → string",
+    info: "iCalendar VEVENT payload.",
+  }),
+  snippetCompletion("toSvg(${1:payload})", {
+    label: "toSvg",
+    type: "method",
+    detail: "(payload, options?) → string",
+    info: "Render any QR payload as an SVG string.",
+  }),
 ];
 
 const passwordCompletions: Completion[] = [
-  snippetCompletion("random(${1:16})", { label: "random", type: "method", detail: "(length?, options?) → string", info: "Cryptographically-random password." }),
-  snippetCompletion("memorable(${1:4})", { label: "memorable", type: "method", detail: "(wordCount?, options?) → string", info: "EFF wordlist-based, like \"correct-horse-battery-staple\"." }),
+  snippetCompletion("random(${1:16})", {
+    label: "random",
+    type: "method",
+    detail: "(length?, options?) → string",
+    info: "Cryptographically-random password.",
+  }),
+  snippetCompletion("memorable(${1:4})", {
+    label: "memorable",
+    type: "method",
+    detail: "(wordCount?, options?) → string",
+    info: 'EFF wordlist-based, like "correct-horse-battery-staple".',
+  }),
   snippetCompletion("pin(${1:6})", { label: "pin", type: "method", detail: "(length?) → string", info: "Numeric PIN." }),
-  snippetCompletion("strength(${1:'password'})", { label: "strength", type: "method", detail: "(password) → { score, feedback }", info: "Score 0-4 + actionable feedback." }),
+  snippetCompletion("strength(${1:'password'})", {
+    label: "strength",
+    type: "method",
+    detail: "(password) → { score, feedback }",
+    info: "Score 0-4 + actionable feedback.",
+  }),
 ];
 
 const timingCompletions: Completion[] = [
   snippetCompletion("sleep(${1:1000})", { label: "sleep", type: "method", detail: "(ms) → Promise<void>" }),
   snippetCompletion("debounce(${1:fn}, ${2:300})", { label: "debounce", type: "method", detail: "(fn, ms) → debounced" }),
   snippetCompletion("throttle(${1:fn}, ${2:300})", { label: "throttle", type: "method", detail: "(fn, ms) → throttled" }),
-  snippetCompletion("jitter(${1:1000}, ${2:0.2})", { label: "jitter", type: "method", detail: "(ms, ratio?) → number", info: "Add randomness to a duration." }),
+  snippetCompletion("jitter(${1:1000}, ${2:0.2})", {
+    label: "jitter",
+    type: "method",
+    detail: "(ms, ratio?) → number",
+    info: "Add randomness to a duration.",
+  }),
   snippetCompletion("random(${1:0}, ${2:10})", { label: "random", type: "method", detail: "(min?, max?, step?) → number" }),
   snippetCompletion("shuffle(${1:array})", { label: "shuffle", type: "method", detail: "(array) → array", info: "In-place Fisher-Yates." }),
-  snippetCompletion("withMinLoadTime(${1:promise}, ${2:500})", { label: "withMinLoadTime", type: "method", detail: "(promise, ms) → Promise<T>", info: "Anti-flicker for loading states." }),
+  snippetCompletion("withMinLoadTime(${1:promise}, ${2:500})", {
+    label: "withMinLoadTime",
+    type: "method",
+    detail: "(promise, ms) → Promise<T>",
+    info: "Anti-flicker for loading states.",
+  }),
 ];
 
 const filesCompletions: Completion[] = [
-  snippetCompletion("downloadFileFromContent(${1:content}, ${2:'name.txt'}, ${3:'text/plain'})", { label: "downloadFileFromContent", type: "method", detail: "(content, filename, mime?) → void" }),
+  snippetCompletion("downloadFileFromContent(${1:content}, ${2:'name.txt'}, ${3:'text/plain'})", {
+    label: "downloadFileFromContent",
+    type: "method",
+    detail: "(content, filename, mime?) → void",
+  }),
   snippetCompletion("createZip(${1:[{ path, content }]})", { label: "createZip", type: "method", detail: "(entries) → Promise<Blob>" }),
-  snippetCompletion("downloadAsZip(${1:[{ path, content }]}, ${2:'archive.zip'})", { label: "downloadAsZip", type: "method", detail: "(entries, filename) → Promise<void>" }),
-  snippetCompletion("showFileDialog(${1:{ accept: '*' }})", { label: "showFileDialog", type: "method", detail: "(opts?) → Promise<File[]>" }),
-  snippetCompletion("showFolderDialog()", { label: "showFolderDialog", type: "method", detail: "() → Promise<FileSystemDirectoryHandle | null>" }),
+  snippetCompletion("downloadAsZip(${1:[{ path, content }]}, ${2:'archive.zip'})", {
+    label: "downloadAsZip",
+    type: "method",
+    detail: "(entries, filename) → Promise<void>",
+  }),
+  snippetCompletion("showFileDialog(${1:{ accept: '*' }})", {
+    label: "showFileDialog",
+    type: "method",
+    detail: "(opts?) → Promise<File[]>",
+  }),
+  snippetCompletion("showFolderDialog()", {
+    label: "showFolderDialog",
+    type: "method",
+    detail: "() → Promise<FileSystemDirectoryHandle | null>",
+  }),
   snippetCompletion("getMimeType(${1:'file.pdf'})", { label: "getMimeType", type: "method", detail: "(filename) → string | null" }),
   snippetCompletion("getExtension(${1:'application/pdf'})", { label: "getExtension", type: "method", detail: "(mime) → string | null" }),
 ];
 
 const imagesCompletions: Completion[] = [
-  snippetCompletion("create(${1:file})", { label: "create", type: "method", detail: "(File | Blob | string) → Promise<ImgData>", info: "Start a pipeline." }),
-  snippetCompletion("resize(${1:{ width: 800 }})", { label: "resize", type: "method", detail: "(opts) → step", info: "Chain into `.then`." }),
+  snippetCompletion("create(${1:file})", {
+    label: "create",
+    type: "method",
+    detail: "(File | Blob | string) → Promise<ImgData>",
+    info: "Start a pipeline.",
+  }),
+  snippetCompletion("resize(${1:{ width: 800 }})", {
+    label: "resize",
+    type: "method",
+    detail: "(opts) → step",
+    info: "Chain into `.then`.",
+  }),
   snippetCompletion("crop(${1:{ x: 0, y: 0, width: 400, height: 400 }})", { label: "crop", type: "method", detail: "(opts) → step" }),
   snippetCompletion("filter(${1:{ brightness: 1.2 }})", { label: "filter", type: "method", detail: "(opts) → step" }),
   snippetCompletion("rotate(${1:90})", { label: "rotate", type: "method", detail: "(degrees) → step" }),
@@ -545,12 +846,21 @@ const imagesCompletions: Completion[] = [
   { label: "toFile", type: "method", detail: "(filename, opts?) → step → Promise<File>" },
   { label: "toBase64", type: "method", detail: "(opts?) → step → Promise<string>" },
   { label: "toCanvas", type: "method", detail: "() → step → Promise<HTMLCanvasElement>" },
-  snippetCompletion("batch(${1:files}, ${2:pipeline})", { label: "batch", type: "method", detail: "(items, pipeline, onProgress?) → Promise<T[]>" }),
+  snippetCompletion("batch(${1:files}, ${2:pipeline})", {
+    label: "batch",
+    type: "method",
+    detail: "(items, pipeline, onProgress?) → Promise<T[]>",
+  }),
   { label: "presets", type: "namespace", detail: "{ avatar, thumbnail }" },
 ];
 
 const clipboardCompletions: Completion[] = [
-  snippetCompletion("copy(${1:'text'})", { label: "copy", type: "method", detail: "(text) → Promise<void>", info: "Copy text to the system clipboard." }),
+  snippetCompletion("copy(${1:'text'})", {
+    label: "copy",
+    type: "method",
+    detail: "(text) → Promise<void>",
+    info: "Copy text to the system clipboard.",
+  }),
 ];
 
 // =============================================================================
@@ -562,6 +872,10 @@ const NAMESPACE_OPTIONS: Record<string, Completion[]> = {
   notes: notesCompletions,
   attachments: attachmentsCompletions,
   tags: tagsCompletions,
+  table: tableBlockCompletions,
+  list: listBlockCompletions,
+  data: dataBlockCompletions,
+  section: sectionBlockCompletions,
   state: stateCompletions,
   localState: localStateCompletions,
   ui: uiCompletions,
@@ -594,9 +908,7 @@ const NESTED_OPTIONS: Record<string, Completion[]> = {
  * CM should replace from. Returns null when the path doesn't match
  * a known namespace.
  */
-const completionsForPath = (
-  word: { from: number; to: number; text: string },
-): CompletionResult | null => {
+const completionsForPath = (word: { from: number; to: number; text: string }): CompletionResult | null => {
   const text = word.text;
 
   // Plain `k`, `ki`, or `kit` — offer the top-level namespace stub

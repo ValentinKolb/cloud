@@ -14,6 +14,7 @@ import { infoBlockCompletionSource } from "../../../../lib/editor/info-block-sni
 import { jsCompletionSource } from "../../../../lib/editor/js-snippets";
 import { kitCompletionSource } from "../../../../lib/editor/kit-autocomplete";
 import { buildNoteLinkCompletionSource } from "../../../../lib/editor/note-link-autocomplete";
+import { scriptTypeCompletionSource } from "../../../../lib/editor/script-intelligence";
 import { tableColumnCompletionSource } from "../../../../lib/editor/table-columns";
 import { tableFormulaCompletionSource } from "../../../../lib/editor/table-formulas";
 import { buildTagCompletionSource } from "../../../../lib/editor/tag-autocomplete";
@@ -115,11 +116,7 @@ const getHaystack = (cmd: SlashCommand): string => {
  */
 const FUZZY_MIN_SCORE = 25;
 
-const buildCompletion = (
-  cmd: SlashCommand,
-  ctx: SlashCommandContext,
-  parsedParams?: RegExpMatchArray,
-): SlashCompletion => ({
+const buildCompletion = (cmd: SlashCommand, ctx: SlashCommandContext, parsedParams?: RegExpMatchArray): SlashCompletion => ({
   label: `/${cmd.name}`,
   displayLabel: cmd.label,
   // Map the registry's `description` field onto CM's standard
@@ -206,9 +203,13 @@ const buildSlashSource = (ctx: SlashCommandContext) => {
       }
       // Pass 2 — fuzzy. Filter the remaining commands by score,
       // sort descending, then append.
-      const fuzzyHits = fuzzy.filter(typed, slashCommands.filter((c) => !matchedSet.has(c)), {
-        key: getHaystack,
-      });
+      const fuzzyHits = fuzzy.filter(
+        typed,
+        slashCommands.filter((c) => !matchedSet.has(c)),
+        {
+          key: getHaystack,
+        },
+      );
       for (const hit of fuzzyHits) {
         if (hit.score < FUZZY_MIN_SCORE) continue;
         options.push(buildCompletion(hit.item, ctx));
@@ -349,8 +350,9 @@ export const slashCommandsExtension = (ctx: SlashCommandContext): Extension =>
     //   3. info-block picker  — only at line-start, `:::<…>` (markdown ctx)
     //   4. table formulas     — only in `|...|` rows, cell starts with `=`
     //   5. tag completion     — `#<word>` mid-text (notebook-wide tags, async)
-    //   6. kit API            — only inside script fences, prefix `kit…`
-    //   7. JS standard        — only inside script fences, identifiers
+    //   6. TS intelligence    — only inside `script` fences, lazy TS LS
+    //   7. kit API            — only inside script fences, prefix `kit…`
+    //   8. JS standard        — only inside script fences, identifiers
     //
     // Each source self-scopes via a cheap matchBefore + optional
     // syntax-tree check, so the ones that don't apply return `null`
@@ -382,6 +384,7 @@ export const slashCommandsExtension = (ctx: SlashCommandContext): Extension =>
       safe("attachment", buildAttachmentCompletionSource(ctx.notebookId)),
       safe("note-link", buildNoteLinkCompletionSource(ctx.notebookId)),
       safe("tag", buildTagCompletionSource(ctx.notebookId)),
+      safe("script-types", scriptTypeCompletionSource),
       safe("kit", kitCompletionSource),
       safe("js", jsCompletionSource),
     ],
@@ -391,4 +394,3 @@ export const slashCommandsExtension = (ctx: SlashCommandContext): Extension =>
     icons: false, // we render our own icon via addToOptions
     addToOptions: [iconRenderer, descRenderer],
   });
-

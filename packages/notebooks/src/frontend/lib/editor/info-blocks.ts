@@ -65,16 +65,28 @@ const renderContent = (content: string): string => {
 class InfoBlockWidget extends WidgetType {
   private container: HTMLElement | null = null;
 
-  constructor(private blockData: InfoBlockData) {
+  constructor(
+    private blockData: InfoBlockData,
+    private fromPos: number,
+  ) {
     super();
   }
 
-  override toDOM() {
+  override toDOM(view: EditorView) {
     if (!this.container) {
       this.container = document.createElement("div");
       this.container.className = "cm-info-block-widget my-2 cursor-pointer";
       this.container.setAttribute("contenteditable", "false");
       this.container.setAttribute("tabindex", "0");
+      this.container.onmousedown = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        view.dispatch({ selection: { anchor: this.fromPos }, scrollIntoView: true });
+        view.focus();
+      };
+      this.container.ondblclick = (event) => {
+        event.stopPropagation();
+      };
 
       const config = blockConfig[this.blockData.type];
 
@@ -108,12 +120,15 @@ class InfoBlockWidget extends WidgetType {
 
   override eq(other: WidgetType) {
     return (
-      other instanceof InfoBlockWidget && other.blockData.type === this.blockData.type && other.blockData.content === this.blockData.content
+      other instanceof InfoBlockWidget &&
+      other.fromPos === this.fromPos &&
+      other.blockData.type === this.blockData.type &&
+      other.blockData.content === this.blockData.content
     );
   }
 
-  override ignoreEvent(event: Event) {
-    return event.type !== "mousedown";
+  override ignoreEvent() {
+    return true;
   }
 
   override get estimatedHeight() {
@@ -132,6 +147,7 @@ const BLOCK_REGEX = /^:::(\w+)\s*\n([\s\S]*?)\n:::$/gm;
  *  in prose without any `:` skips the rescan entirely. */
 const findInfoBlocks = (state: EditorState): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
+  const atomicDecorations: Range<Decoration>[] = [];
   const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
   const text = state.doc.toString();
@@ -146,27 +162,30 @@ const findInfoBlocks = (state: EditorState): CursorZoneState => {
     if (match.index === undefined) continue;
     const blockStart = match.index;
     const blockEnd = blockStart + match[0].length;
+    const prevLine = state.doc.lineAt(Math.max(blockStart - 1, 0));
     const nextLine = state.doc.lineAt(Math.min(blockEnd + 1, state.doc.length));
     const sourceVisibleEnd = nextLine.to;
+    const sourceVisibleStart = prevLine.from;
     hasSyntax = true;
-    ranges.push({ from: blockStart, to: sourceVisibleEnd });
+    ranges.push({ from: sourceVisibleStart, to: sourceVisibleEnd });
 
     // Cursor is inside the block → don't render the widget so the user
     // can edit the raw `:::xxx` markers.
-    if (cursor.from >= blockStart && cursor.to <= sourceVisibleEnd) continue;
+    if (cursor.from >= sourceVisibleStart && cursor.to <= sourceVisibleEnd) continue;
 
     const blockData = parseInfoBlock(match[0]);
     if (!blockData) continue;
-    decorations.push(
-      Decoration.replace({
-        widget: new InfoBlockWidget(blockData),
-        block: true,
-      }).range(blockStart, blockEnd),
-    );
+    const blockDecoration = Decoration.replace({
+      widget: new InfoBlockWidget(blockData, blockStart),
+      block: true,
+    }).range(blockStart, blockEnd);
+    decorations.push(blockDecoration);
+    atomicDecorations.push(blockDecoration);
   }
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    atomicDecorations: atomicDecorations.length > 0 ? RangeSet.of(atomicDecorations, true) : Decoration.none,
     ranges,
     hasSyntax,
   };
@@ -205,19 +224,5 @@ export const infoBlocksExtension = (): Extension => {
     },
   });
 
-  const eventHandlers = EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const target = event.target as HTMLElement;
-      if (target.closest(".cm-info-block-widget")) {
-        const pos = view.posAtDOM(target);
-        if (pos !== null) {
-          view.dispatch({ selection: { anchor: pos } });
-          return true;
-        }
-      }
-      return false;
-    },
-  });
-
-  return [stateField, theme, eventHandlers];
+  return [stateField, theme];
 };

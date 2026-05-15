@@ -1,5 +1,6 @@
 import { basicExtensions } from "./basic";
 import { codeFontExtension } from "./code-font";
+import { dataBlocksExtension } from "./data-blocks";
 import { imageExtension } from "./images";
 import { infoBlocksExtension } from "./info-blocks";
 import { katexExtension } from "./katex";
@@ -9,6 +10,7 @@ import { markExtension } from "./mark";
 import { markdownExtension } from "./markdown";
 import { markupExtension } from "./markup";
 import { mermaidExtension } from "./mermaid";
+import { namedBlocksExtension } from "./named-blocks";
 import { scriptsExtension } from "./scripts";
 import { searchTheme } from "./search-theme";
 import { subSupExtension } from "./sub-sup";
@@ -21,6 +23,7 @@ export {
   initialMarkdownDecorationRefreshExtension,
   basicExtensions,
   codeFontExtension,
+  dataBlocksExtension,
   imageExtension,
   infoBlocksExtension,
   katexExtension,
@@ -30,6 +33,7 @@ export {
   markdownExtension,
   markupExtension,
   mermaidExtension,
+  namedBlocksExtension,
   scriptsExtension,
   searchTheme,
   subSupExtension,
@@ -45,6 +49,7 @@ export const editor = {
   initialMarkdownDecorationRefreshExtension,
   basicExtensions,
   codeFontExtension,
+  dataBlocksExtension,
   imageExtension,
   infoBlocksExtension,
   katexExtension,
@@ -54,6 +59,7 @@ export const editor = {
   markdownExtension,
   markupExtension,
   mermaidExtension,
+  namedBlocksExtension,
   scriptsExtension,
   searchTheme,
   subSupExtension,

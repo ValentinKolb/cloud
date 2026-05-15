@@ -56,19 +56,19 @@ import { syntaxTree } from "@codemirror/language";
 import { Prec, StateField, RangeSet, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { clipboard } from "@valentinkolb/stdlib/browser";
-import { evaluateFormula, formatValue, isFormula, isTotalRow, type EvalContext } from "@valentinkolb/cloud/shared";
+import { evaluateFormula, formatValue, isFormula, type EvalContext } from "@valentinkolb/cloud/shared";
 import { refreshMarkdownDecorationsEffect } from "./_lib/cursor-zone-field";
+import { isNamedBlockHandle } from "../../../lib/named-blocks";
+import { renderPrettyTableHtml } from "../pretty-table";
 
 type Align = "left" | "right" | "center" | null;
 
 type TableData = {
+  caption?: string;
   headers: string[];
   rows: string[][];
   align: Align[];
 };
-
-const escapeHtml = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const splitRow = (line: string): string[] => {
   const trimmed = line.trim();
@@ -109,49 +109,7 @@ const parseTable = (text: string): TableData | null => {
   return { headers, rows: normalizedRows, align: align.slice(0, cols) };
 };
 
-const alignClass = (align: Align): string => {
-  if (align === "right") return " md-align-right";
-  if (align === "center") return " md-align-center";
-  return "";
-};
-
-
-/** Render a single body cell, evaluating formulas via the shared
- *  `formula.ts` module so the edit-mode preview matches the read-mode
- *  HTML byte-for-byte. */
-const renderBodyCell = (cell: string, alignCls: string, ctx: EvalContext): string => {
-  if (!isFormula(cell)) {
-    return `<td><span class="md-table-cell${alignCls}">${escapeHtml(cell)}</span></td>`;
-  }
-  const result = evaluateFormula(cell, ctx);
-  if (result.kind === "ok") {
-    return `<td><span class="md-table-cell md-formula-ok${alignCls}" title="${escapeHtml(cell)}"><i class="ti ti-math-function"></i>${escapeHtml(formatValue(result.value))}</span></td>`;
-  }
-  const tooltip = result.suggestion ? `${result.message}\n→ Suggestion: ${result.suggestion}` : result.message;
-  return `<td><span class="md-table-cell md-formula-error${alignCls}" title="${escapeHtml(tooltip)}">⚠ ${escapeHtml(cell)}</span></td>`;
-};
-
-const renderTable = (data: TableData): string => {
-  const headerHtml = data.headers
-    .map((h, i) => `<th><span class="md-table-cell${alignClass(data.align[i] ?? null)}">${escapeHtml(h)}</span></th>`)
-    .join("");
-
-  const bodyHtml = data.rows
-    .map((row, rowIdx) => {
-      const totalRow = isTotalRow(row);
-      const cells = row
-        .map((cell, colIdx) => {
-          const alignCls = alignClass(data.align[colIdx] ?? null);
-          const ctx: EvalContext = { headers: data.headers, rows: data.rows, currentRow: rowIdx, currentCol: colIdx };
-          return renderBodyCell(cell, alignCls, ctx);
-        })
-        .join("");
-      return totalRow ? `<tr class="md-table-total-row">${cells}</tr>` : `<tr>${cells}</tr>`;
-    })
-    .join("");
-
-  return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
-};
+const renderTable = (data: TableData, notebookId: string): string => renderPrettyTableHtml(data, { notebookId });
 
 /**
  * Inline live-preview widget for raw-mode formula cells. When the user
@@ -201,16 +159,19 @@ class FormulaPreviewWidget extends WidgetType {
       e.stopPropagation();
       // Fire-and-forget — clipboard errors (e.g. permission denied)
       // are silent; the user sees no "copied" flash and will retry.
-      clipboard.copy(valueText).then(() => {
-        span.textContent = " copied ";
-        span.classList.add("cm-formula-preview-copied");
-        if (revertTimer !== null) window.clearTimeout(revertTimer);
-        revertTimer = window.setTimeout(() => {
-          span.textContent = ` → ${valueText} `;
-          span.classList.remove("cm-formula-preview-copied");
-          revertTimer = null;
-        }, COPIED_REVERT_MS);
-      }).catch(() => {});
+      clipboard
+        .copy(valueText)
+        .then(() => {
+          span.textContent = " copied ";
+          span.classList.add("cm-formula-preview-copied");
+          if (revertTimer !== null) window.clearTimeout(revertTimer);
+          revertTimer = window.setTimeout(() => {
+            span.textContent = ` → ${valueText} `;
+            span.classList.remove("cm-formula-preview-copied");
+            revertTimer = null;
+          }, COPIED_REVERT_MS);
+        })
+        .catch(() => {});
     });
 
     return span;
@@ -251,11 +212,7 @@ const splitTableLineCells = (lineText: string): CellRange[] => {
  *  source is visible. Walks each body line, parses cell positions,
  *  evaluates any `=...` cells, and inserts a `Decoration.widget` at
  *  the cell-end position so it floats next to the literal source. */
-const buildLivePreviewDecorations = (
-  state: EditorState,
-  tableNode: { from: number; to: number },
-  data: TableData,
-): Range<Decoration>[] => {
+const buildLivePreviewDecorations = (state: EditorState, tableNode: { from: number; to: number }, data: TableData): Range<Decoration>[] => {
   const decorations: Range<Decoration>[] = [];
   const startLine = state.doc.lineAt(tableNode.from);
   const endLine = state.doc.lineAt(tableNode.to);
@@ -303,6 +260,7 @@ class TableWidget extends WidgetType {
   constructor(
     private data: TableData,
     private fromPos: number,
+    private notebookId: string,
   ) {
     super();
   }
@@ -311,7 +269,7 @@ class TableWidget extends WidgetType {
     const container = document.createElement("div");
     container.className = "cm-table-widget";
     container.setAttribute("contenteditable", "false");
-    container.innerHTML = renderTable(this.data);
+    container.innerHTML = renderTable(this.data, this.notebookId);
     container.onmousedown = (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -337,6 +295,7 @@ class TableWidget extends WidgetType {
     return (
       other instanceof TableWidget &&
       other.fromPos === this.fromPos &&
+      other.notebookId === this.notebookId &&
       JSON.stringify(this.data) === JSON.stringify(other.data)
     );
   }
@@ -429,7 +388,7 @@ const cursorTableKey = (state: EditorState, ranges: TableRange[]): number | null
  *
  *  Returns the full StateField value — both decoration sets and the
  *  list of table ranges. */
-const scanTables = (state: EditorState): TablesState => {
+const scanTables = (state: EditorState, notebookId: string): TablesState => {
   const decorations: Range<Decoration>[] = [];
   const blockWidgetDecorations: Range<Decoration>[] = [];
   const tableRanges: TableRange[] = [];
@@ -442,7 +401,12 @@ const scanTables = (state: EditorState): TablesState => {
       const text = state.sliceDoc(node.from, node.to);
       const data = parseTable(text);
       if (!data || data.headers.length === 0) return;
-      tableRanges.push({ from: node.from, to: node.to });
+      const tableLine = state.doc.lineAt(node.from);
+      const handleLine = tableLine.number > 1 ? state.doc.line(tableLine.number - 1) : null;
+      const caption = handleLine ? isNamedBlockHandle(handleLine.text) : null;
+      const rangeFrom = caption ? handleLine!.from : node.from;
+      if (caption) data.caption = caption;
+      tableRanges.push({ from: rangeFrom, to: node.to });
 
       // Show-source range: when the cursor is anywhere inside the table
       // OR on the line right before / right after it, drop the block
@@ -456,7 +420,7 @@ const scanTables = (state: EditorState): TablesState => {
       // ENTER the table (rather than the line-based vertical-nav
       // widget-skip kicking in). See `cursorTableKey` for the
       // symmetric rationale and the original asymmetric-only bug.
-      const prevLine = state.doc.lineAt(Math.max(node.from - 1, 0));
+      const prevLine = state.doc.lineAt(Math.max(rangeFrom - 1, 0));
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
       const sourceVisible = cursor.from >= prevLine.from && cursor.to <= nextLine.to;
       if (sourceVisible) {
@@ -467,9 +431,9 @@ const scanTables = (state: EditorState): TablesState => {
       }
 
       const blockDeco = Decoration.replace({
-        widget: new TableWidget(data, node.from),
+        widget: new TableWidget(data, node.from, notebookId),
         block: true,
-      }).range(node.from, node.to);
+      }).range(rangeFrom, node.to);
       decorations.push(blockDeco);
       blockWidgetDecorations.push(blockDeco);
     },
@@ -477,25 +441,24 @@ const scanTables = (state: EditorState): TablesState => {
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
-    blockWidgetDecorations:
-      blockWidgetDecorations.length > 0 ? RangeSet.of(blockWidgetDecorations, true) : Decoration.none,
+    blockWidgetDecorations: blockWidgetDecorations.length > 0 ? RangeSet.of(blockWidgetDecorations, true) : Decoration.none,
     tableRanges,
   };
 };
 
-export const tablesExtension = (): Extension => {
+export const tablesExtension = (notebookId: string): Extension => {
   const stateField = StateField.define<TablesState>({
     create(state) {
-      return scanTables(state);
+      return scanTables(state, notebookId);
     },
     update(value, tr) {
       if (tr.effects.some((effect) => effect.is(refreshMarkdownDecorationsEffect))) {
-        return scanTables(tr.state);
+        return scanTables(tr.state, notebookId);
       }
       // Doc changed → tables may have appeared / disappeared / shifted
       // positions. Full rescan.
       if (tr.docChanged) {
-        return scanTables(tr.state);
+        return scanTables(tr.state, notebookId);
       }
       // Selection unchanged AND doc unchanged → nothing to do.
       if (!tr.selection) {
@@ -523,7 +486,7 @@ export const tablesExtension = (): Extension => {
       // Cursor crossed INTO or OUT OF a table (or moved between two
       // different tables) — the widget vs source-visible decision
       // for at least one table flipped. Rebuild.
-      return scanTables(tr.state);
+      return scanTables(tr.state, notebookId);
     },
     provide(field) {
       return [
@@ -657,11 +620,7 @@ export const tablesExtension = (): Extension => {
  *  source range when yes, null otherwise. Source-visible tables
  *  (cursor near them) are NOT in `blockWidgetDecorations`, so
  *  they don't trigger the widget-skip path. */
-const isLineInBlockWidget = (
-  state: TablesState,
-  from: number,
-  to: number,
-): TableRange | null => {
+const isLineInBlockWidget = (state: TablesState, from: number, to: number): TableRange | null => {
   for (const r of state.tableRanges) {
     const lineOverlapsRange = from <= r.to && to >= r.from;
     if (!lineOverlapsRange) continue;

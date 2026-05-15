@@ -8,6 +8,7 @@ import {
   insertAtCursor,
   insertCallout,
   insertCodeBlock,
+  insertDataBlock,
   insertLink,
   insertTable,
   setHeading,
@@ -325,6 +326,15 @@ export const slashCommands: SlashCommand[] = [
       }
       return insertTable(view);
     },
+  },
+  {
+    name: "data",
+    label: "Data block",
+    icon: "ti-database",
+    section: "Insert",
+    description: "@ref + :::data block for kit.data(\"ref\")",
+    aliases: ["dataset", "properties", "kv", "attrs"],
+    run: (view) => insertDataBlock(view),
   },
   {
     name: "link",

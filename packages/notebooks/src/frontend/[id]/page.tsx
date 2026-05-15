@@ -8,6 +8,7 @@ import { notebooksService } from "@/service";
 import { transformAttachments } from "@/service/attachments";
 import { transformNoteLinks } from "@/service/links";
 import { transformTags } from "@/service/tags";
+import { extractNamedBlockSummaries, renderNamedBlockHandlesMarkdown } from "@/lib/named-blocks";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
 import { extractTaskProgress } from "./_components/detail/tasks";
 import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
@@ -121,6 +122,7 @@ export default ssr<AuthContext>(async (c) => {
   // TOC items shared by detail panel + read-mode anchor injection.
   // Extracted from `content_md` once and reused.
   let tocItems: ReturnType<typeof extractTocFromMarkdown> = [];
+  let namedBlocks: ReturnType<typeof extractNamedBlockSummaries> = [];
 
   if (selectedNoteId && !isSettingsMode) {
     if (isVersionsMode) {
@@ -141,6 +143,7 @@ export default ssr<AuthContext>(async (c) => {
           createdBy: noteMeta.createdBy,
         };
         tocItems = extractTocFromMarkdown(noteMeta.contentMd);
+        namedBlocks = extractNamedBlockSummaries(noteMeta.contentMd);
       }
     } else {
       const noteWithContent = await notebooksService.note.getWithContent({
@@ -152,6 +155,7 @@ export default ssr<AuthContext>(async (c) => {
         const shouldRenderHtml = isReadMode || isNoteLocked || !canWrite;
 
         tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
+        namedBlocks = extractNamedBlockSummaries(noteWithContent.contentMd);
 
         // Hydrate referenced attachments + note links in parallel.
         // Both transformers are sync regex-replacers, so we resolve the
@@ -185,7 +189,7 @@ export default ssr<AuthContext>(async (c) => {
           ? injectHeadingIds(
               transformTags(
                 transformAttachments(
-                  transformNoteLinks(markdown.render(noteWithContent.contentMd ?? ""), { noteShortIdToHref }),
+                  transformNoteLinks(markdown.render(renderNamedBlockHandlesMarkdown(noteWithContent.contentMd)), { noteShortIdToHref }),
                   { notebookId, shortIdToFilename },
                 ),
                 { notebookId },
@@ -275,9 +279,10 @@ export default ssr<AuthContext>(async (c) => {
   // flow through `ATTACHMENTS_UPDATE_EVENT` once the editor is mounted.
   // `extractIds` returns short-ids (the form carried in `attach://`).
   const panelAttachmentShortIds = showDetailPanel ? notebooksService.attachment.extractIds(selectedNote!.contentMd) : [];
-  const panelAttachments = panelAttachmentShortIds.length > 0
-    ? await notebooksService.attachment.listByShortIds({ shortIds: panelAttachmentShortIds, notebookId })
-    : [];
+  const panelAttachments =
+    panelAttachmentShortIds.length > 0
+      ? await notebooksService.attachment.listByShortIds({ shortIds: panelAttachmentShortIds, notebookId })
+      : [];
 
   return () => (
     <Layout
@@ -299,13 +304,7 @@ export default ssr<AuthContext>(async (c) => {
         {/* Main Content */}
         <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
           {isSettingsMode ? (
-            <NotebookSettingsPanel
-              notebook={notebook}
-              tree={tree}
-              accessEntries={accessEntries}
-              isAdmin={isAdmin}
-              canWrite={canWrite}
-            />
+            <NotebookSettingsPanel notebook={notebook} tree={tree} accessEntries={accessEntries} isAdmin={isAdmin} canWrite={canWrite} />
           ) : isVersionsMode && selectedNoteId ? (
             <VersionHistory
               notebookId={notebook.shortId}
@@ -383,6 +382,7 @@ export default ssr<AuthContext>(async (c) => {
             taskProgress={extractTaskProgress(selectedNote.contentMd)}
             attachments={panelAttachments}
             backlinks={backlinks}
+            namedBlocks={namedBlocks}
             currentNotebookId={notebook.shortId}
             notebookId={notebook.shortId}
             noteId={selectedNote.shortId}

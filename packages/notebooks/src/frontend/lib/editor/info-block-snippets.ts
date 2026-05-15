@@ -22,6 +22,8 @@ import {
   type CompletionResult,
   snippetCompletion,
 } from "@codemirror/autocomplete";
+import type { EditorView } from "@codemirror/view";
+import { buildDataBlockTemplate, dataBlockRefSelection } from "./data-block-template";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
 
@@ -33,6 +35,8 @@ type BlockEntry = {
   /** Tabler icon class — mirrors `info-blocks.ts` blockConfig so the
    *  picker preview matches the rendered widget. */
   icon: string;
+  /** Data blocks need to insert an `@ref` handle before the directive. */
+  kind?: "callout" | "data";
 };
 
 /** Source of truth: keep in sync with the `blockConfig` map in
@@ -47,6 +51,7 @@ const BLOCKS: BlockEntry[] = [
   { name: "success", detail: "Success callout", icon: "ti-check" },
   { name: "warning", detail: "Warning callout", icon: "ti-alert-circle" },
   { name: "danger", detail: "Danger callout", icon: "ti-alert-hexagon" },
+  { name: "data", detail: "Referenceable data block", icon: "ti-database", kind: "data" },
 ];
 
 /** Snippet template. Does NOT include the leading `:::` because
@@ -60,6 +65,26 @@ const BLOCKS: BlockEntry[] = [
 const buildSnippet = (name: string): string => `${name}\n\${0}\n:::`;
 
 const COMPLETIONS: Completion[] = BLOCKS.map((b) => {
+  if (b.kind === "data") {
+    const c: Completion = {
+      label: b.name,
+      type: "keyword",
+      detail: b.detail,
+      apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
+        const directiveStart = from - 3;
+        const insert = buildDataBlockTemplate();
+        view.dispatch({
+          changes: { from: directiveStart, to, insert },
+          selection: dataBlockRefSelection(directiveStart),
+          userEvent: "input.complete",
+        });
+        view.focus();
+      },
+    };
+    withIcon(c, b.icon);
+    return c;
+  }
+
   const c = snippetCompletion(buildSnippet(b.name), {
     label: b.name,
     type: "keyword",

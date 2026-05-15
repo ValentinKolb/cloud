@@ -91,14 +91,26 @@ class InlineMathWidget extends WidgetType {
 }
 
 class BlockMathWidget extends WidgetType {
-  constructor(private latex: string) {
+  constructor(
+    private latex: string,
+    private fromPos: number,
+  ) {
     super();
   }
 
-  override toDOM() {
+  override toDOM(view: EditorView) {
     const container = document.createElement("div");
     container.className = "cm-katex-block !m-0";
     container.setAttribute("contenteditable", "false");
+    container.onmousedown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      view.dispatch({ selection: { anchor: this.fromPos }, scrollIntoView: true });
+      view.focus();
+    };
+    container.ondblclick = (event) => {
+      event.stopPropagation();
+    };
 
     const wrapper = document.createElement("div");
     wrapper.className = "p-1 overflow-x-auto flex items-center justify-center";
@@ -120,11 +132,11 @@ class BlockMathWidget extends WidgetType {
   }
 
   override eq(other: WidgetType) {
-    return other instanceof BlockMathWidget && other.latex === this.latex;
+    return other instanceof BlockMathWidget && other.latex === this.latex && other.fromPos === this.fromPos;
   }
 
-  override ignoreEvent(event: Event) {
-    return event.type !== "mousedown";
+  override ignoreEvent() {
+    return true;
   }
 }
 
@@ -158,6 +170,7 @@ const intersectsAnyRange = (ranges: { from: number; to: number }[], from: number
 
 const buildKatexDecorations = (state: EditorState): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
+  const atomicDecorations: Range<Decoration>[] = [];
   const cursor = state.selection.ranges[0]!;
   const doc = state.doc.toString();
   let hasSyntax = false;
@@ -176,15 +189,17 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
 
         if (language === "math") {
           hasSyntax = true;
-          ranges.push({ from: node.from, to: node.to });
-          if (cursor.from >= node.from && cursor.to <= node.to) return false;
+          const prevLine = state.doc.lineAt(Math.max(node.from - 1, 0));
+          const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
+          ranges.push({ from: prevLine.from, to: nextLine.to });
+          if (cursor.from >= prevLine.from && cursor.to <= nextLine.to) return false;
           const latex = lines.slice(1, -1).join("\n");
-          decorations.push(
-            Decoration.replace({
-              widget: new BlockMathWidget(latex),
-              block: true,
-            }).range(node.from, node.to),
-          );
+          const blockDecoration = Decoration.replace({
+            widget: new BlockMathWidget(latex, node.from),
+            block: true,
+          }).range(node.from, node.to);
+          decorations.push(blockDecoration);
+          atomicDecorations.push(blockDecoration);
         }
       }
       if (node.type.name === "InlineCode") {
@@ -204,30 +219,40 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
    * same match → infinite loop → tab freeze. Observed when the doc
    * contained a `$$…$$` or `\[…\]` inside a code block.
    */
-  const scanMath = (re: RegExp, makeWidget: (latex: string) => WidgetType, blockWidget: boolean) => {
+  const scanMath = (re: RegExp, makeWidget: (latex: string, from: number) => WidgetType, blockWidget: boolean) => {
     let match: RegExpExecArray | null = re.exec(doc);
     while (match !== null) {
       const from = match.index;
       const to = from + match[0].length;
       const latex = match[1] ?? match[2] ?? "";
       hasSyntax = true;
-      ranges.push({ from, to });
-      const cursorInside = cursor.from >= from && cursor.to <= to;
+      let sourceVisibleFrom = from;
+      let sourceVisibleTo = to;
+      if (blockWidget) {
+        const prevLine = state.doc.lineAt(Math.max(from - 1, 0));
+        const nextLine = state.doc.lineAt(Math.min(to + 1, state.doc.length));
+        sourceVisibleFrom = prevLine.from;
+        sourceVisibleTo = nextLine.to;
+        ranges.push({ from: sourceVisibleFrom, to: sourceVisibleTo });
+      } else {
+        ranges.push({ from, to });
+      }
+      const cursorInside = cursor.from >= sourceVisibleFrom && cursor.to <= sourceVisibleTo;
       const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
       match = re.exec(doc);
       if (skip) continue;
-      decorations.push(
-        Decoration.replace(blockWidget ? { widget: makeWidget(latex), block: true } : { widget: makeWidget(latex) })
-          .range(from, to),
-      );
+      const decoration = Decoration.replace(blockWidget ? { widget: makeWidget(latex, from), block: true } : { widget: makeWidget(latex, from) }).range(from, to);
+      decorations.push(decoration);
+      if (blockWidget) atomicDecorations.push(decoration);
     }
   };
 
-  scanMath(/\$\$([^$]+)\$\$|\\\[(.*?)\\\]/gs, (latex) => new BlockMathWidget(latex), true);
+  scanMath(/\$\$([^$]+)\$\$|\\\[(.*?)\\\]/gs, (latex, from) => new BlockMathWidget(latex, from), true);
   scanMath(/(?<!\$)\$(?!\$)([^$]+)\$(?!\$)|\\\((.*?)\\\)/g, (latex) => new InlineMathWidget(latex), false);
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    atomicDecorations: atomicDecorations.length > 0 ? RangeSet.of(atomicDecorations, true) : Decoration.none,
     ranges,
     hasSyntax,
   };
@@ -259,19 +284,5 @@ export const katexExtension = (): Extension => {
     },
   });
 
-  const eventHandlers = EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const target = event.target as HTMLElement;
-      if (target.closest(".cm-katex-block")) {
-        const pos = view.posAtDOM(target);
-        if (pos !== null) {
-          view.dispatch({ selection: { anchor: pos } });
-          return true;
-        }
-      }
-      return false;
-    },
-  });
-
-  return [stateField, theme, eventHandlers];
+  return [stateField, theme];
 };

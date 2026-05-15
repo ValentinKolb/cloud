@@ -1,5 +1,6 @@
 import type { EditorView } from "@codemirror/view";
 import { prompts } from "@valentinkolb/cloud/ui";
+import { buildDataBlockTemplate, dataBlockRefSelection } from "../../../lib/editor/data-block-template";
 import { openNoteLinkPrompt } from "../search/openNoteSearchPrompt";
 
 /**
@@ -191,6 +192,27 @@ export const insertCallout = (view: EditorView, type: string): void => {
   view.dispatch({
     changes: { from: line.to, insert },
     selection: { anchor: line.to + separator.length + opening.length },
+  });
+  view.focus();
+};
+
+/**
+ * Insert a referenceable data block. The `@ref` handle is selected
+ * after insertion so users discover that scripts can read it via
+ * `kit.data("ref")` while still being nudged to rename it.
+ */
+export const insertDataBlock = (view: EditorView): void => {
+  const { from } = view.state.selection.main;
+  const line = view.state.doc.lineAt(from);
+  const separator = line.text.trim() ? "\n\n" : "";
+  const block = buildDataBlockTemplate();
+  const insert = `${separator}${block}\n`;
+  const insertStart = line.to;
+  const blockStart = insertStart + separator.length;
+
+  view.dispatch({
+    changes: { from: insertStart, insert },
+    selection: dataBlockRefSelection(blockStart),
   });
   view.focus();
 };

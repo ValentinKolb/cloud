@@ -20,18 +20,29 @@ import type { DecorationSet } from "@codemirror/view";
 // =============================================================================
 
 class HorizontalRuleWidget extends WidgetType {
-  override toDOM() {
+  constructor(private fromPos: number) {
+    super();
+  }
+
+  override toDOM(view: EditorView) {
     const hr = document.createElement("div");
     hr.className = "cm-hr-widget";
+    hr.setAttribute("contenteditable", "false");
+    hr.onmousedown = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      view.dispatch({ selection: { anchor: this.fromPos }, scrollIntoView: true });
+      view.focus();
+    };
     return hr;
   }
 
-  override eq() {
-    return true;
+  override eq(other: WidgetType) {
+    return other instanceof HorizontalRuleWidget && other.fromPos === this.fromPos;
   }
 
   override ignoreEvent() {
-    return false;
+    return true;
   }
 }
 
@@ -217,7 +228,7 @@ const buildDecorations = (state: EditorState): Range<Decoration>[] => {
 
         decorations.push(
           Decoration.replace({
-            widget: new HorizontalRuleWidget(),
+            widget: new HorizontalRuleWidget(from),
             block: true,
           }).range(from, to),
         );
@@ -226,6 +237,23 @@ const buildDecorations = (state: EditorState): Range<Decoration>[] => {
     },
   });
 
+  return decorations;
+};
+
+const buildAtomicDecorations = (state: EditorState): Range<Decoration>[] => {
+  const decorations: Range<Decoration>[] = [];
+  syntaxTree(state).iterate({
+    enter: ({ name, from, to }) => {
+      if (name !== "HorizontalRule") return;
+      if (cursorOnLine(state, from, to)) return;
+      decorations.push(
+        Decoration.replace({
+          widget: new HorizontalRuleWidget(from),
+          block: true,
+        }).range(from, to),
+      );
+    },
+  });
   return decorations;
 };
 
@@ -248,6 +276,7 @@ const buildDecorations = (state: EditorState): Range<Decoration>[] => {
  *  against the old state's. */
 type MarkupState = {
   decorations: DecorationSet;
+  atomicDecorations: DecorationSet;
   /** Line numbers of every line that has a cursor-sensitive
    *  decoration (heading, HR). If the cursor crosses any of these
    *  lines, we rebuild. */
@@ -285,6 +314,7 @@ export const markupExtension = (): Extension => {
       const tracked = collectMarkupTrackedRanges(state);
       return {
         decorations: RangeSet.of(buildDecorations(state), true),
+        atomicDecorations: RangeSet.of(buildAtomicDecorations(state), true),
         cursorSensitiveLines: tracked.lines,
         cursorSensitiveRanges: tracked.ranges,
         cursorLine: cursorLineNumber(state),
@@ -297,6 +327,7 @@ export const markupExtension = (): Extension => {
         const tracked = collectMarkupTrackedRanges(tr.state);
         return {
           decorations: RangeSet.of(buildDecorations(tr.state), true),
+          atomicDecorations: RangeSet.of(buildAtomicDecorations(tr.state), true),
           cursorSensitiveLines: tracked.lines,
           cursorSensitiveRanges: tracked.ranges,
           cursorLine: cursorLineNumber(tr.state),
@@ -327,6 +358,7 @@ export const markupExtension = (): Extension => {
       const tracked = collectMarkupTrackedRanges(tr.state);
       return {
         decorations: RangeSet.of(buildDecorations(tr.state), true),
+        atomicDecorations: RangeSet.of(buildAtomicDecorations(tr.state), true),
         cursorSensitiveLines: tracked.lines,
         cursorSensitiveRanges: tracked.ranges,
         cursorLine: newLine,
@@ -334,7 +366,10 @@ export const markupExtension = (): Extension => {
       };
     },
     provide(field) {
-      return EditorView.decorations.from(field, (v) => v.decorations);
+      return [
+        EditorView.decorations.from(field, (v) => v.decorations),
+        EditorView.atomicRanges.of((view) => view.state.field(field).atomicDecorations),
+      ];
     },
   });
 
@@ -342,26 +377,14 @@ export const markupExtension = (): Extension => {
     ".cm-hr-widget": {
       borderTop: "2px solid",
       borderColor: "var(--color-zinc-300)",
-      margin: "0.75em 0",
+      margin: "0 !important",
+      padding: "0.75em 0 0",
+      boxSizing: "border-box",
     },
     ".dark .cm-hr-widget": {
       borderColor: "var(--color-zinc-600)",
     },
   });
 
-  const eventHandlers = EditorView.domEventHandlers({
-    mousedown(event, view) {
-      const target = event.target as HTMLElement;
-      if (target.classList.contains("cm-hr-widget")) {
-        const pos = view.posAtDOM(target);
-        if (pos !== null) {
-          view.dispatch({ selection: { anchor: pos } });
-          return true;
-        }
-      }
-      return false;
-    },
-  });
-
-  return [stateField, theme, eventHandlers];
+  return [stateField, theme];
 };

@@ -111,6 +111,7 @@ class ImageWidget extends WidgetType {
  *  source-visible extension). Drives the cursor-zone rebuild gate. */
 const findMarkdownImages = (state: EditorState, notebookId: string): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
+  const atomicDecorations: Range<Decoration>[] = [];
   const ranges: { from: number; to: number }[] = [];
   const cursor = state.selection.ranges[0]!;
 
@@ -118,9 +119,10 @@ const findMarkdownImages = (state: EditorState, notebookId: string): CursorZoneS
     enter: (node) => {
       if (node.type.name !== "Image") return;
 
+      const prevLine = state.doc.lineAt(Math.max(node.from - 1, 0));
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
-      ranges.push({ from: node.from, to: nextLine.to });
-      if (cursor.from >= node.from && cursor.to <= nextLine.to) return false;
+      ranges.push({ from: prevLine.from, to: nextLine.to });
+      if (cursor.from >= prevLine.from && cursor.to <= nextLine.to) return false;
 
       const text = state.sliceDoc(node.from, node.to);
       const match = text.match(/!\[([^\]]*)\]\(([^)]+)\)/);
@@ -129,18 +131,19 @@ const findMarkdownImages = (state: EditorState, notebookId: string): CursorZoneS
         const alt = match[1] ?? "";
         const rawHref = match[2] ?? "";
         const { url, width, height } = parseImageHref(rawHref);
-        decorations.push(
-          Decoration.replace({
-            widget: new ImageWidget(resolveUrl(url, notebookId), alt, width, height),
-            block: true,
-          }).range(node.from, node.to),
-        );
+        const imageDecoration = Decoration.replace({
+          widget: new ImageWidget(resolveUrl(url, notebookId), alt, width, height),
+          block: true,
+        }).range(node.from, node.to);
+        decorations.push(imageDecoration);
+        atomicDecorations.push(imageDecoration);
       }
     },
   });
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
+    atomicDecorations: atomicDecorations.length > 0 ? RangeSet.of(atomicDecorations, true) : Decoration.none,
     ranges,
   };
 };

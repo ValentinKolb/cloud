@@ -39,13 +39,18 @@
 import { forceParsing } from "@codemirror/language";
 import { StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, Transaction } from "@codemirror/state";
-import { EditorView, ViewPlugin } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 export type CursorZoneRange = { from: number; to: number };
 
 export type CursorZoneState = {
   decorations: DecorationSet;
+  /** Optional subset of replacement decorations that should behave
+   *  atomically for cursor movement. Use this for block widgets that
+   *  hide source text; it prevents CM from resolving mouse/vertical
+   *  navigation into the replaced source range. */
+  atomicDecorations?: DecorationSet;
   /** Source-byte ranges where the cursor "activates" the source
    *  (i.e. hides the widget so the user can edit raw markdown). */
   ranges: CursorZoneRange[];
@@ -154,11 +159,12 @@ export const cursorZoneStateField = (
       if (tr.docChanged) {
         if (incremental) {
           const decorations = value.decorations.map(tr.changes);
+          const atomicDecorations = value.atomicDecorations?.map(tr.changes);
           const mightAffect = incremental.changesMightAffectSyntax(tr);
           // No syntax anywhere AND change doesn't introduce any →
           // nothing to scan, just keep an empty state.
           if (!value.hasSyntax && !mightAffect) {
-            return { decorations, ranges: [], hasSyntax: false };
+            return { decorations, atomicDecorations, ranges: [], hasSyntax: false };
           }
           // Have syntax, change misses the ranges AND introduces
           // no new markers → keep current decorations, just remap
@@ -170,6 +176,7 @@ export const cursorZoneStateField = (
           ) {
             return {
               decorations,
+              atomicDecorations,
               ranges: mapRanges(tr, value.ranges),
               hasSyntax: true,
             };
@@ -184,7 +191,10 @@ export const cursorZoneStateField = (
       return build(tr.state);
     },
     provide(field) {
-      return EditorView.decorations.from(field, (v) => v.decorations);
+      return [
+        EditorView.decorations.from(field, (v) => v.decorations),
+        EditorView.atomicRanges.of((view) => view.state.field(field).atomicDecorations ?? Decoration.none),
+      ];
     },
   });
 };

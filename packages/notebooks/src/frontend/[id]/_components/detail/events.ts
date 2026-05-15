@@ -35,6 +35,8 @@ export const EDITOR_INSERT_ATTACHMENT_EVENT = "notebooks.editor.insertAttachment
 /** Editor → panel: list of `attach://<shortId>` ids referenced in current
  *  doc, debounced like TOC/Tasks. Detail = `string[]`. */
 export const ATTACHMENTS_UPDATE_EVENT = "notebooks.attachments.updated";
+/** Editor → panel: current `@name` block handles in the note. */
+export const NAMED_BLOCKS_UPDATE_EVENT = "notebooks.namedBlocks.updated";
 
 /**
  * Editor-side progressive enhancement: same-notebook note navigation updated

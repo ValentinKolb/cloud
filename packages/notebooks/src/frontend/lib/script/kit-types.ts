@@ -165,6 +165,10 @@ export type Kit = {
   notes: KitNotesAPI;
   attachments: KitAttachmentsAPI;
   tags: KitTagsAPI;
+  table: (name: string) => KitTableBlockAPI;
+  list: (name: string) => KitListBlockAPI;
+  data: (name: string) => KitDataBlockAPI;
+  section: (name: string) => KitSectionBlockAPI;
   state: KitStateAPI;
   localState: KitLocalStateAPI;
   ui: KitUI;
@@ -238,6 +242,7 @@ export type KitNote = {
   title: string;
   content: string | null;
   tags: string[];
+  tasks: KitTask[];
   /** Parent note short-id, or null for root notes. */
   parentId: string | null;
   createdAt: string;
@@ -282,6 +287,9 @@ export type KitNotesAPI = {
    *  String-only searches forwarded to the server are NOT subject
    *  to this cap — the API handles offset/limit natively. */
   search(query: string | KitQuery): Promise<KitNote[] & { __truncated?: boolean }>;
+  /** Convenience tag search. `searchTags("garden")` and
+   *  `search("#garden")` use the same current-notebook filter. */
+  searchTags(tags: string | string[], options?: { limit?: number; offset?: number }): Promise<KitNote[] & { __truncated?: boolean }>;
   create(data: { title: string; parentId?: string; content?: string }): Promise<KitNote>;
   update(shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote>;
   remove(shortId: string): Promise<void>;
@@ -329,6 +337,32 @@ export type KitTagsAPI = {
    *  `tags`); fast enough for typical notebooks but if the
    *  notebook grows large this should move server-side. */
   notesForTag(tag: string): Promise<KitNote[]>;
+};
+
+// ----- named blocks ------------------------------------------------
+
+export type KitTableBlockAPI = {
+  /** Add a row to every `@name` table in the current note. Accepts
+   *  varargs, one array, or one object keyed by table headers. */
+  add: (...cells: unknown[]) => Promise<void>;
+};
+
+export type KitListBlockAPI = {
+  /** Append one or more list items to every `@name` list in the
+   *  current note. */
+  add: (...items: unknown[]) => Promise<void>;
+};
+
+export type KitDataBlockAPI = {
+  /** Read the first `@name :::data` block in the current note. */
+  get: () => Record<string, unknown> | null;
+  /** Replace every `@name :::data` block in the current note. */
+  set: (value: Record<string, unknown>) => Promise<void>;
+};
+
+export type KitSectionBlockAPI = {
+  /** Append markdown to every `@name` heading section in the current note. */
+  append: (markdown: string) => Promise<void>;
 };
 
 // ----- kit.state (collab Y.Map) -----------------------------------
@@ -438,15 +472,15 @@ export type KitUI = {
   noteLink: (note: KitNote | string, label?: string) => KitElement;
   /** Render notes as a compact vertical list of note links. */
   noteList: (notes: KitNote[], options?: { emptyText?: string }) => KitElement;
+  /** Render rows with the same tile-style table surface as Markdown
+   *  tables. Notes become note links, tag arrays become tag pills,
+   *  and task arrays / progress-like objects render as compact text. */
+  table: (rows: unknown[][] | Record<string, unknown>[], options?: { columns?: string[]; emptyText?: string }) => KitElement;
 
   // ── Interactive ────────────────────────────────────────────────
   /** Button. Async `onClick` errors are caught and rendered as a
    *  small inline error chip next to the button. */
-  button: (
-    label: string,
-    onClick: () => void | Promise<void>,
-    options?: KitButtonOptions,
-  ) => KitElement;
+  button: (label: string, onClick: () => void | Promise<void>, options?: KitButtonOptions) => KitElement;
 
   // ── Escape hatch ───────────────────────────────────────────────
   /** Wrap raw HTML in a container. Trusted-script-only — the

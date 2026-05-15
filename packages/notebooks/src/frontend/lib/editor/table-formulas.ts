@@ -31,12 +31,7 @@
  *
  * All three checks are O(line length) — cheap.
  */
-import {
-  type Completion,
-  type CompletionContext,
-  type CompletionResult,
-  snippetCompletion,
-} from "@codemirror/autocomplete";
+import { type Completion, type CompletionContext, type CompletionResult, snippetCompletion } from "@codemirror/autocomplete";
 import { cellTextBeforeCursor, isTableRow } from "./_lib/table-cell";
 import { withIcon } from "./kit-autocomplete";
 
@@ -74,6 +69,7 @@ const FORMULAS: Formula[] = [
   { name: "SUMIF", detail: "(sumCol, condCol, value) — conditional sum", args: "${1:SumCol}, ${2:CondCol}, ${3:'value'}", icon: "ti-sum" },
   // Sugar ────────────────────────────────────────────────────────
   { name: "PERCENT", detail: "(part, total) — rounded percent", args: "${1:part}, ${2:total}", icon: "ti-percentage" },
+  { name: "PROGRESS", detail: "(ratio) or (done, total) — progress bar", args: "${1:done}, ${2:total}", icon: "ti-progress" },
   // Row aggregates ───────────────────────────────────────────────
   { name: "ROWSUM", detail: "() — sum of other cells in row", args: "", icon: "ti-sum" },
   { name: "ROWAVG", detail: "() — average of other cells in row", args: "", icon: "ti-math-avg" },
@@ -99,7 +95,12 @@ const FORMULAS: Formula[] = [
   // Date / time ──────────────────────────────────────────────────
   { name: "NOW", detail: "() — current YYYY-MM-DD HH:MM:SS", args: "", icon: "ti-clock" },
   { name: "TODAY", detail: "() — current YYYY-MM-DD", args: "", icon: "ti-calendar" },
-  { name: "DATEDIFF", detail: "(d1, d2, unit?) — date diff (d/h/m/s/ms)", args: "${1:'2026-01-01'}, ${2:'2026-12-31'}, ${3:'d'}", icon: "ti-calendar-stats" },
+  {
+    name: "DATEDIFF",
+    detail: "(d1, d2, unit?) — date diff (d/h/m/s/ms)",
+    args: "${1:'2026-01-01'}, ${2:'2026-12-31'}, ${3:'d'}",
+    icon: "ti-calendar-stats",
+  },
 ];
 
 /** Snippet template. Does NOT include the leading `=` because the
@@ -109,8 +110,7 @@ const FORMULAS: Formula[] = [
  *  acceptance only the text between `from` and the cursor is
  *  replaced. The user's typed `=` stays in place. The trailing
  *  `${0}` parks the final cursor outside the parens. */
-const buildSnippet = (f: Formula): string =>
-  f.args.length === 0 ? `${f.name}()` : `${f.name}(${f.args})\${0}`;
+const buildSnippet = (f: Formula): string => (f.args.length === 0 ? `${f.name}()` : `${f.name}(${f.args})\${0}`);
 
 const COMPLETIONS: Completion[] = FORMULAS.map((f) => {
   const c = snippetCompletion(buildSnippet(f), {
@@ -121,7 +121,6 @@ const COMPLETIONS: Completion[] = FORMULAS.map((f) => {
   withIcon(c, f.icon);
   return c;
 });
-
 
 /**
  * Completion source. Wire into `autocompletion({override: […]})`.
@@ -146,9 +145,7 @@ const COMPLETIONS: Completion[] = FORMULAS.map((f) => {
  * `lineAt` + ran a regex over the full line, even when typing in
  * a plain paragraph far from any table).
  */
-export const tableFormulaCompletionSource = (
-  context: CompletionContext,
-): CompletionResult | null => {
+export const tableFormulaCompletionSource = (context: CompletionContext): CompletionResult | null => {
   // Stage 1 — cheap: must be typing something that ends in `=<word>`.
   const word = context.matchBefore(/=\w*/);
   if (!word) return null;

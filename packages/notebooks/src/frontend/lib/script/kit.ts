@@ -33,11 +33,7 @@ import {
   timing as stdTiming,
 } from "@valentinkolb/stdlib";
 import { qr as stdQr } from "@valentinkolb/stdlib/qr";
-import {
-  clipboard as stdClipboard,
-  files as stdFiles,
-  images as stdImages,
-} from "@valentinkolb/stdlib/browser";
+import { clipboard as stdClipboard, files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
 import { createKitAttachmentsAPI } from "./kit-attachments";
 import { createKitCurrentNote } from "./kit-note";
 import { createKitNotesAPI } from "./kit-notes";
@@ -45,6 +41,7 @@ import { createKitLocalStateAPI } from "./kit-localstate";
 import { createKitStateAPI } from "./kit-state";
 import { createKitTagsAPI } from "./kit-tags";
 import { createKitUI } from "./kit-ui";
+import { createKitDataAPI, createKitListAPI, createKitSectionAPI, createKitTableAPI } from "./kit-blocks";
 import type { Kit, KitContext } from "./kit-types";
 
 export type { Kit, KitContext, KitNoteSnapshot, KitMode } from "./kit-types";
@@ -60,6 +57,10 @@ export type {
   KitAttachmentsAPI,
   KitTagSummary,
   KitTagsAPI,
+  KitTableBlockAPI,
+  KitListBlockAPI,
+  KitDataBlockAPI,
+  KitSectionBlockAPI,
   KitStateAPI,
   KitLocalStateAPI,
   KitToastOptions,
@@ -86,6 +87,10 @@ export const createKit = (ctx: KitContext): Kit => ({
   notes: createKitNotesAPI(ctx),
   attachments: createKitAttachmentsAPI(ctx),
   tags: createKitTagsAPI(ctx),
+  table: (name) => createKitTableAPI(ctx, name),
+  list: (name) => createKitListAPI(ctx, name),
+  data: (name) => createKitDataAPI(ctx, name),
+  section: (name) => createKitSectionAPI(ctx, name),
   state: createKitStateAPI(ctx),
   localState: createKitLocalStateAPI(ctx),
   ui: createKitUI(ctx),

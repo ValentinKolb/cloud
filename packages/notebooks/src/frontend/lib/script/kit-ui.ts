@@ -24,6 +24,7 @@
  */
 import { prompts, toast as platformToast } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { renderPrettyTableHtml } from "../pretty-table";
 import type {
   KitButtonOptions,
   KitChild,
@@ -33,6 +34,7 @@ import type {
   KitFormSpec,
   KitHeadingLevel,
   KitNote,
+  KitTask,
   KitPromptAPI,
   KitUI,
 } from "./kit-types";
@@ -145,6 +147,67 @@ const makeNoteList = (notes: KitNote[], options: { emptyText?: string } | undefi
   return brand(list, ctx);
 };
 
+const isKitNote = (value: unknown): value is KitNote =>
+  !!value && typeof value === "object" && typeof (value as KitNote).id === "string" && typeof (value as KitNote).title === "string";
+
+const isTaskArray = (value: unknown[]): value is KitTask[] =>
+  value.length > 0 &&
+  value.every(
+    (item) =>
+      !!item &&
+      typeof item === "object" &&
+      typeof (item as KitTask).done === "boolean" &&
+      typeof (item as KitTask).text === "string" &&
+      typeof (item as KitTask).line === "number",
+  );
+
+const normalizeTableValue = (value: unknown, column?: string): string => {
+  if (value === null || value === undefined) return "";
+  if (isKitNote(value)) return `[${value.title}](note://${value.id})`;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (Array.isArray(value)) {
+    if (isTaskArray(value)) {
+      const done = value.filter((task) => task.done).length;
+      return `=PROGRESS(${done}, ${value.length})`;
+    }
+    const tagColumn = column?.toLowerCase().includes("tag") ?? false;
+    return value
+      .map((item) => (tagColumn && typeof item === "string" ? (item.startsWith("#") ? item : `#${item}`) : normalizeTableValue(item)))
+      .join(" ");
+  }
+  if (typeof value === "object") {
+    const maybeTasks = value as { done?: unknown; total?: unknown };
+    if (typeof maybeTasks.done === "number" && typeof maybeTasks.total === "number") {
+      return `=PROGRESS(${maybeTasks.done}, ${maybeTasks.total})`;
+    }
+    return JSON.stringify(value);
+  }
+  return String(value);
+};
+
+const makeTable = (
+  rows: unknown[][] | Record<string, unknown>[],
+  options: { columns?: string[]; emptyText?: string } | undefined,
+  ctx: KitContext,
+): KitElement => {
+  if (rows.length === 0) return makeText(options?.emptyText ?? "No rows", ctx);
+  const columns =
+    options?.columns ??
+    (Array.isArray(rows[0])
+      ? (rows[0] as unknown[]).map((_, index) => `Column ${index + 1}`)
+      : Object.keys(rows[0] as Record<string, unknown>));
+  const normalizedRows = rows.map((row) =>
+    columns.map((column, index) => {
+      const value = Array.isArray(row) ? row[index] : (row as Record<string, unknown>)[column];
+      return normalizeTableValue(value, column);
+    }),
+  );
+  const el = document.createElement("div");
+  el.className = "md-script-ui-table";
+  el.innerHTML = renderPrettyTableHtml({ headers: columns, rows: normalizedRows }, { notebookId: ctx.notebookId });
+  return brand(el, ctx);
+};
+
 // ── Layout ───────────────────────────────────────────────────────
 
 const makeRow = (children: KitChild[], ctx: KitContext): KitElement => {
@@ -179,15 +242,9 @@ const makeDivider = (ctx: KitContext): KitElement => {
 /** Map button variants to Tailwind utility classes. Kept in one
  *  place so the visual language stays consistent across the kit. */
 const BUTTON_VARIANT_CLASSES: Record<NonNullable<KitButtonOptions["variant"]>, string> = {
-  primary:
-    "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 " +
-    "hover:bg-blue-100 dark:hover:bg-blue-900/50",
-  secondary:
-    "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 " +
-    "hover:bg-zinc-200 dark:hover:bg-zinc-700",
-  danger:
-    "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 " +
-    "hover:bg-red-100 dark:hover:bg-red-900/50",
+  primary: "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 " + "hover:bg-blue-100 dark:hover:bg-blue-900/50",
+  secondary: "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 " + "hover:bg-zinc-200 dark:hover:bg-zinc-700",
+  danger: "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 " + "hover:bg-red-100 dark:hover:bg-red-900/50",
 };
 
 const makeButton = (
@@ -262,6 +319,7 @@ export const createKitUI = (ctx: KitContext): KitUI => ({
   md: (mdSrc) => makeMd(mdSrc, ctx),
   noteLink: (note, label) => makeNoteLink(note, label, ctx),
   noteList: (notes, options) => makeNoteList(notes, options, ctx),
+  table: (rows, options) => makeTable(rows, options, ctx),
 
   // Interactive
   button: (label, onClick, options) => makeButton(label, onClick, options, ctx),

@@ -9,20 +9,17 @@
  *
  * # Architecture — minimal, mirrors the homepage app's `code` ext
  *
- * Each `\`\`\`script` block gets ONE additive output `Decoration.widget`
- * anchored at the end of the closing-fence line with `side: 1` as an
- * inline widget. CSS makes the widget visually block-level. The widget
- * hosts the kit-driven UI (buttons, toasts, error blocks). The source
- * stays visible while the cursor is in or near the fence; otherwise
- * the source range is collapsed with the same table-style replace /
- * atomic-ranges pattern and the output frame's header becomes the
- * visible "Script" affordance.
+ * Each `\`\`\`script` block gets ONE output widget that hosts the
+ * kit-driven UI (buttons, toasts, error blocks). When the cursor is
+ * outside the fence, the widget replaces the source range as a true
+ * block decoration, matching tables/data blocks. When the cursor is in
+ * or near the fence, the source stays visible and the same output
+ * surface is rendered as a block widget after the closing fence.
  *
  * No `requestMeasure`, no fold support — every previous attempt at
  * auto-folding caused the "ArrowUp jumps to a random script block"
  * regression. Source collapsing is table-style `Decoration.replace`
- * with a zero-height placeholder and atomic ranges; the runtime output
- * remains the stable inline widget below the fence.
+ * with atomic ranges; the runtime output owns its DOM lifecycle.
  *
  * # Output widget — runtime isolation
  *
@@ -90,13 +87,14 @@ export type ScriptsConfig = {
 const RERUN_DEBOUNCE_MS = 1200;
 
 // =============================================================================
-// Output widget — visually block-level widget below the script
+// Output widget — block-level script output surface
 // =============================================================================
 
 /**
- * Inline widget that hosts the `.md-script-output` container the kit
- * renders into. CSS gives it `display: block`, but CM still sees the
- * enclosing line as text, which keeps cursor movement stable.
+ * Widget that hosts the `.md-script-output` container the kit renders
+ * into. In collapsed mode it is used as the replacement widget for the
+ * whole script source range; in edit mode it is a block widget after
+ * the closing fence.
  *
  * # DOM reuse via `updateDOM` — critical for typing perf
  *
@@ -128,6 +126,9 @@ const RERUN_DEBOUNCE_MS = 1200;
  *  are reused). */
 type WidgetRunState = {
   source: string;
+  sourceVisible: boolean;
+  iconEl: HTMLElement;
+  labelEl: HTMLElement;
   metaEl: HTMLElement;
   outputEl: HTMLElement;
   errorEl: HTMLElement;
@@ -152,8 +153,7 @@ type WidgetRunState = {
 const RUN_STATE_KEY = Symbol("kit-script-run-state");
 
 type DomWithState = HTMLElement & { [RUN_STATE_KEY]?: WidgetRunState };
-const formatScriptLineCount = (lineCount: number): string =>
-  `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
+const formatScriptLineCount = (lineCount: number): string => `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
 
 class OutputWidget extends WidgetType {
   constructor(
@@ -161,6 +161,7 @@ class OutputWidget extends WidgetType {
     private readonly config: ScriptsConfig,
     private readonly fromPos: number,
     private readonly lineCount: number,
+    private readonly sourceVisible: boolean,
     /** Positional index of this script block within the document
      *  (0 for the first `\`\`\`script` fence, 1 for the second, …).
      *  Included in `eq()` so CM treats two scripts with the SAME
@@ -184,26 +185,9 @@ class OutputWidget extends WidgetType {
       other.source === this.source &&
       other.fromPos === this.fromPos &&
       other.lineCount === this.lineCount &&
+      other.sourceVisible === this.sourceVisible &&
       other.scriptIndex === this.scriptIndex
     );
-  }
-
-  override get lineBreaks(): number {
-    // CRITICAL — without this, ArrowDown from the closing-fence line
-    // gets stuck before the widget. Reason: this is an INLINE widget
-    // (block: false) styled `display: block` in CSS. CM6 treats it
-    // as part of the closing-fence line for cursor purposes, so the
-    // visual block we render isn't a "next line" cursor can move to;
-    // moveVertically lands at the same end-of-line position. Setting
-    // `lineBreaks: 1` tells CM the widget introduces one logical
-    // line break, so vertical navigation routes the caret PAST the
-    // widget (to the start of the next real line) instead of into
-    // it. Per CM docs (`@codemirror/view` WidgetType.lineBreaks):
-    // "for inline widgets that introduce line breaks (through <br>
-    // tags or textual newlines), this must indicate the amount of
-    // line breaks they introduce". Our `display: block` widget is
-    // morally equivalent to a `<br>` so lineBreaks=1 fits.
-    return 1;
   }
 
   override toDOM(): HTMLElement {
@@ -215,11 +199,10 @@ class OutputWidget extends WidgetType {
     header.className = "cm-script-output-header";
 
     const icon = document.createElement("i");
-    icon.className = "ti ti-code text-sm";
+    icon.className = "ti text-sm";
 
     const label = document.createElement("span");
     label.className = "cm-script-output-title";
-    label.textContent = "Script";
 
     const meta = document.createElement("span");
     meta.className = "cm-script-output-meta";
@@ -238,6 +221,9 @@ class OutputWidget extends WidgetType {
 
     const state: WidgetRunState = {
       source: this.source,
+      sourceVisible: this.sourceVisible,
+      iconEl: icon,
+      labelEl: label,
       metaEl: meta,
       outputEl: output,
       errorEl: errors,
@@ -248,6 +234,7 @@ class OutputWidget extends WidgetType {
       scriptIndex: this.scriptIndex,
     };
     root[RUN_STATE_KEY] = state;
+    this.applyVisualState(root, state);
     this.scheduleRun(state, 0);
     return root;
   }
@@ -270,12 +257,20 @@ class OutputWidget extends WidgetType {
     const state = (dom as DomWithState)[RUN_STATE_KEY];
     if (!state || state.disposed) return false;
     if (state.scriptIndex !== this.scriptIndex) return false;
+    state.sourceVisible = this.sourceVisible;
     state.metaEl.textContent = formatScriptLineCount(this.lineCount);
+    this.applyVisualState(dom, state);
     if (state.source !== this.source) {
       state.source = this.source;
       this.scheduleRun(state);
     }
     return true;
+  }
+
+  private applyVisualState(root: HTMLElement, state: WidgetRunState): void {
+    root.classList.toggle("cm-script-output-frame-editing", state.sourceVisible);
+    state.iconEl.className = `ti ${state.sourceVisible ? "ti-terminal-2" : "ti-code"} text-sm`;
+    state.labelEl.textContent = state.sourceVisible ? "Output" : "Script";
   }
 
   override destroy(dom: HTMLElement): void {
@@ -421,33 +416,11 @@ const parseScriptFence = (state: EditorState, node: SyntaxNode): FenceParts | nu
 // Output widget decoration
 // =============================================================================
 
-class HiddenScriptSourceWidget extends WidgetType {
-  override toDOM(): HTMLElement {
-    const el = document.createElement("div");
-    el.className = "cm-script-source-collapsed";
-    el.setAttribute("aria-hidden", "true");
-    return el;
-  }
-
-  override eq(other: WidgetType): boolean {
-    return other instanceof HiddenScriptSourceWidget;
-  }
-
-  override ignoreEvent(): boolean {
-    return true;
-  }
-
-  override get estimatedHeight(): number {
-    return 0;
-  }
-}
-
 /**
  * Walk the doc and emit ONE additive block widget per `\`\`\`script`
- * fence, anchored just past the FencedCode end. When the cursor is
- * away from the fence, also collapse the source with a zero-height
- * replacement. The output widget is never folded into that replace
- * widget because it owns script runtime lifecycle state.
+ * fence when the source is visible. When the cursor is away from the
+ * fence, replace the source range with that same output surface.
+ * The widget owns script runtime lifecycle state.
  *
  * `updateDOM()` keeps the output DOM alive across source and position
  * changes, so typing outside the script or moving it in the document
@@ -492,10 +465,7 @@ const cursorScriptKey = (state: EditorState, ranges: ScriptRange[]): number | nu
   return null;
 };
 
-const isCollapsedScriptRange = (
-  collapsedSourceDecorations: DecorationSet,
-  range: ScriptRange,
-): boolean => {
+const isCollapsedScriptRange = (collapsedSourceDecorations: DecorationSet, range: ScriptRange): boolean => {
   let collapsed = false;
   collapsedSourceDecorations.between(range.from, range.collapseTo, (from, to) => {
     if (from === range.from && to === range.collapseTo) {
@@ -532,11 +502,6 @@ const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecoratio
       const sourceFrom = firstLine.from;
       const sourceTo = closingLine.to;
       const outputPos = nodeRef.to > sourceTo ? nodeRef.to : sourceTo;
-      // Keep the output widget OUTSIDE the replaced range. Most fenced-code
-      // nodes include the trailing newline, so `nodeRef.to` is safely after
-      // the closing-fence line. If the script is at EOF and there is no
-      // trailing newline, leave the closing fence visible as a fallback rather
-      // than replacing the position that owns the output widget.
       const collapseTo = sourceTo;
       const range = { from: sourceFrom, to: nodeRef.to, collapseTo };
       scriptRanges.push(range);
@@ -545,50 +510,24 @@ const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecoratio
       const prevLine = state.doc.lineAt(Math.max(sourceFrom - 1, 0));
       const nextLine = state.doc.lineAt(Math.min(nodeRef.to + 1, state.doc.length));
       const sourceVisible = cursor.from >= prevLine.from && cursor.to <= nextLine.to;
+      const outputWidget = new OutputWidget(parts.body, config, sourceFrom, lineCount, sourceVisible, scriptIndex);
       if (!sourceVisible && collapseTo > sourceFrom) {
-        const collapsedSource = Decoration.replace({
-          widget: new HiddenScriptSourceWidget(),
+        const outputReplacement = Decoration.replace({
+          widget: outputWidget,
           block: true,
           inclusiveEnd: false,
         }).range(sourceFrom, collapseTo);
-        widgets.push(collapsedSource);
-        collapsedSourceWidgets.push(collapsedSource);
+        widgets.push(outputReplacement);
+        collapsedSourceWidgets.push(outputReplacement);
+        scriptIndex++;
+        return;
       }
 
-      // INLINE widget (block: false). This is the critical
-      // difference from earlier revisions:
-      //
-      //   `Decoration.widget({ block: true, side: 1 })` becomes a
-      //   `WidgetAfter` block decoration (CM internals,
-      //   PointDecoration.fromMark in @codemirror/view). CM6's
-      //   `posAtCoords(scanY)` loop in `moveVertically` then treats
-      //   the widget as a non-Text block and SKIPS it during
-      //   vertical scan, repositioning yOffset to `widget.top -
-      //   halfLine`. With only one script in the doc, that lands
-      //   on the closing fence line — observed by users as
-      //   "ArrowUp from anywhere jumps to the bottom of the first
-      //   script block". Tables don't trigger this because their
-      //   decoration is a `Decoration.replace` (BlockType
-      //   `WidgetRange`, with content length) AND because they
-      //   drop the widget when the cursor is on the table or its
-      //   next line.
-      //
-      // An inline widget is NOT a block in CM's layout — its
-      // BlockType stays Text (the line that contains it). Vertical
-      // navigation around it works the same as around any
-      // character; the widget doesn't act as an attractor for the
-      // upward scan.
-      //
-      // We anchor at the END of the closing-fence line so the
-      // widget sits visually below the script when CSS gives it
-      // `display: block`. `lineAt(nodeRef.to - 1).to` resolves to
-      // the closing fence's line end regardless of whether
-      // FencedCode includes the trailing `\n` in its range.
       widgets.push(
         Decoration.widget({
-          widget: new OutputWidget(parts.body, config, sourceFrom, lineCount, scriptIndex),
+          widget: outputWidget,
           side: 1,
-          // block: false (default) — INLINE widget, see comment above.
+          block: true,
         }).range(outputPos),
       );
       scriptIndex++;
@@ -596,8 +535,7 @@ const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecoratio
   });
   return {
     decorations: widgets.length > 0 ? RangeSet.of(widgets, true) : Decoration.none,
-    collapsedSourceDecorations:
-      collapsedSourceWidgets.length > 0 ? RangeSet.of(collapsedSourceWidgets, true) : Decoration.none,
+    collapsedSourceDecorations: collapsedSourceWidgets.length > 0 ? RangeSet.of(collapsedSourceWidgets, true) : Decoration.none,
     scriptRanges,
   };
 };
@@ -607,121 +545,14 @@ const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecoratio
 // =============================================================================
 
 /**
- * `ArrowDown` interceptor for the closing-fence + output-widget
- * cursor-stuck cases.
- *
- * Two related bugs land here, both rooted in the same cause: the
- * output widget is INLINE (`block: false`) styled `display: block`
- * via CSS, so it's logically attached to the closing-fence line in
- * CM's model but visually occupies a second row beneath that line.
- * CM treats those two visual rows as ONE logical line:
- *
- *   1. Caret AT END of closing fence (`\`\`\`|`) → `moveVertically`
- *      calls `posAtCoords({y: cursorY + halfText}, scanY=+1)`,
- *      yOffset lands in the widget area, maps back to
- *      `closingLine.to` (same position) → caret loops in place.
- *   2. Caret ANYWHERE ELSE on the closing-fence line (e.g.
- *      `|\`\`\``) → ArrowDown moves "down one visual row" within
- *      the same logical line, lands inside the widget area, maps
- *      back to `closingLine.to` → caret jumps to end of fence
- *      instead of past the widget.
- *
- * Either way the caret never makes it to the next REAL line below
- * the script. ArrowUp doesn't have this problem because the upward
- * scan crosses into a different line block.
- *
- * Pragmatic fix: when the caret is on a `\`\`\`script` block's
- * closing-fence line and the user presses ArrowDown, dispatch the
- * caret to the start of the next line ourselves. Targeted on
- * purpose — default ArrowDown elsewhere stays untouched, including
- * regular ```js / ```py fences where there's no widget.
- *
- * Selection-extending variants (Shift-ArrowDown / Mod-ArrowDown)
- * aren't intercepted yet — mirror the same logic onto them if a
- * report comes in.
- */
-const arrowDownPastWidgetKeymap = (config: ScriptsConfig) =>
-  // `Prec.highest` so we run BEFORE the default ArrowDown command
-  // (`cursorLineDown` from `@codemirror/commands`). Without this,
-  // the default fires first, consumes the event, and our handler
-  // never runs.
-  Prec.highest(
-    keymap.of([
-      {
-        key: "ArrowDown",
-        run: (view) => {
-          if (!config.scriptsEnabled()) return false;
-          const sel = view.state.selection.main;
-          if (!sel.empty) return false;
-          const cursor = sel.head;
-
-          const cursorLine = view.state.doc.lineAt(cursor);
-
-          // Walk every FencedCode in the doc and check whether the
-          // caret sits on a `\`\`\`script` block's closing-fence
-          // line. We iterate (rather than `tree.resolveInner`)
-          // because at line boundaries the resolver can land on
-          // an adjacent node — CodeText of the previous line, or
-          // the closing CodeMark, depending on `side` — and walking
-          // up from the wrong child sometimes misses the parent.
-          // Iterating is O(scripts-in-doc) which is fine; a typical
-          // note has at most a handful.
-          let scriptFenced: SyntaxNode | null = null;
-          syntaxTree(view.state).iterate({
-            enter: (nodeRef) => {
-              if (nodeRef.type.name !== "FencedCode") return;
-              if (cursor < nodeRef.from || cursor > nodeRef.to) return false;
-              const parts = parseScriptFence(view.state, nodeRef.node);
-              if (!parts) return false;
-              const closingLine = view.state.doc.lineAt(Math.max(0, nodeRef.to - 1));
-              if (closingLine.from === cursorLine.from) {
-                scriptFenced = nodeRef.node;
-                return false;
-              }
-              return false;
-            },
-          });
-          if (!scriptFenced) return false;
-
-          // Caret is on a script's closing-fence line. Default
-          // ArrowDown lands inside the inline-but-display:block
-          // output widget which CM maps back to `closingLine.to`
-          // (same logical line). Skip past the widget by
-          // dispatching to the start of the next REAL line.
-          const fenced = scriptFenced as SyntaxNode;
-          const closingLine = view.state.doc.lineAt(Math.max(0, fenced.to - 1));
-          const totalLines = view.state.doc.lines;
-          const nextPos =
-            closingLine.number < totalLines
-              ? view.state.doc.line(closingLine.number + 1).from
-              : view.state.doc.length;
-
-          view.dispatch({
-            selection: { anchor: nextPos },
-            scrollIntoView: true,
-            userEvent: "select",
-          });
-          return true;
-        },
-      },
-    ]),
-  );
-
-/**
  * Public extension factory. Wire it alongside the other rich-mode
  * extensions in `NoteEditor.client.tsx`.
  *
  * Returns:
- *  1. The script StateField — emits one additive INLINE output
- *     widget per `\`\`\`script` fence and one zero-height source
- *     collapse `Decoration.replace({ block: true })` when the cursor
- *     is outside the script zone. The runtime output stays in the
- *     inline widget shape that avoids the `WidgetAfter` cursor-jump
- *     bug we hit with earlier revisions.
+ *  1. The script StateField — emits one block output widget per
+ *     `\`\`\`script` fence while the source is visible, and replaces
+ *     the source range with that widget when collapsed.
  *  2. The output-frame theme.
- *  3. The ArrowDown interceptor — fixes the caret-stuck-at-
- *     closing-fence-end edge case that comes with inline widgets
- *     styled as blocks.
  *
  * NOTE: an earlier revision included an auto-fold `ViewPlugin` that
  * kept fold state synced with caret position. That layer caused
@@ -810,20 +641,16 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
   }
 
   const outputFrameTheme = EditorView.theme({
-    ".cm-script-source-collapsed": {
-      display: "block",
-      height: "0 !important",
-      minHeight: "0 !important",
-      margin: "0 !important",
-      padding: "0 !important",
-      overflow: "hidden",
-    },
     ".cm-script-output-frame": {
       boxSizing: "border-box",
       border: "0",
       borderRadius: "6px",
-      backgroundColor: "rgb(59 130 246 / 0.045)",
-      padding: "0.5rem",
+      background: "linear-gradient(135deg, rgb(59 130 246 / 0.115) 0%, rgb(20 184 166 / 0.095) 100%)",
+      padding: "0.375rem",
+    },
+    ".cm-script-output-frame.cm-script-output-frame-editing": {
+      backgroundColor: "transparent",
+      boxShadow: "0 0 0 1px rgb(37 99 235 / 0.22) inset",
     },
     ".cm-script-output-header": {
       display: "flex",
@@ -850,13 +677,17 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
       border: "0",
       borderRadius: "0",
       background: "transparent",
-      padding: "0.5rem 0 0",
+      padding: "0.375rem 0 0",
     },
     ".cm-script-output-frame .md-script-errors": {
       marginTop: "0.5rem",
     },
     ".dark .cm-script-output-frame": {
-      backgroundColor: "rgb(30 64 175 / 0.14)",
+      background: "linear-gradient(135deg, rgb(30 64 175 / 0.24) 0%, rgb(15 118 110 / 0.22) 100%)",
+    },
+    ".dark .cm-script-output-frame.cm-script-output-frame-editing": {
+      backgroundColor: "transparent",
+      boxShadow: "0 0 0 1px rgb(147 197 253 / 0.28) inset",
     },
     ".dark .cm-script-output-header": {
       color: "#bfdbfe",
@@ -866,5 +697,5 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
     },
   });
 
-  return [outputField, outputFrameTheme, collapsedSourceEditKeymap, arrowDownPastWidgetKeymap(config)];
+  return [outputField, outputFrameTheme, collapsedSourceEditKeymap];
 };

@@ -13,6 +13,7 @@ import {
   DETAIL_PANEL_TOGGLE_EVENT,
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
+  NAMED_BLOCKS_UPDATE_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
@@ -23,6 +24,7 @@ import {
 } from "./events";
 import type { TaskProgress } from "./tasks";
 import type { TocItem } from "./toc";
+import type { NamedBlockSummary } from "../../../../lib/named-blocks";
 
 type Props = {
   mode: "edit" | "read";
@@ -42,6 +44,7 @@ type Props = {
   updatedAt: string;
   lockedAt: string | null;
   isLocked: boolean;
+  namedBlocks: NamedBlockSummary[];
 };
 
 type SoftNavigatedDetail = {
@@ -56,6 +59,7 @@ type SoftNavigatedDetail = {
   taskProgress: TaskProgress;
   attachments: Attachment[];
   backlinks: Backlink[];
+  namedBlocks: NamedBlockSummary[];
 };
 
 const ACTION_BTN = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
@@ -93,6 +97,7 @@ export default function NotebookDetailPanel(props: Props) {
   const [updatedAt, setUpdatedAt] = createSignal(props.updatedAt);
   const [lockedAt, setLockedAt] = createSignal(props.lockedAt);
   const [isLocked, setIsLocked] = createSignal(props.isLocked);
+  const [namedBlocks, setNamedBlocks] = createSignal<NamedBlockSummary[]>(props.namedBlocks);
 
   // Attachment state: a cache (shortId → Attachment) plus the ordered
   // shortId list of what's currently referenced in the doc. The
@@ -200,6 +205,10 @@ export default function NotebookDetailPanel(props: Props) {
       // no metadata for (e.g. fresh upload, or another client added it).
       if (ids.some((id) => !attachmentCache().has(id))) void refetchAttachments();
     };
+    const onNamedBlocksUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<NamedBlockSummary[]>).detail;
+      if (Array.isArray(detail)) setNamedBlocks(detail);
+    };
     const onSoftNavigated = (event: Event) => {
       const detail = (event as CustomEvent<SoftNavigatedDetail>).detail;
       if (!detail?.noteId) return;
@@ -215,11 +224,13 @@ export default function NotebookDetailPanel(props: Props) {
       setBacklinks(detail.backlinks);
       setAttachmentCache(new Map(detail.attachments.map((a) => [a.shortId, a])));
       setAttachmentIds(detail.attachments.map((a) => a.shortId));
+      setNamedBlocks(detail.namedBlocks);
     };
 
     window.addEventListener(TOC_UPDATE_EVENT, onTocUpdate);
     window.addEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
     window.addEventListener(ATTACHMENTS_UPDATE_EVENT, onAttachmentsUpdate);
+    window.addEventListener(NAMED_BLOCKS_UPDATE_EVENT, onNamedBlocksUpdate);
     window.addEventListener(PRESENCE_EVENT, onPresenceUpdate);
     window.addEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
     window.addEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
@@ -229,6 +240,7 @@ export default function NotebookDetailPanel(props: Props) {
       window.removeEventListener(TOC_UPDATE_EVENT, onTocUpdate);
       window.removeEventListener(TASKS_UPDATE_EVENT, onTasksUpdate);
       window.removeEventListener(ATTACHMENTS_UPDATE_EVENT, onAttachmentsUpdate);
+      window.removeEventListener(NAMED_BLOCKS_UPDATE_EVENT, onNamedBlocksUpdate);
       window.removeEventListener(PRESENCE_EVENT, onPresenceUpdate);
       window.removeEventListener(DETAIL_PANEL_TOGGLE_EVENT, onToggle);
       window.removeEventListener(RICH_MODE_CHANGED_EVENT, onRichChange);
@@ -286,6 +298,26 @@ export default function NotebookDetailPanel(props: Props) {
         </section>
       </Show>
 
+      {/* References */}
+      <Show when={namedBlocks().length > 0}>
+        <section class="detail-section">
+          <h3 class="detail-section-label">References</h3>
+          <ul class="flex flex-col gap-1">
+            <For each={namedBlocks()}>
+              {(block) => (
+                <li class="flex items-center justify-between gap-2 px-2 py-1 text-xs">
+                  <span class="inline-flex min-w-0 items-center gap-1">
+                    <i class="ti ti-at text-dimmed" />
+                    <code class="truncate">@{block.name}</code>
+                  </span>
+                  <span class="text-dimmed capitalize">{block.type}</span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </section>
+      </Show>
+
       {/* Attachments — files & images referenced from this note. Click a
           row → download confirm modal. Deletion lives on the dedicated
           attachments overview page. */}
@@ -302,7 +334,9 @@ export default function NotebookDetailPanel(props: Props) {
                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded transition-colors text-left"
                     title={att.filename}
                   >
-                    <i class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`} />
+                    <i
+                      class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })} text-sm shrink-0`}
+                    />
                     <span class="flex-1 truncate">{att.filename}</span>
                     <span class="text-dimmed tabular-nums shrink-0">{formatBytes(att.sizeBytes)}</span>
                   </button>

@@ -15,13 +15,7 @@
  */
 import { apiClient } from "../../../api/client";
 import { extractTags } from "../tag-extract";
-import {
-  assertActive,
-  type KitContext,
-  type KitNote,
-  type KitNotesAPI,
-  type KitQuery,
-} from "./kit-types";
+import { assertActive, type KitContext, type KitNote, type KitNotesAPI, type KitQuery, type KitTask } from "./kit-types";
 
 // =============================================================================
 // Wire shape (matches NoteSchema in api/index.ts)
@@ -41,6 +35,7 @@ type ApiNote = {
 
 const toKitNote = (n: ApiNote, parentId: string | null): KitNote => {
   let tags: string[] | undefined;
+  let tasks: KitTask[] | undefined;
   return {
     id: n.shortId,
     title: n.title,
@@ -49,11 +44,26 @@ const toKitNote = (n: ApiNote, parentId: string | null): KitNote => {
       tags ??= extractTags(n.contentMd);
       return tags;
     },
+    get tasks() {
+      tasks ??= extractTasks(n.contentMd ?? "");
+      return tasks;
+    },
     parentId,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
     lockedAt: n.lockedAt,
   };
+};
+
+const extractTasks = (content: string): KitTask[] => {
+  const tasks: KitTask[] = [];
+  const lines = content.split("\n");
+  for (let line = 0; line < lines.length; line++) {
+    const match = lines[line]!.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+)$/);
+    if (!match) continue;
+    tasks.push({ text: match[2]!, done: match[1]!.toLowerCase() === "x", line });
+  }
+  return tasks;
 };
 
 const toKitNotesWithShortParents = (notes: ApiNote[]): KitNote[] => {
@@ -208,7 +218,17 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
 
   const search = async (query: string | KitQuery): Promise<KitNote[]> => {
     // Normalise: string overload becomes `{ search: <string> }`.
-    const q: KitQuery = typeof query === "string" ? { search: query } : query;
+    const q: KitQuery =
+      typeof query === "string"
+        ? /^#[a-zA-Z][\w-]*(?:\s+#[a-zA-Z][\w-]*)*$/.test(query.trim())
+          ? {
+              tags: query
+                .trim()
+                .split(/\s+/)
+                .map((tag) => tag.slice(1)),
+            }
+          : { search: query }
+        : query;
     const userLimit = Math.max(0, Math.min(q.limit ?? 50, 200));
     const userOffset = Math.max(0, q.offset ?? 0);
 
@@ -259,6 +279,11 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     return truncated ? flagTruncated(sliced) : sliced;
   };
 
+  const searchTags = async (tags: string | string[], options?: { limit?: number; offset?: number }) => {
+    const normalized = (Array.isArray(tags) ? tags : [tags]).map((tag) => tag.replace(/^#/, "").toLowerCase());
+    return search({ tags: normalized, limit: options?.limit, offset: options?.offset });
+  };
+
   const create = async (data: { title: string; parentId?: string; content?: string }): Promise<KitNote> => {
     assertActive(ctx);
     const res = await apiClient[":id"].notes.$post({
@@ -270,10 +295,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     return toKitNote(note, data.parentId ?? null);
   };
 
-  const update = async (
-    shortId: string,
-    data: { title?: string; parentId?: string | null },
-  ): Promise<KitNote> => {
+  const update = async (shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote> => {
     assertActive(ctx);
     const res = await apiClient[":id"].notes[":noteId"].$patch({
       param: { id: ctx.notebookId, noteId: shortId },
@@ -281,7 +303,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     });
     if (!res.ok) throw new Error("kit.notes.update: API call failed");
     const note = (await res.json()) as ApiNote;
-    const parentId = data.parentId === undefined ? (note.parentId ? (await get(note.shortId))?.parentId ?? null : null) : data.parentId;
+    const parentId = data.parentId === undefined ? (note.parentId ? ((await get(note.shortId))?.parentId ?? null) : null) : data.parentId;
     return toKitNote(note, parentId);
   };
 
@@ -293,5 +315,5 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     if (!res.ok) throw new Error("kit.notes.remove: API call failed");
   };
 
-  return { list, get, search, create, update, remove };
+  return { list, get, search, searchTags, create, update, remove };
 };

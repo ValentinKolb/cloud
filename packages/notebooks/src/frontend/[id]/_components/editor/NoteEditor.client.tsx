@@ -18,6 +18,7 @@ import {
   EDITOR_DOWNLOAD_EVENT,
   EDITOR_INSERT_ATTACHMENT_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
+  NAMED_BLOCKS_UPDATE_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -30,6 +31,7 @@ import { extractTocFromMarkdown } from "../detail/toc";
 import { readSettings, writeSettings } from "../settings/NotebookSettingsStore";
 import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
 import { handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
+import { extractNamedBlockSummaries } from "../../../../lib/named-blocks";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import type { Backlink } from "../../../../service/links";
 import { MAX_ATTACHMENT_SIZE_BYTES, formatBytes, insertAttachment, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
@@ -95,6 +97,7 @@ type SoftNavigatedDetail = {
   taskProgress: ReturnType<typeof extractTaskProgress>;
   attachments: Attachment[];
   backlinks: Backlink[];
+  namedBlocks: ReturnType<typeof extractNamedBlockSummaries>;
 };
 
 type LoadedNote = {
@@ -165,6 +168,7 @@ export default function NoteEditor(props: Props) {
     const attachments = allAttachments.filter((attachment) => attachmentIds.has(attachment.shortId));
     const tocItems = extractTocFromMarkdown(note.contentMd);
     const taskProgress = extractTaskProgress(note.contentMd);
+    const namedBlocks = extractNamedBlockSummaries(note.contentMd);
 
     return {
       props: {
@@ -191,6 +195,7 @@ export default function NoteEditor(props: Props) {
         taskProgress,
         attachments,
         backlinks: backlinksPayload.data,
+        namedBlocks,
       },
     };
   };
@@ -358,10 +363,12 @@ function EditorInstance(props: Props) {
   addExtension(() =>
     richMode()
       ? [
-          editor.tablesExtension(),
+          editor.tablesExtension(props.notebookId),
           editor.imageExtension(props.notebookId),
           editor.listsExtension(),
           editor.infoBlocksExtension(),
+          editor.dataBlocksExtension(),
+          editor.namedBlocksExtension(),
           editor.linksExtension(props.notebookId),
           editor.markupExtension(),
           editor.markExtension(),
@@ -474,6 +481,7 @@ function EditorInstance(props: Props) {
     window.dispatchEvent(new CustomEvent(TOC_UPDATE_EVENT, { detail: extractTocFromMarkdown(md) }));
     window.dispatchEvent(new CustomEvent(TASKS_UPDATE_EVENT, { detail: extractTaskProgress(md) }));
     window.dispatchEvent(new CustomEvent(ATTACHMENTS_UPDATE_EVENT, { detail: extractAttachmentIds(md) }));
+    window.dispatchEvent(new CustomEvent(NAMED_BLOCKS_UPDATE_EVENT, { detail: extractNamedBlockSummaries(md) }));
   };
 
   const scheduleDerivedEmit = () => {
