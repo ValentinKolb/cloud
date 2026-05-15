@@ -21,7 +21,7 @@
  * those, you're rendering data not prose; use the Grids app.
  */
 import type { MarkedExtension, Tokens } from "marked";
-import { evaluateFormula, formatValue, isFormula, isTotalRow, type EvalContext } from "../formula";
+import { evaluateFormula, formatValue, isFormula, isTotalRow, parseProgressValue, type EvalContext, type ProgressValue } from "../formula";
 import { escapeHtml } from "../shared";
 
 type Align = "left" | "right" | "center" | null;
@@ -41,12 +41,19 @@ const cellText = (cell: Tokens.TableCell): string => {
   return "";
 };
 
+const renderProgressCell = (progress: ProgressValue, alignCls: string, title: string): string => {
+  const pct = Math.round(progress.ratio * 100);
+  return `<td><span class="md-table-cell md-table-progress${alignCls}" title="${escapeHtml(title)}"><span class="md-table-progress-track" aria-hidden="true"><span class="md-table-progress-fill" style="width:${pct}%"></span></span><span>${escapeHtml(progress.label)}</span></span></td>`;
+};
+
 const renderCell = (alignCls: string, originalText: string, ctx: EvalContext, htmlContent: string): string => {
   if (!isFormula(originalText)) {
     return `<td><span class="md-table-cell${alignCls}">${htmlContent}</span></td>`;
   }
   const result = evaluateFormula(originalText, ctx);
   if (result.kind === "ok") {
+    const progress = parseProgressValue(result.value);
+    if (progress) return renderProgressCell(progress, alignCls, originalText);
     // Computed cells get a `ti-math-function` icon prefix + blue text
     // so the user can tell at a glance which values are derived vs
     // hand-typed. Hover-title shows the original formula source.

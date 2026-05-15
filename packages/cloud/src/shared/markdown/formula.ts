@@ -58,8 +58,32 @@ export type EvalError = {
 
 export type EvalResult = { kind: "ok"; value: EvalValue } | EvalError;
 
+export type ProgressValue = {
+  ratio: number;
+  label: string;
+};
+
 const ok = (value: EvalValue): EvalResult => ({ kind: "ok", value });
 const err = (code: ErrorCode, message: string, suggestion?: string): EvalError => ({ kind: "error", code, message, suggestion });
+
+const PROGRESS_VALUE_RE = /^__progress:([^:]+):(.+)__$/;
+
+const clampProgress = (ratio: number): number => Math.max(0, Math.min(1, ratio));
+
+export const createProgressValue = (ratio: number, label: string): string =>
+  `__progress:${clampProgress(ratio)}:${encodeURIComponent(label)}__`;
+
+export const parseProgressValue = (value: EvalValue): ProgressValue | null => {
+  if (typeof value !== "string") return null;
+  const match = value.match(PROGRESS_VALUE_RE);
+  if (!match) return null;
+  const ratio = Number.parseFloat(match[1]!);
+  if (Number.isNaN(ratio)) return null;
+  return {
+    ratio: clampProgress(ratio),
+    label: decodeURIComponent(match[2]!),
+  };
+};
 
 // =============================================================================
 // Lexer
@@ -462,6 +486,9 @@ const cellAt = (row: number, col: number, ctx: EvalContext): string => {
   return ctx.rows[row]?.[col] ?? "";
 };
 
+const isCurrentFormulaCell = (row: number, col: number, ctx: EvalContext): boolean =>
+  row === ctx.currentRow && col === ctx.currentCol && cellAt(row, col, ctx).startsWith("=");
+
 /**
  * Resolve a single cell to its evaluated value. If the cell is itself
  * a formula, recursively evaluate it (with cycle detection via
@@ -524,6 +551,7 @@ const collectColumnValues = (arg: AST, state: EvalState): { values: string[] } |
   }
   const values: string[] = [];
   for (let r = 0; r < state.ctx.rows.length; r++) {
+    if (isCurrentFormulaCell(r, lookup.index, state.ctx)) continue;
     const result = evaluateCell(r, lookup.index, state.ctx);
     if (result.kind === "ok") values.push(toString(result.value));
     // errored cells silently skipped — same handling as non-numeric cells
@@ -610,14 +638,11 @@ const FUNCTIONS: Record<string, FuncImpl> = {
   },
 
   // --- Column aggregates ---
-  SUM: (args, state) =>
-    aggregateColumn("SUM", args, state, (nums) => nums.reduce((a, b) => a + b, 0)),
+  SUM: (args, state) => aggregateColumn("SUM", args, state, (nums) => nums.reduce((a, b) => a + b, 0)),
   AVG: (args, state) =>
     aggregateColumn("AVG", args, state, (nums) => (nums.length === 0 ? 0 : nums.reduce((a, b) => a + b, 0) / nums.length)),
-  MIN: (args, state) =>
-    aggregateColumn("MIN", args, state, (nums) => (nums.length === 0 ? 0 : Math.min(...nums))),
-  MAX: (args, state) =>
-    aggregateColumn("MAX", args, state, (nums) => (nums.length === 0 ? 0 : Math.max(...nums))),
+  MIN: (args, state) => aggregateColumn("MIN", args, state, (nums) => (nums.length === 0 ? 0 : Math.min(...nums))),
+  MAX: (args, state) => aggregateColumn("MAX", args, state, (nums) => (nums.length === 0 ? 0 : Math.max(...nums))),
   COUNT: (args, state) => {
     if (args.length !== 1) return argCountError("COUNT", "1 argument (column name)", args.length);
     const col = collectColumnValues(args[0]!, state);
@@ -656,8 +681,7 @@ const FUNCTIONS: Record<string, FuncImpl> = {
       return Math.sqrt(variance);
     }),
   COUNTIF: (args, state) => {
-    if (args.length !== 2)
-      return argCountError("COUNTIF", "2 arguments (column, value)", args.length);
+    if (args.length !== 2) return argCountError("COUNTIF", "2 arguments (column, value)", args.length);
     const col = collectColumnValues(args[0]!, state);
     if ("kind" in col) return col;
     const valueArg = state.evaluate(args[1]!);
@@ -668,8 +692,7 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     return ok(count);
   },
   SUMIF: (args, state) => {
-    if (args.length !== 3)
-      return argCountError("SUMIF", "3 arguments (sumCol, condCol, condValue)", args.length);
+    if (args.length !== 3) return argCountError("SUMIF", "3 arguments (sumCol, condCol, condValue)", args.length);
     if (args[0]!.kind !== "col") {
       return err("TYPE_ERROR", `SUMIF: first argument must be a column name`);
     }
@@ -697,6 +720,7 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     const target = toString(condValueArg.value);
     let total = 0;
     for (let r = 0; r < state.ctx.rows.length; r++) {
+      if (isCurrentFormulaCell(r, condLookup.index, state.ctx) || isCurrentFormulaCell(r, sumLookup.index, state.ctx)) continue;
       const condResult = evaluateCell(r, condLookup.index, state.ctx);
       if (condResult.kind !== "ok") continue;
       if (toString(condResult.value) !== target) continue;
@@ -721,6 +745,24 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     if (t === null) return err("NON_NUMERIC", `PERCENT: "total" is not a number`);
     if (t === 0) return err("DIV_BY_ZERO", `PERCENT: total is zero`);
     return ok(Math.round((p / t) * 10000) / 100);
+  },
+  PROGRESS: (args, state) => {
+    if (args.length !== 1 && args.length !== 2) return argCountError("PROGRESS", "1 ratio or 2 arguments (done, total)", args.length);
+    const doneResult = state.evaluate(args[0]!);
+    if (doneResult.kind === "error") return doneResult;
+    const done = toNumber(doneResult.value);
+    if (done === null) return err("NON_NUMERIC", `PROGRESS: first argument is not a number`);
+
+    if (args.length === 1) {
+      return ok(createProgressValue(done, `${Math.round(clampProgress(done) * 100)}%`));
+    }
+
+    const totalResult = state.evaluate(args[1]!);
+    if (totalResult.kind === "error") return totalResult;
+    const total = toNumber(totalResult.value);
+    if (total === null) return err("NON_NUMERIC", `PROGRESS: total is not a number`);
+    if (total === 0) return err("DIV_BY_ZERO", `PROGRESS: total is zero`);
+    return ok(createProgressValue(done / total, `${formatValue(done)}/${formatValue(total)}`));
   },
 
   // --- Row aggregates ---
@@ -861,8 +903,7 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     return ok(toString(v.value).length);
   },
   SUBSTRING: (args, state) => {
-    if (args.length !== 3)
-      return argCountError("SUBSTRING", "3 arguments (text, start, length) — 0-indexed", args.length);
+    if (args.length !== 3) return argCountError("SUBSTRING", "3 arguments (text, start, length) — 0-indexed", args.length);
     const text = state.evaluate(args[0]!);
     if (text.kind === "error") return text;
     const start = state.evaluate(args[1]!);
@@ -943,8 +984,7 @@ const FUNCTIONS: Record<string, FuncImpl> = {
     return ok(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
   },
   DATEDIFF: (args, state) => {
-    if (args.length < 2 || args.length > 3)
-      return argCountError("DATEDIFF", "2 or 3 arguments (d1, d2, unit?)", args.length);
+    if (args.length < 2 || args.length > 3) return argCountError("DATEDIFF", "2 or 3 arguments (d1, d2, unit?)", args.length);
     const d1V = state.evaluate(args[0]!);
     if (d1V.kind === "error") return d1V;
     const d2V = state.evaluate(args[1]!);
@@ -977,10 +1017,7 @@ const FUNCTIONS: Record<string, FuncImpl> = {
       case "days":
         return ok(diffMs / (1000 * 60 * 60 * 24));
       default:
-        return err(
-          "PARSE_ERROR",
-          `DATEDIFF: unknown unit "${unit}" — use one of ms / s / m / h / d (or full names)`,
-        );
+        return err("PARSE_ERROR", `DATEDIFF: unknown unit "${unit}" — use one of ms / s / m / h / d (or full names)`);
     }
   },
 };
@@ -1069,11 +1106,7 @@ const evaluateAst = (ast: AST, ctx: EvalContext): EvalResult => {
       const fn = FUNCTIONS[ast.name.toUpperCase()];
       if (!fn) {
         const suggestion = findClosest(ast.name.toUpperCase(), FUNCTION_NAMES);
-        return err(
-          "UNKNOWN_FUNCTION",
-          `Unknown function "${ast.name}"${suggestion ? ` — did you mean "${suggestion}"?` : ""}`,
-          suggestion,
-        );
+        return err("UNKNOWN_FUNCTION", `Unknown function "${ast.name}"${suggestion ? ` — did you mean "${suggestion}"?` : ""}`, suggestion);
       }
       return fn(ast.args, state);
     }
@@ -1107,16 +1140,15 @@ export const evaluateFormula = (source: string, ctx: EvalContext): EvalResult =>
 
 /** Format an `EvalResult` value for display in a cell. */
 export const formatValue = (value: EvalValue): string => {
+  const progress = parseProgressValue(value);
+  if (progress) return progress.label;
   if (typeof value === "boolean") return value ? "1" : "0";
   if (typeof value === "string") return value;
   if (Number.isNaN(value)) return "NaN";
   if (!Number.isFinite(value)) return value > 0 ? "∞" : "-∞";
   // Strip trailing zeros from decimal display but keep up to 6 places.
   if (Number.isInteger(value)) return String(value);
-  return value
-    .toFixed(6)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "");
+  return value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
 };
 
 /** Whether a cell value is a formula (starts with `=`, no extra space). */

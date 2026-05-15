@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateFormula, formatValue, isFormula, isTotalRow, type EvalContext, type EvalResult, type ErrorCode } from "./formula";
+import {
+  evaluateFormula,
+  formatValue,
+  isFormula,
+  isTotalRow,
+  parseProgressValue,
+  type EvalContext,
+  type EvalResult,
+  type ErrorCode,
+} from "./formula";
 
 // =============================================================================
 // Helpers
@@ -22,6 +31,15 @@ const expectError = (res: EvalResult, code: ErrorCode) => {
   if (res.kind === "error") expect(res.code).toBe(code);
 };
 
+const expectProgress = (res: EvalResult, ratio: number, label: string) => {
+  expect(res.kind).toBe("ok");
+  if (res.kind !== "ok") return;
+  const progress = parseProgressValue(res.value);
+  expect(progress).not.toBeNull();
+  expect(progress?.ratio).toBe(ratio);
+  expect(progress?.label).toBe(label);
+};
+
 // =============================================================================
 // isFormula + formatValue
 // =============================================================================
@@ -41,7 +59,7 @@ describe("helpers", () => {
 
   test("formatValue strips trailing zeros from decimals", () => {
     expect(formatValue(1.5)).toBe("1.5");
-    expect(formatValue(1.234560)).toBe("1.23456");
+    expect(formatValue(1.23456)).toBe("1.23456");
   });
 
   test("formatValue handles infinity / NaN", () => {
@@ -178,10 +196,24 @@ describe("column references", () => {
 // =============================================================================
 
 describe("column aggregates", () => {
-  const c = ctx(["price", "name"], [["10", "a"], ["20", "b"], ["30", "c"], ["", "d"], ["x", "e"]]);
+  const c = ctx(
+    ["price", "name"],
+    [
+      ["10", "a"],
+      ["20", "b"],
+      ["30", "c"],
+      ["", "d"],
+      ["x", "e"],
+    ],
+  );
 
   test("SUM skips empty + non-numeric", () => {
     expectOk(evaluateFormula("=SUM(price)", c), 60);
+  });
+
+  test("SUM skips the current formula cell when aggregating its own column", () => {
+    const ownColumn = ctx(["Hours"], [["10"], ["10"], ["=SUM(Hours)"]], 2, 0);
+    expectOk(evaluateFormula("=SUM(Hours)", ownColumn), 20);
   });
 
   test("AVG counts only numeric cells", () => {
@@ -200,6 +232,11 @@ describe("column aggregates", () => {
   test("COUNT counts non-empty cells (incl non-numeric)", () => {
     // 5 rows, one empty cell in price — counts the 4 non-empty (incl "x")
     expectOk(evaluateFormula("=COUNT(price)", c), 4);
+  });
+
+  test("COUNT skips the current formula cell when aggregating its own column", () => {
+    const ownColumn = ctx(["Name"], [["Ada"], ["Grace"], ["=COUNT(Name)"]], 2, 0);
+    expectOk(evaluateFormula("=COUNT(Name)", ownColumn), 2);
   });
 
   test("aggregates on empty column return 0", () => {
@@ -225,6 +262,11 @@ describe("UNIQUE / COUNTIF / SUMIF / STDEV", () => {
     expectOk(evaluateFormula("=UNIQUE(status)", c), 3); // done, pending, new
   });
 
+  test("UNIQUE skips the current formula cell when aggregating its own column", () => {
+    const c = ctx(["status"], [["done"], ["pending"], ["done"], ["=UNIQUE(status)"]], 3, 0);
+    expectOk(evaluateFormula("=UNIQUE(status)", c), 2);
+  });
+
   test("UNIQUE is case-sensitive", () => {
     const c = ctx(["x"], [["A"], ["a"], ["A"]]);
     expectOk(evaluateFormula("=UNIQUE(x)", c), 2);
@@ -248,6 +290,11 @@ describe("UNIQUE / COUNTIF / SUMIF / STDEV", () => {
     expectOk(evaluateFormula(`=COUNTIF(status, "missing")`, c), 0);
   });
 
+  test("COUNTIF skips the current formula cell when counting its own column", () => {
+    const c = ctx(["status"], [["done"], ["pending"], ["done"], [`=COUNTIF(status, "done")`]], 3, 0);
+    expectOk(evaluateFormula(`=COUNTIF(status, "done")`, c), 2);
+  });
+
   test("COUNTIF matches numbers as strings", () => {
     const c = ctx(["price"], [["10"], ["20"], ["10"], ["30"]]);
     expectOk(evaluateFormula("=COUNTIF(price, 10)", c), 2);
@@ -262,16 +309,40 @@ describe("UNIQUE / COUNTIF / SUMIF / STDEV", () => {
   test("SUMIF sums values where condition matches", () => {
     const c = ctx(
       ["hours", "status"],
-      [["8", "done"], ["4", "pending"], ["6", "done"], ["3", "done"], ["5", "pending"]],
+      [
+        ["8", "done"],
+        ["4", "pending"],
+        ["6", "done"],
+        ["3", "done"],
+        ["5", "pending"],
+      ],
     );
     expectOk(evaluateFormula(`=SUMIF(hours, status, "done")`, c), 17); // 8 + 6 + 3
     expectOk(evaluateFormula(`=SUMIF(hours, status, "pending")`, c), 9); // 4 + 5
   });
 
+  test("SUMIF skips the current formula cell when summing its own column", () => {
+    const c = ctx(
+      ["hours", "status"],
+      [
+        ["10", "done"],
+        ["10", "done"],
+        [`=SUMIF(hours, status, "done")`, "done"],
+      ],
+      2,
+      0,
+    );
+    expectOk(evaluateFormula(`=SUMIF(hours, status, "done")`, c), 20);
+  });
+
   test("SUMIF skips non-numeric sum cells silently", () => {
     const c = ctx(
       ["amount", "type"],
-      [["10", "a"], ["x", "a"], ["20", "a"]],
+      [
+        ["10", "a"],
+        ["x", "a"],
+        ["20", "a"],
+      ],
     );
     expectOk(evaluateFormula(`=SUMIF(amount, type, "a")`, c), 30);
   });
@@ -748,7 +819,13 @@ describe("realistic scenarios", () => {
   });
 
   test("invoice total: SUM(total)", () => {
-    const c = ctx(["price", "total"], [["100", "119"], ["200", "238"]]);
+    const c = ctx(
+      ["price", "total"],
+      [
+        ["100", "119"],
+        ["200", "238"],
+      ],
+    );
     expectOk(evaluateFormula("=SUM(total)", c), 357);
   });
 
@@ -925,6 +1002,31 @@ describe("PERCENT", () => {
   test("PERCENT with non-numeric arg", () => {
     const c = ctx(["a"], [["1"]]);
     expectError(evaluateFormula(`=PERCENT("foo", 100)`, c), "NON_NUMERIC");
+  });
+});
+
+describe("PROGRESS", () => {
+  test("PROGRESS renders a ratio", () => {
+    const c = ctx(["a"], [["1"]]);
+    expectProgress(evaluateFormula("=PROGRESS(0.4)", c), 0.4, "40%");
+  });
+
+  test("PROGRESS renders done / total", () => {
+    const c = ctx(["done", "total"], [["2", "10"]]);
+    expectProgress(evaluateFormula("=PROGRESS(done, total)", c), 0.2, "2/10");
+  });
+
+  test("PROGRESS clamps visual ratio", () => {
+    const c = ctx(["a"], [["1"]]);
+    expectProgress(evaluateFormula("=PROGRESS(2)", c), 1, "100%");
+    expectProgress(evaluateFormula("=PROGRESS(-1)", c), 0, "0%");
+  });
+
+  test("PROGRESS validates arguments", () => {
+    const c = ctx(["a"], [["1"]]);
+    expectError(evaluateFormula("=PROGRESS()", c), "WRONG_ARG_COUNT");
+    expectError(evaluateFormula(`=PROGRESS("x")`, c), "NON_NUMERIC");
+    expectError(evaluateFormula("=PROGRESS(1, 0)", c), "DIV_BY_ZERO");
   });
 });
 

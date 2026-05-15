@@ -86,7 +86,7 @@ const sanitizeRenderedHtml = (html: string): string =>
       a: ["href", "name", "rel", "target", "title"],
       annotation: ["encoding"],
       code: ["class"],
-      div: ["class", "data-script-source", "style"],
+      div: ["class", "data-block-name", "data-script-source", "style"],
       img: ["alt", "class", "height", "loading", "src", "title", "width", "style"],
       input: ["checked", "class", "disabled", "type"],
       math: ["xmlns"],
@@ -108,6 +108,7 @@ const sanitizeRenderedHtml = (html: string): string =>
       span: {
         "margin-right": [/^-?\d+(?:\.\d+)?em$/],
         top: [/^-?\d+(?:\.\d+)?em$/],
+        width: [/^\d+(?:\.\d+)?%$/],
       },
     },
   });
