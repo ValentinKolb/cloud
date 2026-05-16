@@ -13,7 +13,7 @@ import { syntaxTree } from "@codemirror/language";
 import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
+import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 /** Match `(start-of-line OR whitespace) #tag` — with `#tag` allowing nested
  *  `parent/child` and at least one letter as the first char to exclude
@@ -104,7 +104,7 @@ const findTags = (state: EditorState, notebookId: string): CursorZoneState => {
     ranges.push({ from, to });
     // Hide widget while cursor is inside its range so the user can edit
     // the literal `#tag` text without the pill swallowing clicks.
-    if (cursor.from >= from && cursor.to <= to) continue;
+    if (selectionIntersectsRange(cursor, from, to)) continue;
 
     decorations.push(
       Decoration.replace({ widget: new TagWidget(notebookId, m[2]!.toLowerCase()) }).range(from, to),

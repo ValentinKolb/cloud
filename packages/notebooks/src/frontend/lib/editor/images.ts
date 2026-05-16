@@ -2,7 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
+import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 
 /** Match the optional `=WxH` size suffix Pandoc-style image syntax allows. */
@@ -122,7 +122,7 @@ const findMarkdownImages = (state: EditorState, notebookId: string): CursorZoneS
       const prevLine = state.doc.lineAt(Math.max(node.from - 1, 0));
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
       ranges.push({ from: prevLine.from, to: nextLine.to });
-      if (cursor.from >= prevLine.from && cursor.to <= nextLine.to) return false;
+      if (selectionIntersectsRange(cursor, prevLine.from, nextLine.to)) return false;
 
       const text = state.sliceDoc(node.from, node.to);
       const match = text.match(/!\[([^\]]*)\]\(([^)]+)\)/);

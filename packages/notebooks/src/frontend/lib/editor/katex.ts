@@ -3,7 +3,7 @@ import type { EditorState, Extension, Range, Transaction } from "@codemirror/sta
 import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import katex from "katex";
-import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
+import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 // =============================================================================
 // Module-scoped render cache
@@ -192,7 +192,7 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
           const prevLine = state.doc.lineAt(Math.max(node.from - 1, 0));
           const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
           ranges.push({ from: prevLine.from, to: nextLine.to });
-          if (cursor.from >= prevLine.from && cursor.to <= nextLine.to) return false;
+          if (selectionIntersectsRange(cursor, prevLine.from, nextLine.to)) return false;
           const latex = lines.slice(1, -1).join("\n");
           const blockDecoration = Decoration.replace({
             widget: new BlockMathWidget(latex, node.from),
@@ -237,7 +237,7 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
       } else {
         ranges.push({ from, to });
       }
-      const cursorInside = cursor.from >= sourceVisibleFrom && cursor.to <= sourceVisibleTo;
+      const cursorInside = selectionIntersectsRange(cursor, sourceVisibleFrom, sourceVisibleTo);
       const skip = intersectsAnyRange(codeRanges, from, to) || cursorInside;
       match = re.exec(doc);
       if (skip) continue;

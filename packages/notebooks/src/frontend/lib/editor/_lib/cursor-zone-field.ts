@@ -38,8 +38,9 @@
  */
 import { forceParsing } from "@codemirror/language";
 import { StateEffect, StateField } from "@codemirror/state";
-import type { EditorState, Extension, Transaction } from "@codemirror/state";
+import type { EditorState, Extension, SelectionRange, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
+import type { ViewUpdate } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 export type CursorZoneRange = { from: number; to: number };
@@ -70,6 +71,14 @@ export type IncrementalOptions = {
    *  decorations stale, so the predicate MUST be conservative. */
   changesMightAffectSyntax: (tr: Transaction) => boolean;
 };
+
+export const selectionIntersectsRange = (selection: SelectionRange, from: number, to: number): boolean => {
+  if (selection.empty) return selection.from >= from && selection.to <= to;
+  return selection.from < to && selection.to > from;
+};
+
+export const isPointerSelectionTransaction = (tr: Transaction): boolean =>
+  !tr.docChanged && !!tr.selection && tr.isUserEvent("select.pointer");
 
 export const refreshMarkdownDecorationsEffect = StateEffect.define<void>();
 
@@ -102,16 +111,52 @@ export const initialMarkdownDecorationRefreshExtension = (): Extension =>
     },
   );
 
+export const pointerSelectionMarkdownRefreshExtension = (): Extension =>
+  ViewPlugin.fromClass(
+    class {
+      private pending = false;
+      private timeout: number | null = null;
+
+      constructor(private view: EditorView) {
+        document.addEventListener("pointerup", this.onPointerDone);
+        document.addEventListener("mouseup", this.onPointerDone);
+      }
+
+      update(update: ViewUpdate) {
+        if (update.transactions.some(isPointerSelectionTransaction)) {
+          this.pending = true;
+        }
+      }
+
+      destroy() {
+        document.removeEventListener("pointerup", this.onPointerDone);
+        document.removeEventListener("mouseup", this.onPointerDone);
+        if (this.timeout !== null) window.clearTimeout(this.timeout);
+      }
+
+      private onPointerDone = () => {
+        if (!this.pending || this.timeout !== null) return;
+        this.timeout = window.setTimeout(() => {
+          this.timeout = null;
+          if (!this.pending) return;
+          this.pending = false;
+          this.view.dispatch({ effects: refreshMarkdownDecorationsEffect.of() });
+        }, 0);
+      };
+    },
+  );
+
 /** Identity of the range the cursor currently sits inside, or
  *  `null` if it sits outside all ranges. A cursor-only transaction
  *  needs a rebuild only when this answer changes. */
-const cursorKey = (state: EditorState, ranges: CursorZoneRange[]): number | null => {
+const cursorKey = (state: EditorState, ranges: CursorZoneRange[]): string | null => {
   if (ranges.length === 0) return null;
   const cursor = state.selection.main;
+  const hits: number[] = [];
   for (const r of ranges) {
-    if (cursor.from >= r.from && cursor.to <= r.to) return r.from;
+    if (selectionIntersectsRange(cursor, r.from, r.to)) hits.push(r.from);
   }
-  return null;
+  return hits.length > 0 ? hits.sort((a, b) => a - b).join(",") : null;
 };
 
 const intersectsAnyRange = (ranges: CursorZoneRange[], from: number, to: number): boolean =>
@@ -141,10 +186,12 @@ const changesIntersectRanges = (tr: Transaction, ranges: CursorZoneRange[]): boo
  *  reflect the post-change document. `from` biases right, `to`
  *  biases left — keeps the range tight around the original span. */
 const mapRanges = (tr: Transaction, ranges: CursorZoneRange[]): CursorZoneRange[] =>
-  ranges.map((r) => ({
-    from: tr.changes.mapPos(r.from, 1),
-    to: tr.changes.mapPos(r.to, -1),
-  }));
+  ranges
+    .map((r) => ({
+      from: tr.changes.mapPos(r.from, 1),
+      to: tr.changes.mapPos(r.to, -1),
+    }))
+    .filter((r) => r.from < r.to);
 
 export const cursorZoneStateField = (
   build: (state: EditorState) => CursorZoneState,

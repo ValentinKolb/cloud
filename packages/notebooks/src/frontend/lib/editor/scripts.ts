@@ -54,6 +54,7 @@ import type * as Y from "yjs";
 import { createKit } from "../script/kit";
 import type { KitNoteSnapshot } from "../script/kit";
 import { runScript } from "../script/runner";
+import { selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 /** Per-notebook config the extension needs to run scripts. The
  *  fields are functions (rather than values) so the extension picks
@@ -190,10 +191,21 @@ class OutputWidget extends WidgetType {
     );
   }
 
-  override toDOM(): HTMLElement {
+  override toDOM(view: EditorView): HTMLElement {
     const root = document.createElement("div") as DomWithState;
     root.className = "md-script-block cm-script-output-frame";
     root.setAttribute("contenteditable", "false");
+    root.onmousedown = (event) => {
+      event.stopPropagation();
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("button,a,input,textarea,select,[role='button'],[contenteditable='true']")) return;
+      event.preventDefault();
+      view.dispatch({ selection: { anchor: this.fromPos } });
+      view.focus();
+    };
+    root.ondblclick = (event) => {
+      event.stopPropagation();
+    };
 
     const header = document.createElement("div");
     header.className = "cm-script-output-header";
@@ -454,15 +466,16 @@ const changesIntersectScriptRanges = (tr: Transaction, ranges: ScriptRange[]): b
   return intersects;
 };
 
-const cursorScriptKey = (state: EditorState, ranges: ScriptRange[]): number | null => {
+const cursorScriptKey = (state: EditorState, ranges: ScriptRange[]): string | null => {
   if (ranges.length === 0) return null;
   const cursor = state.selection.main;
+  const hits: number[] = [];
   for (const r of ranges) {
     const prevLineStart = state.doc.lineAt(Math.max(r.from - 1, 0)).from;
     const nextLineEnd = state.doc.lineAt(Math.min(r.to + 1, state.doc.length)).to;
-    if (cursor.from >= prevLineStart && cursor.to <= nextLineEnd) return r.from;
+    if (selectionIntersectsRange(cursor, prevLineStart, nextLineEnd)) hits.push(r.from);
   }
-  return null;
+  return hits.length > 0 ? hits.sort((a, b) => a - b).join(",") : null;
 };
 
 const isCollapsedScriptRange = (collapsedSourceDecorations: DecorationSet, range: ScriptRange): boolean => {
@@ -509,7 +522,7 @@ const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecoratio
 
       const prevLine = state.doc.lineAt(Math.max(sourceFrom - 1, 0));
       const nextLine = state.doc.lineAt(Math.min(nodeRef.to + 1, state.doc.length));
-      const sourceVisible = cursor.from >= prevLine.from && cursor.to <= nextLine.to;
+      const sourceVisible = selectionIntersectsRange(cursor, prevLine.from, nextLine.to);
       const outputWidget = new OutputWidget(parts.body, config, sourceFrom, lineCount, sourceVisible, scriptIndex);
       if (!sourceVisible && collapseTo > sourceFrom) {
         const outputReplacement = Decoration.replace({

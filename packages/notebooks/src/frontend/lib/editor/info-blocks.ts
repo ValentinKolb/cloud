@@ -1,7 +1,7 @@
 import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
+import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 type BlockType = "note" | "info" | "success" | "warning" | "danger";
 
@@ -171,7 +171,7 @@ const findInfoBlocks = (state: EditorState): CursorZoneState => {
 
     // Cursor is inside the block → don't render the widget so the user
     // can edit the raw `:::xxx` markers.
-    if (cursor.from >= sourceVisibleStart && cursor.to <= sourceVisibleEnd) continue;
+    if (selectionIntersectsRange(cursor, sourceVisibleStart, sourceVisibleEnd)) continue;
 
     const blockData = parseInfoBlock(match[0]);
     if (!blockData) continue;

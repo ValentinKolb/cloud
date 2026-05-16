@@ -1,7 +1,7 @@
 import { Prec, RangeSet, StateField, type EditorState, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, keymap, WidgetType, type DecorationSet } from "@codemirror/view";
 import { extractDataBlocks, namedBlockBody, renderDataBlockHtml, type DataBlock } from "../../../lib/named-blocks";
-import { refreshMarkdownDecorationsEffect } from "./_lib/cursor-zone-field";
+import { refreshMarkdownDecorationsEffect, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 
 type DataBlockRange = {
   from: number;
@@ -122,7 +122,7 @@ const scanDataBlocks = (state: EditorState): DataBlocksState => {
       widgetTo: block.blockEnd,
     };
     ranges.push(range);
-    if (cursor.from >= range.from && cursor.to <= range.to) continue;
+    if (selectionIntersectsRange(cursor, range.from, range.to)) continue;
     const widgetDecoration = Decoration.replace({
       widget: new DataBlockWidget(block, namedBlockBody(text, block)),
       block: true,
@@ -138,12 +138,13 @@ const scanDataBlocks = (state: EditorState): DataBlocksState => {
   };
 };
 
-const cursorDataBlockKey = (state: EditorState, ranges: DataBlockRange[]): number | null => {
+const cursorDataBlockKey = (state: EditorState, ranges: DataBlockRange[]): string | null => {
   const cursor = state.selection.main;
+  const hits: number[] = [];
   for (const range of ranges) {
-    if (cursor.from >= range.from && cursor.to <= range.to) return range.widgetFrom;
+    if (selectionIntersectsRange(cursor, range.from, range.to)) hits.push(range.widgetFrom);
   }
-  return null;
+  return hits.length > 0 ? hits.sort((a, b) => a - b).join(",") : null;
 };
 
 const isLineInBlockWidget = (state: DataBlocksState, from: number, to: number): DataBlockRange | null => {

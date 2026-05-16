@@ -57,7 +57,7 @@ import { Prec, StateField, RangeSet, type EditorState, type Extension, type Rang
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { evaluateFormula, formatValue, isFormula, type EvalContext } from "@valentinkolb/cloud/shared";
-import { refreshMarkdownDecorationsEffect } from "./_lib/cursor-zone-field";
+import { refreshMarkdownDecorationsEffect, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { isNamedBlockHandle } from "../../../lib/named-blocks";
 import { renderPrettyTableHtml } from "../pretty-table";
 
@@ -371,15 +371,16 @@ type TablesState = {
  *
  *  This makes the table behave consistently regardless of approach
  *  direction. */
-const cursorTableKey = (state: EditorState, ranges: TableRange[]): number | null => {
+const cursorTableKey = (state: EditorState, ranges: TableRange[]): string | null => {
   if (ranges.length === 0) return null;
   const cursor = state.selection.main;
+  const hits: number[] = [];
   for (const r of ranges) {
     const prevLineStart = state.doc.lineAt(Math.max(r.from - 1, 0)).from;
     const nextLineEnd = state.doc.lineAt(Math.min(r.to + 1, state.doc.length)).to;
-    if (cursor.from >= prevLineStart && cursor.to <= nextLineEnd) return r.from;
+    if (selectionIntersectsRange(cursor, prevLineStart, nextLineEnd)) hits.push(r.from);
   }
-  return null;
+  return hits.length > 0 ? hits.sort((a, b) => a - b).join(",") : null;
 };
 
 /** Full scan: walks the syntax tree, finds every Markdown table,
@@ -422,7 +423,7 @@ const scanTables = (state: EditorState, notebookId: string): TablesState => {
       // symmetric rationale and the original asymmetric-only bug.
       const prevLine = state.doc.lineAt(Math.max(rangeFrom - 1, 0));
       const nextLine = state.doc.lineAt(Math.min(node.to + 1, state.doc.length));
-      const sourceVisible = cursor.from >= prevLine.from && cursor.to <= nextLine.to;
+      const sourceVisible = selectionIntersectsRange(cursor, prevLine.from, nextLine.to);
       if (sourceVisible) {
         for (const deco of buildLivePreviewDecorations(state, { from: node.from, to: node.to }, data)) {
           decorations.push(deco);

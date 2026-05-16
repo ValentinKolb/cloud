@@ -3,7 +3,7 @@ import { RangeSet } from "@codemirror/state";
 import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { fileIcons } from "@valentinkolb/stdlib";
-import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
+import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
 import { navigateToNotebookNote } from "../soft-navigation";
 
@@ -179,7 +179,7 @@ const findLinks = (state: EditorState, notebookId: string): CursorZoneState => {
     enter: ({ type, from, to }) => {
       if (type.name !== "Link") return;
       ranges.push({ from, to });
-      if (cursor.from >= from && cursor.to <= to) return;
+      if (selectionIntersectsRange(cursor, from, to)) return;
 
       const text = state.doc.sliceString(from, to);
       const linkData = parseLinkSyntax(text, notebookId);

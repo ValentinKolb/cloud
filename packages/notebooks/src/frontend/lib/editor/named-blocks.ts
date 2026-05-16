@@ -1,6 +1,6 @@
 import { RangeSet, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { type CursorZoneState, cursorZoneStateField } from "./_lib/cursor-zone-field";
+import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { extractNamedBlocks } from "../../../lib/named-blocks";
 
 class NamedBlockHandleWidget extends WidgetType {
@@ -50,7 +50,7 @@ export const namedBlocksExtension = (): Extension => {
       // Table/data handles are rendered by their block widgets together
       // with the preview so the handle and body collapse as one stable block.
       if (block.type === "table" || block.type === "data") continue;
-      if (cursor.from >= sourceVisibleRange.from && cursor.to <= sourceVisibleRange.to) continue;
+      if (selectionIntersectsRange(cursor, sourceVisibleRange.from, sourceVisibleRange.to)) continue;
       const handleDecoration = Decoration.replace({
         widget: new NamedBlockHandleWidget(block.name, block.handleStart),
         block: true,

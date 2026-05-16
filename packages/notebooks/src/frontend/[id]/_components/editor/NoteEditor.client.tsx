@@ -374,6 +374,7 @@ function EditorInstance(props: Props) {
           editor.markExtension(),
           editor.subSupExtension(),
           editor.initialMarkdownDecorationRefreshExtension(),
+          editor.pointerSelectionMarkdownRefreshExtension(),
           editor.mermaidExtension(),
           editor.katexExtension(),
           editor.codeFontExtension(),
