@@ -64,6 +64,7 @@ type CachedNotes = {
  *  non-selectable "more notes" hint that points the user at the
  *  type-to-filter affordance. */
 const FETCH_CAP = 200;
+const PER_PAGE = 100;
 
 const noteCache = createNotebookFetchCache<CachedNotes>(
   async (notebookId) => {
@@ -72,25 +73,33 @@ const noteCache = createNotebookFetchCache<CachedNotes>(
     // scripts agree on what's in the notebook.
     const all: NoteRef[] = [];
     let truncated = false;
-    for (let page = 1; all.length < FETCH_CAP; page++) {
-      const res = await apiClient[":id"].notes.$get({
-        param: { id: notebookId },
-        query: { per_page: "100", page: String(page) },
-      });
-      if (!res.ok) break;
-      const payload = (await res.json()) as { data: Array<{ shortId: string; title: string }> };
-      if (payload.data.length === 0) break;
-      for (const n of payload.data) {
-        all.push({ shortId: n.shortId, title: n.title });
+    try {
+      for (let page = 1; all.length < FETCH_CAP; page++) {
+        const res = await apiClient[":id"].notes.$get({
+          param: { id: notebookId },
+          query: { per_page: String(PER_PAGE), page: String(page) },
+        });
+        if (!res.ok) {
+          truncated = all.length > 0;
+          break;
+        }
+        const payload = (await res.json()) as { data: Array<{ shortId: string; title: string }> };
+        if (payload.data.length === 0) break;
+        for (const n of payload.data) {
+          all.push({ shortId: n.shortId, title: n.title });
+        }
+        // Last page = the API returned fewer than the page size, so
+        // we're done. Otherwise: if we hit the cap on this iteration
+        // with a full page, more might exist server-side.
+        if (payload.data.length < PER_PAGE) break;
+        if (all.length >= FETCH_CAP) {
+          truncated = true;
+          break;
+        }
       }
-      // Last page = the API returned fewer than the page size, so
-      // we're done. Otherwise: if we hit the cap on this iteration
-      // with a full page, more might exist server-side.
-      if (payload.data.length < 100) break;
-      if (all.length >= FETCH_CAP) {
-        truncated = true;
-        break;
-      }
+    } catch (error) {
+      if (all.length === 0) throw error;
+      truncated = true;
     }
     return { notes: all, truncated };
   },
@@ -135,10 +144,10 @@ const truncationHint: Completion = {
   label: "… more notes available — keep typing to filter",
   type: "text",
   boost: -99,
-  apply: (view, _completion, _from, _to) => {
+  apply: (view, completion, _from, _to) => {
     // Close popup; do not modify the doc. The user can then keep
     // typing the title to narrow the cached list.
-    view.dispatch({ userEvent: "input.complete" });
+    view.dispatch({ annotations: pickedCompletion.of(completion), userEvent: "input.complete" });
   },
 };
 

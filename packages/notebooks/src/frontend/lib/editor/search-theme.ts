@@ -53,7 +53,7 @@ export const searchTheme = () =>
       },
       "&:focus": {
         outline: "none",
-        ring: "0",
+        boxShadow: "0 0 0 2px rgb(59 130 246 / 0.35)",
       },
     },
     ".dark & .cm-search button[name='close']": {

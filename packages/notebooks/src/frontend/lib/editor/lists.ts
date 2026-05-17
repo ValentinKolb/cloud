@@ -216,10 +216,10 @@ const taskLists = (): Extension => {
           const position = view.posAtDOM(taskMarker);
           const line = view.state.doc.lineAt(position);
           const lineText = line.text;
-          // Find [ ] or [x] in the line
-          const taskMatch = lineText.match(/\[[ x]\]/);
+          const markerOffset = Math.max(0, position - line.from);
+          const taskMatch = /^\[[ x]\]/.exec(lineText.slice(markerOffset)) ?? lineText.match(/^\s*(?:[-*+]|\d+\.)\s+(\[[ x]\])/);
           if (taskMatch && taskMatch.index != null) {
-            const from = line.from + taskMatch.index;
+            const from = line.from + (taskMatch[1] ? taskMatch[0].indexOf(taskMatch[1]) : markerOffset + taskMatch.index);
             const to = from + 3;
             const before = view.state.sliceDoc(from, to);
             const newText = before === "[ ]" ? "[x]" : "[ ]";

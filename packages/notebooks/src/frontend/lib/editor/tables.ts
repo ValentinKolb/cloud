@@ -111,6 +111,18 @@ const parseTable = (text: string): TableData | null => {
 
 const renderTable = (data: TableData, notebookId: string): string => renderPrettyTableHtml(data, { notebookId });
 
+const sameArray = <T,>(left: T[], right: T[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
+
+const sameRows = (left: string[][], right: string[][]): boolean =>
+  left.length === right.length && left.every((row, index) => sameArray(row, right[index] ?? []));
+
+const sameTableData = (left: TableData, right: TableData): boolean =>
+  left.caption === right.caption &&
+  sameArray(left.headers, right.headers) &&
+  sameArray(left.align, right.align) &&
+  sameRows(left.rows, right.rows);
+
 /**
  * Inline live-preview widget for raw-mode formula cells. When the user
  * has the cursor inside a table (so the markdown source is visible),
@@ -296,7 +308,7 @@ class TableWidget extends WidgetType {
       other instanceof TableWidget &&
       other.fromPos === this.fromPos &&
       other.notebookId === this.notebookId &&
-      JSON.stringify(this.data) === JSON.stringify(other.data)
+      sameTableData(this.data, other.data)
     );
   }
 

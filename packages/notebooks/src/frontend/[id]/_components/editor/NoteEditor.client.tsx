@@ -1,4 +1,4 @@
-import { EditorView, lineNumbers } from "@codemirror/view";
+import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { encoding } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { editor } from "../../../lib/editor";
@@ -8,7 +8,7 @@ import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { createCodeMirror } from "solid-codemirror";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { dropzone } from "@valentinkolb/stdlib/solid";
-import { yCollab } from "y-codemirror.next";
+import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
@@ -296,6 +296,7 @@ function EditorInstance(props: Props) {
 
   const undoManager = new Y.UndoManager(ytext);
   addExtension(() => yCollab(ytext, awareness, { undoManager }));
+  addExtension(() => keymap.of(yUndoManagerKeymap));
 
   let cursorIdleTimer: ReturnType<typeof setTimeout> | undefined;
   let cursorHiddenByIdle = false;

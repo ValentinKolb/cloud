@@ -16,7 +16,7 @@
  */
 
 import { RangeSet, StateField } from "@codemirror/state";
-import type { EditorState, Extension, Range } from "@codemirror/state";
+import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
@@ -26,35 +26,79 @@ const SUP_REGEX = /\^([^\^\s]+)\^/g;
 const subDecoration = Decoration.mark({ class: "cm-subscript" });
 const supDecoration = Decoration.mark({ class: "cm-superscript" });
 
-const findSubSup = (state: EditorState): Range<Decoration>[] => {
+type SubSupState = {
+  decorations: DecorationSet;
+  ranges: Array<{ from: number; to: number }>;
+};
+
+const findSubSup = (state: EditorState): SubSupState => {
   const decorations: Range<Decoration>[] = [];
+  const ranges: Array<{ from: number; to: number }> = [];
   const text = state.doc.toString();
   for (const match of text.matchAll(SUB_REGEX)) {
     if (match.index === undefined) continue;
-    decorations.push(subDecoration.range(match.index, match.index + match[0].length));
+    const from = match.index;
+    const to = match.index + match[0].length;
+    decorations.push(subDecoration.range(from, to));
+    ranges.push({ from, to });
   }
   for (const match of text.matchAll(SUP_REGEX)) {
     if (match.index === undefined) continue;
-    decorations.push(supDecoration.range(match.index, match.index + match[0].length));
+    const from = match.index;
+    const to = match.index + match[0].length;
+    decorations.push(supDecoration.range(from, to));
+    ranges.push({ from, to });
   }
   // Decorations must be in document order for RangeSet.of(..., true).
   decorations.sort((a, b) => a.from - b.from);
-  return decorations;
+  ranges.sort((a, b) => a.from - b.from);
+  return { decorations: RangeSet.of(decorations, true), ranges };
 };
 
+const intersectsRanges = (ranges: Array<{ from: number; to: number }>, from: number, to: number): boolean =>
+  ranges.some((range) => from <= range.to && to >= range.from);
+
+const changesMightAffectSubSup = (tr: Transaction, ranges: Array<{ from: number; to: number }>): boolean => {
+  let might = false;
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    if (might) return;
+    if (intersectsRanges(ranges, fromA, toA)) {
+      might = true;
+      return;
+    }
+    if (/[~^]/.test(inserted.toString())) {
+      might = true;
+      return;
+    }
+    const from = Math.max(0, fromB - 2);
+    const to = Math.min(tr.state.doc.length, toB + 2);
+    might = /[~^]/.test(tr.state.doc.sliceString(from, to));
+  });
+  return might;
+};
+
+const mapRanges = (tr: Transaction, ranges: Array<{ from: number; to: number }>): Array<{ from: number; to: number }> =>
+  ranges
+    .map((range) => ({
+      from: tr.changes.mapPos(range.from, 1),
+      to: tr.changes.mapPos(range.to, -1),
+    }))
+    .filter((range) => range.from < range.to);
+
 export const subSupExtension = (): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<SubSupState>({
     create(state) {
-      return RangeSet.of(findSubSup(state), true);
+      return findSubSup(state);
     },
-    update(decorations, tr) {
+    update(value, tr) {
       if (tr.docChanged) {
-        return RangeSet.of(findSubSup(tr.state), true);
+        if (changesMightAffectSubSup(tr, value.ranges)) return findSubSup(tr.state);
+        return { decorations: value.decorations.map(tr.changes), ranges: mapRanges(tr, value.ranges) };
       }
-      return decorations.map(tr.changes);
+      return value;
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (value) => value.decorations);
     },
   });
 

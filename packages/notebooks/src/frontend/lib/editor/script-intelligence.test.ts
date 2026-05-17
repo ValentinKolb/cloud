@@ -18,6 +18,10 @@ describe("script type intelligence", () => {
     const scriptPos = scriptDoc.indexOf("value\n") + "value".length;
     expect(__testing.findScriptBlock(stateFor(scriptDoc), scriptPos)?.code).toContain("const value");
 
+    const tildeDoc = "~~~script\nconst value = 1;\nvalue\n~~~";
+    const tildePos = tildeDoc.indexOf("value\n") + "value".length;
+    expect(__testing.findScriptBlock(stateFor(tildeDoc), tildePos)?.code).toContain("const value");
+
     const jsDoc = "```js\nconst value = 1;\nvalue\n```";
     const jsPos = jsDoc.indexOf("value\n") + "value".length;
     expect(__testing.findScriptBlock(stateFor(jsDoc), jsPos)).toBeNull();

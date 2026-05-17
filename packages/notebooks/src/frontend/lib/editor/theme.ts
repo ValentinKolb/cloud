@@ -110,7 +110,7 @@ const customLightStyle: CreateThemeOptions["styles"] = [
     color: "#005cc5",
   },
   {
-    tag: [t.keyword, t.typeName, t.typeOperator, t.typeName],
+    tag: [t.keyword, t.typeName, t.typeOperator],
     color: "#d73a49",
   },
   { tag: [t.string, t.regexp], color: "#032f62" },
@@ -119,7 +119,7 @@ const customLightStyle: CreateThemeOptions["styles"] = [
   { tag: [t.emphasis], color: "#24292e", fontStyle: "italic" },
   { tag: [t.deleted], color: "#b31d28", backgroundColor: "#ffeef0" },
   { tag: [t.atom, t.bool, t.special(t.variableName)], color: "#e36209" },
-  { tag: [t.url, t.escape, t.regexp, t.link], color: "#032f62" },
+  { tag: [t.url, t.escape, t.link], color: "#032f62" },
   { tag: t.strikethrough, textDecoration: "line-through" },
   { tag: t.invalid, color: "#cb2431" },
   { tag: t.heading1, color: "#24292e", fontSize: "2em", fontWeight: "800" },
@@ -140,7 +140,7 @@ const customDarkStyle: CreateThemeOptions["styles"] = [
     color: "#79c0ff",
   },
   {
-    tag: [t.keyword, t.typeName, t.typeOperator, t.typeName],
+    tag: [t.keyword, t.typeName, t.typeOperator],
     color: "#ff7b72",
   },
   { tag: [t.string, t.regexp], color: "#a5d6ff" },

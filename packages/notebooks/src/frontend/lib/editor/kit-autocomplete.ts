@@ -34,6 +34,7 @@
 import { type Completion, type CompletionContext, type CompletionResult, snippetCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
+import type { SyntaxNode } from "@lezer/common";
 
 /**
  * Custom field we attach to each kit `Completion` so the shared
@@ -360,44 +361,6 @@ const tagsCompletions: Completion[] = [
     type: "method",
     detail: "(tag) → Promise<KitNote[]>",
     info: "Find every note in the notebook that references the given tag.",
-  }),
-];
-
-// ── named blocks ─────────────────────────────────────────────────
-const tableBlockCompletions: Completion[] = [
-  snippetCompletion("add(${1:...cells})", {
-    label: "add",
-    type: "method",
-    detail: "(...cells | rowObject) → Promise<void>",
-    info: "Append a row to every matching named table in the current note. Notes become note links; tag arrays become `#tags`.",
-  }),
-];
-
-const listBlockCompletions: Completion[] = [
-  snippetCompletion("add(${1:...items})", {
-    label: "add",
-    type: "method",
-    detail: "(...items) → Promise<void>",
-    info: "Append one or more items to every matching named list in the current note.",
-  }),
-];
-
-const dataBlockCompletions: Completion[] = [
-  { label: "get", type: "method", detail: "() → Record<string, unknown> | null", info: "Read the first matching named data block." },
-  snippetCompletion("set(${1:{ key: 'value' }})", {
-    label: "set",
-    type: "method",
-    detail: "(object) → Promise<void>",
-    info: "Replace every matching named data block in the current note.",
-  }),
-];
-
-const sectionBlockCompletions: Completion[] = [
-  snippetCompletion("append(${1:'markdown'})", {
-    label: "append",
-    type: "method",
-    detail: "(markdown) → Promise<void>",
-    info: "Append markdown to every matching named heading section in the current note.",
   }),
 ];
 
@@ -872,10 +835,6 @@ const NAMESPACE_OPTIONS: Record<string, Completion[]> = {
   notes: notesCompletions,
   attachments: attachmentsCompletions,
   tags: tagsCompletions,
-  table: tableBlockCompletions,
-  list: listBlockCompletions,
-  data: dataBlockCompletions,
-  section: sectionBlockCompletions,
   state: stateCompletions,
   localState: localStateCompletions,
   ui: uiCompletions,
@@ -1007,8 +966,8 @@ export const isInsideScriptLikeFence = (context: CompletionContext): boolean => 
   if (cached?.pos === context.pos) return cached.result;
 
   const tree = syntaxTree(context.state);
-  let node = tree.resolveInner(context.pos, -1);
-  while (node && node.name !== "FencedCode") node = node.parent!;
+  let node: SyntaxNode | null = tree.resolveInner(context.pos, -1);
+  while (node && node.name !== "FencedCode") node = node.parent ?? null;
   if (!node) {
     fenceScopeCache.set(context.state, { pos: context.pos, result: false });
     return false;

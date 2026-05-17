@@ -85,7 +85,7 @@ const isInsideExcluded = (excluded: { from: number; to: number }[], from: number
 const findTags = (state: EditorState, notebookId: string): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
   const ranges: { from: number; to: number }[] = [];
-  const cursor = state.selection.ranges[0]!;
+  const cursor = state.selection.main;
   const excluded = collectExcludedRanges(state);
   const text = state.doc.toString();
   let hasSyntax = false;

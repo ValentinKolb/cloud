@@ -4,7 +4,7 @@ import type { EditorState, Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { fileIcons } from "@valentinkolb/stdlib";
 import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
-import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId } from "./attachment-url";
+import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId, isSafeMarkdownUrl } from "./attachment-url";
 import { navigateToNotebookNote } from "../soft-navigation";
 
 /** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
@@ -152,6 +152,7 @@ const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
   const url = match[2];
   const attachmentId = extractAttachmentId(url);
   const noteShortId = extractNoteShortId(url);
+  if (!attachmentId && !noteShortId && !isSafeMarkdownUrl(url)) return null;
   // Note links resolve to `/app/notebooks/<currentNotebookShortId>/notes/<targetShortId>`.
   // We assume same-notebook (the most common case); cross-notebook
   // references resolve via the page-handler's lenient lookup, which
@@ -159,7 +160,7 @@ const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
   const resolvedUrl = attachmentId
     ? buildAttachmentContentUrl(notebookId, attachmentId)
     : noteShortId
-      ? `/app/notebooks/${notebookId}/notes/${noteShortId}`
+      ? `/app/notebooks/${encodeURIComponent(notebookId)}/notes/${encodeURIComponent(noteShortId)}`
       : url;
   return {
     label: match[1],
@@ -173,7 +174,7 @@ const parseLinkSyntax = (text: string, notebookId: string): LinkData | null => {
 const findLinks = (state: EditorState, notebookId: string): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
   const ranges: { from: number; to: number }[] = [];
-  const cursor = state.selection.ranges[0]!;
+  const cursor = state.selection.main;
 
   syntaxTree(state).iterate({
     enter: ({ type, from, to }) => {

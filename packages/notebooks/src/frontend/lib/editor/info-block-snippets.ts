@@ -20,6 +20,7 @@ import {
   type Completion,
   type CompletionContext,
   type CompletionResult,
+  pickedCompletion,
   snippetCompletion,
 } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
@@ -76,6 +77,7 @@ const COMPLETIONS: Completion[] = BLOCKS.map((b) => {
         view.dispatch({
           changes: { from: directiveStart, to, insert },
           selection: dataBlockRefSelection(directiveStart),
+          annotations: pickedCompletion.of(_completion),
           userEvent: "input.complete",
         });
         view.focus();

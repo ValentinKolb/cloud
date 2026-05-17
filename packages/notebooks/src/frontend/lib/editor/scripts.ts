@@ -85,7 +85,7 @@ export type ScriptsConfig = {
  *  calls and rebuild a large output tree, so re-running after every
  *  slow keystroke makes the editor feel like the keystroke itself is
  *  delayed. */
-const RERUN_DEBOUNCE_MS = 1200;
+const RERUN_DEBOUNCE_MS = 500;
 
 // =============================================================================
 // Output widget — block-level script output surface
@@ -133,6 +133,7 @@ type WidgetRunState = {
   metaEl: HTMLElement;
   outputEl: HTMLElement;
   errorEl: HTMLElement;
+  fromPos: number;
   /** Pending debounce timer for the next script execution. */
   timer: ReturnType<typeof setTimeout> | null;
   /** Disposers registered by the most recent successful run. Re-run
@@ -200,7 +201,8 @@ class OutputWidget extends WidgetType {
       const target = event.target as HTMLElement | null;
       if (target?.closest("button,a,input,textarea,select,[role='button'],[contenteditable='true']")) return;
       event.preventDefault();
-      view.dispatch({ selection: { anchor: this.fromPos } });
+      const state = root[RUN_STATE_KEY];
+      view.dispatch({ selection: { anchor: state?.fromPos ?? this.fromPos } });
       view.focus();
     };
     root.ondblclick = (event) => {
@@ -239,6 +241,7 @@ class OutputWidget extends WidgetType {
       metaEl: meta,
       outputEl: output,
       errorEl: errors,
+      fromPos: this.fromPos,
       timer: null,
       disposers: [],
       disposed: false,
@@ -269,6 +272,7 @@ class OutputWidget extends WidgetType {
     const state = (dom as DomWithState)[RUN_STATE_KEY];
     if (!state || state.disposed) return false;
     if (state.scriptIndex !== this.scriptIndex) return false;
+    state.fromPos = this.fromPos;
     state.sourceVisible = this.sourceVisible;
     state.metaEl.textContent = formatScriptLineCount(this.lineCount);
     this.applyVisualState(dom, state);
@@ -525,17 +529,13 @@ const scanScripts = (state: EditorState, config: ScriptsConfig): ScriptDecoratio
       const sourceVisible = selectionIntersectsRange(cursor, prevLine.from, nextLine.to);
       const outputWidget = new OutputWidget(parts.body, config, sourceFrom, lineCount, sourceVisible, scriptIndex);
       if (!sourceVisible && collapseTo > sourceFrom) {
-        const outputReplacement = Decoration.replace({
-          widget: outputWidget,
+        const sourceReplacement = Decoration.replace({
           block: true,
           inclusiveEnd: false,
         }).range(sourceFrom, collapseTo);
-        widgets.push(outputReplacement);
-        collapsedSourceWidgets.push(outputReplacement);
-        scriptIndex++;
-        return;
+        widgets.push(sourceReplacement);
+        collapsedSourceWidgets.push(sourceReplacement);
       }
-
       widgets.push(
         Decoration.widget({
           widget: outputWidget,

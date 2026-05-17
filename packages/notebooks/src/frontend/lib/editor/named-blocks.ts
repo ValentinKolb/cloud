@@ -1,6 +1,11 @@
 import { RangeSet, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
-import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
+import {
+  blockWidgetLineNavigationExtension,
+  type CursorZoneState,
+  cursorZoneStateField,
+  selectionIntersectsRange,
+} from "./_lib/cursor-zone-field";
 import { extractNamedBlocks } from "../../../lib/named-blocks";
 
 class NamedBlockHandleWidget extends WidgetType {
@@ -69,6 +74,7 @@ export const namedBlocksExtension = (): Extension => {
 
   return [
     stateField,
+    blockWidgetLineNavigationExtension(stateField, (value) => value.atomicDecorations),
     EditorView.theme({
       ".cm-named-block-handle": {
         margin: "0 !important",

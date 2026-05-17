@@ -3,7 +3,12 @@ import type { EditorState, Extension, Range, Transaction } from "@codemirror/sta
 import { RangeSet } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import katex from "katex";
-import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
+import {
+  blockWidgetLineNavigationExtension,
+  type CursorZoneState,
+  cursorZoneStateField,
+  selectionIntersectsRange,
+} from "./_lib/cursor-zone-field";
 
 // =============================================================================
 // Module-scoped render cache
@@ -171,7 +176,7 @@ const intersectsAnyRange = (ranges: { from: number; to: number }[], from: number
 const buildKatexDecorations = (state: EditorState): CursorZoneState => {
   const decorations: Range<Decoration>[] = [];
   const atomicDecorations: Range<Decoration>[] = [];
-  const cursor = state.selection.ranges[0]!;
+  const cursor = state.selection.main;
   const doc = state.doc.toString();
   let hasSyntax = false;
   const ranges: { from: number; to: number }[] = [];
@@ -185,7 +190,7 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
 
         const text = state.sliceDoc(node.from, node.to);
         const lines = text.split("\n");
-        const language = lines[0]?.replace("```", "").trim().toLowerCase() || "";
+        const language = lines[0]?.replace(/^(```|~~~)/, "").trim().toLowerCase() || "";
 
         if (language === "math") {
           hasSyntax = true;
@@ -229,6 +234,12 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
       let sourceVisibleFrom = from;
       let sourceVisibleTo = to;
       if (blockWidget) {
+        const fromLine = state.doc.lineAt(from);
+        const toLine = state.doc.lineAt(to);
+        if (from !== fromLine.from || to !== toLine.to) {
+          match = re.exec(doc);
+          continue;
+        }
         const prevLine = state.doc.lineAt(Math.max(from - 1, 0));
         const nextLine = state.doc.lineAt(Math.min(to + 1, state.doc.length));
         sourceVisibleFrom = prevLine.from;
@@ -248,7 +259,7 @@ const buildKatexDecorations = (state: EditorState): CursorZoneState => {
   };
 
   scanMath(/\$\$([^$]+)\$\$|\\\[(.*?)\\\]/gs, (latex, from) => new BlockMathWidget(latex, from), true);
-  scanMath(/(?<!\$)\$(?!\$)([^$]+)\$(?!\$)|\\\((.*?)\\\)/g, (latex) => new InlineMathWidget(latex), false);
+  scanMath(/(?<!\$)\$(?!\$)([^\n$]+)\$(?!\$)|\\\(([^)\n]*?)\\\)/g, (latex) => new InlineMathWidget(latex), false);
 
   return {
     decorations: decorations.length > 0 ? RangeSet.of(decorations, true) : Decoration.none,
@@ -284,5 +295,5 @@ export const katexExtension = (): Extension => {
     },
   });
 
-  return [stateField, theme];
+  return [stateField, blockWidgetLineNavigationExtension(stateField, (value) => value.atomicDecorations), theme];
 };

@@ -26,13 +26,26 @@ export const extractAttachmentIds = (md: string | null): string[] => {
  *  or short-id, and we keep the short-id end-to-end so the rendered
  *  `<img src>` / `<a href>` stays short and copy-paste-friendly. */
 export const buildAttachmentContentUrl = (notebookId: string, attachmentIdOrShortId: string): string =>
-  `/api/notebooks/${notebookId}/attachments/${attachmentIdOrShortId}/content`;
+  `/api/notebooks/${encodeURIComponent(notebookId)}/attachments/${encodeURIComponent(attachmentIdOrShortId)}/content`;
+
+const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+export const isSafeMarkdownUrl = (url: string): boolean => {
+  if (url.startsWith("//")) return false;
+  if (!/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(url)) return true;
+  try {
+    return SAFE_URL_PROTOCOLS.has(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Shared click-to-download flow used by image widgets and file pills.
  * Confirms first to avoid accidental downloads while editing.
  */
 export const confirmAndDownload = async (filename: string, url: string): Promise<void> => {
+  if (!isSafeMarkdownUrl(url)) return;
   const confirmed = await prompts.confirm(`Download "${filename}"?`, {
     title: "Download attachment",
     icon: "ti ti-download",

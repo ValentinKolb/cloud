@@ -37,9 +37,9 @@
  * the standard shape.
  */
 import { forceParsing } from "@codemirror/language";
-import { StateEffect, StateField } from "@codemirror/state";
+import { Prec, StateEffect, StateField } from "@codemirror/state";
 import type { EditorState, Extension, SelectionRange, Transaction } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin } from "@codemirror/view";
+import { Decoration, EditorView, keymap, ViewPlugin } from "@codemirror/view";
 import type { ViewUpdate } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
@@ -146,6 +146,68 @@ export const pointerSelectionMarkdownRefreshExtension = (): Extension =>
     },
   );
 
+export const blockWidgetLineNavigationExtension = <T>(
+  field: StateField<T>,
+  getBlockDecorations: (value: T) => DecorationSet | undefined,
+): Extension => {
+  const findWidgetRange = (set: DecorationSet | undefined, from: number, to: number): CursorZoneRange | null => {
+    let found: CursorZoneRange | null = null;
+    set?.between(from, to, (decoFrom, decoTo) => {
+      found = { from: decoFrom, to: decoTo };
+      return false;
+    });
+    return found;
+  };
+
+  const navigateLine = (view: EditorView, dir: -1 | 1, extend: boolean): boolean => {
+    const value = view.state.field(field, false);
+    if (!value) return false;
+    const blockDecorations = getBlockDecorations(value);
+    if (!blockDecorations || blockDecorations === Decoration.none) return false;
+
+    const sel = view.state.selection.main;
+    const caretLine = view.state.doc.lineAt(sel.head);
+    const caretCol = sel.head - caretLine.from;
+    let targetLineNumber = caretLine.number + dir;
+    let skippedWidget = false;
+
+    while (targetLineNumber >= 1 && targetLineNumber <= view.state.doc.lines) {
+      const line = view.state.doc.line(targetLineNumber);
+      const widget = findWidgetRange(blockDecorations, line.from, line.to);
+      if (!widget) break;
+      skippedWidget = true;
+      const widgetStartLine = view.state.doc.lineAt(widget.from).number;
+      const widgetEndLine = view.state.doc.lineAt(widget.to).number;
+      targetLineNumber = dir < 0 ? widgetStartLine - 1 : widgetEndLine + 1;
+    }
+    if (!skippedWidget) return false;
+
+    const target =
+      targetLineNumber < 1
+        ? 0
+        : targetLineNumber > view.state.doc.lines
+          ? view.state.doc.length
+          : view.state.doc.line(targetLineNumber).from +
+            Math.min(caretCol, view.state.doc.line(targetLineNumber).length);
+
+    view.dispatch({
+      selection: extend ? { anchor: sel.anchor, head: target } : { anchor: target },
+      scrollIntoView: true,
+      userEvent: "select",
+    });
+    return true;
+  };
+
+  return Prec.highest(
+    keymap.of([
+      { key: "ArrowUp", run: (view) => navigateLine(view, -1, false) },
+      { key: "Shift-ArrowUp", run: (view) => navigateLine(view, -1, true) },
+      { key: "ArrowDown", run: (view) => navigateLine(view, 1, false) },
+      { key: "Shift-ArrowDown", run: (view) => navigateLine(view, 1, true) },
+    ]),
+  );
+};
+
 /** Identity of the range the cursor currently sits inside, or
  *  `null` if it sits outside all ranges. A cursor-only transaction
  *  needs a rebuild only when this answer changes. */
@@ -196,7 +258,7 @@ const mapRanges = (tr: Transaction, ranges: CursorZoneRange[]): CursorZoneRange[
 export const cursorZoneStateField = (
   build: (state: EditorState) => CursorZoneState,
   incremental?: IncrementalOptions,
-): Extension => {
+): StateField<CursorZoneState> => {
   return StateField.define<CursorZoneState>({
     create: build,
     update(value, tr) {

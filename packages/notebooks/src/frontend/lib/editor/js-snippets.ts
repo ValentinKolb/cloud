@@ -306,6 +306,7 @@ const identifierSource = (context: CompletionContext): CompletionResult | null =
   if (word.from > 0) {
     const prev = context.state.doc.sliceString(word.from - 1, word.from);
     if (prev === ".") return null;
+    if (word.from > 1 && context.state.doc.sliceString(word.from - 2, word.from) === "?.") return null;
   }
   // Only fire when the user has actually typed something; an empty
   // explicit invocation (Ctrl-Space at whitespace) returns null too,
@@ -329,19 +330,20 @@ const identifierSource = (context: CompletionContext): CompletionResult | null =
  * `random`, …).
  */
 const memberSource = (context: CompletionContext): CompletionResult | null => {
-  const match = context.matchBefore(/([A-Za-z_$][\w$]*)\.([\w$]*)/);
+  const match = context.matchBefore(/([A-Za-z_$][\w$]*)(?:\?\.|\.)([\w$]*)/);
   if (!match) return null;
   if (!isInsideScriptLikeFence(context)) return null;
   // Re-run the regex to capture the namespace + suffix lengths.
   // matchBefore gives us {from, to, text} but not capture groups.
-  const captures = /^([A-Za-z_$][\w$]*)\.([\w$]*)$/.exec(match.text);
+  const captures = /^([A-Za-z_$][\w$]*)(\?\.|\.)([\w$]*)$/.exec(match.text);
   if (!captures) return null;
-  const [, namespace, suffix] = captures;
+  const [, namespace, access, suffix] = captures;
   const options = MEMBERS[namespace!];
   if (!options) return null;
+  const accessLength = access?.length ?? 1;
   return {
-    from: match.from + namespace!.length + 1, // +1 for the dot
-    to: match.from + namespace!.length + 1 + (suffix?.length ?? 0),
+    from: match.from + namespace!.length + accessLength,
+    to: match.from + namespace!.length + accessLength + (suffix?.length ?? 0),
     options,
     validFor: /^[\w$]*$/,
   };

@@ -90,7 +90,6 @@ const LANGUAGES: FenceLang[] = [
   { name: "json", detail: "JSON", icon: "ti-braces" },
   { name: "yaml", aliases: ["yml"], detail: "YAML", icon: "ti-file-text" },
   { name: "xml", aliases: ["svg"], detail: "XML / SVG", icon: "ti-code" },
-  { name: "bash", aliases: ["sh", "shell"], detail: "Bash / Shell", icon: "ti-terminal" },
 ];
 
 /** Build the snippet template for one language. Does NOT include
@@ -102,9 +101,11 @@ const LANGUAGES: FenceLang[] = [
  *  the language tag + body + closing fence; the user's typed
  *  backticks stay in place. `${0}` parks the final cursor on the
  *  body line. */
+const escapeSnippetPlaceholder = (value: string): string => value.replace(/[\\${}]/g, "\\$&");
+
 const buildSnippet = (lang: FenceLang): string => {
   const body = lang.bodyPlaceholder
-    ? `\${0:${lang.bodyPlaceholder}}`
+    ? `\${0:${escapeSnippetPlaceholder(lang.bodyPlaceholder)}}`
     : "${0}";
   return `${lang.name}\n${body}\n\`\`\``;
 };

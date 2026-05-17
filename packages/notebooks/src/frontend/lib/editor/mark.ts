@@ -9,7 +9,7 @@
  */
 
 import { RangeSet, StateField } from "@codemirror/state";
-import type { EditorState, Extension, Range } from "@codemirror/state";
+import type { EditorState, Extension, Range, Transaction } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
@@ -17,31 +17,69 @@ const MARK_REGEX = /==(?!=)([^\s=][^=]*?[^\s=]|[^\s=])==(?!=)/g;
 
 const markDecoration = Decoration.mark({ class: "cm-mark-highlight" });
 
-const findMarks = (state: EditorState): Range<Decoration>[] => {
+type MarkState = {
+  decorations: DecorationSet;
+  ranges: Array<{ from: number; to: number }>;
+};
+
+const findMarks = (state: EditorState): MarkState => {
   const decorations: Range<Decoration>[] = [];
+  const ranges: Array<{ from: number; to: number }> = [];
   const text = state.doc.toString();
   for (const match of text.matchAll(MARK_REGEX)) {
     if (match.index === undefined) continue;
     const from = match.index;
     const to = from + match[0].length;
     decorations.push(markDecoration.range(from, to));
+    ranges.push({ from, to });
   }
-  return decorations;
+  return { decorations: RangeSet.of(decorations, true), ranges };
 };
 
+const intersectsRanges = (ranges: Array<{ from: number; to: number }>, from: number, to: number): boolean =>
+  ranges.some((range) => from <= range.to && to >= range.from);
+
+const changesMightAffectMarks = (tr: Transaction, ranges: Array<{ from: number; to: number }>): boolean => {
+  let might = false;
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    if (might) return;
+    if (intersectsRanges(ranges, fromA, toA)) {
+      might = true;
+      return;
+    }
+    if (inserted.toString().includes("=")) {
+      might = true;
+      return;
+    }
+    const from = Math.max(0, fromB - 2);
+    const to = Math.min(tr.state.doc.length, toB + 2);
+    might = tr.state.doc.sliceString(from, to).includes("=");
+  });
+  return might;
+};
+
+const mapRanges = (tr: Transaction, ranges: Array<{ from: number; to: number }>): Array<{ from: number; to: number }> =>
+  ranges
+    .map((range) => ({
+      from: tr.changes.mapPos(range.from, 1),
+      to: tr.changes.mapPos(range.to, -1),
+    }))
+    .filter((range) => range.from < range.to);
+
 export const markExtension = (): Extension => {
-  const stateField = StateField.define<DecorationSet>({
+  const stateField = StateField.define<MarkState>({
     create(state) {
-      return RangeSet.of(findMarks(state), true);
+      return findMarks(state);
     },
-    update(decorations, tr) {
+    update(value, tr) {
       if (tr.docChanged) {
-        return RangeSet.of(findMarks(tr.state), true);
+        if (changesMightAffectMarks(tr, value.ranges)) return findMarks(tr.state);
+        return { decorations: value.decorations.map(tr.changes), ranges: mapRanges(tr, value.ranges) };
       }
-      return decorations.map(tr.changes);
+      return value;
     },
     provide(field) {
-      return EditorView.decorations.from(field);
+      return EditorView.decorations.from(field, (value) => value.decorations);
     },
   });
 

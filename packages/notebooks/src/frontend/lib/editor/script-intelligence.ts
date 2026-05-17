@@ -22,7 +22,6 @@ type WorkerClient = {
 let workerClient: WorkerClient | null = null;
 let workerAvailable = true;
 let nextRequestId = 1;
-let latestCompletionRequest = 0;
 
 const scriptTextFor = (state: EditorState, from: number, to: number): string => state.sliceDoc(from, to);
 
@@ -42,10 +41,19 @@ const findScriptBlock = (state: EditorState, pos: number): ScriptBlock | null =>
   }
   if (!isScript) return null;
 
-  const openLine = state.doc.lineAt(node.from);
-  const closeLine = state.doc.lineAt(Math.max(node.from, node.to - 1));
-  const from = Math.min(openLine.to + 1, state.doc.length);
-  const to = closeLine.number > openLine.number && closeLine.text.trim().startsWith("```") ? Math.max(from, closeLine.from - 1) : node.to;
+  let codeNode: SyntaxNode | null = null;
+  child = node.firstChild;
+  while (child) {
+    if (child.name === "CodeText") {
+      codeNode = child;
+      break;
+    }
+    child = child.nextSibling;
+  }
+  if (!codeNode) return null;
+
+  const from = codeNode.from;
+  const to = codeNode.to;
   if (pos < from || pos > to) return null;
   return { from, to, code: scriptTextFor(state, from, to), pos: Math.max(0, Math.min(pos - from, to - from)) };
 };
@@ -88,7 +96,6 @@ const createWorkerClient = (): WorkerClient | null => {
 
     worker.onerror = (event) => {
       console.warn("[notebooks] script intelligence worker unavailable", event.message);
-      workerAvailable = false;
       for (const resolve of pending.values()) resolve(null);
       pending.clear();
       worker.terminate();
@@ -127,9 +134,9 @@ const getWorkerClient = (): WorkerClient | null => {
   return workerClient;
 };
 
-export const createScriptTypeCompletionSource =
-  (clientFactory: () => WorkerClient | null = getWorkerClient) =>
-  async (context: CompletionContext): Promise<CompletionResult | null> => {
+export const createScriptTypeCompletionSource = (clientFactory: () => WorkerClient | null = getWorkerClient) => {
+  let latestCompletionRequest = 0;
+  return async (context: CompletionContext): Promise<CompletionResult | null> => {
     if (!shouldQueryTypeScript(context)) return null;
     const block = findScriptBlock(context.state, context.pos);
     if (!block || block.code.length > MAX_SCRIPT_CHARS) return null;
@@ -149,6 +156,7 @@ export const createScriptTypeCompletionSource =
       validFor: /^[\w$]*$/,
     };
   };
+};
 
 export const scriptTypeCompletionSource = createScriptTypeCompletionSource();
 

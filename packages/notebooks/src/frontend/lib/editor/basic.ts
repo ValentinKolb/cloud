@@ -11,8 +11,7 @@ import {
 } from "@codemirror/view";
 import { type Extension, EditorState } from "@codemirror/state";
 import { defaultHighlightStyle, syntaxHighlighting, indentOnInput, bracketMatching, foldKeymap } from "@codemirror/language";
-import { indentWithTab } from "@codemirror/commands";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { completionKeymap, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { lintKeymap } from "@codemirror/lint";
@@ -24,7 +23,6 @@ import { lintKeymap } from "@codemirror/lint";
 export const basicExtensions: () => Extension = () => [
   highlightActiveLineGutter(),
   highlightSpecialChars(),
-  history(),
   drawSelection(),
   dropCursor(),
   EditorView.lineWrapping,
@@ -39,11 +37,9 @@ export const basicExtensions: () => Extension = () => [
   highlightActiveLine(),
   highlightSelectionMatches(),
   keymap.of([
-    indentWithTab,
     ...closeBracketsKeymap,
     ...defaultKeymap,
     ...searchKeymap,
-    ...historyKeymap,
     ...foldKeymap,
     ...completionKeymap,
     ...lintKeymap,
