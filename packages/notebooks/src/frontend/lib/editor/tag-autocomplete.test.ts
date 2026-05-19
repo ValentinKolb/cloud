@@ -21,6 +21,12 @@ const complete = async (notebookId: string, doc: string, explicit = false) => {
   return result?.options.map((option) => option.label) ?? [];
 };
 
+const completeWithDuration = async (notebookId: string, doc: string) => {
+  const startedAt = performance.now();
+  const labels = await complete(notebookId, doc);
+  return { labels, durationMs: performance.now() - startedAt };
+};
+
 beforeEach(() => {
   mockTags([]);
 });
@@ -32,6 +38,33 @@ test("suggests server-indexed tags after typing a tag prefix", async () => {
   ]);
 
   await expect(complete("tag-server-test", "#t")).resolves.toEqual(["todo", "travel"]);
+});
+
+test("suggests known tags for a bare hash after the delayed path", async () => {
+  mockTags([
+    { tag: "daily", count: 4 },
+    { tag: "garden", count: 2 },
+  ]);
+
+  await expect(complete("tag-bare-hash-test", "#")).resolves.toEqual(["daily", "garden"]);
+});
+
+test("suggests known tags immediately for an inline bare hash", async () => {
+  mockTags([
+    { tag: "daily", count: 4 },
+    { tag: "garden", count: 2 },
+  ]);
+
+  const result = await completeWithDuration("tag-inline-hash-test", "hello #");
+
+  expect(result.labels).toEqual(["daily", "garden"]);
+  expect(result.durationMs).toBeLessThan(100);
+});
+
+test("explicit bare hash completion stays available for slash command insertion", async () => {
+  mockTags([{ tag: "daily", count: 4 }]);
+
+  await expect(complete("tag-explicit-hash-test", "#", true)).resolves.toEqual(["daily"]);
 });
 
 test("uses tags from the current document before the server index catches up", async () => {

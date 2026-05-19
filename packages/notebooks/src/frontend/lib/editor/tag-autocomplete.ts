@@ -1,21 +1,21 @@
 /**
  * Autocomplete für `#tag` Referenzen im Notebook.
  *
- * Trigger: cursor sits right after a `#<partial>` sequence (`#`,
- * followed by at least one word char) anywhere mid-text. Suggestions
- * are the existing tags in the current notebook, pulled from
+ * Trigger: cursor sits right after a `#<partial>` sequence anywhere
+ * mid-text. Prefixes like `#t` open immediately. A bare `#` opens
+ * after a short delay so quick heading input (`# `) stays quiet.
+ * Suggestions are the existing tags in the current notebook, pulled from
  * `/api/notebooks/:id/tags` — the same endpoint `nb.tags.list()`
  * uses, so the autocomplete reflects exactly what the rest of the
  * app sees.
  *
- * # Why "at least one word char"?
+ * # Why delay bare "#"
  *
- * `#` alone is ambiguous: at line start it could be a heading
+ * `#` alone is ambiguous: at line start it could become a heading
  * (` # Heading`), mid-line it could be the start of a tag, or it
- * could just be a literal hash character. Requiring at least one
- * word char (`/#\w+/`) means we only fire once the user has
- * committed to "this is a tag" — no noise during heading typing
- * or when `#` appears in code-like text.
+ * could just be a literal hash character. Delaying only the bare
+ * hash keeps `#tag` autocomplete instant while avoiding noisy popups
+ * when the user is typing a heading.
  *
  * # Server-tag cache
  *
@@ -49,6 +49,7 @@ type TagSummary = { tag: string; count: number };
 type CachedTags = { tags: TagSummary[] };
 
 const EMPTY_CACHED: CachedTags = { tags: [] };
+const BARE_HASH_DELAY_MS = 500;
 
 const tagCache = createNotebookFetchCache<CachedTags>(
   async (notebookId) => {
@@ -128,6 +129,21 @@ const mergeTags = (serverTags: TagSummary[], localTags: TagSummary[]): TagSummar
   return Array.from(counts, ([tag, count]) => ({ tag, count }));
 };
 
+const delayBareHash = (context: CompletionContext): Promise<boolean> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return new Promise((resolve) => {
+    const done = (value: boolean) => {
+      if (timer) clearTimeout(timer);
+      resolve(value);
+    };
+    context.addEventListener("abort", () => done(false), { onDocChange: true });
+    timer = setTimeout(() => done(!context.aborted), BARE_HASH_DELAY_MS);
+  });
+};
+
+const isLineStartHash = (context: CompletionContext, word: { from: number }): boolean =>
+  context.state.doc.lineAt(word.from).from === word.from;
+
 /** Result-builder shared by sync + async branches. Pulls `from`
  *  one past the `#` so CM filters by tag body, not by the literal
  *  `#`-prefixed string. */
@@ -183,13 +199,13 @@ export const buildTagCompletionSource = (notebookId: string): CompletionSource =
   void tagCache.fetch(notebookId);
 
   return (context: CompletionContext): CompletionResult | Promise<CompletionResult | null> | null => {
-    // Two regex modes — strict (implicit) and lenient (explicit).
+    // Three trigger modes:
     //
-    // - IMPLICIT trigger (`activateOnTyping` fires on user input):
-    //   Require `#\w+` — at least one word char after the hash.
-    //   This prevents the popup from opening on a bare `#` typed
-    //   in passing (a heading marker, a literal hash, etc.) and
-    //   keeps autocomplete noise low.
+    // - IMPLICIT prefix: `#\w+` opens immediately.
+    // - IMPLICIT bare hash: inline `#` opens immediately; line-start
+    //   `#` opens after a small delay. If the user keeps typing a
+    //   heading (`# `), CM aborts the async query on doc change before
+    //   it can show.
     //
     // - EXPLICIT trigger (user invoked completion via Ctrl-Space
     //   or our `/tag` slash command, which calls startCompletion
@@ -201,7 +217,7 @@ export const buildTagCompletionSource = (notebookId: string): CompletionSource =
     // as at line start. The string `hello #pr` matches with
     // `from` at the `#` position (index 6), surfacing tag
     // suggestions exactly the same way as a line-start `#pr`.
-    const word = context.matchBefore(context.explicit ? /#\w*/ : /#\w+/);
+    const word = context.matchBefore(context.explicit ? /#\w*/ : /#\w+/) ?? context.matchBefore(/#/);
     if (!word) return null;
     if (isInsideFencedCode(context)) return null;
     // Align with `extractTags` semantics: the `#` must be preceded
@@ -220,11 +236,17 @@ export const buildTagCompletionSource = (notebookId: string): CompletionSource =
       // Promise allocation. We still merge in local editor tags so
       // freshly typed tags become suggestions before the server
       // reindex + cache TTL cycle catches up.
-      return buildResult(word, context, fresh.tags);
+      const result = buildResult(word, context, fresh.tags);
+      if (word.text !== "#" || context.explicit || !result || !isLineStartHash(context, word)) return result;
+      return delayBareHash(context).then((ok) => (ok ? result : null));
     }
 
     // Cold/stale cache — return a Promise. CM handles it gracefully
     // (popup may briefly delay opening or update once data lands).
-    return tagCache.fetch(notebookId).then((data) => buildResult(word, context, data.tags));
+    return tagCache.fetch(notebookId).then(async (data) => {
+      const result = buildResult(word, context, data.tags);
+      if (word.text !== "#" || context.explicit || !result || !isLineStartHash(context, word)) return result;
+      return (await delayBareHash(context)) ? result : null;
+    });
   };
 };
