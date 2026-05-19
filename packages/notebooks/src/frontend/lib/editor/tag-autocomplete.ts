@@ -46,19 +46,16 @@ import { withIcon } from "./kit-autocomplete";
 /** Server response shape — matches `KitTagSummary` in `kit-types.ts`. */
 type TagSummary = { tag: string; count: number };
 
-/** Pre-built Completion array lives alongside the raw tags so we
- *  don't rebuild N Completion objects + re-sort them on every
- *  keystroke that triggers the popup. */
-type CachedTags = { tags: TagSummary[]; completions: Completion[] };
+type CachedTags = { tags: TagSummary[] };
 
-const EMPTY_CACHED: CachedTags = { tags: [], completions: [] };
+const EMPTY_CACHED: CachedTags = { tags: [] };
 
 const tagCache = createNotebookFetchCache<CachedTags>(
   async (notebookId) => {
     const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/tags`);
     if (!res.ok) return EMPTY_CACHED;
     const tags = (await res.json()) as TagSummary[];
-    return { tags, completions: buildCompletions(tags) };
+    return { tags };
   },
   { fallback: EMPTY_CACHED },
 );
@@ -100,13 +97,46 @@ const buildCompletions = (tags: TagSummary[]): Completion[] => {
     });
 };
 
+const LOCAL_TAG_REGEX = /(?:^|\s)#([a-zA-Z][\w-]*(?:\/[\w-]+)*)/g;
+
+const extractLocalTags = (context: CompletionContext, activeWord: { from: number; to: number }): TagSummary[] => {
+  const counts = new Map<string, number>();
+  const text = context.state.doc.toString();
+
+  for (const match of text.matchAll(LOCAL_TAG_REGEX)) {
+    const matchStart = match.index!;
+    const leadingLen = match[0]!.length - (`#${match[1]!}`).length;
+    const from = matchStart + leadingLen;
+    const to = from + 1 + match[1]!.length;
+
+    // Do not turn the currently typed partial tag into a suggestion.
+    // `#t` should suggest existing tags, not create a noisy `t` option
+    // from the active word itself.
+    if (from === activeWord.from && to === activeWord.to) continue;
+
+    const tag = match[1]!.toLowerCase();
+    counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  }
+
+  return Array.from(counts, ([tag, count]) => ({ tag, count }));
+};
+
+const mergeTags = (serverTags: TagSummary[], localTags: TagSummary[]): TagSummary[] => {
+  const counts = new Map<string, number>();
+  for (const tag of serverTags) counts.set(tag.tag, tag.count);
+  for (const tag of localTags) counts.set(tag.tag, Math.max(counts.get(tag.tag) ?? 0, tag.count));
+  return Array.from(counts, ([tag, count]) => ({ tag, count }));
+};
+
 /** Result-builder shared by sync + async branches. Pulls `from`
  *  one past the `#` so CM filters by tag body, not by the literal
  *  `#`-prefixed string. */
 const buildResult = (
   word: { from: number; to: number },
-  completions: Completion[],
+  context: CompletionContext,
+  serverTags: TagSummary[],
 ): CompletionResult | null => {
+  const completions = buildCompletions(mergeTags(serverTags, extractLocalTags(context, word)));
   if (completions.length === 0) return null;
   return {
     from: word.from + 1,
@@ -187,13 +217,14 @@ export const buildTagCompletionSource = (notebookId: string): CompletionSource =
     const fresh = tagCache.getFresh(notebookId);
     if (fresh) {
       // Cache hit — fully synchronous path. No microtask, no
-      // Promise allocation. Completions are pre-built once when
-      // the cache was warmed; we just hand the array back here.
-      return buildResult(word, fresh.completions);
+      // Promise allocation. We still merge in local editor tags so
+      // freshly typed tags become suggestions before the server
+      // reindex + cache TTL cycle catches up.
+      return buildResult(word, context, fresh.tags);
     }
 
     // Cold/stale cache — return a Promise. CM handles it gracefully
     // (popup may briefly delay opening or update once data lands).
-    return tagCache.fetch(notebookId).then((data) => buildResult(word, data.completions));
+    return tagCache.fetch(notebookId).then((data) => buildResult(word, context, data.tags));
   };
 };
