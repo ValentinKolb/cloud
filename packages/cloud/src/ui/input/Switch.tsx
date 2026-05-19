@@ -29,7 +29,7 @@ const Switch = ({ label, value, onChange, disabled = false }: SwitchInputProps) 
  bg-zinc-200 dark:bg-zinc-600/40
  peer-checked:bg-blue-500
  
- peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2
+ peer-focus-visible:[box-shadow:var(--theme-focus-ring)]
  
  peer-disabled:opacity-50
  `}

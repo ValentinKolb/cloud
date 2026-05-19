@@ -88,9 +88,9 @@
 @utility sidebar-icon-action {
   @apply flex h-12 w-full min-w-0 items-center justify-center rounded-xl border-0 bg-zinc-100/70 text-zinc-600;
   @apply transition-[background-color,color,transform] duration-150 ease-out hover:bg-zinc-200 hover:text-zinc-900;
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  @apply focus-ui;
   @apply active:scale-[0.98];
-  @apply dark:bg-zinc-800/65 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-950;
+  @apply dark:bg-zinc-800/65 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100;
 }
 
 @utility sidebar-icon-action-active {
@@ -129,6 +129,7 @@
   display: flex !important;
   @apply min-h-8 items-center gap-2 rounded-lg px-2 py-1.5 text-xs leading-none text-dimmed;
   @apply transition-[background-color,color] duration-150 ease-out hover:text-secondary;
+  @apply focus-ui;
 
   &:hover {
     background: var(--theme-list-hover-bg);

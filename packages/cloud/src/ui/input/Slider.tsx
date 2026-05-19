@@ -103,9 +103,8 @@ const Slider = ({
  ]:rounded-none
  ]:bg-(--slider-fill)
  focus-visible:outline-none
- focus-visible:[&::-webkit-slider-thumb]:ring-2
- focus-visible:[&::-webkit-slider-thumb]:ring-zinc-400
- focus-visible:[&::-webkit-slider-thumb]:ring-offset-2
+ focus-visible:[&::-webkit-slider-thumb]:[box-shadow:var(--theme-focus-ring)]
+ focus-visible:[&::-moz-range-thumb]:[box-shadow:var(--theme-focus-ring)]
  disabled:cursor-not-allowed
  disabled:[&::-webkit-slider-thumb]:bg-zinc-400
  disabled:[&::-moz-range-thumb]:bg-zinc-400"
