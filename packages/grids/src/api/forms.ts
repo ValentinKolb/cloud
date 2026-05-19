@@ -3,8 +3,13 @@ import { z } from "zod";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import { ShortIdSchema } from "../contracts";
+import {
+  FormConfigSchema,
+  ShortIdSchema,
+  UserInputFormFieldEntrySchema,
+} from "../contracts";
 import { gridsService } from "../service";
+import { materializeFieldDefault } from "../service/fields";
 import { gateAt } from "./permissions";
 
 // v3 Slice 6: tagged-union FormFieldEntry. Pre-v3 entries (no `kind`)
@@ -15,39 +20,6 @@ import { gateAt } from "./permissions";
 // entries' `value` field MUST NOT leak to anonymous callers — that's
 // the whole point of server-side application. The PublicFormSchema
 // further down strips them.
-const UserInputEntrySchema = z.object({
-  kind: z.literal("user_input"),
-  fieldId: z.string().uuid(),
-  label: z.string().optional(),
-  helpText: z.string().optional(),
-  required: z.boolean().optional(),
-  defaultValue: z.unknown().optional(),
-});
-const FormValueEntrySchema = z.object({
-  kind: z.literal("form_value"),
-  fieldId: z.string().uuid(),
-  value: z.unknown(),
-});
-const FormFieldEntrySchema = z.discriminatedUnion("kind", [
-  UserInputEntrySchema,
-  FormValueEntrySchema,
-]);
-
-const FormConfigSchema = z.object({
-  title: z.string().optional(),
-  description: z.string().optional(),
-  fields: z.array(FormFieldEntrySchema),
-  submitLabel: z.string().optional(),
-  successMessage: z.string().optional(),
-  redirectUrl: z.string().nullable().optional(),
-  // Optional title image (base64 data-URL). Frontend caps source
-  // dimensions before emitting; we apply a generous server-side
-  // byte-cap so an oversized payload can't bloat the JSONB blob.
-  // 1 MB of base64 ≈ 750 KB of raw image — comfortably above our
-  // 1600px-longest-side webp budget (~150 KB typical).
-  titleImage: z.string().max(1_000_000).optional(),
-});
-
 const FormSchema = z.object({
   id: z.string(),
   // Persisted forms carry a 5-char short_id; the virtual "default form"
@@ -79,7 +51,7 @@ const PublicFormSchema = z.object({
   config: z.object({
     title: z.string().optional(),
     description: z.string().optional(),
-    fields: z.array(UserInputEntrySchema),
+    fields: z.array(UserInputFormFieldEntrySchema),
     submitLabel: z.string().optional(),
     successMessage: z.string().optional(),
     redirectUrl: z.string().nullable().optional(),
@@ -106,6 +78,14 @@ const submitFormResponse = async (
   actorId: string | null,
 ) => {
   const formFields = form.config.fields ?? [];
+  const fields = await gridsService.field.listByTable(form.tableId);
+  const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  const entriesById = new Map(formFields.map((entry) => [entry.fieldId, entry]));
+  const fieldName = (fieldId: string) => {
+    const entry = entriesById.get(fieldId);
+    if (entry?.kind === "user_input" && entry.label?.trim()) return entry.label.trim();
+    return fieldsById.get(fieldId)?.name ?? "Unknown field";
+  };
 
   // Split entries by kind. user_input fields accept payload from the
   // caller; form_value fields are SERVER-applied and the user's
@@ -120,10 +100,10 @@ const submitFormResponse = async (
 
   for (const key of Object.keys(submitted)) {
     if (formValueIds.has(key)) {
-      return c.json({ message: `Field "${key}" is server-managed and cannot be set via the form` }, 400);
+      return c.json({ message: `Field "${fieldName(key)}" is server-managed and cannot be set via the form` }, 400);
     }
     if (!userInputIds.has(key)) {
-      return c.json({ message: `Field "${key}" is not part of this form` }, 400);
+      return c.json({ message: `Field "${fieldName(key)}" is not part of this form` }, 400);
     }
   }
 
@@ -134,14 +114,18 @@ const submitFormResponse = async (
   for (const e of formFields) {
     if (e.kind !== "user_input") continue;
     if (payload[e.fieldId] === undefined && e.defaultValue !== undefined && e.defaultValue !== null) {
-      payload[e.fieldId] = e.defaultValue;
+      const field = fieldsById.get(e.fieldId);
+      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.defaultValue }) : e.defaultValue;
     }
     if (e.required && (payload[e.fieldId] === undefined || payload[e.fieldId] === null || payload[e.fieldId] === "")) {
-      return c.json({ message: `Field "${e.fieldId}" is required` }, 400);
+      return c.json({ message: `Field "${fieldName(e.fieldId)}" is required` }, 400);
     }
   }
   for (const e of formFields) {
-    if (e.kind === "form_value") payload[e.fieldId] = e.value;
+    if (e.kind === "form_value") {
+      const field = fieldsById.get(e.fieldId);
+      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.value }) : e.value;
+    }
   }
 
   // Bypass `disable_direct_insert` — that gate is meant to BLOCK
@@ -205,7 +189,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const token = c.req.param("token");
+      const token = c.req.param("token")!;
       const form = await gridsService.form.getByPublicToken(token);
       if (!form) return c.json({ message: "Form not found" }, 404);
       // Strip form_value entries' values, ownerUserId, publicToken,
@@ -228,7 +212,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", PublicSubmitSchema),
     async (c) => {
-      const token = c.req.param("token");
+      const token = c.req.param("token")!;
       const form = await gridsService.form.getByPublicToken(token);
       if (!form) return c.json({ message: "Form not found" }, 404);
       // Anonymous submissions: actorId is null.
@@ -247,7 +231,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(FormListSchema, "Forms") },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -265,7 +249,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(FormSchema, "Default form") },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -299,7 +283,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", PublicSubmitSchema),
     async (c) => {
-      const formId = c.req.param("formId");
+      const formId = c.req.param("formId")!;
       const form = await gridsService.form.get(formId);
       if (!form || !form.isActive) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
@@ -330,7 +314,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateFormSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -353,7 +337,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateFormSchema),
     async (c) => {
-      const formId = c.req.param("formId");
+      const formId = c.req.param("formId")!;
       const form = await gridsService.form.get(formId);
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
@@ -373,7 +357,7 @@ const app = new Hono<AuthContext>()
       responses: { 204: { description: "Deleted" } },
     }),
     async (c) => {
-      const formId = c.req.param("formId");
+      const formId = c.req.param("formId")!;
       const form = await gridsService.form.get(formId);
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);
@@ -398,7 +382,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const formId = c.req.param("formId");
+      const formId = c.req.param("formId")!;
       const form = await gridsService.form.get(formId, { includeDeleted: true });
       if (!form) return c.json({ message: "Form not found" }, 404);
       const table = await gridsService.table.get(form.tableId);

@@ -7,9 +7,11 @@ import {
   DashboardListSchema,
   CreateDashboardSchema,
   UpdateDashboardSchema,
+  WidgetSchema,
 } from "../contracts";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
+import { resolveWidgetData } from "../service/dashboard-widget-data";
 import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
 
 // =============================================================================
@@ -36,7 +38,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(DashboardListSchema, "Dashboards") },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const base = await gridsService.base.get(baseId);
       if (!base) return c.json({ message: "Base not found" }, 404);
       const gate = await gateAt(c, { baseId }, "read");
@@ -63,7 +65,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateDashboardSchema),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const base = await gridsService.base.get(baseId);
       if (!base) return c.json({ message: "Base not found" }, 404);
       const body = c.req.valid("json");
@@ -83,6 +85,7 @@ const app = new Hono<AuthContext>()
               baseId,
               name: body.name,
               description: body.description ?? null,
+              icon: body.icon ?? null,
               config: body.config,
               ownerUserId: body.shared ? null : user.id,
             },
@@ -104,7 +107,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const dashboardId = c.req.param("dashboardId");
+      const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
 
@@ -133,6 +136,50 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  .post(
+    "/:dashboardId/widgets/resolve",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Resolve one dashboard widget",
+      responses: {
+        200: { description: "Resolved widget data" },
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("json", WidgetSchema),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId")!;
+      const dashboard = await gridsService.dashboard.get(dashboardId);
+      if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
+
+      const user = c.get("user");
+      const writeGate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
+      if (!writeGate.ok) return respond(c, () => Promise.resolve(writeGate));
+
+      const { level, grants } = await resolveWithGrants(c, {
+        baseId: dashboard.baseId,
+        dashboardId: dashboard.id,
+      });
+      if (!gridsService.permission.hasAtLeast(level, "read")) {
+        return c.json({ message: "Dashboard not found" }, 404);
+      }
+
+      const isAdmin = hasRole(user, "admin");
+      const isOwner = dashboard.ownerUserId === user.id;
+      const explicitGrant = hasExplicitGrant(grants, isAdmin, "dashboard", dashboard.id);
+      if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) {
+        return c.json({ message: "Dashboard not found" }, 404);
+      }
+
+      const data = await resolveWidgetData(c.req.valid("json"), {
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+        isAdmin,
+      });
+      return c.json(data);
+    },
+  )
+
   .patch(
     "/:dashboardId",
     describeRoute({
@@ -145,7 +192,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateDashboardSchema),
     async (c) => {
-      const dashboardId = c.req.param("dashboardId");
+      const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
       const user = c.get("user");
@@ -175,7 +222,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const dashboardId = c.req.param("dashboardId");
+      const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
       const user = c.get("user");
@@ -199,7 +246,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const dashboardId = c.req.param("dashboardId");
+      const dashboardId = c.req.param("dashboardId")!;
       const dashboard = await gridsService.dashboard.get(dashboardId, { includeDeleted: true });
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
       const user = c.get("user");

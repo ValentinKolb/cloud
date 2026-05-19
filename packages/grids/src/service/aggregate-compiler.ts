@@ -24,16 +24,11 @@ export type AggregateColumn = {
   expr: any;
 };
 
-// Numeric-castable types. v3 (Slice 7) extends the set with currency,
-// percent, and duration — they were silently rejected before despite
-// having well-defined numeric aggregation semantics.
-//
-// Currency is decimal-backed (just a number) with a display-only
-// symbol in field config — see currencyHandler. SQL projection
-// matches decimal exactly, no nested JSON path. Every numeric type
-// goes through the same `try_numeric(data->>id)` pipeline.
+// Numeric-castable types all go through the same
+// `try_numeric(data->>id)` pipeline. Money is represented as a decimal
+// field with a display-only unit in config, not as its own storage type.
 const NUMERIC_TYPES = new Set([
-  "number", "decimal", "rating", "autonumber", "percent", "duration", "currency",
+  "number", "decimal", "autonumber", "percent", "duration",
 ]);
 const DATE_TYPES = new Set(["date"]);
 
@@ -44,6 +39,11 @@ const numericProjection = (field: Field): any => {
   const expr = storageOf(field).project(field, "r");
   return expr ?? sql`NULL::numeric`;
 };
+
+const dateProjection = (field: Field): any =>
+  (field.config as { includeTime?: boolean }).includeTime
+    ? sql`grids.try_timestamp(data->>${field.id})`
+    : sql`grids.try_iso_date(data->>${field.id})`;
 
 const isCompatible = (agg: AggKind, type: string): boolean => {
   // Relation values live in record_links, NOT in JSONB. Aggregating
@@ -117,7 +117,7 @@ export const compileAggregates = (
     }
 
     const field = fieldsById.get(req.fieldId);
-    if (!field) return { ok: false, error: `unknown field "${req.fieldId}"` };
+    if (!field) return { ok: false, error: "unknown field" };
     if (field.deletedAt) return { ok: false, error: `field "${field.name}" is deleted` };
     if (!isCompatible(req.agg, field.type)) {
       return { ok: false, error: `agg "${req.agg}" not compatible with field type "${field.type}"` };
@@ -155,9 +155,9 @@ export const compileAggregates = (
         if (NUMERIC_TYPES.has(field.type)) {
           expr = sql`${fn}(${numericProjection(field)})`;
         } else if (DATE_TYPES.has(field.type)) {
-          // Safe-cast: corrupt date data → NULL → ignored by MIN/MAX,
+          // Safe-cast: corrupt ISO date data → NULL → ignored by MIN/MAX,
           // not a query crash.
-          expr = sql`${fn}(grids.try_date(data->>${fieldId}))`;
+          expr = sql`${fn}(${dateProjection(field)})`;
         } else {
           expr = sql`${fn}(data->>${fieldId})`;
         }
@@ -166,7 +166,7 @@ export const compileAggregates = (
       case "earliest":
       case "latest": {
         const fn = req.agg === "earliest" ? sql`MIN` : sql`MAX`;
-        expr = sql`${fn}(grids.try_timestamptz(data->>${fieldId}))`;
+        expr = sql`${fn}(${dateProjection(field)})`;
         break;
       }
     }

@@ -8,6 +8,22 @@ type Props = {
   data: WidgetData | undefined;
 };
 
+const VALUE_TONE_CLASSES: Record<NonNullable<StatWidget["tone"]>, string> = {
+  neutral: "text-zinc-900 dark:text-zinc-100",
+  blue: "text-blue-600 dark:text-blue-400",
+  green: "text-emerald-600 dark:text-emerald-400",
+  amber: "text-amber-600 dark:text-amber-400",
+  red: "text-red-600 dark:text-red-400",
+};
+
+const ACCENT_TONE: Record<NonNullable<StatWidget["tone"]>, "zinc" | "blue" | "emerald" | "amber" | "red"> = {
+  neutral: "zinc",
+  blue: "blue",
+  green: "emerald",
+  amber: "amber",
+  red: "red",
+};
+
 /**
  * One stat cell inside a dashboard row. Renders the cloud/ui StatCell
  * with values pulled from a resolved StatWidget's WidgetData.
@@ -55,6 +71,8 @@ export default function StatWidgetCell(props: Props) {
     return d.kind === "stat" ? d.trend : undefined;
   };
 
+  const tone = (): NonNullable<StatWidget["tone"]> => props.widget.tone ?? "blue";
+
   return (
     <StatCell
       label={labelOf()}
@@ -62,10 +80,10 @@ export default function StatWidgetCell(props: Props) {
       title={valueText()}
       sub={subText()}
       trend={trend()}
-      valueClass={isError() ? "text-red-600 dark:text-red-400" : undefined}
+      valueClass={isError() ? "text-red-600 dark:text-red-400" : VALUE_TONE_CLASSES[tone()]}
       accent={
         props.widget.icon && !errorReason()
-          ? { tone: "blue", icon: props.widget.icon }
+          ? { tone: ACCENT_TONE[tone()], icon: props.widget.icon }
           : undefined
       }
     />

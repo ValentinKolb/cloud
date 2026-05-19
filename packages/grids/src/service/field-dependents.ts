@@ -37,7 +37,7 @@ export const findFieldRefsInValue = (value: unknown, fieldId: string): boolean =
 export const findFieldRefContexts = (config: Record<string, unknown>, fieldId: string): string[] => {
   const contexts: string[] = [];
   // Common keys in view configs that may reference fields.
-  const keys = ["filter", "sort", "visibleFields", "fieldOrder", "fieldWidths", "groupBy"];
+  const keys = ["filter", "sort", "visibleFields", "fieldOrder", "fieldWidths", "groupBy", "groupSort", "aggregations", "columns", "search"];
   for (const key of keys) {
     const part = config[key];
     if (part !== undefined && findFieldRefsInValue(part, fieldId)) {
@@ -57,8 +57,8 @@ export const findFieldRefContexts = (config: Record<string, unknown>, fieldId: s
  * fields on a DIFFERENT table (via a relation that points at the source
  * table) — those count as blocking deps too. Previously the scan was
  * limited to fields on the same table, so deleting a target-table field
- * referenced by another table's rollup/displayFieldId silently left
- * stale config (chunk 4 important).
+ * referenced by another table's rollup silently left stale config
+ * (chunk 4 important).
  *
  * Formula references are extracted via the formula parser, not a regex,
  * so both `{uuid}` and `#slug` syntaxes resolve correctly (chunk 6
@@ -127,9 +127,8 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
 
   // ── computed / link field configs across the WHOLE base ──────
   // Lookup/rollup on table B can reference fields on table A through
-  // a relation that points at A. relation.displayFieldId likewise
-  // points across tables. Without scanning the whole base we'd miss
-  // these (chunk 4 important).
+  // a relation that points at A. Without scanning the whole base we'd
+  // miss these (chunk 4 important).
   // Both `grids.fields` and `grids.tables` carry an `id` column, so
   // every projection has to be qualified — without aliases Postgres
   // raises 42702 "column reference 'id' is ambiguous". Aliasing both
@@ -171,7 +170,6 @@ export const getFieldDependents = async (fieldId: string): Promise<FieldDependen
     // every table.
     if (typeof config.relationFieldId === "string") refs.push(config.relationFieldId);
     if (typeof config.targetFieldId === "string") refs.push(config.targetFieldId);
-    if (typeof config.displayFieldId === "string") refs.push(config.displayFieldId);
 
     // Formula refs go through the parser so both `{uuid}` and `#slug`
     // work. The resolved fieldId set goes into `refs` alongside the

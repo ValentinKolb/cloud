@@ -1,22 +1,22 @@
-import { createResource, createSignal, For, Show } from "solid-js";
-import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { markdown } from "@valentinkolb/cloud/shared";
+import { MarkdownView, prompts } from "@valentinkolb/cloud/ui";
 import { text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { AuditEntry, Field, GridFile, GridRecord } from "../../service";
-import {
-  fieldToPromptSchema,
-  isUserEditable,
-  sanitizeEditPayload,
-} from "./field-prompt-schema";
 import { errorMessage } from "./api-helpers";
+import { isUserEditable } from "./field-prompt-schema";
 import { formatCell } from "./format-cell";
 import { RecordLink } from "./RecordLink";
-import RelationPicker from "./RelationPicker";
+import { openRecordUpsertDialog } from "./RecordUpsertDialog";
+import { SelectValueBadges } from "./select-badges";
 
 type Props = {
   baseId: string;
+  baseShortId?: string;
   tableId: string;
+  tableName: string;
   fields: Field[];
   /** Currently-displayed record. Controlled by RecordsView — when the
    *  user clicks a different row in the grid, the parent passes a new
@@ -31,6 +31,7 @@ type Props = {
    *  Built SSR-side; used by relation cells to render presentable
    *  values instead of raw UUIDs. */
   relationLabels?: Record<string, string>;
+  tableShortIds?: Record<string, string>;
   /** Close the panel (delegates URL writeback to RecordsView). */
   onClose: () => void;
   /** Emitted after a successful edit. RecordsView refetches the data
@@ -52,6 +53,23 @@ export default function RecordDetailPanel(props: Props) {
   const mode = () => props.mode();
 
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
+  const titleField = () => {
+    const fields = visibleFields();
+    return (
+      fields.find((f) => f.presentable && !["longtext", "json", "file", "relation"].includes(f.type)) ??
+      fields.find((f) => f.type === "text")
+    );
+  };
+  const bodyFields = () => {
+    const titleId = titleField()?.id;
+    return visibleFields().filter((f) => f.id !== titleId);
+  };
+  const detailsFields = () => bodyFields().filter((f) => !["longtext", "json", "file", "relation"].includes(f.type));
+  const relationFields = () => bodyFields().filter((f) => f.type === "relation");
+  const textBlockFields = () => bodyFields().filter((f) => ["longtext", "json"].includes(f.type));
+  const fileFields = () => bodyFields().filter((f) => f.type === "file");
+  const hasBodyFields = () =>
+    detailsFields().length > 0 || relationFields().length > 0 || textBlockFields().length > 0 || fileFields().length > 0;
 
   // ---- Mutations ---------------------------------------------------------
   const updateMut = mutations.create<GridRecord, { rec: GridRecord; payload: Record<string, unknown> }>({
@@ -94,34 +112,26 @@ export default function RecordDetailPanel(props: Props) {
 
   // ---- Handlers ----------------------------------------------------------
   const handleEdit = async (rec: GridRecord) => {
-    const usable = visibleFields().filter((f) => isUserEditable(f.type));
+    const usable = visibleFields().filter((f) => isUserEditable(f.type) || f.type === "relation");
     if (usable.length === 0) {
       prompts.error("No editable fields. Add a field first.");
       return;
     }
-    const formFields: Record<string, any> = {};
-    for (const field of usable) {
-      const schema = fieldToPromptSchema(field, rec.data[field.id]);
-      if (schema) formFields[field.id] = schema;
-    }
-    // size: "large" — the user explicitly asked for a more comfortable
-    // edit modal. The cloud prompts.form supports "small" | "medium" |
-    // "large"; large gives the form noticeable breathing room.
-    const result = await prompts.form({
-      title: "Edit record",
-      icon: "ti ti-pencil",
-      fields: formFields,
-      confirmText: "Save",
-      size: "large",
+    const result = await openRecordUpsertDialog({
+      mode: "edit",
+      fields: visibleFields(),
+      baseId: props.baseId,
+      tableName: props.tableName,
+      record: rec,
+      relationLabels: props.relationLabels,
     });
     if (!result) return;
-    const ids = usable.map((f) => f.id);
-    updateMut.mutate({ rec, payload: sanitizeEditPayload(result, ids) });
+    updateMut.mutate({ rec, payload: result });
   };
 
   const handleDelete = async (rec: GridRecord) => {
     const confirmed = await prompts.confirm(
-      "Soft-delete this record? It can be restored from the trash.",
+      `${recordTitle(rec)}\n${props.tableName}\n\nThis record is moved to trash and can be restored.`,
       { title: "Delete record?", variant: "danger", confirmText: "Delete" },
     );
     if (!confirmed) return;
@@ -135,11 +145,7 @@ export default function RecordDetailPanel(props: Props) {
    * records. Used in trash mode and for users without write permission.
    */
   const renderRelationCellReadOnly = (field: Field, value: unknown) => {
-    const ids = Array.isArray(value)
-      ? (value as string[])
-      : typeof value === "string" && value.length > 0
-      ? [value]
-      : [];
+    const ids = Array.isArray(value) ? (value as string[]) : typeof value === "string" && value.length > 0 ? [value] : [];
     if (ids.length === 0) return "—";
     const cache = props.relationLabels ?? {};
     const targetTableId = (field.config as { targetTableId?: string }).targetTableId;
@@ -147,52 +153,15 @@ export default function RecordDetailPanel(props: Props) {
       <span class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         {ids.map((id, i) => (
           <RecordLink
-            label={cache[id] ?? id.slice(0, 8)}
+            label={cache[id] ?? "Unknown record"}
             targetTableId={targetTableId}
+            targetTableShortId={targetTableId ? props.tableShortIds?.[targetTableId] : undefined}
             targetRecordId={id}
-            baseId={props.baseId}
+            baseId={props.baseShortId ?? props.baseId}
             comma={i < ids.length - 1}
           />
         ))}
       </span>
-    );
-  };
-
-  /**
-   * Editable relation cell — search-driven picker. Wired to the same
-   * `updateMut` the edit-modal uses; PATCH includes only the relation
-   * field so other cells stay untouched. RecordsView refetches via
-   * `props.onUpdated` so the chip labels reflect the new linkage on
-   * the next render.
-   */
-  const renderRelationCellEditable = (field: Field, rec: GridRecord) => {
-    const cfg = field.config as { targetTableId?: string; cardinality?: "single" | "multiple" };
-    const targetTableId = cfg.targetTableId;
-    if (!targetTableId) {
-      // Misconfigured relation — fall back to read-only so we don't
-      // crash. The field-config editor flags this in the table editor.
-      return renderRelationCellReadOnly(field, rec.data[field.id]);
-    }
-    const multi = cfg.cardinality !== "single";
-    const value = () => {
-      const v = rec.data[field.id];
-      if (Array.isArray(v)) return v as string[];
-      if (typeof v === "string" && v.length > 0) return [v];
-      return [];
-    };
-    const labels = () => props.relationLabels ?? {};
-    const onChange = (next: string[]) => {
-      updateMut.mutate({ rec, payload: { [field.id]: next } });
-    };
-    return (
-      <RelationPicker
-        targetTableId={targetTableId}
-        value={value}
-        labels={labels}
-        multi={multi}
-        onChange={onChange}
-        saving={() => updateMut.loading()}
-      />
     );
   };
 
@@ -202,89 +171,134 @@ export default function RecordDetailPanel(props: Props) {
    */
   const renderLookupCell = (field: Field, rec: GridRecord) => {
     const cfg = field.config as { relationFieldId?: string };
-    const relationField = cfg.relationFieldId
-      ? props.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation")
-      : undefined;
+    const relationField = cfg.relationFieldId ? props.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation") : undefined;
     const value = formatCell(rec.data[field.id], field.type, field.config);
     if (!value || !relationField) return value || "—";
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = rec.data[relationField.id];
-    const targetId = Array.isArray(linked)
-      ? (linked[0] as string | undefined)
-      : typeof linked === "string"
-      ? linked
-      : undefined;
+    const targetId = Array.isArray(linked) ? (linked[0] as string | undefined) : typeof linked === "string" ? linked : undefined;
     if (!targetTableId || !targetId) return value;
     return (
       <RecordLink
         label={value}
         targetTableId={targetTableId}
+        targetTableShortId={props.tableShortIds?.[targetTableId]}
         targetRecordId={targetId}
-        baseId={props.baseId}
+        baseId={props.baseShortId ?? props.baseId}
       />
     );
   };
 
+  const isMarkdownLongtext = (field: Field) => field.type === "longtext" && Boolean((field.config as { markdown?: boolean }).markdown);
+
   /** Type-aware field renderer. Returns JSX for relation/lookup cells
-   *  (with cross-record links) and a string for everything else.
-   *  Relation cells become an inline picker when canWrite + live mode;
-   *  otherwise they render as read-only links. */
+   *  (with cross-record links) and a string for everything else. The
+   *  detail panel is read-first: relation edits happen through the
+   *  explicit Edit action / RecordUpsertDialog, not inline dropdowns. */
   const renderField = (field: Field, rec: GridRecord) => {
     if (field.type === "file") {
-      return (
-        <FileFieldCell
-          tableId={props.tableId}
-          recordId={rec.id}
-          field={field}
-          canWrite={props.canWrite && mode() === "live"}
-        />
-      );
+      return <FileFieldCell tableId={props.tableId} recordId={rec.id} field={field} canWrite={props.canWrite && mode() === "live"} />;
     }
     if (field.type === "relation") {
-      const editable = props.canWrite && mode() === "live";
-      return editable
-        ? renderRelationCellEditable(field, rec)
-        : renderRelationCellReadOnly(field, rec.data[field.id]);
+      return renderRelationCellReadOnly(field, rec.data[field.id]);
     }
     const value = rec.data[field.id];
     if (value === null || value === undefined || value === "") return "—";
+    if (field.type === "select") {
+      return <SelectValueBadges value={value} type={field.type} fieldConfig={field.config} empty="—" />;
+    }
     if (field.type === "lookup") return renderLookupCell(field, rec);
+    if (isMarkdownLongtext(field) && typeof value === "string") {
+      return <MarkdownView html={markdown.render(value)} smallHeadings class="text-sm" />;
+    }
     return formatCell(value, field.type, field.config) || "—";
   };
 
   // ---- Pick the "title" of the record for the panel header --------------
-  const titleField = () => visibleFields().find((f) => f.type === "text" || f.type === "longtext");
   const recordTitle = (rec: GridRecord) => {
     const tf = titleField();
     if (tf) {
       const v = rec.data[tf.id];
       if (typeof v === "string" && v.length > 0) return v;
+      const formatted = formatCell(v, tf.type, tf.config);
+      if (formatted) return formatted;
     }
-    return `Record ${rec.id.slice(0, 8)}`;
+    return "Untitled record";
   };
+  const renderFieldValue = (field: Field, rec: GridRecord, variant: "compact" | "full") => {
+    const description = field.description;
+    return (
+      <div class="min-w-0">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-dimmed">{field.name}</p>
+        <Show when={description}>
+          <p class="mt-0.5 text-[11px] text-dimmed leading-snug">{description}</p>
+        </Show>
+        <div
+          class={
+            variant === "compact"
+              ? "mt-1 min-w-0 break-words text-sm font-medium text-secondary"
+              : "mt-1 min-w-0 break-words text-sm text-secondary"
+          }
+        >
+          {renderField(field, rec)}
+        </div>
+      </div>
+    );
+  };
+  const detailIcon = (field: Field) => {
+    if (field.icon) return field.icon;
+    if (isComputedField(field)) return "ti ti-math-function";
+    const name = field.name.toLowerCase();
+    if (name.includes("price")) return "ti ti-currency-euro";
+    if (name.includes("discount")) return "ti ti-percentage";
+    if (name.includes("published") || field.type === "date" || field.type === "datetime") return "ti ti-calendar";
+    if (name.includes("stock") || field.type === "boolean") return "ti ti-check";
+    if (name.includes("tag") || field.type.includes("select")) return "ti ti-tags";
+    if (name.includes("sku")) return "ti ti-barcode";
+    if (field.type === "number" || field.type === "decimal" || field.type === "percent") return "ti ti-hash";
+    return "ti ti-info-circle";
+  };
+  const isComputedField = (field: Field) => ["formula", "lookup", "rollup"].includes(field.type);
+  const renderDetailsPaperTile = (field: Field, rec: GridRecord) => (
+    <div class="paper min-w-0 p-3">
+      <div
+        class={`flex min-w-0 items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide ${
+          isComputedField(field) ? "text-blue-500" : "text-dimmed"
+        }`}
+      >
+        <i class={`${detailIcon(field)} shrink-0`} />
+        {field.name}
+      </div>
+      <div class="mt-1 min-w-0 break-words text-sm font-semibold leading-5 text-primary">{renderField(field, rec)}</div>
+    </div>
+  );
+  const Section = (sectionProps: { title: string; children: JSX.Element }) => (
+    <section class="paper p-4 flex flex-col gap-3">
+      <h3 class="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary">{sectionProps.title}</h3>
+      {sectionProps.children}
+    </section>
+  );
 
   return (
-    <Show
-      when={record()}
-      fallback={null}
-    >
-        {(rec) => (
-          <div class="paper flex h-full min-h-0 flex-col overflow-hidden">
-            {/* Header — title + small action buttons (contacts pattern). */}
-            <div class="flex items-start justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 px-4 py-3">
+    <Show when={record()} fallback={null} keyed>
+      {(rec) => (
+        <div class="flex h-full min-h-0 flex-col gap-2 overflow-y-auto">
+          <section class="paper p-4">
+            <div class="flex items-start justify-between gap-2">
               <div class="min-w-0 flex-1">
-                <h2 class="truncate text-sm font-semibold leading-tight text-primary">
-                  {recordTitle(rec())}
-                </h2>
-                <div class="mt-0.5 flex items-center gap-1.5 text-[11px] text-dimmed">
+                <h2 class="truncate text-lg font-semibold leading-tight text-primary">{recordTitle(rec)}</h2>
+                <div class="mt-1 flex items-center gap-1.5 text-[11px] text-dimmed">
                   <Show when={mode() === "trash"}>
                     <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
                       <i class="ti ti-trash" /> deleted
                     </span>
+                    <span>·</span>
                   </Show>
-                  <span>v{rec().version}</span>
+                  <span class="truncate">{props.tableName}</span>
                   <span>·</span>
-                  <span class="font-mono">{rec().id.slice(0, 8)}</span>
+                  <span>v{rec.version}</span>
+                  <span>·</span>
+                  <span class="font-mono">{rec.id.slice(0, 8)}</span>
                 </div>
               </div>
               <div class="flex shrink-0 items-center gap-0.5">
@@ -294,7 +308,7 @@ export default function RecordDetailPanel(props: Props) {
                     class="btn-simple btn-sm text-dimmed hover:text-primary"
                     aria-label="Edit record"
                     title="Edit"
-                    onClick={() => handleEdit(rec())}
+                    onClick={() => handleEdit(rec)}
                   >
                     <i class="ti ti-pencil" />
                   </button>
@@ -303,7 +317,7 @@ export default function RecordDetailPanel(props: Props) {
                     class="btn-simple btn-sm text-dimmed hover:text-red-500"
                     aria-label="Delete record"
                     title="Delete"
-                    onClick={() => handleDelete(rec())}
+                    onClick={() => handleDelete(rec)}
                     disabled={deleteMut.loading()}
                   >
                     <i class="ti ti-trash" />
@@ -315,7 +329,7 @@ export default function RecordDetailPanel(props: Props) {
                     class="btn-simple btn-sm text-dimmed hover:text-emerald-600"
                     aria-label="Restore record"
                     title="Restore"
-                    onClick={() => handleRestore(rec())}
+                    onClick={() => handleRestore(rec)}
                     disabled={restoreMut.loading()}
                   >
                     <i class="ti ti-arrow-back-up" />
@@ -332,49 +346,48 @@ export default function RecordDetailPanel(props: Props) {
                 </button>
               </div>
             </div>
+          </section>
 
-            {/* Body — one row per field with name + (description) + value. */}
-            <div class="flex-1 min-h-0 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-              <For each={visibleFields()}>
-                {(f) => {
-                  const description = f.description;
-                  return (
-                    <div class="flex flex-col gap-0.5">
-                      <div class="flex items-baseline gap-2">
-                        <span class="text-xs font-semibold text-primary">{f.name}</span>
-                        <span class="text-[10px] text-dimmed">{f.type}</span>
-                      </div>
-                      <Show when={description}>
-                        <p class="text-[11px] text-dimmed leading-snug">{description}</p>
-                      </Show>
-                      <div class="text-sm text-secondary break-words">
-                        {renderField(f, rec())}
-                      </div>
-                    </div>
-                  );
-                }}
-              </For>
+          <Show when={hasBodyFields()} fallback={<section class="paper p-4 text-sm text-dimmed">No fields to show.</section>}>
+            <Show when={detailsFields().length > 0}>
+              <div class="grid grid-cols-2 gap-2">
+                <For each={detailsFields()}>{(field) => renderDetailsPaperTile(field, rec)}</For>
+              </div>
+            </Show>
 
-              {/* History — audit trail for this record. Lazy-loaded
-                  on detail-panel mount; collapsed by default to avoid
-                  visual noise on the common edit-data flow. */}
-              <RecordHistorySection
-                tableId={props.tableId}
-                recordId={rec().id}
-              />
-            </div>
-          </div>
-        )}
+            <Show when={relationFields().length > 0}>
+              <Section title="Relations">
+                <div class="flex flex-col gap-3">
+                  <For each={relationFields()}>{(field) => renderFieldValue(field, rec, "full")}</For>
+                </div>
+              </Section>
+            </Show>
+
+            <For each={textBlockFields()}>
+              {(field) => (
+                <Section title={field.name}>
+                  <div class="text-sm text-secondary break-words">{renderField(field, rec)}</div>
+                </Section>
+              )}
+            </For>
+
+            <Show when={fileFields().length > 0}>
+              <Section title="Files">
+                <div class="flex flex-col gap-3">
+                  <For each={fileFields()}>{(field) => renderFieldValue(field, rec, "full")}</For>
+                </div>
+              </Section>
+            </Show>
+          </Show>
+
+          <RecordHistorySection tableId={props.tableId} recordId={rec.id} />
+        </div>
+      )}
     </Show>
   );
 }
 
-function FileFieldCell(props: {
-  tableId: string;
-  recordId: string;
-  field: Field;
-  canWrite: boolean;
-}) {
+function FileFieldCell(props: { tableId: string; recordId: string; field: Field; canWrite: boolean }) {
   const [uploading, setUploading] = createSignal(false);
   const [files, { refetch }] = createResource(
     () => `${props.tableId}:${props.recordId}:${props.field.id}`,
@@ -413,10 +426,11 @@ function FileFieldCell(props: {
   };
 
   const remove = async (file: GridFile) => {
-    const confirmed = await prompts.confirm(
-      `Delete "${file.filename}"?`,
-      { title: "Delete file?", variant: "danger", confirmText: "Delete" },
-    );
+    const confirmed = await prompts.confirm(`Delete "${file.filename}"?`, {
+      title: "Delete file?",
+      variant: "danger",
+      confirmText: "Delete",
+    });
     if (!confirmed) return;
     const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}`, {
       method: "DELETE",
@@ -516,15 +530,14 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
   );
 
   return (
-    <details class="paper p-0 mt-2">
+    <details class="paper p-0 group">
       <summary class="cursor-pointer select-none flex items-center gap-2 px-3 py-2 text-xs font-medium text-secondary">
         <i class="ti ti-history text-sm" />
         History
         <Show when={!entries.loading && entries()}>
-          <span class="text-[10px] text-dimmed">
-            ({entries()!.items.length})
-          </span>
+          <span class="text-[10px] text-dimmed">({entries()!.items.length})</span>
         </Show>
+        <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
       </summary>
       <div class="px-3 pb-3 flex flex-col gap-2">
         <Show when={entries.loading}>
@@ -545,9 +558,7 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
             return (
               <details class="text-xs">
                 <summary class="cursor-pointer select-none flex items-baseline gap-2">
-                  <i
-                    class={`ti ${ACTION_ICONS[entry.action] ?? "ti-circle"} ${ACTION_COLORS[entry.action] ?? "text-dimmed"} text-xs`}
-                  />
+                  <i class={`ti ${ACTION_ICONS[entry.action] ?? "ti-circle"} ${ACTION_COLORS[entry.action] ?? "text-dimmed"} text-xs`} />
                   <span class="capitalize text-secondary">{entry.action}</span>
                   {/* Actor attribution. The audit row carries both a
                       `userId` (UUID of the actor at write time, or
@@ -567,12 +578,7 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
                   <Show
                     when={entry.userDisplayName}
                     fallback={
-                      <Show
-                        when={entry.userId === null}
-                        fallback={
-                          <span class="text-dimmed italic">by deleted user</span>
-                        }
-                      >
+                      <Show when={entry.userId === null} fallback={<span class="text-dimmed italic">by deleted user</span>}>
                         <span class="text-dimmed inline-flex items-center gap-1">
                           <i class="ti ti-world text-[10px]" />
                           via public form

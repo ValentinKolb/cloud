@@ -47,6 +47,14 @@ describe("findFieldRefContexts (view config scanning)", () => {
     expect(findFieldRefContexts(config, fid)).toEqual(["sort"]);
   });
 
+  test("detects fieldId in groupSort and aggregations", () => {
+    const config = {
+      groupSort: [{ fieldId: fid, agg: "sum" }],
+      aggregations: [{ fieldId: fid, agg: "sum" }],
+    };
+    expect(findFieldRefContexts(config, fid).sort()).toEqual(["aggregations", "groupSort"]);
+  });
+
   test("detects fieldId in visibleFields and fieldOrder arrays", () => {
     expect(findFieldRefContexts({ visibleFields: ["x", fid] }, fid)).toEqual(["visibleFields"]);
     expect(findFieldRefContexts({ fieldOrder: [fid] }, fid)).toEqual(["fieldOrder"]);

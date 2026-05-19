@@ -1,39 +1,35 @@
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { getHandler } from "../field-types";
+import { defaultTableAggregations } from "../table-defaults";
+import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit } from "./audit";
+import { applyComputedProjections, buildComputedProjections } from "./computed-projections";
+import { nextAutonumberValue } from "./field-indexes";
+import { listByTable as listFields, materializeFieldDefault } from "./fields";
+import { compileFilter, type FilterTree, renderClause } from "./filter-compiler";
+import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
 import { requireTableAlive } from "./parent-checks";
-import { listByTable as listFields } from "./fields";
-import { getHandler } from "../field-types";
-import { compileFilter, renderClause, type FilterTree } from "./filter-compiler";
-import {
-  compileSort,
-  decodeCursor,
-  type SortSpec,
-} from "./sort-compiler";
-import { compileAggregates, type AggregateRequest } from "./aggregate-compiler";
-import {
-  compileGroupQuery,
-  type GroupBucket,
-  type GroupBySpec,
-  type GroupAggregationSpec,
-} from "./group-compiler";
 import {
   attachRelationExpansion,
+  type ExpansionViewer,
   enrichRecordsWithFormulas,
   hydrateRelationsFromLinks,
   validateRelationTargets,
   writeRecordLinks,
-  type ExpansionViewer,
 } from "./relations";
-import { nextAutonumberValue } from "./field-indexes";
-import {
-  applyComputedProjections,
-  buildComputedProjections,
-} from "./computed-projections";
+import { compileSearchClause, type SearchSpec } from "./search";
+import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
+
+const defaultListAggregates = (fields: Field[]): AggregateRequest[] =>
+  defaultTableAggregations(fields).map((a) => ({ fieldId: a.fieldId, agg: a.agg }));
+
+const formatFieldValidationError = (fieldName: string, validationError: string): string =>
+  validationError === "required" ? `Field "${fieldName}" is required` : `Field "${fieldName}": ${validationError}`;
 
 const mapRow = (row: DbRow): GridRecord => ({
   id: row.id as string,
@@ -61,18 +57,12 @@ const splitRelationsFromData = (
   data: Record<string, unknown>,
   fields: Field[],
 ): { data: Record<string, unknown>; relations: Map<string, string[]> } => {
-  const relationFieldIds = new Set(
-    fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id),
-  );
+  const relationFieldIds = new Set(fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id));
   const out: Record<string, unknown> = {};
   const relations = new Map<string, string[]>();
   for (const [k, v] of Object.entries(data)) {
     if (relationFieldIds.has(k)) {
-      const ids = Array.isArray(v)
-        ? (v as unknown[]).filter((x): x is string => typeof x === "string")
-        : typeof v === "string"
-        ? [v]
-        : [];
+      const ids = Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : typeof v === "string" ? [v] : [];
       relations.set(k, ids);
     } else {
       out[k] = v;
@@ -113,12 +103,10 @@ const preflightRelationTargets = async (
     if (ids.length === 0) continue;
     const check = await validateRelationTargets(targetTableId, ids);
     if (!check.ok) {
-      const fieldNamePart = group.fieldNames.length === 1
-        ? `field "${group.fieldNames[0]}"`
-        : `fields [${group.fieldNames.map((n) => `"${n}"`).join(", ")}]`;
-      return fail(err.badInput(
-        `${fieldNamePart}: missing target records ${check.missing.join(", ")}`,
-      ));
+      const fieldNamePart =
+        group.fieldNames.length === 1 ? `field "${group.fieldNames[0]}"` : `fields [${group.fieldNames.map((n) => `"${n}"`).join(", ")}]`;
+      const noun = check.missing.length === 1 ? "record" : "records";
+      return fail(err.badInput(`${fieldNamePart}: linked ${noun} no longer exists`));
     }
   }
   return ok();
@@ -129,15 +117,12 @@ const preflightRelationTargets = async (
  * either the provided value or the field's default. Required-checks apply.
  * Autonumber fields receive a sequence value derived from the existing rows.
  */
-const validateForCreate = async (
-  tableId: string,
-  payload: Record<string, unknown>,
-): Promise<Result<Record<string, unknown>>> => {
+const validateForCreate = async (tableId: string, payload: Record<string, unknown>): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(tableId);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
   for (const key of Object.keys(payload)) {
-    if (!fieldsById.has(key)) return fail(err.badInput(`unknown field "${key}"`));
+    if (!fieldsById.has(key)) return fail(err.badInput("unknown field"));
   }
 
   const out: Record<string, unknown> = {};
@@ -153,9 +138,9 @@ const validateForCreate = async (
     if (!handler || !handler.userInput) continue;
 
     const provided = Object.prototype.hasOwnProperty.call(payload, field.id);
-    const raw = provided ? payload[field.id] : field.defaultValue;
+    const raw = provided ? payload[field.id] : materializeFieldDefault(field);
     const result = handler.validate(raw, field.config, field.required);
-    if (!result.ok) return fail(err.badInput(`field "${field.name}": ${result.error}`));
+    if (!result.ok) return fail(err.badInput(formatFieldValidationError(field.name, result.error)));
     if (result.value !== null && result.value !== undefined) {
       out[field.id] = result.value;
     }
@@ -168,15 +153,12 @@ const validateForCreate = async (
  * Omitted fields are left to the merge step in `update()` to preserve existing
  * values. Explicit `null` is a clear-the-field intent and must round-trip.
  */
-const validateForUpdate = async (
-  tableId: string,
-  payload: Record<string, unknown>,
-): Promise<Result<Record<string, unknown>>> => {
+const validateForUpdate = async (tableId: string, payload: Record<string, unknown>): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(tableId);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
   for (const key of Object.keys(payload)) {
-    if (!fieldsById.has(key)) return fail(err.badInput(`unknown field "${key}"`));
+    if (!fieldsById.has(key)) return fail(err.badInput("unknown field"));
   }
 
   const out: Record<string, unknown> = {};
@@ -187,7 +169,7 @@ const validateForUpdate = async (
       return fail(err.badInput(`field "${field.name}" is not user-writable`));
     }
     const result = handler.validate(raw, field.config, field.required);
-    if (!result.ok) return fail(err.badInput(`field "${field.name}": ${result.error}`));
+    if (!result.ok) return fail(err.badInput(formatFieldValidationError(field.name, result.error)));
     out[fieldId] = result.value;
   }
   return ok(out);
@@ -199,6 +181,7 @@ export const list = async (params: {
   limit?: number;
   includeDeleted?: boolean;
   filter?: FilterTree | null;
+  search?: SearchSpec | null;
   sort?: SortSpec[];
   /**
    * When true, populate each returned record's `expanded` field with
@@ -208,11 +191,12 @@ export const list = async (params: {
    * callers that don't know about expansion get the original shape.
    */
   includeRelations?: boolean;
+  deletedOnly?: boolean;
   /**
    * Viewer for per-target-table permission gating on expansion. When
    * set together with `includeRelations: true`, relation links to
    * records in tables the viewer can't read are NOT expanded — the
-   * renderer falls back to a UUID prefix. Omit to expand unfiltered
+   * renderer falls back to a neutral placeholder. Omit to expand unfiltered
    * (the call site has already gated access).
    */
   viewer?: ExpansionViewer;
@@ -224,14 +208,19 @@ export const list = async (params: {
   const filterCompiled = compileFilter(params.filter ?? null, fields);
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
+  const searchCompiled = await compileSearchClause({
+    search: params.search ?? null,
+    fields,
+    alias: "r",
+    viewer: params.viewer,
+  });
+  const searchClause = searchCompiled.clause;
 
   // Sort compilation (with cursor decoding when present). Cursor length
   // is validated against the active sort spec — a stale cursor from a
   // different sort length now returns 400 instead of misaligning page 2.
   const expectedCursorLength = params.sort?.length ?? 0;
-  const decodedCursor = params.cursor
-    ? decodeCursor(params.cursor, expectedCursorLength)
-    : null;
+  const decodedCursor = params.cursor ? decodeCursor(params.cursor, expectedCursorLength) : null;
   if (params.cursor && !decodedCursor) {
     return fail(err.badInput("invalid cursor"));
   }
@@ -244,8 +233,10 @@ export const list = async (params: {
   // column names. An unqualified ref raises 42702 (chunk: 1.2 JOIN
   // regression).
   const conditions: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
-  if (!params.includeDeleted) conditions.push(sql`r.deleted_at IS NULL`);
+  if (params.deletedOnly) conditions.push(sql`r.deleted_at IS NOT NULL`);
+  else if (!params.includeDeleted) conditions.push(sql`r.deleted_at IS NULL`);
   conditions.push(filterClause);
+  conditions.push(searchClause);
   if (cursorWhere) conditions.push(cursorWhere);
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
@@ -253,11 +244,8 @@ export const list = async (params: {
   // as correlated subqueries over record_links instead of a JS-side
   // batch-fetch pass. Single source of truth, single round-trip.
   const computed = await buildComputedProjections(fields);
-  const projectionFragments = computed.length > 0
-    ? computed
-        .map((p) => sql`, ${p.fragment}`)
-        .reduce((acc, cur) => sql`${acc}${cur}`)
-    : sql``;
+  const projectionFragments =
+    computed.length > 0 ? computed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
 
   // Live-parent JOIN: records of a trashed table or base never list,
   // even when the caller passes a leaked tableId UUID. The filter's
@@ -299,16 +287,27 @@ export const list = async (params: {
   // because it reads `record.data[fieldId]` to figure out which UUIDs
   // each record actually references. Mutates the records in place.
   // When a viewer is supplied, target tables the viewer can't read
-  // are skipped — the renderer falls back to a UUID prefix.
+  // are skipped — the renderer falls back to a neutral placeholder.
   if (params.includeRelations) {
     await attachRelationExpansion(items, fields, params.viewer);
   }
+
+  const aggregatesResult = await aggregate({
+    tableId: params.tableId,
+    filter: params.filter ?? null,
+    search: params.search ?? null,
+    includeDeleted: params.includeDeleted,
+    deletedOnly: params.deletedOnly,
+    requests: defaultListAggregates(fields),
+    viewer: params.viewer,
+  });
+  if (!aggregatesResult.ok) return aggregatesResult;
 
   // Echo fields back in the response — list is the table-page entry
   // point and consumers (records page, dashboard view widget,
   // DatabaseTable) always need them to render. Saves a roundtrip vs
   // calling listFields separately.
-  return ok({ items, fields, nextCursor });
+  return ok({ items, fields, nextCursor, aggregates: aggregatesResult.data });
 };
 
 /**
@@ -322,10 +321,15 @@ export const group = async (params: {
   tableId: string;
   groupBy: GroupBySpec[];
   aggregations: GroupAggregationSpec[];
+  groupSort?: GroupSortSpec[];
   filter?: FilterTree | null;
+  search?: SearchSpec | null;
   cursor?: string | null;
   limit?: number;
+  fromEnd?: boolean;
   includeDeleted?: boolean;
+  deletedOnly?: boolean;
+  viewer?: ExpansionViewer;
 }): Promise<Result<{ buckets: GroupBucket[]; nextCursor: string | null; explode: boolean }>> => {
   const fields = await listFields(params.tableId);
 
@@ -342,21 +346,32 @@ export const group = async (params: {
   }
 
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
+  const searchCompiled = await compileSearchClause({
+    search: params.search ?? null,
+    fields,
+    alias: "r",
+    viewer: params.viewer,
+  });
+  const searchClause = searchCompiled.clause;
   const compiled = compileGroupQuery({
     tableId: params.tableId,
     groupBy: params.groupBy,
     aggregations: params.aggregations,
+    groupSort: params.groupSort,
     filter: params.filter,
+    searchClause,
     fields,
     cursor: cursorKeys,
     limit,
+    fromEnd: params.fromEnd,
     includeDeleted: params.includeDeleted,
+    deletedOnly: params.deletedOnly,
   });
   if (!compiled.ok) return fail(err.badInput(compiled.error));
 
   const rows = await sql<DbRow[]>`${compiled.query}`;
   const hasMore = rows.length > limit;
-  const visible = rows.slice(0, limit);
+  const visible = params.fromEnd && hasMore ? rows.slice(-limit) : rows.slice(0, limit);
 
   const buckets: GroupBucket[] = visible.map((row) => {
     const keys = compiled.resolvedGroups.map((_, i) => {
@@ -385,28 +400,43 @@ export const group = async (params: {
   });
 
   let nextCursor: string | null = null;
-  if (hasMore) {
+  if (hasMore && compiled.cursorable && !params.fromEnd) {
     const last = buckets[buckets.length - 1]!;
     nextCursor = JSON.stringify({ k: last.keys });
   }
-  // Explode-mode: at least one groupBy dimension is a relation field.
-  // The `*__count` aggregate then counts (record × link) pairs rather
-  // than records, which the UI should surface as a hint.
+  // Explode-mode: at least one groupBy dimension is a relation or
+  // select field. The `*__count` aggregate then counts
+  // (record × linked/selected value) pairs rather than unique records,
+  // which the UI should surface as a hint.
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  const explode = params.groupBy.some((g) => fieldsById.get(g.fieldId)?.type === "relation");
+  const explode = params.groupBy.some((g) => {
+    const type = fieldsById.get(g.fieldId)?.type;
+    return type === "relation" || type === "select";
+  });
   return ok({ buckets, nextCursor, explode });
 };
 
 export const aggregate = async (params: {
   tableId: string;
   filter?: FilterTree | null;
+  search?: SearchSpec | null;
   requests: AggregateRequest[];
+  includeDeleted?: boolean;
+  deletedOnly?: boolean;
+  viewer?: ExpansionViewer;
 }): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(params.tableId);
 
   const filterCompiled = compileFilter(params.filter ?? null, fields);
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
+  const searchCompiled = await compileSearchClause({
+    search: params.search ?? null,
+    fields,
+    alias: "r",
+    viewer: params.viewer,
+  });
+  const searchClause = searchCompiled.clause;
 
   const aggCompiled = compileAggregates(params.requests, fields);
   if (!aggCompiled.ok) return fail(err.badInput(`aggregate: ${aggCompiled.error}`));
@@ -419,9 +449,7 @@ export const aggregate = async (params: {
   // unblocks Postgres from "could not determine data type of parameter" —
   // jsonb_build_object's variadic-any signature otherwise leaves the key
   // parameter untyped at parse time.
-  const jsonPairs = aggCompiled.columns
-    .map((col) => sql`${col.key}::text, ${col.expr}`)
-    .reduce((acc, cur) => sql`${acc}, ${cur}`);
+  const jsonPairs = aggCompiled.columns.map((col) => sql`${col.key}::text, ${col.expr}`).reduce((acc, cur) => sql`${acc}, ${cur}`);
 
   // Live-parent JOIN — see records.list comment for rationale.
   const rows = await sql<{ result: Record<string, unknown> }[]>`
@@ -430,8 +458,9 @@ export const aggregate = async (params: {
     JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE r.table_id = ${params.tableId}::uuid
-      AND r.deleted_at IS NULL
+      AND ${params.deletedOnly ? sql`r.deleted_at IS NOT NULL` : params.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`}
       AND ${filterClause}
+      AND ${searchClause}
   `;
   return ok(parseJsonbRow<Record<string, unknown>>(rows[0]?.result, {}));
 };
@@ -448,11 +477,8 @@ export const get = async (
 ): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
   const computed = await buildComputedProjections(fields);
-  const projectionFragments = computed.length > 0
-    ? computed
-        .map((p) => sql`, ${p.fragment}`)
-        .reduce((acc, cur) => sql`${acc}${cur}`)
-    : sql``;
+  const projectionFragments =
+    computed.length > 0 ? computed.map((p) => sql`, ${p.fragment}`).reduce((acc, cur) => sql`${acc}${cur}`) : sql``;
 
   const [row] = await sql<DbRow[]>`
     SELECT r.*${projectionFragments}
@@ -468,11 +494,7 @@ export const get = async (
   // Hydrate relation fields + lookup/rollup projections so the response
   // mirrors the list-path shape exactly.
   await hydrateRelationsFromLinks([record], fields);
-  applyComputedProjections(
-    [row as Record<string, unknown>],
-    new Map([[record.id, record]]),
-    computed,
-  );
+  applyComputedProjections([row as Record<string, unknown>], new Map([[record.id, record]]), computed);
   enrichRecordsWithFormulas([record], fields);
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fields, opts.viewer);
@@ -500,11 +522,7 @@ export const create = async (
       SELECT disable_direct_insert FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
     `;
     if (row?.disable_direct_insert) {
-      return fail(
-        err.forbidden(
-          "Direct insert is disabled for this table; records can only be added via a form.",
-        ),
-      );
+      return fail(err.forbidden("Direct insert is disabled for this table; records can only be added via a form."));
     }
   }
 
@@ -560,9 +578,7 @@ export const create = async (
         recordId: id,
         userId: actorId,
         action: "created",
-        diff: Object.fromEntries(
-          Object.entries(validated.data).map(([k, v]) => [k, { old: null, new: v }]),
-        ),
+        diff: Object.fromEntries(Object.entries(validated.data).map(([k, v]) => [k, { old: null, new: v }])),
       },
       tx,
     );
@@ -612,9 +628,7 @@ export const update = async (
   const merged = { ...existing.data, ...split.data };
   // Drop any zombie relation keys that may still live in the existing
   // JSONB from pre-v3 writes.
-  const relationFieldIds = new Set(
-    fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id),
-  );
+  const relationFieldIds = new Set(fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id));
   for (const k of Object.keys(merged)) {
     if (relationFieldIds.has(k)) delete merged[k];
   }
@@ -636,8 +650,9 @@ export const update = async (
   // ATOMIC: row UPDATE + relation link writes + audit in one transaction.
   // The version-check WHERE clause still gives us the optimistic-lock
   // semantics; if it fires, no link writes happen.
-  const txResult = await sql.begin(async (tx) => {
-    const [r] = await tx<DbRow[]>`
+  const txResult = await sql
+    .begin(async (tx) => {
+      const [r] = await tx<DbRow[]>`
       UPDATE grids.records
       SET data = ${merged}::jsonb,
           version = version + 1,
@@ -649,27 +664,28 @@ export const update = async (
         AND version = ${existing.version}
       RETURNING *
     `;
-    if (!r) {
-      // Trigger rollback by throwing a sentinel; caller catches it and
-      // converts to err.conflict. (`fail(...)` from inside a tx would
-      // commit because bun.sql treats only thrown errors as rollback.)
-      const e = new Error("VERSION_CONFLICT");
-      (e as Error & { __versionConflict: true }).__versionConflict = true;
+      if (!r) {
+        // Trigger rollback by throwing a sentinel; caller catches it and
+        // converts to err.conflict. (`fail(...)` from inside a tx would
+        // commit because bun.sql treats only thrown errors as rollback.)
+        const e = new Error("VERSION_CONFLICT");
+        (e as Error & { __versionConflict: true }).__versionConflict = true;
+        throw e;
+      }
+
+      for (const [fieldId, toIds] of split.relations) {
+        await writeRecordLinks(recordId, fieldId, toIds, tx);
+      }
+
+      if (Object.keys(diff).length > 0) {
+        await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, tx);
+      }
+      return r;
+    })
+    .catch((e: unknown) => {
+      if ((e as { __versionConflict?: true })?.__versionConflict) return null;
       throw e;
-    }
-
-    for (const [fieldId, toIds] of split.relations) {
-      await writeRecordLinks(recordId, fieldId, toIds, tx);
-    }
-
-    if (Object.keys(diff).length > 0) {
-      await logAudit({ tableId, recordId, userId: actorId, action: "updated", diff }, tx);
-    }
-    return r;
-  }).catch((e: unknown) => {
-    if ((e as { __versionConflict?: true })?.__versionConflict) return null;
-    throw e;
-  });
+    });
   if (!txResult) return fail(err.conflict("Record was modified concurrently"));
 
   const record = mapRow(txResult);
@@ -680,11 +696,7 @@ export const update = async (
   return ok(record);
 };
 
-export const softDelete = async (
-  tableId: string,
-  recordId: string,
-  actorId: string | null,
-): Promise<Result<void>> => {
+export const softDelete = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
   const result = await sql`
     UPDATE grids.records SET deleted_at = now(), updated_by = ${actorId}::uuid
     WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NULL
@@ -694,11 +706,7 @@ export const softDelete = async (
   return ok();
 };
 
-export const restore = async (
-  tableId: string,
-  recordId: string,
-  actorId: string | null,
-): Promise<Result<void>> => {
+export const restore = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
   // Top-down restore: the parent table + base must be alive. Refusing
   // the restore here is more honest than UPDATEing a record that the
   // user can't read afterward (live-parent invariant).

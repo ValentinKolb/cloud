@@ -26,7 +26,7 @@ const empty: RecordsState = {
   query: {},
   cursor: null,
   selectedRecordId: null,
-  search: { q: "", fieldIds: [] },
+  search: { q: "", fieldIds: [], override: false },
 };
 
 describe("parseRecordsState", () => {
@@ -55,13 +55,27 @@ describe("parseRecordsState", () => {
     expect(r.query.sort).toEqual([{ fieldId: "f1", direction: "asc" }]);
   });
 
-  test("trash=1 → includeDeleted: true", () => {
-    expect(parseRecordsState(params("trash=1")).query.includeDeleted).toBe(true);
+  test("groupSort param parsed", () => {
+    const url = params(
+      "groupSort=" + encodeURIComponent('[{"fieldId":"*","agg":"count","direction":"desc"}]'),
+    );
+    const r = parseRecordsState(url);
+    expect(r.query.groupSort).toEqual([{ fieldId: "*", agg: "count", direction: "desc" }]);
+  });
+
+  test("trash=1 → deletedOnly: true", () => {
+    expect(parseRecordsState(params("trash=1")).query.deletedOnly).toBe(true);
+    expect(parseRecordsState(params("trash=1")).query.includeDeleted).toBeUndefined();
   });
 
   test("q + qFields parsed into search", () => {
     const r = parseRecordsState(params("q=hello&qFields=f1,f2"));
-    expect(r.search).toEqual({ q: "hello", fieldIds: ["f1", "f2"] });
+    expect(r.search).toEqual({ q: "hello", fieldIds: ["f1", "f2"], override: true });
+  });
+
+  test("empty q is kept as an explicit search override", () => {
+    const r = parseRecordsState(params("q="));
+    expect(r.search).toEqual({ q: "", fieldIds: [], override: true });
   });
 
   test("table / view / dashboard NOT read from query (path-based now)", () => {
@@ -99,6 +113,17 @@ describe("buildRecordsUrl", () => {
     );
   });
 
+  test("groupSort serialized as query param", () => {
+    const state: RecordsState = {
+      ...empty,
+      query: { groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }] },
+    };
+    const url = buildRecordsUrl(path, state);
+    expect(url).toContain(
+      "groupSort=" + encodeURIComponent('[{"fieldId":"*","agg":"count","direction":"desc"}]'),
+    );
+  });
+
   test("view-matching fields are suppressed from the URL", () => {
     // Active view has a stored filter; state carries the SAME filter
     // (e.g. just-loaded URL). The output URL should omit it so the
@@ -114,8 +139,34 @@ describe("buildRecordsUrl", () => {
     expect(url).not.toContain("filter=");
   });
 
-  test("trash=1 emitted when includeDeleted is true", () => {
-    const state: RecordsState = { ...empty, query: { includeDeleted: true } };
+  test("view-matching search is suppressed from the URL", () => {
+    const search = {
+      q: "needle",
+      fieldIds: ["11111111-1111-4111-8111-111111111111"],
+    };
+    const state: RecordsState = {
+      ...empty,
+      search: { ...search, override: false },
+    };
+    const url = buildRecordsUrl(
+      { ...path, viewShortId: "VW000" },
+      state,
+      { search },
+    );
+    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+  });
+
+  test("empty search override is emitted to clear a saved view search", () => {
+    const url = buildRecordsUrl(
+      { ...path, viewShortId: "VW000" },
+      { ...empty, search: { q: "", fieldIds: [], override: true } },
+      { search: { q: "needle" } },
+    );
+    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000?q=");
+  });
+
+  test("trash=1 emitted when deletedOnly is true", () => {
+    const state: RecordsState = { ...empty, query: { deletedOnly: true } };
     const url = buildRecordsUrl(path, state);
     expect(url).toContain("trash=1");
   });

@@ -23,7 +23,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(ViewListSchema, "Views") },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -50,7 +50,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateViewSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       // Personal views: any table-reader can save their own preset.
@@ -70,6 +70,7 @@ const app = new Hono<AuthContext>()
           {
             tableId,
             name: body.name,
+            icon: body.icon ?? null,
             query: body.query,
             ownerUserId: body.shared ? null : user.id,
           },
@@ -91,7 +92,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId");
+      const viewId = c.req.param("viewId")!;
       const view = await gridsService.view.get(viewId);
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -136,7 +137,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateViewSchema),
     async (c) => {
-      const viewId = c.req.param("viewId");
+      const viewId = c.req.param("viewId")!;
       const view = await gridsService.view.get(viewId);
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -183,7 +184,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId");
+      const viewId = c.req.param("viewId")!;
       const view = await gridsService.view.get(viewId);
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -217,7 +218,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId");
+      const viewId = c.req.param("viewId")!;
       const view = await gridsService.view.get(viewId, { includeDeleted: true });
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);

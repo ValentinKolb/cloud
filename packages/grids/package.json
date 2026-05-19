@@ -6,11 +6,14 @@
   "module": "src/index.ts",
   "scripts": {
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
-    "test": "bun test"
+    "test": "bun test",
+    "smoke": "bash scripts/smoke.sh",
+    "soak:100k": "bun run scripts/soak-100k.ts"
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
     "@valentinkolb/stdlib": "^0.7.0",
+    "@valentinkolb/sync": "^5.0.0",
     "decimal.js": "^10.6.0",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

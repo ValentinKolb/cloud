@@ -12,7 +12,7 @@ import {
  *  1. **Hard-purge** of soft-deleted entities older than the grace period
  *     (default 30 days). Once an entity is hard-deleted, FKs cascade to
  *     children — so a purged Base also removes its tables, fields,
- *     records, views, and forms.
+ *     records, views, forms, and dashboards.
  *
  *  2. **Zombie field-data cleanup**: when a field is soft-deleted but
  *     not yet purged, its data still lives in every record's `data`
@@ -37,6 +37,9 @@ export type PurgeReport = {
   recordsPurged: number;
   viewsPurged: number;
   formsPurged: number;
+  dashboardsPurged: number;
+  automationsPurged: number;
+  automationRunsPurged: number;
   /** Number of records whose data lost zombie field-keys. */
   zombieFieldDataStripped: number;
 };
@@ -50,7 +53,7 @@ export type PurgeReport = {
  *  1. Strip zombie field-data BEFORE purging the field rows — otherwise
  *     we'd lose the field-id-to-table mapping needed for the strip.
  *  2. Purge fields → records cascade-untouched (records survive).
- *  3. Purge records, views, forms → leaves tables.
+ *  3. Purge records, views, forms, dashboards → leaves tables/bases.
  *  4. Purge tables → cascades to remaining children if any.
  *  5. Purge bases → cascades to tables.
  *
@@ -58,9 +61,12 @@ export type PurgeReport = {
  */
 export const purgeSoftDeleted = async (opts: {
   gracePeriodDays?: number;
+  automationRunRetentionDays?: number;
 } = {}): Promise<PurgeReport> => {
   const days = opts.gracePeriodDays ?? 30;
   const cutoff = sql`now() - (${days} || ' days')::interval`;
+  const runRetentionDays = opts.automationRunRetentionDays ?? 90;
+  const runCutoff = sql`now() - (${runRetentionDays} || ' days')::interval`;
 
   // ── 1. zombie field-data ────────────────────────────────────────────
   // For each field whose tombstone crossed the grace line, strip its
@@ -102,6 +108,14 @@ export const purgeSoftDeleted = async (opts: {
     DELETE FROM grids.forms
     WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
   `;
+  const dashboardsRes = await sql`
+    DELETE FROM grids.dashboards
+    WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
+  `;
+  const automationsRes = await sql`
+    DELETE FROM grids.automations
+    WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
+  `;
   const tablesRes = await sql`
     DELETE FROM grids.tables
     WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
@@ -109,6 +123,10 @@ export const purgeSoftDeleted = async (opts: {
   const basesRes = await sql`
     DELETE FROM grids.bases
     WHERE deleted_at IS NOT NULL AND deleted_at < ${cutoff}
+  `;
+  const automationRunsRes = await sql`
+    DELETE FROM grids.automation_runs
+    WHERE created_at < ${runCutoff}
   `;
 
   return {
@@ -118,6 +136,9 @@ export const purgeSoftDeleted = async (opts: {
     recordsPurged: recordsRes.count ?? 0,
     viewsPurged: viewsRes.count ?? 0,
     formsPurged: formsRes.count ?? 0,
+    dashboardsPurged: dashboardsRes.count ?? 0,
+    automationsPurged: automationsRes.count ?? 0,
+    automationRunsPurged: automationRunsRes.count ?? 0,
     zombieFieldDataStripped: stripped,
   };
 };

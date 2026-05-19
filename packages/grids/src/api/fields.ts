@@ -24,7 +24,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(FieldListSchema, "Fields") },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -46,7 +46,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ReorderFieldsSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -71,7 +71,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateFieldSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -90,7 +90,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(FieldDependentsResponseSchema, "Dependents") },
     }),
     async (c) => {
-      const fieldId = c.req.param("fieldId");
+      const fieldId = c.req.param("fieldId")!;
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
@@ -111,7 +111,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateFieldSchema),
     async (c) => {
-      const fieldId = c.req.param("fieldId");
+      const fieldId = c.req.param("fieldId")!;
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
@@ -134,7 +134,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const fieldId = c.req.param("fieldId");
+      const fieldId = c.req.param("fieldId")!;
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
@@ -170,7 +170,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const fieldId = c.req.param("fieldId");
+      const fieldId = c.req.param("fieldId")!;
       // Fetch the trashed field directly — the regular `get` filters
       // out deleted_at IS NOT NULL by default.
       const field = await gridsService.field.get(fieldId);

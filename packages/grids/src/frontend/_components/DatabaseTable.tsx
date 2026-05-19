@@ -1,9 +1,12 @@
+import { markdown } from "@valentinkolb/cloud/shared";
+import { DataTable, type DataTableColumn, MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
-import type { Field, GridRecord, RecordList } from "../../service";
 import type { AggregationSpec } from "../../contracts";
+import type { Field, GridRecord, RecordList } from "../../service";
 import type { ColumnSpec } from "../../service/views";
-import { formatCell } from "./format-cell";
+import { formatCell, progressRatio } from "./format-cell";
 import { RecordLink } from "./RecordLink";
+import { SelectValueBadges } from "./select-badges";
 
 /** Friendly label for an aggregation kind — used as the fallback when
  *  the user didn't set a custom label on the aggregation row. */
@@ -29,16 +32,10 @@ const AGG_LABELS: Record<string, string> = {
  * mounting, no pagination controls. All of those belong to the
  * surrounding screen and are wired up there.
  *
- * Why a separate component when `RecordsGrid` already exists? Two
- * goals:
- *   1. Reuse on the dashboard. The dashboard's view-cell was
- *      reinventing a worse version of the records table — no
- *      relation links, no consistent formatting.
- *   2. Cleaner API. `RecordsGrid` couples table rendering to the
- *      records-page concerns (aggregations footer, viewColumns from a
- *      saved view, selection state for the URL-driven detail panel).
- *      `<DatabaseTable>` carries just the rendering, and the caller
- *      adds the surrounding chrome it needs.
+ * This is the canonical records table renderer for Grids. It is kept
+ * presentational so the records page, dashboard embeds, and view pages
+ * can share relation links, formatting, and aggregate footers without
+ * dragging in page-specific toolbar or detail-panel state.
  *
  * Relation cells: read each record's pre-fetched `expanded` map
  * (populated by `gridsService.record.list({ includeRelations: true })`)
@@ -52,6 +49,8 @@ type Props = {
   result: RecordList;
   /** Parent base id — required for `<RecordLink>` hrefs. */
   baseId: string;
+  /** Optional table UUID -> short id map so relation links use path routes. */
+  tableShortIds?: Record<string, string>;
   /**
    * Row click handler. Omit to render rows as non-interactive
    * (cursor stays default, no hover state). The records page passes
@@ -69,6 +68,8 @@ type Props = {
    * pick up the view's saved style.
    */
   viewColumns?: ColumnSpec[];
+  /** Hide the field-type subtitle in compact surfaces like dashboards. */
+  showColumnSubtitles?: boolean;
   /**
    * Pre-resolved aggregate values keyed `<fieldId>__<agg>`. Drives a
    * footer row when paired with `aggregationSpecs`. Omit both to skip
@@ -81,6 +82,14 @@ type Props = {
    * under the leftmost visible field, Airtable-style).
    */
   aggregationSpecs?: AggregationSpec[];
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
+  adminMode?: boolean;
+  onFieldSettings?: (field: Field) => void;
+  onFieldMove?: (field: Field, direction: -1 | 1) => void;
+  onViewColumnSettings?: (field: Field) => void;
+  onViewColumnMove?: (field: Field, direction: -1 | 1) => void;
 };
 
 /** Joins a list of arbitrary cell values into a presentable label.
@@ -101,17 +110,23 @@ const valueToLabelPart = (v: unknown): string => {
 };
 
 /** Builds the link label for a single linked record from its expanded
- *  fields. The server already filtered down to presentable + displayFieldId
- *  precedence, so we just join everything in iteration order with ' · '.
- *  Falls back to an 8-char UUID prefix when expansion is missing
+ *  fields. The server already filtered down to the target table's
+ *  label fields, so we just join everything in iteration order with ' · '.
+ *  Falls back to a neutral placeholder when expansion is missing
  *  (target table the viewer can't read, or expansion wasn't requested). */
-const buildExpandedLabel = (
-  expandedForUuid: Record<string, unknown> | undefined,
-  fallbackUuid: string,
-): string => {
-  if (!expandedForUuid) return fallbackUuid.slice(0, 8);
-  const parts = Object.values(expandedForUuid).map(valueToLabelPart).filter((s) => s.length > 0);
-  return parts.length > 0 ? parts.join(" · ") : fallbackUuid.slice(0, 8);
+const buildExpandedLabel = (expandedForUuid: Record<string, unknown> | undefined, _fallbackUuid: string): string => {
+  if (!expandedForUuid) return "Unknown record";
+  const parts = Object.values(expandedForUuid)
+    .map(valueToLabelPart)
+    .filter((s) => s.length > 0);
+  return parts.length > 0 ? parts.join(" · ") : "Untitled record";
+};
+
+const isMarkdownLongtext = (field: Field) => field.type === "longtext" && Boolean((field.config as { markdown?: boolean }).markdown);
+
+const renderMarkdownCell = (value: unknown) => {
+  if (typeof value !== "string" || value.trim().length === 0) return "";
+  return <MarkdownView html={markdown.render(value)} smallHeadings class="text-sm" />;
 };
 
 export default function DatabaseTable(props: Props) {
@@ -122,13 +137,9 @@ export default function DatabaseTable(props: Props) {
   const visibleFields = (): Field[] => {
     if (props.viewColumns) {
       const fieldsById = new Map(props.result.fields.map((f) => [f.id, f]));
-      return props.viewColumns
-        .map((c) => fieldsById.get(c.fieldId))
-        .filter((f): f is Field => !!f && !f.deletedAt);
+      return props.viewColumns.map((c) => fieldsById.get(c.fieldId)).filter((f): f is Field => !!f && !f.deletedAt);
     }
-    return props.result.fields
-      .filter((f) => !f.deletedAt && !f.hideInTable)
-      .sort((a, b) => a.position - b.position);
+    return props.result.fields.filter((f) => !f.deletedAt && !f.hideInTable).sort((a, b) => a.position - b.position);
   };
 
   /** Look up a per-column FormatSpec from the active viewColumns, if
@@ -137,6 +148,11 @@ export default function DatabaseTable(props: Props) {
     if (!props.viewColumns) return undefined;
     const col = props.viewColumns.find((c) => c.fieldId === fieldId);
     return col && "format" in col ? col.format : undefined;
+  };
+
+  const columnLabel = (fieldId: string, fallback: string) => {
+    if (!props.viewColumns) return fallback;
+    return props.viewColumns.find((c) => c.fieldId === fieldId)?.label?.trim() || fallback;
   };
 
   /** Renders a relation cell as one or more inline `<RecordLink>`s.
@@ -157,6 +173,7 @@ export default function DatabaseTable(props: Props) {
           <RecordLink
             label={buildExpandedLabel(record.expanded?.[id], id)}
             targetTableId={targetTableId}
+            targetTableShortId={targetTableId ? props.tableShortIds?.[targetTableId] : undefined}
             targetRecordId={id}
             baseId={props.baseId}
             comma={i < ids.length - 1}
@@ -167,33 +184,24 @@ export default function DatabaseTable(props: Props) {
   };
 
   /** Renders a lookup cell: the projected value plus a click-through
-   *  to the first linked record on the source relation. Same shape
-   *  RecordsGrid uses, kept consistent so dashboard + records-page
-   *  feel identical. */
+   *  to the first linked record on the source relation. Kept
+   *  consistent so dashboard + records-page feel identical. */
   const renderLookupCell = (record: GridRecord, field: Field) => {
     const cfg = field.config as { relationFieldId?: string };
     const relationField = cfg.relationFieldId
       ? visibleFields().find((f) => f.id === cfg.relationFieldId && f.type === "relation")
       : undefined;
-    const value = formatCell(
-      record.data[field.id],
-      field.type,
-      field.config,
-      columnFormat(field.id),
-    );
+    const value = formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id));
     if (!value || !relationField) return value;
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = record.data[relationField.id];
-    const targetId = Array.isArray(linked)
-      ? (linked[0] as string | undefined)
-      : typeof linked === "string"
-        ? linked
-        : undefined;
+    const targetId = Array.isArray(linked) ? (linked[0] as string | undefined) : typeof linked === "string" ? linked : undefined;
     if (!targetTableId || !targetId) return value;
     return (
       <RecordLink
         label={value}
         targetTableId={targetTableId}
+        targetTableShortId={props.tableShortIds?.[targetTableId]}
         targetRecordId={targetId}
         baseId={props.baseId}
       />
@@ -206,143 +214,160 @@ export default function DatabaseTable(props: Props) {
   const renderCell = (record: GridRecord, field: Field) => {
     if (field.type === "relation") return renderRelationCell(record, field);
     if (field.type === "lookup") return renderLookupCell(record, field);
+    if (field.type === "select") {
+      return <SelectValueBadges value={record.data[field.id]} type={field.type} fieldConfig={field.config} />;
+    }
+    if (isMarkdownLongtext(field)) return renderMarkdownCell(record.data[field.id]);
+    const fmt = columnFormat(field.id);
+    if (fmt?.kind === "progress" && (field.type === "percent" || field.type === "formula")) {
+      const ratio = progressRatio(record.data[field.id], field.type, field.config);
+      const percent = Math.round(ratio * 100);
+      const label =
+        fmt.label === "none" ? "" : fmt.label === "value" ? formatCell(record.data[field.id], field.type, field.config) : `${percent}%`;
+      return (
+        <span class="flex min-w-36 items-center gap-3">
+          <ProgressBar value={percent} size="sm" class="w-32 shrink-0" />
+          <Show when={label}>
+            <span class="whitespace-nowrap tabular-nums text-primary">{label}</span>
+          </Show>
+        </span>
+      );
+    }
     return formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id));
   };
 
-  const isInteractive = () => !!props.onRecordClick;
+  const columns = (): DataTableColumn<GridRecord>[] =>
+    visibleFields().map((field) => ({
+      id: field.id,
+      header: columnLabel(field.id, field.name),
+      subtitle: props.showColumnSubtitles === false ? undefined : field.type,
+      value: (record) => record.data[field.id],
+    }));
 
-  const onRowClick = (record: GridRecord) => {
-    props.onRecordClick?.(record);
-  };
+  const shellClass = () => undefined;
 
-  const onRowKeyDown = (event: KeyboardEvent, record: GridRecord) => {
-    if (!isInteractive()) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onRowClick(record);
+  const renderAdminHeader = (field: Field, subtitle: DataTableColumn<GridRecord>["subtitle"]) => (
+    <div class="flex flex-col gap-0.5 leading-tight">
+      <span class="font-semibold text-emerald-700 dark:text-emerald-300">{columnLabel(field.id, field.name)}</span>
+      <Show when={subtitle !== undefined}>
+        <span class="text-[10px] font-normal text-emerald-600/80 dark:text-emerald-300/80">{field.type}</span>
+      </Show>
+    </div>
+  );
+
+  const footerCell = (field: Field) => {
+    const index = visibleFields().findIndex((f) => f.id === field.id);
+    return (
+      <For each={(props.aggregationSpecs ?? []).filter((s) => (s.fieldId === "*" ? index === 0 : s.fieldId === field.id))}>
+        {(spec) => {
+          const value = () => (props.aggregates ?? {})[`${spec.fieldId}__${spec.agg}`];
+          const displayValue = () =>
+            spec.fieldId === "*" ? String(value()) : formatCell(value(), field.type, field.config, columnFormat(field.id));
+          const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
+          const label = spec.label?.trim() || fallbackLabel;
+          return (
+            <Show when={value() !== undefined && value() !== null}>
+              <span class="block whitespace-nowrap" title={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}>
+                <span class="font-medium text-secondary">{displayValue()}</span> <span>{label}</span>
+              </span>
+            </Show>
+          );
+        }}
+      </For>
+    );
   };
 
   return (
-    <Show
-      when={visibleFields().length > 0}
-      fallback={
-        <div class="paper p-6 text-center text-sm text-dimmed">
-          No visible fields.
-        </div>
-      }
-    >
-      {/* `paper overflow-auto flex-1 min-h-0` so the table acts as
-          its own scroll container — sticky thead pins inside this
-          element. Outside a flex-col context, `flex-1 min-h-0` no-ops
-          and the wrapper just takes its natural height. */}
-      <div class="paper overflow-auto flex-1 min-h-0">
-        <table class="w-full text-xs">
-          {/* Sticky thead — column names pin to the top during vertical scroll. */}
-          <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
-            <tr class="border-b border-zinc-100 dark:border-zinc-800">
-              <For each={visibleFields()}>
-                {(f) => (
-                  <th class="px-3 py-2 text-left">
-                    <div class="flex flex-col gap-0.5 leading-tight">
-                      <span class="text-primary font-semibold">{f.name}</span>
-                      <span class="text-[10px] text-dimmed font-normal">{f.type}</span>
-                    </div>
-                  </th>
-                )}
-              </For>
-            </tr>
-          </thead>
-          {/* Footer aggregations — opt-in via the records-page toolbar's
-              Aggregations panel. Each spec maps to a line in the cell
-              under its target field. `*` specs ("count of rows") land
-              under the leftmost visible field, Airtable-style. Reactivity
-              gotcha: aggregationSpecs / aggregates MUST be read inside
-              JSX expressions (or memos) — destructuring into local consts
-              inside For freezes values at row's first render. */}
-          <Show when={(props.aggregationSpecs ?? []).length > 0}>
-            <tfoot>
-              <tr class="border-t border-zinc-100 dark:border-zinc-800">
-                <For each={visibleFields()}>
-                  {(f, i) => (
-                    <td class="px-3 py-1.5 text-[11px] text-dimmed">
-                      <For
-                        each={(props.aggregationSpecs ?? []).filter((s) =>
-                          s.fieldId === "*" ? i() === 0 : s.fieldId === f.id,
-                        )}
-                      >
-                        {(spec) => {
-                          const value = () =>
-                            (props.aggregates ?? {})[`${spec.fieldId}__${spec.agg}`];
-                          const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
-                          const label = spec.label?.trim() || fallbackLabel;
-                          return (
-                            <Show when={value() !== undefined && value() !== null}>
-                              <span
-                                class="block whitespace-nowrap"
-                                title={`${spec.agg}${spec.label ? ` (${spec.label})` : ""}`}
-                              >
-                                <span class="font-medium text-secondary">
-                                  {String(value())}
-                                </span>{" "}
-                                <span>{label}</span>
-                              </span>
-                            </Show>
-                          );
-                        }}
-                      </For>
-                    </td>
-                  )}
-                </For>
-              </tr>
-            </tfoot>
-          </Show>
-          <tbody>
-            <Show
-              when={props.result.items.length > 0}
-              fallback={
-                <tr>
-                  <td
-                    class="px-3 py-6 text-center text-xs text-dimmed"
-                    colspan={visibleFields().length}
-                  >
-                    No records
-                  </td>
-                </tr>
+    <Show when={visibleFields().length > 0} fallback={<div class="paper p-6 text-center text-sm text-dimmed">No visible fields.</div>}>
+      <DataTable
+        rows={props.result.items}
+        columns={columns()}
+        class={shellClass()}
+        getRowId={(record) => record.id}
+        selectedRowId={props.selectedId}
+        onRowClick={props.onRecordClick}
+        empty="No records"
+        hasMore={props.hasMore}
+        loadingMore={props.loadingMore}
+        onLoadMore={props.onLoadMore}
+        cellContentClass="max-h-28 max-w-full overflow-auto pr-1"
+        fillHeight
+        renderCell={({ row, col }) => {
+          const field = visibleFields().find((f) => f.id === col.id);
+          return field ? renderCell(row, field) : "";
+        }}
+        renderHeader={({ col, render }) => {
+          const field = visibleFields().find((f) => f.id === col.id);
+          const isColumnOrderEdit = !!props.viewColumns && !!props.onViewColumnMove;
+          const isViewColumnEdit = !!props.onViewColumnSettings;
+          const isFieldEdit = !!props.onFieldSettings;
+          if (!props.adminMode || !field || (!isColumnOrderEdit && !isViewColumnEdit && !isFieldEdit)) return render();
+          const index = visibleFields().findIndex((f) => f.id === field.id);
+          const canMoveLeft = index > 0 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
+          const canMoveRight =
+            index >= 0 && index < visibleFields().length - 1 && (isColumnOrderEdit || (!!props.onFieldMove && !props.viewColumns));
+          const adminIconClass =
+            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300";
+          return (
+            <div class="flex min-w-0 items-start gap-2">
+              <div class="min-w-0 flex-1">{renderAdminHeader(field, col.subtitle)}</div>
+              <div class="flex shrink-0 items-center gap-0">
+                <button
+                  type="button"
+                  class={adminIconClass}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (isColumnOrderEdit) props.onViewColumnMove?.(field, -1);
+                    else props.onFieldMove?.(field, -1);
+                  }}
+                  disabled={!canMoveLeft}
+                  title="Move column left"
+                  aria-label={`Move ${field.name} left`}
+                >
+                  <i class="ti ti-chevron-left text-xs" />
+                </button>
+                <button
+                  type="button"
+                  class={adminIconClass}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (isColumnOrderEdit) props.onViewColumnMove?.(field, 1);
+                    else props.onFieldMove?.(field, 1);
+                  }}
+                  disabled={!canMoveRight}
+                  title="Move column right"
+                  aria-label={`Move ${field.name} right`}
+                >
+                  <i class="ti ti-chevron-right text-xs" />
+                </button>
+                <button
+                  type="button"
+                  class={adminIconClass}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (isViewColumnEdit) props.onViewColumnSettings?.(field);
+                    else props.onFieldSettings?.(field);
+                  }}
+                  title={isViewColumnEdit ? "Column settings" : "Field settings"}
+                  aria-label={`${isViewColumnEdit ? "Column" : "Field"} settings for ${field.name}`}
+                >
+                  <i class="ti ti-settings text-xs" />
+                </button>
+              </div>
+            </div>
+          );
+        }}
+        footer={
+          (props.aggregationSpecs ?? []).length > 0
+            ? {
+                renderCell: ({ col }) => {
+                  const field = visibleFields().find((f) => f.id === col.id);
+                  return field ? footerCell(field) : "";
+                },
               }
-            >
-              <For each={props.result.items}>
-                {(record) => {
-                  const isSelected = () => props.selectedId === record.id;
-                  return (
-                    <tr
-                      class={`border-b border-zinc-100 dark:border-zinc-800/60 last:border-0 ${
-                        isInteractive()
-                          ? "cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
-                          : ""
-                      } ${
-                        isSelected()
-                          ? "bg-blue-50 dark:bg-blue-900/20"
-                          : ""
-                      }`}
-                      tabIndex={isInteractive() ? 0 : undefined}
-                      onClick={() => isInteractive() && onRowClick(record)}
-                      onKeyDown={(e) => onRowKeyDown(e, record)}
-                    >
-                      <For each={visibleFields()}>
-                        {(f) => (
-                          <td class="px-3 py-2 align-top max-w-[260px] truncate">
-                            {renderCell(record, f)}
-                          </td>
-                        )}
-                      </For>
-                    </tr>
-                  );
-                }}
-              </For>
-            </Show>
-          </tbody>
-        </table>
-      </div>
+            : undefined
+        }
+      />
     </Show>
   );
 }

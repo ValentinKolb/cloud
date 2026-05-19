@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { grantAccess } from "./access";
 import { insertWithShortId } from "./short-id";
@@ -39,6 +40,90 @@ export const list = async (opts: { includeDeleted?: boolean } = {}): Promise<Bas
         ORDER BY created_at DESC
       `;
   return rows.map(mapRow);
+};
+
+export const listVisible = async (params: {
+  userId: string;
+  userGroups: string[];
+  isAdmin?: boolean;
+  query?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: Base[]; total: number }> => {
+  const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
+  const offset = Math.max(params.offset ?? 0, 0);
+  const query = params.query?.trim().toLowerCase();
+  const conditions: any[] = [sql`b.deleted_at IS NULL`];
+  if (query) {
+    const pattern = `%${escapeLikePattern(query)}%`;
+    conditions.push(sql`(
+      LOWER(b.name) LIKE ${pattern} ESCAPE '\\'
+      OR LOWER(COALESCE(b.description, '')) LIKE ${pattern} ESCAPE '\\'
+      OR LOWER(b.short_id) LIKE ${pattern} ESCAPE '\\'
+    )`);
+  }
+  const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
+
+  if (params.isAdmin) {
+    const [countRow] = await sql<{ total: number }[]>`
+      SELECT COUNT(*)::int AS total FROM grids.bases b WHERE ${where}
+    `;
+    const rows = await sql<DbRow[]>`
+      SELECT ${COLS}
+      FROM grids.bases b
+      WHERE ${where}
+      ORDER BY b.created_at DESC, b.id DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+    return { items: rows.map(mapRow), total: countRow?.total ?? 0 };
+  }
+
+  const groups = toPgUuidArray(params.userGroups);
+  const permissionRank = sql`CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 ELSE 0 END`;
+  const rankFor = (principal: "user" | "group" | "authenticated" | "public") => {
+    const principalWhere =
+      principal === "user"
+        ? sql`a.user_id = ${params.userId}::uuid`
+        : principal === "group"
+          ? sql`a.group_id = ANY(${groups}::uuid[])`
+          : principal === "authenticated"
+            ? sql`a.authenticated_only = TRUE AND ${params.userId}::uuid IS NOT NULL`
+            : sql`a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE`;
+    return sql`(
+      SELECT CASE
+        WHEN COUNT(*) = 0 THEN NULL
+        WHEN bool_or(a.permission = 'none') THEN 0
+        ELSE MAX(${permissionRank})
+      END
+      FROM grids.base_access ba
+      JOIN auth.access a ON a.id = ba.access_id
+      WHERE ba.base_id = b.id AND ${principalWhere}
+    )`;
+  };
+
+  const ranked = () => sql`
+    SELECT b.*,
+      ${rankFor("user")} AS user_rank,
+      ${rankFor("group")} AS group_rank,
+      ${rankFor("authenticated")} AS auth_rank,
+      ${rankFor("public")} AS public_rank
+    FROM grids.bases b
+    WHERE ${where}
+  `;
+  const visibleWhere = sql`COALESCE(user_rank, group_rank, auth_rank, public_rank, 0) >= 1`;
+  const [countRow] = await sql<{ total: number }[]>`
+    SELECT COUNT(*)::int AS total
+    FROM (${ranked()}) visible
+    WHERE ${visibleWhere}
+  `;
+  const rows = await sql<DbRow[]>`
+    SELECT *
+    FROM (${ranked()}) visible
+    WHERE ${visibleWhere}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `;
+  return { items: rows.map(mapRow), total: countRow?.total ?? 0 };
 };
 
 /**

@@ -1,11 +1,20 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { fieldTypeRegistry, getHandler, isKnownFieldType, userWritableFieldTypes } from "./index";
 
 test("registry: covers all Tier-1 types", () => {
   const expected = [
-    "text", "longtext", "number", "decimal", "boolean", "date",
-    "single-select", "multi-select", "rating",
-    "autonumber", "created_at", "created_by", "updated_at", "updated_by",
+    "text",
+    "longtext",
+    "number",
+    "decimal",
+    "boolean",
+    "date",
+    "select",
+    "autonumber",
+    "created_at",
+    "created_by",
+    "updated_at",
+    "updated_by",
   ];
   for (const t of expected) expect(t in fieldTypeRegistry).toBe(true);
 });
@@ -16,6 +25,8 @@ test("getHandler: returns null for unknown types", () => {
 
 test("isKnownFieldType: discriminates", () => {
   expect(isKnownFieldType("text")).toBe(true);
+  expect(isKnownFieldType("currency")).toBe(false);
+  expect(isKnownFieldType("email")).toBe(false);
   expect(isKnownFieldType("nonexistent")).toBe(false);
 });
 

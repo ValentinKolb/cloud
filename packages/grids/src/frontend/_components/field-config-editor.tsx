@@ -1,12 +1,47 @@
+import { AutocompleteEditor, CheckboxCard, ColorInput, CopyButton, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { For, Index, Show } from "solid-js";
-import { ColorInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
+import { buildFormulaCompletions, formulaFieldRefs, formulaHighlight, GRID_FORMULA_FUNCTIONS } from "./formula-authoring";
 
 // =============================================================================
 // Type catalog
 // =============================================================================
 
 export type FieldConfigState = Record<string, unknown>;
+
+const REGEX_PRESETS = [
+  { label: "Email", value: "^[^ @]+@[^ @]+\\.[^ @]{2,}$" },
+  { label: "URL", value: "^https?://.+$" },
+  { label: "Phone", value: "^\\+?[0-9 .()\\-]{5,}$" },
+  { label: "Slug", value: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$" },
+  { label: "ISBN", value: "^[0-9Xx -]{10,17}$" },
+];
+
+const FILE_ACCEPT_PRESETS = [
+  { label: "Images", values: ["image/*"] },
+  {
+    label: "Photos",
+    values: ["image/jpeg", "image/png", "image/heic", "image/webp"],
+  },
+  { label: "PDF", values: ["application/pdf", ".pdf"] },
+  {
+    label: "Spreadsheets",
+    values: [
+      ".csv",
+      ".tsv",
+      ".xls",
+      ".xlsx",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ],
+  },
+  {
+    label: "Documents",
+    values: [".doc", ".docx", ".odt", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  },
+  { label: "Text", values: ["text/plain", ".txt", ".md"] },
+  { label: "Archives", values: [".zip", ".tar", ".gz", ".7z"] },
+];
 
 export const TYPE_OPTIONS = [
   // Tier 1
@@ -16,21 +51,12 @@ export const TYPE_OPTIONS = [
   { value: "decimal", label: "Decimal (money-safe)" },
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
-  { value: "single-select", label: "Single select" },
-  { value: "multi-select", label: "Multi select" },
-  { value: "rating", label: "Rating" },
+  { value: "select", label: "Select" },
   { value: "autonumber", label: "Auto-number" },
   // Tier 2
-  { value: "email", label: "Email" },
-  { value: "url", label: "URL" },
-  { value: "phone", label: "Phone" },
-  { value: "currency", label: "Currency" },
   { value: "percent", label: "Percent" },
   { value: "duration", label: "Duration" },
-  { value: "slug", label: "Slug" },
   // Tier 3
-  { value: "barcode", label: "Barcode / QR" },
-  { value: "isbn", label: "ISBN" },
   { value: "json", label: "JSON" },
   { value: "file", label: "File" },
   // Phase 4 / 5
@@ -40,9 +66,7 @@ export const TYPE_OPTIONS = [
   { value: "formula", label: "Formula" },
 ];
 
-export const TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  TYPE_OPTIONS.map((o) => [o.value, o.label]),
-);
+export const TYPE_LABELS: Record<string, string> = Object.fromEntries(TYPE_OPTIONS.map((o) => [o.value, o.label]));
 
 // System fields are read-only and never reach this editor, but include them
 // for the column-type pill in the list view.
@@ -58,47 +82,23 @@ TYPE_LABELS["updated_by"] = "Updated by";
  * regex, cardinality) should make sense after reading these.
  */
 export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
-  text:
-    "A single line of text — names, titles, codes, anything short. Set min/max length if the value should be a certain size, or a regex pattern to enforce a format like a postcode.",
-  longtext:
-    "Multi-line text — paragraphs, notes, instructions. Bound the size the same way as text if you need to.",
-  number:
-    "A number. Set min and max to bound the range; tick \"integer only\" to reject decimals.",
+  text: "A single line of text — names, titles, codes, anything short. Set min/max length if the value should be a certain size, or a regex pattern to enforce a format like a postcode.",
+  longtext: "Multi-line text — paragraphs, notes, instructions. Bound the size the same way as text if you need to.",
+  number: 'A number. Set min and max to bound the range; tick "integer only" to reject decimals.',
   decimal:
     "Use this for money or anything where rounding matters. Precision is how many digits the value can have in total; Scale is how many of those come after the decimal point.",
-  rating:
-    "A star rating. Choose how many stars users can pick from (e.g. 5 = 1–5 stars).",
   boolean: "A yes/no checkbox.",
-  date:
-    "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
-  "single-select":
-    "A drop-down where users pick one option from a list you define. Each option has a label and a colour.",
-  "multi-select":
-    "Like single-select, but users can pick more than one option. You can require a minimum or cap the maximum number of picks.",
+  date: "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
+  select: "A fixed list of choices. Use single mode for one choice, or multiple mode for tags/categories.",
   autonumber:
-    "An auto-incrementing number that fills itself in on every new record. Add a prefix (e.g. \"INV-\") or zero-pad to a fixed width.",
-  email: "An email address. Format is validated on save.",
-  url: "A web link — must include the scheme (https://, http://).",
-  phone:
-    "A phone number. Stored as the user typed it; no strict format check.",
-  currency:
-    "A money amount with a free-text symbol. Set the symbol once per field (€, EUR, USD, anything that reads naturally) — it shows up next to every amount as display-only label.",
+    'An auto-incrementing number that fills itself in on every new record. Add a prefix (e.g. "INV-") or zero-pad to a fixed width.',
   percent: "A percentage from 0 to 100.",
   duration: "A length of time. Type as HH:MM:SS or seconds; displayed as HH:MM:SS.",
-  slug:
-    "A URL-safe identifier — lowercase letters, numbers, hyphens. Useful when the value will appear in a URL.",
-  barcode:
-    "Any barcode value. No format check, so EAN, Code-128, QR, anything works.",
-  isbn: "A 10- or 13-digit ISBN. The check digit is verified.",
   json: "A free-form JSON value. Use this when no other type fits.",
-  file:
-    "Small files stored directly in Postgres. The app-level upload limit is controlled from the Grids admin settings.",
-  relation:
-    "A link to one or more records in another table. Pick the target table and which of its columns to show.",
-  lookup:
-    "Pulls a column from a linked record so you can see it on this row, without copying the data.",
-  rollup:
-    "Summarises values from linked records — count them, add them up, average them, or take the smallest or largest.",
+  file: "Small files stored directly in Postgres. The app-level upload limit is controlled from the Grids admin settings.",
+  relation: "A link to one or more records in another table. Pick the target table and which of its columns to show.",
+  lookup: "Pulls a column from a linked record so you can see it on this row, without copying the data.",
+  rollup: "Summarises values from linked records — count them, add them up, average them, or take the smallest or largest.",
   formula:
     "A computed value, recalculated whenever the row is read. Reference other columns by their #slug (e.g. #price) and use functions like IF, CONCAT, ROUND, AVG.",
 };
@@ -108,15 +108,10 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
   switch (type) {
     case "decimal":
       return { precision: 10, scale: 2 };
-    case "rating":
-      return { scale: 5 };
-    case "single-select":
-    case "multi-select":
-      return { options: [] };
+    case "select":
+      return { multiple: false, options: [] };
     case "autonumber":
       return { padding: 1 };
-    case "currency":
-      return { currency: "EUR" };
     case "date":
       return { includeTime: false };
     case "file":
@@ -139,7 +134,7 @@ type EditorProps = {
   onChange: (next: FieldConfigState) => void;
   /** All sibling tables in the same base — used by relation type targetTableId. */
   otherTables: Array<{ id: string; name: string }>;
-  /** Fields per table id — used for displayFieldId / lookup-rollup target picker. */
+  /** Fields per table id — used for lookup/rollup target pickers. */
   fieldsByTable: Record<string, Field[]>;
 };
 
@@ -147,13 +142,7 @@ type EditorProps = {
  *  a lookup/rollup target — they either nest deeper or render badly as
  *  a flat value. Filtering them out keeps target/displayField pickers
  *  focused on scalar fields. */
-const NON_PRESENTABLE_TYPES = new Set([
-  "relation",
-  "lookup",
-  "rollup",
-  "formula",
-  "file",
-]);
+const NON_PRESENTABLE_TYPES = new Set(["relation", "lookup", "rollup", "formula", "file"]);
 
 // Set of types we know how to show a constraint form for. Anything outside
 // this set falls into the "no extra configuration" hint.
@@ -164,12 +153,9 @@ const CONFIGURABLE = new Set([
   "percent",
   "duration",
   "decimal",
-  "rating",
   "date",
-  "single-select",
-  "multi-select",
+  "select",
   "autonumber",
-  "currency",
   "relation",
   "lookup",
   "rollup",
@@ -177,25 +163,65 @@ const CONFIGURABLE = new Set([
   "file",
 ]);
 
+const FORMULA_EXAMPLES: Record<string, string> = {
+  SUM: "SUM(#Pr1cE, #Qty01)",
+  AVG: "AVG(#Pr1cE, #Qty01)",
+  MEAN: "MEAN(#Pr1cE, #Qty01)",
+  COUNT: 'COUNT(#Pr1cE, "", #Qty01)',
+  MIN: "MIN(#Pr1cE, #Qty01)",
+  MAX: "MAX(#Pr1cE, #Qty01)",
+  MEDIAN: "MEDIAN(#Pr1cE, #Qty01)",
+  ABS: "ABS(#Pr1cE)",
+  ROUND: "ROUND(#Pr1cE, 2)",
+  FLOOR: "FLOOR(#Pr1cE)",
+  CEIL: "CEIL(#Pr1cE)",
+  SQRT: "SQRT(#Qty01)",
+  POW: "POW(#Qty01, 2)",
+  MOD: "MOD(#Qty01, 2)",
+  PERCENT: "PERCENT(#Done1, #Total)",
+  IF: 'IF(#Qty01 > 0, "Available", "Out")',
+  IFEMPTY: 'IFEMPTY(#Notes, "No notes")',
+  IFERROR: "IFERROR(#Total / #Qty01, 0)",
+  AND: "AND(#Active, #Qty01 > 0)",
+  OR: "OR(#Active, #Qty01 > 0)",
+  NOT: "NOT(#Active)",
+  ISBLANK: "ISBLANK(#Notes)",
+  CONTAINS: 'CONTAINS(#Name1, "Pro")',
+  CONCAT: 'CONCAT(#Name1, " — ", #Pr1cE)',
+  LEN: "LEN(#Name1)",
+  LOWER: "LOWER(#Name1)",
+  UPPER: "UPPER(#Name1)",
+  TRIM: "TRIM(#Name1)",
+  LEFT: "LEFT(#Name1, 3)",
+  RIGHT: "RIGHT(#Name1, 3)",
+  SUBSTRING: "SUBSTRING(#Name1, 1, 3)",
+  REPLACE: 'REPLACE(#Name1, "old", "new")',
+  TODAY: "TODAY()",
+  NOW: "NOW()",
+  YEAR: "YEAR(#Date1)",
+  MONTH: "MONTH(#Date1)",
+  DAY: "DAY(#Date1)",
+  DATEADD: 'DATEADD(#Date1, 7, "days")',
+  DATEDIFF: 'DATEDIFF(#Date1, TODAY(), "days")',
+};
+
 /**
  * Renders the constraint / config form for a single field type. Each
  * sub-form is a thin layer that owns its inputs and pushes a new config
  * blob to the parent on every change. The blob's shape mirrors the
  * server-side configSchema in packages/grids/src/field-types/<type>.ts.
  *
- * Email / url / phone / slug / barcode / isbn / json have no user-tunable
- * constraints in the current schema, so they fall through to a "nothing
- * to configure" hint.
+ * JSON has no user-tunable constraints in the current schema, so it falls
+ * through to a "nothing to configure" hint.
  */
 export function FieldConfigEditor(props: EditorProps) {
   // Description has been promoted to a top-level Field column; the new
   // table editor renders its own input for it. This component now focuses
   // purely on type-specific constraint forms.
   return (
-    <div class="flex flex-col gap-3 p-3 rounded-md bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-700">
-      <span class="text-xs font-medium text-secondary">Type constraints</span>
+    <div class="flex flex-col gap-3">
       <Show when={props.type === "text" || props.type === "longtext"}>
-        <TextConstraints config={props.config} onChange={props.onChange} />
+        <TextConstraints config={props.config} onChange={props.onChange} markdown={props.type === "longtext"} />
       </Show>
       <Show when={props.type === "number" || props.type === "percent" || props.type === "duration"}>
         <NumberConstraints config={props.config} onChange={props.onChange} />
@@ -203,24 +229,14 @@ export function FieldConfigEditor(props: EditorProps) {
       <Show when={props.type === "decimal"}>
         <DecimalConstraints config={props.config} onChange={props.onChange} />
       </Show>
-      <Show when={props.type === "rating"}>
-        <RatingConstraints config={props.config} onChange={props.onChange} />
-      </Show>
       <Show when={props.type === "date"}>
         <DateConstraints config={props.config} onChange={props.onChange} />
       </Show>
-      <Show when={props.type === "single-select" || props.type === "multi-select"}>
-        <SelectConstraints
-          config={props.config}
-          onChange={props.onChange}
-          multi={props.type === "multi-select"}
-        />
+      <Show when={props.type === "select"}>
+        <SelectConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={props.type === "autonumber"}>
         <AutonumberConstraints config={props.config} onChange={props.onChange} />
-      </Show>
-      <Show when={props.type === "currency"}>
-        <CurrencyConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={props.type === "relation"}>
         <RelationConstraints
@@ -240,7 +256,7 @@ export function FieldConfigEditor(props: EditorProps) {
         />
       </Show>
       <Show when={props.type === "formula"}>
-        <FormulaConstraints config={props.config} onChange={props.onChange} />
+        <FormulaConstraints config={props.config} onChange={props.onChange} fields={props.fieldsByTable[props.currentTableId] ?? []} />
       </Show>
       <Show when={props.type === "file"}>
         <FileConstraints config={props.config} onChange={props.onChange} />
@@ -256,16 +272,14 @@ export function FieldConfigEditor(props: EditorProps) {
 // Sub-forms — one per type family
 // =============================================================================
 
-function TextConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function TextConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void; markdown?: boolean }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
   const minLen = () => (typeof cfg().minLength === "number" ? String(cfg().minLength) : "");
   const maxLen = () => (typeof cfg().maxLength === "number" ? String(cfg().maxLength) : "");
   const regex = () => (typeof cfg().regex === "string" ? (cfg().regex as string) : "");
+  const markdown = () => Boolean(cfg().markdown);
 
   // Constraints are TextInputs (not NumberField/NumberInput) because the
   // optional semantics need an empty state — NumberInput clamps to its
@@ -305,15 +319,36 @@ function TextConstraints(props: {
           placeholder="e.g. ^[A-Z]{3}-\\d+$"
           icon="ti ti-regex"
         />
+        <div class="mt-2 flex flex-wrap gap-1.5">
+          <For each={REGEX_PRESETS}>
+            {(preset) => (
+              <button
+                type="button"
+                class="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-secondary hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                onClick={() => update({ regex: preset.value })}
+              >
+                {preset.label}
+              </button>
+            )}
+          </For>
+        </div>
       </div>
+      <Show when={props.markdown}>
+        <div class="col-span-2">
+          <CheckboxCard
+            label="Render as Markdown"
+            description="Use Markdown input while editing and render formatted text in tables and detail panels."
+            icon="ti ti-markdown"
+            value={markdown}
+            onChange={(checked) => update({ markdown: checked || undefined })}
+          />
+        </div>
+      </Show>
     </div>
   );
 }
 
-function NumberConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function NumberConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
@@ -348,30 +383,29 @@ function NumberConstraints(props: {
         onInput={(v) => onBound("max", v)}
         placeholder="e.g. 100"
       />
-      <label class="col-span-2 inline-flex items-center gap-2 text-xs text-secondary">
-        <input
-          type="checkbox"
-          checked={integerOnly()}
-          onChange={(e) => update({ integerOnly: e.currentTarget.checked || undefined })}
+      <div class="col-span-2">
+        <CheckboxCard
+          label="Integer only"
+          description="Reject decimal values for this field."
+          icon="ti ti-number"
+          value={integerOnly}
+          onChange={(checked) => update({ integerOnly: checked || undefined })}
         />
-        Integer only
-      </label>
+      </div>
     </div>
   );
 }
 
-function DecimalConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function DecimalConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
-  const precision = () =>
-    typeof cfg().precision === "number" ? String(cfg().precision) : "10";
+  const precision = () => (typeof cfg().precision === "number" ? String(cfg().precision) : "10");
   const scale = () => (typeof cfg().scale === "number" ? String(cfg().scale) : "2");
   const min = () => (typeof cfg().min === "string" ? (cfg().min as string) : "");
   const max = () => (typeof cfg().max === "string" ? (cfg().max as string) : "");
+  const unit = () => (typeof cfg().unit === "string" ? (cfg().unit as string) : "");
+  const unitPosition = () => (cfg().unitPosition === "prefix" ? "prefix" : "suffix");
 
   return (
     <div class="grid grid-cols-2 gap-3">
@@ -409,38 +443,27 @@ function DecimalConstraints(props: {
         onInput={(v) => update({ max: v.trim() === "" ? undefined : v.trim() })}
         placeholder="e.g. 9999.99"
       />
-    </div>
-  );
-}
-
-function RatingConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
-  const cfg = () => props.config();
-  const scale = () => (typeof cfg().scale === "number" ? String(cfg().scale) : "5");
-  return (
-    <div class="grid grid-cols-2 gap-3">
-      <NumberField
-        label="Scale (max stars, 2-10)"
-        value={scale}
-        min={2}
-        max={10}
-        onInput={(v) => {
-          const n = Number(v);
-          if (Number.isInteger(n) && n >= 2 && n <= 10) {
-            props.onChange({ ...cfg(), scale: n });
-          }
-        }}
+      <TextInput
+        label="Unit (optional)"
+        description="Display-only label such as EUR, kg, %, or credits."
+        value={unit}
+        onInput={(v) => update({ unit: v.trim() === "" ? undefined : v.trim() })}
+        placeholder="e.g. EUR"
+      />
+      <Select
+        label="Unit position"
+        value={unitPosition}
+        onChange={(v) => update({ unitPosition: v })}
+        options={[
+          { id: "suffix", label: "After value" },
+          { id: "prefix", label: "Before value" },
+        ]}
       />
     </div>
   );
 }
 
-function DateConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function DateConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
@@ -449,14 +472,15 @@ function DateConstraints(props: {
 
   return (
     <div class="grid grid-cols-2 gap-3">
-      <label class="col-span-2 inline-flex items-center gap-2 text-xs text-secondary">
-        <input
-          type="checkbox"
-          checked={Boolean(cfg().includeTime)}
-          onChange={(e) => update({ includeTime: e.currentTarget.checked || undefined })}
+      <div class="col-span-2">
+        <CheckboxCard
+          label="Include time-of-day"
+          description="Store and edit date plus time. Leave off for pure calendar dates."
+          icon="ti ti-clock"
+          value={() => Boolean(cfg().includeTime)}
+          onChange={(checked) => update({ includeTime: checked || undefined })}
         />
-        Include time-of-day
-      </label>
+      </div>
       <TextInput
         label="Min date (optional, YYYY-MM-DD)"
         description="Empty = no minimum."
@@ -475,18 +499,9 @@ function DateConstraints(props: {
   );
 }
 
-// -- single/multi-select options manager (inline, no nested modal) -----------
+// -- select options manager (inline, no nested modal) ------------------------
 
-const DEFAULT_COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#ec4899",
-  "#14b8a6",
-  "#f97316",
-];
+const DEFAULT_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
 
 const slugify = (s: string): string =>
   s
@@ -495,18 +510,14 @@ const slugify = (s: string): string =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 40) || `opt-${Math.random().toString(36).slice(2, 7)}`;
 
-type SelectOption = { id: string; label: string; color?: string };
+type SelectOption = { id: string; label: string; color?: string; description?: string };
 
-function SelectConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-  multi: boolean;
-}) {
+function SelectConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
+  const multiple = () => cfg().multiple === true;
   const options = () => (Array.isArray(cfg().options) ? (cfg().options as SelectOption[]) : []);
 
-  const writeOptions = (next: SelectOption[]) =>
-    props.onChange({ ...cfg(), options: next });
+  const writeOptions = (next: SelectOption[]) => props.onChange({ ...cfg(), options: next });
 
   const addOption = () => {
     const idx = options().length;
@@ -533,23 +544,37 @@ function SelectConstraints(props: {
 
   return (
     <div class="flex flex-col gap-3">
+      <Select
+        label="Mode"
+        value={() => (multiple() ? "multiple" : "single")}
+        onChange={(v) =>
+          props.onChange({
+            ...cfg(),
+            multiple: v === "multiple",
+            minSelected: v === "multiple" ? cfg().minSelected : undefined,
+            maxSelected: v === "multiple" ? cfg().maxSelected : undefined,
+          })
+        }
+        options={[
+          { id: "single", label: "Single choice", description: "Users can pick one option." },
+          { id: "multiple", label: "Multiple choices", description: "Users can pick several options." },
+        ]}
+      />
       <div class="flex items-center justify-between">
         <span class="text-xs text-secondary">Options</span>
         <button type="button" class="btn-simple btn-sm text-xs" onClick={addOption}>
           <i class="ti ti-plus" /> Add option
         </button>
       </div>
-      <Show
-        when={options().length > 0}
-        fallback={<p class="text-xs text-dimmed py-1">No options yet.</p>}
-      >
+      <Show when={options().length > 0} fallback={<p class="text-xs text-dimmed py-1">No options yet.</p>}>
         <div class="flex flex-col gap-2">
           {/* Column headers — sit above the input cells. The leading w-7
               spacer matches the colour swatch column so "Label" and
               "Value" line up with the inputs below. */}
           <div class="flex items-center gap-2 text-[11px] text-dimmed">
             <span class="w-7 shrink-0" />
-            <span class="flex-1">Label</span>
+            <span class="min-w-44 flex-1">Label</span>
+            <span class="min-w-56 flex-1">Description</span>
             <span class="w-40 shrink-0">Value</span>
             <span class="w-5 shrink-0" />
           </div>
@@ -561,26 +586,21 @@ function SelectConstraints(props: {
           <Index each={options()}>
             {(opt, i) => (
               <div class="flex items-center gap-2">
-                <ColorInput
-                  compact
-                  value={() => opt().color ?? "#3b82f6"}
-                  onChange={(c) => updateOption(i, { color: c })}
-                />
+                <ColorInput compact value={() => opt().color ?? "#3b82f6"} onChange={(c) => updateOption(i, { color: c })} />
+                <div class="flex-1">
+                  <TextInput placeholder="Label" icon="ti ti-tag" value={() => opt().label} onInput={(v) => onLabelChange(i, v)} />
+                </div>
                 <div class="flex-1">
                   <TextInput
-                    placeholder="Label"
-                    icon="ti ti-tag"
-                    value={() => opt().label}
-                    onInput={(v) => onLabelChange(i, v)}
+                    placeholder="Description"
+                    icon="ti ti-info-circle"
+                    value={() => opt().description ?? ""}
+                    onInput={(v) => updateOption(i, { description: v.trim() ? v : undefined })}
+                    clearable
                   />
                 </div>
                 <div class="w-40 shrink-0">
-                  <TextInput
-                    placeholder="value"
-                    icon="ti ti-id"
-                    value={() => opt().id}
-                    onInput={(v) => updateOption(i, { id: v })}
-                  />
+                  <TextInput placeholder="value" icon="ti ti-id" value={() => opt().id} onInput={(v) => updateOption(i, { id: v })} />
                 </div>
                 <button
                   type="button"
@@ -596,7 +616,7 @@ function SelectConstraints(props: {
           </Index>
         </div>
       </Show>
-      <Show when={props.multi}>
+      <Show when={multiple()}>
         <div class="grid grid-cols-2 gap-3 pt-2">
           <NumberField
             label="Min selected (optional)"
@@ -626,10 +646,7 @@ function SelectConstraints(props: {
   );
 }
 
-function AutonumberConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function AutonumberConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
   const prefix = () => (typeof cfg().prefix === "string" ? (cfg().prefix as string) : "");
@@ -657,31 +674,6 @@ function AutonumberConstraints(props: {
   );
 }
 
-function CurrencyConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
-  const cfg = () => props.config();
-  const symbol = () =>
-    typeof cfg().currency === "string" ? (cfg().currency as string) : "EUR";
-  return (
-    <div>
-      <TextInput
-        label="Currency symbol"
-        description="Free text — shown next to every amount. Could be €, EUR, Euro, USD, or anything else that reads naturally."
-        value={symbol}
-        onInput={(v) =>
-          props.onChange({
-            ...cfg(),
-            currency: v.trim() === "" ? undefined : v.trim(),
-          })
-        }
-        placeholder="EUR"
-      />
-    </div>
-  );
-}
-
 function RelationConstraints(props: {
   config: () => FieldConfigState;
   onChange: (next: FieldConfigState) => void;
@@ -691,44 +683,22 @@ function RelationConstraints(props: {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
-  const targetTableId = () =>
-    typeof cfg().targetTableId === "string" ? (cfg().targetTableId as string) : "";
-  const displayFieldId = () =>
-    typeof cfg().displayFieldId === "string" ? (cfg().displayFieldId as string) : "";
-  const cardinality = () =>
-    cfg().cardinality === "single" ? "single" : "multiple";
-
-  const targetFields = () => (targetTableId() ? props.fieldsByTable[targetTableId()] ?? [] : []);
+  const targetTableId = () => (typeof cfg().targetTableId === "string" ? (cfg().targetTableId as string) : "");
+  const cardinality = () => (cfg().cardinality === "single" ? "single" : "multiple");
 
   return (
     <div class="flex flex-col gap-3">
       <Show
         when={props.otherTables.length > 0}
-        fallback={
-          <p class="text-xs text-amber-600 dark:text-amber-400">
-            No other tables to link to. Create a second table first.
-          </p>
-        }
+        fallback={<p class="text-xs text-amber-600 dark:text-amber-400">No other tables to link to. Create a second table first.</p>}
       >
         <Select
           label="Target table"
           value={targetTableId}
-          onChange={(v) => update({ targetTableId: v, displayFieldId: undefined })}
+          onChange={(v) => update({ targetTableId: v })}
           options={props.otherTables.map((t) => ({ id: t.id, label: t.name }))}
           placeholder="Pick a table..."
           required
-        />
-      </Show>
-      <Show when={targetFields().length > 0}>
-        <Select
-          label="Display field (shown when rendering this relation)"
-          description="The field whose value renders as the link label. Relation/lookup/rollup/formula fields are excluded — they nest or render unpredictably as labels."
-          value={displayFieldId}
-          onChange={(v) => update({ displayFieldId: v })}
-          options={targetFields()
-            .filter((f) => !f.deletedAt && !NON_PRESENTABLE_TYPES.has(f.type))
-            .map((f) => ({ id: f.id, label: f.name }))}
-          placeholder="Pick a field..."
         />
       </Show>
       <Select
@@ -754,25 +724,18 @@ function LookupRollupConstraints(props: {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
-  const relationFieldId = () =>
-    typeof cfg().relationFieldId === "string" ? (cfg().relationFieldId as string) : "";
-  const targetFieldId = () =>
-    typeof cfg().targetFieldId === "string" ? (cfg().targetFieldId as string) : "";
+  const relationFieldId = () => (typeof cfg().relationFieldId === "string" ? (cfg().relationFieldId as string) : "");
+  const targetFieldId = () => (typeof cfg().targetFieldId === "string" ? (cfg().targetFieldId as string) : "");
 
   // Relation fields available on THIS table — the lookup/rollup follows
   // one of them to reach the target table.
-  const relationFields = () =>
-    (props.fieldsByTable[props.currentTableId] ?? []).filter(
-      (f) => f.type === "relation" && !f.deletedAt,
-    );
+  const relationFields = () => (props.fieldsByTable[props.currentTableId] ?? []).filter((f) => f.type === "relation" && !f.deletedAt);
 
   // Resolve the picked relation's target table from its config blob.
   // Empty until the user actually selects a relation field — drives
   // the cascade behaviour for the target-field picker below.
-  const selectedRelation = () =>
-    relationFields().find((f) => f.id === relationFieldId());
-  const targetTableId = () =>
-    (selectedRelation()?.config as { targetTableId?: string } | undefined)?.targetTableId;
+  const selectedRelation = () => relationFields().find((f) => f.id === relationFieldId());
+  const targetTableId = () => (selectedRelation()?.config as { targetTableId?: string } | undefined)?.targetTableId;
 
   // Target-table fields, filtered to scalar types — projecting a
   // lookup of a lookup or a relation-of-a-relation rarely renders
@@ -781,9 +744,7 @@ function LookupRollupConstraints(props: {
   const targetFields = () => {
     const id = targetTableId();
     if (!id) return [];
-    return (props.fieldsByTable[id] ?? []).filter(
-      (f) => !f.deletedAt && !NON_PRESENTABLE_TYPES.has(f.type),
-    );
+    return (props.fieldsByTable[id] ?? []).filter((f) => !f.deletedAt && !NON_PRESENTABLE_TYPES.has(f.type));
   };
 
   return (
@@ -845,14 +806,16 @@ function LookupRollupConstraints(props: {
   );
 }
 
-function FileConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function FileConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
   const maxFiles = () => (typeof cfg().maxFiles === "number" ? String(cfg().maxFiles) : "10");
-  const accept = () => Array.isArray(cfg().accept) ? (cfg().accept as string[]).join(", ") : "";
+  const accept = () => (Array.isArray(cfg().accept) ? (cfg().accept as string[]).join(", ") : "");
+  const setAccept = (items: string[]) => update({ accept: items.length > 0 ? items : undefined });
+  const appendAccept = (items: string[]) => {
+    const current = Array.isArray(cfg().accept) ? (cfg().accept as string[]) : [];
+    setAccept([...new Set([...current, ...items])]);
+  };
 
   return (
     <div class="grid grid-cols-1 gap-3">
@@ -868,28 +831,40 @@ function FileConstraints(props: {
       />
       <TextInput
         label="Accepted MIME types/extensions (optional)"
-        description="Comma-separated, e.g. image/png, application/pdf, .txt. Empty accepts any file type."
+        description="Comma-separated. Empty accepts any file type."
         value={accept}
         onInput={(v) => {
-          const items = v.split(",").map((item) => item.trim()).filter(Boolean);
-          update({ accept: items.length > 0 ? items : undefined });
+          const items = v
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean);
+          setAccept(items);
         }}
         placeholder="image/png, application/pdf, .txt"
       />
-      <p class="text-xs text-dimmed leading-snug">
-        The global per-file size limit is managed from the Grids admin settings.
-      </p>
+      <div class="flex flex-wrap gap-1.5">
+        <For each={FILE_ACCEPT_PRESETS}>
+          {(preset) => (
+            <button
+              type="button"
+              class="rounded border border-zinc-200 bg-white px-2 py-1 text-[11px] font-medium text-secondary hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              onClick={() => appendAccept(preset.values)}
+            >
+              {preset.label}
+            </button>
+          )}
+        </For>
+      </div>
+      <p class="text-xs text-dimmed leading-snug">The global per-file size limit is managed from the Grids admin settings.</p>
     </div>
   );
 }
 
-function FormulaConstraints(props: {
-  config: () => FieldConfigState;
-  onChange: (next: FieldConfigState) => void;
-}) {
+function FormulaConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void; fields: Field[] }) {
   const cfg = () => props.config();
-  const expr = () =>
-    typeof cfg().expression === "string" ? (cfg().expression as string) : "";
+  const expr = () => (typeof cfg().expression === "string" ? (cfg().expression as string) : "");
+  const refs = () => formulaFieldRefs(props.fields);
+  const completions = () => buildFormulaCompletions(refs());
   return (
     <div class="flex flex-col gap-3">
       {/* Quick-start examples — concrete first, theory second. Most
@@ -898,9 +873,8 @@ function FormulaConstraints(props: {
       <div class="info-block-info text-xs flex flex-col gap-2">
         <span class="font-medium">Examples</span>
         <span class="text-dimmed">
-          Slugs below (<code>#aB3kQ</code> etc.) are placeholders — paste your
-          field's real <code>#slug</code> via the <em>Copy ref</em> button on a
-          field row.
+          Slugs below (<code>#aB3kQ</code> etc.) are placeholders — paste your field's real <code>#slug</code> via the <em>Copy ref</em>{" "}
+          button on a field row.
         </span>
         <div class="flex flex-col gap-1.5 font-mono text-[11px]">
           <div>
@@ -926,86 +900,65 @@ function FormulaConstraints(props: {
         </div>
       </div>
 
-      <TextInput
-        label="Expression"
-        value={expr}
-        onInput={(v) => props.onChange({ ...cfg(), expression: v })}
-        placeholder='e.g. #aB3kQ * 1.19  or  CONCAT(UPPER(#xY7mP), " — €", #aB3kQ)'
-        icon="ti ti-math-function"
-        multiline
-        lines={3}
-      />
+      <div class="flex flex-col gap-1.5">
+        <span class="text-label text-xs">Expression</span>
+        <AutocompleteEditor
+          value={expr}
+          onInput={(v) => props.onChange({ ...cfg(), expression: v })}
+          placeholder="Reference fields with #, call functions by name. Leading = is optional."
+          completions={completions()}
+          highlight={formulaHighlight}
+          lines={4}
+          ariaLabel="Formula expression"
+        />
+      </div>
 
       <p class="text-xs text-dimmed leading-snug">
-        <span class="font-medium text-secondary">Field references:</span>{" "}
-        Prefix a field's slug with <code>#</code> — e.g. <code>#abc12</code>. Use the{" "}
-        <i class="ti ti-copy" /> <em>Copy ref</em> button on a field row above to grab the
-        exact <code>#slug</code>. Formulas recompute on every read; references to other
-        formula fields evaluate in dependency order (cycles render as{" "}
-        <code>#CYCLE</code>).
+        Formulas recompute on every read. Cycles render as <code>#CYCLE</code>.
       </p>
 
       {/* Function reference — collapsed by default to keep the editor
           tidy. Each entry: signature · description · example. */}
       <details class="text-xs">
-        <summary class="cursor-pointer select-none text-secondary font-medium py-1">
-          Function reference
-        </summary>
+        <summary class="cursor-pointer select-none text-secondary font-medium py-1">Function reference</summary>
         <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
-          <FormulaFn
-            sig="IF(cond, then, else)"
-            desc="Branch by truthiness of cond."
-            ex='IF(#7n2Lk, "Yes", "No")'
-          />
-          <FormulaFn sig="AND(a, b, …)" desc="True iff every arg is truthy." ex="AND(#aB3kQ, #xY7mP)" />
-          <FormulaFn sig="OR(a, b, …)" desc="True iff any arg is truthy." ex="OR(#aB3kQ, #xY7mP)" />
-          <FormulaFn sig="NOT(x)" desc="Logical negation." ex="NOT(#7n2Lk)" />
-          <FormulaFn sig="ISBLANK(x)" desc="True if x is null / empty." ex="ISBLANK(#aB3kQ)" />
-          <FormulaFn sig="ABS(n)" desc="Absolute value." ex="ABS(#aB3kQ)" />
-          <FormulaFn sig="ROUND(n)" desc="Round half-away-from-zero." ex="ROUND(#aB3kQ)" />
-          <FormulaFn sig="FLOOR(n)" desc="Round down." ex="FLOOR(#aB3kQ)" />
-          <FormulaFn sig="CEIL(n)" desc="Round up." ex="CEIL(#aB3kQ)" />
-          <FormulaFn sig="MIN(a, b, …)" desc="Smallest of args." ex="MIN(#aB3kQ, #xY7mP)" />
-          <FormulaFn sig="MAX(a, b, …)" desc="Largest of args." ex="MAX(#aB3kQ, #xY7mP)" />
-          <FormulaFn
-            sig="CONCAT(s, …)"
-            desc="Join strings — non-strings auto-coerce."
-            ex='CONCAT(#xY7mP, " ", #aB3kQ)'
-          />
-          <FormulaFn sig="LEN(s)" desc="String length." ex="LEN(#xY7mP)" />
-          <FormulaFn sig="LOWER(s)" desc="Lowercase." ex="LOWER(#xY7mP)" />
-          <FormulaFn sig="UPPER(s)" desc="Uppercase." ex="UPPER(#xY7mP)" />
-          <FormulaFn sig="TRIM(s)" desc="Strip leading/trailing whitespace." ex="TRIM(#xY7mP)" />
-          <FormulaFn sig="TODAY()" desc="Today as date (no time)." ex="TODAY()" />
-          <FormulaFn sig="NOW()" desc="Current datetime." ex="NOW()" />
-          <FormulaFn sig="YEAR(d)" desc="4-digit year of d." ex="YEAR(#Pq4tD)" />
-          <FormulaFn sig="MONTH(d)" desc="Month 1-12." ex="MONTH(#Pq4tD)" />
-          <FormulaFn sig="DAY(d)" desc="Day-of-month 1-31." ex="DAY(#Pq4tD)" />
-          <FormulaFn
-            sig='DATEADD(d, n, "days")'
-            desc='Add n units (days/weeks/months/years) to d.'
-            ex='DATEADD(#Pq4tD, 7, "days")'
-          />
-          <FormulaFn
-            sig='DATEDIFF(a, b, "days")'
-            desc='Difference between dates in the chosen unit.'
-            ex='DATEDIFF(TODAY(), #Pq4tD, "days")'
-          />
+          <For each={GRID_FORMULA_FUNCTIONS}>
+            {(fn) => <FormulaFn sig={fn.signature} desc={fn.description} example={FORMULA_EXAMPLES[fn.name] ?? fn.signature} />}
+          </For>
         </div>
       </details>
+
+      <div class="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
+        <div class="grid grid-cols-[1fr_6rem_7rem_2rem] gap-2 bg-zinc-50 px-2 py-1.5 text-[11px] font-semibold uppercase text-dimmed dark:bg-zinc-900">
+          <span>Name</span>
+          <span>Type</span>
+          <span>ID</span>
+          <span />
+        </div>
+        <div class="max-h-44 overflow-auto">
+          <For each={refs()}>
+            {(field) => (
+              <div class="grid grid-cols-[1fr_6rem_7rem_2rem] items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-900/60">
+                <span class="truncate text-secondary">{field.name}</span>
+                <span class="truncate text-dimmed">{TYPE_LABELS[field.type] ?? field.type}</span>
+                <code class="truncate text-[11px] text-primary">#{field.shortId}</code>
+                <CopyButton text={`#${field.shortId}`} class="icon-btn h-6 w-6 text-dimmed hover:text-primary" />
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
     </div>
   );
 }
 
 /** Single function-doc row inside the Formula reference grid. */
-function FormulaFn(props: { sig: string; desc: string; ex: string }) {
+function FormulaFn(props: { sig: string; desc: string; example: string }) {
   return (
     <div class="flex flex-col gap-0.5">
       <code class="font-mono text-secondary">{props.sig}</code>
       <span class="text-dimmed leading-snug">{props.desc}</span>
-      <code class="font-mono text-[10px] text-zinc-500 dark:text-zinc-400 truncate">
-        {props.ex}
-      </code>
+      <code class="truncate font-mono text-[10px] text-zinc-500 dark:text-zinc-400">{props.example}</code>
     </div>
   );
 }
@@ -1021,13 +974,7 @@ function FormulaFn(props: { sig: string; desc: string; ex: string }) {
  * here so the constraint forms keep their existing per-field
  * validation logic without rewriting.
  */
-function NumberField(props: {
-  label: string;
-  value: () => string;
-  onInput: (v: string) => void;
-  min?: number;
-  max?: number;
-}) {
+function NumberField(props: { label: string; value: () => string; onInput: (v: string) => void; min?: number; max?: number }) {
   const numericValue = () => {
     const raw = props.value();
     if (raw === "" || raw === undefined) return undefined;

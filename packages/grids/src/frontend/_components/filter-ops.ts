@@ -57,19 +57,11 @@ const BOOL_OPS: FilterOp[] = [
   { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
-const SINGLE_SELECT_OPS: FilterOp[] = [
+const SELECT_OPS: FilterOp[] = [
   { id: "is", label: "is", needsValue: true },
   { id: "isNot", label: "is not", needsValue: true },
-  { id: "isAnyOf", label: "any of", needsValue: true },
+  { id: "isAnyOf", label: "one of", needsValue: true },
   { id: "isNoneOf", label: "none of", needsValue: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
-];
-
-const MULTI_SELECT_OPS: FilterOp[] = [
-  { id: "containsAll", label: "all of", needsValue: true },
-  { id: "containsAny", label: "any of", needsValue: true },
-  { id: "doesNotContain", label: "not contains", needsValue: true },
   { id: "isEmpty", label: "empty", needsValue: false },
   { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
@@ -78,28 +70,22 @@ export const opsForType = (type: string): FilterOp[] => {
   switch (type) {
     case "text":
     case "longtext":
-    case "email":
-    case "url":
-    case "phone":
-    case "slug":
-    case "barcode":
-    case "isbn":
       return TEXT_OPS;
     case "number":
     case "decimal":
-    case "rating":
     case "autonumber":
     case "percent":
     case "duration":
       return NUMBER_OPS;
-    case "date": return DATE_OPS;
-    case "boolean": return BOOL_OPS;
-    case "single-select": return SINGLE_SELECT_OPS;
-    case "multi-select": return MULTI_SELECT_OPS;
-    // currency stores as an object; no filter UI yet (would need a
-    // sub-path like data->'fld'->>'amount').
+    case "date":
+      return DATE_OPS;
+    case "boolean":
+      return BOOL_OPS;
+    case "select":
+      return SELECT_OPS;
     // json: opaque to filter — no ops surfaced.
-    default: return [];
+    default:
+      return [];
   }
 };
 
@@ -115,5 +101,4 @@ export const isFilterable = (type: string): boolean => opsForType(type).length >
  * filtered but they're stored as record columns — Phase 2 keeps the UI
  * scoped to data fields only).
  */
-export const filterableFields = (fields: Field[]): Field[] =>
-  fields.filter((f) => !f.deletedAt && isFilterable(f.type));
+export const filterableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && isFilterable(f.type));

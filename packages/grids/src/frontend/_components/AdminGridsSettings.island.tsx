@@ -13,7 +13,7 @@ type SettingEntry = {
 
 const fetchSettings = async (): Promise<SettingEntry[]> => {
   const res = await fetch("/api/grids/admin/settings");
-  if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
+  if (!res.ok) throw new Error("Failed to load settings");
   return (await res.json()) as SettingEntry[];
 };
 
@@ -25,7 +25,7 @@ const updateSetting = async (key: string, value: unknown): Promise<void> => {
   });
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(data?.message ?? `Failed to update ${key}`);
+    throw new Error(data?.message ?? "Failed to update setting");
   }
 };
 
@@ -50,7 +50,6 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
     <div class="flex flex-col gap-1">
       <label class="text-xs font-medium text-primary" for={`setting-${props.entry.key}`}>
         {props.entry.label}
-        <span class="ml-1.5 text-[10px] font-mono font-normal text-dimmed">{props.entry.key}</span>
       </label>
       <div class="relative">
         <input

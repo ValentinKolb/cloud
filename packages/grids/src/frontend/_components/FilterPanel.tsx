@@ -1,7 +1,7 @@
-import { Index, Match, Switch, createMemo } from "solid-js";
 import { DateTimeInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../service";
-import { filterableFields, opsForType, type FilterOp } from "./filter-ops";
+import { type FilterOp, filterableFields, opsForType } from "./filter-ops";
 
 export type FilterLeaf = {
   fieldId: string;
@@ -33,12 +33,9 @@ export const isFilterLeafComplete = (leaf: FilterLeaf, fields: Field[]): boolean
   if (!op) return false;
   if (!op.needsValue) return true;
   if (leaf.value === undefined || leaf.value === "" || leaf.value === null) return false;
+  if (Array.isArray(leaf.value) && leaf.value.length === 0) return false;
   if (op.needsRange) {
-    return (
-      Array.isArray(leaf.value) &&
-      leaf.value.length === 2 &&
-      leaf.value.every((v) => v !== "" && v != null)
-    );
+    return Array.isArray(leaf.value) && leaf.value.length === 2 && leaf.value.every((v) => v !== "" && v != null);
   }
   return true;
 };
@@ -94,9 +91,7 @@ export default function FilterPanel(props: Props) {
               {/* Fixed-width label so all rows align: "where" (5 chars)
                   and "and" (3 chars) sit in the same column → the field
                   Select below stays vertically aligned across rows. */}
-              <span class="w-12 shrink-0 text-dimmed">
-                {index === 0 ? "where" : "and"}
-              </span>
+              <span class="w-12 shrink-0 text-dimmed">{index === 0 ? "where" : "and"}</span>
               <div class="w-40 shrink-0">
                 <Select
                   value={() => leaf().fieldId}
@@ -114,19 +109,9 @@ export default function FilterPanel(props: Props) {
                 />
               </div>
 
-              <FilterValueInput
-                field={field()}
-                op={op()}
-                value={leaf().value}
-                onChange={(v) => updateLeaf(index, { value: v })}
-              />
+              <FilterValueInput field={field()} op={op()} value={leaf().value} onChange={(v) => updateLeaf(index, { value: v })} />
 
-              <button
-                type="button"
-                class="text-dimmed hover:text-red-500 px-1"
-                onClick={() => removeLeaf(index)}
-                title="Remove filter"
-              >
+              <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeLeaf(index)} title="Remove filter">
                 <i class="ti ti-x" />
               </button>
             </div>
@@ -137,11 +122,7 @@ export default function FilterPanel(props: Props) {
       {/* Bottom row — Add only. Apply is owned by the GridToolbar's
           floating Apply/Cancel chips (one for the whole query state). */}
       <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"
-          onClick={addLeaf}
-        >
+        <button type="button" class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700" onClick={addLeaf}>
           <i class="ti ti-plus" /> Add
         </button>
       </div>
@@ -149,24 +130,15 @@ export default function FilterPanel(props: Props) {
   );
 }
 
-type ValueKind =
-  | "none"
-  | "range"
-  | "select"
-  | "multi"
-  | "boolean"
-  | "number-days"
-  | "date"
-  | "number"
-  | "text";
+type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "number-days" | "date" | "number" | "text";
 
 /**
  * Renders the right-hand value input for a filter row, type-aware:
  *  - ops with `needsValue=false` (empty, not empty, today, …): NOTHING
  *  - ops with `needsRange=true` (between): TWO inputs side-by-side
  *  - boolean fields: cloud Select
- *  - single-select fields (is / isNot): cloud Select over field options
- *  - any multi-value op (any-of / none-of / all-of / not-contains): TextInput
+ *  - select fields (is / isNot): cloud Select over field options
+ *  - select multi-value ops (one-of / none-of): TextInput
  *    (comma-separated → parsed to a string[] on input)
  *  - dates: cloud DateTimeInput dateOnly (or NumberInput for lastNDays)
  *  - numbers: cloud NumberInput
@@ -178,38 +150,22 @@ type ValueKind =
  * shows a text box). Always read `props.op` / `props.field` from inside JSX
  * or memos; never bind them to const at the top.
  */
-function FilterValueInput(props: {
-  field: Field | null;
-  op: FilterOp | null;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}) {
+function FilterValueInput(props: { field: Field | null; op: FilterOp | null; value: unknown; onChange: (v: unknown) => void }) {
   const kind = createMemo<ValueKind>(() => {
     const field = props.field;
     const op = props.op;
     if (!field || !op || !op.needsValue) return "none";
     if (op.needsRange) return "range";
-    if (field.type === "single-select" && (op.id === "is" || op.id === "isNot")) {
+    if (field.type === "select" && (op.id === "is" || op.id === "isNot")) {
       return "select";
     }
-    if (
-      op.id === "isAnyOf" ||
-      op.id === "isNoneOf" ||
-      op.id === "containsAll" ||
-      op.id === "containsAny" ||
-      op.id === "doesNotContain"
-    ) {
+    if (op.id === "isAnyOf" || op.id === "isNoneOf") {
       return "multi";
     }
     if (field.type === "boolean") return "boolean";
     if (field.type === "date" && op.id === "lastNDays") return "number-days";
     if (field.type === "date") return "date";
-    if (
-      field.type === "number" ||
-      field.type === "decimal" ||
-      field.type === "rating" ||
-      field.type === "autonumber"
-    ) {
+    if (field.type === "number" || field.type === "decimal" || field.type === "autonumber") {
       return "number";
     }
     return "text";
@@ -221,9 +177,9 @@ function FilterValueInput(props: {
 
       <Match when={kind() === "range"}>
         {(() => {
-          const range = () =>
-            Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""];
+          const range = () => (Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""]);
           const isDate = () => props.field?.type === "date";
+          const dateOnly = () => !Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime);
           const numAt = (i: 0 | 1) => {
             const v = range()[i];
             const n = typeof v === "number" ? v : Number(v);
@@ -237,33 +193,17 @@ function FilterValueInput(props: {
             <span class="flex items-center gap-1">
               <div class="w-44">
                 {isDate() ? (
-                  <DateTimeInput
-                    dateOnly
-                    value={() => dateAt(0)}
-                    onChange={(v) => props.onChange([v, range()[1]])}
-                  />
+                  <DateTimeInput dateOnly={dateOnly()} value={() => dateAt(0)} onChange={(v) => props.onChange([v, range()[1]])} />
                 ) : (
-                  <NumberInput
-                    value={() => numAt(0)}
-                    onChange={(v) => props.onChange([v, range()[1]])}
-                    decimalPlaces={10}
-                  />
+                  <NumberInput value={() => numAt(0)} onChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
                 )}
               </div>
               <span class="text-dimmed">to</span>
               <div class="w-44">
                 {isDate() ? (
-                  <DateTimeInput
-                    dateOnly
-                    value={() => dateAt(1)}
-                    onChange={(v) => props.onChange([range()[0], v])}
-                  />
+                  <DateTimeInput dateOnly={dateOnly()} value={() => dateAt(1)} onChange={(v) => props.onChange([range()[0], v])} />
                 ) : (
-                  <NumberInput
-                    value={() => numAt(1)}
-                    onChange={(v) => props.onChange([range()[0], v])}
-                    decimalPlaces={10}
-                  />
+                  <NumberInput value={() => numAt(1)} onChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
                 )}
               </div>
             </span>
@@ -276,11 +216,9 @@ function FilterValueInput(props: {
           <Select
             value={() => (typeof props.value === "string" ? props.value : "")}
             onChange={(v) => props.onChange(v)}
-            options={
-              ((props.field?.config as { options?: Array<{ id: string; label: string }> })
-                ?.options ?? []
-              ).map((o) => ({ id: o.id, label: o.label }))
-            }
+            options={((props.field?.config as { options?: Array<{ id: string; label: string; description?: string }> })?.options ?? []).map(
+              (o) => ({ id: o.id, label: o.label, description: o.description }),
+            )}
             placeholder="—"
           />
         </div>
@@ -291,9 +229,7 @@ function FilterValueInput(props: {
           <TextInput
             icon="ti ti-list"
             placeholder="comma-separated"
-            value={() =>
-              Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? "")
-            }
+            value={() => (Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? ""))}
             onChange={(v) => {
               const parts = v
                 .split(",")
@@ -308,9 +244,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "boolean"}>
         <div class="w-32">
           <Select
-            value={() =>
-              props.value === true ? "true" : props.value === false ? "false" : ""
-            }
+            value={() => (props.value === true ? "true" : props.value === false ? "false" : "")}
             onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
             options={[
               { id: "true", label: "true" },
@@ -340,7 +274,7 @@ function FilterValueInput(props: {
       <Match when={kind() === "date"}>
         <div class="w-44">
           <DateTimeInput
-            dateOnly
+            dateOnly={!Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime)}
             value={() => (typeof props.value === "string" ? props.value : "")}
             onChange={(v) => props.onChange(v)}
           />
@@ -363,10 +297,7 @@ function FilterValueInput(props: {
 
       <Match when={kind() === "text"}>
         <div class="w-44">
-          <TextInput
-            value={() => (typeof props.value === "string" ? props.value : "")}
-            onChange={(v) => props.onChange(v)}
-          />
+          <TextInput value={() => (typeof props.value === "string" ? props.value : "")} onChange={(v) => props.onChange(v)} />
         </div>
       </Match>
     </Switch>

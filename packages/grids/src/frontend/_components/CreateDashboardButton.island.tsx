@@ -1,4 +1,4 @@
-import { prompts, navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Dashboard } from "../../service";
@@ -12,10 +12,7 @@ import { errorMessage } from "./api-helpers";
  * surface immediately rather than at an empty viewer.
  */
 export default function CreateDashboardButton(props: { baseId: string; baseShortId: string }) {
-  const createMutation = mutations.create<
-    Dashboard,
-    { name: string; shared: boolean }
-  >({
+  const createMutation = mutations.create<Dashboard, { name: string; shared: boolean }>({
     mutation: async (input) => {
       const res = await apiClient.dashboards["by-base"][":baseId"].$post({
         param: { baseId: props.baseId },
@@ -24,10 +21,10 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create dashboard"));
       return (await res.json()) as Dashboard;
     },
-    // After creation: open the editor. A fresh dashboard has no widgets,
+    // After creation: open edit mode. A fresh dashboard has no widgets,
     // so dropping the user on the viewer would just show the empty
-    // state — the editor is the next-step destination.
-    onSuccess: (d) => navigateTo(`/app/grids/${props.baseShortId}/dashboard/${d.shortId}/edit`),
+    // state — edit mode is the next-step destination.
+    onSuccess: (d) => navigateTo(`/app/grids/${props.baseShortId}/dashboard/${d.shortId}?edit=true`),
     onError: (e) => prompts.error(e.message),
   });
 
@@ -45,8 +42,7 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
         shared: {
           type: "boolean",
           label: "Share with everyone (read access)",
-          description:
-            "Personal dashboards are private to you. Shared dashboards are visible to anyone with base-read.",
+          description: "Personal dashboards are private to you. Shared dashboards are visible to anyone with base-read.",
         },
       },
       confirmText: "Create",
@@ -59,12 +55,7 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
   };
 
   return (
-    <button
-      type="button"
-      class="sidebar-item w-full"
-      onClick={handleClick}
-      disabled={createMutation.loading()}
-    >
+    <button type="button" class="sidebar-item w-full" onClick={handleClick} disabled={createMutation.loading()}>
       {createMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-plus" />}
       New dashboard
     </button>

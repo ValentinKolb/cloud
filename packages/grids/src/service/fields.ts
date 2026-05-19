@@ -13,6 +13,7 @@ import {
 import { parseJsonbRow } from "./jsonb";
 import { getHandler, isKnownFieldType } from "../field-types";
 import { insertWithShortId } from "./short-id";
+import { ViewQuerySchema } from "../contracts";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -23,6 +24,7 @@ const mapRow = (row: DbRow): Field => ({
   tableId: row.table_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
+  icon: (row.icon as string | null) ?? null,
   type: row.type as string,
   config: parseJsonbRow<Record<string, unknown>>(row.config, {}),
   position: row.position as number,
@@ -127,6 +129,40 @@ const validateFieldConfig = (type: string, config: Record<string, unknown>): Res
   return ok(parsed.data);
 };
 
+const isDateNowDefault = (value: unknown): value is { kind: "now" } =>
+  typeof value === "object"
+  && value !== null
+  && (value as { kind?: unknown }).kind === "now"
+  && Object.keys(value as Record<string, unknown>).length === 1;
+
+export const materializeFieldDefault = (field: Field): unknown => {
+  if (field.type !== "date" || !isDateNowDefault(field.defaultValue)) return field.defaultValue;
+  const includeTime = (field.config as { includeTime?: boolean }).includeTime ?? false;
+  const now = new Date();
+  if (!includeTime) return now.toISOString().slice(0, 10);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d}T${hh}:${mm}`;
+};
+
+export const validateDefaultValue = (type: string, config: Record<string, unknown>, value: unknown): Result<unknown> => {
+  if (value === undefined || value === null) return ok(null);
+  if (type === "date" && isDateNowDefault(value)) return ok(value);
+  if (typeof value === "object" && value !== null && "kind" in value) {
+    return fail(err.badInput("invalid default"));
+  }
+  const handler = getHandler(type);
+  if (handler && handler.userInput) {
+    const v = handler.validate(value, config, false);
+    if (!v.ok) return fail(err.badInput(`invalid default: ${v.error}`));
+    return ok(v.value);
+  }
+  return ok(value);
+};
+
 /**
  * DB-context validation for relation / lookup / rollup configs. Only
  * the field service knows the source field's table + base, so this
@@ -137,10 +173,9 @@ const validateFieldConfig = (type: string, config: Record<string, unknown>): Res
  * lookup/labels.
  *
  * Same-base only: target table must share the source field's base.
- * Cross-table consistency: displayFieldId on a relation must belong
- * to the relation's target table; lookup/rollup relationFieldId must
- * be a relation on the source table; targetFieldId must belong to
- * that relation's target table.
+ * Cross-table consistency: lookup/rollup relationFieldId must be a
+ * relation on the source table; targetFieldId must belong to that
+ * relation's target table.
  */
 const validateLinkOrComputedConfig = async (
   type: string,
@@ -157,7 +192,7 @@ const validateLinkOrComputedConfig = async (
   const baseId = sourceTable.base_id;
 
   if (type === "relation") {
-    const cfg = config as { targetTableId?: string; displayFieldId?: string };
+    const cfg = config as { targetTableId?: string };
     if (!cfg.targetTableId) return ok(); // pre-config; field can be created and wired up later.
 
     const [target] = await sql<{ base_id: string }[]>`
@@ -167,15 +202,6 @@ const validateLinkOrComputedConfig = async (
     if (!target) return fail(err.badInput("relation target table not found"));
     if (target.base_id !== baseId) {
       return fail(err.badInput("relation target must be in the same base as the source"));
-    }
-    if (cfg.displayFieldId) {
-      const [display] = await sql<{ table_id: string }[]>`
-        SELECT table_id::text AS table_id FROM grids.fields
-        WHERE id = ${cfg.displayFieldId}::uuid AND deleted_at IS NULL
-      `;
-      if (!display || display.table_id !== cfg.targetTableId) {
-        return fail(err.badInput("displayFieldId must belong to the target table"));
-      }
     }
     return ok();
   }
@@ -215,9 +241,10 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   if (name.length === 0) return fail(err.badInput("name required"));
   if (!isKnownFieldType(input.type)) return fail(err.badInput(`unknown field type "${input.type}"`));
 
-  const config = input.config ?? {};
-  const cfgValidation = validateFieldConfig(input.type, config);
+  const rawConfig = input.config ?? {};
+  const cfgValidation = validateFieldConfig(input.type, rawConfig);
   if (!cfgValidation.ok) return cfgValidation;
+  const config = cfgValidation.data as Record<string, unknown>;
   // DB-context validation: same-base relation + cross-table consistency.
   // Runs after Zod (so we know the shape's right) but before any DB
   // writes. Closes chunk 5 critical "Relation configs can point across
@@ -226,27 +253,24 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   if (!linkValidation.ok) return linkValidation;
 
   // Validate the default value against the type, if provided.
-  if (input.defaultValue !== undefined && input.defaultValue !== null) {
-    const handler = getHandler(input.type);
-    if (handler && handler.userInput) {
-      const v = handler.validate(input.defaultValue, config, false);
-      if (!v.ok) return fail(err.badInput(`invalid default: ${v.error}`));
-    }
-  }
+  const defaultValid = validateDefaultValue(input.type, config, input.defaultValue);
+  if (!defaultValid.ok) return defaultValid;
+  const defaultValue = defaultValid.data;
 
   const description = input.description?.trim() || null;
+  const icon = input.icon?.trim() || null;
   // bun.sql passes primitive JS values (boolean / number / string) as
   // their native PG types — Postgres can't cast `true` directly to
   // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
   // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
   const defaultValueJsonb =
-    input.defaultValue === undefined || input.defaultValue === null
+    defaultValue === undefined || defaultValue === null
       ? null
-      : JSON.stringify(input.defaultValue);
+      : JSON.stringify(defaultValue);
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
       INSERT INTO grids.fields (
-        short_id, table_id, name, description, type, config, position, required,
+        short_id, table_id, name, description, icon, type, config, position, required,
         presentable, hide_in_table, default_value, indexed, unique_constraint
       )
       VALUES (
@@ -256,6 +280,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
         -- bun.sql can't infer the type of a literal NULL; cast keeps the
         -- INSERT working when the user creates a field without a description.
         ${description}::text,
+        ${icon}::text,
         ${input.type},
         ${config}::jsonb,
         COALESCE(${input.position ?? null}::int, (SELECT COALESCE(MAX(position) + 1, 0) FROM grids.fields WHERE table_id = ${input.tableId}::uuid AND deleted_at IS NULL)),
@@ -311,23 +336,20 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
 
-  const config = input.config !== undefined ? input.config : existing.config;
-  const cfgValidation = validateFieldConfig(existing.type, config);
+  const rawConfig = input.config !== undefined ? input.config : existing.config;
+  const cfgValidation = validateFieldConfig(existing.type, rawConfig);
   if (!cfgValidation.ok) return cfgValidation;
+  const config = cfgValidation.data as Record<string, unknown>;
   // Same-base + cross-table consistency on every update path. Important:
   // the user can't change `tableId` after creation, so the source-table
-  // scope is stable, but config keys (targetTableId / displayFieldId /
-  // relationFieldId / targetFieldId) ARE editable — re-validate.
+  // scope is stable, but config keys (targetTableId / relationFieldId /
+  // targetFieldId) ARE editable — re-validate.
   const linkValidation = await validateLinkOrComputedConfig(existing.type, config as Record<string, unknown>, existing.tableId);
   if (!linkValidation.ok) return linkValidation;
 
-  if (input.defaultValue !== undefined && input.defaultValue !== null) {
-    const handler = getHandler(existing.type);
-    if (handler && handler.userInput) {
-      const v = handler.validate(input.defaultValue, config, false);
-      if (!v.ok) return fail(err.badInput(`invalid default: ${v.error}`));
-    }
-  }
+  const rawDefaultValue = input.defaultValue !== undefined ? input.defaultValue : existing.defaultValue;
+  const defaultValid = validateDefaultValue(existing.type, config as Record<string, unknown>, rawDefaultValue);
+  if (!defaultValid.ok) return defaultValid;
 
   // unique_constraint OFF → ON: pre-flight conflict check so we can
   // return a clean 409 BEFORE running the index build (which would
@@ -353,12 +375,13 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
       input.description !== undefined
         ? input.description?.trim() || null
         : existing.description,
+    icon: input.icon !== undefined ? input.icon?.trim() || null : existing.icon,
     config,
     position: input.position ?? existing.position,
     required: input.required ?? existing.required,
     presentable: input.presentable ?? existing.presentable,
     hideInTable: input.hideInTable ?? existing.hideInTable,
-    defaultValue: input.defaultValue !== undefined ? input.defaultValue : existing.defaultValue,
+    defaultValue: defaultValid.data,
     indexed: input.indexed ?? existing.indexed,
     uniqueConstraint: input.uniqueConstraint ?? existing.uniqueConstraint,
   };
@@ -372,6 +395,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     UPDATE grids.fields
     SET name = ${next.name},
         description = ${next.description}::text,
+        icon = ${next.icon}::text,
         config = ${next.config}::jsonb,
         position = ${next.position},
         required = ${next.required},
@@ -527,7 +551,7 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
 
 /**
  * Strips every reference to `fieldId` from saved-view query JSONB on
- * `tableId`: filter tree, sort, groupBy, aggregations, columns. Run
+ * `tableId`: filter tree, sort, groupBy, groupSort, aggregations, columns. Run
  * after a soft-delete so saved views don't carry stale references that
  * would compile-error at record-list time.
  *
@@ -547,6 +571,7 @@ const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<v
     search?: { q?: string; fieldIds?: string[] };
     sort?: Array<{ fieldId?: string }>;
     groupBy?: Array<{ fieldId?: string }>;
+    groupSort?: Array<{ fieldId?: string }>;
     aggregations?: Array<{ fieldId?: string }>;
     columns?: Array<{ fieldId?: string }>;
     [k: string]: unknown;
@@ -581,7 +606,7 @@ const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<v
         changed = true;
       }
     }
-    for (const key of ["sort", "groupBy", "aggregations", "columns"] as const) {
+    for (const key of ["sort", "groupBy", "groupSort", "aggregations", "columns"] as const) {
       const arr = q[key] as Array<{ fieldId?: string }> | undefined;
       if (Array.isArray(arr)) {
         const next = arr.filter((e) => e.fieldId !== fieldId);
@@ -606,9 +631,10 @@ const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<v
     }
 
     if (changed) {
+      const parsed = ViewQuerySchema.safeParse(q);
       await sql`
         UPDATE grids.views
-        SET query = ${q}::jsonb, updated_at = now()
+        SET query = ${parsed.success ? parsed.data : {}}::jsonb, updated_at = now()
         WHERE id = ${v.id}::uuid
       `;
     }

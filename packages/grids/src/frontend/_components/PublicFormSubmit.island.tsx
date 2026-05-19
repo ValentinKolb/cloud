@@ -21,15 +21,13 @@ type Props = {
  *
  * All field rendering lives in `form-fields.tsx` and uses platform
  * inputs only (TextInput / NumberInput / DateTimeInput / Checkbox /
- * SelectInput / stacked Checkboxes for multi-select).
+ * SelectInput / CheckboxCards for select).
  */
 export default function PublicFormSubmit(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
 
-  const [values, setValues] = createSignal<Record<string, unknown>>(
-    buildInitialValues(entries),
-  );
+  const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
@@ -76,13 +74,7 @@ export default function PublicFormSubmit(props: Props) {
           the public page and the in-app preview render the same
           shape regardless of source aspect ratio. */}
       <Show when={props.form.config.titleImage}>
-        {(src) => (
-          <img
-            src={src()}
-            alt=""
-            class="w-full max-h-24 rounded-md object-contain"
-          />
-        )}
+        {(src) => <img src={src()} alt="" class="w-full max-h-24 rounded-md object-contain" />}
       </Show>
       <header class="flex flex-col gap-1">
         <h1 class="text-lg font-semibold text-primary">{props.form.config.title ?? props.form.name}</h1>
@@ -106,12 +98,7 @@ export default function PublicFormSubmit(props: Props) {
               const field = fieldsById.get(entry.fieldId);
               if (!field || field.deletedAt) return null;
               return (
-                <FieldInput
-                  field={field}
-                  entry={entry}
-                  value={values()[entry.fieldId]}
-                  onChange={(v) => setValue(entry.fieldId, v)}
-                />
+                <FieldInput field={field} entry={entry} value={values()[entry.fieldId]} onChange={(v) => setValue(entry.fieldId, v)} />
               );
             }}
           </For>

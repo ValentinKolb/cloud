@@ -31,28 +31,22 @@ type Props = {
  * dumb table + header is the right shape for this surface.
  */
 export default function ViewWidget(props: Props) {
-  const isView = (
-    d: WidgetData,
-  ): d is Extract<WidgetData, { kind: "view" }> => d.kind === "view";
+  const isView = (d: WidgetData): d is Extract<WidgetData, { kind: "view" }> => d.kind === "view";
 
   const fullViewHref = () => {
     if (!isView(props.data) || !props.data.fullViewLink) return null;
     const { tableShortId, viewShortId } = props.data.fullViewLink;
-    return `/app/grids/${props.baseShortId}?table=${tableShortId}&view=${viewShortId}`;
+    return `/app/grids/${props.baseShortId}/table/${tableShortId}/view/${viewShortId}`;
   };
 
-  const titleOf = () =>
-    props.widget.title ?? (isView(props.data) ? props.data.title : "View");
+  const titleOf = () => props.widget.title ?? (isView(props.data) ? props.data.title : "View");
 
   return (
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
       <header class="px-3 py-2 flex items-center justify-between gap-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
         <Show when={fullViewHref()}>
-          <a
-            href={fullViewHref()!}
-            class="text-[11px] text-dimmed hover:text-primary inline-flex items-center gap-1 shrink-0"
-          >
+          <a href={fullViewHref()!} class="text-[11px] text-dimmed hover:text-primary inline-flex items-center gap-1 shrink-0">
             <span>Open full view</span>
             <i class="ti ti-arrow-up-right text-[10px]" />
           </a>
@@ -63,13 +57,8 @@ export default function ViewWidget(props: Props) {
         when={isView(props.data)}
         fallback={
           <div class="flex-1 flex items-center justify-center text-xs text-dimmed">
-            <Show
-              when={props.data.kind === "error"}
-              fallback="Loading…"
-            >
-              <span class="text-red-600 dark:text-red-400">
-                {(props.data as { kind: "error"; reason: string }).reason}
-              </span>
+            <Show when={props.data.kind === "error"} fallback="Loading…">
+              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
             </Show>
           </div>
         }
@@ -98,6 +87,9 @@ export default function ViewWidget(props: Props) {
                   nextCursor: null,
                 }}
                 baseId={props.baseShortId}
+                tableShortIds={viewData.tableShortIds}
+                viewColumns={viewData.viewColumns}
+                showColumnSubtitles={false}
               />
             </div>
           );

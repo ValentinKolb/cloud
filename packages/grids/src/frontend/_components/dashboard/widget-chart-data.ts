@@ -73,8 +73,8 @@ export const toNumber = (v: unknown): number | null => {
  *    1. `relationLabels[uuid]` — for relation-typed groupBy, the key
  *       is the linked record's UUID; the labels map is built server-
  *       side via `buildLabelCacheForGroupedKeys`. Falls through to
- *       UUID prefix if missing (target table the viewer can't read,
- *       or label resolution skipped).
+ *       a neutral placeholder if missing (target table the viewer
+ *       can't read, or label resolution skipped).
  *    2. Date-truncated keys (ISO strings) → granularity-appropriate
  *       readable form. The `dates.formatDate` family is locale-aware.
  *    3. Numeric keys stringify natively; everything else falls back
@@ -97,11 +97,12 @@ export const formatCategoryKey = (
   if (spec?.granularity && (typeof key === "string" || key instanceof Date)) {
     const granularity = spec.granularity;
     if (granularity === "year") {
-      const d = new Date(key);
-      return Number.isFinite(d.valueOf()) ? String(d.getUTCFullYear()) : String(key);
+      const year = String(key).slice(0, 4);
+      return /^\d{4}$/.test(year) ? year : String(key);
     }
     if (granularity === "month" || granularity === "quarter") {
-      const d = new Date(key);
+      const [year, month] = String(key).slice(0, 10).split("-").map(Number);
+      const d = year && month ? new Date(Date.UTC(year, month - 1, 1)) : new Date(key);
       if (!Number.isFinite(d.valueOf())) return String(key);
       return d.toLocaleDateString(undefined, { year: "numeric", month: "short" });
     }
@@ -109,10 +110,9 @@ export const formatCategoryKey = (
   }
 
   // Plain UUID fallback when the lookup failed (e.g. relationLabels
-  // not threaded through) — trim to first 8 chars so the axis is
-  // less ugly. String keys that AREN'T UUIDs render as-is.
+  // not threaded through). Do not leak UUID prefixes into chart labels.
   if (typeof key === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(key)) {
-    return key.slice(0, 8);
+    return "Unknown record";
   }
   return String(key);
 };

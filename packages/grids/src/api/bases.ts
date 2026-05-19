@@ -11,12 +11,14 @@ import {
   UpdateBaseSchema,
   TableSchema,
   FieldSchema,
+  DashboardSchema,
 } from "../contracts";
 import { gateAt } from "./permissions";
 
 const TrashResponseSchema = z.object({
   tables: z.array(TableSchema),
   fields: z.array(FieldSchema),
+  dashboards: z.array(DashboardSchema),
   // Forms are returned as opaque records — the FormSchema isn't
   // exported from contracts.ts (it lives in api/forms.ts since the
   // public-facing shape strips fields the trash UI doesn't need).
@@ -34,25 +36,26 @@ const app = new Hono<AuthContext>()
       summary: "List bases the user can access",
       responses: { 200: jsonResponse(BaseListSchema, "Bases") },
     }),
+    v(
+      "query",
+      z.object({
+        q: z.string().optional().default(""),
+        limit: z.coerce.number().int().min(1).max(500).optional().default(100),
+        offset: z.coerce.number().int().min(0).optional().default(0),
+      }),
+    ),
     async (c) => {
       const user = c.get("user");
-      const all = await gridsService.base.list();
-      // Platform admins see every base. Non-admins see only those they have
-      // at least read on. Without this admin bypass, ops staff couldn't list
-      // bases for recovery / troubleshooting.
-      if (hasRole(user, "admin")) return c.json(all);
-      const visible = await Promise.all(
-        all.map(async (b) => {
-          const grants = await gridsService.permission.loadGrants({
-            userId: user.id,
-            userGroups: user.memberofGroupIds,
-            baseId: b.id,
-          });
-          const level = gridsService.permission.resolve(grants, { baseId: b.id });
-          return gridsService.permission.hasAtLeast(level, "read") ? b : null;
-        }),
-      );
-      return c.json(visible.filter((b): b is NonNullable<typeof b> => b !== null));
+      const { q, limit, offset } = c.req.valid("query");
+      const result = await gridsService.base.listVisible({
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+        isAdmin: hasRole(user, "admin"),
+        query: q,
+        limit,
+        offset,
+      });
+      return c.json({ ...result, limit, offset });
     },
   )
 
@@ -93,7 +96,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const base = await gridsService.base.get(baseId);
@@ -114,7 +117,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateBaseSchema),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
@@ -134,7 +137,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
@@ -155,7 +158,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
@@ -167,9 +170,9 @@ const app = new Hono<AuthContext>()
     "/:baseId/trash",
     describeRoute({
       tags: ["Grids:Base"],
-      summary: "List soft-deleted resources for a base (tables, fields, forms)",
+      summary: "List soft-deleted resources for a base (tables, fields, dashboards, forms)",
       description:
-        "Returns trashed tables, fields, and forms grouped by resource type. " +
+        "Returns trashed tables, fields, dashboards, and forms grouped by resource type. " +
         "Fields/forms whose parent table is itself trashed are excluded — they restore alongside the table.",
       responses: {
         200: jsonResponse(TrashResponseSchema, "Trashed resources"),
@@ -177,19 +180,20 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       // Trash management is a structural / recovery action — base-admin only.
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const [tables, fields, forms] = await Promise.all([
+      const [tables, fields, dashboards, forms] = await Promise.all([
         gridsService.table.listTrashedByBase(baseId),
         gridsService.field.listTrashedByBase(baseId),
+        gridsService.dashboard.listTrashedByBase(baseId),
         // Forms is keyed by tableId, but listTrashedByBase joins
         // through tables for us. Returns full Form objects; the UI
         // only needs id / name / tableId / deletedAt though.
         gridsService.form.listTrashedByBase(baseId),
       ]);
-      return c.json({ tables, fields, forms });
+      return c.json({ tables, fields, dashboards, forms });
     },
   );
 

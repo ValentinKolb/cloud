@@ -1,6 +1,6 @@
-import { For, Show, createSignal, onCleanup } from "solid-js";
 import { SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 
 /**
  * Relation picker — search-driven dropdown over a target table.
@@ -44,21 +44,18 @@ type Props = {
  * can surface it as an error state. The exclude param is parametric so
  * single- and multi-mode can both use it.
  */
-const fetchLookup = async (
-  targetTableId: string,
-  q: string,
-  excludeIds: string[],
-  signal: AbortSignal,
-): Promise<LookupItem[]> => {
-  const url = new URL(
-    `/api/grids/tables/${targetTableId}/lookup`,
-    window.location.origin,
-  );
+const fetchLookup = async (targetTableId: string, q: string, excludeIds: string[], signal: AbortSignal): Promise<LookupItem[]> => {
+  const url = new URL(`/api/grids/tables/${targetTableId}/lookup`, window.location.origin);
   if (q) url.searchParams.set("q", q);
   if (excludeIds.length > 0) url.searchParams.set("excludeIds", excludeIds.join(","));
   url.searchParams.set("limit", "10");
   const res = await fetch(url.toString(), { credentials: "same-origin", signal });
-  if (!res.ok) throw new Error(`Lookup failed (HTTP ${res.status})`);
+  if (!res.ok) {
+    if (res.status === 403) {
+      throw new Error("You do not have permission to choose records from this table.");
+    }
+    throw new Error("Could not load linked records.");
+  }
   const data = (await res.json()) as { items: LookupItem[] };
   return data.items ?? [];
 };
@@ -67,7 +64,7 @@ export default function RelationPicker(props: Props) {
   const labelFor = (id: string): string => {
     const fromProp = props.labels()[id];
     if (fromProp) return fromProp;
-    return id.slice(0, 8);
+    return "Unknown record";
   };
 
   // ── Single-cardinality path ─────────────────────────────────────────
@@ -102,7 +99,7 @@ export default function RelationPicker(props: Props) {
   // Chip-based UI: selected records render as chips above; the search
   // field stays open for appending more. This path will eventually be
   // replaced with a multi-mode SelectInput once the platform component
-  // grows multi-select support.
+  // grows multi-cardinality support.
   const [query, setQuery] = createSignal("");
   const [results, setResults] = createSignal<LookupItem[]>([]);
   const [open, setOpen] = createSignal(false);
@@ -119,7 +116,7 @@ export default function RelationPicker(props: Props) {
     if (fromProp) return fromProp;
     const fromCache = pickedLabels()[id];
     if (fromCache) return fromCache;
-    return id.slice(0, 8);
+    return "Unknown record";
   };
 
   let abortCtl: AbortController | null = null;

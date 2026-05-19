@@ -1,20 +1,13 @@
+import Decimal from "decimal.js";
+import { decimalResult, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { formulaError, isFormulaError, type Literal } from "./types";
 
 /** Return value from any function — either a literal, an error sentinel,
  *  or null. */
 export type FnReturn = Literal | ReturnType<typeof formulaError>;
 
-const isNullish = (v: unknown): boolean => v === null || v === undefined;
-
 const num = (v: unknown): number | null => {
-  if (isNullish(v)) return null;
-  if (typeof v === "number") return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-  if (typeof v === "boolean") return v ? 1 : 0;
-  return null;
+  return toNumber(v);
 };
 
 const str = (v: unknown): string => {
@@ -38,9 +31,34 @@ const ymd = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
+const LOCAL_DATE_LIKE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?)?$/;
+
 const parseDateLike = (v: unknown): Date | null => {
   if (v instanceof Date) return v;
   if (typeof v !== "string") return null;
+  const local = LOCAL_DATE_LIKE_RE.exec(v);
+  if (local) {
+    const [, y, m, d, hh = "00", mm = "00", ss = "00"] = local;
+    const year = Number(y);
+    const month = Number(m);
+    const day = Number(d);
+    const hour = Number(hh);
+    const minute = Number(mm);
+    const second = Number(ss);
+    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    if (Number.isNaN(date.getTime())) return null;
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() + 1 !== month ||
+      date.getUTCDate() !== day ||
+      date.getUTCHours() !== hour ||
+      date.getUTCMinutes() !== minute ||
+      date.getUTCSeconds() !== second
+    ) {
+      return null;
+    }
+    return date;
+  }
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d;
 };
@@ -52,34 +70,104 @@ const parseDateLike = (v: unknown): Date | null => {
 
 type FnImpl = (args: unknown[]) => FnReturn;
 
+const decimalArgs = (args: unknown[]) => {
+  const values = args.map(toDecimalValue).filter((v): v is NonNullable<ReturnType<typeof toDecimalValue>> => v !== null);
+  return {
+    values,
+    exact: values.some((v) => v.exact),
+  };
+};
+
+const oneDecimal = (v: unknown): NonNullable<ReturnType<typeof toDecimalValue>> | null => toDecimalValue(v);
+
+const numericResult = (value: Decimal, exact: boolean): FnReturn => decimalResult(value, exact);
+
+const avgFn: FnImpl = (args) => {
+  const { values, exact } = decimalArgs(args);
+  if (values.length === 0) return null;
+  const sum = values.reduce((acc, v) => acc.plus(v.decimal), new Decimal(0));
+  return numericResult(sum.div(values.length), exact);
+};
+
 export const FN_LIBRARY: Record<string, FnImpl> = {
   // ── Math ────────────────────────────────────────────────────────
   ABS: ([v]) => {
-    const n = num(v);
-    return n === null ? null : Math.abs(n);
+    const d = oneDecimal(v);
+    return d === null ? null : numericResult(d.decimal.abs(), d.exact);
   },
   ROUND: ([v, places]) => {
-    const n = num(v);
-    if (n === null) return null;
+    const d = oneDecimal(v);
+    if (d === null) return null;
     const p = num(places) ?? 0;
-    const m = 10 ** p;
-    return Math.round(n * m) / m;
+    const placesInt = Math.trunc(p);
+    if (placesInt < 0) {
+      const factor = new Decimal(10).pow(Math.abs(placesInt));
+      return numericResult(d.decimal.div(factor).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).times(factor), d.exact);
+    }
+    return numericResult(d.decimal.toDecimalPlaces(placesInt, Decimal.ROUND_HALF_UP), d.exact);
   },
   FLOOR: ([v]) => {
-    const n = num(v);
-    return n === null ? null : Math.floor(n);
+    const d = oneDecimal(v);
+    return d === null ? null : numericResult(d.decimal.floor(), d.exact);
   },
   CEIL: ([v]) => {
-    const n = num(v);
-    return n === null ? null : Math.ceil(n);
+    const d = oneDecimal(v);
+    return d === null ? null : numericResult(d.decimal.ceil(), d.exact);
+  },
+  SQRT: ([v]) => {
+    const d = oneDecimal(v);
+    if (d === null) return null;
+    if (d.decimal.isNegative()) return formulaError("NON_NUMERIC");
+    return numericResult(d.decimal.sqrt(), d.exact);
+  },
+  POW: ([base, exp]) => {
+    const b = oneDecimal(base);
+    const e = oneDecimal(exp);
+    if (b === null || e === null) return null;
+    return numericResult(b.decimal.pow(e.decimal), b.exact || e.exact);
+  },
+  MOD: ([a, b]) => {
+    const left = oneDecimal(a);
+    const right = oneDecimal(b);
+    if (left === null || right === null) return null;
+    if (right.decimal.isZero()) return formulaError("DIV_ZERO");
+    return numericResult(left.decimal.mod(right.decimal), left.exact || right.exact);
+  },
+  SUM: (args) => {
+    const { values, exact } = decimalArgs(args);
+    if (values.length === 0) return null;
+    return numericResult(
+      values.reduce((sum, v) => sum.plus(v.decimal), new Decimal(0)),
+      exact,
+    );
+  },
+  AVG: avgFn,
+  MEAN: avgFn,
+  COUNT: (args) => args.filter((v) => !isNullish(v) && v !== "").length,
+  MEDIAN: (args) => {
+    const { values, exact } = decimalArgs(args);
+    if (values.length === 0) return null;
+    const sorted = values.map((v) => v.decimal).sort((a, b) => a.comparedTo(b));
+    const mid = Math.floor(sorted.length / 2);
+    const value = sorted.length % 2 === 0 ? sorted[mid - 1]!.plus(sorted[mid]!).div(2) : sorted[mid]!;
+    return numericResult(value, exact);
   },
   MIN: (args) => {
-    const ns = args.map(num).filter((n): n is number => n !== null);
-    return ns.length === 0 ? null : Math.min(...ns);
+    const { values, exact } = decimalArgs(args);
+    if (values.length === 0) return null;
+    return numericResult(Decimal.min(...values.map((v) => v.decimal)), exact);
   },
   MAX: (args) => {
-    const ns = args.map(num).filter((n): n is number => n !== null);
-    return ns.length === 0 ? null : Math.max(...ns);
+    const { values, exact } = decimalArgs(args);
+    if (values.length === 0) return null;
+    return numericResult(Decimal.max(...values.map((v) => v.decimal)), exact);
+  },
+  PERCENT: ([part, total]) => {
+    const p = oneDecimal(part);
+    const t = oneDecimal(total);
+    if (p === null || t === null) return null;
+    if (t.decimal.isZero()) return formulaError("DIV_ZERO");
+    return numericResult(p.decimal.div(t.decimal).times(100), p.exact || t.exact);
   },
 
   // ── Text ────────────────────────────────────────────────────────
@@ -88,13 +176,32 @@ export const FN_LIBRARY: Record<string, FnImpl> = {
   LOWER: ([v]) => str(v).toLowerCase(),
   UPPER: ([v]) => str(v).toUpperCase(),
   TRIM: ([v]) => str(v).trim(),
+  LEFT: ([v, count]) => str(v).slice(0, Math.max(0, Math.floor(num(count) ?? 0))),
+  RIGHT: ([v, count]) => {
+    const take = Math.max(0, Math.floor(num(count) ?? 0));
+    return take === 0 ? "" : str(v).slice(-take);
+  },
+  SUBSTRING: ([v, start, length]) => {
+    const s = str(v);
+    const from = Math.max(0, Math.floor(num(start) ?? 0));
+    const len = Math.max(0, Math.floor(num(length) ?? 0));
+    return s.slice(from, from + len);
+  },
+  REPLACE: ([v, search, replacement]) => {
+    const needle = str(search);
+    if (needle.length === 0) return str(v);
+    return str(v).replaceAll(needle, str(replacement));
+  },
 
   // ── Logic ───────────────────────────────────────────────────────
   IF: ([cond, then, otherwise]) => (bool(cond) ? (then as Literal) : (otherwise as Literal)),
+  IFEMPTY: ([value, fallback]) => (isNullish(value) || value === "" ? (fallback as Literal) : (value as Literal)),
+  IFERROR: ([value]) => value as Literal,
   AND: (args) => args.every(bool),
   OR: (args) => args.some(bool),
   NOT: ([v]) => !bool(v),
   ISBLANK: ([v]) => isNullish(v) || v === "",
+  CONTAINS: ([haystack, needle]) => str(haystack).includes(str(needle)),
 
   // ── Date ────────────────────────────────────────────────────────
   TODAY: () => ymd(new Date()),

@@ -1,6 +1,6 @@
 import { sql } from "bun";
+import { type ProjectionKind, storageOf } from "./field-storage";
 import type { Field } from "./types";
-import { storageOf, type ProjectionKind } from "./field-storage";
 
 export type SortSpec = {
   fieldId: string;
@@ -35,10 +35,8 @@ type CastKind = "numeric" | "date" | "boolean" | "text";
 
 /**
  * Maps the storage descriptor's projection kind onto the cast kind used
- * by sort cursors. Both currency and decimal/numeric/percent/duration
- * project as numeric — currency does so via `data->fieldId->>'amount'`
- * but the cursor still encodes as a numeric. text/date/boolean carry
- * through directly. Anything non-orderable (relation/computed/multi-
+ * by sort cursors. Decimal/numeric/percent/duration project as numeric.
+ * text/date/boolean carry through directly. Anything non-orderable (relation/computed/multi-
  * select/json/system-without-projection) reports as `null` here so the
  * caller can reject it with a clean compile error.
  */
@@ -53,7 +51,6 @@ const cursorCastFor = (kind: ProjectionKind): CastKind | null => {
     case "boolean":
       return "boolean";
     case "text":
-    case "selectId":
     case "system":
       return "text";
     default:
@@ -64,7 +61,7 @@ const cursorCastFor = (kind: ProjectionKind): CastKind | null => {
 const projectionForField = (field: Field): { sql: any; cast: CastKind } | null => {
   // Storage descriptor is the source of truth for "how does this field
   // type project into SQL?" Non-projectable kinds (relation/computed/
-  // multi-select/json/unknown) return null here so the compiler can
+  // select/json/unknown) return null here so the compiler can
   // reject them with a clean error rather than silently emitting a
   // text fallback that sorts everything to NULL.
   const desc = storageOf(field);
@@ -79,17 +76,25 @@ const projectionForField = (field: Field): { sql: any; cast: CastKind } | null =
 const castedValue = (cast: CastKind, value: unknown): any => {
   if (value === null || value === undefined) {
     switch (cast) {
-      case "numeric": return sql`NULL::numeric`;
-      case "date": return sql`NULL::date`;
-      case "boolean": return sql`NULL::boolean`;
-      case "text": return sql`NULL::text`;
+      case "numeric":
+        return sql`NULL::numeric`;
+      case "date":
+        return sql`NULL::date`;
+      case "boolean":
+        return sql`NULL::boolean`;
+      case "text":
+        return sql`NULL::text`;
     }
   }
   switch (cast) {
-    case "numeric": return sql`${value}::numeric`;
-    case "date": return sql`${value}::date`;
-    case "boolean": return sql`${value}::boolean`;
-    case "text": return sql`${value}::text`;
+    case "numeric":
+      return sql`${value}::numeric`;
+    case "date":
+      return sql`${value}::date`;
+    case "boolean":
+      return sql`${value}::boolean`;
+    case "text":
+      return sql`${value}::text`;
   }
 };
 
@@ -107,13 +112,7 @@ const nullSafeEq = (proj: any, cast: CastKind, value: unknown): any => {
  * placement. Returns a SQL fragment that's TRUE when `proj` belongs after
  * `value` in the sort order.
  */
-const orderGt = (
-  proj: any,
-  cast: CastKind,
-  direction: "asc" | "desc",
-  nullsFirst: boolean,
-  value: unknown,
-): any => {
+const orderGt = (proj: any, cast: CastKind, direction: "asc" | "desc", nullsFirst: boolean, value: unknown): any => {
   const cursorIsNull = value === null || value === undefined;
 
   if (direction === "asc" && nullsFirst) {
@@ -161,12 +160,12 @@ export const compileSort = (
 
   // Validate fields exist + not deleted + sortable. Storage descriptor
   // is the source of truth for sortability — relation/lookup/rollup/
-  // formula/multi-select/json all return null from projectionForField,
+  // formula/select/json all return null from projectionForField,
   // and we reject them with a clean compile error rather than silently
   // sorting all rows to NULL via a text fallback.
   for (const s of effective) {
     const f = fieldsById.get(s.fieldId);
-    if (!f) return { ok: false, error: `unknown sort field "${s.fieldId}"` };
+    if (!f) return { ok: false, error: "unknown sort field" };
     if (f.deletedAt) return { ok: false, error: `sort field "${f.name}" is deleted` };
     if (!projectionForField(f)) {
       return { ok: false, error: `field "${f.name}" (type "${f.type}") is not sortable` };
@@ -197,26 +196,23 @@ export const compileSort = (
   // grids.bases for the live-parent invariant, and all three tables
   // carry an `id` column. An unqualified reference raises 42702
   // "column reference 'id' is ambiguous" at runtime.
-  const orderBy = (orderParts.length > 0 ? [...orderParts, sql`r.id ${idDirSql}`] : [sql`r.id ${idDirSql}`])
-    .reduce((acc, cur) => sql`${acc}, ${cur}`);
+  const orderBy = (orderParts.length > 0 ? [...orderParts, sql`r.id ${idDirSql}`] : [sql`r.id ${idDirSql}`]).reduce(
+    (acc, cur) => sql`${acc}, ${cur}`,
+  );
 
   // Build cursor where clause if a cursor is present.
   let cursorWhere: any | null = null;
   if (cursor) {
     if (resolved.length === 0) {
       // ID-only paging.
-      cursorWhere = pageDirection === "desc"
-        ? sql`r.id < ${cursor.id}::uuid`
-        : sql`r.id > ${cursor.id}::uuid`;
+      cursorWhere = pageDirection === "desc" ? sql`r.id < ${cursor.id}::uuid` : sql`r.id > ${cursor.id}::uuid`;
     } else {
       // Lexicographic null-aware comparison:
       //   gt(c1, v1)
       //   OR (eq(c1, v1) AND gt(c2, v2))
       //   OR ...
       //   OR (eq(...) AND id (>|<) cursor_id)
-      const idCompare = pageDirection === "desc"
-        ? sql`r.id < ${cursor.id}::uuid`
-        : sql`r.id > ${cursor.id}::uuid`;
+      const idCompare = pageDirection === "desc" ? sql`r.id < ${cursor.id}::uuid` : sql`r.id > ${cursor.id}::uuid`;
 
       const branches: any[] = [];
       for (let i = 0; i < resolved.length; i++) {
@@ -254,14 +250,15 @@ export const compileSort = (
   // The result row will carry these columns alongside r.*, and the
   // cursor encoder reads them — same null-safe values the ORDER BY
   // sees, so corrupt JSONB doesn't leak through cursor encoding.
-  const cursorSelect = resolved.length === 0
-    ? sql``
-    : resolved
-        .map(({ field }, i) => {
-          const proj = projectionForField(field)!.sql;
-          return sql`, ${proj} AS ${sql.unsafe(`__sort_${i}`)}`;
-        })
-        .reduce((acc, cur) => sql`${acc}${cur}`);
+  const cursorSelect =
+    resolved.length === 0
+      ? sql``
+      : resolved
+          .map(({ field }, i) => {
+            const proj = projectionForField(field)!.sql;
+            return sql`, ${proj} AS ${sql.unsafe(`__sort_${i}`)}`;
+          })
+          .reduce((acc, cur) => sql`${acc}${cur}`);
 
   const encodeCursorFromRow = (row: Record<string, unknown>): string => {
     const values: unknown[] = [];
@@ -290,10 +287,7 @@ export const compileSort = (
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const decodeCursor = (
-  token: string,
-  expectedLength?: number,
-): { values: unknown[]; id: string } | null => {
+export const decodeCursor = (token: string, expectedLength?: number): { values: unknown[]; id: string } | null => {
   let parsed: { v?: unknown; i?: unknown };
   try {
     parsed = JSON.parse(token);

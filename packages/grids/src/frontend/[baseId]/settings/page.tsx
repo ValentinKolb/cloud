@@ -7,7 +7,7 @@ import BaseSettingsPanel from "../../_components/BaseSettingsPanel.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const baseShortId = c.req.param("baseId");
+  const baseShortId = c.req.param("baseId")!;
 
   const base = await gridsService.base.getByIdOrShortId(baseShortId);
   if (!base) {

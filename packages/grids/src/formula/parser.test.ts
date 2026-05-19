@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { parseFormula, collectFieldRefs } from "./parser";
+import { expect, test } from "bun:test";
+import { collectFieldRefs, parseFormula } from "./parser";
 
 test("parses literal", () => {
   const r = parseFormula("42");
@@ -44,6 +44,15 @@ test("parses function call", () => {
   if (r.ok && r.ast.kind === "call") {
     expect(r.ast.fn).toBe("CONCAT");
     expect(r.ast.args).toHaveLength(3);
+  }
+});
+
+test("accepts optional leading equals for spreadsheet-style authoring", () => {
+  const r = parseFormula("=SUM(#price, 2)");
+  expect(r.ok).toBe(true);
+  if (r.ok && r.ast.kind === "call") {
+    expect(r.ast.fn).toBe("SUM");
+    expect(r.ast.args[0]).toEqual({ kind: "field", fieldId: "price" });
   }
 });
 

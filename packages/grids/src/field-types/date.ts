@@ -21,25 +21,37 @@ const DateConfigSchema = z
   });
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_PREFIX_RE = /^(\d{4}-\d{2}-\d{2})/;
+const LOCAL_DATETIME_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?$/;
+
+const isValidDateOnly = (value: string): boolean => {
+  if (!DATE_ONLY_RE.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+};
+
+const normalizeLocalDateTime = (raw: string): string | null => {
+  if (DATE_ONLY_RE.test(raw)) return isValidDateOnly(raw) ? `${raw}T00:00` : null;
+  const match = LOCAL_DATETIME_RE.exec(raw);
+  if (!match) return null;
+  const [, date, hh, mm, ss, ms] = match;
+  if (!date || !isValidDateOnly(date)) return null;
+  const hour = Number(hh);
+  const minute = Number(mm);
+  const second = ss === undefined ? 0 : Number(ss);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
+  return `${date}T${hh}:${mm}${ss !== undefined ? `:${ss}${ms ?? ""}` : ""}`;
+};
 
 const parseAndCanonicalize = (raw: string, includeTime: boolean): string | null => {
   if (includeTime) {
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toISOString();
+    return normalizeLocalDateTime(raw);
   }
-  // Date-only: accept "YYYY-MM-DD" if it round-trips through Date, else
-  // fall back to full ISO parsing + truncation. The round-trip catches
-  // syntactically-valid-but-impossible dates like "2026-13-99".
-  if (DATE_ONLY_RE.test(raw)) {
-    const d = new Date(`${raw}T00:00:00Z`);
-    if (Number.isNaN(d.getTime())) return null;
-    if (d.toISOString().slice(0, 10) !== raw) return null;
-    return raw;
-  }
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  // Date-only fields keep the calendar date the user supplied. If an
+  // API caller sends a timestamp, use its leading YYYY-MM-DD date part
+  // instead of converting through UTC and potentially shifting the day.
+  const date = DATE_PREFIX_RE.exec(raw)?.[1];
+  return date && isValidDateOnly(date) ? date : null;
 };
 
 export const dateHandler: FieldTypeHandler = {

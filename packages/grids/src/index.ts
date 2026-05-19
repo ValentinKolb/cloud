@@ -4,6 +4,7 @@ import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
 import pageRoutes, { adminRoutes, publicRoutes } from "./frontend";
 import { gridsService } from "./service";
+import { automationRuntime } from "./service/automations-runtime";
 import { migrate } from "./migrate";
 
 const router = new Hono<AuthContext>()
@@ -20,6 +21,12 @@ export default await app.start({
   lifecycle: {
     setup: async () => {
       await migrate();
+    },
+    start: async () => {
+      await automationRuntime.start();
+    },
+    stop: async () => {
+      await automationRuntime.stop();
     },
   },
 });

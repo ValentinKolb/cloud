@@ -3,8 +3,13 @@ import { Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { Field } from "../../service";
 
 export type AggKindUI =
-  | "count" | "countEmpty" | "countUnique"
-  | "sum" | "avg" | "min" | "max";
+  | "count"
+  | "countEmpty"
+  | "countUnique"
+  | "sum"
+  | "avg"
+  | "min"
+  | "max";
 
 export type AggregationRow = {
   /** "*" is shorthand for COUNT(*) — count of records in the bucket. */
@@ -29,8 +34,11 @@ type Props = {
 };
 
 const NUMERIC_TYPES = new Set([
-  "number", "decimal", "currency", "percent", "duration",
-  "rating", "autonumber",
+  "number",
+  "decimal",
+  "percent",
+  "duration",
+  "autonumber",
 ]);
 const DATE_TYPES = new Set(["date"]);
 
@@ -40,7 +48,8 @@ const aggsForField = (f: Field | null): AggKindUI[] => {
   if (!f) return ["count"]; // "*" only supports count
   const out: AggKindUI[] = ["count", "countEmpty", "countUnique"];
   if (NUMERIC_TYPES.has(f.type)) out.push("sum", "avg", "min", "max");
-  else if (DATE_TYPES.has(f.type) || f.type === "text" || f.type === "longtext") out.push("min", "max");
+  else if (DATE_TYPES.has(f.type) || f.type === "text" || f.type === "longtext")
+    out.push("min", "max");
   return out;
 };
 
@@ -58,13 +67,14 @@ const AGG_LABELS: Record<AggKindUI, string> = {
  *  the compiler can't aggregate well; include "*" as a special record-
  *  count entry. */
 const aggregatableFields = (fields: Field[]): Field[] =>
-  fields.filter((f) =>
-    !f.deletedAt
-    && f.type !== "relation"
-    && f.type !== "lookup"
-    && f.type !== "rollup"
-    && f.type !== "formula"
-    && f.type !== "json",
+  fields.filter(
+    (f) =>
+      !f.deletedAt &&
+      f.type !== "relation" &&
+      f.type !== "lookup" &&
+      f.type !== "rollup" &&
+      f.type !== "formula" &&
+      f.type !== "json"
   );
 
 export const blankAggregationRow = (): AggregationRow => ({
@@ -77,11 +87,13 @@ export const isAggregationRowComplete = (row: AggregationRow): boolean =>
 
 export default function AggregationsPanel(props: Props) {
   const eligibleFields = createMemo(() => aggregatableFields(props.fields));
-  const fieldsById = createMemo(() => new Map(props.fields.map((f) => [f.id, f])));
+  const fieldsById = createMemo(
+    () => new Map(props.fields.map((f) => [f.id, f]))
+  );
 
   const updateRow = (index: number, patch: Partial<AggregationRow>) => {
     props.onRowsChange(
-      props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r)),
+      props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r))
     );
   };
 
@@ -100,7 +112,7 @@ export default function AggregationsPanel(props: Props) {
               ? null
               : fieldsById().get(rowSignal().fieldId as string) ?? null;
           const aggOptions = createMemo(() =>
-            aggsForField(fld()).map((k) => ({ id: k, label: AGG_LABELS[k] })),
+            aggsForField(fld()).map((k) => ({ id: k, label: AGG_LABELS[k] }))
           );
           return (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
@@ -113,7 +125,10 @@ export default function AggregationsPanel(props: Props) {
                   }}
                   options={[
                     { id: "*", label: "All records" },
-                    ...eligibleFields().map((f) => ({ id: f.id, label: f.name })),
+                    ...eligibleFields().map((f) => ({
+                      id: f.id,
+                      label: f.name,
+                    })),
                   ]}
                   placeholder="Field"
                 />
@@ -130,10 +145,12 @@ export default function AggregationsPanel(props: Props) {
                     the auto-derived "<agg> <fieldName>" string. */}
                 <TextInput
                   value={() => rowSignal().label ?? ""}
-                  onChange={(v) => updateRow(index, {
-                    label: v.trim() === "" ? undefined : v,
-                  })}
-                  placeholder="Column label (optional)"
+                  onChange={(v) =>
+                    updateRow(index, {
+                      label: v.trim() === "" ? undefined : v,
+                    })
+                  }
+                  placeholder="Column label"
                 />
               </div>
               <button

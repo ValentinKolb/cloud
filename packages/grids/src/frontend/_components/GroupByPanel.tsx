@@ -1,5 +1,5 @@
-import { Index, Show, createMemo } from "solid-js";
 import { Select } from "@valentinkolb/cloud/ui";
+import { createMemo, Index, Show } from "solid-js";
 import type { Field } from "../../service";
 
 export type GroupByRow = {
@@ -23,18 +23,23 @@ type Props = {
  * Field types that produce well-defined group buckets. Mirrors
  * `isGroupable(field)` in `service/group-compiler.ts` — keep them in
  * sync. Lookup / rollup deferred (would require correlated-subquery
- * GROUP BY); multi-select deferred (LATERAL unnest, like relation
- * explode but with a tag-array projection).
+ * GROUP BY); select uses explode semantics for one bucket per selected option.
  */
 const GROUPABLE_TYPES = new Set([
-  "text", "longtext", "number", "decimal", "currency", "percent", "duration",
-  "rating", "autonumber", "boolean", "date",
-  "single-select", "email", "url", "phone", "slug", "barcode", "isbn",
+  "text",
+  "longtext",
+  "number",
+  "decimal",
+  "percent",
+  "duration",
+  "autonumber",
+  "boolean",
+  "date",
+  "select",
   "relation",
 ]);
 
-export const groupableFields = (fields: Field[]): Field[] =>
-  fields.filter((f) => !f.deletedAt && GROUPABLE_TYPES.has(f.type));
+export const groupableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && GROUPABLE_TYPES.has(f.type));
 
 export const blankGroupByRow = (fields: Field[]): GroupByRow | null => {
   const usable = groupableFields(fields);
@@ -51,9 +56,7 @@ export default function GroupByPanel(props: Props) {
   const fieldsById = createMemo(() => new Map(props.fields.map((f) => [f.id, f])));
 
   const updateRow = (index: number, patch: Partial<GroupByRow>) => {
-    props.onRowsChange(
-      props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r)),
-    );
+    props.onRowsChange(props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r)));
   };
 
   const addRow = () => {
@@ -62,8 +65,7 @@ export default function GroupByPanel(props: Props) {
     if (blank) props.onRowsChange([...props.rows(), blank]);
   };
 
-  const removeRow = (index: number) =>
-    props.onRowsChange(props.rows().filter((_, i) => i !== index));
+  const removeRow = (index: number) => props.onRowsChange(props.rows().filter((_, i) => i !== index));
 
   if (fields().length === 0) return null;
 
@@ -75,9 +77,7 @@ export default function GroupByPanel(props: Props) {
           const isDate = () => f()?.type === "date";
           return (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
-              <span class="w-16 shrink-0 text-dimmed">
-                {index === 0 ? "group by" : "then by"}
-              </span>
+              <span class="w-16 shrink-0 text-dimmed">{index === 0 ? "group by" : "then by"}</span>
               <div class="w-40 shrink-0">
                 <Select
                   value={() => rowSignal().fieldId}
@@ -89,9 +89,7 @@ export default function GroupByPanel(props: Props) {
               <div class="w-32 shrink-0">
                 <Select
                   value={() => rowSignal().direction ?? "asc"}
-                  onChange={(v) =>
-                    updateRow(index, { direction: v as "asc" | "desc" })
-                  }
+                  onChange={(v) => updateRow(index, { direction: v as "asc" | "desc" })}
                   options={[
                     { id: "asc", label: "A → Z" },
                     { id: "desc", label: "Z → A" },
@@ -117,12 +115,7 @@ export default function GroupByPanel(props: Props) {
                   />
                 </div>
               </Show>
-              <button
-                type="button"
-                class="text-dimmed hover:text-red-500 px-1"
-                onClick={() => removeRow(index)}
-                title="Remove group level"
-              >
+              <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeRow(index)} title="Remove group level">
                 <i class="ti ti-x" />
               </button>
             </div>
@@ -132,11 +125,7 @@ export default function GroupByPanel(props: Props) {
 
       <Show when={props.rows().length < 3}>
         <div class="flex items-center gap-1">
-          <button
-            type="button"
-            class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"
-            onClick={addRow}
-          >
+          <button type="button" class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700" onClick={addRow}>
             <i class="ti ti-plus" /> Add
           </button>
         </div>

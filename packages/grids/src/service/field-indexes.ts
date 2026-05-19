@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { logger } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 
 const log = logger("grids:field-indexes");
 
@@ -8,10 +8,10 @@ const log = logger("grids:field-indexes");
  * and built with `CONCURRENTLY` so they don't lock writers on large tables.
  *
  * Index names: `idx_grids_data_<fieldId-no-dashes>` keeps us under Postgres'
- * 63-char identifier limit (32 hex chars + prefix = ~52). All indexes are
- * partial: only over live records in the owning table that actually contain
- * the JSONB field key. That keeps indexes small even when all tables share the
- * physical `grids.records` table.
+ * 63-char identifier limit (32 hex chars + prefix = ~52). Performance indexes
+ * are partial by table + live records only. Do NOT add `data ? fieldId` here:
+ * the hot query compilers do not emit that predicate, so Postgres cannot prove
+ * the partial index applies and falls back to seq scans on 100k+ rows.
  */
 
 const indexName = (fieldId: string): string => `idx_grids_data_${fieldId.replace(/-/g, "")}`;
@@ -27,28 +27,22 @@ const indexExpressionForType = (fieldId: string, type: string): string | null =>
   switch (type) {
     case "number":
     case "decimal":
-    case "rating":
     case "autonumber":
     case "percent":
     case "duration":
-    case "currency":
-      // All decimal-backed types share the numeric expression index.
-      // Currency stores a plain decimal (the symbol lives in field
-      // config) so it indexes identically.
-      return `(grids.try_numeric(data->>'${fieldId}'))`;
+      // All numeric field types share the numeric expression index.
+      return `((grids.try_numeric(data->>'${fieldId}')))`;
     case "date":
-      // Date expression indexes use the raw cast because Postgres
-      // expression indexes require IMMUTABLE functions; grids.try_date is
-      // intentionally STABLE. Record validation stores ISO dates, so this
-      // is safe for indexed fields with valid app-written data.
-      return `((data->>'${fieldId}')::date)`;
+      // Date expression indexes need an IMMUTABLE parser. The app writes
+      // canonical YYYY-MM-DD values, so grids.try_iso_date can parse
+      // without session DateStyle.
+      return `((grids.try_iso_date(data->>'${fieldId}')))`;
     case "boolean":
-      return `(grids.try_boolean(data->>'${fieldId}'))`;
+      return `((grids.try_boolean(data->>'${fieldId}')))`;
     case "text":
     case "longtext":
-    case "single-select":
-      return `(data->>'${fieldId}')`;
-    case "multi-select":
+      return `((data->>'${fieldId}'))`;
+    case "select":
       // jsonb GIN with path_ops for containment.
       return null;
     default:
@@ -56,20 +50,15 @@ const indexExpressionForType = (fieldId: string, type: string): string | null =>
   }
 };
 
-const fieldIndexWhere = (fieldId: string, tableId: string): string =>
-  `WHERE table_id = '${tableId}'::uuid AND deleted_at IS NULL AND data ? '${fieldId}'`;
+const fieldIndexWhere = (_fieldId: string, tableId: string): string => `WHERE table_id = '${tableId}'::uuid AND deleted_at IS NULL`;
 
 /**
- * Ensures the expression index exists for an indexed field. Idempotent —
- * uses IF NOT EXISTS. Runs CONCURRENTLY so it can't be inside a transaction;
+ * Ensures the expression index exists for an indexed field. Runs CONCURRENTLY
+ * so it can't be inside a transaction;
  * caller must invoke this OUTSIDE any in-flight tx (which is the case in
  * field.update / field.create where the tx is already committed).
  */
-export const ensureFieldIndex = async (
-  fieldId: string,
-  type: string,
-  tableId: string,
-): Promise<void> => {
+export const ensureFieldIndex = async (fieldId: string, type: string, tableId: string): Promise<void> => {
   // Field IDs are UUIDs (constrained set [a-f0-9-]) so embedding them in
   // SQL identifiers is safe — no other path produces a `fieldId` value.
   if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) {
@@ -79,27 +68,37 @@ export const ensureFieldIndex = async (
 
   const expression = indexExpressionForType(fieldId, type);
   if (!expression) {
-    // multi-select / unsupported types use a different strategy (jsonb_path_ops GIN).
-    if (type === "multi-select") {
+    // select / unsupported types use a different strategy (jsonb_path_ops GIN).
+    if (type === "select") {
       const idx = indexName(fieldId);
       try {
+        await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${idx}`);
         await sql.unsafe(
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${idx}
+          `CREATE INDEX CONCURRENTLY ${idx}
            ON grids.records USING gin ((data->'${fieldId}') jsonb_path_ops)
            ${fieldIndexWhere(fieldId, tableId)}`,
         );
-        log.info("Created multi-select GIN index", { fieldId, tableId, idx });
+        log.info("Created select GIN index", { fieldId, tableId, idx });
       } catch (e) {
-        log.error("Failed to create multi-select GIN index", { fieldId, tableId, error: String(e) });
+        log.error("Failed to create select GIN index", { fieldId, tableId, error: String(e) });
       }
     }
     return;
   }
 
   const idx = indexName(fieldId);
+  // Recreate by name so old alpha indexes with narrower predicates are
+  // replaced the next time ensureFieldIndex runs.
+  for (const name of [idx, trgmIndexName(fieldId)]) {
+    try {
+      await sql.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS grids.${name}`);
+    } catch (e) {
+      log.warn("Pre-create DROP INDEX failed (continuing)", { fieldId, idx: name, error: String(e) });
+    }
+  }
   try {
     await sql.unsafe(
-      `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${idx}
+      `CREATE INDEX CONCURRENTLY ${idx}
        ON grids.records ${expression}
        ${fieldIndexWhere(fieldId, tableId)}`,
     );
@@ -115,7 +114,7 @@ export const ensureFieldIndex = async (
       // pg_trgm is a postgres extension; ensure it's available.
       await sql.unsafe(`CREATE EXTENSION IF NOT EXISTS pg_trgm`);
       await sql.unsafe(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS ${tidx}
+        `CREATE INDEX CONCURRENTLY ${tidx}
          ON grids.records USING gin ((data->>'${fieldId}') gin_trgm_ops)
          ${fieldIndexWhere(fieldId, tableId)}`,
       );
@@ -150,15 +149,11 @@ export const dropFieldIndex = async (fieldId: string): Promise<void> => {
 // real partial unique index over the JSONB-projected value, scoped to
 // live records of the table.
 //
-// Multi-select / relation field types are explicitly rejected at the
+// Select / relation field types are explicitly rejected at the
 // API boundary because their value isn't a scalar — uniqueness over
 // a JSONB array doesn't have a well-defined semantic.
 
-const UNIQUE_SUPPORTED_TYPES = new Set([
-  "text", "longtext", "number", "decimal", "currency", "percent",
-  "rating", "date", "single-select", "boolean", "autonumber",
-  "email", "url", "phone", "slug", "barcode", "isbn",
-]);
+const UNIQUE_SUPPORTED_TYPES = new Set(["text", "longtext", "number", "decimal", "percent", "date", "boolean", "autonumber"]);
 
 export const isUniqueable = (type: string): boolean => UNIQUE_SUPPORTED_TYPES.has(type);
 
@@ -171,11 +166,7 @@ export const isUniqueable = (type: string): boolean => UNIQUE_SUPPORTED_TYPES.ha
  * data violates uniqueness — caller is expected to pre-check via
  * `findUniqueConflicts` and surface a 409 to the user before toggling.
  */
-export const ensureFieldUniqueIndex = async (
-  fieldId: string,
-  type: string,
-  tableId: string,
-): Promise<void> => {
+export const ensureFieldUniqueIndex = async (fieldId: string, type: string, tableId: string): Promise<void> => {
   if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) {
     log.warn("Refusing to create unique index for invalid id", { fieldId, tableId });
     return;
@@ -226,10 +217,7 @@ export const dropFieldUniqueIndex = async (fieldId: string): Promise<void> => {
  * clean 409 with a list of offenders instead of letting Postgres throw
  * a generic duplicate-key error during index build.
  */
-export const findUniqueConflicts = async (
-  fieldId: string,
-  tableId: string,
-): Promise<string[]> => {
+export const findUniqueConflicts = async (fieldId: string, tableId: string): Promise<string[]> => {
   if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) return [];
   const rows = await sql.unsafe(
     `SELECT data->>'${fieldId}' AS v

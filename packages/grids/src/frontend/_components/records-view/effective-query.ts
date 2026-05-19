@@ -16,8 +16,10 @@ import type { RecordsState } from "./query-url";
  * the client island both flow through this merge.
  *
  * Saved-view-only state:
- * - `limit` and `columns` come exclusively from the view (they are NOT
- *   URL state). When no view is active, both are undefined.
+ * - `limit` and `columns` come exclusively from the view. When no view
+ *   is active, both are undefined.
+ * - Search is URL-owned when `?q`/`?qFields` is present. Otherwise it
+ *   falls through to the saved view's search.
  *
  * `source` reports whether the active query is the view exactly, the
  * view with user customizations layered on top, or pure ad-hoc URL
@@ -35,7 +37,12 @@ export const resolveEffectiveQuery = (
   view: View | null,
 ): EffectiveQuery => {
   if (!view) {
-    return { ...state.query, source: "ad-hoc" };
+    const q = state.search.q.trim();
+    return {
+      ...state.query,
+      search: q ? { q, fieldIds: state.search.fieldIds } : undefined,
+      source: "ad-hoc",
+    };
   }
 
   // URL fields override view fields when present; otherwise inherit.
@@ -47,14 +54,23 @@ export const resolveEffectiveQuery = (
   // overrides.)
   const merged: ViewQuery = {
     filter: state.query.filter ?? view.query.filter,
+    search: state.search.override
+      ? (state.search.q.trim()
+          ? { q: state.search.q.trim(), fieldIds: state.search.fieldIds }
+          : undefined)
+      : view.query.search,
     sort: isNonEmpty(state.query.sort) ? state.query.sort : view.query.sort,
     groupBy: isNonEmpty(state.query.groupBy)
       ? state.query.groupBy
       : view.query.groupBy,
+    groupSort: isNonEmpty(state.query.groupSort)
+      ? state.query.groupSort
+      : view.query.groupSort,
     aggregations: isNonEmpty(state.query.aggregations)
       ? state.query.aggregations
       : view.query.aggregations,
     includeDeleted: state.query.includeDeleted ?? view.query.includeDeleted,
+    deletedOnly: state.query.deletedOnly ?? view.query.deletedOnly,
     columns: view.query.columns,
     limit: view.query.limit,
   };
@@ -65,8 +81,11 @@ export const resolveEffectiveQuery = (
     state.query.filter !== undefined ||
     isNonEmpty(state.query.sort) ||
     isNonEmpty(state.query.groupBy) ||
+    isNonEmpty(state.query.groupSort) ||
     isNonEmpty(state.query.aggregations) ||
-    state.query.includeDeleted !== undefined;
+    state.search.override === true ||
+    state.query.includeDeleted !== undefined ||
+    state.query.deletedOnly !== undefined;
 
   return { ...merged, source: customized ? "view-customized" : "view" };
 };

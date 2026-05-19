@@ -17,16 +17,15 @@
  *   ?filter=<FilterTree JSON>
  *   ?sort=<SortSpec[] JSON>
  *   ?groupBy=<GroupBySpec[] JSON>
+ *   ?groupSort=<GroupSortSpec[] JSON>
  *   ?aggregations=<AggregationSpec[] JSON>
  *   ?cursor=<JSON-encoded keyset cursor token>
  *   ?record=<UUID — selected detail-panel record>
  *   ?trash=1                                — trash mode
  *   ?q=<text>&qFields=<csv UUIDs>           — free-text search
  *
- * Note: `table` / `view` / `dashboard` are NO LONGER query params —
- * they live in the path. Old links carrying them still work because
- * the SSR handler reads them as a fallback (see [baseId]/page.tsx),
- * but new code emits only the path form.
+ * Note: `table` / `view` / `dashboard` are not query params — they live
+ * in the path.
  */
 
 import type { ViewQuery } from "../../../contracts";
@@ -40,17 +39,17 @@ import type { ViewQuery } from "../../../contracts";
  */
 export type RecordsUrlQuery = Pick<
   ViewQuery,
-  "filter" | "sort" | "groupBy" | "aggregations" | "includeDeleted"
+  "filter" | "sort" | "groupBy" | "groupSort" | "aggregations" | "includeDeleted" | "deletedOnly"
 >;
 
 export type RecordsState = {
   query: RecordsUrlQuery;
   cursor: string | null;
   selectedRecordId: string | null;
-  /** Free-text search params — kept separate from `query.search` so
-   *  SSR's mergeSearchIntoFilter can still build the OR-group across
-   *  searchable fields the same way it does today. */
-  search: { q: string; fieldIds: string[] };
+  /** Free-text search params — kept separate from the URL-owned query
+   *  subset, then folded into `query.search` for the server-side SQL
+   *  search compiler. */
+  search: { q: string; fieldIds: string[]; override?: boolean };
 };
 
 const tryParseJson = <T>(raw: string | null | undefined): T | null => {
@@ -106,6 +105,14 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
   );
   if (groupBy.length > 0) query.groupBy = groupBy as RecordsUrlQuery["groupBy"];
 
+  const groupSort = tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(
+    params.get("groupSort"),
+    ["fieldId", "agg"],
+  );
+  if (groupSort.length > 0) {
+    query.groupSort = groupSort as RecordsUrlQuery["groupSort"];
+  }
+
   const aggregations = tryParseArray<{ fieldId: string; agg: string }>(
     params.get("aggregations"),
     ["fieldId", "agg"],
@@ -114,7 +121,7 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
     query.aggregations = aggregations as RecordsUrlQuery["aggregations"];
   }
 
-  if (params.get("trash") === "1") query.includeDeleted = true;
+  if (params.get("trash") === "1") query.deletedOnly = true;
 
   // Free-text search lives outside ViewQuery (SSR merges it into the filter
   // tree before the service call so ad-hoc typing layers cleanly on top of
@@ -122,12 +129,13 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
   const q = (params.get("q") ?? "").trim();
   const qFieldsRaw = params.get("qFields") ?? "";
   const fieldIds = qFieldsRaw ? qFieldsRaw.split(",").filter(Boolean) : [];
+  const searchOverride = params.has("q") || params.has("qFields");
 
   return {
     query,
     cursor: params.get("cursor") || null,
     selectedRecordId: params.get("record") || null,
-    search: { q, fieldIds },
+    search: { q, fieldIds, override: searchOverride },
   };
 };
 
@@ -192,6 +200,9 @@ export const buildRecordsUrl = (
   if (query.groupBy && query.groupBy.length > 0 && !matchesView("groupBy")) {
     url.searchParams.set("groupBy", JSON.stringify(query.groupBy));
   }
+  if (query.groupSort && query.groupSort.length > 0 && !matchesView("groupSort")) {
+    url.searchParams.set("groupSort", JSON.stringify(query.groupSort));
+  }
   if (
     query.aggregations &&
     query.aggregations.length > 0 &&
@@ -199,10 +210,26 @@ export const buildRecordsUrl = (
   ) {
     url.searchParams.set("aggregations", JSON.stringify(query.aggregations));
   }
-  if (query.includeDeleted) url.searchParams.set("trash", "1");
+  if (query.deletedOnly) url.searchParams.set("trash", "1");
 
-  if (search.q) url.searchParams.set("q", search.q);
-  if (search.fieldIds.length > 0) {
+  const viewSearch = viewQuery?.search
+    ? {
+        q: viewQuery.search.q.trim(),
+        fieldIds: viewQuery.search.fieldIds ?? [],
+      }
+    : null;
+  const searchMatchesView = Boolean(
+    viewSearch &&
+      search.q.trim() === viewSearch.q &&
+      JSON.stringify(search.fieldIds) === JSON.stringify(viewSearch.fieldIds),
+  );
+  const shouldWriteSearch =
+    search.override === true
+      ? Boolean(search.q || viewSearch)
+      : Boolean(search.q && !searchMatchesView);
+
+  if (shouldWriteSearch) url.searchParams.set("q", search.q);
+  if (shouldWriteSearch && search.fieldIds.length > 0) {
     url.searchParams.set("qFields", search.fieldIds.join(","));
   }
 

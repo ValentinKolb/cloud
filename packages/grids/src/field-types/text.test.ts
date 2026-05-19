@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { textHandler, longtextHandler } from "./text";
+import { expect, test } from "bun:test";
+import { longtextHandler, textHandler } from "./text";
 
 test("text: trims and rejects empty as null", () => {
   expect(textHandler.validate("  hello  ", {}, false)).toEqual({ ok: true, value: "hello" });
@@ -50,4 +50,16 @@ test("longtext: rejects invalid config (negative minLength)", () => {
 
 test("longtext: rejects invalid config (zero maxLength)", () => {
   expect(longtextHandler.validate("abc", { maxLength: 0 }, false).ok).toBe(false);
+});
+
+test("longtext: accepts markdown display config", () => {
+  const parsed = longtextHandler.configSchema.safeParse({ markdown: true, maxLength: 200 });
+  expect(parsed.success).toBe(true);
+  if (parsed.success) {
+    expect(parsed.data).toEqual({ markdown: true, maxLength: 200 });
+  }
+  expect(longtextHandler.validate("# Notes", { markdown: true }, false)).toEqual({
+    ok: true,
+    value: "# Notes",
+  });
 });

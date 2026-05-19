@@ -4,6 +4,7 @@ import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
+import { validateViewQueryForTable } from "./query-validation";
 import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type FormatSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
@@ -28,6 +29,7 @@ const mapRow = (row: DbRow): View => {
     shortId: row.short_id as string,
     tableId: row.table_id as string,
     name: row.name as string,
+    icon: (row.icon as string | null) ?? null,
     query: parsed.success ? parsed.data : {},
     ownerUserId: (row.owner_user_id as string | null) ?? null,
     position: row.position as number,
@@ -97,67 +99,64 @@ export const listForTable = async (params: {
   // principal rows are possible, and (b) a user can be in multiple groups
   // that disagree. Per-tier rule: NULL if no rows, 0 if any deny, else
   // MAX(positive rank).
-  const rows = await sql<(DbRow & {
-    user_rank: number | null;
-    group_rank: number | null;
-    auth_rank: number | null;
-    public_rank: number | null;
-  })[]>`
-    SELECT v.id, v.short_id, v.table_id, v.name, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
-      (
-        SELECT CASE
-          WHEN COUNT(*) = 0 THEN NULL
-          WHEN bool_or(a.permission = 'none') THEN 0
-          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-        END
-        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-        WHERE va.view_id = v.id AND a.user_id = ${params.userId}::uuid
-      ) AS user_rank,
-      (
-        SELECT CASE
-          WHEN COUNT(*) = 0 THEN NULL
-          WHEN bool_or(a.permission = 'none') THEN 0
-          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-        END
-        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-        WHERE va.view_id = v.id AND a.group_id = ANY(${groups}::uuid[])
-      ) AS group_rank,
-      (
-        SELECT CASE
-          WHEN COUNT(*) = 0 THEN NULL
-          WHEN bool_or(a.permission = 'none') THEN 0
-          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-        END
-        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-        WHERE va.view_id = v.id
-          AND a.authenticated_only = TRUE
-          AND ${params.userId}::uuid IS NOT NULL
-      ) AS auth_rank,
-      (
-        SELECT CASE
-          WHEN COUNT(*) = 0 THEN NULL
-          WHEN bool_or(a.permission = 'none') THEN 0
-          ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
-        END
-        FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
-        WHERE va.view_id = v.id
-          AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
-      ) AS public_rank
-    FROM grids.views v
-    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
-    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-    WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
-    ORDER BY v.position, v.created_at
+  const rows = await sql<DbRow[]>`
+    WITH ranked AS (
+      SELECT v.id, v.short_id, v.table_id, v.name, v.icon, v.query, v.owner_user_id, v.position, v.deleted_at, v.created_at, v.updated_at,
+        (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            WHEN bool_or(a.permission = 'none') THEN 0
+            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+          END
+          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+          WHERE va.view_id = v.id AND a.user_id = ${params.userId}::uuid
+        ) AS user_rank,
+        (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            WHEN bool_or(a.permission = 'none') THEN 0
+            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+          END
+          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+          WHERE va.view_id = v.id AND a.group_id = ANY(${groups}::uuid[])
+        ) AS group_rank,
+        (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            WHEN bool_or(a.permission = 'none') THEN 0
+            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+          END
+          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+          WHERE va.view_id = v.id
+            AND a.authenticated_only = TRUE
+            AND ${params.userId}::uuid IS NOT NULL
+        ) AS auth_rank,
+        (
+          SELECT CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            WHEN bool_or(a.permission = 'none') THEN 0
+            ELSE MAX(CASE a.permission WHEN 'read' THEN 1 WHEN 'write' THEN 2 WHEN 'admin' THEN 3 END)
+          END
+          FROM grids.view_access va JOIN auth.access a ON a.id = va.access_id
+          WHERE va.view_id = v.id
+            AND a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = FALSE
+        ) AS public_rank
+      FROM grids.views v
+      JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+      JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+      WHERE v.table_id = ${params.tableId}::uuid AND v.deleted_at IS NULL
+    )
+    SELECT id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
+    FROM ranked
+    WHERE COALESCE(user_rank, group_rank, auth_rank, public_rank) >= 1
+       OR (
+         COALESCE(user_rank, group_rank, auth_rank, public_rank) IS NULL
+         AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid)
+       )
+    ORDER BY position, created_at
   `;
 
-  return rows
-    .filter((row) =>
-      isVisibleByAclTiers(
-        { userRank: row.user_rank, groupRank: row.group_rank, authRank: row.auth_rank, publicRank: row.public_rank },
-        { ownerUserId: row.owner_user_id as string | null, viewerUserId: params.userId },
-      ),
-    )
-    .map(mapRow);
+  return rows.map(mapRow);
 };
 
 // ──────────────────────────────────────────────────────────────────
@@ -217,6 +216,7 @@ export const get = async (
 export type CreateViewServiceInput = {
   tableId: string;
   name: string;
+  icon?: string | null;
   /** Canonical query — undefined means "empty preset" (just a named view
    *  with no filter/sort/etc, useful as a starting point in the UI). */
   query?: ViewQuery;
@@ -237,19 +237,22 @@ export const create = async (
   if (!queryParsed.success) {
     return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
   }
+  const queryValid = await validateViewQueryForTable(input.tableId, queryParsed.data);
+  if (!queryValid.ok) return queryValid;
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.views (short_id, table_id, name, query, owner_user_id, position)
+      INSERT INTO grids.views (short_id, table_id, name, icon, query, owner_user_id, position)
       VALUES (
         ${shortId},
         ${input.tableId}::uuid,
         ${name},
+        ${input.icon ?? null},
         ${queryParsed.data}::jsonb,
         ${input.ownerUserId ?? null}::uuid,
         COALESCE((SELECT MAX(position) + 1 FROM grids.views WHERE table_id = ${input.tableId}::uuid), 0)
       )
-      RETURNING id, short_id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+      RETURNING id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
     `;
     if (!r) throw new Error("insert returned no row");
     return r;
@@ -261,6 +264,7 @@ export const create = async (
 
 export type UpdateViewServiceInput = {
   name?: string;
+  icon?: string | null;
   query?: ViewQuery;
   position?: number;
   /** Shared toggle: true → ownerUserId becomes null (anyone can read);
@@ -292,11 +296,14 @@ export const update = async (
     if (!queryParsed.success) {
       return fail(err.badInput(`invalid view query: ${queryParsed.error.message}`));
     }
+    const queryValid = await validateViewQueryForTable(existing.tableId, queryParsed.data);
+    if (!queryValid.ok) return queryValid;
     nextQuery = queryParsed.data;
   }
 
   const next = {
     name: name ?? existing.name,
+    icon: input.icon !== undefined ? input.icon : existing.icon,
     query: nextQuery,
     position: input.position ?? existing.position,
   };
@@ -304,12 +311,13 @@ export const update = async (
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views
     SET name = ${next.name},
+        icon = ${next.icon},
         query = ${next.query}::jsonb,
         position = ${next.position},
         owner_user_id = ${ownerUserId}::uuid,
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
-    RETURNING id, short_id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
@@ -336,7 +344,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   const [row] = await sql<DbRow[]>`
     UPDATE grids.views SET deleted_at = NULL, updated_at = now()
     WHERE id = ${id}::uuid
-    RETURNING id, short_id, table_id, name, query, owner_user_id, position, deleted_at, created_at, updated_at
+    RETURNING id, short_id, table_id, name, icon, query, owner_user_id, position, deleted_at, created_at, updated_at
   `;
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);

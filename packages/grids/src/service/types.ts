@@ -1,3 +1,5 @@
+import type { ColumnSpec } from "../contracts";
+
 export type Base = {
   id: string;
   /** Short readable handle (5 chars). Used in URLs and as a stable
@@ -25,6 +27,11 @@ export type Table = {
   baseId: string;
   name: string;
   description: string | null;
+  icon?: string | null;
+  /** Default table columns. Saved views can override this with their
+   *  own ViewQuery.columns, but the renderer consumes the same
+   *  ColumnSpec shape in both cases. */
+  columns: ColumnSpec[];
   position: number;
   /** When true, records can only be added through a form (the
    *  authenticated `/forms/:formId/submit` and the public
@@ -51,6 +58,7 @@ export type Field = {
    *  detail panel. Top-level (not in config) since it's metadata, not
    *  type-specific configuration. */
   description: string | null;
+  icon?: string | null;
   type: string;
   config: Record<string, unknown>;
   position: number;
@@ -94,6 +102,10 @@ export type RecordList = {
   items: GridRecord[];
   fields: Field[];
   nextCursor: string | null;
+  /** SQL-computed footer-style aggregates over the full filtered result
+   *  set, not just the current page. Keys follow `<fieldId>__<agg>` plus
+   *  `*__count` for the filtered row count. */
+  aggregates?: Record<string, unknown>;
 };
 
 export type GridRecord = {
@@ -104,8 +116,8 @@ export type GridRecord = {
    * Optional inline expansion of records this row links to via relation
    * fields. Keyed by the linked record's UUID; the value is a subset of
    * that record's `data` containing exactly the fields needed to render
-   * a label (the target table's `presentable` fields plus any explicit
-   * `displayFieldId` overrides).
+   * a label (the target table's `presentable` fields, or the first
+   * text-shaped field when none are marked presentable).
    *
    * Populated only when a record-returning service call is passed
    * `includeRelations: true`. Absent or `undefined` when expansion was
@@ -128,7 +140,14 @@ export type GridRecord = {
   updatedAt: string;
 };
 
-export type AuditAction = "created" | "updated" | "deleted" | "restored" | "imported";
+export type AuditAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "restored"
+  | "imported"
+  | "automation.webhook.sent"
+  | "automation.webhook.failed";
 
 export type AuditEntry = {
   id: string;
@@ -160,6 +179,63 @@ export type GridFileContent = GridFile & {
   bytes: Uint8Array;
 };
 
+export type AutomationTrigger =
+  | { kind: "manual" }
+  | { kind: "schedule"; cron: string; timezone?: string };
+
+export type AutomationAction = {
+  kind: "webhook";
+  url: string;
+  timeoutMs?: number;
+};
+
+export type AutomationPayloadConfig = {
+  includeRecord?: boolean;
+  fieldIds?: string[];
+};
+
+export type Automation = {
+  id: string;
+  shortId: string;
+  baseId: string;
+  name: string;
+  description: string | null;
+  trigger: AutomationTrigger;
+  action: AutomationAction;
+  payload: AutomationPayloadConfig;
+  enabled: boolean;
+  position: number;
+  ownerUserId: string | null;
+  webhookSecretSet: boolean;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationSubject =
+  | { type: "base" }
+  | { type: "record"; tableId: string; recordId: string };
+
+export type AutomationRun = {
+  id: string;
+  automationId: string;
+  baseId: string;
+  tableId: string | null;
+  recordId: string | null;
+  event: string;
+  trigger: Record<string, unknown>;
+  subject: AutomationSubject;
+  input: unknown | null;
+  status: "running" | "succeeded" | "failed";
+  targetHost: string | null;
+  httpStatus: number | null;
+  durationMs: number | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
+
 export type CreateBaseInput = { name: string; description?: string | null };
 export type UpdateBaseInput = {
   name?: string;
@@ -167,10 +243,12 @@ export type UpdateBaseInput = {
   defaultDashboardId?: string | null;
 };
 
-export type CreateTableInput = { baseId: string; name: string; description?: string | null };
+export type CreateTableInput = { baseId: string; name: string; description?: string | null; icon?: string | null; columns?: ColumnSpec[] };
 export type UpdateTableInput = {
   name?: string;
   description?: string | null;
+  icon?: string | null;
+  columns?: ColumnSpec[];
   disableDirectInsert?: boolean;
 };
 
@@ -178,6 +256,7 @@ export type CreateFieldInput = {
   tableId: string;
   name: string;
   description?: string | null;
+  icon?: string | null;
   type: string;
   config?: Record<string, unknown>;
   position?: number;
@@ -192,6 +271,7 @@ export type CreateFieldInput = {
 export type UpdateFieldInput = {
   name?: string;
   description?: string | null;
+  icon?: string | null;
   config?: Record<string, unknown>;
   position?: number;
   required?: boolean;

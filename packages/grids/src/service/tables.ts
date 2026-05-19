@@ -2,11 +2,17 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { insertWithShortId } from "./short-id";
+import { ColumnSpecSchema } from "../contracts";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, short_id, base_id, name, description, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, base_id, name, description, icon, columns, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+
+const parseColumns = (raw: unknown) => {
+  const parsed = ColumnSpecSchema.array().safeParse(raw ?? []);
+  return parsed.success ? parsed.data : [];
+};
 
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
@@ -14,6 +20,8 @@ const mapRow = (row: DbRow): Table => ({
   baseId: row.base_id as string,
   name: row.name as string,
   description: (row.description as string | null) ?? null,
+  icon: (row.icon as string | null) ?? null,
+  columns: parseColumns(row.columns),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
@@ -133,15 +141,19 @@ export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promis
 export const create = async (input: CreateTableInput, actorId: string | null): Promise<Result<Table>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
+  const columnsParsed = ColumnSpecSchema.array().safeParse(input.columns ?? []);
+  if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
-      INSERT INTO grids.tables (short_id, base_id, name, description, position)
+      INSERT INTO grids.tables (short_id, base_id, name, description, icon, columns, position)
       VALUES (
         ${shortId},
         ${input.baseId}::uuid,
         ${name},
         ${input.description ?? null},
+        ${input.icon ?? null},
+        ${columnsParsed.data}::jsonb,
         COALESCE((SELECT MAX(position) + 1 FROM grids.tables WHERE base_id = ${input.baseId}::uuid AND deleted_at IS NULL), 0)
       )
       RETURNING ${COLS}
@@ -164,14 +176,20 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   const next = {
     name: name ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
+    icon: input.icon !== undefined ? input.icon : existing.icon,
+    columns: input.columns !== undefined ? input.columns : existing.columns,
     disableDirectInsert:
       input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
   };
+  const columnsParsed = ColumnSpecSchema.array().safeParse(next.columns);
+  if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.tables
     SET name = ${next.name},
         description = ${next.description},
+        icon = ${next.icon},
+        columns = ${columnsParsed.data}::jsonb,
         disable_direct_insert = ${next.disableDirectInsert},
         updated_at = now()
     WHERE id = ${id}::uuid AND deleted_at IS NULL
@@ -184,6 +202,10 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
   if (next.description !== existing.description) {
     diff.description = { old: existing.description, new: next.description };
+  }
+  if (next.icon !== existing.icon) diff.icon = { old: existing.icon, new: next.icon };
+  if (JSON.stringify(columnsParsed.data) !== JSON.stringify(existing.columns)) {
+    diff.columns = { old: existing.columns, new: columnsParsed.data };
   }
   if (next.disableDirectInsert !== existing.disableDirectInsert) {
     diff.disableDirectInsert = { old: existing.disableDirectInsert, new: next.disableDirectInsert };

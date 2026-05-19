@@ -1,8 +1,10 @@
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { FormConfigSchema } from "../contracts";
+import { getHandler } from "../field-types";
 import { logAudit } from "./audit";
+import { listByTable as listFields, validateDefaultValue } from "./fields";
 import { parseJsonbRow } from "./jsonb";
-import { listByTable as listFields } from "./fields";
 import { insertWithShortId } from "./short-id";
 import type { Field } from "./types";
 
@@ -143,7 +145,6 @@ const mapRow = (row: DbRow): Form => ({
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-
 /**
  * Look up a form by (tableId, slug). Used for slug-based URL routing.
  * Returns null for soft-deleted forms.
@@ -168,10 +169,7 @@ export const getByShortId = async (tableId: string, shortId: string): Promise<Fo
  * computed / system / autonumber fields — those are server-managed and
  * shouldn't surface as form inputs.
  */
-const DEFAULT_FORM_TYPES = new Set([
-  "text", "longtext", "number", "decimal", "rating",
-  "boolean", "date", "single-select", "multi-select",
-]);
+const DEFAULT_FORM_TYPES = new Set(["text", "longtext", "number", "decimal", "boolean", "date", "select"]);
 
 export const isFormFieldEligible = (field: Field): boolean => {
   if (field.deletedAt) return false;
@@ -221,10 +219,7 @@ export const buildDefaultForm = async (tableId: string): Promise<Form> => {
 // CRUD on stored forms
 // ──────────────────────────────────────────────────────────────────
 
-export const listForTable = async (
-  tableId: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<Form[]> => {
+export const listForTable = async (tableId: string, opts: { includeDeleted?: boolean } = {}): Promise<Form[]> => {
   // Live-parent invariant: forms under a trashed table or base never list.
   const rows = opts.includeDeleted
     ? await sql<DbRow[]>`
@@ -264,10 +259,7 @@ export const listTrashedByBase = async (baseId: string): Promise<Form[]> => {
   return rows.map(mapRow);
 };
 
-export const get = async (
-  id: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<Form | null> => {
+export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<Form | null> => {
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
         SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
@@ -319,17 +311,56 @@ export type CreateFormInput = {
   isPublic?: boolean;
 };
 
+const validateFormConfig = async (tableId: string, config: unknown): Promise<Result<FormConfig>> => {
+  const parsed = FormConfigSchema.safeParse(config);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const detail = firstIssue?.message ?? "invalid form config";
+    return fail(err.badInput(`invalid form config: ${detail}`));
+  }
+  const normalized = parsed.data as FormConfig;
+  const fields = await listFields(tableId);
+  const byId = new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
+  const seen = new Set<string>();
+
+  for (let i = 0; i < normalized.fields.length; i++) {
+    const entry = normalized.fields[i]!;
+    const field = byId.get(entry.fieldId);
+    if (!field) return fail(err.badInput("form references an unknown field"));
+    if (seen.has(entry.fieldId)) {
+      return fail(err.badInput(`form references field "${field.name}" more than once`));
+    }
+    seen.add(entry.fieldId);
+
+    const handler = getHandler(field.type);
+    if (!handler?.userInput) {
+      return fail(err.badInput(`field "${field.name}" cannot be used in a form`));
+    }
+
+    const raw = entry.kind === "form_value" ? entry.value : entry.defaultValue;
+    const validated = validateDefaultValue(field.type, field.config, raw);
+    if (!validated.ok) return fail(err.badInput(`invalid form value for "${field.name}": ${validated.error.message}`));
+    if (entry.kind === "form_value") {
+      normalized.fields[i] = { ...entry, value: validated.data };
+    } else if (entry.defaultValue !== undefined) {
+      normalized.fields[i] = { ...entry, defaultValue: validated.data };
+    }
+  }
+
+  return ok(normalized);
+};
+
 const generatePublicToken = (): string => {
   // A short, URL-safe token. 22 base32-like chars ≈ 110 bits of entropy.
-  return [...crypto.getRandomValues(new Uint8Array(15))]
-    .map((b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]!)
-    .join("");
+  return [...crypto.getRandomValues(new Uint8Array(15))].map((b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]!).join("");
 };
 
 export const create = async (input: CreateFormInput, actorId: string | null): Promise<Result<Form>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
-  const config = input.config ?? { fields: [] };
+  const configValid = await validateFormConfig(input.tableId, input.config ?? { fields: [] });
+  if (!configValid.ok) return configValid;
+  const config = configValid.data;
   const publicToken = input.isPublic ? generatePublicToken() : null;
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
@@ -349,7 +380,12 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
     return r;
   }, "idx_grids_forms_short_id");
   const form = mapRow(row);
-  await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { form: { old: null, new: { id: form.id, name: form.name } } } });
+  await logAudit({
+    tableId: input.tableId,
+    userId: actorId,
+    action: "created",
+    diff: { form: { old: null, new: { id: form.id, name: form.name } } },
+  });
   return ok(form);
 };
 
@@ -372,14 +408,13 @@ export const update = async (id: string, input: UpdateFormInput, actorId: string
     name: name ?? existing.name,
     config: input.config !== undefined ? input.config : existing.config,
     publicToken:
-      input.isPublic === true && !existing.publicToken
-        ? generatePublicToken()
-        : input.isPublic === false
-          ? null
-          : existing.publicToken,
+      input.isPublic === true && !existing.publicToken ? generatePublicToken() : input.isPublic === false ? null : existing.publicToken,
     isActive: input.isActive ?? existing.isActive,
     position: input.position ?? existing.position,
   };
+  const configValid = await validateFormConfig(existing.tableId, next.config);
+  if (!configValid.ok) return configValid;
+  next.config = configValid.data;
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.forms

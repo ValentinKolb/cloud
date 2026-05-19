@@ -3,22 +3,23 @@
  *
  * What gets created (one round-trip per service call, no HTTP / cookies):
  *
- *   Authors      — text, number (year), single-select (country)
+ *   Authors      — text, number (year), select (country)
  *   Genres       — text, longtext
  *   Books        — text, longtext, number (pages), decimal (price),
  *                  currency, percent (discount), date (published),
- *                  boolean (in_stock), single-select (genre, via relation),
- *                  multi-select (tags), rating (1-5), relation→Authors,
+ *                  boolean (in_stock), select (genre, via relation),
+ *                  select (tags), numeric score (1-5), relation→Authors,
  *                  lookup (author country), rollup (count via author),
  *                  autonumber (sku), formula (final_price)
  *   Customers    — text, email, phone, number, date (joined),
  *                  rollup (total spent via Orders)
  *   Orders       — autonumber (order#), relation→Customer, relation→Book,
  *                  number (qty), decimal (line_total), date (ordered_at),
- *                  single-select (status), lookup (customer name),
+ *                  select (status), lookup (customer name),
  *                  lookup (book title)
+ *   Load Test Orders — 2,200 flat rows for infinite-scroll/search testing
  *
- *   ~30 records across the four tables, deliberately uneven so group-by
+ *   ~2,250 records across the tables, deliberately uneven so group-by
  *   buckets aren't all equal. Some duplicates and some orders for the
  *   same book so rollups have real numbers.
  *
@@ -44,6 +45,7 @@ import { gridsService } from "../service";
 const LOL_UID = "lol";
 
 const log = (msg: string) => console.log(`  ${msg}`);
+const pgTextArray = (values: string[]) => `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
 
 const main = async () => {
   // ── Resolve the user ────────────────────────────────────────────────
@@ -83,10 +85,7 @@ const main = async () => {
     config: Record<string, unknown> = {},
     extras: Record<string, unknown> = {},
   ) => {
-    const r = await gridsService.field.create(
-      { tableId, name, type, config, ...extras },
-      actor,
-    );
+    const r = await gridsService.field.create({ tableId, name, type, config, ...extras }, actor);
     if (!r.ok) throw new Error(`field.create ${name} (${type}): ${r.error.message}`);
     return r.data.id;
   };
@@ -105,8 +104,8 @@ const main = async () => {
   const G_DESC = await mkField(genresTable, "description", "longtext");
 
   const gFantasy = await mkRecord(genresTable, { [G_NAME]: "Fantasy", [G_DESC]: "Worlds, magic, dragons." });
-  const gScifi   = await mkRecord(genresTable, { [G_NAME]: "Sci-Fi", [G_DESC]: "Speculative futures, hard tech." });
-  const gPhilo   = await mkRecord(genresTable, { [G_NAME]: "Philosophy", [G_DESC]: "Ideas about thought and being." });
+  const gScifi = await mkRecord(genresTable, { [G_NAME]: "Sci-Fi", [G_DESC]: "Speculative futures, hard tech." });
+  const gPhilo = await mkRecord(genresTable, { [G_NAME]: "Philosophy", [G_DESC]: "Ideas about thought and being." });
   const gMystery = await mkRecord(genresTable, { [G_NAME]: "Mystery", [G_DESC]: "Whodunits and noir." });
   log(`genres × 4`);
 
@@ -117,23 +116,53 @@ const main = async () => {
   log(`table authors = ${authorsTable}`);
   const A_NAME = await mkField(authorsTable, "name", "text", { maxLength: 200 }, { presentable: true, required: true });
   const A_BIRTH = await mkField(authorsTable, "birth_year", "number", { min: 1000, max: 3000 });
-  const A_COUNTRY = await mkField(authorsTable, "country", "single-select", {
+  const A_COUNTRY = await mkField(authorsTable, "country", "select", {
     options: [
-      { id: "de", label: "Germany",        color: "#ef4444" },
+      { id: "de", label: "Germany", color: "#ef4444" },
       { id: "uk", label: "United Kingdom", color: "#3b82f6" },
-      { id: "us", label: "United States",  color: "#10b981" },
-      { id: "fr", label: "France",         color: "#a855f7" },
-      { id: "jp", label: "Japan",          color: "#f59e0b" },
+      { id: "us", label: "United States", color: "#10b981" },
+      { id: "fr", label: "France", color: "#a855f7" },
+      { id: "jp", label: "Japan", color: "#f59e0b" },
     ],
   });
   const A_BIO = await mkField(authorsTable, "bio", "longtext");
 
-  const aTolkien = await mkRecord(authorsTable, { [A_NAME]: "J.R.R. Tolkien",      [A_BIRTH]: 1892, [A_COUNTRY]: "uk", [A_BIO]: "Philologist; coined Middle-earth." });
-  const aArendt  = await mkRecord(authorsTable, { [A_NAME]: "Hannah Arendt",       [A_BIRTH]: 1906, [A_COUNTRY]: "de", [A_BIO]: "On totalitarianism and the human condition." });
-  const aLeGuin  = await mkRecord(authorsTable, { [A_NAME]: "Ursula K. Le Guin",   [A_BIRTH]: 1929, [A_COUNTRY]: "us", [A_BIO]: "SF/F that takes anthropology seriously." });
-  const aMurakami= await mkRecord(authorsTable, { [A_NAME]: "Haruki Murakami",     [A_BIRTH]: 1949, [A_COUNTRY]: "jp", [A_BIO]: "Surreal fiction with jazz interludes." });
-  const aChristie= await mkRecord(authorsTable, { [A_NAME]: "Agatha Christie",     [A_BIRTH]: 1890, [A_COUNTRY]: "uk", [A_BIO]: "Best-selling mystery novelist." });
-  const aSagan   = await mkRecord(authorsTable, { [A_NAME]: "Carl Sagan",          [A_BIRTH]: 1934, [A_COUNTRY]: "us", [A_BIO]: "Astronomer, science communicator." });
+  const aTolkien = await mkRecord(authorsTable, {
+    [A_NAME]: "J.R.R. Tolkien",
+    [A_BIRTH]: 1892,
+    [A_COUNTRY]: ["uk"],
+    [A_BIO]: "Philologist; coined Middle-earth.",
+  });
+  const aArendt = await mkRecord(authorsTable, {
+    [A_NAME]: "Hannah Arendt",
+    [A_BIRTH]: 1906,
+    [A_COUNTRY]: ["de"],
+    [A_BIO]: "On totalitarianism and the human condition.",
+  });
+  const aLeGuin = await mkRecord(authorsTable, {
+    [A_NAME]: "Ursula K. Le Guin",
+    [A_BIRTH]: 1929,
+    [A_COUNTRY]: ["us"],
+    [A_BIO]: "SF/F that takes anthropology seriously.",
+  });
+  const aMurakami = await mkRecord(authorsTable, {
+    [A_NAME]: "Haruki Murakami",
+    [A_BIRTH]: 1949,
+    [A_COUNTRY]: ["jp"],
+    [A_BIO]: "Surreal fiction with jazz interludes.",
+  });
+  const aChristie = await mkRecord(authorsTable, {
+    [A_NAME]: "Agatha Christie",
+    [A_BIRTH]: 1890,
+    [A_COUNTRY]: ["uk"],
+    [A_BIO]: "Best-selling mystery novelist.",
+  });
+  const aSagan = await mkRecord(authorsTable, {
+    [A_NAME]: "Carl Sagan",
+    [A_BIRTH]: 1934,
+    [A_COUNTRY]: ["us"],
+    [A_BIO]: "Astronomer, science communicator.",
+  });
   log(`authors × 6`);
 
   // ──────────────────────────────────────────────────────────────────
@@ -142,79 +171,70 @@ const main = async () => {
   const booksTable = await mkTable("Books", "Inventory + author + genre relations + computed fields.");
   log(`table books = ${booksTable}`);
 
-  const B_TITLE     = await mkField(booksTable, "title", "text", { maxLength: 200 }, { presentable: true, required: true });
-  const B_DESCR     = await mkField(booksTable, "description", "longtext");
-  const B_AUTHOR    = await mkField(booksTable, "author", "relation", { targetTableId: authorsTable, cardinality: "single" });
-  const B_GENRE     = await mkField(booksTable, "genre", "relation", { targetTableId: genresTable, cardinality: "single" });
-  const B_PAGES     = await mkField(booksTable, "pages", "number", { min: 1 });
-  const B_PRICE     = await mkField(booksTable, "price", "currency", { defaultCurrency: "EUR", scale: 2 });
-  const B_DISCOUNT  = await mkField(booksTable, "discount", "percent", { range: "fraction", decimals: 2 });
+  const B_TITLE = await mkField(booksTable, "title", "text", { maxLength: 200 }, { presentable: true, required: true });
+  const B_DESCR = await mkField(booksTable, "description", "longtext");
+  const B_AUTHOR = await mkField(booksTable, "author", "relation", { targetTableId: authorsTable, cardinality: "single" });
+  const B_GENRE = await mkField(booksTable, "genre", "relation", { targetTableId: genresTable, cardinality: "single" });
+  const B_PAGES = await mkField(booksTable, "pages", "number", { min: 1 });
+  const B_PRICE = await mkField(booksTable, "price", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const B_DISCOUNT = await mkField(booksTable, "discount", "percent", { range: "fraction", decimals: 2 });
   const B_PUBLISHED = await mkField(booksTable, "published", "date");
-  const B_INSTOCK   = await mkField(booksTable, "in_stock", "boolean", {}, { defaultValue: true });
-  const B_TAGS      = await mkField(booksTable, "tags", "multi-select", {
+  const B_INSTOCK = await mkField(booksTable, "in_stock", "boolean", {}, { defaultValue: true });
+  const B_TAGS = await mkField(booksTable, "tags", "select", {
+    multiple: true,
     options: [
-      { id: "classic",     label: "Classic",     color: "#f59e0b" },
+      { id: "classic", label: "Classic", color: "#f59e0b" },
       { id: "recommended", label: "Recommended", color: "#22c55e" },
-      { id: "signed",      label: "Signed",      color: "#ec4899" },
-      { id: "sale",        label: "On sale",     color: "#ef4444" },
+      { id: "signed", label: "Signed", color: "#ec4899" },
+      { id: "sale", label: "On sale", color: "#ef4444" },
     ],
   });
-  const B_RATING    = await mkField(booksTable, "rating", "rating", { max: 5 });
-  const B_SKU       = await mkField(booksTable, "sku", "autonumber");
+  const B_RATING = await mkField(booksTable, "score", "number", { min: 0, max: 5, integerOnly: true });
+  const B_SKU = await mkField(booksTable, "sku", "autonumber");
 
   // Lookup: country of the linked author. Demonstrates the SQL JOIN
   // path through record_links from Slice 4.
-  const B_AUTHOR_COUNTRY = await mkField(
-    booksTable,
-    "author_country",
-    "lookup",
-    { relationFieldId: B_AUTHOR, targetFieldId: A_COUNTRY },
-  );
+  const B_AUTHOR_COUNTRY = await mkField(booksTable, "author_country", "lookup", { relationFieldId: B_AUTHOR, targetFieldId: A_COUNTRY });
 
   // Formula: discounted price. Exercises the formula engine + computed-
   // value rendering. (References fields by name so the formula parser
   // resolves to {price} and {discount}.)
-  const B_FINAL_PRICE = await mkField(
-    booksTable,
-    "final_price",
-    "formula",
-    { expression: "{price} * (1 - {discount})" },
-  );
+  const B_FINAL_PRICE = await mkField(booksTable, "final_price", "formula", { expression: "{price} * (1 - {discount})" });
 
   // ── Books data ── deliberately skewed so group-by buckets vary.
   const bks: Array<[string, string, string, number, string, string, boolean, string[], number]> = [
-    ["The Hobbit",                   aTolkien, gFantasy, 310, "9.99",  "1937-09-21", true,  ["classic","recommended"], 5],
-    ["The Lord of the Rings",        aTolkien, gFantasy, 1216,"24.50", "1954-07-29", true,  ["classic"],               5],
-    ["The Silmarillion",             aTolkien, gFantasy, 365, "14.00", "1977-09-15", false, ["signed"],                4],
-    ["The Origins of Totalitarianism", aArendt, gPhilo,  527, "18.90", "1951-01-01", true,  ["classic"],               5],
-    ["The Human Condition",          aArendt,  gPhilo,   349, "16.00", "1958-01-01", true,  [],                        4],
-    ["The Left Hand of Darkness",    aLeGuin,  gScifi,   304, "11.99", "1969-03-01", true,  ["recommended"],           5],
-    ["The Dispossessed",             aLeGuin,  gScifi,   341, "12.50", "1974-05-01", false, ["recommended"],           5],
-    ["A Wizard of Earthsea",         aLeGuin,  gFantasy, 205, "8.99",  "1968-01-01", true,  ["classic"],               4],
-    ["Norwegian Wood",               aMurakami,gScifi,   296, "13.50", "1987-09-04", true,  ["recommended"],           4],
-    ["Kafka on the Shore",           aMurakami,gScifi,   505, "15.00", "2002-09-12", true,  [],                        4],
-    ["1Q84",                         aMurakami,gScifi,   1184,"22.00", "2009-05-29", true,  ["sale"],                  3],
-    ["Murder on the Orient Express", aChristie,gMystery, 256, "9.50",  "1934-01-01", true,  ["classic"],               5],
-    ["And Then There Were None",     aChristie,gMystery, 272, "10.00", "1939-11-06", true,  ["classic","recommended"], 5],
-    ["The ABC Murders",              aChristie,gMystery, 220, "8.50",  "1936-01-06", false, [],                        4],
-    ["Cosmos",                       aSagan,   gScifi,   384, "17.00", "1980-09-28", true,  ["recommended"],           5],
-    ["Pale Blue Dot",                aSagan,   gScifi,   429, "16.50", "1994-09-08", false, [],                        4],
+    ["The Hobbit", aTolkien, gFantasy, 310, "9.99", "1937-09-21", true, ["classic", "recommended"], 5],
+    ["The Lord of the Rings", aTolkien, gFantasy, 1216, "24.50", "1954-07-29", true, ["classic"], 5],
+    ["The Silmarillion", aTolkien, gFantasy, 365, "14.00", "1977-09-15", false, ["signed"], 4],
+    ["The Origins of Totalitarianism", aArendt, gPhilo, 527, "18.90", "1951-01-01", true, ["classic"], 5],
+    ["The Human Condition", aArendt, gPhilo, 349, "16.00", "1958-01-01", true, [], 4],
+    ["The Left Hand of Darkness", aLeGuin, gScifi, 304, "11.99", "1969-03-01", true, ["recommended"], 5],
+    ["The Dispossessed", aLeGuin, gScifi, 341, "12.50", "1974-05-01", false, ["recommended"], 5],
+    ["A Wizard of Earthsea", aLeGuin, gFantasy, 205, "8.99", "1968-01-01", true, ["classic"], 4],
+    ["Norwegian Wood", aMurakami, gScifi, 296, "13.50", "1987-09-04", true, ["recommended"], 4],
+    ["Kafka on the Shore", aMurakami, gScifi, 505, "15.00", "2002-09-12", true, [], 4],
+    ["1Q84", aMurakami, gScifi, 1184, "22.00", "2009-05-29", true, ["sale"], 3],
+    ["Murder on the Orient Express", aChristie, gMystery, 256, "9.50", "1934-01-01", true, ["classic"], 5],
+    ["And Then There Were None", aChristie, gMystery, 272, "10.00", "1939-11-06", true, ["classic", "recommended"], 5],
+    ["The ABC Murders", aChristie, gMystery, 220, "8.50", "1936-01-06", false, [], 4],
+    ["Cosmos", aSagan, gScifi, 384, "17.00", "1980-09-28", true, ["recommended"], 5],
+    ["Pale Blue Dot", aSagan, gScifi, 429, "16.50", "1994-09-08", false, [], 4],
   ];
 
   const bookIds: string[] = [];
-  for (const [title, author, genre, pages, price, published, inStock, tags, rating] of bks) {
+  for (const [title, author, genre, pages, price, published, inStock, tags, score] of bks) {
     const id = await mkRecord(booksTable, {
       [B_TITLE]: title,
       [B_AUTHOR]: [author],
       [B_GENRE]: [genre],
       [B_PAGES]: pages,
-      [B_PRICE]: { amount: price, currency: "EUR" },
+      [B_PRICE]: price,
       // 0–25% discount, deterministic by title length so re-runs match.
       [B_DISCOUNT]: Math.min(0.25, (title.length % 5) * 0.05),
       [B_PUBLISHED]: published,
       [B_INSTOCK]: inStock,
       [B_TAGS]: tags,
-      [B_RATING]: rating,
+      [B_RATING]: score,
     });
     bookIds.push(id);
   }
@@ -233,24 +253,59 @@ const main = async () => {
   const customersTable = await mkTable("Customers", "Buyers — public form submits land here.");
   log(`table customers = ${customersTable}`);
 
-  const C_NAME    = await mkField(customersTable, "name", "text", { maxLength: 200 }, { presentable: true, required: true });
-  const C_EMAIL   = await mkField(customersTable, "email", "email", {}, { required: true });
-  const C_PHONE   = await mkField(customersTable, "phone", "phone");
-  const C_JOINED  = await mkField(customersTable, "joined", "date");
-  const C_NOTES   = await mkField(customersTable, "notes", "longtext");
-  const C_SOURCE  = await mkField(customersTable, "source", "single-select", {
+  const C_NAME = await mkField(customersTable, "name", "text", { maxLength: 200 }, { presentable: true, required: true });
+  const C_EMAIL = await mkField(customersTable, "email", "text", { regex: "^[^ @]+@[^ @]+\\.[^ @]{2,}$" }, { required: true });
+  const C_PHONE = await mkField(customersTable, "phone", "text", { regex: "^\\+?[0-9 .()\\-]{5,}$" });
+  const C_JOINED = await mkField(customersTable, "joined", "date");
+  const C_NOTES = await mkField(customersTable, "notes", "longtext");
+  const C_SOURCE = await mkField(customersTable, "source", "select", {
     options: [
-      { id: "website",  label: "Website",  color: "#10b981" },
-      { id: "instore",  label: "In-store", color: "#0ea5e9" },
+      { id: "website", label: "Website", color: "#10b981" },
+      { id: "instore", label: "In-store", color: "#0ea5e9" },
       { id: "referral", label: "Referral", color: "#a855f7" },
     ],
   });
 
-  const cAlice = await mkRecord(customersTable, { [C_NAME]: "Alice Becker",  [C_EMAIL]: "alice@example.com",  [C_PHONE]: "+49 731 1234567", [C_JOINED]: "2025-03-12", [C_SOURCE]: "website",  [C_NOTES]: "Loves fantasy." });
-  const cBob   = await mkRecord(customersTable, { [C_NAME]: "Bob Schmidt",   [C_EMAIL]: "bob@example.com",    [C_PHONE]: "+49 731 7654321", [C_JOINED]: "2025-06-04", [C_SOURCE]: "instore",  [C_NOTES]: "" });
-  const cCara  = await mkRecord(customersTable, { [C_NAME]: "Cara Müller",   [C_EMAIL]: "cara@example.com",   [C_PHONE]: null,              [C_JOINED]: "2025-08-21", [C_SOURCE]: "referral", [C_NOTES]: "Referred by Alice." });
-  const cDan   = await mkRecord(customersTable, { [C_NAME]: "Dan Fischer",   [C_EMAIL]: "dan@example.com",    [C_PHONE]: "+49 89 5550100",   [C_JOINED]: "2026-01-15", [C_SOURCE]: "website",  [C_NOTES]: "" });
-  const cEva   = await mkRecord(customersTable, { [C_NAME]: "Eva Hofmann",   [C_EMAIL]: "eva@example.com",    [C_PHONE]: "+49 89 5550101",   [C_JOINED]: "2026-04-22", [C_SOURCE]: "website",  [C_NOTES]: "Mystery fan." });
+  const cAlice = await mkRecord(customersTable, {
+    [C_NAME]: "Alice Becker",
+    [C_EMAIL]: "alice@example.com",
+    [C_PHONE]: "+49 731 1234567",
+    [C_JOINED]: "2025-03-12",
+    [C_SOURCE]: ["website"],
+    [C_NOTES]: "Loves fantasy.",
+  });
+  const cBob = await mkRecord(customersTable, {
+    [C_NAME]: "Bob Schmidt",
+    [C_EMAIL]: "bob@example.com",
+    [C_PHONE]: "+49 731 7654321",
+    [C_JOINED]: "2025-06-04",
+    [C_SOURCE]: ["instore"],
+    [C_NOTES]: "",
+  });
+  const cCara = await mkRecord(customersTable, {
+    [C_NAME]: "Cara Müller",
+    [C_EMAIL]: "cara@example.com",
+    [C_PHONE]: null,
+    [C_JOINED]: "2025-08-21",
+    [C_SOURCE]: ["referral"],
+    [C_NOTES]: "Referred by Alice.",
+  });
+  const cDan = await mkRecord(customersTable, {
+    [C_NAME]: "Dan Fischer",
+    [C_EMAIL]: "dan@example.com",
+    [C_PHONE]: "+49 89 5550100",
+    [C_JOINED]: "2026-01-15",
+    [C_SOURCE]: ["website"],
+    [C_NOTES]: "",
+  });
+  const cEva = await mkRecord(customersTable, {
+    [C_NAME]: "Eva Hofmann",
+    [C_EMAIL]: "eva@example.com",
+    [C_PHONE]: "+49 89 5550101",
+    [C_JOINED]: "2026-04-22",
+    [C_SOURCE]: ["website"],
+    [C_NOTES]: "Mystery fan.",
+  });
   log(`customers × 5`);
 
   // ──────────────────────────────────────────────────────────────────
@@ -259,41 +314,41 @@ const main = async () => {
   const ordersTable = await mkTable("Orders", "Each row links a Customer to a Book they bought.");
   log(`table orders = ${ordersTable}`);
 
-  const O_NUM      = await mkField(ordersTable, "order_no", "autonumber");
-  const O_CUST     = await mkField(ordersTable, "customer", "relation", { targetTableId: customersTable, cardinality: "single" });
-  const O_BOOK     = await mkField(ordersTable, "book", "relation", { targetTableId: booksTable, cardinality: "single" });
-  const O_QTY      = await mkField(ordersTable, "qty", "number", { min: 1 }, { defaultValue: 1, required: true });
-  const O_TOTAL    = await mkField(ordersTable, "line_total", "currency", { defaultCurrency: "EUR" });
-  const O_DATE     = await mkField(ordersTable, "ordered_at", "date", {}, { required: true });
-  const O_STATUS   = await mkField(ordersTable, "status", "single-select", {
+  const O_NUM = await mkField(ordersTable, "order_no", "autonumber");
+  const O_CUST = await mkField(ordersTable, "customer", "relation", { targetTableId: customersTable, cardinality: "single" });
+  const O_BOOK = await mkField(ordersTable, "book", "relation", { targetTableId: booksTable, cardinality: "single" });
+  const O_QTY = await mkField(ordersTable, "qty", "number", { min: 1 }, { defaultValue: 1, required: true });
+  const O_TOTAL = await mkField(ordersTable, "line_total", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const O_DATE = await mkField(ordersTable, "ordered_at", "date", {}, { required: true });
+  const O_STATUS = await mkField(ordersTable, "status", "select", {
     options: [
-      { id: "new",       label: "New",       color: "#3b82f6" },
-      { id: "shipped",   label: "Shipped",   color: "#10b981" },
+      { id: "new", label: "New", color: "#3b82f6" },
+      { id: "shipped", label: "Shipped", color: "#10b981" },
       { id: "delivered", label: "Delivered", color: "#22c55e" },
-      { id: "returned",  label: "Returned",  color: "#ef4444" },
+      { id: "returned", label: "Returned", color: "#ef4444" },
     ],
   });
-  const O_CUST_NAME  = await mkField(ordersTable, "customer_name", "lookup", { relationFieldId: O_CUST, targetFieldId: C_NAME });
-  const O_BOOK_TITLE = await mkField(ordersTable, "book_title",    "lookup", { relationFieldId: O_BOOK, targetFieldId: B_TITLE });
+  const O_CUST_NAME = await mkField(ordersTable, "customer_name", "lookup", { relationFieldId: O_CUST, targetFieldId: C_NAME });
+  const O_BOOK_TITLE = await mkField(ordersTable, "book_title", "lookup", { relationFieldId: O_BOOK, targetFieldId: B_TITLE });
 
   // Synthetic orders — uneven distribution by month + customer for
   // group-by demos. Prices match the linked book's price * qty for
   // honest rollup numbers.
   const ords: Array<[string, string, number, string, string]> = [
-    [cAlice, bookIds[0]!, 1, "2025-03-15", "delivered"],   // Hobbit
-    [cAlice, bookIds[1]!, 1, "2025-04-02", "delivered"],   // LotR
-    [cAlice, bookIds[7]!, 2, "2025-05-21", "delivered"],   // Earthsea ×2
-    [cBob,   bookIds[12]!,1, "2025-06-08", "delivered"],   // And Then There Were None
-    [cBob,   bookIds[13]!,1, "2025-06-08", "shipped"],     // ABC Murders
-    [cBob,   bookIds[11]!,1, "2025-07-15", "delivered"],   // Orient Express
-    [cCara,  bookIds[14]!,1, "2025-09-02", "delivered"],   // Cosmos
-    [cCara,  bookIds[15]!,1, "2025-10-11", "shipped"],     // Pale Blue Dot
-    [cDan,   bookIds[8]!, 3, "2026-01-22", "delivered"],   // Norwegian Wood ×3
-    [cDan,   bookIds[10]!,1, "2026-02-14", "new"],          // 1Q84
-    [cEva,   bookIds[12]!,2, "2026-04-29", "delivered"],   // And Then ×2
-    [cEva,   bookIds[11]!,1, "2026-05-01", "delivered"],   // Orient Express
-    [cEva,   bookIds[14]!,1, "2026-05-02", "new"],          // Cosmos
-    [cAlice, bookIds[2]!, 1, "2026-05-03", "shipped"],     // Silmarillion (just ordered)
+    [cAlice, bookIds[0]!, 1, "2025-03-15", "delivered"], // Hobbit
+    [cAlice, bookIds[1]!, 1, "2025-04-02", "delivered"], // LotR
+    [cAlice, bookIds[7]!, 2, "2025-05-21", "delivered"], // Earthsea ×2
+    [cBob, bookIds[12]!, 1, "2025-06-08", "delivered"], // And Then There Were None
+    [cBob, bookIds[13]!, 1, "2025-06-08", "shipped"], // ABC Murders
+    [cBob, bookIds[11]!, 1, "2025-07-15", "delivered"], // Orient Express
+    [cCara, bookIds[14]!, 1, "2025-09-02", "delivered"], // Cosmos
+    [cCara, bookIds[15]!, 1, "2025-10-11", "shipped"], // Pale Blue Dot
+    [cDan, bookIds[8]!, 3, "2026-01-22", "delivered"], // Norwegian Wood ×3
+    [cDan, bookIds[10]!, 1, "2026-02-14", "new"], // 1Q84
+    [cEva, bookIds[12]!, 2, "2026-04-29", "delivered"], // And Then ×2
+    [cEva, bookIds[11]!, 1, "2026-05-01", "delivered"], // Orient Express
+    [cEva, bookIds[14]!, 1, "2026-05-02", "new"], // Cosmos
+    [cAlice, bookIds[2]!, 1, "2026-05-03", "shipped"], // Silmarillion (just ordered)
   ];
   for (const [cust, book, qty, date, status] of ords) {
     // Look up the book's price to compute line_total honestly.
@@ -304,26 +359,86 @@ const main = async () => {
       [O_CUST]: [cust],
       [O_BOOK]: [book],
       [O_QTY]: qty,
-      [O_TOTAL]: { amount: total, currency: "EUR" },
+      [O_TOTAL]: total,
       [O_DATE]: date,
-      [O_STATUS]: status,
+      [O_STATUS]: [status],
     });
   }
   log(`orders × ${ords.length}`);
 
   // ──────────────────────────────────────────────────────────────────
+  // LOAD TEST ORDERS — flat 2,200-row table for infinite scroll testing
+  // ──────────────────────────────────────────────────────────────────
+  // This intentionally avoids relations/lookups so it is a clean table
+  // browsing benchmark: search, filters, SQL aggregates and client
+  // infinite scroll without relation expansion noise.
+  const loadTable = await mkTable("Load Test Orders", "2,200 synthetic rows for testing table scrolling, search, filters, and aggregates.");
+  log(`table load test orders = ${loadTable}`);
+
+  const L_SEQ = await mkField(loadTable, "seq", "number", { min: 1 });
+  const L_CUSTOMER = await mkField(loadTable, "customer", "text", { maxLength: 200 });
+  const L_BOOK = await mkField(loadTable, "book", "text", { maxLength: 240 });
+  const L_QTY = await mkField(loadTable, "qty", "number", { min: 1 });
+  const L_TOTAL = await mkField(loadTable, "line_total", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const L_DATE = await mkField(loadTable, "ordered_at", "date");
+  const L_STATUS = await mkField(loadTable, "status", "select", {
+    options: [
+      { id: "new", label: "New", color: "#3b82f6" },
+      { id: "shipped", label: "Shipped", color: "#10b981" },
+      { id: "delivered", label: "Delivered", color: "#22c55e" },
+      { id: "returned", label: "Returned", color: "#ef4444" },
+    ],
+  });
+  const L_CHANNEL = await mkField(loadTable, "channel", "select", {
+    options: [
+      { id: "web", label: "Web", color: "#0ea5e9" },
+      { id: "store", label: "Store", color: "#22c55e" },
+      { id: "market", label: "Market", color: "#f59e0b" },
+      { id: "phone", label: "Phone", color: "#a855f7" },
+    ],
+  });
+
+  const customerNames = ["Alice Becker", "Bob Schmidt", "Cara Müller", "Dan Fischer", "Eva Hofmann"];
+  const bookTitles = bks.map(([title]) => title);
+  const statuses = ["new", "shipped", "delivered", "returned"];
+  const channels = ["web", "store", "market", "phone"];
+  const customerNameArray = pgTextArray(customerNames);
+  const bookTitleArray = pgTextArray(bookTitles);
+  const statusArray = pgTextArray(statuses);
+  const channelArray = pgTextArray(channels);
+
+  await sql`
+    WITH src AS (
+      SELECT gs AS n
+      FROM generate_series(1, 2200) AS gs
+    )
+    INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
+    SELECT
+      gen_random_uuid(),
+      ${loadTable}::uuid,
+      jsonb_build_object(
+        ${L_SEQ}::text, n,
+        ${L_CUSTOMER}::text, (${customerNameArray}::text[])[((n - 1) % ${customerNames.length}) + 1],
+        ${L_BOOK}::text, (${bookTitleArray}::text[])[((n - 1) % ${bookTitles.length}) + 1],
+        ${L_QTY}::text, ((n - 1) % 4) + 1,
+        ${L_TOTAL}::text, to_char(((((n - 1) % 4) + 1) * (8 + ((n - 1) % 37))::numeric + 0.99), 'FM9999990.00'),
+        ${L_DATE}::text, to_char((DATE '2025-01-01' + (((n - 1) % 520) * INTERVAL '1 day'))::date, 'YYYY-MM-DD'),
+        ${L_STATUS}::text, to_jsonb(ARRAY[(${statusArray}::text[])[((n - 1) % ${statuses.length}) + 1]]),
+        ${L_CHANNEL}::text, to_jsonb(ARRAY[(${channelArray}::text[])[((n - 1) % ${channels.length}) + 1]])
+      ),
+      1,
+      ${actor}::uuid,
+      ${actor}::uuid
+    FROM src
+  `;
+  log(`load test orders × 2200`);
+
+  // ──────────────────────────────────────────────────────────────────
   // VIEWS — five preset configurations covering the full v3 surface
   // ──────────────────────────────────────────────────────────────────
 
-  const mkView = async (
-    tableId: string,
-    name: string,
-    query: Parameters<typeof gridsService.view.create>[0]["query"],
-  ) => {
-    const r = await gridsService.view.create(
-      { tableId, name, query, ownerUserId: null /* shared */ },
-      actor,
-    );
+  const mkView = async (tableId: string, name: string, query: Parameters<typeof gridsService.view.create>[0]["query"]) => {
+    const r = await gridsService.view.create({ tableId, name, query, ownerUserId: null /* shared */ }, actor);
     if (!r.ok) throw new Error(`view.create ${name}: ${r.error.message}`);
     return r.data.id;
   };
@@ -344,9 +459,9 @@ const main = async () => {
   const vGenreRevenue = await mkView(booksTable, "By genre · revenue", {
     groupBy: [{ fieldId: B_GENRE, direction: "asc" }],
     aggregations: [
-      { fieldId: "*",     agg: "count" },
-      { fieldId: B_PRICE, agg: "sum"   },
-      { fieldId: B_PRICE, agg: "avg"   },
+      { fieldId: "*", agg: "count" },
+      { fieldId: B_PRICE, agg: "sum" },
+      { fieldId: B_PRICE, agg: "avg" },
     ],
   });
   log(`view: By genre · revenue (group-by)`);
@@ -363,8 +478,8 @@ const main = async () => {
   await mkView(ordersTable, "Orders by month", {
     groupBy: [{ fieldId: O_DATE, direction: "asc", granularity: "month" }],
     aggregations: [
-      { fieldId: "*",     agg: "count" },
-      { fieldId: O_TOTAL, agg: "sum"   },
+      { fieldId: "*", agg: "count" },
+      { fieldId: O_TOTAL, agg: "sum" },
     ],
   });
   log(`view: Orders by month`);
@@ -376,8 +491,8 @@ const main = async () => {
   await mkView(booksTable, "Books per author", {
     groupBy: [{ fieldId: B_AUTHOR, direction: "asc" }],
     aggregations: [
-      { fieldId: "*",     agg: "count" },
-      { fieldId: B_PAGES, agg: "sum"   },
+      { fieldId: "*", agg: "count" },
+      { fieldId: B_PAGES, agg: "sum" },
     ],
   });
   log(`view: Books per author (relation group-by)`);
@@ -396,13 +511,18 @@ const main = async () => {
         submitLabel: "Subscribe",
         successMessage: "Thanks! You're on the list.",
         fields: [
-          { kind: "user_input",  fieldId: C_NAME,  required: true,  label: "Your name" },
-          { kind: "user_input",  fieldId: C_EMAIL, required: true,  label: "Email address",
-            helpText: "We'll only use this to send you book picks." },
-          { kind: "user_input",  fieldId: C_PHONE, required: false, label: "Phone (optional)" },
+          { kind: "user_input", fieldId: C_NAME, required: true, label: "Your name" },
+          {
+            kind: "user_input",
+            fieldId: C_EMAIL,
+            required: true,
+            label: "Email address",
+            helpText: "We'll only use this to send you book picks.",
+          },
+          { kind: "user_input", fieldId: C_PHONE, required: false, label: "Phone (optional)" },
           // Slice 6 form_value: server-applies source = website on
           // every submission. Subverting this requires DB-level access.
-          { kind: "form_value",  fieldId: C_SOURCE, value: "website" },
+          { kind: "form_value", fieldId: C_SOURCE, value: ["website"] },
         ],
       },
     },
@@ -524,11 +644,7 @@ const main = async () => {
   log(`dashboard: ${dashboard.name} (slug=${dashboard.shortId})`);
 
   // Set as base default so opening the base lands on the dashboard.
-  const setDefaultRes = await gridsService.base.update(
-    baseId,
-    { defaultDashboardId: dashboard.id },
-    actor,
-  );
+  const setDefaultRes = await gridsService.base.update(baseId, { defaultDashboardId: dashboard.id }, actor);
   if (!setDefaultRes.ok) {
     throw new Error(`base.update default-dashboard: ${setDefaultRes.error.message}`);
   }

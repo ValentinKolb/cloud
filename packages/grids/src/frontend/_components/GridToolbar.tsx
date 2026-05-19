@@ -1,43 +1,30 @@
-import { Show, createEffect, createSignal, on } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import { apiClient } from "@/api/client";
-import {
-  prompts,
-  refreshCurrentPath,
-} from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type { Field, GridRecord, View } from "../../service";
+import type { Field, Form, GridRecord, View } from "../../service";
 import type { ViewQuery } from "../../contracts";
 import { isUserEditable } from "./field-prompt-schema";
-import { openCreateRecordDialog } from "./CreateRecordDialog";
+import { openRecordUpsertDialog } from "./RecordUpsertDialog";
+import { openFormModal } from "./FormSubmitModal";
 import { errorMessage } from "./api-helpers";
-import FilterPanel, {
-  type FilterLeaf,
-  blankLeaf,
-  isFilterLeafComplete,
-} from "./FilterPanel";
-import SortPanel, {
-  type SortRow,
-  blankSortRow,
-  isSortRowComplete,
-} from "./SortPanel";
-import GroupByPanel, {
-  type GroupByRow,
-  blankGroupByRow,
-  isGroupByRowComplete,
-} from "./GroupByPanel";
-import AggregationsPanel, {
-  type AggregationRow,
-  isAggregationRowComplete,
-} from "./AggregationsPanel";
+import FilterPanel, { type FilterLeaf, blankLeaf, isFilterLeafComplete } from "./FilterPanel";
+import SortPanel, { type SortRow, blankSortRow, isSortRowComplete } from "./SortPanel";
+import GroupByPanel, { type GroupByRow, blankGroupByRow, isGroupByRowComplete } from "./GroupByPanel";
+import AggregationsPanel, { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
 
 type Props = {
   baseId: string;
   tableId: string;
+  tableName: string;
+  disableDirectInsert: boolean;
   fields: Field[];
   initialFilter: FilterLeaf[];
   initialSort: SortRow[];
   initialGroupBy: GroupByRow[];
   initialAggregations: AggregationRow[];
+  currentSearch: { q: string; fieldIds: string[] };
+  forms?: Form[];
   canWrite: boolean;
   /**
    * Emit the toolbar's current filter / sort / group / aggregations
@@ -53,13 +40,14 @@ type Props = {
     aggregations?: ViewQuery["aggregations"];
   }) => void;
   /**
-   * Emitted after a successful row create. The parent (RecordsView)
-   * opens the detail panel for the new record so the user can finish
-   * setting up relation fields — those can't live in the prompt-form
-   * (no relation input type), so the picker in the detail panel is the
-   * second step of the create flow.
+   * Emitted after a successful manual row create. The parent
+   * (RecordsView) opens the detail panel for the new record and
+   * refetches the table.
    */
   onRecordCreated?: (recordId: string) => void;
+  /** Emitted after form submit where there is no single record-open
+   *  intent; the parent just refetches the records resource. */
+  onRecordsChanged?: () => void;
 };
 
 /**
@@ -81,7 +69,9 @@ export default function GridToolbar(props: Props) {
   const hasSort = () => sortRows().length > 0;
   const hasGroupBy = () => groupByRows().length > 0;
   const hasAgg = () => aggRows().length > 0;
-  const hasAnyQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg();
+  const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg();
+  const hasSaveableQuery = () => hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
+  const activeForms = createMemo(() => (props.forms ?? []).filter((f) => f.isActive));
 
   // Validators trim incomplete rows before emitting upstream — same
   // contract as before, just propagated through onCommit instead of
@@ -115,7 +105,7 @@ export default function GridToolbar(props: Props) {
   );
 
   // ---- Add row -----------------------------------------------------------
-  // Single-step create: CreateRecordDialog renders all editable fields
+  // Single-step create: RecordUpsertDialog renders all editable fields
   // including relations (RelationPicker is embedded inline). The dialog
   // resolves with the full payload, we POST it, and RecordsView refetches
   // the resource. No separate prompts.form / detail-panel ping-pong.
@@ -149,13 +139,20 @@ export default function GridToolbar(props: Props) {
       prompts.error("This table has no editable fields. Add one first.");
       return;
     }
-    const result = await openCreateRecordDialog({
+    const result = await openRecordUpsertDialog({
+      mode: "create",
       fields: liveFields,
       baseId: props.baseId,
+      tableName: props.tableName,
     });
     if (!result) return;
     addMut.mutate(result);
   };
+
+  const submitForm = (form: Form) =>
+    openFormModal(form, props.fields, {
+      onSubmitted: () => props.onRecordsChanged?.(),
+    });
 
   // ---- Filter / Sort one-click toggles ----------------------------------
   // Click Filter when empty → append a blank row. Panel appears
@@ -183,7 +180,7 @@ export default function GridToolbar(props: Props) {
   // ---- Save as view ------------------------------------------------------
   // Reads SIGNAL state, not URL state — so unapplied changes get
   // captured too ("save what you see"). Once saved, the view is FROZEN:
-  // ViewEditPage only allows rename / share / delete. To change the
+  // the view settings modal only allows rename / share / delete. To change the
   // query, the user clears + re-saves from the toolbar.
   const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
     mutation: async (input) => {
@@ -193,6 +190,7 @@ export default function GridToolbar(props: Props) {
       const a = validAgg();
       const query = {
         filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
+        search: props.currentSearch.q.trim() ? { q: props.currentSearch.q.trim(), fieldIds: props.currentSearch.fieldIds } : undefined,
         sort: s.length > 0 ? s : undefined,
         groupBy: g.length > 0 ? g : undefined,
         aggregations: a.length > 0 ? a : undefined,
@@ -216,9 +214,7 @@ export default function GridToolbar(props: Props) {
         name: { type: "text", label: "Name", required: true, placeholder: "e.g. Open tasks" },
         shared: {
           type: "boolean",
-          label: props.canWrite
-            ? "Share with everyone who can read this table"
-            : "Share (requires table-write)",
+          label: props.canWrite ? "Share with everyone who can read this table" : "Share (requires table-write)",
           default: false,
         },
       },
@@ -263,81 +259,99 @@ export default function GridToolbar(props: Props) {
   return (
     <div class="flex flex-col gap-2">
       <div class="flex flex-wrap items-center gap-2">
-        {/* Add row — leftmost. Uses the same btn-input style as the rest. */}
+        {/* Create flow: forms first; direct insert is a secondary path
+            and can be disabled at table level. */}
         <Show when={props.canWrite}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm"
-            onClick={handleAddRow}
-            disabled={addMut.loading()}
+          <Show
+            when={activeForms().length > 0}
+            fallback={
+              <Show when={!props.disableDirectInsert}>
+                <button type="button" class="btn-input btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
+                  <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
+                    <i class="ti ti-loader-2 animate-spin" />
+                  </Show>
+                  Manual row
+                </button>
+              </Show>
+            }
           >
-            <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
-              <i class="ti ti-loader-2 animate-spin" />
+            <Show
+              when={activeForms().length === 1 ? activeForms()[0] : undefined}
+              fallback={
+                <Dropdown
+                  position="bottom-right"
+                  trigger={
+                    <span class="btn-input-primary btn-input-sm">
+                      <i class="ti ti-forms" />
+                      Add with form
+                      <i class="ti ti-chevron-down text-[10px] opacity-60" />
+                    </span>
+                  }
+                  elements={activeForms().map((form) => ({
+                    icon: "ti ti-forms",
+                    label: form.name,
+                    action: () => void submitForm(form),
+                  }))}
+                />
+              }
+            >
+              {(form) => (
+                <button type="button" class="btn-input-primary btn-input-sm" onClick={() => void submitForm(form())}>
+                  <i class="ti ti-forms" />
+                  Add with form
+                </button>
+              )}
             </Show>
-            Add row
-          </button>
+            <Show when={!props.disableDirectInsert}>
+              <button type="button" class="btn-input btn-input-sm" onClick={handleAddRow} disabled={addMut.loading()}>
+                <Show when={addMut.loading()} fallback={<i class="ti ti-plus" />}>
+                  <i class="ti ti-loader-2 animate-spin" />
+                </Show>
+                Manual row
+              </button>
+            </Show>
+          </Show>
         </Show>
 
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
-          onClick={onFilterClick}
-        >
+        <button type="button" class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`} onClick={onFilterClick}>
           <i class="ti ti-filter" />
           Filter
         </button>
 
         {/* Sort */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`}
-          onClick={onSortClick}
-        >
+        <button type="button" class={`btn-input btn-input-sm ${hasSort() ? "btn-input-active" : ""}`} onClick={onSortClick}>
           <i class="ti ti-arrows-sort" />
           Sort
         </button>
 
         {/* Group — multi-level (max 3); records area switches to
             GroupedTable when groupBy is set. */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${hasGroupBy() ? "btn-input-active" : ""}`}
-          onClick={onGroupClick}
-        >
+        <button type="button" class={`btn-input btn-input-sm ${hasGroupBy() ? "btn-input-active" : ""}`} onClick={onGroupClick}>
           <i class="ti ti-list-tree" />
           Group
         </button>
 
         {/* Aggregate — without groupBy: footer row. With groupBy: bucket
             columns. */}
-        <button
-          type="button"
-          class={`btn-input btn-input-sm ${hasAgg() ? "btn-input-active" : ""}`}
-          onClick={onAggClick}
-        >
-          <i class="ti ti-sigma" />
+        <button type="button" class={`btn-input btn-input-sm ${hasAgg() ? "btn-input-active" : ""}`} onClick={onAggClick}>
+          <i class="ti ti-math-function" />
           Aggregate
         </button>
 
         {/* Smart Clear — appears when any query dimension is active.
             Label names exactly what goes away. */}
-        <Show when={hasAnyQuery()}>
-          <button
-            type="button"
-            class="btn-input btn-input-sm text-red-500"
-            onClick={clearAll}
-            title={clearLabel()}
-          >
+        <Show when={hasToolbarQuery()}>
+          <button type="button" class="btn-input btn-input-sm text-red-500" onClick={clearAll} title={clearLabel()}>
             <i class="ti ti-filter-off" />
             {clearLabel()}
           </button>
         </Show>
 
         {/* Save as view — captures the current query into a frozen
-            preset. ViewEditPage handles renaming / sharing; the query
+            preset. The view settings modal handles renaming / sharing; the query
             becomes read-only after save. */}
-        <Show when={hasAnyQuery()}>
+        <Show when={hasSaveableQuery()}>
           <button
             type="button"
             class="btn-input btn-input-sm text-emerald-700 dark:text-emerald-300 ml-auto"
@@ -354,44 +368,28 @@ export default function GridToolbar(props: Props) {
       {/* Filter panel — render iff there's at least one filter row */}
       <Show when={hasFilter()}>
         <div class="paper p-3">
-          <FilterPanel
-            fields={props.fields}
-            rows={filterRows}
-            onRowsChange={setFilterRows}
-          />
+          <FilterPanel fields={props.fields} rows={filterRows} onRowsChange={setFilterRows} />
         </div>
       </Show>
 
       {/* Sort panel */}
       <Show when={hasSort()}>
         <div class="paper p-3">
-          <SortPanel
-            fields={props.fields}
-            rows={sortRows}
-            onRowsChange={setSortRows}
-          />
+          <SortPanel fields={props.fields} rows={sortRows} onRowsChange={setSortRows} />
         </div>
       </Show>
 
       {/* Group-by panel */}
       <Show when={hasGroupBy()}>
         <div class="paper p-3">
-          <GroupByPanel
-            fields={props.fields}
-            rows={groupByRows}
-            onRowsChange={setGroupByRows}
-          />
+          <GroupByPanel fields={props.fields} rows={groupByRows} onRowsChange={setGroupByRows} />
         </div>
       </Show>
 
       {/* Aggregations panel */}
       <Show when={hasAgg()}>
         <div class="paper p-3">
-          <AggregationsPanel
-            fields={props.fields}
-            rows={aggRows}
-            onRowsChange={setAggRows}
-          />
+          <AggregationsPanel fields={props.fields} rows={aggRows} onRowsChange={setAggRows} />
         </div>
       </Show>
 

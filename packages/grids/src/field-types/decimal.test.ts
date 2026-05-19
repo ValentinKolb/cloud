@@ -53,6 +53,15 @@ test("decimal: rejects scale > precision in config", () => {
   expect(decimalHandler.validate("1.0", { precision: 2, scale: 5 }, false).ok).toBe(false);
 });
 
+test("decimal: accepts display-only unit config", () => {
+  expect(decimalHandler.configSchema.safeParse({
+    precision: 16,
+    scale: 2,
+    unit: "EUR",
+    unitPosition: "suffix",
+  }).success).toBe(true);
+});
+
 test("decimal: preserves precision (no float drift)", () => {
   // 0.1 + 0.2 in JS = 0.30000000000000004; decimal.js should preserve string input.
   expect(decimalHandler.validate("0.30", cfg2, false)).toEqual({ ok: true, value: "0.30" });

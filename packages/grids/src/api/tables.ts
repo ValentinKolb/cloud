@@ -14,7 +14,7 @@ import {
   RelationLookupResponseSchema,
 } from "../contracts";
 import type { GroupAggregationSpec } from "../service/group-compiler";
-import { mergeSearchIntoFilter } from "../service/search";
+import { validateViewQueryForTable } from "../service/query-validation";
 import { gateAt } from "./permissions";
 
 const app = new Hono<AuthContext>()
@@ -32,7 +32,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const tables = await gridsService.table.listByBase(baseId);
@@ -53,14 +53,20 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateTableSchema),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const body = c.req.valid("json");
       return respond(
         c,
-        () => gridsService.table.create({ baseId, name: body.name, description: body.description ?? null }, user.id),
+        () => gridsService.table.create({
+          baseId,
+          name: body.name,
+          description: body.description ?? null,
+          icon: body.icon ?? null,
+          columns: body.columns,
+        }, user.id),
         201,
       );
     },
@@ -77,7 +83,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
@@ -95,7 +101,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateTableSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -113,7 +119,7 @@ const app = new Hono<AuthContext>()
       responses: { 204: { description: "Deleted" } },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -136,7 +142,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId, { includeDeleted: true });
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -149,9 +155,10 @@ const app = new Hono<AuthContext>()
   // ── Unified query endpoint (v3 Slice 5) ──────────────────────────────
   // Body: { query: ViewQuery, cursor? }. Response shape depends on what
   // the ViewQuery asked for — see TableQueryResponseSchema.
-  // Old per-action routes (/by-table/:id list, /aggregate/:id, /group/:id)
-  // stay alive in api/records.ts for the transition; new consumers
-  // should target this endpoint only.
+  // Old per-action read routes (/by-table/:id list, /aggregate/:id,
+  // /group/:id) were removed in alpha. This is the only table-read
+  // path so saved views, ad-hoc queries, exports, and dashboards share
+  // one contract.
   .post(
     "/:tableId/query",
     describeRoute({
@@ -164,48 +171,52 @@ const app = new Hono<AuthContext>()
     }),
     v("json", TableQueryBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
       const { query, cursor } = c.req.valid("json");
+      const queryValid = await validateViewQueryForTable(tableId, query);
+      if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
 
-      // Free-text search merge. The client sends `query.search` as a
-      // separate concept (so saved-view filters and ad-hoc typing layer
-      // cleanly), and the server compiles it into the filter the same
-      // way the SSR initial render does — single source of truth in
-      // service/search.ts. Without this merge the typed query would
-      // never reach SQL: the records.list/aggregate/group calls below
-      // only consume `filter`, never `search`.
+      // Free-text search stays separate from the structured FilterTree.
+      // The records service compiles it into a SQL clause so relation
+      // label search and select-label search don't get forced through
+      // the direct-field filter DSL.
       const tableFields = await gridsService.field.listByTable(tableId);
-      const effectiveFilter = query.search?.q
-        ? mergeSearchIntoFilter(
-            query.filter ?? null,
-            query.search.q,
-            query.search.fieldIds ?? [],
-            tableFields,
-          )
-        : query.filter ?? null;
+      const user = c.get("user");
+      const viewer = {
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+        isAdmin: hasRole(user, "admin"),
+      };
 
       // Group-mode dispatch. The contract's AggregateKind is wider than
       // the group compiler's AggKindForGroup (no median/earliest/latest
-      // in group-by mode — those are SQL-only on the flat aggregate
-      // endpoint). Filter to the supported subset before dispatching.
+      // in group-by mode). Reject unsupported group aggregations instead
+      // of silently dropping them from a saved view.
       if (query.groupBy && query.groupBy.length > 0) {
-        const groupAggregations: GroupAggregationSpec[] = (query.aggregations ?? []).filter(
-          (a): a is GroupAggregationSpec =>
-            a.agg !== "median" && a.agg !== "earliest" && a.agg !== "latest",
+        const unsupported = (query.aggregations ?? []).filter(
+          (a) => a.agg === "median" || a.agg === "earliest" || a.agg === "latest",
         );
+        if (unsupported.length > 0) {
+          return c.json({ message: "grouped queries support count, countEmpty, countUnique, sum, avg, min, and max only" }, 400);
+        }
+        const groupAggregations = (query.aggregations ?? []) as GroupAggregationSpec[];
         const result = await gridsService.record.group({
           tableId,
           groupBy: query.groupBy,
           aggregations: groupAggregations,
-          filter: effectiveFilter,
+          groupSort: query.groupSort,
+          filter: query.filter ?? null,
+          search: query.search ?? null,
           cursor: cursor ?? null,
           limit: query.limit,
           includeDeleted: query.includeDeleted,
+          deletedOnly: query.deletedOnly,
+          viewer,
         });
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         // Resolve presentable labels for relation-typed group keys so
@@ -232,34 +243,35 @@ const app = new Hono<AuthContext>()
       // Per-target-table read perm gating means records the viewer
       // can't reach contribute UUIDs that fall back to a UUID prefix
       // rather than leaking presentable values.
-      const user = c.get("user");
       const listResult = await gridsService.record.list({
         tableId,
         cursor: cursor ?? null,
         limit: query.limit,
         includeDeleted: query.includeDeleted,
-        filter: effectiveFilter,
+        deletedOnly: query.deletedOnly,
+        filter: query.filter ?? null,
+        search: query.search ?? null,
         sort: query.sort,
         includeRelations: true,
-        viewer: {
-          userId: user.id,
-          userGroups: user.memberofGroupIds,
-          isAdmin: hasRole(user, "admin"),
-        },
+        viewer,
       });
       if (!listResult.ok) return c.json({ message: listResult.error.message }, listResult.error.status);
 
       // Footer-row semantics: when the user has aggregations defined,
       // run them on the same filter as the list. The compiler now handles
       // "*" (COUNT(*)) so we pass everything through unchanged.
-      let aggregates: Record<string, unknown> | undefined;
+      let aggregates: Record<string, unknown> | undefined = listResult.data.aggregates;
       if (query.aggregations && query.aggregations.length > 0) {
         const aggResult = await gridsService.record.aggregate({
           tableId,
-          filter: effectiveFilter,
+          filter: query.filter ?? null,
+          search: query.search ?? null,
+          includeDeleted: query.includeDeleted,
+          deletedOnly: query.deletedOnly,
           requests: query.aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
+          viewer,
         });
-        if (aggResult.ok) aggregates = aggResult.data;
+        if (aggResult.ok) aggregates = { ...aggregates, ...aggResult.data };
       }
 
       return c.json({
@@ -303,7 +315,7 @@ const app = new Hono<AuthContext>()
       }),
     ),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");

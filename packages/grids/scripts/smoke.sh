@@ -25,6 +25,16 @@ set -u  # unset-var = bug
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 ADMIN_TOKEN="${ADMIN_TOKEN:-dev-admin}"
 DEBUG="${DEBUG:-0}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WEBHOOK_RECEIVER_PID=""
+
+cleanup_bg() {
+  if [[ -n "${WEBHOOK_RECEIVER_PID:-}" ]]; then
+    kill "$WEBHOOK_RECEIVER_PID" >/dev/null 2>&1 || true
+    wait "$WEBHOOK_RECEIVER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup_bg EXIT
 
 # Colour the output a little so failures pop in long logs. NO_COLOR
 # turns it off (e.g. for CI logs).
@@ -150,9 +160,27 @@ http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"name","type":"tex
 expect_status 201 "POST fields/items.name (text) → 201"
 NAME_FIELD_ID=$(json '.id')
 
+http PATCH /api/grids/fields/$NAME_FIELD_ID '{"icon":"ti ti-tag"}'
+expect_status 200 "PATCH fields/items.name icon → 200"
+NAME_FIELD_ICON=$(json '.icon')
+[[ "$NAME_FIELD_ICON" == "ti ti-tag" ]] && pass "field icon persists" \
+  || fail "field icon" "expected ti ti-tag, got '$NAME_FIELD_ICON'"
+
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"description","type":"longtext"}'
+expect_status 201 "POST fields/items.description (longtext) → 201"
+DESC_FIELD_ID=$(json '.id')
+
 http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"price","type":"number"}'
 expect_status 201 "POST fields/items.price (number) → 201"
 PRICE_FIELD_ID=$(json '.id')
+
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"attachment","type":"file"}'
+expect_status 201 "POST fields/items.attachment (file) → 201"
+FILE_FIELD_ID=$(json '.id')
+
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"tags","type":"multi-select","config":{"options":[{"id":"hardware","label":"Hardware"},{"id":"sale","label":"Sale"}]}}'
+expect_status 201 "POST fields/items.tags (multi-select) → 201"
+TAGS_FIELD_ID=$(json '.id')
 
 # Relation field on orders → items.
 http POST /api/grids/fields/by-table/$ORDERS_TABLE_ID "{\"name\":\"item\",\"type\":\"relation\",\"config\":{\"targetTableId\":\"$ITEMS_TABLE_ID\",\"cardinality\":\"single\"}}"
@@ -168,6 +196,95 @@ RELATION_FIELD_ID=$(json '.id')
 http POST /api/grids/fields/by-table/$ORDERS_TABLE_ID "{\"name\":\"item_price_sum\",\"type\":\"rollup\",\"config\":{\"relationFieldId\":\"$RELATION_FIELD_ID\",\"targetFieldId\":\"$PRICE_FIELD_ID\",\"agg\":\"sum\"}}"
 expect_status 201 "POST fields/orders.item_price_sum (cross-table rollup) → 201"
 ROLLUP_FIELD_ID=$(json '.id')
+
+# ────────────────────────────────────────────────────────────────────
+# Automations: manual webhook E2E via local receiver
+# ────────────────────────────────────────────────────────────────────
+
+echo ""
+echo "━━━ automations webhook e2e ━━━"
+
+WEBHOOK_PORT="${WEBHOOK_PORT:-$((3900 + RANDOM % 500))}"
+WEBHOOK_CAPTURE_FILE="$(mktemp)"
+WEBHOOK_URL="${WEBHOOK_URL:-http://host.docker.internal:$WEBHOOK_PORT/hook}"
+WEBHOOK_CAPTURE_FILE="$WEBHOOK_CAPTURE_FILE" WEBHOOK_PORT="$WEBHOOK_PORT" WEBHOOK_BIND="${WEBHOOK_BIND:-0.0.0.0}" \
+  bun "$SCRIPT_DIR/webhook-receiver.ts" >/tmp/grids-webhook-receiver.log 2>&1 &
+WEBHOOK_RECEIVER_PID="$!"
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS "http://127.0.0.1:$WEBHOOK_PORT/health" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.2
+done
+
+if ! curl -fsS "http://127.0.0.1:$WEBHOOK_PORT/health" >/dev/null 2>&1; then
+  fail "webhook receiver startup" "receiver did not answer on port $WEBHOOK_PORT"
+else
+  pass "local webhook receiver started"
+fi
+
+http PUT /api/grids/admin/settings/grids.webhook_allow_private_networks '{"value":true}'
+expect_status 200 "enable private webhook targets for local smoke"
+
+AUTOMATION_BODY=$(cat <<JSON
+{
+  "name": "smoke webhook",
+  "trigger": {"kind": "manual"},
+  "action": {"kind": "webhook", "url": "$WEBHOOK_URL"},
+  "webhookSecret": "smoke-secret"
+}
+JSON
+)
+http POST /api/grids/automations/by-base/$BASE_ID "$AUTOMATION_BODY"
+expect_status 201 "POST automation webhook → 201"
+AUTOMATION_ID=$(json '.id')
+WEBHOOK_SECRET_SET=$(json '.webhookSecretSet')
+[[ "$WEBHOOK_SECRET_SET" == "true" ]] && pass "automation response redacts secret but reports it exists" \
+  || fail "automation webhookSecretSet" "expected true, got $WEBHOOK_SECRET_SET"
+
+http POST /api/grids/automations/$AUTOMATION_ID/run '{"input":null,"reason":"smoke"}'
+expect_status 200 "POST automation run → 200"
+RUN_STATUS=$(json '.status')
+[[ "$RUN_STATUS" == "succeeded" ]] && pass "automation run succeeded" \
+  || fail "automation run status" "expected succeeded, got $RUN_STATUS"
+
+if [[ -s "$WEBHOOK_CAPTURE_FILE" ]]; then
+  CAPTURE="$(tail -n 1 "$WEBHOOK_CAPTURE_FILE")"
+  echo "$CAPTURE" | jq -e '.json.event == "automation.manual"' >/dev/null \
+    && pass "webhook capture event automation.manual" \
+    || fail "webhook capture event" "bad capture: $CAPTURE"
+  echo "$CAPTURE" | jq -e '.json.input == null and .json.trigger.reason == "smoke"' >/dev/null \
+    && pass "webhook capture input null + reason" \
+    || fail "webhook capture payload" "bad capture: $CAPTURE"
+echo "$CAPTURE" | jq -e '.headers["x-grids-signature"] | startswith("sha256=")' >/dev/null \
+  && pass "webhook signature header present" \
+  || fail "webhook signature header" "bad capture: $CAPTURE"
+else
+  fail "webhook capture file" "receiver did not capture a request"
+fi
+
+SCHEDULE_BODY=$(cat <<JSON
+{
+  "name": "smoke schedule",
+  "trigger": {"kind": "schedule", "cron": "*/5 * * * *", "timezone": "Europe/Berlin"},
+  "action": {"kind": "webhook", "url": "$WEBHOOK_URL"},
+  "enabled": true
+}
+JSON
+)
+http POST /api/grids/automations/by-base/$BASE_ID "$SCHEDULE_BODY"
+expect_status 201 "POST scheduled automation → 201"
+SCHEDULE_AUTOMATION_ID=$(json '.id')
+
+http PATCH /api/grids/automations/$SCHEDULE_AUTOMATION_ID '{"enabled":false}'
+expect_status 200 "PATCH scheduled automation disable → 200"
+
+http GET /api/grids/automations/$SCHEDULE_AUTOMATION_ID/runs
+expect_status 200 "GET scheduled automation runs → 200"
+
+http POST /api/grids/automations/by-base/$BASE_ID "{\"name\":\"bad cron\",\"trigger\":{\"kind\":\"schedule\",\"cron\":\"99 * * * *\"},\"action\":{\"kind\":\"webhook\",\"url\":\"$WEBHOOK_URL\"}}"
+expect_status 400 "POST scheduled automation with invalid cron → 400"
 
 # ────────────────────────────────────────────────────────────────────
 # short_id invariant: every entity got a 5-char alphanumeric short_id.
@@ -204,6 +321,30 @@ OTHER_TABLE_ID=$(json '.id')
 http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID "{\"name\":\"bad\",\"type\":\"relation\",\"config\":{\"targetTableId\":\"$OTHER_TABLE_ID\",\"cardinality\":\"single\"}}"
 expect_status 400 "POST cross-base relation → 400"
 
+BAD_DASHBOARD=$(cat <<JSON
+{
+  "name": "bad-cross-base-dashboard",
+  "config": {
+    "rows": [{
+      "id": "row-1",
+      "kind": "row",
+      "height": "sm",
+      "cells": [{
+        "id": "stat-1",
+        "kind": "stat",
+        "source": {
+          "tableId": "$OTHER_TABLE_ID",
+          "aggregations": [{"fieldId": "*", "agg": "count"}]
+        }
+      }]
+    }]
+  }
+}
+JSON
+)
+http POST /api/grids/dashboards/by-base/$BASE_ID "$BAD_DASHBOARD"
+expect_status 400 "POST dashboard with cross-base source → 400"
+
 # Cleanup the other base — keeps the dev DB tidy across reruns.
 cleanup_delete /api/grids/bases/$OTHER_BASE_ID
 
@@ -217,6 +358,21 @@ echo "━━━ decimal config invariant ━━━"
 http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"badnum","type":"decimal","config":{"precision":5,"scale":10}}'
 expect_status 400 "POST decimal scale>precision → 400"
 
+BAD_FORM=$(cat <<JSON
+{
+  "name": "bad-form",
+  "config": {
+    "fields": [
+      {"kind": "user_input", "fieldId": "$NAME_FIELD_ID"},
+      {"kind": "user_input", "fieldId": "$NAME_FIELD_ID"}
+    ]
+  }
+}
+JSON
+)
+http POST /api/grids/forms/by-table/$ITEMS_TABLE_ID "$BAD_FORM"
+expect_status 400 "POST form with duplicate field → 400"
+
 # ────────────────────────────────────────────────────────────────────
 # Record CRUD + transactional create + relation hydration (Wave 1.3)
 # ────────────────────────────────────────────────────────────────────
@@ -224,7 +380,7 @@ expect_status 400 "POST decimal scale>precision → 400"
 echo ""
 echo "━━━ records + relations ━━━"
 
-http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"widget\",\"$PRICE_FIELD_ID\":99.99}"
+http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"widget\",\"$DESC_FIELD_ID\":\"**bold** item\",\"$PRICE_FIELD_ID\":99.99,\"$TAGS_FIELD_ID\":[\"hardware\",\"sale\"]}"
 expect_status 201 "POST item record → 201"
 ITEM_REC_ID=$(json '.id')
 
@@ -240,6 +396,12 @@ HYDRATED=$(json ".items[] | select(.id==\"$ORDER_REC_ID\") | .data[\"$RELATION_F
 [[ "$HYDRATED" == "$ITEM_REC_ID" ]] && pass "relation hydrated on list" \
   || fail "relation hydration" "expected '$ITEM_REC_ID', got '$HYDRATED'"
 
+http POST /api/grids/tables/$ORDERS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$RELATION_FIELD_ID\",\"op\":\"containsAny\",\"value\":[\"$ITEM_REC_ID\"]}}}"
+expect_status 200 "POST relation containsAny filter → 200"
+REL_FILTER_MATCH=$(json ".items[] | select(.id==\"$ORDER_REC_ID\") | .id")
+[[ "$REL_FILTER_MATCH" == "$ORDER_REC_ID" ]] && pass "relation containsAny returns linked record" \
+  || fail "relation containsAny result" "expected '$ORDER_REC_ID', got '$REL_FILTER_MATCH'"
+
 # Cross-table rollup: the rollup column on orders should expose the
 # price of the linked item (99.99 — only one item linked from this
 # order). Pre-fix this returned null because buildComputedProjections
@@ -250,6 +412,36 @@ if [[ "$ROLLUP" == "99.99" || "$ROLLUP" == "99.990000" ]]; then
 else
   fail "cross-table rollup" "expected 99.99, got '$ROLLUP'"
 fi
+
+# File field: upload/list/download/delete. The bytes live in
+# grids.files and cascade from record/field/table/base hard deletes.
+FILE_TMP=$(mktemp)
+printf "hello grids smoke" > "$FILE_TMP"
+UPLOAD_TMP=$(mktemp)
+RESPONSE_STATUS=$(
+  curl -s -o "$UPLOAD_TMP" -w "%{http_code}" \
+    -X POST "$BASE_URL/api/grids/records/$ITEMS_TABLE_ID/$ITEM_REC_ID/files/$FILE_FIELD_ID" \
+    -H "Authorization: Bearer ${SESSION:-no-session}" \
+    -F "file=@$FILE_TMP;type=text/plain"
+)
+RESPONSE_BODY=$(cat "$UPLOAD_TMP")
+rm -f "$UPLOAD_TMP" "$FILE_TMP"
+expect_status 200 "POST file upload → 200"
+GRID_FILE_ID=$(json '.id')
+
+http GET /api/grids/records/$ITEMS_TABLE_ID/$ITEM_REC_ID/files/$FILE_FIELD_ID
+expect_status 200 "GET file list → 200"
+FILE_COUNT=$(json '.items | length')
+[[ "$FILE_COUNT" == "1" ]] && pass "file list returns uploaded file" \
+  || fail "file list count" "expected 1, got $FILE_COUNT"
+
+http GET /api/grids/records/$ITEMS_TABLE_ID/$ITEM_REC_ID/files/$FILE_FIELD_ID/$GRID_FILE_ID/content
+expect_status 200 "GET file content → 200"
+[[ "$RESPONSE_BODY" == "hello grids smoke" ]] && pass "file download returns stored bytes" \
+  || fail "file download content" "got '$RESPONSE_BODY'"
+
+http DELETE /api/grids/records/$ITEMS_TABLE_ID/$ITEM_REC_ID/files/$FILE_FIELD_ID/$GRID_FILE_ID
+expect_status 204 "DELETE file → 204"
 
 # ────────────────────────────────────────────────────────────────────
 # Audit cross-table leak (Wave 2.4)
@@ -285,8 +477,82 @@ echo ""
 echo "━━━ group-by + aggregations ━━━"
 
 # Add a second item so SUM has something non-trivial to aggregate.
-http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"gadget\",\"$PRICE_FIELD_ID\":150}"
+http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"gadget\",\"$PRICE_FIELD_ID\":150,\"$TAGS_FIELD_ID\":[\"hardware\"]}"
 expect_status 201 "POST second item record → 201"
+
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$TAGS_FIELD_ID\",\"op\":\"containsAny\",\"value\":[\"sale\"]}}}"
+expect_status 200 "POST list query returns default aggregates → 200"
+DEFAULT_COUNT=$(json '.aggregates["*__count"]')
+DEFAULT_SALE_SUM=$(json ".aggregates[\"${PRICE_FIELD_ID}__sum\"]")
+if [[ "$DEFAULT_COUNT" == "1" && ( "$DEFAULT_SALE_SUM" == "99.99" || "$DEFAULT_SALE_SUM" == "99.990000" || "$DEFAULT_SALE_SUM" == "99.99000000000000" ) ]]; then
+  pass "default list aggregates respect filter over full result set"
+else
+  fail "default list aggregates" "expected count=1 sum=99.99, got count=$DEFAULT_COUNT sum=$DEFAULT_SALE_SUM"
+fi
+
+echo ""
+echo "━━━ search + export ━━━"
+
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"search\":{\"q\":\"widget\"}}}"
+expect_status 200 "POST search text → 200"
+SEARCH_HITS=$(json '.items | length')
+[[ "$SEARCH_HITS" -ge 1 ]] && pass "search finds text field" \
+  || fail "search text hits" "expected ≥1, got $SEARCH_HITS"
+
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$TAGS_FIELD_ID\",\"op\":\"containsAny\",\"value\":[\"sale\"]},\"search\":{\"q\":\"gadget\",\"fieldIds\":[]}}}"
+expect_status 200 "POST filter+search precedence → 200"
+FILTER_SEARCH_HITS=$(json '.items | length')
+[[ "$FILTER_SEARCH_HITS" == "0" ]] && pass "filter+search keeps AND precedence" \
+  || fail "filter+search precedence" "expected 0 hits, got $FILTER_SEARCH_HITS"
+
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"search\":{\"q\":\"99.99\",\"fieldIds\":[\"$PRICE_FIELD_ID\"]}}}"
+expect_status 200 "POST search number scoped → 200"
+SEARCH_NUMBER=$(json '.items | length')
+[[ "$SEARCH_NUMBER" -ge 1 ]] && pass "search finds number field" \
+  || fail "search number hits" "expected ≥1, got $SEARCH_NUMBER"
+
+http POST /api/grids/tables/$ORDERS_TABLE_ID/query "{\"query\":{\"search\":{\"q\":\"widget\"}}}"
+expect_status 200 "POST search relation label → 200"
+SEARCH_REL=$(json '.items | length')
+[[ "$SEARCH_REL" -ge 1 ]] && pass "search finds relation target label" \
+  || fail "search relation hits" "expected ≥1, got $SEARCH_REL"
+
+EXPORT_CSV_BODY=$(cat <<JSON
+{
+  "format": "csv",
+  "query": {"search": {"q": "widget"}},
+  "csv": {"delimiter": ";"},
+  "markdown": "html",
+  "fields": [
+    {"fieldId": "$NAME_FIELD_ID", "label": "Product"},
+    {"fieldId": "$DESC_FIELD_ID", "label": "HTML Description"},
+    {"fieldId": "$PRICE_FIELD_ID", "label": "Price"}
+  ]
+}
+JSON
+)
+http POST /api/grids/records/by-table/$ITEMS_TABLE_ID/export "$EXPORT_CSV_BODY"
+expect_status 200 "POST export csv configurable → 200"
+[[ "$RESPONSE_BODY" == *"Product;HTML Description;Price"* ]] && pass "csv export uses aliases + delimiter" \
+  || fail "csv export header" "missing alias header"
+[[ "$RESPONSE_BODY" == *"<strong>bold</strong>"* ]] && pass "csv export can render markdown as HTML" \
+  || fail "csv markdown html" "missing rendered bold HTML"
+
+EXPORT_JSON_BODY=$(cat <<JSON
+{
+  "format": "json",
+  "query": {},
+  "fields": [
+    {"fieldId": "$RELATION_FIELD_ID", "label": "Item", "relation": {"mode": "fields", "fieldIds": ["$NAME_FIELD_ID", "$PRICE_FIELD_ID"]}}
+  ]
+}
+JSON
+)
+http POST /api/grids/records/by-table/$ORDERS_TABLE_ID/export "$EXPORT_JSON_BODY"
+expect_status 200 "POST export json relation fields → 200"
+REL_EXPORT_NAME=$(json ".records[0].Item[0][\"$NAME_FIELD_ID\"]")
+[[ "$REL_EXPORT_NAME" == "widget" ]] && pass "json export expands selected relation fields" \
+  || fail "json relation export" "expected widget, got '$REL_EXPORT_NAME'"
 
 # Group-by on a scalar (name field) with sum(price) — the simplest path
 # that hits both resolveGroupBy and buildAggExpr through the descriptor.
@@ -295,6 +561,17 @@ expect_status 200 "POST grouped query (sum) → 200"
 BUCKETS=$(json '.buckets | length')
 [[ "$BUCKETS" -ge 2 ]] && pass "grouped query returns ≥2 buckets" \
   || fail "grouped query bucket count" "expected ≥2, got $BUCKETS"
+
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"groupBy\":[{\"fieldId\":\"$TAGS_FIELD_ID\"}],\"aggregations\":[{\"fieldId\":\"*\",\"agg\":\"count\"}],\"groupSort\":[{\"fieldId\":\"*\",\"agg\":\"count\",\"direction\":\"desc\"}]}}"
+expect_status 200 "POST grouped multi-select query sorted by count → 200"
+TOP_TAG=$(json '.buckets[0].keys[0]')
+TOP_TAG_COUNT=$(json '.buckets[0].values["*__count"]')
+EXPLODE=$(json '.explode')
+if [[ "$TOP_TAG" == "hardware" && "$TOP_TAG_COUNT" == "2" && "$EXPLODE" == "true" ]]; then
+  pass "multi-select groupSort returns top exploded bucket"
+else
+  fail "multi-select groupSort" "expected hardware count=2 explode=true, got tag=$TOP_TAG count=$TOP_TAG_COUNT explode=$EXPLODE"
+fi
 
 # Footer aggregate path (no groupBy) — exercises the same buildAggExpr
 # logic via aggregate-compiler. Total over both records.
@@ -316,8 +593,8 @@ fi
 echo ""
 echo "━━━ field-dependents + view cleanup ━━━"
 
-# Save a view that touches the price field via filter, sort, AND
-# search.fieldIds — deleting the field should strip ALL three. The
+# Save a view that touches the price field via filter, sort, groupBy,
+# groupSort, aggregations, AND search.fieldIds — deleting the field should strip all refs. The
 # search-fieldIds path was missed by the original cleanup (post-cleanup
 # #11 extension).
 VIEW_QUERY=$(cat <<JSON
@@ -327,14 +604,18 @@ VIEW_QUERY=$(cat <<JSON
   "query": {
     "filter": {"op": "AND", "filters": [{"fieldId": "$PRICE_FIELD_ID", "op": ">", "value": 50}]},
     "sort": [{"fieldId": "$PRICE_FIELD_ID", "direction": "desc"}],
+    "groupBy": [{"fieldId": "$PRICE_FIELD_ID"}],
+    "aggregations": [{"fieldId": "$PRICE_FIELD_ID", "agg": "sum"}],
+    "groupSort": [{"fieldId": "$PRICE_FIELD_ID", "agg": "sum", "direction": "desc"}],
     "search": {"q": "x", "fieldIds": ["$PRICE_FIELD_ID", "$NAME_FIELD_ID"]}
   }
 }
 JSON
 )
 http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$VIEW_QUERY"
-expect_status 201 "POST view with price filter+sort+search → 201"
+expect_status 201 "POST view with price refs across query parts → 201"
 VIEW_ID=$(json '.id')
+VIEW_SHORT_ID=$(json '.shortId')
 
 # Drop the rollup first — it references price as a BLOCKING dependent
 # (the dependents scanner rightly refuses to auto-cleanup
@@ -346,15 +627,14 @@ cleanup_delete /api/grids/fields/$ROLLUP_FIELD_ID
 http DELETE /api/grids/fields/$PRICE_FIELD_ID
 expect_status 204 "DELETE price field → 204"
 
-# View now exists and the price ref has been stripped from filter,
-# sort, AND search.fieldIds. The whole stored query is checked because
-# stale refs in any of the three would break list/aggregate at compile
-# time with `unknown field "X"`.
+# View now exists and the price ref has been stripped from every query
+# part. The whole stored query is checked because stale refs would break
+# list/group/aggregate compilation with `unknown field "X"`.
 http GET /api/grids/views/$VIEW_ID
 expect_status 200 "GET view after price delete → 200"
 QUERY_BLOB=$(json '.query | tostring')
 if [[ "$QUERY_BLOB" != *"$PRICE_FIELD_ID"* ]]; then
-  pass "view query no longer references deleted field (filter+sort+search)"
+  pass "view query no longer references deleted field"
 else
   fail "view cleanup" "query still mentions $PRICE_FIELD_ID: $QUERY_BLOB"
 fi
@@ -388,6 +668,12 @@ expect_status 404 "GET non-existent dashboard → 404"
 http POST /api/grids/tables/$ITEMS_TABLE_ID/query '{"query":{"sort":[{"fieldId":"00000000-0000-0000-0000-000000000000","direction":"asc"}]}}'
 expect_status 400 "POST query with unknown sort field → 400"
 
+http POST /api/grids/views/by-table/$ITEMS_TABLE_ID '{"name":"bad-group-sort","query":{"groupSort":[{"fieldId":"*","agg":"count","direction":"desc"}]}}'
+expect_status 400 "POST view with groupSort but no groupBy → 400"
+
+http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "{\"name\":\"bad-search-scope\",\"query\":{\"search\":{\"q\":\"x\",\"fieldIds\":[\"$FILE_FIELD_ID\"]}}}"
+expect_status 400 "POST view with unsearchable search field → 400"
+
 # Sort on a relation field — Wave 4.1 made this a clean 400 instead
 # of silently sorting all-NULL. Skip if we hit timing — relation
 # field id may not always populate; fail-soft.
@@ -412,16 +698,20 @@ http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID
 expect_status 200 "GET /app/grids/<base>/table/<table>"
 
 http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID/edit
-expect_status 200 "GET /app/grids/<base>/table/<table>/edit"
+expect_status 302 "GET /app/grids/<base>/table/<table>/edit redirects to edit mode"
+
+http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID/view/$VIEW_SHORT_ID?edit=true
+expect_status 200 "GET /app/grids/<base>/table/<table>/view/<view>?edit=true"
+
+http POST /api/grids/dashboards/by-base/$BASE_ID '{"name":"smoke-dashboard","shared":true,"config":{"rows":[]}}'
+expect_status 201 "POST dashboard for SSR smoke → 201"
+DASHBOARD_SHORT_ID=$(json '.shortId')
+
+http GET /app/grids/$BASE_SHORT_ID/dashboard/$DASHBOARD_SHORT_ID?edit=true
+expect_status 200 "GET /app/grids/<base>/dashboard/<dashboard>?edit=true"
 
 http GET /app/grids/$BASE_SHORT_ID/settings
 expect_status 200 "GET /app/grids/<base>/settings"
-
-# Old query-param URL should also still work (the SSR handler falls
-# back to query params when path params are absent). Acceptance gate
-# for ad-hoc bookmarks the user might still have around.
-http GET "/app/grids/$BASE_SHORT_ID?table=$TABLE_SHORT_ID"
-expect_status 200 "legacy query-param URL still resolves"
 
 # ────────────────────────────────────────────────────────────────────
 # Cleanup
@@ -430,6 +720,8 @@ expect_status 200 "legacy query-param URL still resolves"
 echo ""
 echo "━━━ cleanup ━━━"
 cleanup_delete /api/grids/bases/$BASE_ID
+http PUT /api/grids/admin/settings/grids.webhook_allow_private_networks '{"value":false}'
+expect_status 200 "restore private webhook target setting"
 
 # ────────────────────────────────────────────────────────────────────
 # Summary

@@ -8,6 +8,8 @@ const DecimalConfigSchema = z
     scale: z.number().int().min(0).max(20),
     min: z.string().optional(),
     max: z.string().optional(),
+    unit: z.string().min(1).max(20).optional(),
+    unitPosition: z.enum(["prefix", "suffix"]).optional(),
   })
   // Cross-field invariant: scale must not exceed precision. Without this
   // refinement the schema accepted impossible configs (e.g. precision=5,

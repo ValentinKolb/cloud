@@ -1,10 +1,4 @@
-import {
-  Checkbox,
-  DateTimeInput,
-  NumberInput,
-  SelectInput,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
+import { Checkbox, CheckboxCard, DateTimeInput, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
 import type { Field, FormFieldEntry } from "../../service";
 import RelationPicker from "./RelationPicker";
@@ -23,7 +17,11 @@ export const userInputEntriesOf = (entries: FormFieldEntry[]): UserInputEntry[] 
 export const buildInitialValues = (entries: UserInputEntry[]): Record<string, unknown> => {
   const values: Record<string, unknown> = {};
   for (const entry of entries) {
-    if (entry.defaultValue !== undefined && entry.defaultValue !== null) {
+    if (
+      entry.defaultValue !== undefined &&
+      entry.defaultValue !== null &&
+      !(typeof entry.defaultValue === "object" && (entry.defaultValue as { kind?: unknown }).kind === "now")
+    ) {
       values[entry.fieldId] = entry.defaultValue;
     }
   }
@@ -36,30 +34,24 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * create-record dialog, default-value editor in the field designer).
  *
  * Why this matters: rendering used to fork between FormSubmit (here) and
- * `CreateRecordDialog`. Currency was a `NumberInput` here and a TextInput
- * with a "12.34 EUR" placeholder there; multi-select was stacked
- * Checkboxes here and a freeform `TagsInput` there (which let users type
+ * `RecordUpsertDialog`. Decimal was a `NumberInput` here and a custom text
+ * shape elsewhere; select was stacked
+ * CheckboxCards here and a freeform `TagsInput` there (which let users type
  * non-existent option ids that the server rejected). Post-cleanup #7
  * collapses both onto this renderer so users see the same widget for the
  * same field type everywhere.
  *
  * Field-type → component mapping (current):
- * - text / slug / barcode / isbn / unknown → TextInput
+ * - text / unknown → TextInput
  * - longtext → TextInput multiline
  * - json → TextInput multiline (lines=6)
- * - email / url / phone → TextInput with type + icon
- * - number / decimal / rating / percent → NumberInput
- * - currency → TextInput with "12.34 EUR" placeholder; the server's
- *   `currencyHandler` accepts both "12.34" (default currency wraps) and
- *   "12.34 EUR" (per-row override). NumberInput would lose the override.
+ * - number / decimal / percent → NumberInput
  * - duration → TextInput with "HH:MM:SS or seconds"; same lenient parser
  *   server-side. NumberInput would lose the HH:MM:SS shorthand.
  * - boolean → Checkbox
  * - date → DateTimeInput dateOnly (or full datetime when config.includeTime)
  * - datetime → DateTimeInput
- * - single-select → SelectInput
- * - multi-select → stacked Checkbox per option (the only platform multi-pick
- *   primitive that constrains input to declared options)
+ * - select → SelectInput in single mode, CheckboxCard list in multi mode
  * - relation → RelationPicker (requires `baseId` prop). Picker disabled
  *   without baseId — used by the default-value editor where deep-link
  *   chips don't apply.
@@ -79,6 +71,8 @@ export function FieldInput(props: {
    *  deep-links. Omitted for the field designer's default-value editor;
    *  RelationPicker degrades to a non-deep-linkable picker there. */
   baseId?: string;
+  /** Optional UUID → label map for already-linked relation values. */
+  relationLabels?: Record<string, string>;
 }) {
   const label = props.entry.label || props.field.name;
   const required = props.entry.required ?? props.field.required;
@@ -88,27 +82,22 @@ export function FieldInput(props: {
   // Helpers narrowing the unknown value to a usable shape per input
   // type. Each input is forgiving — a wrong-typed stored value falls
   // back to empty, never throws.
-  const stringValue = () =>
-    typeof props.value === "string"
-      ? props.value
-      : typeof props.value === "number"
-        ? String(props.value)
-        : "";
-  const numberValue = () =>
-    typeof props.value === "number" ? props.value : undefined;
+  const stringValue = () => (typeof props.value === "string" ? props.value : typeof props.value === "number" ? String(props.value) : "");
+  const numberValue = () => (typeof props.value === "number" ? props.value : undefined);
   const boolValue = () => props.value === true;
-  const arrayValue = (): string[] =>
-    Array.isArray(props.value) ? (props.value as string[]) : [];
+  const arrayValue = (): string[] => (Array.isArray(props.value) ? (props.value as string[]) : []);
 
   switch (props.field.type) {
     case "longtext":
+      const markdown = Boolean((props.field.config as { markdown?: boolean }).markdown);
       return (
         <TextInput
           label={label}
           description={helpText}
           required={required}
-          multiline
-          lines={4}
+          markdown={markdown || undefined}
+          multiline={markdown ? undefined : true}
+          lines={markdown ? 8 : 4}
           value={stringValue}
           onInput={(v) => props.onChange(v)}
           error={error}
@@ -134,56 +123,12 @@ export function FieldInput(props: {
         />
       );
 
-    case "email":
-      return (
-        <TextInput
-          label={label}
-          description={helpText}
-          required={required}
-          type="email"
-          icon="ti ti-mail"
-          value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          error={error}
-        />
-      );
-
-    case "url":
-      return (
-        <TextInput
-          label={label}
-          description={helpText}
-          required={required}
-          type="url"
-          icon="ti ti-link"
-          value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          error={error}
-        />
-      );
-
-    case "phone":
-      return (
-        <TextInput
-          label={label}
-          description={helpText}
-          required={required}
-          type="tel"
-          icon="ti ti-phone"
-          value={stringValue}
-          onInput={(v) => props.onChange(v)}
-          error={error}
-        />
-      );
-
     case "number": {
       // Number can be integer or float depending on field config.
       // `integerOnly` flag locks it to integers; otherwise allow a
       // generous 10 decimal places (enough for the long-tail cases
       // while still capping cosmic-noise input).
-      const integerOnly = Boolean(
-        (props.field.config as { integerOnly?: boolean }).integerOnly,
-      );
+      const integerOnly = Boolean((props.field.config as { integerOnly?: boolean }).integerOnly);
       return (
         <NumberInput
           label={label}
@@ -200,31 +145,35 @@ export function FieldInput(props: {
     case "decimal": {
       // Decimal carries an explicit `scale` (default 2 — see decimalHandler).
       const scale = (props.field.config as { scale?: number }).scale ?? 2;
+      const unit = (props.field.config as { unit?: string }).unit;
+      const unitPosition = (props.field.config as { unitPosition?: "prefix" | "suffix" }).unitPosition ?? "suffix";
+      const decimalValue = (): number | null => {
+        const v = props.value;
+        if (v === null || v === undefined || v === "") return null;
+        if (typeof v === "number") return Number.isFinite(v) ? v : null;
+        if (typeof v === "string") {
+          const n = Number(v.trim());
+          return Number.isFinite(n) ? n : null;
+        }
+        if (typeof v === "object") {
+          const obj = v as { amount?: unknown };
+          const n = typeof obj.amount === "number" ? obj.amount : typeof obj.amount === "string" ? Number(obj.amount) : NaN;
+          return Number.isFinite(n) ? n : null;
+        }
+        return null;
+      };
       return (
         <NumberInput
           label={label}
           description={helpText}
           required={required}
-          value={numberValue}
+          value={decimalValue}
           onInput={(v) => props.onChange(v)}
           decimalPlaces={scale}
-          error={error}
-        />
-      );
-    }
-
-    case "rating": {
-      const scale = (props.field.config as { scale?: number }).scale ?? 5;
-      return (
-        <NumberInput
-          label={label}
-          description={helpText}
-          required={required}
-          min={0}
-          max={scale}
-          value={numberValue}
-          onInput={(v) => props.onChange(v)}
-          decimalPlaces={0}
+          prefix={unit && unitPosition === "prefix" ? <span class="font-mono">{unit}</span> : undefined}
+          suffix={unit && unitPosition !== "prefix" ? <span class="font-mono">{unit}</span> : undefined}
+          showSteppers={false}
+          clearable={!required}
           error={error}
         />
       );
@@ -245,64 +194,6 @@ export function FieldInput(props: {
           error={error}
         />
       );
-
-    case "currency": {
-      // Currency: number input + the field admin's free-text symbol
-      // as an inline suffix. The symbol comes from `field.config.currency`
-      // — could be "€", "EUR", "Euro", "credits", whatever reads
-      // naturally. Stored value is just a decimal (no `{amount, currency}`
-      // object anymore); the scale comes from `field.config.scale`,
-      // default 2 to match the server-side currencyHandler.
-      //
-      // Legacy storage tolerance: pre-rework records carried
-      // `{amount, currency}` objects. Read takes the `amount` field
-      // and discards the currency code (it's in field config now).
-      // Records re-render correctly until the next save, after which
-      // they're written as decimal strings like every other money value.
-      const symbol =
-        (props.field.config as { currency?: string }).currency ?? "EUR";
-      const scale = (props.field.config as { scale?: number }).scale ?? 2;
-      const amountValue = (): number | null => {
-        const v = props.value;
-        if (v === null || v === undefined || v === "") return null;
-        if (typeof v === "number") return Number.isFinite(v) ? v : null;
-        if (typeof v === "string") {
-          // Tolerate "12.34" and the legacy "12.34 EUR" shape.
-          const m = /^(-?\d+(?:\.\d+)?)\s*[A-Za-z]{0,3}$/.exec(v.trim());
-          if (m) {
-            const n = Number(m[1]);
-            return Number.isFinite(n) ? n : null;
-          }
-        }
-        if (typeof v === "object") {
-          const obj = v as { amount?: unknown };
-          const n =
-            typeof obj.amount === "number"
-              ? obj.amount
-              : typeof obj.amount === "string"
-                ? Number(obj.amount)
-                : NaN;
-          return Number.isFinite(n) ? (n as number) : null;
-        }
-        return null;
-      };
-      return (
-        <NumberInput
-          label={label}
-          description={helpText}
-          required={required}
-          value={amountValue}
-          onInput={(v) => props.onChange(v)}
-          decimalPlaces={scale}
-          suffix={<span class="font-mono">{symbol}</span>}
-          placeholder={`12.34 ${symbol}`}
-          step={Math.pow(10, -scale)}
-          showSteppers={false}
-          clearable={!required}
-          error={error}
-        />
-      );
-    }
 
     case "duration":
       // Duration accepts either seconds ("90") or "HH:MM:SS" / "MM:SS".
@@ -333,8 +224,7 @@ export function FieldInput(props: {
       );
 
     case "date": {
-      const includeTime =
-        (props.field.config as { includeTime?: boolean }).includeTime ?? false;
+      const includeTime = (props.field.config as { includeTime?: boolean }).includeTime ?? false;
       return (
         <DateTimeInput
           label={label}
@@ -360,72 +250,60 @@ export function FieldInput(props: {
         />
       );
 
-    case "single-select": {
-      const options =
-        ((props.field.config as { options?: Array<{ id: string; label: string }> })
-          .options ?? []).map((o) => ({ id: o.id, label: o.label }));
+    case "select": {
+      const multiple = Boolean((props.field.config as { multiple?: boolean }).multiple);
+      const optionCards =
+        (props.field.config as { options?: Array<{ id: string; label: string; description?: string; color?: string }> }).options ?? [];
+      if (multiple) {
+        const isSelected = (id: string) => arrayValue().includes(id);
+        const toggle = (id: string, checked: boolean) => {
+          const current = arrayValue();
+          const next = checked ? (current.includes(id) ? current : [...current, id]) : current.filter((s) => s !== id);
+          props.onChange(next);
+        };
+        return (
+          <div class="flex flex-col gap-2">
+            <p class="text-sm font-medium">
+              {label}
+              <Show when={required}>
+                <span class="ml-0.5 text-red-500" aria-hidden="true">
+                  *
+                </span>
+              </Show>
+            </p>
+            <Show when={helpText}>
+              <p class="text-xs text-dimmed">{helpText}</p>
+            </Show>
+            <div class="grid grid-cols-1 gap-2">
+              <For each={optionCards}>
+                {(option) => (
+                  <CheckboxCard
+                    label={option.label}
+                    description={option.description}
+                    color={option.color}
+                    value={() => isSelected(option.id)}
+                    onChange={(checked) => toggle(option.id, checked)}
+                  />
+                )}
+              </For>
+            </div>
+            <Show when={error()}>
+              <p class="text-[11px] text-red-500">{error()}</p>
+            </Show>
+          </div>
+        );
+      }
       return (
         <SelectInput
           label={label}
           description={helpText}
           required={required}
-          options={options}
+          options={optionCards.map((o) => ({ id: o.id, label: o.label, description: o.description }))}
           clearable={!required}
-          value={stringValue}
-          onChange={(v) => props.onChange(v || null)}
+          value={() => arrayValue()[0] ?? ""}
+          onChange={(v) => props.onChange(v ? [v] : null)}
           error={error}
         />
-      );
-    }
-
-    case "multi-select": {
-      // Stacked Checkboxes — one row per option. The platform Checkbox
-      // is the only multi-pick primitive that CONSTRAINS input to the
-      // declared options. (TagsInput is freeform, SelectInput is
-      // single-pick, SelectChip is single-pick chip.) A wrapped group
-      // keeps everything inside the platform's input vocabulary AND
-      // prevents users from typing non-existent option ids.
-      const options =
-        (props.field.config as { options?: Array<{ id: string; label: string }> })
-          .options ?? [];
-      const isSelected = (id: string) => arrayValue().includes(id);
-      const toggle = (id: string, checked: boolean) => {
-        const current = arrayValue();
-        const next = checked
-          ? current.includes(id)
-            ? current
-            : [...current, id]
-          : current.filter((s) => s !== id);
-        props.onChange(next);
-      };
-      return (
-        <div class="flex flex-col gap-1">
-          <p class="text-sm font-medium">
-            {label}
-            <Show when={required}>
-              <span class="ml-0.5 text-red-500" aria-hidden="true">
-                *
-              </span>
-            </Show>
-          </p>
-          <Show when={helpText}>
-            <p class="text-xs text-dimmed">{helpText}</p>
-          </Show>
-          <div class="flex flex-col gap-1">
-            <For each={options}>
-              {(option) => (
-                <Checkbox
-                  label={option.label}
-                  value={() => isSelected(option.id)}
-                  onChange={(checked) => toggle(option.id, checked)}
-                />
-              )}
-            </For>
-          </div>
-          <Show when={error()}>
-            <p class="text-[11px] text-red-500">{error()}</p>
-          </Show>
-        </div>
       );
     }
 
@@ -444,9 +322,7 @@ export function FieldInput(props: {
         return (
           <div class="flex flex-col gap-0.5">
             <span class="text-xs font-medium text-secondary">{label}</span>
-            <p class="text-xs text-amber-600 dark:text-amber-400">
-              Relation has no target table configured — skipping.
-            </p>
+            <p class="text-xs text-amber-600 dark:text-amber-400">Relation has no target table configured — skipping.</p>
           </div>
         );
       }
@@ -468,7 +344,7 @@ export function FieldInput(props: {
             targetTableId={cfg.targetTableId}
             multi={multi}
             value={() => arrayValue()}
-            labels={() => ({})}
+            labels={() => props.relationLabels ?? {}}
             onChange={(v) => props.onChange(v)}
           />
           <Show when={error()}>
@@ -479,7 +355,7 @@ export function FieldInput(props: {
     }
 
     default:
-      // text / slug / barcode / isbn / unknown-but-userInput → plain text.
+      // text / unknown-but-userInput → plain text.
       return (
         <TextInput
           label={label}

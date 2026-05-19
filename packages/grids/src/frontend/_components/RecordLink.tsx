@@ -3,9 +3,12 @@ import { Show } from "solid-js";
 type Props = {
   /** Visible link text — usually the presentable label or the projected value. */
   label: string;
+  /** Base short id for the path route. UUID is accepted as a fallback. */
   baseId: string;
   /** Target table id (resolved from the relation field's config). */
   targetTableId: string | undefined;
+  /** Target table short id. Prefer this in URLs; fallback to targetTableId. */
+  targetTableShortId?: string | undefined;
   /** Specific record id to open in the detail panel on the target table. */
   targetRecordId: string | undefined;
   /** When true (relation cells with multiple ids), render a comma after this link. */
@@ -26,9 +29,10 @@ type Props = {
  * targetTableId / no recordId, e.g. a deleted relation field).
  */
 export function RecordLink(props: Props) {
+  const tablePathId = () => props.targetTableShortId ?? props.targetTableId;
   const href = () =>
-    props.targetTableId && props.targetRecordId
-      ? `/app/grids/${props.baseId}?table=${props.targetTableId}&record=${props.targetRecordId}`
+    tablePathId() && props.targetRecordId
+      ? `/app/grids/${props.baseId}/table/${tablePathId()}?record=${props.targetRecordId}`
       : null;
   return (
     <Show when={href()} fallback={<span>{props.label}{props.comma ? "," : ""}</span>}>

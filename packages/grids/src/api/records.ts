@@ -4,63 +4,15 @@ import { z } from "zod";
 import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
 import * as settings from "@valentinkolb/cloud/services/settings";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { hasRole } from "@valentinkolb/cloud/contracts";
 import { ok, fail, err } from "@valentinkolb/stdlib";
 import { gridsService } from "../service";
 import {
   GridRecordSchema,
   RecordPayloadSchema,
-  FilterTreeSchema,
-  SortSpecSchema,
+  ExportBodySchema,
 } from "../contracts";
 import { gateAt } from "./permissions";
-
-/**
- * Query-param schema for `GET /records/by-table/:tableId/export`. Adds
- * up-front validation so a malformed `filter` / `sort` / `fields` returns
- * a clean 400 instead of being parsed deep inside the service layer
- * (chunk 7 important). Format is restricted to csv|json; filter and
- * sort go through the same FilterTreeSchema / SortSpecSchema as the
- * unified query endpoint; fields is a comma-separated UUID list.
- */
-const ExportQuerySchema = z.object({
-  format: z.enum(["csv", "json"]).optional().default("csv"),
-  filter: z
-    .string()
-    .optional()
-    .transform((s, ctx) => {
-      if (!s) return null;
-      try {
-        return JSON.parse(s) as unknown;
-      } catch {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "filter is not valid JSON" });
-        return z.NEVER;
-      }
-    })
-    .pipe(FilterTreeSchema.nullable()),
-  sort: z
-    .string()
-    .optional()
-    .transform((s, ctx) => {
-      if (!s) return [];
-      try {
-        const parsed = JSON.parse(s);
-        if (!Array.isArray(parsed)) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sort must be a JSON array" });
-          return z.NEVER;
-        }
-        return parsed as unknown[];
-      } catch {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "sort is not valid JSON" });
-        return z.NEVER;
-      }
-    })
-    .pipe(z.array(SortSpecSchema)),
-  fields: z
-    .string()
-    .optional()
-    .transform((s) => (s ? s.split(",").map((p) => p.trim()).filter(Boolean) : []))
-    .pipe(z.array(z.string().uuid())),
-});
 
 const GridFileSchema = z.object({
   id: z.string().uuid(),
@@ -318,19 +270,17 @@ const app = new Hono<AuthContext>()
     },
   )
 
-  // Note: prefixed with `/by-table/` so the route doesn't clash with
-  // the catch-all `/:tableId/:recordId` GET handler above.
-  .get(
+  .post(
     "/by-table/:tableId/export",
     describeRoute({
       tags: ["Grids:Record"],
-      summary: "Export records as CSV or JSON (view-aware)",
+      summary: "Export records with configurable fields and relation expansion",
       responses: {
         200: { description: "Export body — Content-Type matches format" },
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
       },
     }),
-    v("query", ExportQuerySchema),
+    v("json", ExportBodySchema),
     async (c) => {
       const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
@@ -338,13 +288,18 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const { format, filter, sort, fields } = c.req.valid("query");
+      const user = c.get("user");
+      const body = c.req.valid("json");
       const result = await gridsService.exporter.exportRecords({
         tableId,
-        format,
-        filter,
-        sort,
-        visibleFieldIds: fields.length > 0 ? fields : undefined,
+        format: body.format,
+        query: body.query,
+        fields: body.fields,
+        csv: body.csv,
+        markdown: body.markdown,
+        viewer: hasRole(user, "admin")
+          ? undefined
+          : { userId: user.id, userGroups: user.memberofGroupIds },
       });
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
 
@@ -353,7 +308,6 @@ const app = new Hono<AuthContext>()
         headers: {
           "Content-Type": result.data.contentType,
           "Content-Disposition": `attachment; filename="${result.data.filename}"`,
-          // Tell the client we hit the cap so the UI can warn the user.
           "X-Truncated": result.data.truncated ? "1" : "0",
         },
       });

@@ -19,7 +19,7 @@ import PublicFormSubmit from "../../../_components/PublicFormSubmit.island";
  * on the server).
  */
 export default ssr<AuthContext>(async (c) => {
-  const token = c.req.param("token");
+  const token = c.req.param("token")!;
 
   // Theme: anonymous users have no cookies normally, but if they do
   // (returning logged-in user opening a public form) honour it.

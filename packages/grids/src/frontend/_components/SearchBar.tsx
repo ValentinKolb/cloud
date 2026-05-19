@@ -4,7 +4,7 @@ import { timed as timing } from "@valentinkolb/stdlib/solid";
 import type { Field } from "../../service";
 
 type Props = {
-  /** Searchable text-shaped fields the user can scope their query to. */
+  /** Fields the server-side search compiler can search. */
   fields: Field[];
   /** Current search text from the URL (`?q=...`). */
   initialQ: string;

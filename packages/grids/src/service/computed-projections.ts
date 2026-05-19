@@ -1,7 +1,7 @@
 import { sql } from "bun";
-import type { Field } from "./types";
 import { storageOf } from "./field-storage";
 import { get as getField } from "./fields";
+import type { Field } from "./types";
 
 /**
  * Per-row SELECT-list projections for lookup and rollup fields.
@@ -51,10 +51,10 @@ const rollupAlias = (fieldId: string): string => `rlp_${fieldId.replace(/-/g, ""
  * table (the relation's target). The source-field list passed in only
  * has the current table's fields; we fetch missing target fields
  * one by one. Cross-table targets are common in real schemas, so
- * resolving them is necessary for the Wave 4.1 storage descriptor
- * (currency → amount projection) to work for them at all — without
- * this lookup, the descriptor saw `undefined` field, returned `null`
- * projection, and the rollup column was silently skipped.
+ * resolving them is necessary so the storage descriptor can project
+ * the target field with the same rules as filters, sorts, and
+ * aggregates. Without this lookup, cross-table rollup columns were
+ * silently skipped.
  */
 export const buildComputedProjections = async (fields: Field[]): Promise<ComputedProjection[]> => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
@@ -129,19 +129,11 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
 
     if (!cfg.targetFieldId || !cfg.agg) continue;
 
-    // sum / avg / min / max — numeric only. Resolves the target field's
-    // storage descriptor so currency targets project the nested `amount`
-    // (not the JSON-stringified blob). Closes chunk 3's "currency
-    // rollups coerced differently from aggregates" critical: without
-    // the descriptor, this path used `data->>${targetFieldId}` which
-    // returned the JSON object as a text and try_numeric coerced to
-    // NULL. Now currency rollups produce real amounts.
+    // sum / avg / min / max — numeric only. Resolve the target field's
+    // storage descriptor so rollups use the same typed projection as
+    // filters, sorts, groups, and aggregates.
     const aggFn =
-      cfg.agg === "sum" ? sql`SUM`
-      : cfg.agg === "avg" ? sql`AVG`
-      : cfg.agg === "min" ? sql`MIN`
-      : cfg.agg === "max" ? sql`MAX`
-      : null;
+      cfg.agg === "sum" ? sql`SUM` : cfg.agg === "avg" ? sql`AVG` : cfg.agg === "min" ? sql`MIN` : cfg.agg === "max" ? sql`MAX` : null;
     if (!aggFn) continue;
 
     const targetField = await resolveTargetField(cfg.targetFieldId);
@@ -149,7 +141,7 @@ export const buildComputedProjections = async (fields: Field[]): Promise<Compute
     const targetProjection = storageOf(targetField).project(targetField, "t");
     if (!targetProjection) {
       // Target type is non-projectable (relation/lookup/rollup/formula/
-      // multi-select/json/system-without-numeric). Skip silently — the
+      // select/json/system-without-numeric). Skip silently — the
       // UI's lookup/rollup config editor should validate this at
       // save-time (Wave 5.2). Until then, a partial / nonsensical config
       // produces no rollup column rather than a crash.

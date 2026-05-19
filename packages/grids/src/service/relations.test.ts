@@ -1,5 +1,5 @@
-import { test, expect, describe } from "bun:test";
-import { enrichRecordsWithFormulas } from "./relations";
+import { describe, expect, test } from "bun:test";
+import { enrichRecordsWithFormulas, relationLabelFields } from "./relations";
 import type { Field, GridRecord } from "./types";
 
 // =============================================================================
@@ -47,15 +47,36 @@ const mkRecord = (id: string, data: Record<string, unknown>): GridRecord => ({
   updatedAt: "2026-01-01T00:00:00Z",
 });
 
+describe("relationLabelFields", () => {
+  test("uses presentable fields in position order", () => {
+    const a = mkField({ id: "a", type: "text", position: 2, presentable: true });
+    const b = mkField({ id: "b", type: "text", position: 1, presentable: true });
+    const fallback = mkField({ id: "fallback", type: "text", position: 0 });
+    expect(relationLabelFields([a, b, fallback]).map((f) => f.id)).toEqual(["b", "a"]);
+  });
+
+  test("falls back to the first single-line text field", () => {
+    const n = mkField({ id: "n", type: "number", position: 0 });
+    const title = mkField({ id: "title", type: "text", position: 1 });
+    const notes = mkField({ id: "notes", type: "longtext", position: 2 });
+    expect(relationLabelFields([notes, n, title]).map((f) => f.id)).toEqual(["title"]);
+  });
+
+  test("does not use longtext as implicit label fallback", () => {
+    const notes = mkField({ id: "notes", type: "longtext", position: 0 });
+    expect(relationLabelFields([notes])).toEqual([]);
+  });
+});
+
 describe("enrichRecordsWithFormulas — basic evaluation", () => {
   test("computes a single formula referencing a #shortId", () => {
-    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "currency" });
+    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "decimal" });
     const total = mkFormula("fld-total", "TOTAL", "#PRICE * 1.19");
     const rec = mkRecord("rec-1", {
-      "fld-price": { amount: "24.50", currency: "EUR" },
+      "fld-price": "24.50",
     });
     enrichRecordsWithFormulas([rec], [price, total]);
-    // Currency arithmetic preserves precision via decimal.js.
+    // Decimal arithmetic preserves precision via decimal.js.
     expect(rec.data["fld-total"]).toBe("29.155");
   });
 
@@ -170,7 +191,7 @@ describe("enrichRecordsWithFormulas — shortId map", () => {
   test("shortId map is built across all alive non-formula fields, not just formulas", () => {
     // The formula references a non-formula field by shortId. If the shortId map
     // skipped non-formulas, this would fail to resolve and return null.
-    const price = mkField({ id: "fld-price", shortId: "Pr1cE", type: "currency" });
+    const price = mkField({ id: "fld-price", shortId: "Pr1cE", type: "decimal" });
     const total = mkFormula("fld-total", "TOTAL", "#Pr1cE * 2");
     const rec = mkRecord("rec-1", { "fld-price": "5" });
     enrichRecordsWithFormulas([rec], [price, total]);

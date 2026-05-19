@@ -43,7 +43,7 @@ export const gateAt = async (
 ): Promise<Result<PermissionLevel>> => {
   const level = await effectivePermission(c, target);
   if (!gridsService.permission.hasAtLeast(level, required)) {
-    return fail(err.forbidden(`requires ${required} on this resource`));
+    return fail(err.forbidden("You do not have permission to access this resource."));
   }
   return ok(level);
 };

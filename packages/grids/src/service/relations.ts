@@ -1,19 +1,24 @@
 import { sql } from "bun";
+import { evaluate, renderResult } from "../formula/evaluator";
+import { collectFieldRefs, parseFormula } from "../formula/parser";
+import { formulaError } from "../formula/types";
+import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
-import type { SqlClient } from "./audit";
-import { collectFieldRefs, parseFormula } from "../formula/parser";
-import { evaluate, renderResult } from "../formula/evaluator";
-import { formulaError } from "../formula/types";
-import {
-  hasAtLeast,
-  loadGrantsForUser,
-  resolveEffectivePermission,
-} from "./permission-resolver";
+import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
+const LABEL_TEXT_TYPES = new Set(["text"]);
+
+export const relationLabelFields = (fields: Field[]): Field[] => {
+  const alive = fields.filter((f) => !f.deletedAt).sort((a, b) => a.position - b.position);
+  const presentable = alive.filter((f) => f.presentable);
+  if (presentable.length > 0) return presentable;
+  const firstText = alive.find((f) => LABEL_TEXT_TYPES.has(f.type));
+  return firstText ? [firstText] : [];
+};
 
 // =============================================================================
 // record_links junction-table helpers (v3)
@@ -39,11 +44,10 @@ export const validateRelationTargets = async (
   targetIds: string[],
 ): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
   if (targetIds.length === 0) return { ok: true };
-  const arr = `{${targetIds.join(",")}}`;
   const rows = await sql<{ id: string }[]>`
     SELECT id::text AS id
     FROM grids.records
-    WHERE id = ANY(${arr}::uuid[])
+    WHERE id = ANY(${sql.array(targetIds, "UUID")})
       AND table_id = ${targetTableId}::uuid
       AND deleted_at IS NULL
   `;
@@ -81,12 +85,7 @@ export const writeRecordLinks = async (
   await sql.begin((tx) => runInClient(tx, fromRecordId, fromFieldId, toRecordIds));
 };
 
-const runInClient = async (
-  client: SqlClient,
-  fromRecordId: string,
-  fromFieldId: string,
-  toRecordIds: string[],
-): Promise<void> => {
+const runInClient = async (client: SqlClient, fromRecordId: string, fromFieldId: string, toRecordIds: string[]): Promise<void> => {
   await client`
     DELETE FROM grids.record_links
     WHERE from_record_id = ${fromRecordId}::uuid
@@ -114,10 +113,7 @@ const runInClient = async (
  *
  * Empty record list or empty field list → empty map.
  */
-export const readRecordLinksBatch = async (
-  recordIds: string[],
-  fieldIds: string[],
-): Promise<Map<string, Map<string, string[]>>> => {
+export const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Promise<Map<string, Map<string, string[]>>> => {
   const out = new Map<string, Map<string, string[]>>();
   if (recordIds.length === 0 || fieldIds.length === 0) return out;
   const recArr = `{${recordIds.join(",")}}`;
@@ -153,10 +149,7 @@ export const readRecordLinksBatch = async (
  *
  * Empty input → no-op. Tables with no relation fields → no-op.
  */
-export const hydrateRelationsFromLinks = async (
-  records: GridRecord[],
-  fields: Field[],
-): Promise<void> => {
+export const hydrateRelationsFromLinks = async (records: GridRecord[], fields: Field[]): Promise<void> => {
   if (records.length === 0) return;
   const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
   if (relationFields.length === 0) return;
@@ -189,7 +182,13 @@ export const hydrateRelationsFromLinks = async (
 const orderFormulasByDeps = (
   formulaFields: Field[],
   slugToId: Record<string, string>,
-): { ordered: Array<{ field: Field; ast: ReturnType<typeof parseFormula> extends infer R ? R extends { ok: true; ast: infer A } ? A : never : never }>; cycle: Set<string> } => {
+): {
+  ordered: Array<{
+    field: Field;
+    ast: ReturnType<typeof parseFormula> extends infer R ? (R extends { ok: true; ast: infer A } ? A : never) : never;
+  }>;
+  cycle: Set<string>;
+} => {
   // Refs in formulas are either UUIDs (legacy {uuid} syntax) or slugs
   // (#slug syntax). Normalise both to UUIDs via the slug-map so the
   // dep graph stays UUID-keyed.
@@ -201,9 +200,7 @@ const orderFormulasByDeps = (
       if (!expr) return null;
       const parsed = parseFormula(expr);
       if (!parsed.ok) return null;
-      const refs = new Set(
-        [...collectFieldRefs(parsed.ast)].map(resolveRef),
-      );
+      const refs = new Set([...collectFieldRefs(parsed.ast)].map(resolveRef));
       return { field: f, ast: parsed.ast, refs };
     })
     .filter((c): c is NonNullable<typeof c> => c !== null);
@@ -304,20 +301,15 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
 
 /**
  * SSR helper: walks every relation field on the visible records and
- * builds `recordId → label` for every linked target record. Labels
- * use the target table's `presentable` fields (joined with " · "),
- * fall back to the relation's `displayFieldId`, then to an 8-char
- * id prefix.
+ * builds `recordId → label` for every linked target record. Labels use
+ * the target table's `presentable` fields (joined with " · "), then
+ * automatically fall back to the first text-shaped field.
  *
  * Single SQL round-trip per target table — `WHERE id = ANY(uuid[])`.
  * Empty input → empty map; non-relation fields are skipped.
  */
-export const buildRelationLabelCache = async (
-  records: GridRecord[],
-  fields: Field[],
-): Promise<Record<string, string>> => {
+export const buildRelationLabelCache = async (records: GridRecord[], fields: Field[]): Promise<Record<string, string>> => {
   const idsByTargetTable = new Map<string, Set<string>>();
-  const fieldsByTargetTable = new Map<string, { displayFieldId?: string }>();
 
   const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
   if (relationFields.length === 0 || records.length === 0) return {};
@@ -330,9 +322,8 @@ export const buildRelationLabelCache = async (
   );
 
   for (const rf of relationFields) {
-    const cfg = rf.config as { targetTableId?: string; displayFieldId?: string };
+    const cfg = rf.config as { targetTableId?: string };
     if (!cfg.targetTableId) continue;
-    fieldsByTargetTable.set(cfg.targetTableId, { displayFieldId: cfg.displayFieldId });
     const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
     for (const rec of records) {
       const linked = links.get(rec.id)?.get(rf.id);
@@ -341,7 +332,7 @@ export const buildRelationLabelCache = async (
     idsByTargetTable.set(cfg.targetTableId, set);
   }
 
-  return resolveLabelsByTargetTable(idsByTargetTable, fieldsByTargetTable);
+  return resolveLabelsByTargetTable(idsByTargetTable);
 };
 
 /**
@@ -350,58 +341,26 @@ export const buildRelationLabelCache = async (
  *
  * Label-resolution rule (single source of truth, evaluated top-down):
  *
- *   1. relation.config.displayFieldId — the relation-owner's explicit
- *      per-relation override. Wins over everything when set AND points
- *      at a non-empty value on the target row.
- *   2. presentable fields on the target table, joined by " · " in
+ *   1. presentable fields on the target table, joined by " · " in
  *      position order. The table-owner's "what represents a row in
  *      this table" decision.
- *   3. First non-deleted text-shaped field on the target table.
+ *   2. First non-deleted text-shaped field on the target table.
  *      Defensive fallback so a relation always renders something
  *      readable even when nobody configured anything.
- *   4. 8-char id prefix. Last resort.
- *
- * Why displayFieldId now beats presentable (was the other way around
- * pre-cleanup): an explicit per-relation setting was being silently
- * overridden by the table's presentable flags, which surprised users
- * who configured displayFieldId expecting it to take effect. The new
- * order matches "more specific config wins" — table-level convention
- * provides the default, relation-level override applies on top.
+ *   3. "Untitled record". Last resort.
  *
  * Splits out so that callers operating on group buckets (whose keys are
  * already raw target-record UUIDs, not records on the source table)
  * can reuse the lookup without manufacturing a fake `GridRecord[]`.
  */
-export const resolveLabelsByTargetTable = async (
-  idsByTargetTable: Map<string, Set<string>>,
-  fieldsByTargetTable: Map<string, { displayFieldId?: string }>,
-): Promise<Record<string, string>> => {
+export const resolveLabelsByTargetTable = async (idsByTargetTable: Map<string, Set<string>>): Promise<Record<string, string>> => {
   const cache: Record<string, string> = {};
   if (idsByTargetTable.size === 0) return cache;
-
-  const TEXT_KINDS = new Set([
-    "text",
-    "longtext",
-    "email",
-    "url",
-    "phone",
-    "slug",
-    "barcode",
-    "isbn",
-  ]);
 
   for (const [targetTableId, idSet] of idsByTargetTable) {
     if (idSet.size === 0) continue;
     const targetFields = await listFields(targetTableId);
-    const alive = targetFields.filter((f) => !f.deletedAt);
-    const presentable = alive
-      .filter((f) => f.presentable)
-      .sort((a, b) => a.position - b.position);
-    const firstText = alive
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .find((f) => TEXT_KINDS.has(f.type));
-    const displayFieldId = fieldsByTargetTable.get(targetTableId)?.displayFieldId;
+    const labelFields = relationLabelFields(targetFields);
     const idArr = `{${[...idSet].join(",")}}`;
     const rows = await sql<DbRow[]>`
       SELECT id, data
@@ -415,25 +374,11 @@ export const resolveLabelsByTargetTable = async (
       const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
       let label: string | null = null;
 
-      // 1. per-relation displayFieldId override
-      if (displayFieldId && data[displayFieldId] != null) {
-        const v = formatLabelPart(data[displayFieldId]);
-        if (v.length > 0) label = v;
-      }
-      // 2. presentable fields joined
-      if (label === null && presentable.length > 0) {
-        const parts = presentable
-          .map((f) => formatLabelPart(data[f.id]))
-          .filter((s) => s.length > 0);
+      if (labelFields.length > 0) {
+        const parts = labelFields.map((f) => formatLabelPart(data[f.id])).filter((s) => s.length > 0);
         if (parts.length > 0) label = parts.join(" · ");
       }
-      // 3. first text-shaped field
-      if (label === null && firstText && data[firstText.id] != null) {
-        const v = formatLabelPart(data[firstText.id]);
-        if (v.length > 0) label = v;
-      }
-      // 4. id prefix fallback
-      cache[id] = label ?? id.slice(0, 8);
+      cache[id] = label ?? "Untitled record";
     }
   }
   return cache;
@@ -454,13 +399,11 @@ export const buildLabelCacheForGroupedKeys = async (
   if (buckets.length === 0) return {};
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const idsByTargetTable = new Map<string, Set<string>>();
-  const fieldsByTargetTable = new Map<string, { displayFieldId?: string }>();
   for (let i = 0; i < groupByFieldIds.length; i++) {
     const f = fieldsById.get(groupByFieldIds[i]!);
     if (!f || f.type !== "relation" || f.deletedAt) continue;
-    const cfg = f.config as { targetTableId?: string; displayFieldId?: string };
+    const cfg = f.config as { targetTableId?: string };
     if (!cfg.targetTableId) continue;
-    fieldsByTargetTable.set(cfg.targetTableId, { displayFieldId: cfg.displayFieldId });
     const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
     for (const b of buckets) {
       const k = b.keys[i];
@@ -468,7 +411,7 @@ export const buildLabelCacheForGroupedKeys = async (
     }
     idsByTargetTable.set(cfg.targetTableId, set);
   }
-  return resolveLabelsByTargetTable(idsByTargetTable, fieldsByTargetTable);
+  return resolveLabelsByTargetTable(idsByTargetTable);
 };
 
 // =============================================================================
@@ -496,7 +439,7 @@ export const buildLabelCacheForGroupedKeys = async (
  * read permission. Pass to `attachRelationExpansion` /
  * `buildRelationExpansionCache` to ensure links to records in tables
  * the viewer can't read are NOT expanded — the renderer falls back
- * to a UUID prefix for those, matching the access experience the
+ * to a neutral placeholder, matching the access experience the
  * user would have if they navigated to the target table directly.
  */
 export type ExpansionViewer = {
@@ -511,7 +454,7 @@ export type ExpansionViewer = {
  * tables the viewer has at least `read` on. Runs grant resolution in
  * parallel — N targets cost ~N permission-resolver roundtrips (each
  * a single UNION ALL query). Target tables that don't exist are
- * dropped silently; the renderer falls back to UUID prefix.
+ * dropped silently; the renderer falls back to a neutral placeholder.
  *
  * Cross-base relations work: each target's `baseId` is looked up
  * independently, and grants are resolved within that target's base.
@@ -549,16 +492,16 @@ const filterTargetsByViewerPermission = async (
  * presentable fields instead of a joined label string. Each entry in
  * the returned map is the linked record's `data` filtered down to the
  * fields the UI needs to render a label — the target table's
- * presentable fields PLUS any per-relation `displayFieldId` override.
+ * presentable fields, or the first text-shaped field as fallback.
  *
  * Empty input → empty map. Records linking to nonexistent / soft-
- * deleted targets are silently dropped (renderer falls back to a UUID
- * prefix).
+ * deleted targets are silently dropped (renderer falls back to a
+ * neutral placeholder).
  *
  * Pass `viewer` to gate expansion by per-target-table read permission —
  * tables the viewer can't read are dropped from the result, so a row
- * referencing a forbidden record renders as a UUID prefix instead of
- * leaking the linked row's data. Omit for unfiltered expansion (used
+ * referencing a forbidden record renders as a neutral placeholder
+ * instead of leaking the linked row's data. Omit for unfiltered expansion (used
  * by internal paths that already gated access elsewhere).
  */
 export const buildRelationExpansionCache = async (
@@ -575,15 +518,9 @@ export const buildRelationExpansionCache = async (
   );
 
   const idsByTargetTable = new Map<string, Set<string>>();
-  const displayFieldByTargetTable = new Map<string, string | undefined>();
   for (const rf of relationFields) {
-    const cfg = rf.config as { targetTableId?: string; displayFieldId?: string };
+    const cfg = rf.config as { targetTableId?: string };
     if (!cfg.targetTableId) continue;
-    // Record the displayFieldId for THIS target table. If two relation
-    // fields point at the same target table with different display
-    // overrides, the LAST one wins — same precedence as buildLabelCache
-    // (intentionally lossy here; the override is a table-level hint).
-    displayFieldByTargetTable.set(cfg.targetTableId, cfg.displayFieldId);
     const set = idsByTargetTable.get(cfg.targetTableId) ?? new Set<string>();
     for (const rec of records) {
       const linked = links.get(rec.id)?.get(rf.id);
@@ -592,17 +529,15 @@ export const buildRelationExpansionCache = async (
     idsByTargetTable.set(cfg.targetTableId, set);
   }
 
-  const gated = viewer
-    ? await filterTargetsByViewerPermission(idsByTargetTable, viewer)
-    : idsByTargetTable;
+  const gated = viewer ? await filterTargetsByViewerPermission(idsByTargetTable, viewer) : idsByTargetTable;
 
-  return resolveExpansionByTargetTable(gated, displayFieldByTargetTable);
+  return resolveExpansionByTargetTable(gated);
 };
 
 /**
  * Lower-level expansion resolver — input is already grouped by target
  * table. ONE SQL round-trip per target table. Picks the field set
- * needed for label rendering (presentable + displayFieldId), filters
+ * needed for label rendering, filters
  * the linked records' data down to those, and stitches them into a
  * single flat `uuid → fields` map keyed across all target tables.
  *
@@ -613,7 +548,6 @@ export const buildRelationExpansionCache = async (
  */
 export const resolveExpansionByTargetTable = async (
   idsByTargetTable: Map<string, Set<string>>,
-  displayFieldByTargetTable: Map<string, string | undefined>,
 ): Promise<Record<string, Record<string, unknown>>> => {
   const out: Record<string, Record<string, unknown>> = {};
   if (idsByTargetTable.size === 0) return out;
@@ -621,23 +555,9 @@ export const resolveExpansionByTargetTable = async (
   for (const [targetTableId, idSet] of idsByTargetTable) {
     if (idSet.size === 0) continue;
     const targetFields = await listFields(targetTableId);
-    const alive = targetFields.filter((f) => !f.deletedAt);
-    const presentable = alive
-      .filter((f) => f.presentable)
-      .sort((a, b) => a.position - b.position);
-    const displayFieldId = displayFieldByTargetTable.get(targetTableId);
+    const labelFields = relationLabelFields(targetFields);
+    if (labelFields.length === 0) continue;
 
-    // Fast-skip when neither presentable nor displayFieldId are set.
-    // Without either, expansion has nothing to surface — the renderer
-    // falls back to UUID-prefix. The payload-trim alternative (return
-    // first text field) lives in buildRelationLabelCache; we match
-    // the user's schema rather than guess for them.
-    if (presentable.length === 0 && !displayFieldId) continue;
-
-    // We need data for BOTH the presentable fields and displayFieldId,
-    // because precedence is decided per-row (displayFieldId wins ONLY
-    // when its value is non-empty for THAT row). So the SQL projection
-    // pulls a superset; the per-row filter below picks the actual subset.
     const idArr = `{${[...idSet].join(",")}}`;
     const rows = await sql<DbRow[]>`
       SELECT id, data
@@ -651,24 +571,9 @@ export const resolveExpansionByTargetTable = async (
       const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
       const subset: Record<string, unknown> = {};
 
-      // Precedence: displayFieldId wins (when set + non-empty) — emit
-      // ONLY that one. Otherwise emit every presentable field that has
-      // a value. Matches buildRelationLabelCache's label precedence so
-      // a client-side join-with-" · " produces the same string the
-      // server-side cache used to emit.
-      const displayValue = displayFieldId ? data[displayFieldId] : undefined;
-      if (
-        displayFieldId &&
-        displayValue !== null &&
-        displayValue !== undefined &&
-        displayValue !== ""
-      ) {
-        subset[displayFieldId] = displayValue;
-      } else {
-        for (const f of presentable) {
-          const v = data[f.id];
-          if (v !== null && v !== undefined && v !== "") subset[f.id] = v;
-        }
+      for (const f of labelFields) {
+        const v = data[f.id];
+        if (v !== null && v !== undefined && v !== "") subset[f.id] = v;
       }
       if (Object.keys(subset).length > 0) out[id] = subset;
     }
@@ -684,7 +589,7 @@ export const resolveExpansionByTargetTable = async (
  *
  * Pass `viewer` to gate expansion by per-target-table read access —
  * records the viewer can't reach contribute UUIDs that don't expand,
- * and the renderer falls back to UUID prefix for those. Omit for
+ * and the renderer falls back to a neutral placeholder for those. Omit for
  * unfiltered expansion (use only when the surrounding call site has
  * already gated access).
  *
@@ -693,17 +598,11 @@ export const resolveExpansionByTargetTable = async (
  * chain. Returns void; the side-effected records are what callers
  * already have a handle on.
  */
-export const attachRelationExpansion = async (
-  records: GridRecord[],
-  fields: Field[],
-  viewer?: ExpansionViewer,
-): Promise<void> => {
+export const attachRelationExpansion = async (records: GridRecord[], fields: Field[], viewer?: ExpansionViewer): Promise<void> => {
   if (records.length === 0) return;
   const expansion = await buildRelationExpansionCache(records, fields, viewer);
   if (Object.keys(expansion).length === 0) return;
-  const relationFieldIds = fields
-    .filter((f) => f.type === "relation" && !f.deletedAt)
-    .map((f) => f.id);
+  const relationFieldIds = fields.filter((f) => f.type === "relation" && !f.deletedAt).map((f) => f.id);
   if (relationFieldIds.length === 0) return;
   // Per-record subset: only attach entries this record actually
   // references. Avoids duplicating large shared maps across records
@@ -751,44 +650,22 @@ export const lookupRecords = async (params: {
 }): Promise<{ items: { id: string; label: string }[] }> => {
   const limit = Math.min(Math.max(params.limit ?? 10, 1), 50);
   const fields = await listFields(params.targetTableId);
-  const presentable = fields
-    .filter((f) => !f.deletedAt && f.presentable)
-    .sort((a, b) => a.position - b.position);
+  const presentable = relationLabelFields(fields);
 
-  // Searchable fields: text-shaped presentables. If no presentables are
-  // configured, fall back to every text-shaped field so the picker can
-  // at least find rows by id-prefix or any visible text content.
-  const TEXT_TYPES = new Set([
-    "text",
-    "longtext",
-    "email",
-    "url",
-    "phone",
-    "slug",
-    "barcode",
-    "isbn",
-  ]);
-  const searchTargets = (presentable.length > 0 ? presentable : fields)
-    .filter((f) => !f.deletedAt && TEXT_TYPES.has(f.type));
+  const searchTargets = presentable.filter((f) => LABEL_TEXT_TYPES.has(f.type));
 
-  const conditions: any[] = [
-    sql`table_id = ${params.targetTableId}::uuid`,
-    sql`deleted_at IS NULL`,
-  ];
+  const conditions: any[] = [sql`table_id = ${params.targetTableId}::uuid`, sql`deleted_at IS NULL`];
 
   const q = params.q?.trim();
   if (q && searchTargets.length > 0) {
     const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const orClauses = searchTargets.map(
-      (f) => sql`data->>${f.id} ILIKE ${pattern}`,
-    );
+    const orClauses = searchTargets.map((f) => sql`data->>${f.id} ILIKE ${pattern}`);
     const orClause = orClauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
     conditions.push(sql`(${orClause})`);
   }
 
   if (params.excludeIds && params.excludeIds.length > 0) {
-    const excludeArr = `{${params.excludeIds.join(",")}}`;
-    conditions.push(sql`id <> ALL(${excludeArr}::uuid[])`);
+    conditions.push(sql`id <> ALL(${sql.array(params.excludeIds, "UUID")})`);
   }
 
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
@@ -801,18 +678,16 @@ export const lookupRecords = async (params: {
   `;
 
   // Build labels using the same rules as buildRelationLabelCache:
-  // joined presentable fields > id-prefix.
+  // joined presentable fields, first text fallback, then neutral fallback.
   const items = rows.map((row) => {
     const id = row.id as string;
     const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
     let label: string;
     if (presentable.length > 0) {
-      const parts = presentable
-        .map((f) => formatLabelPart(data[f.id]))
-        .filter((s) => s.length > 0);
-      label = parts.length > 0 ? parts.join(" · ") : id.slice(0, 8);
+      const parts = presentable.map((f) => formatLabelPart(data[f.id])).filter((s) => s.length > 0);
+      label = parts.length > 0 ? parts.join(" · ") : "Untitled record";
     } else {
-      label = id.slice(0, 8);
+      label = "Untitled record";
     }
     return { id, label };
   });

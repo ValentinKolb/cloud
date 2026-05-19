@@ -1,4 +1,5 @@
 import * as bases from "./bases";
+import * as baseCatalog from "./base-catalog";
 import * as tables from "./tables";
 import * as fields from "./fields";
 import * as records from "./records";
@@ -8,15 +9,20 @@ import * as views from "./views";
 import * as dashboards from "./dashboards";
 import * as forms from "./forms";
 import * as files from "./files";
+import * as automations from "./automations";
+import * as templates from "./templates";
 import * as exporter from "./export";
 import * as maintenance from "./maintenance";
 import * as relationsModule from "./relations";
+import { automationRuntime } from "./automations-runtime";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast, hasGrantsForResource } from "./permission-resolver";
 
 export const gridsService = {
   base: {
     list: bases.list,
+    listVisible: bases.listVisible,
+    catalog: baseCatalog.listForBase,
     get: bases.get,
     getByShortId: bases.getByShortId,
     getByIdOrShortId: bases.getByIdOrShortId,
@@ -99,6 +105,7 @@ export const gridsService = {
   },
   dashboard: {
     listForBase: dashboards.listForBase,
+    listTrashedByBase: dashboards.listTrashedByBase,
     get: dashboards.get,
     getByShortId: dashboards.getByShortId,
     getByIdOrShortId: dashboards.getByIdOrShortId,
@@ -125,6 +132,24 @@ export const gridsService = {
     getContent: files.getContent,
     remove: files.remove,
   },
+  automation: {
+    listForBase: automations.listForBase,
+    listScheduledEnabled: automations.listScheduledEnabled,
+    get: automations.get,
+    create: automations.create,
+    update: automations.update,
+    remove: automations.remove,
+    listRuns: automations.listRuns,
+    execute: automations.execute,
+    markStaleRunningRunsFailed: automations.markStaleRunningRunsFailed,
+    purgeOldRuns: automations.purgeOldRuns,
+  },
+  automationRuntime,
+  template: {
+    list: templates.list,
+    get: templates.get,
+    instantiate: templates.instantiate,
+  },
   exporter: {
     exportRecords: exporter.exportRecords,
   },
@@ -139,7 +164,7 @@ export const gridsService = {
   },
 };
 
-export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, exporter, maintenance };
+export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, automations, templates, automationRuntime, exporter, maintenance };
 export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
 export type {
   Dashboard,
@@ -151,16 +176,34 @@ export type {
   ViewWidget,
   ViewStatsWidget,
   FormWidget,
+  MarkdownWidget,
+  LinkWidget,
   ViewWidgetSource,
   StatSource,
   StatTrend,
-  WidgetSource,
+  StatTone,
   WidgetFormat,
   AggregationSpec,
   GroupBySpec,
 } from "../contracts";
 export type { Form, FormConfig, FormFieldEntry } from "./forms";
-export type { Base, Table, Field, GridRecord, RecordList, AuditEntry, AuditAction, GridFile, GridFileContent } from "./types";
+export type {
+  Base,
+  Table,
+  Field,
+  GridRecord,
+  RecordList,
+  AuditEntry,
+  AuditAction,
+  GridFile,
+  GridFileContent,
+  Automation,
+  AutomationTrigger,
+  AutomationAction,
+  AutomationPayloadConfig,
+  AutomationSubject,
+  AutomationRun,
+} from "./types";
 export type { ExpansionViewer } from "./relations";
 export type { FieldDependent } from "./field-dependents";
 export type { Grant, ResourceType, ResolveTarget } from "./permission-resolver";

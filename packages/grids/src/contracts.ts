@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 export {
+  createPagination,
+  ErrorResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  ErrorResponseSchema,
   parsePagination,
-  createPagination,
 } from "@valentinkolb/cloud/contracts";
 
 /**
@@ -16,6 +16,7 @@ export {
  * up rather than getting silently coerced to "" (we hit that bug once).
  */
 export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
+const IconNameSchema = z.string().max(200).nullable().optional();
 
 // ── Base ──────────────────────────────────────────────────────────────────
 export const BaseSchema = z.object({
@@ -58,6 +59,8 @@ export const TableSchema = z.object({
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
+  icon: IconNameSchema,
+  columns: z.array(z.lazy(() => ColumnSpecSchema)),
   position: z.number().int(),
   disableDirectInsert: z.boolean(),
   deletedAt: z.string().datetime().nullable(),
@@ -69,11 +72,15 @@ export type Table = z.infer<typeof TableSchema>;
 export const CreateTableSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).nullable().optional(),
+  icon: IconNameSchema,
+  columns: z.array(z.lazy(() => ColumnSpecSchema)).optional(),
 });
 
 export const UpdateTableSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
+  icon: IconNameSchema,
+  columns: z.array(z.lazy(() => ColumnSpecSchema)).optional(),
   disableDirectInsert: z.boolean().optional(),
 });
 
@@ -84,6 +91,7 @@ export const FieldSchema = z.object({
   tableId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
+  icon: z.string().max(200).nullable().optional(),
   type: z.string(),
   config: z.record(z.string(), z.unknown()),
   position: z.number().int(),
@@ -102,6 +110,7 @@ export type Field = z.infer<typeof FieldSchema>;
 export const CreateFieldSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).nullable().optional(),
+  icon: z.string().max(200).nullable().optional(),
   type: z.string().min(1),
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
@@ -116,6 +125,7 @@ export const CreateFieldSchema = z.object({
 export const UpdateFieldSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).nullable().optional(),
+  icon: z.string().max(200).nullable().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
   position: z.number().int().optional(),
   required: z.boolean().optional(),
@@ -150,25 +160,19 @@ export const RecordPayloadSchema = z.record(z.string(), z.unknown());
 // `z.coerce.boolean()` treats any non-empty string as true (so "false"
 // parses to true). Use an explicit string-to-boolean map to honor the
 // expected REST query semantics: ?includeDeleted=true vs =false.
-const StringBoolSchema = z.preprocess(
-  (v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v),
-  z.boolean(),
-);
+const StringBoolSchema = z.preprocess((v) => (v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : v), z.boolean());
 
 // Filter and sort arrive as URL-encoded JSON strings; the schema parses
 // the JSON before validating its shape.
 const JsonStringSchema = <T extends z.ZodTypeAny>(inner: T) =>
-  z.preprocess(
-    (v) => {
-      if (typeof v !== "string") return v;
-      try {
-        return JSON.parse(v);
-      } catch {
-        return v;
-      }
-    },
-    inner,
-  );
+  z.preprocess((v) => {
+    if (typeof v !== "string") return v;
+    try {
+      return JSON.parse(v);
+    } catch {
+      return v;
+    }
+  }, inner);
 
 const FilterLeafSchema = z.object({
   fieldId: z.string(),
@@ -177,9 +181,7 @@ const FilterLeafSchema = z.object({
   caseInsensitive: z.boolean().optional(),
 });
 
-export type FilterTree =
-  | z.infer<typeof FilterLeafSchema>
-  | { op: "AND" | "OR"; filters: FilterTree[] };
+export type FilterTree = z.infer<typeof FilterLeafSchema> | { op: "AND" | "OR"; filters: FilterTree[] };
 
 export const FilterTreeSchema: z.ZodType<FilterTree> = z.lazy(() =>
   z.union([
@@ -206,10 +208,18 @@ export const RecordListQuerySchema = z.object({
 });
 
 export const AggregateKindSchema = z.enum([
-  "count", "countEmpty", "countUnique",
-  "sum", "avg", "min", "max", "median",
-  "earliest", "latest",
+  "count",
+  "countEmpty",
+  "countUnique",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "median",
+  "earliest",
+  "latest",
 ]);
+export const GroupAggregateKindSchema = z.enum(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
 export const AggregateRequestSchema = z.object({
   fieldId: z.string(),
@@ -227,6 +237,7 @@ export const AggregateResponseSchema = z.object({
 
 export const RecordListResponseSchema = z.object({
   items: z.array(GridRecordSchema),
+  aggregates: z.record(z.string(), z.unknown()).optional(),
   // Cursor is now a JSON-encoded {sortValues, id} token, not a bare uuid.
   nextCursor: z.string().nullable(),
 });
@@ -266,9 +277,9 @@ export const GroupResponseSchema = z.object({
   nextCursor: z.string().nullable(),
   /**
    * Explode-mode flag. True when one or more `groupBy` dimensions is
-   * a relation field — a record with N links contributes to N buckets,
-   * so `*__count` counts (record × link) pairs, not records. UI should
-   * surface a "buckets may overlap" hint when this is set.
+   * a relation or select field — a record with N linked/selected
+   * values contributes to N buckets, so `*__count` counts contributions,
+   * not distinct records.
    */
   explode: z.boolean(),
 });
@@ -283,9 +294,9 @@ export const GroupResponseSchema = z.object({
 //   groupBy empty + aggregations non-empty   → { items, aggregates, nextCursor }
 //   groupBy empty + aggregations empty       → { items, nextCursor }
 //
-// Old per-action routes (/by-table/:id, /aggregate/:id, /group/:id) stay
-// alive during the transition but are deprecated — new consumers should
-// only target this one endpoint.
+// Old per-action read routes (/by-table/:id, /aggregate/:id, /group/:id)
+// were removed in alpha. Record writes and exports keep their dedicated
+// endpoints; table reads go through this query endpoint.
 
 // ── ViewQuery (canonical "how to query this table") ───────────────────────
 // One shape, used by views (saved presets), records list, export, and
@@ -295,26 +306,21 @@ export const GroupResponseSchema = z.object({
 // no renderer actually implemented.
 
 /**
- * Per-column display override. `kind` distinguishes future format
- * families (date / decimal / currency / percent). Renderer is lenient:
+ * Per-column display override. `kind` distinguishes format families
+ * (date / decimal / percent). Renderer is lenient:
  * if the format kind doesn't match the field's actual type, it's a
- * no-op (a `currency` format on a text field renders as plain text).
+ * no-op (a `percent` format on a text field renders as plain text).
  */
 export const FormatSpecSchema: z.ZodType<
   | { kind: "date"; format: "iso" | "short" | "long" | "relative"; includeTime?: boolean }
-  | { kind: "currency"; symbol?: string; precision?: number }
   | { kind: "decimal"; precision?: number; thousandsSeparator?: boolean }
   | { kind: "percent"; precision?: number }
+  | { kind: "progress"; label?: "value" | "percent" | "none" }
 > = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("date"),
     format: z.enum(["iso", "short", "long", "relative"]),
     includeTime: z.boolean().optional(),
-  }),
-  z.object({
-    kind: z.literal("currency"),
-    symbol: z.string().optional(),
-    precision: z.number().int().min(0).max(10).optional(),
   }),
   z.object({
     kind: z.literal("decimal"),
@@ -324,6 +330,10 @@ export const FormatSpecSchema: z.ZodType<
   z.object({
     kind: z.literal("percent"),
     precision: z.number().int().min(0).max(10).optional(),
+  }),
+  z.object({
+    kind: z.literal("progress"),
+    label: z.enum(["value", "percent", "none"]).optional(),
   }),
 ]);
 export type FormatSpec = z.infer<typeof FormatSpecSchema>;
@@ -338,17 +348,21 @@ export type FormatSpec = z.infer<typeof FormatSpecSchema>;
  */
 export const ColumnSpecSchema = z.object({
   fieldId: z.string().uuid(),
+  /** Optional per-view header label. Empty labels are not persisted by
+   *  the UI; the renderer falls back to the field name. */
+  label: z.string().trim().min(1).max(120).optional(),
   format: FormatSpecSchema.optional(),
 });
 export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
 
 /**
- * Group-by dimension. Schema-level only in Slice 1 — the compiler
- * support lands in Slice 8. Stored in ViewQuery so URL serialization
- * + saved-view persistence work end-to-end before the feature lights up.
+ * Group-by dimension. Stored in ViewQuery so saved views, URL state,
+ * dashboard charts, and exports use the same query contract.
  */
 export const GroupBySpecSchema = z.object({
   fieldId: z.string().uuid(),
+  label: z.string().trim().min(1).max(120).optional(),
+  format: FormatSpecSchema.optional(),
   direction: z.enum(["asc", "desc"]).optional(),
   /** date-field grouping bucket. Backend uses `date_trunc(<granularity>, …)`. */
   granularity: z.enum(["day", "week", "month", "quarter", "year"]).optional(),
@@ -360,14 +374,22 @@ export const AggregationSpecSchema = z.object({
   fieldId: z.union([z.string().uuid(), z.literal("*")]),
   agg: AggregateKindSchema,
   label: z.string().optional(),
+  format: FormatSpecSchema.optional(),
 });
 export type AggregationSpec = z.infer<typeof AggregationSpecSchema>;
 
+export const GroupSortSpecSchema = z.object({
+  fieldId: z.union([z.string().uuid(), z.literal("*")]),
+  agg: GroupAggregateKindSchema,
+  direction: z.enum(["asc", "desc"]).optional(),
+});
+export type GroupSortSpec = z.infer<typeof GroupSortSpecSchema>;
+
 /**
- * Optional per-query free-text search. Server compiles it into the
- * filter as an OR across the listed fieldIds (or a default set when
- * fieldIds is empty/undefined). Kept separate from `filter` so users
- * can layer search on top of view-defined filters in the URL.
+ * Optional per-query free-text search. Server compiles it as its own
+ * SQL clause across the listed fieldIds (or a default set when fieldIds
+ * is empty/undefined). Kept separate from `filter` so users can layer
+ * search on top of structured view filters.
  */
 export const SearchSpecSchema = z.object({
   q: z.string().min(1),
@@ -379,7 +401,7 @@ export type SearchSpec = z.infer<typeof SearchSpecSchema>;
  * Canonical query for a table. Used by:
  *  - saved Views (stored as `view.query`)
  *  - `POST /tables/:id/query` (Slice 5)
- *  - URL serialization on the records page (`?q=<base64-json>`)
+ *  - URL serialization on the records page (`?filter=...&groupBy=...`)
  *  - export endpoint (Slice 5)
  *
  * Any layer that asks "how do I query this table?" answers with
@@ -390,14 +412,26 @@ export const ViewQuerySchema = z.object({
   search: SearchSpecSchema.optional(),
   sort: z.array(SortSpecSchema).optional(),
   groupBy: z.array(GroupBySpecSchema).max(3).optional(),
+  /** Bucket ordering for grouped queries. When set, groups are ordered
+   *  by aggregate value first, then by group keys for deterministic ties.
+   *  Used for Top-N views such as "top customers by revenue". */
+  groupSort: z.array(GroupSortSpecSchema).max(3).optional(),
   aggregations: z.array(AggregationSpecSchema).optional(),
   columns: z.array(ColumnSpecSchema).optional(),
+  /** Visual order for grouped view columns. Group and aggregate specs keep
+   *  their semantic order; this only controls the rendered table order. */
+  groupedColumnOrder: z.array(z.string().min(1)).optional(),
+  /** Hidden visual columns in grouped views. This never changes groupBy
+   *  or aggregations; it only suppresses rendered columns. */
+  hiddenGroupedColumns: z.array(z.string().min(1)).optional(),
   /** Hard cap on returned rows. Applied after filter+sort, before
    *  pagination. nextCursor becomes null once it would advance past
    *  the cap. */
   limit: z.number().int().min(1).max(10_000).optional(),
   /** When true, soft-deleted records are included in the result. */
   includeDeleted: z.boolean().optional(),
+  /** Trash-mode query: only soft-deleted records are returned. */
+  deletedOnly: z.boolean().optional(),
 });
 export type ViewQuery = z.infer<typeof ViewQuerySchema>;
 
@@ -406,6 +440,35 @@ export const TableQueryBodySchema = z.object({
   query: ViewQuerySchema,
   cursor: z.string().optional(),
 });
+
+export const ExportRelationModeSchema = z.enum(["ids", "labels", "fields"]);
+export type ExportRelationMode = z.infer<typeof ExportRelationModeSchema>;
+
+export const ExportFieldSpecSchema = z.object({
+  fieldId: z.string().uuid(),
+  label: z.string().trim().min(1).max(120).optional(),
+  relation: z
+    .object({
+      mode: ExportRelationModeSchema,
+      fieldIds: z.array(z.string().uuid()).max(20).optional(),
+    })
+    .optional(),
+});
+export type ExportFieldSpec = z.infer<typeof ExportFieldSpecSchema>;
+
+export const ExportBodySchema = z.object({
+  format: z.enum(["csv", "json"]).default("csv"),
+  query: ViewQuerySchema.optional().default({}),
+  fields: z.array(ExportFieldSpecSchema).max(200).optional(),
+  csv: z
+    .object({
+      delimiter: z.enum([",", ";", "\t", "|"]).default(","),
+    })
+    .optional()
+    .default({ delimiter: "," }),
+  markdown: z.enum(["raw", "html"]).default("raw"),
+});
+export type ExportBody = z.infer<typeof ExportBodySchema>;
 
 /**
  * Discriminated response envelope. Fields are populated based on what
@@ -434,6 +497,7 @@ export const ViewSchema = z.object({
   shortId: ShortIdSchema,
   tableId: z.string().uuid(),
   name: z.string(),
+  icon: IconNameSchema,
   /** Canonical query — replaces the old loose `config: unknown` blob. */
   query: ViewQuerySchema,
   /** null = shared (visible to all table-readers); else owner's user id. */
@@ -447,6 +511,7 @@ export type View = z.infer<typeof ViewSchema>;
 
 export const CreateViewSchema = z.object({
   name: z.string().min(1).max(200),
+  icon: IconNameSchema,
   query: ViewQuerySchema.optional(),
   shared: z.boolean().optional(),
 });
@@ -454,6 +519,7 @@ export type CreateViewInput = z.infer<typeof CreateViewSchema>;
 
 export const UpdateViewSchema = z.object({
   name: z.string().min(1).max(200).optional(),
+  icon: IconNameSchema,
   query: ViewQuerySchema.optional(),
   position: z.number().int().optional(),
   shared: z.boolean().optional(),
@@ -462,47 +528,61 @@ export type UpdateViewInput = z.infer<typeof UpdateViewSchema>;
 
 export const ViewListSchema = z.array(ViewSchema);
 
+// ── Forms ────────────────────────────────────────────────────────────────
+//
+// Stored form config is JSONB. Keep the write contract here so API and
+// service boundaries validate the same shape before anything reaches DB.
+export const UserInputFormFieldEntrySchema = z.object({
+  kind: z.literal("user_input"),
+  fieldId: z.string().uuid(),
+  label: z.string().optional(),
+  helpText: z.string().optional(),
+  required: z.boolean().optional(),
+  defaultValue: z.unknown().optional(),
+});
+
+export const FormValueFieldEntrySchema = z.object({
+  kind: z.literal("form_value"),
+  fieldId: z.string().uuid(),
+  value: z.unknown(),
+});
+
+export const FormFieldEntrySchema = z.discriminatedUnion("kind", [UserInputFormFieldEntrySchema, FormValueFieldEntrySchema]);
+export type FormFieldEntry = z.infer<typeof FormFieldEntrySchema>;
+
+export const FormConfigSchema = z.object({
+  title: z.string().optional(),
+  description: z.string().optional(),
+  fields: z.array(FormFieldEntrySchema),
+  submitLabel: z.string().optional(),
+  successMessage: z.string().optional(),
+  redirectUrl: z.string().nullable().optional(),
+  // Optional title image (base64 data-URL). Frontend caps source
+  // dimensions before emitting; the server still enforces a hard cap.
+  titleImage: z.string().max(1_000_000).optional(),
+});
+export type FormConfig = z.infer<typeof FormConfigSchema>;
+
 // ── Dashboards ────────────────────────────────────────────────────────────
 //
 // A dashboard is a per-base composition of widgets that pull data from
-// any table in the base. Three widget kinds:
+// any table in the base. Five widget kinds:
 //
 //   - "stat"  : single number from records.aggregate(source) — e.g.
 //               "1,247 orders this month". One aggregation, no groupBy.
-//   - "chart" : multi-bucket data from records.group(source) rendered
-//               by the chart-render layer (deferred to P1; the schema
-//               ships now so the JSONB blob doesn't need re-versioning).
+//   - "chart" : multi-bucket data from a grouped saved View.
 //   - "view"  : embedded saved View — mounts the existing RecordsView
 //               island scoped to a fixed view id with pagesize 25.
+//   - "view-stats": derives compact stat cells from a saved View.
+//   - "form"  : embeds a saved Form for inline record creation.
 //
 // The data source for stat / chart widgets is a thin wrapper over the
 // existing aggregate/group/filter compilers — there is no new query DSL
 // for dashboards. A widget is "saved query + presentation hint".
 //
-// Layout: `rows × cells` with 1-4 cells per row. Mobile collapses to a
-// 1-column stack. No pixel-grid DnD — keeps the editor implementable
-// without a layout library.
-
-/**
- * Source spec shared by stat and chart widgets. Reuses every existing
- * query primitive (filter / sort / groupBy / aggregations) so the same
- * compilers and the same permission gates apply.
- */
-export const WidgetSourceSchema = z.object({
-  tableId: z.string().uuid(),
-  filter: FilterTreeSchema.optional(),
-  sort: z.array(SortSpecSchema).optional(),
-  /** 0 entries → scalar (stat-card shape). 1-2 entries → buckets (chart
-   *  shape). 3 max stays consistent with ViewQuery.groupBy. */
-  groupBy: z.array(GroupBySpecSchema).max(3).optional(),
-  /** Stat: exactly one. Chart: at least one (typically count + sum).
-   *  Validation that "stat must have exactly one agg" lives at the
-   *  widget-discriminant level — would be ugly in a Zod refinement
-   *  here because we don't know the kind. */
-  aggregations: z.array(AggregationSpecSchema).min(1),
-  limit: z.number().int().min(1).max(10_000).optional(),
-});
-export type WidgetSource = z.infer<typeof WidgetSourceSchema>;
+// Layout: `rows × cells` on a 12-column grid. Each widget owns a
+// `span` (1..12), so editors can make a chart wider than a stat
+// without introducing a freeform pixel canvas.
 
 /** Format hint for stat-card rendering. `plain` = the number as-is,
  *  `currency` / `percent` use existing format-cell helpers, `integer`
@@ -510,6 +590,9 @@ export type WidgetSource = z.infer<typeof WidgetSourceSchema>;
  *  consume the same enum so axis ticks format consistently. */
 export const WidgetFormatSchema = z.enum(["plain", "currency", "percent", "integer"]);
 export type WidgetFormat = z.infer<typeof WidgetFormatSchema>;
+
+export const StatToneSchema = z.enum(["neutral", "blue", "green", "amber", "red"]);
+export type StatTone = z.infer<typeof StatToneSchema>;
 
 /** Stat source — pick a table, optional filter, one aggregation.
  *  Earlier this was a discriminated union with a `view-cell` variant;
@@ -549,18 +632,20 @@ export const StatSourceSchema = z.object({
 });
 export type StatSource = z.infer<typeof StatSourceSchema>;
 
-// Per-kind widget schemas. Split out so the row-discriminant can
-// constrain `cells` to a single kind: stats-rows take only stat
-// widgets, widget-rows take only views (and later charts). The
-// `id` is client-generated so DnD can track widgets across reorders
-// without server round-trips.
+// Per-kind widget schemas. `id` is client-generated so DnD can track
+// widgets across reorders without server round-trips. `span` is the
+// widget's width in the dashboard's 12-column layout; when omitted,
+// the renderer falls back to equal-width cells for older configs.
 export const StatWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("stat"),
+  span: z.number().int().min(1).max(12).optional(),
   title: z.string().max(200).optional(),
   source: StatSourceSchema,
   icon: z.string().max(60).optional(),
   format: WidgetFormatSchema.optional(),
+  /** Pure presentation hint for the value colour. No KPI semantics. */
+  tone: StatToneSchema.optional(),
   /** Optional small-text sub-line under the value. Mirrors the
    *  ui-lab "Small grid only" reference (`9·12 admin`, `last 24h`,
    *  `providers`). Plain text only, no icons. */
@@ -592,6 +677,7 @@ export const StatWidgetSchema = z.object({
 export const ChartWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("chart"),
+  span: z.number().int().min(1).max(12).optional(),
   title: z.string().max(200).optional(),
   /** Small grey line under the title in the chart frame. */
   subtitle: z.string().max(200).optional(),
@@ -616,12 +702,13 @@ export const ChartWidgetSchema = z.object({
  *
  * Internal layout: when the cell renders, the auto-derived stats are
  * arranged as a 2-column hairline grid within the cell's paper slot.
- * Width comes from the row's cell-count division (1/N of the row);
- * height fits the content.
+ * Width comes from the widget's optional 12-column span; height fits
+ * the row slot.
  */
 export const ViewStatsWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("view-stats"),
+  span: z.number().int().min(1).max(12).optional(),
   viewId: z.string().uuid(),
   title: z.string().max(200).optional(),
 });
@@ -641,8 +728,40 @@ export const ViewStatsWidgetSchema = z.object({
 export const FormWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("form"),
+  span: z.number().int().min(1).max(12).optional(),
   formId: z.string().uuid(),
   title: z.string().max(200).optional(),
+});
+
+/**
+ * Markdown widget — static dashboard content for instructions,
+ * explanations, checklists, or lightweight documentation.
+ */
+export const MarkdownWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("markdown"),
+  span: z.number().int().min(1).max(12).optional(),
+  title: z.string().max(200).optional(),
+  markdown: z.string().max(20_000).default(""),
+});
+
+export const LinkWidgetTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("dashboard"), dashboardId: z.string().uuid() }),
+  z.object({ kind: z.literal("table"), tableId: z.string().uuid() }),
+  z.object({ kind: z.literal("view"), viewId: z.string().uuid() }),
+  z.object({ kind: z.literal("form"), formId: z.string().uuid() }),
+  z.object({ kind: z.literal("url"), url: z.string().trim().url().max(2000) }),
+]);
+export type LinkWidgetTarget = z.infer<typeof LinkWidgetTargetSchema>;
+
+export const LinkWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("link"),
+  span: z.number().int().min(1).max(12).optional(),
+  title: z.string().max(200).optional(),
+  description: z.string().max(1000).optional(),
+  icon: z.string().max(200).optional(),
+  target: LinkWidgetTargetSchema,
 });
 
 /** Embedded-table source for a `view` widget. Two kinds:
@@ -673,6 +792,7 @@ export type ViewWidgetSource = z.infer<typeof ViewWidgetSourceSchema>;
 export const ViewWidgetSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("view"),
+  span: z.number().int().min(1).max(12).optional(),
   source: ViewWidgetSourceSchema,
   title: z.string().max(200).optional(),
 });
@@ -683,6 +803,8 @@ export const WidgetSchema = z.discriminatedUnion("kind", [
   ViewWidgetSchema,
   ViewStatsWidgetSchema,
   FormWidgetSchema,
+  MarkdownWidgetSchema,
+  LinkWidgetSchema,
 ]);
 export type Widget = z.infer<typeof WidgetSchema>;
 export type StatWidget = z.infer<typeof StatWidgetSchema>;
@@ -690,6 +812,8 @@ export type ChartWidget = z.infer<typeof ChartWidgetSchema>;
 export type ViewWidget = z.infer<typeof ViewWidgetSchema>;
 export type ViewStatsWidget = z.infer<typeof ViewStatsWidgetSchema>;
 export type FormWidget = z.infer<typeof FormWidgetSchema>;
+export type MarkdownWidget = z.infer<typeof MarkdownWidgetSchema>;
+export type LinkWidget = z.infer<typeof LinkWidgetSchema>;
 
 // Unified row — one type with any mix of cell kinds. Replaces the
 // previous three-row-type discriminated union (stats / view-stats /
@@ -708,12 +832,13 @@ export type FormWidget = z.infer<typeof FormWidgetSchema>;
 //   - Form cells render the form; viewer without submit perm sees a
 //     dimmed "no access" placeholder.
 //
-// 1-4 cells per row; each cell takes 1/N of the row width.
+// A row may be empty while editing so it can act as a drop target.
+// Read-only rendering skips empty rows.
 export const DashboardRowSchema = z.object({
   id: z.string().min(1),
   kind: z.literal("row"),
   height: z.enum(["sm", "md", "lg"]),
-  cells: z.array(WidgetSchema).min(1).max(4),
+  cells: z.array(WidgetSchema).max(12),
 });
 export type DashboardRow = z.infer<typeof DashboardRowSchema>;
 
@@ -729,6 +854,7 @@ export const DashboardSchema = z.object({
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
+  icon: IconNameSchema,
   config: DashboardConfigSchema,
   /** null = shared (visible to anyone with base-read); else owner's
    *  user id. Same model as views. */
@@ -743,6 +869,7 @@ export type Dashboard = z.infer<typeof DashboardSchema>;
 export const CreateDashboardSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).nullable().optional(),
+  icon: IconNameSchema,
   config: DashboardConfigSchema.optional(),
   shared: z.boolean().optional(),
 });
@@ -751,6 +878,7 @@ export type CreateDashboardInput = z.infer<typeof CreateDashboardSchema>;
 export const UpdateDashboardSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
+  icon: IconNameSchema,
   config: DashboardConfigSchema.optional(),
   position: z.number().int().optional(),
   shared: z.boolean().optional(),
@@ -759,6 +887,135 @@ export type UpdateDashboardInput = z.infer<typeof UpdateDashboardSchema>;
 
 export const DashboardListSchema = z.array(DashboardSchema);
 
+// ── Automations ───────────────────────────────────────────────────────────
+const HttpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const protocol = new URL(value).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "URL must use http or https");
+
+export const AutomationTriggerSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("manual"),
+  }),
+  z.object({
+    kind: z.literal("schedule"),
+    cron: z.string().trim().min(1).max(120),
+    timezone: z.string().trim().min(1).max(80).optional(),
+  }),
+]);
+export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
+
+export const AutomationActionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("webhook"),
+    url: HttpUrlSchema,
+    timeoutMs: z.number().int().min(1000).max(60_000).optional(),
+  }),
+]);
+export type AutomationAction = z.infer<typeof AutomationActionSchema>;
+
+export const AutomationPayloadConfigSchema = z.object({
+  includeRecord: z.boolean().optional(),
+  fieldIds: z.array(z.string().uuid()).max(200).optional(),
+});
+export type AutomationPayloadConfig = z.infer<typeof AutomationPayloadConfigSchema>;
+
+export const AutomationSchema = z.object({
+  id: z.string().uuid(),
+  shortId: ShortIdSchema,
+  baseId: z.string().uuid(),
+  name: z.string(),
+  description: z.string().nullable(),
+  trigger: AutomationTriggerSchema,
+  action: AutomationActionSchema,
+  payload: AutomationPayloadConfigSchema,
+  enabled: z.boolean(),
+  position: z.number().int().min(0),
+  ownerUserId: z.string().uuid().nullable(),
+  webhookSecretSet: z.boolean(),
+  deletedAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type Automation = z.infer<typeof AutomationSchema>;
+
+export const CreateAutomationSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).nullable().optional(),
+  trigger: AutomationTriggerSchema,
+  action: AutomationActionSchema,
+  payload: AutomationPayloadConfigSchema.optional(),
+  enabled: z.boolean().optional(),
+  position: z.number().int().min(0).optional(),
+  // Plaintext by design: the executor needs the original value for HMAC signing.
+  webhookSecret: z.string().min(8).max(512).nullable().optional(),
+});
+export type CreateAutomationInput = z.infer<typeof CreateAutomationSchema>;
+
+export const UpdateAutomationSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  trigger: AutomationTriggerSchema.optional(),
+  action: AutomationActionSchema.optional(),
+  payload: AutomationPayloadConfigSchema.optional(),
+  enabled: z.boolean().optional(),
+  position: z.number().int().min(0).optional(),
+  webhookSecret: z.string().min(8).max(512).nullable().optional(),
+});
+export type UpdateAutomationInput = z.infer<typeof UpdateAutomationSchema>;
+
+export const AutomationSubjectSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("base"),
+  }),
+  z.object({
+    type: z.literal("record"),
+    tableId: z.string().uuid(),
+    recordId: z.string().uuid(),
+  }),
+]);
+export type AutomationSubject = z.infer<typeof AutomationSubjectSchema>;
+
+export const RunAutomationSchema = z.object({
+  input: z.unknown().nullable().optional(),
+  subject: AutomationSubjectSchema.optional(),
+  reason: z.string().trim().min(1).max(120).optional(),
+});
+export type RunAutomationInput = z.infer<typeof RunAutomationSchema>;
+
+export const AutomationRunSchema = z.object({
+  id: z.string().uuid(),
+  automationId: z.string().uuid(),
+  baseId: z.string().uuid(),
+  tableId: z.string().uuid().nullable(),
+  recordId: z.string().uuid().nullable(),
+  event: z.string(),
+  trigger: z.record(z.string(), z.unknown()),
+  subject: AutomationSubjectSchema,
+  input: z.unknown().nullable(),
+  status: z.enum(["running", "succeeded", "failed"]),
+  targetHost: z.string().nullable(),
+  httpStatus: z.number().int().nullable(),
+  durationMs: z.number().int().nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  startedAt: z.string().datetime().nullable(),
+  finishedAt: z.string().datetime().nullable(),
+});
+export type AutomationRun = z.infer<typeof AutomationRunSchema>;
+
+export const AutomationListSchema = z.array(AutomationSchema);
+export const AutomationRunListSchema = z.object({
+  items: z.array(AutomationRunSchema),
+});
+
 // ── Audit ─────────────────────────────────────────────────────────────────
 export const AuditEntrySchema = z.object({
   id: z.string().uuid(),
@@ -766,7 +1023,7 @@ export const AuditEntrySchema = z.object({
   tableId: z.string().uuid().nullable(),
   recordId: z.string().uuid().nullable(),
   userId: z.string().uuid().nullable(),
-  action: z.enum(["created", "updated", "deleted", "restored", "imported"]),
+  action: z.enum(["created", "updated", "deleted", "restored", "imported", "automation.webhook.sent", "automation.webhook.failed"]),
   diff: z.record(z.string(), z.object({ old: z.unknown(), new: z.unknown() })).nullable(),
   ip: z.string().nullable(),
   userAgent: z.string().nullable(),
@@ -775,7 +1032,12 @@ export const AuditEntrySchema = z.object({
 export type AuditEntry = z.infer<typeof AuditEntrySchema>;
 
 // ── Lists ─────────────────────────────────────────────────────────────────
-export const BaseListSchema = z.array(BaseSchema);
+export const BaseListSchema = z.object({
+  items: z.array(BaseSchema),
+  total: z.number().int().min(0),
+  limit: z.number().int().min(1),
+  offset: z.number().int().min(0),
+});
 export const TableListSchema = z.array(TableSchema);
 export const FieldListSchema = z.array(FieldSchema);
 
@@ -809,9 +1071,9 @@ export type RelationLookupResponse = z.infer<typeof RelationLookupResponseSchema
 
 // ── ACL ───────────────────────────────────────────────────────────────────
 export {
-  PrincipalSchema,
-  PermissionLevelSchema,
   AccessEntrySchema,
   GrantAccessSchema,
+  PermissionLevelSchema,
+  PrincipalSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";

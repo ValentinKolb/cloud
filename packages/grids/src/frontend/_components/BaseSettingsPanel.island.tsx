@@ -10,6 +10,7 @@ import { SectionCard } from "./SectionCard";
 type TrashResponse = {
   tables: Table[];
   fields: Field[];
+  dashboards: Dashboard[];
   forms: Form[];
 };
 
@@ -86,7 +87,7 @@ export default function BaseSettingsPanel(props: Props) {
 
       <SectionCard
         title="Trash"
-        subtitle="Soft-deleted tables, fields, and forms. Restorable for 30 days, then purged automatically."
+        subtitle="Soft-deleted tables, fields, dashboards, and forms. Restorable for 30 days, then purged automatically."
       >
         <TrashSection baseId={props.base.id} />
       </SectionCard>
@@ -139,6 +140,16 @@ function TrashSection(props: { baseId: string }) {
     refetch();
   };
 
+  const restoreDashboard = async (id: string) => {
+    const res = await apiClient.dashboards[":dashboardId"].restore.$post({ param: { dashboardId: id } });
+    if (!res.ok) {
+      prompts.error(await errorMessage(res, "Failed to restore dashboard"));
+      return;
+    }
+    refetch();
+    refreshCurrentPath();
+  };
+
   const formatDeletedAt = (iso: string | null) => {
     if (!iso) return "";
     const date = new Date(iso);
@@ -153,7 +164,10 @@ function TrashSection(props: { baseId: string }) {
       <Show
         when={
           trash() &&
-          (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.forms.length > 0)
+          (trash()!.tables.length > 0 ||
+            trash()!.fields.length > 0 ||
+            trash()!.dashboards.length > 0 ||
+            trash()!.forms.length > 0)
         }
         fallback={<p class="text-xs text-dimmed py-1">Trash is empty.</p>}
       >
@@ -183,6 +197,21 @@ function TrashSection(props: { baseId: string }) {
                     name={f.name}
                     deletedAt={formatDeletedAt(f.deletedAt)}
                     onRestore={() => restoreField(f.id)}
+                  />
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={trash()!.dashboards.length > 0}>
+            <div class="flex flex-col gap-1">
+              <p class="text-xs font-medium text-secondary">Dashboards</p>
+              <For each={trash()!.dashboards}>
+                {(dashboard) => (
+                  <TrashRow
+                    icon="ti-layout-dashboard"
+                    name={dashboard.name}
+                    deletedAt={formatDeletedAt(dashboard.deletedAt)}
+                    onRestore={() => restoreDashboard(dashboard.id)}
                   />
                 )}
               </For>

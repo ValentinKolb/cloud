@@ -24,10 +24,8 @@ type Props = {
  * (e.g. filter excluded everything), `<Chart>`'s own empty-state
  * placeholder takes over — no double "no data" message.
  *
- * **Y-axis format.** Inherited from `widget.format` and threaded
- * through to stdlib via `yAxis.format`. The donut/bar callsite uses
- * the same formatter for the rendered value labels (when stdlib
- * draws them).
+ * **Y-axis format.** Used only by axis-based charts. Donut charts
+ * have no axes, so the editor does not expose axis fields for them.
  */
 export default function ChartWidget(props: Props) {
   const isChartData = () => props.data.kind === "chart";

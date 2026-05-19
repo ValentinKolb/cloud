@@ -1,53 +1,45 @@
-import { Show, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
-import { Dropdown } from "@valentinkolb/cloud/ui";
-import type { Field, GridRecord } from "../../../service";
-import type {
-  AggregationSpec,
-  GroupBySpec,
-  TableQueryResult,
-  ViewQuery,
-} from "../../../contracts";
-import { fetchTableQuery } from "./fetcher";
-import {
-  buildRecordsUrl,
-  parseRecordsState,
-  type RecordsState,
-} from "./query-url";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { Dropdown, dialogCore, prompts } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "../../../api/client";
+import type { AggregationSpec, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
+import type { Field, Form, GridRecord, Table, View } from "../../../service";
+import type { ColumnSpec } from "../../../service/views";
+import { defaultTableAggregations } from "../../../table-defaults";
+import type { AggKindUI, AggregationRow } from "../AggregationsPanel";
+import { errorMessage } from "../api-helpers";
+import DatabaseTable from "../DatabaseTable";
+import { GridsBareDialog, gridsBareDialogOptions } from "../dialog-layout";
+import { openExportRecordsDialog } from "../ExportRecordsDialog";
+import type { FilterLeaf } from "../FilterPanel";
+import GridToolbar from "../GridToolbar";
+import GroupDetailPanel from "../GroupDetailPanel";
+import GroupedTable, { type GroupBucket, groupedAggregationColumnId, groupedGroupColumnId } from "../GroupedTable";
+import RecordDetailPanel from "../RecordDetailPanel";
 // These were once-islands but are now plain components rendered inside
 // RecordsView's island. Nested islands break SSR (Seroval can't serialize
 // the function props the parent passes down) — keeping them as plain
 // children means they hydrate as part of RecordsView, sharing its state.
 import SearchBar from "../SearchBar";
-import GridToolbar from "../GridToolbar";
-import DatabaseTable from "../DatabaseTable";
-import GroupedTable, { type GroupBucket } from "../GroupedTable";
-import RecordDetailPanel from "../RecordDetailPanel";
-import { apiClient } from "../../../api/client";
-import type { FilterLeaf } from "../FilterPanel";
-import type { AggregationRow, AggKindUI } from "../AggregationsPanel";
-import type { ColumnSpec } from "../../../service/views";
+import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../TableAdminDialogs";
+import { openFieldEditDialog } from "../TableFieldDialogs";
+import { openViewColumnSettingsDialog } from "../ViewColumnSettingsDialog";
+import { openViewSettingsDialog } from "../ViewSettingsDialogs";
+import { fetchTableQuery } from "./fetcher";
+import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-url";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
  *  (which also has median/earliest/latest, currently SQL-only). When a
  *  saved view stores one of those, the toolbar simply won't render it
  *  as an editable row. */
-const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set([
-  "count",
-  "countEmpty",
-  "countUnique",
-  "sum",
-  "avg",
-  "min",
-  "max",
-]);
+const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
-const toAggregationRows = (
-  specs: AggregationSpec[] | undefined,
-): AggregationRow[] =>
+const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
+
+const toAggregationRows = (specs: AggregationSpec[] | undefined): AggregationRow[] =>
   (specs ?? [])
-    .filter((s): s is AggregationSpec & { agg: AggKindUI } =>
-      UI_AGG_KINDS.has(s.agg as AggKindUI),
-    )
+    .filter((s): s is AggregationSpec & { agg: AggKindUI } => UI_AGG_KINDS.has(s.agg as AggKindUI))
     .map((s) => ({ fieldId: s.fieldId, agg: s.agg, label: s.label }));
 
 /**
@@ -69,18 +61,37 @@ type Props = {
   baseId: string;
   /** UUID of the active table — for API calls (POST /api/grids/.../by-table/<uuid>). */
   tableId: string;
+  /** Human table name for record-write dialog context. */
+  tableName: string;
+  tableDescription: string | null;
+  tableIcon?: string | null;
+  tableColumns: ColumnSpec[];
+  /** Table-level setting: when true, records should be created through forms. */
+  disableDirectInsert: boolean;
   /** Short-id of the base — for the path-based URL builder. Threaded
    *  through buildRecordsUrl so pagination / detail-open writes the
    *  right path. */
   baseShortId: string;
   /** Short-id of the active table — same rationale as baseShortId. */
   tableShortId: string;
+  /** Table UUID -> short-id map for relation links inside cells. */
+  tableShortIds: Record<string, string>;
   /** Short-id of the active saved view, or null when no view. Drives
    *  the `/view/<short>` URL segment. */
   viewShortId: string | null;
   fields: Field[];
+  forms: Form[];
   canWrite: boolean;
+  canManageTable: boolean;
   trashMode: boolean;
+  initialAdminMode: boolean;
+  initialAccessEntries: AccessEntry[];
+  initialFormAccessEntries: Record<string, AccessEntry[]>;
+  activeView?: View | null;
+  activeViewAccessEntries?: AccessEntry[];
+  canEditActiveView?: boolean;
+  otherTables: Array<{ id: string; name: string }>;
+  fieldsByTable: Record<string, Field[]>;
   /**
    * True when the user is on a saved view (`?view=<id>`). Views are
    * frozen presets — filter / sort / group / aggregate are baked into
@@ -112,14 +123,49 @@ type Props = {
 
 export default function RecordsView(props: Props) {
   // ── Canonical state ────────────────────────────────────────────────
+  const [tableName, setTableName] = createSignal(props.tableName);
+  const [tableDescription, setTableDescription] = createSignal(props.tableDescription);
+  const [tableIcon, setTableIcon] = createSignal(props.tableIcon ?? null);
+  const [tableColumns, setTableColumns] = createSignal<ColumnSpec[]>(props.tableColumns);
+  const [disableDirectInsert, setDisableDirectInsert] = createSignal(props.disableDirectInsert);
+  const [fields, setFields] = createSignal<Field[]>([...props.fields].sort((a, b) => a.position - b.position));
+  const [forms, setForms] = createSignal<Form[]>(props.forms);
+  const isSavedView = () => props.viewMode || !!props.activeView || !!props.viewShortId;
+  const canUseEditMode = () => (isSavedView() ? !!props.canEditActiveView : props.canManageTable);
+  const [adminMode, setAdminMode] = createSignal(props.initialAdminMode && canUseEditMode());
+  const [viewColumns, setViewColumns] = createSignal<ColumnSpec[] | undefined>(props.viewColumns);
   const [query, setQuery] = createSignal<ViewQuery>(props.initialState.query);
   const [cursor, setCursor] = createSignal<string | null>(props.initialState.cursor);
-  const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(
-    props.initialState.selectedRecordId,
-  );
-  const [search, setSearch] = createSignal<{ q: string; fieldIds: string[] }>(
-    props.initialState.search,
-  );
+  const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(props.initialState.selectedRecordId);
+  const [selectedGroup, setSelectedGroup] = createSignal<GroupBucket | null>(null);
+  const resolvedSearchState = (state: RecordsState["search"]): RecordsState["search"] => {
+    if (state.override) return state;
+    const saved = props.activeViewQuery?.search;
+    if (!saved) return state;
+    return {
+      q: saved.q,
+      fieldIds: saved.fieldIds ?? [],
+      override: false,
+    };
+  };
+  const [search, setSearch] = createSignal<RecordsState["search"]>(resolvedSearchState(props.initialState.search));
+  const groupBy = () => (query().groupBy ?? []) as GroupBySpec[];
+  const aggregations = () => (query().aggregations ?? []) as AggregationSpec[];
+  const isGrouped = () => groupBy().length > 0;
+  const customForms = () => forms().filter((form) => !form.isDefault);
+  const formsButtonLabel = () => {
+    const count = customForms().length;
+    return count > 0 ? `Forms (${count})` : "Add form";
+  };
+  const defaultViewColumns = (): ColumnSpec[] =>
+    tableColumns().length > 0
+      ? tableColumns()
+      : fields()
+          .filter((f) => !f.deletedAt && !f.hideInTable)
+          .sort((a, b) => a.position - b.position)
+          .map((field) => ({ fieldId: field.id }));
+  const effectiveViewColumns = () =>
+    !isGrouped() ? (isSavedView() ? (viewColumns() ?? defaultViewColumns()) : defaultViewColumns()) : undefined;
 
   // ── Resource over POST /tables/:id/query ──────────────────────────
   // Source signal carries everything that affects the response shape;
@@ -133,11 +179,13 @@ export default function RecordsView(props: Props) {
   // Search is a peer of filter/sort/group/agg in the wire query. We fold
   // the SearchBar's `{q, fieldIds}` signal into `query.search` here so a
   // keystroke updates the source signal and the API request body in one
-  // step — the server-side merger in api/tables.ts compiles it into SQL.
+  // step — the records service compiles it into SQL separately from the
+  // structured FilterTree.
   const queryWithSearch = (): ViewQuery => {
+    const { search: _savedSearch, ...baseQuery } = query();
     const q = search().q.trim();
-    if (!q) return query();
-    return { ...query(), search: { q, fieldIds: search().fieldIds } };
+    if (!q) return baseQuery;
+    return { ...baseQuery, search: { q, fieldIds: search().fieldIds } };
   };
   const [data, { refetch }] = createResource(
     () => ({ tableId: props.tableId, query: queryWithSearch(), cursor: cursor() }),
@@ -145,14 +193,37 @@ export default function RecordsView(props: Props) {
     { initialValue: props.initialData },
   );
 
-  const items = () => data()?.items ?? [];
+  const [flatItems, setFlatItems] = createSignal<GridRecord[]>(props.initialData.items ?? []);
+  const [flatNextCursor, setFlatNextCursor] = createSignal<string | null>(props.initialData.nextCursor ?? null);
+  let didApplyFirstFlatPage = false;
+
+  createEffect(() => {
+    const response = data();
+    if (!response || isGrouped()) return;
+    const pageItems = (response.items ?? []) as GridRecord[];
+    setFlatNextCursor(response.nextCursor ?? null);
+    if (!didApplyFirstFlatPage) {
+      didApplyFirstFlatPage = true;
+      setFlatItems(pageItems);
+      return;
+    }
+    if (!cursor()) {
+      setFlatItems(pageItems);
+      return;
+    }
+    setFlatItems((prev) => {
+      const seen = new Set(prev.map((r) => r.id));
+      return [...prev, ...pageItems.filter((r) => !seen.has(r.id))];
+    });
+  });
+
+  const items = () => (isGrouped() ? (data()?.items ?? []) : flatItems());
   const buckets = () => (data()?.buckets ?? []) as GroupBucket[];
   const aggregates = () => data()?.aggregates ?? {};
-  const nextCursor = () => data()?.nextCursor ?? null;
 
   // Relation labels: SSR seeded a static prop, the API endpoint now
   // also emits `relationLabels` for group-mode bucket keys. Merge both
-  // so the GroupedTable / RecordsGrid see one consistent UUID→label
+  // so GroupedTable / DatabaseTable see one consistent UUID→label
   // map regardless of which data path filled it. Server-side labels
   // take precedence (newer ground truth).
   const mergedRelationLabels = () => ({
@@ -188,21 +259,14 @@ export default function RecordsView(props: Props) {
       return;
     }
     if (selectedRecord()) return; // already resolved
-    apiClient.records[":tableId"][":recordId"]
-      .$get({ param: { tableId: props.tableId, recordId: id } })
-      .then(async (res) => {
-        if (!res.ok) return;
-        const rec = (await res.json()) as GridRecord;
-        setFetchedSelected(() => rec);
-      });
+    apiClient.records[":tableId"][":recordId"].$get({ param: { tableId: props.tableId, recordId: id } }).then(async (res) => {
+      if (!res.ok) return;
+      const rec = (await res.json()) as GridRecord;
+      setFetchedSelected(() => rec);
+    });
   });
 
-  const detailMode = (): "live" | "trash" =>
-    query().includeDeleted ? "trash" : "live";
-
-  const groupBy = () => (query().groupBy ?? []) as GroupBySpec[];
-  const aggregations = () => (query().aggregations ?? []) as AggregationSpec[];
-  const isGrouped = () => groupBy().length > 0;
+  const detailMode = (): "live" | "trash" => (query().deletedOnly ? "trash" : "live");
 
   // ── URL sync ───────────────────────────────────────────────────────
   // syncUrl is the single point that touches history. `replace=true`
@@ -211,10 +275,22 @@ export default function RecordsView(props: Props) {
   // panel open) so back-button has the right semantics.
   const currentUrlState = (): RecordsState => ({
     query: query(),
-    cursor: cursor(),
+    cursor: null,
     selectedRecordId: selectedRecordId(),
     search: search(),
   });
+
+  const withAdminModeParam = (url: string) => {
+    const parsed = new URL(url, location.origin);
+    parsed.searchParams.set("edit", "true");
+    return parsed.pathname + parsed.search;
+  };
+
+  const stripAdminModeParam = (url: string) => {
+    const parsed = new URL(url, location.origin);
+    parsed.searchParams.delete("edit");
+    return parsed.pathname + parsed.search;
+  };
 
   const syncUrl = (opts: { replace: boolean }) => {
     if (typeof history === "undefined") return;
@@ -227,9 +303,10 @@ export default function RecordsView(props: Props) {
       currentUrlState(),
       props.activeViewQuery,
     );
-    if (next === location.pathname + location.search) return;
-    if (opts.replace) history.replaceState(null, "", next);
-    else history.pushState(null, "", next);
+    const finalUrl = adminMode() ? withAdminModeParam(next) : stripAdminModeParam(next);
+    if (finalUrl === location.pathname + location.search) return;
+    if (opts.replace) history.replaceState(null, "", finalUrl);
+    else history.pushState(null, "", finalUrl);
   };
 
   // ── Commit handlers (called from children) ─────────────────────────
@@ -248,31 +325,43 @@ export default function RecordsView(props: Props) {
       ...patch,
       // Preserve the trash flag (toolbar doesn't own it).
       includeDeleted: query().includeDeleted,
+      deletedOnly: query().deletedOnly,
     });
+    setSelectedGroup(null);
     setCursor(null);
     syncUrl({ replace: true });
   };
 
   /** SearchBar's onSearchChange. Mirror semantics to onToolbarCommit. */
   const onSearchChange = (next: { q: string; fieldIds: string[] }) => {
-    setSearch(next);
+    setSearch({ ...next, override: true });
+    setSelectedGroup(null);
     setCursor(null);
     syncUrl({ replace: true });
   };
 
-  /** Clicking the next-page link advances the cursor. pushState so
-   *  back-button returns to the previous page. */
-  const onPaginate = (nextCursor: string | null) => {
-    setCursor(nextCursor);
-    syncUrl({ replace: false });
+  const loadNextFlatPage = () => {
+    const next = flatNextCursor();
+    if (!next || data.loading || isGrouped()) return;
+    setCursor(next);
   };
 
   /** Row click in the grid → open the detail panel. pushState so the
    *  browser back button closes the panel — that's the natural mental
    *  model ("back undoes my last forward action"). */
   const onSelectRecord = (rec: GridRecord) => {
+    setSelectedGroup(null);
     setSelectedRecordId(rec.id);
     syncUrl({ replace: false });
+  };
+
+  const groupBucketKey = (bucket: GroupBucket | null): string | null => (bucket ? JSON.stringify(bucket.keys) : null);
+
+  const onSelectGroup = (bucket: GroupBucket) => {
+    setSelectedRecordId(null);
+    setFetchedSelected(null);
+    setSelectedGroup(bucket);
+    syncUrl({ replace: true });
   };
 
   /** Detail-panel close button. replaceState because closing isn't a
@@ -280,6 +369,17 @@ export default function RecordsView(props: Props) {
   const onCloseDetail = () => {
     setSelectedRecordId(null);
     syncUrl({ replace: true });
+  };
+
+  const onCloseGroupDetail = () => {
+    setSelectedGroup(null);
+  };
+
+  const onOpenGroupedRecord = (record: GridRecord) => {
+    setSelectedGroup(null);
+    setFetchedSelected(() => record);
+    setSelectedRecordId(record.id);
+    syncUrl({ replace: false });
   };
 
   /** Toolbar's row-create flow finished — open the new record's detail
@@ -324,7 +424,9 @@ export default function RecordsView(props: Props) {
       setQuery(parsed.query);
       setCursor(parsed.cursor);
       setSelectedRecordId(parsed.selectedRecordId);
-      setSearch(parsed.search);
+      setSelectedGroup(null);
+      setSearch(resolvedSearchState(parsed.search));
+      setAdminMode(new URL(location.href).searchParams.get("edit") === "true" && props.canManageTable);
     };
     window.addEventListener("popstate", onPop);
     onCleanup(() => {
@@ -333,7 +435,7 @@ export default function RecordsView(props: Props) {
     });
   });
 
-  // ── Row-1 helpers (record count + export URL) ──────────────────────
+  // ── Row-1 helpers (record count + export dialog) ───────────────────
   // Lifted out of GridToolbar because row 1 is always rendered (even on
   // saved views and in trash mode) — these need to live next to the
   // search bar, not inside the optional editing toolbar.
@@ -344,23 +446,439 @@ export default function RecordsView(props: Props) {
     return `${n} records`;
   };
 
-  const exportUrl = (format: "csv" | "json"): string => {
-    // SSR-safe: when this fires from the server-render path
-    // window.location is undefined; fall back to a relative URL the
-    // browser resolves at click time.
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://x";
-    const url = new URL(
-      `/api/grids/records/by-table/${props.tableId}/export`,
-      origin,
+  const tableAggregationSpecs = (): AggregationSpec[] => {
+    if (props.trashMode || isGrouped()) return [];
+    const explicit = aggregations();
+    if (explicit.length > 0) return explicit;
+    return defaultTableAggregations(fields());
+  };
+
+  const openExportDialog = () => {
+    void openExportRecordsDialog({
+      tableId: props.tableId,
+      fields: fields(),
+      query: queryWithSearch(),
+      viewColumns: effectiveViewColumns(),
+    });
+  };
+
+  const setAdminModeAndUrl = (next: boolean) => {
+    if (!canUseEditMode()) return;
+    setAdminMode(next);
+    if (typeof history === "undefined") return;
+    const current = location.pathname + location.search;
+    const nextUrl = next ? withAdminModeParam(current) : stripAdminModeParam(current);
+    history.replaceState(null, "", nextUrl);
+  };
+
+  const syncFields = (next: Field[]) => {
+    setFields([...next].sort((a, b) => a.position - b.position));
+    void refetch();
+  };
+
+  const normalizeFieldOrder = (ordered: Field[]) => ordered.map((field, position) => ({ ...field, position }));
+
+  const reorderFieldsMut = mutations.create<Field[], { fieldId: string; direction: -1 | 1 }>({
+    mutation: async ({ fieldId, direction }) => {
+      const current = fields();
+      const index = current.findIndex((f) => f.id === fieldId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target]!, next[index]!];
+      const ordered = normalizeFieldOrder(next);
+      const res = await apiClient.fields["by-table"][":tableId"].reorder.$post({
+        param: { tableId: props.tableId },
+        json: { fieldIds: ordered.map((f) => f.id) },
+      });
+      if (res.status >= 400) throw new Error("Failed to reorder fields");
+      return ordered;
+    },
+    onSuccess: (ordered) => {
+      setFields(ordered);
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const moveFieldInline = (field: Field, direction: -1 | 1) => {
+    reorderFieldsMut.mutate({ fieldId: field.id, direction });
+  };
+
+  const tableHeader = () => ({
+    id: props.tableId,
+    baseId: props.baseId,
+    baseShortId: props.baseShortId,
+    shortId: props.tableShortId,
+    name: tableName(),
+    description: tableDescription(),
+    icon: tableIcon(),
+    columns: tableColumns(),
+    disableDirectInsert: disableDirectInsert(),
+  });
+
+  const openFieldSettings = (field: Field) => {
+    openFieldEditDialog({
+      field,
+      otherTables: props.otherTables,
+      fieldsByTable: { ...props.fieldsByTable, [props.tableId]: fields() },
+      tableColumns: effectiveViewColumns(),
+      onSaved: (updated) => syncFields(fields().map((f) => (f.id === updated.id ? updated : f))),
+      onTableColumnsSaved: setTableColumns,
+      onDeleted: async () => {
+        if (await deleteFieldWithChecks(field)) syncFields(fields().filter((f) => f.id !== field.id));
+      },
+    });
+  };
+
+  const openTableSettings = () => {
+    openTableSettingsDialog({
+      table: tableHeader(),
+      initialAccessEntries: props.initialAccessEntries,
+      onSaved: (table) => {
+        setTableName(table.name);
+        setTableDescription(table.description ?? null);
+        setTableIcon(table.icon ?? null);
+        setTableColumns(table.columns);
+        setDisableDirectInsert(table.disableDirectInsert);
+      },
+    });
+  };
+
+  const openAddField = async () => {
+    const created = await createFieldFromPrompt({ table: tableHeader() });
+    if (!created) return;
+    const next = normalizeFieldOrder([...fields(), created]);
+    syncFields(next);
+    if (!created.hideInTable && tableColumns().length > 0 && !tableColumns().some((column) => column.fieldId === created.id)) {
+      const res = await apiClient.tables[":tableId"].$patch({
+        param: { tableId: props.tableId },
+        json: { columns: [...tableColumns(), { fieldId: created.id }] },
+      });
+      if (!res.ok) {
+        prompts.error(await errorMessage(res, "Field created, but table display was not updated"));
+        return;
+      }
+      const table = (await res.json()) as Pick<Table, "columns">;
+      setTableColumns(table.columns);
+    }
+  };
+
+  const openForms = () => {
+    openFormsDialog({
+      tableId: props.tableId,
+      tableName: tableName(),
+      fields: fields(),
+      initialForms: forms(),
+      initialFormAccessEntries: props.initialFormAccessEntries,
+      onFormsChanged: (nextCustomForms) => {
+        const defaults = forms().filter((form) => form.isDefault);
+        setForms([...defaults, ...nextCustomForms]);
+      },
+    });
+  };
+
+  const openViewSettings = () => {
+    const view = props.activeView;
+    if (!view || !props.canEditActiveView) return;
+    openViewSettingsDialog({
+      baseShortId: props.baseShortId,
+      tableShortId: props.tableShortId,
+      viewShortId: view.shortId,
+      tableName: tableName(),
+      initialView: view,
+      fields: fields(),
+      initialAccessEntries: props.activeViewAccessEntries ?? [],
+      canEditAccess: props.canManageTable,
+    });
+  };
+
+  const patchViewQueryMut = mutations.create<View, Partial<ViewQuery>>({
+    mutation: async (patch) => {
+      const view = props.activeView;
+      if (!view) throw new Error("No active view");
+      const cur = await apiClient.views[":viewId"].$get({ param: { viewId: view.id } });
+      if (!cur.ok) throw new Error(await errorMessage(cur, "Failed to load view"));
+      const current = (await cur.json()) as View;
+      const res = await apiClient.views[":viewId"].$patch({
+        param: { viewId: view.id },
+        json: { query: { ...current.query, ...patch } },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view columns"));
+      return (await res.json()) as View;
+    },
+    onSuccess: (view) => {
+      setViewColumns(view.query.columns);
+      setQuery((prev) => ({
+        ...prev,
+        groupBy: view.query.groupBy,
+        aggregations: view.query.aggregations,
+        groupedColumnOrder: view.query.groupedColumnOrder,
+        hiddenGroupedColumns: view.query.hiddenGroupedColumns,
+      }));
+    },
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const patchTableColumnsMut = mutations.create<Table, ColumnSpec[]>({
+    mutation: async (columns) => {
+      const res = await apiClient.tables[":tableId"].$patch({
+        param: { tableId: props.tableId },
+        json: { columns: columns.map(cleanViewColumn) },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to save table columns"));
+      return (await res.json()) as Table;
+    },
+    onSuccess: (table) => setTableColumns(table.columns),
+    onError: (e) => prompts.error(e.message),
+  });
+
+  const cleanViewColumn = (column: ColumnSpec): ColumnSpec => ({
+    fieldId: column.fieldId,
+    ...(column.label?.trim() ? { label: column.label.trim() } : {}),
+    ...(column.format ? { format: column.format } : {}),
+  });
+
+  const persistFlatViewColumns = (columns: ColumnSpec[]) => {
+    if (isSavedView()) patchViewQueryMut.mutate({ columns: columns.map(cleanViewColumn) });
+    else patchTableColumnsMut.mutate(columns);
+  };
+
+  const moveViewColumnInline = (field: Field, direction: -1 | 1) => {
+    const current = effectiveViewColumns();
+    if (!current) return;
+    const index = current.findIndex((column) => column.fieldId === field.id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= current.length) return;
+    const next = [...current];
+    const [moved] = next.splice(index, 1);
+    if (!moved) return;
+    next.splice(target, 0, moved);
+    persistFlatViewColumns(next);
+  };
+
+  const openViewColumnSettings = async (field: Field) => {
+    const current = effectiveViewColumns()?.find((column) => column.fieldId === field.id);
+    if (!current) return;
+    const result = await openViewColumnSettingsDialog({
+      title: field.name,
+      labelPlaceholder: field.name,
+      currentLabel: current.label,
+      currentFormat: current.format,
+      formatField: field,
+      hideLabel: "Hide column",
+    });
+    if (!result) return;
+    if (result.action === "hide") {
+      persistFlatViewColumns((effectiveViewColumns() ?? []).filter((column) => column.fieldId !== field.id));
+      return;
+    }
+    persistFlatViewColumns(
+      (effectiveViewColumns() ?? []).map((column) =>
+        column.fieldId === field.id ? cleanViewColumn({ ...column, label: result.label, format: result.format }) : column,
+      ),
     );
-    url.searchParams.set("format", format);
-    // Roundtrip the query state into the export so a deleted-records
-    // export ≠ a live-records export. We project from the live query
-    // signal so it tracks any in-session filter / sort changes.
-    const q = query();
-    if (q.filter) url.searchParams.set("filter", JSON.stringify(q.filter));
-    if (q.sort && q.sort.length > 0) url.searchParams.set("sort", JSON.stringify(q.sort));
-    return url.pathname + url.search;
+  };
+
+  const displayAggregations = (): AggregationSpec[] => {
+    const explicit = aggregations();
+    const hasStarCount = explicit.some((a) => a.fieldId === "*" && a.agg === "count");
+    return hasStarCount ? explicit : [{ fieldId: "*", agg: "count" }, ...explicit];
+  };
+
+  const moveGroupedColumn = <T,>(items: T[], index: number, direction: -1 | 1): T[] | null => {
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= items.length) return null;
+    const next = [...items];
+    const [moved] = next.splice(index, 1);
+    if (!moved) return null;
+    next.splice(target, 0, moved);
+    return next;
+  };
+
+  const groupedColumnIds = (): string[] => [
+    ...groupBy().map((spec, index) => groupedGroupColumnId(spec, index)),
+    ...displayAggregations().map((spec, index) => groupedAggregationColumnId(spec, index)),
+  ];
+  const hiddenGroupedColumnIds = () => new Set(query().hiddenGroupedColumns ?? []);
+
+  const effectiveGroupedColumnOrder = (): string[] => {
+    const ids = groupedColumnIds();
+    const saved = query().groupedColumnOrder ?? [];
+    const idSet = new Set(ids);
+    const savedSet = new Set(saved);
+    return [...saved.filter((id) => idSet.has(id)), ...ids.filter((id) => !savedSet.has(id))];
+  };
+
+  const visibleGroupedColumnOrder = (): string[] => effectiveGroupedColumnOrder().filter((id) => !hiddenGroupedColumnIds().has(id));
+
+  const hideGroupedColumn = (columnId: string) => {
+    const ids = new Set(groupedColumnIds());
+    const next = [...new Set([...(query().hiddenGroupedColumns ?? []), columnId])].filter((id) => ids.has(id));
+    patchViewQueryMut.mutate({ hiddenGroupedColumns: next });
+  };
+
+  const moveGroupedViewColumnInline = (columnId: string, direction: -1 | 1) => {
+    const order = visibleGroupedColumnOrder();
+    const index = order.indexOf(columnId);
+    const next = moveGroupedColumn(order, index, direction);
+    if (next) {
+      const hidden = effectiveGroupedColumnOrder().filter((id) => hiddenGroupedColumnIds().has(id));
+      patchViewQueryMut.mutate({ groupedColumnOrder: [...next, ...hidden] });
+    }
+  };
+
+  const openGroupedViewColumnSettings = async (columnId: string) => {
+    const groupIndex = groupBy().findIndex((spec, index) => groupedGroupColumnId(spec, index) === columnId);
+    if (groupIndex >= 0) return openGroupColumnSettings(groupIndex);
+    const aggregationIndex = displayAggregations().findIndex((spec, index) => groupedAggregationColumnId(spec, index) === columnId);
+    if (aggregationIndex >= 0) return openAggregationColumnSettings(aggregationIndex);
+  };
+
+  const openGroupColumnSettings = async (index: number) => {
+    const current = groupBy()[index];
+    if (!current) return;
+    const field = fields().find((f) => f.id === current.fieldId);
+    const fallback = field ? field.name : "Group";
+    const columnId = groupedGroupColumnId(current, index);
+    const result = await openViewColumnSettingsDialog({
+      title: fallback,
+      labelPlaceholder: fallback,
+      currentLabel: current.label,
+      currentFormat: current.format,
+      formatField: field ?? null,
+      hideLabel: "Hide column",
+    });
+    if (!result) return;
+    if (result.action === "hide") {
+      hideGroupedColumn(columnId);
+      return;
+    }
+    patchViewQueryMut.mutate({
+      groupBy: groupBy().map((spec, idx) => (idx === index ? { ...spec, label: result.label, format: result.format } : spec)),
+    });
+  };
+
+  const openAggregationColumnSettings = async (index: number) => {
+    const current = displayAggregations()[index];
+    if (!current) return;
+    const field = current.fieldId === "*" ? null : fields().find((f) => f.id === current.fieldId);
+    const fallback = current.fieldId === "*" ? "# records" : `${current.agg} ${field?.name ?? "value"}`;
+    const columnId = groupedAggregationColumnId(current, index);
+    const result = await openViewColumnSettingsDialog({
+      title: fallback,
+      labelPlaceholder: fallback,
+      currentLabel: current.label,
+      currentFormat: current.format,
+      formatField: field ?? { type: "number", config: {} },
+      hideLabel: "Hide column",
+    });
+    if (!result) return;
+    if (result.action === "hide") {
+      hideGroupedColumn(columnId);
+      return;
+    }
+    patchViewQueryMut.mutate({
+      aggregations: displayAggregations().map((spec, idx) =>
+        idx === index ? { ...spec, label: result.label, format: result.format } : spec,
+      ),
+    });
+  };
+
+  const flatHiddenColumns = () => {
+    const visibleIds = new Set((effectiveViewColumns() ?? []).map((column) => column.fieldId));
+    return fields()
+      .filter((field) => !field.deletedAt && !visibleIds.has(field.id))
+      .map((field) => ({
+        id: field.id,
+        label: field.name,
+        description: field.type,
+        icon: field.icon ?? "ti ti-columns",
+        add: () => persistFlatViewColumns([...(effectiveViewColumns() ?? []), { fieldId: field.id }]),
+      }));
+  };
+
+  const groupedColumnLabel = (columnId: string): { label: string; description: string; icon: string } | null => {
+    const groupIndex = groupBy().findIndex((spec, index) => groupedGroupColumnId(spec, index) === columnId);
+    if (groupIndex >= 0) {
+      const spec = groupBy()[groupIndex];
+      if (!spec) return null;
+      const field = fields().find((f) => f.id === spec.fieldId);
+      const fallback = field ? (spec.granularity ? `${field.name} (${spec.granularity})` : field.name) : "Group";
+      return { label: spec.label?.trim() || fallback, description: "group", icon: "ti ti-hierarchy" };
+    }
+    const aggregationIndex = displayAggregations().findIndex((spec, index) => groupedAggregationColumnId(spec, index) === columnId);
+    if (aggregationIndex >= 0) {
+      const spec = displayAggregations()[aggregationIndex];
+      if (!spec) return null;
+      const field = spec.fieldId === "*" ? null : fields().find((f) => f.id === spec.fieldId);
+      const fallback = spec.fieldId === "*" ? "# records" : `${spec.agg} ${field?.name ?? "value"}`;
+      return { label: spec.label?.trim() || fallback, description: "aggregate", icon: "ti ti-math-function" };
+    }
+    return null;
+  };
+
+  const groupedHiddenColumns = () =>
+    effectiveGroupedColumnOrder()
+      .filter((id) => hiddenGroupedColumnIds().has(id))
+      .map((id) => {
+        const label = groupedColumnLabel(id);
+        return label
+          ? {
+              id,
+              ...label,
+              add: () => {
+                const next = (query().hiddenGroupedColumns ?? []).filter((hiddenId) => hiddenId !== id);
+                patchViewQueryMut.mutate({ hiddenGroupedColumns: next });
+              },
+            }
+          : null;
+      })
+      .filter((item): item is NonNullable<typeof item> => !!item);
+
+  const hiddenViewColumnCount = () => (isGrouped() ? groupedHiddenColumns().length : flatHiddenColumns().length);
+
+  const openAddViewColumnDialog = async () => {
+    if (!isSavedView()) return;
+    const columns = isGrouped() ? groupedHiddenColumns() : flatHiddenColumns();
+    if (columns.length === 0) {
+      await prompts.alert("All columns are already visible.", { title: "No hidden columns", icon: "ti ti-check" });
+      return;
+    }
+    dialogCore.open<void>(
+      (close) => (
+        <GridsBareDialog title="Add column" icon="ti ti-plus" close={() => close()}>
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <section class="paper p-2">
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <For each={columns}>
+                  {(column) => (
+                    <button
+                      type="button"
+                      class="paper p-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
+                      onClick={() => {
+                        column.add();
+                        close();
+                      }}
+                    >
+                      <div class="flex items-start gap-3">
+                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                          <i class={`${column.icon} text-sm`} />
+                        </span>
+                        <span class="min-w-0">
+                          <span class="block truncate text-sm font-semibold text-primary">{column.label}</span>
+                          <span class="mt-0.5 block text-xs text-dimmed">{column.description}</span>
+                        </span>
+                      </div>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </section>
+          </div>
+        </GridsBareDialog>
+      ),
+      gridsBareDialogOptions,
+    );
   };
 
   // ── Initial filter rows for the toolbar ─────────────────────────────
@@ -374,10 +892,7 @@ export default function RecordsView(props: Props) {
     if (!f || typeof f !== "object" || (f as { op?: string }).op !== "AND") return [];
     const filters = (f as { filters?: unknown[] }).filters;
     if (!Array.isArray(filters)) return [];
-    return filters.filter(
-      (l): l is FilterLeaf =>
-        typeof l === "object" && l !== null && "fieldId" in l && "op" in l,
-    );
+    return filters.filter((l): l is FilterLeaf => typeof l === "object" && l !== null && "fieldId" in l && "op" in l);
   })();
 
   // ── Render ─────────────────────────────────────────────────────────
@@ -385,7 +900,7 @@ export default function RecordsView(props: Props) {
   // when a record is selected and disappears when none is — pure
   // signal-derived rendering, no DOM-class flipping.
   return (
-    <div class="flex flex-col lg:flex-row gap-4 flex-1 min-w-0 min-h-0 overflow-hidden">
+    <div class="flex flex-col lg:flex-row gap-2 flex-1 min-w-0 min-h-0 overflow-hidden">
       {/* Records column splits into two zones:
           - header (search + toolbar) — fixed, never scrolls
           - body (records grid + pagination) — scrolls independently
@@ -394,7 +909,7 @@ export default function RecordsView(props: Props) {
           The column itself is `overflow-hidden` so neither zone leaks
           into the other; the inner body div is the single y-scroll
           container, paired with the table-head `position: sticky` in
-          RecordsGrid so the column headers stay pinned while rows
+          DataTable so the column headers stay pinned while rows
           scroll. Mirrors the contacts page layout. */}
       <div
         class={
@@ -425,10 +940,7 @@ export default function RecordsView(props: Props) {
           <Show
             when={!props.trashMode}
             fallback={
-              <a
-                href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`}
-                class="btn-input btn-input-sm"
-              >
+              <a href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`} class="btn-input btn-input-sm">
                 <i class="ti ti-arrow-back" />
                 Back to live records
               </a>
@@ -448,20 +960,24 @@ export default function RecordsView(props: Props) {
               }
               elements={[
                 {
-                  icon: "ti ti-file-type-csv",
-                  label: "Export CSV",
-                  href: exportUrl("csv"),
-                },
-                {
-                  icon: "ti ti-braces",
-                  label: "Export JSON",
-                  href: exportUrl("json"),
+                  icon: "ti ti-download",
+                  label: "Export records",
+                  action: openExportDialog,
                 },
                 {
                   icon: "ti ti-archive",
                   label: "Show deleted",
                   href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
                 },
+                ...(canUseEditMode()
+                  ? [
+                      {
+                        icon: adminMode() ? "ti ti-check" : "ti ti-tool",
+                        label: adminMode() ? "Exit edit mode" : isSavedView() ? "Edit view" : "Edit table",
+                        action: () => setAdminModeAndUrl(!adminMode()),
+                      },
+                    ]
+                  : []),
               ]}
             />
           </Show>
@@ -475,7 +991,9 @@ export default function RecordsView(props: Props) {
             <GridToolbar
               baseId={props.baseId}
               tableId={props.tableId}
-              fields={props.fields}
+              tableName={tableName()}
+              disableDirectInsert={disableDirectInsert()}
+              fields={fields()}
               initialFilter={initialFilterRows}
               initialSort={(props.initialState.query.sort ?? []).map((s) => ({
                 fieldId: s.fieldId,
@@ -483,10 +1001,57 @@ export default function RecordsView(props: Props) {
               }))}
               initialGroupBy={groupBy()}
               initialAggregations={toAggregationRows(aggregations())}
+              currentSearch={search()}
+              forms={forms()}
               canWrite={props.canWrite}
               onCommit={onToolbarCommit}
               onRecordCreated={onRecordCreated}
+              onRecordsChanged={() => void refetch()}
             />
+          </div>
+        </Show>
+
+        <Show when={canUseEditMode() && adminMode()}>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <Show
+              when={isSavedView()}
+              fallback={
+                <>
+                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openTableSettings}>
+                    <i class="ti ti-settings" /> General
+                  </button>
+                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openAddField}>
+                    <i class="ti ti-plus" /> Add field
+                  </button>
+                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={() => openForms()}>
+                    <i class="ti ti-forms" /> {formsButtonLabel()}
+                  </button>
+                </>
+              }
+            >
+              <>
+                <button
+                  type="button"
+                  class={ADMIN_BUTTON_CLASS}
+                  onClick={openViewSettings}
+                  disabled={!props.activeView || !props.canEditActiveView}
+                >
+                  <i class="ti ti-table-spark" /> View
+                </button>
+                <Show when={hiddenViewColumnCount() > 0}>
+                  <button type="button" class={ADMIN_BUTTON_CLASS} onClick={openAddViewColumnDialog}>
+                    <i class="ti ti-plus" /> Add column
+                  </button>
+                </Show>
+              </>
+            </Show>
+            <button
+              type="button"
+              class="btn-simple btn-sm ml-auto text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200"
+              onClick={() => setAdminModeAndUrl(false)}
+            >
+              Done
+            </button>
           </div>
         </Show>
 
@@ -506,59 +1071,86 @@ export default function RecordsView(props: Props) {
               <DatabaseTable
                 result={{
                   items: items() as GridRecord[],
-                  fields: props.fields,
+                  fields: fields(),
                   nextCursor: null,
                 }}
-                baseId={props.baseId}
+                baseId={props.baseShortId}
+                tableShortIds={props.tableShortIds}
                 selectedId={selectedRecordId()}
                 onRecordClick={onSelectRecord}
-                viewColumns={props.viewColumns}
+                viewColumns={effectiveViewColumns()}
                 aggregates={props.trashMode ? {} : aggregates()}
-                aggregationSpecs={props.trashMode ? [] : aggregations()}
+                aggregationSpecs={tableAggregationSpecs()}
+                hasMore={!props.trashMode && !!flatNextCursor()}
+                loadingMore={data.loading && !!cursor()}
+                onLoadMore={loadNextFlatPage}
+                adminMode={adminMode()}
+                onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
+                onFieldMove={undefined}
+                onViewColumnSettings={adminMode() && isSavedView() && props.canEditActiveView ? openViewColumnSettings : undefined}
+                onViewColumnMove={
+                  adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable) ? moveViewColumnInline : undefined
+                }
               />
             }
           >
             <GroupedTable
-              baseId={props.baseId}
-              fields={props.fields}
+              baseId={props.baseShortId}
+              tableShortIds={props.tableShortIds}
+              fields={fields()}
               groupBy={groupBy()}
               aggregations={aggregations()}
               buckets={buckets()}
               explode={props.groupedExplode}
               relationLabels={mergedRelationLabels()}
+              selectedBucketKey={groupBucketKey(selectedGroup())}
+              onBucketClick={onSelectGroup}
+              adminMode={adminMode() && isSavedView() && !!props.canEditActiveView}
+              columnOrder={visibleGroupedColumnOrder()}
+              hiddenColumnIds={query().hiddenGroupedColumns}
+              onColumnSettings={openGroupedViewColumnSettings}
+              onColumnMove={moveGroupedViewColumnInline}
             />
-          </Show>
-
-          <Show when={nextCursor()}>
-            {(_) => (
-              <div class="flex items-center justify-end gap-2 text-xs">
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm"
-                  onClick={() => onPaginate(nextCursor())}
-                >
-                  Next page <i class="ti ti-arrow-right" />
-                </button>
-              </div>
-            )}
           </Show>
         </div>
       </div>
 
-      <Show when={selectedRecordId()}>
+      <Show when={selectedRecordId() || selectedGroup()}>
         <div class="order-2 lg:order-3 w-full lg:w-[28rem] shrink-0 flex flex-col min-h-0 overflow-hidden">
-          <RecordDetailPanel
-            baseId={props.baseId}
-            tableId={props.tableId}
-            fields={props.fields}
-            record={selectedRecord}
-            mode={detailMode}
-            canWrite={props.canWrite}
-            relationLabels={mergedRelationLabels()}
-            onClose={onCloseDetail}
-            onUpdated={onRecordUpdated}
-            onRemoved={onRecordRemoved}
-          />
+          <Show
+            when={selectedGroup()}
+            fallback={
+              <RecordDetailPanel
+                baseId={props.baseId}
+                baseShortId={props.baseShortId}
+                tableId={props.tableId}
+                tableName={tableName()}
+                fields={fields()}
+                record={selectedRecord}
+                mode={detailMode}
+                canWrite={props.canWrite}
+                relationLabels={mergedRelationLabels()}
+                tableShortIds={props.tableShortIds}
+                onClose={onCloseDetail}
+                onUpdated={onRecordUpdated}
+                onRemoved={onRecordRemoved}
+              />
+            }
+          >
+            {(bucket) => (
+              <GroupDetailPanel
+                tableId={props.tableId}
+                fields={fields()}
+                query={queryWithSearch()}
+                groupBy={groupBy()}
+                aggregations={aggregations()}
+                bucket={bucket()}
+                relationLabels={mergedRelationLabels()}
+                onClose={onCloseGroupDetail}
+                onOpenRecord={onOpenGroupedRecord}
+              />
+            )}
+          </Show>
         </div>
       </Show>
     </div>

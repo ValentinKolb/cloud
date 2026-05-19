@@ -1,4 +1,4 @@
-import type { Expr, BinOp } from "./types";
+import type { BinOp, Expr } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
 // Tokenizer
@@ -130,9 +130,21 @@ const tokenize = (src: string): Token[] => {
       continue;
     }
     // punctuation
-    if (c === "(") { tokens.push({ kind: "lparen" }); i++; continue; }
-    if (c === ")") { tokens.push({ kind: "rparen" }); i++; continue; }
-    if (c === ",") { tokens.push({ kind: "comma" }); i++; continue; }
+    if (c === "(") {
+      tokens.push({ kind: "lparen" });
+      i++;
+      continue;
+    }
+    if (c === ")") {
+      tokens.push({ kind: "rparen" });
+      i++;
+      continue;
+    }
+    if (c === ",") {
+      tokens.push({ kind: "comma" });
+      i++;
+      continue;
+    }
     // operators
     if (c === "<" || c === ">" || c === "=" || c === "!") {
       if (src[i + 1] === "=") {
@@ -145,9 +157,21 @@ const tokenize = (src: string): Token[] => {
       i++;
       continue;
     }
-    if (c === "&" && src[i + 1] === "&") { tokens.push({ kind: "op", value: "&&" }); i += 2; continue; }
-    if (c === "|" && src[i + 1] === "|") { tokens.push({ kind: "op", value: "||" }); i += 2; continue; }
-    if (SINGLE_CHAR_OPS.has(c)) { tokens.push({ kind: "op", value: c }); i++; continue; }
+    if (c === "&" && src[i + 1] === "&") {
+      tokens.push({ kind: "op", value: "&&" });
+      i += 2;
+      continue;
+    }
+    if (c === "|" && src[i + 1] === "|") {
+      tokens.push({ kind: "op", value: "||" });
+      i += 2;
+      continue;
+    }
+    if (SINGLE_CHAR_OPS.has(c)) {
+      tokens.push({ kind: "op", value: c });
+      i++;
+      continue;
+    }
     throw new Error(`unexpected character "${c}" at position ${i}`);
   }
   tokens.push({ kind: "eof" });
@@ -161,10 +185,17 @@ const tokenize = (src: string): Token[] => {
 const BINDING: Record<string, [number, number]> = {
   "||": [10, 11],
   "&&": [20, 21],
-  "=": [30, 31], "!=": [30, 31],
-  "<": [40, 41], "<=": [40, 41], ">": [40, 41], ">=": [40, 41],
-  "+": [50, 51], "-": [50, 51],
-  "*": [60, 61], "/": [60, 61], "%": [60, 61],
+  "=": [30, 31],
+  "!=": [30, 31],
+  "<": [40, 41],
+  "<=": [40, 41],
+  ">": [40, 41],
+  ">=": [40, 41],
+  "+": [50, 51],
+  "-": [50, 51],
+  "*": [60, 61],
+  "/": [60, 61],
+  "%": [60, 61],
 };
 
 class Parser {
@@ -196,12 +227,18 @@ class Parser {
   parsePrefix(): Expr {
     const t = this.next();
     switch (t.kind) {
-      case "num": return { kind: "literal", value: t.value };
-      case "str": return { kind: "literal", value: t.value };
-      case "true": return { kind: "literal", value: true };
-      case "false": return { kind: "literal", value: false };
-      case "null": return { kind: "literal", value: null };
-      case "field": return { kind: "field", fieldId: t.value };
+      case "num":
+        return { kind: "literal", value: t.value };
+      case "str":
+        return { kind: "literal", value: t.value };
+      case "true":
+        return { kind: "literal", value: true };
+      case "false":
+        return { kind: "literal", value: false };
+      case "null":
+        return { kind: "literal", value: null };
+      case "field":
+        return { kind: "field", fieldId: t.value };
       case "lparen": {
         const inner = this.parseExpr(0);
         if (this.peek().kind !== "rparen") throw new Error("expected ')'");
@@ -243,9 +280,14 @@ class Parser {
 
 export type ParseResult = { ok: true; ast: Expr } | { ok: false; error: string };
 
+export const normalizeFormulaSource = (source: string): string => {
+  const trimmed = source.trim();
+  return trimmed.startsWith("=") ? trimmed.slice(1).trimStart() : source;
+};
+
 export const parseFormula = (source: string): ParseResult => {
   try {
-    const tokens = tokenize(source);
+    const tokens = tokenize(normalizeFormulaSource(source));
     const parser = new Parser(tokens);
     const ast = parser.parseExpr(0);
     if (parser.peek().kind !== "eof") {

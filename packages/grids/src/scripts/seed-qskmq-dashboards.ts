@@ -42,7 +42,7 @@ const fields = {
   // Books
   bookPrice: "90c85227-947a-4f3c-8e75-7fd4bd794f19",
   bookPages: "da284279-9980-4641-b0ba-94fb9b09c73f",
-  bookRating: "bceba169-a046-4a5d-8cf1-c6872cae38f8",
+  bookScore: "bceba169-a046-4a5d-8cf1-c6872cae38f8",
   bookInStock: "269a7005-0f72-41e6-957a-caa00dd22a3e",
   bookPublished: "551c6438-6d4e-4dae-a8db-dfe365039c70",
   // Customers
@@ -205,7 +205,7 @@ const dashboardSales: DashboardConfig = {
 // Dashboard 2 — "Books catalog"
 // ─────────────────────────────────────────────────────────────────
 //
-//  - Pure-stats row (StatGrid): total / in-stock / avg-rating / avg-pages
+//  - Pure-stats row (StatGrid): total / in-stock / avg-score / avg-pages
 //  - Full-width bar chart row: Books per author
 //  - Mixed row: view-stats cell (auto-derived from "By genre · revenue"
 //    view's first bucket → 2×N internal grid) + recent books view
@@ -248,13 +248,13 @@ const dashboardCatalog: DashboardConfig = {
         {
           id: wid("stat"),
           kind: "stat",
-          title: "Avg rating",
+          title: "Avg score",
           sub: "across catalog",
           icon: "ti ti-star",
           format: "plain",
           source: {
             tableId: tables.books,
-            aggregations: [{ fieldId: fields.bookRating, agg: "avg" }],
+            aggregations: [{ fieldId: fields.bookScore, agg: "avg" }],
           },
         },
         {

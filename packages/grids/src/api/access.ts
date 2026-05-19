@@ -27,7 +27,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(AccessListSchema, "Entries") },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const entries = await gridsService.access.listForBase(baseId);
@@ -46,7 +46,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const baseId = c.req.param("baseId");
+      const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(
@@ -70,7 +70,7 @@ const app = new Hono<AuthContext>()
       responses: { 200: jsonResponse(AccessListSchema, "Entries") },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -91,7 +91,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const tableId = c.req.param("tableId");
+      const tableId = c.req.param("tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const body = c.req.valid("json");
@@ -133,7 +133,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId");
+      const viewId = c.req.param("viewId")!;
       const [viewRow] = await sql<{ table_id: string; base_id: string }[]>`
         SELECT v.table_id, t.base_id
         FROM grids.views v
@@ -160,7 +160,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const viewId = c.req.param("viewId");
+      const viewId = c.req.param("viewId")!;
       const body = c.req.valid("json");
       if (body.permission !== "read" && body.permission !== "none") {
         return c.json({ message: "View ACL only accepts 'read' or 'none'" }, 400);
@@ -206,7 +206,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const formId = c.req.param("formId");
+      const formId = c.req.param("formId")!;
       const [formRow] = await sql<{ table_id: string; base_id: string }[]>`
         SELECT f.table_id, t.base_id
         FROM grids.forms f
@@ -233,7 +233,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const formId = c.req.param("formId");
+      const formId = c.req.param("formId")!;
       const body = c.req.valid("json");
       if (body.permission !== "write" && body.permission !== "none") {
         return c.json({ message: "Form ACL only accepts 'write' or 'none'" }, 400);
@@ -276,7 +276,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const dashboardId = c.req.param("dashboardId");
+      const dashboardId = c.req.param("dashboardId")!;
       const [row] = await sql<{ base_id: string }[]>`
         SELECT base_id FROM grids.dashboards WHERE id = ${dashboardId}::uuid
       `;
@@ -300,7 +300,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const dashboardId = c.req.param("dashboardId");
+      const dashboardId = c.req.param("dashboardId")!;
       const body = c.req.valid("json");
       if (body.permission !== "read" && body.permission !== "none") {
         return c.json({ message: "Dashboard ACL only accepts 'read' or 'none'" }, 400);
@@ -341,7 +341,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateLevelSchema),
     async (c) => {
-      const accessId = c.req.param("accessId");
+      const accessId = c.req.param("accessId")!;
       const binding = await gridsService.access.resolveBinding(accessId);
       if (!binding) return c.json({ message: "Access entry not found" }, 404);
 
@@ -388,7 +388,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const accessId = c.req.param("accessId");
+      const accessId = c.req.param("accessId")!;
       const binding = await gridsService.access.resolveBinding(accessId);
       if (!binding) return c.json({ message: "Access entry not found" }, 404);
 

@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { csvQuote, formatCellForExport } from "./export";
 import type { Field } from "./types";
 
@@ -36,6 +36,10 @@ describe("csvQuote", () => {
   test("comma triggers wrap", () => {
     expect(csvQuote("a,b")).toBe('"a,b"');
   });
+  test("custom delimiter triggers wrap", () => {
+    expect(csvQuote("a;b", ";")).toBe('"a;b"');
+    expect(csvQuote("a,b", ";")).toBe("a,b");
+  });
   test("newline triggers wrap (multi-line cell)", () => {
     expect(csvQuote("line1\nline2")).toBe('"line1\nline2"');
     expect(csvQuote("line1\r\nline2")).toBe('"line1\r\nline2"');
@@ -56,8 +60,7 @@ describe("csvQuote", () => {
 // =============================================================================
 // formatCellForExport — type-aware projection for CSV. Booleans become
 // "true"/"false"; select fields project the human label not the id;
-// arbitrary objects (currency, location) JSON-stringify so the column
-// at least round-trips.
+// arbitrary objects JSON-stringify so the column at least round-trips.
 // =============================================================================
 
 describe("formatCellForExport", () => {
@@ -74,10 +77,10 @@ describe("formatCellForExport", () => {
     expect(formatCellForExport(false, b)).toBe("false");
   });
 
-  test("single-select projects the option label, not the id", () => {
+  test("select projects the option label, not the id", () => {
     const sel = mkField({
       id: "fld-sel",
-      type: "single-select",
+      type: "select",
       config: {
         options: [
           { id: "opt-1", label: "First" },
@@ -85,23 +88,23 @@ describe("formatCellForExport", () => {
         ],
       },
     });
-    expect(formatCellForExport("opt-1", sel)).toBe("First");
-    expect(formatCellForExport("opt-2", sel)).toBe("Second");
+    expect(formatCellForExport(["opt-1"], sel)).toBe("First");
+    expect(formatCellForExport(["opt-2"], sel)).toBe("Second");
   });
 
-  test("single-select falls back to the raw id when option is unknown (deleted option)", () => {
+  test("select falls back to the raw id when option is unknown (deleted option)", () => {
     const sel = mkField({
       id: "fld-sel",
-      type: "single-select",
+      type: "select",
       config: { options: [{ id: "opt-1", label: "First" }] },
     });
-    expect(formatCellForExport("opt-removed", sel)).toBe("opt-removed");
+    expect(formatCellForExport(["opt-removed"], sel)).toBe("opt-removed");
   });
 
-  test("multi-select joins labels with ', '", () => {
+  test("select joins labels with ', '", () => {
     const sel = mkField({
       id: "fld-msel",
-      type: "multi-select",
+      type: "select",
       config: {
         options: [
           { id: "a", label: "Alpha" },
@@ -113,31 +116,29 @@ describe("formatCellForExport", () => {
     expect(formatCellForExport(["a", "c"], sel)).toBe("Alpha, Charlie");
   });
 
-  test("multi-select with unknown ids falls back per-id", () => {
+  test("select with unknown ids falls back per-id", () => {
     const sel = mkField({
       id: "fld-msel",
-      type: "multi-select",
+      type: "select",
       config: { options: [{ id: "a", label: "Alpha" }] },
     });
     expect(formatCellForExport(["a", "missing"], sel)).toBe("Alpha, missing");
   });
 
-  test("multi-select with non-array value still stringifies (defensive)", () => {
+  test("select with non-array value still stringifies (defensive)", () => {
     const sel = mkField({
       id: "fld-msel",
-      type: "multi-select",
+      type: "select",
       config: { options: [{ id: "a", label: "Alpha" }] },
     });
-    // A scalar in a multi-select column is unexpected, but we shouldn't
+    // A scalar in a select column is unexpected, but we shouldn't
     // throw — fall through to the generic toString path.
     expect(formatCellForExport("a", sel)).toBe("a");
   });
 
-  test("object values JSON-stringify (currency, location, etc.)", () => {
-    const cur = mkField({ id: "fld-cur", type: "currency" });
-    expect(formatCellForExport({ amount: "24.50", currency: "EUR" }, cur)).toBe(
-      '{"amount":"24.50","currency":"EUR"}',
-    );
+  test("object values JSON-stringify (defensive fallback)", () => {
+    const json = mkField({ id: "fld-json", type: "json" });
+    expect(formatCellForExport({ amount: "24.50", unit: "EUR" }, json)).toBe('{"amount":"24.50","unit":"EUR"}');
   });
 
   test("array value stringifies (relation field stores uuid arrays)", () => {
@@ -149,5 +150,10 @@ describe("formatCellForExport", () => {
     expect(formatCellForExport(42, text)).toBe("42");
     expect(formatCellForExport("hello", text)).toBe("hello");
     expect(formatCellForExport(3.14, text)).toBe("3.14");
+  });
+
+  test("longtext can render markdown as sanitized HTML", () => {
+    const md = mkField({ id: "fld-md", type: "longtext" });
+    expect(formatCellForExport("**bold**", md, { markdown: "html" })).toContain("<strong>bold</strong>");
   });
 });

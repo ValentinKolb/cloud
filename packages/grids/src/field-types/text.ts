@@ -1,18 +1,19 @@
 import { z } from "zod";
-import { fail, ok, type FieldTypeHandler } from "./types";
+import { type FieldTypeHandler, fail, ok } from "./types";
 
-const TextConfigSchema = z.object({
+const BaseTextConfigSchema = z.object({
   minLength: z.number().int().min(0).optional(),
   maxLength: z.number().int().min(1).optional(),
   regex: z.string().optional(),
   multiline: z.boolean().optional(),
 });
 
-const validateText = (raw: unknown, configRaw: unknown, required: boolean) => {
-  const parsed = TextConfigSchema.safeParse(configRaw ?? {});
-  if (!parsed.success) return fail("invalid field config");
-  const config = parsed.data;
+const TextConfigSchema = BaseTextConfigSchema;
+const LongTextConfigSchema = BaseTextConfigSchema.extend({
+  markdown: z.boolean().optional(),
+});
 
+const validateTextValue = (raw: unknown, config: z.infer<typeof BaseTextConfigSchema>, required: boolean) => {
   if (raw === null || raw === undefined) {
     return required ? fail("required") : ok(null);
   }
@@ -41,6 +42,12 @@ const validateText = (raw: unknown, configRaw: unknown, required: boolean) => {
   return ok(value);
 };
 
+const validateText = (raw: unknown, configRaw: unknown, required: boolean) => {
+  const parsed = TextConfigSchema.safeParse(configRaw ?? {});
+  if (!parsed.success) return fail("invalid field config");
+  return validateTextValue(raw, parsed.data, required);
+};
+
 export const textHandler: FieldTypeHandler = {
   type: "text",
   configSchema: TextConfigSchema,
@@ -50,11 +57,11 @@ export const textHandler: FieldTypeHandler = {
 
 export const longtextHandler: FieldTypeHandler = {
   type: "longtext",
-  configSchema: TextConfigSchema,
+  configSchema: LongTextConfigSchema,
   userInput: true,
   validate: (raw, configRaw, required) => {
-    const parsed = TextConfigSchema.safeParse(configRaw ?? {});
+    const parsed = LongTextConfigSchema.safeParse(configRaw ?? {});
     if (!parsed.success) return fail("invalid field config");
-    return validateText(raw, { ...parsed.data, multiline: true }, required);
+    return validateTextValue(raw, { ...parsed.data, multiline: true }, required);
   },
 };

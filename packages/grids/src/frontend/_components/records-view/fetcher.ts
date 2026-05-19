@@ -50,7 +50,7 @@ export const fetchTableQuery = async (
     { init: { signal: opts.signal } },
   );
   if (!res.ok) {
-    let message = `query failed: HTTP ${res.status}`;
+    let message = "Could not load records.";
     try {
       const body = (await res.json()) as { message?: string };
       if (body?.message) message = body.message;

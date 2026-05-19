@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { gridsService } from "../service";
 import AdminGridsSettings from "./_components/AdminGridsSettings.island";
@@ -30,6 +30,27 @@ export default ssr<AuthContext>(async (c) => {
 
   const totalPages = Math.ceil(list.total / list.perPage);
   const baseUrl = search ? `/admin/grids?search=${encodeURIComponent(search)}&page=` : "/admin/grids?page=";
+  type BaseRow = (typeof list.items)[number];
+  const columns: DataTableColumn<BaseRow>[] = [
+    { id: "base", header: "Base", value: (base) => base.name },
+    { id: "description", header: "Description", value: (base) => base.description, cellClass: "max-w-xl" },
+    { id: "tables", header: "Tables", value: (base) => base.tableCount, headerClass: "text-right", cellClass: "text-right tabular-nums" },
+    {
+      id: "records",
+      header: "Records",
+      value: (base) => base.recordCount,
+      headerClass: "text-right",
+      cellClass: "text-right tabular-nums",
+    },
+    {
+      id: "access",
+      header: "Access",
+      value: (base) => base.accessCount,
+      headerClass: "text-right",
+      cellClass: "text-right whitespace-nowrap",
+    },
+    { id: "open", header: <span class="sr-only">Open</span>, headerClass: "w-px text-right", cellClass: "text-right whitespace-nowrap" },
+  ];
 
   return () => (
     <AdminLayout c={c} title="Grids" stretch>
@@ -54,12 +75,7 @@ export default ssr<AuthContext>(async (c) => {
               sub={search ? "in filtered bases" : "total"}
               accent={{ tone: "zinc", icon: "ti ti-table" }}
             />
-            <StatCell
-              label="Records"
-              value={summary.totalRecords}
-              sub="non-deleted"
-              accent={{ tone: "emerald", icon: "ti ti-list" }}
-            />
+            <StatCell label="Records" value={summary.totalRecords} sub="non-deleted" accent={{ tone: "emerald", icon: "ti ti-list" }} />
             <StatCell
               label="Orphaned bases"
               value={summary.orphanedBases}
@@ -71,70 +87,67 @@ export default ssr<AuthContext>(async (c) => {
 
           <div class="flex items-stretch gap-2">
             <div class="min-w-0 flex-1">
-              <SearchBar action="/admin/grids" value={search} placeholder="Search bases by name or description..." ariaLabel="Search bases" />
+              <SearchBar
+                action="/admin/grids"
+                value={search}
+                placeholder="Search bases by name or description..."
+                ariaLabel="Search bases"
+              />
             </div>
             <AdminGridsSettings />
           </div>
 
           {list.items.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-grids-table">
-              <div class="overflow-x-auto">
-                <table class="w-full text-xs">
-                  <thead>
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Base</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                      <th class="px-3 py-2 text-right font-medium text-dimmed">Tables</th>
-                      <th class="px-3 py-2 text-right font-medium text-dimmed">Records</th>
-                      <th class="px-3 py-2 text-right font-medium text-dimmed">Access</th>
-                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
-                        <span class="sr-only">Open</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {list.items.map((base) => (
-                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                        <td class="px-3 py-1.5">
-                          <div class="flex min-w-52 items-center gap-2">
-                            <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-blue-500 text-[10px] text-white">
-                              <i class="ti ti-database" />
-                            </span>
-                            <span class="truncate font-medium text-primary">{base.name}</span>
-                          </div>
-                        </td>
-                        <td class="max-w-xl px-3 py-1.5 text-dimmed">
-                          <span class="block truncate" title={base.description ?? "No description"}>
-                            {base.description || <span class="italic">No description</span>}
-                          </span>
-                        </td>
-                        <td class="px-3 py-1.5 text-right tabular-nums text-secondary">{base.tableCount}</td>
-                        <td class="px-3 py-1.5 text-right tabular-nums text-secondary">{base.recordCount}</td>
-                        <td class="px-3 py-1.5 text-right whitespace-nowrap">
-                          <span
-                            class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                              base.accessCount === 0
-                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                            }`}
-                          >
-                            {base.accessCount} {base.accessCount === 1 ? "entry" : "entries"}
-                          </span>
-                        </td>
-                        <td class="px-3 py-1.5 text-right">
-                          <a
-                            href={`/app/grids/${base.shortId}`}
-                            class="text-dimmed hover:text-primary"
-                            title="Open base"
-                          >
-                            <i class="ti ti-arrow-right" />
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                rows={list.items}
+                columns={columns}
+                getRowId={(base) => base.id}
+                hoverRows
+                class="overflow-x-auto"
+                renderCell={({ row: base, col }) => {
+                  if (col.id === "base") {
+                    return (
+                      <div class="flex min-w-52 items-center gap-2">
+                        <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-blue-500 text-[10px] text-white">
+                          <i class="ti ti-database" />
+                        </span>
+                        <span class="truncate font-medium text-primary">{base.name}</span>
+                      </div>
+                    );
+                  }
+                  if (col.id === "description") {
+                    return (
+                      <span class="block truncate" title={base.description ?? "No description"}>
+                        {base.description || <span class="italic">No description</span>}
+                      </span>
+                    );
+                  }
+                  if (col.id === "tables") return <span class="text-secondary">{base.tableCount}</span>;
+                  if (col.id === "records") return <span class="text-secondary">{base.recordCount}</span>;
+                  if (col.id === "access") {
+                    return (
+                      <span
+                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          base.accessCount === 0
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {base.accessCount} {base.accessCount === 1 ? "entry" : "entries"}
+                      </span>
+                    );
+                  }
+                  if (col.id === "open") {
+                    return (
+                      <a href={`/app/grids/${base.shortId}`} class="text-dimmed hover:text-primary" title="Open base">
+                        <i class="ti ti-arrow-right" />
+                      </a>
+                    );
+                  }
+                  return "";
+                }}
+              />
             </section>
           ) : (
             <section class="paper p-6 text-center text-sm text-dimmed">

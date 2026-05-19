@@ -8,11 +8,14 @@ import accessRoutes from "./access";
 import viewsRoutes from "./views";
 import dashboardsRoutes from "./dashboards";
 import formsRoutes from "./forms";
+import automationsRoutes from "./automations";
 import adminSettingsRoutes from "./admin-settings";
+import templatesRoutes from "./templates";
 
 const app = new Hono()
   .use(rateLimit())
   .route("/admin/settings", adminSettingsRoutes)
+  .route("/templates", templatesRoutes)
   .route("/bases", basesRoutes)
   .route("/tables", tablesRoutes)
   .route("/fields", fieldsRoutes)
@@ -20,6 +23,7 @@ const app = new Hono()
   .route("/access", accessRoutes)
   .route("/views", viewsRoutes)
   .route("/dashboards", dashboardsRoutes)
+  .route("/automations", automationsRoutes)
   .route("/forms", formsRoutes);
 
 export default app;

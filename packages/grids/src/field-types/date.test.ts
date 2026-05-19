@@ -12,9 +12,20 @@ test("date: truncates ISO datetime to date when includeTime=false", () => {
   });
 });
 
-test("datetime: canonicalizes to UTC ISO", () => {
-  const result = dateHandler.validate("2026-05-02T12:00:00+02:00", { includeTime: true }, false);
-  expect(result).toEqual({ ok: true, value: "2026-05-02T10:00:00.000Z" });
+test("date: keeps the supplied calendar date when includeTime=false", () => {
+  expect(dateHandler.validate("2026-05-02T23:00:00-02:00", {}, false)).toEqual({
+    ok: true,
+    value: "2026-05-02",
+  });
+});
+
+test("datetime: stores local wall time without timezone conversion", () => {
+  const result = dateHandler.validate("2026-05-02T12:00", { includeTime: true }, false);
+  expect(result).toEqual({ ok: true, value: "2026-05-02T12:00" });
+});
+
+test("datetime: rejects timezone offsets to avoid hidden shifts", () => {
+  expect(dateHandler.validate("2026-05-02T12:00:00+02:00", { includeTime: true }, false).ok).toBe(false);
 });
 
 test("date: rejects garbage strings", () => {

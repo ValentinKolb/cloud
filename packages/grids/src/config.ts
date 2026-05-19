@@ -22,6 +22,18 @@ export const app = defineApp({
       default: 10,
       description: "Maximum size per uploaded Grids file.",
     },
+    "grids.webhook_allow_private_networks": {
+      kind: "boolean",
+      label: "Allow Private Webhooks",
+      default: false,
+      description: "Allow Grids automations to call private, loopback, and link-local webhook targets. Keep disabled unless this deployment intentionally integrates with internal services.",
+    },
+    "grids.automation_run_retention_days": {
+      kind: "number",
+      label: "Automation Run Retention",
+      default: 90,
+      description: "How many days Grids automation run history is retained.",
+    },
   },
   openapi: "/api/grids/openapi.json",
   // `/share/grids` hosts anonymous-friendly pages (public forms etc).

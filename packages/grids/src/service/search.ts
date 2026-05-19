@@ -1,77 +1,162 @@
-/**
- * Free-text search → FilterTree merging.
- *
- * Both the SSR records page (which paints the initial grid) and the
- * `POST /tables/:id/query` API endpoint (which serves every subsequent
- * client-side fetch) need to apply the same `?q=…&qFields=…` semantics
- * on top of a user-supplied filter. Keeping the logic here means the
- * two paths can never drift — typing into the search bar after first
- * paint produces the exact same SQL as deep-linking the same URL.
- *
- * The shape: `q` becomes an OR across `contains q` for every scoped
- * field; that OR-group is AND'd into the user's filter so the result
- * is `filter ∧ (any of the searchable cols matches q)`.
- *
- * - empty q → returns the original filter unchanged
- * - empty qFieldIds → defaults to every searchable field on the table
- * - a non-AND user filter is wrapped: `{op:AND, filters:[F, search]}`
- */
-
-import type { FilterTree } from "../contracts";
+import { sql } from "bun";
+import { listByTable as listFields } from "./fields";
+import { hasAtLeast, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+import { type ExpansionViewer, relationLabelFields } from "./relations";
+import { get as getTable } from "./tables";
 import type { Field } from "./types";
-import { canSearch } from "./field-storage";
+
+export type SearchSpec = {
+  q: string;
+  fieldIds?: string[];
+};
+
+type SearchClause = { clause: any };
+
+const SCALAR_SEARCH_TYPES = new Set(["text", "longtext", "number", "decimal", "autonumber", "percent", "duration", "date", "boolean"]);
+
+const SELECT_SEARCH_TYPES = new Set(["select"]);
+
+const escapeLikePattern = (s: string): string => s.replace(/([\\%_])/g, "\\$1");
+const dataFor = (alias: string) => sql.unsafe(`${alias}.data`);
 
 /**
- * Searchable fields = alive fields whose storage descriptor flags them
- * as `searchable`. The descriptor (service/field-storage.ts) is the
- * single source of truth — text-family types (text, longtext, email,
- * url, phone, slug, barcode, isbn) are searchable, every other type
- * is not. Using the descriptor avoids the parallel SEARCHABLE_TYPES
- * set drifting from the filter compiler's text-op family.
+ * Searchable fields = fields with a stable SQL-side text or label
+ * projection. This drives only the UI scope picker; compileSearchClause
+ * remains the authoritative backend implementation.
  */
 export const filterSearchableFields = (fields: Field[]): Field[] =>
-  fields.filter((f) => !f.deletedAt && canSearch(f));
+  fields.filter((f) => !f.deletedAt && (SCALAR_SEARCH_TYPES.has(f.type) || SELECT_SEARCH_TYPES.has(f.type) || f.type === "relation"));
 
-export const mergeSearchIntoFilter = (
-  userFilter: FilterTree | null,
-  q: string,
-  qFieldIds: string[],
-  fields: Field[],
-): FilterTree | null => {
-  const query = q.trim();
-  if (!query) return userFilter;
-  const searchable = filterSearchableFields(fields);
-  if (searchable.length === 0) return userFilter;
+export const optionIdsMatchingSearch = (field: Field, q: string): string[] => {
+  const options = (field.config as { options?: Array<{ id: string; label: string }> }).options ?? [];
+  const needle = q.toLowerCase();
+  return options.filter((o) => o.label.toLowerCase().includes(needle)).map((o) => o.id);
+};
 
-  // Honour an explicit column-scope (drop unknown ids); otherwise search every
-  // searchable column on the table.
-  const scopedIds =
-    qFieldIds.length > 0
-      ? qFieldIds.filter((id) => searchable.some((f) => f.id === id))
-      : searchable.map((f) => f.id);
-  if (scopedIds.length === 0) return userFilter;
+const scalarClause = (field: Field, alias: string, pattern: string): any =>
+  sql`${dataFor(alias)}->>${field.id} ILIKE ${pattern} ESCAPE '\\'`;
 
-  const searchGroup: FilterTree = {
-    op: "OR",
-    filters: scopedIds.map((fid) => ({
-      fieldId: fid,
-      op: "contains",
-      value: query,
-      caseInsensitive: true,
-    })),
-  };
+const selectClause = (field: Field, alias: string, q: string): any | null => {
+  const ids = optionIdsMatchingSearch(field, q);
+  if (ids.length === 0) return null;
+  const parts = ids.map((id) => sql`(${dataFor(alias)}->${field.id})::jsonb @> ${[id]}::jsonb`);
+  const orClause = parts.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+  return sql`(${orClause})`;
+};
 
-  if (!userFilter) return searchGroup;
-  if (
-    typeof userFilter === "object" &&
-    "op" in userFilter &&
-    userFilter.op === "AND" &&
-    Array.isArray((userFilter as { filters: FilterTree[] }).filters)
-  ) {
-    return {
-      op: "AND",
-      filters: [...(userFilter as { filters: FilterTree[] }).filters, searchGroup],
-    };
+const directFieldClause = (field: Field, alias: string, q: string, pattern: string): any | null => {
+  if (SCALAR_SEARCH_TYPES.has(field.type)) return scalarClause(field, alias, pattern);
+  if (SELECT_SEARCH_TYPES.has(field.type)) return selectClause(field, alias, q);
+  return null;
+};
+
+const canReadTargetTable = async (targetTableId: string, viewer?: ExpansionViewer): Promise<boolean> => {
+  if (!viewer || viewer.isAdmin) return true;
+  const target = await getTable(targetTableId);
+  if (!target) return false;
+  const grants = await loadGrantsForUser({
+    userId: viewer.userId,
+    userGroups: viewer.userGroups,
+    baseId: target.baseId,
+    tableId: targetTableId,
+  });
+  const level = resolveEffectivePermission(grants, {
+    baseId: target.baseId,
+    tableId: targetTableId,
+  });
+  return hasAtLeast(level, "read");
+};
+
+const relationSearchFields = (targetFields: Field[]): Field[] => relationLabelFields(targetFields);
+
+const relationClause = async (params: {
+  field: Field;
+  alias: string;
+  q: string;
+  pattern: string;
+  viewer?: ExpansionViewer;
+  targetFieldsCache: Map<string, Field[]>;
+  targetReadCache: Map<string, boolean>;
+}): Promise<SearchClause | null> => {
+  const cfg = params.field.config as { targetTableId?: string };
+  if (!cfg.targetTableId) return null;
+
+  let canRead = params.targetReadCache.get(cfg.targetTableId);
+  if (canRead === undefined) {
+    canRead = await canReadTargetTable(cfg.targetTableId, params.viewer);
+    params.targetReadCache.set(cfg.targetTableId, canRead);
   }
-  return { op: "AND", filters: [userFilter, searchGroup] };
+  if (!canRead) return null;
+
+  let targetFields = params.targetFieldsCache.get(cfg.targetTableId);
+  if (!targetFields) {
+    targetFields = await listFields(cfg.targetTableId);
+    params.targetFieldsCache.set(cfg.targetTableId, targetFields);
+  }
+
+  const fieldClauses = relationSearchFields(targetFields)
+    .map((f) => directFieldClause(f, "target", params.q, params.pattern))
+    .filter((clause): clause is NonNullable<typeof clause> => clause !== null);
+  if (fieldClauses.length === 0) return null;
+  const targetWhere = fieldClauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+
+  return {
+    clause: sql`EXISTS (
+    SELECT 1
+    FROM grids.record_links search_rl
+    JOIN grids.records target
+      ON target.id = search_rl.to_record_id
+     AND target.table_id = ${cfg.targetTableId}::uuid
+     AND target.deleted_at IS NULL
+    WHERE search_rl.from_record_id = ${sql.unsafe(`${params.alias}.id`)}
+      AND search_rl.from_field_id = ${params.field.id}::uuid
+      AND (${targetWhere})
+  )`,
+  };
+};
+
+export const compileSearchClause = async (params: {
+  search?: SearchSpec | null;
+  fields: Field[];
+  alias?: string;
+  viewer?: ExpansionViewer;
+}): Promise<SearchClause> => {
+  const q = params.search?.q.trim();
+  if (!q) return { clause: sql`TRUE` };
+
+  const alias = params.alias ?? "r";
+  const pattern = `%${escapeLikePattern(q)}%`;
+  const alive = params.fields.filter((f) => !f.deletedAt);
+  const scoped =
+    params.search?.fieldIds && params.search.fieldIds.length > 0
+      ? alive.filter((f) => params.search!.fieldIds!.includes(f.id))
+      : filterSearchableFields(alive);
+
+  const clauses: any[] = [];
+  const targetFieldsCache = new Map<string, Field[]>();
+  const targetReadCache = new Map<string, boolean>();
+
+  for (const field of scoped) {
+    const direct = directFieldClause(field, alias, q, pattern);
+    if (direct) {
+      clauses.push(direct);
+      continue;
+    }
+    if (field.type === "relation") {
+      const rel = await relationClause({
+        field,
+        alias,
+        q,
+        pattern,
+        viewer: params.viewer,
+        targetFieldsCache,
+        targetReadCache,
+      });
+      if (rel) clauses.push(rel.clause);
+    }
+  }
+
+  if (clauses.length === 0) return { clause: sql`FALSE` };
+  const orClause = clauses.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+  return { clause: sql`(${orClause})` };
 };

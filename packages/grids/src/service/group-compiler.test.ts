@@ -1,5 +1,5 @@
-import { test, expect, describe } from "bun:test";
-import { compileGroupQuery, isGroupable, isAggregatable } from "./group-compiler";
+import { describe, expect, test } from "bun:test";
+import { compileGroupQuery, isAggregatable, isGroupable } from "./group-compiler";
 import type { Field } from "./types";
 
 const mkField = (id: string, type: string, name = id, extras: Partial<Field> = {}): Field => ({
@@ -30,8 +30,8 @@ describe("isGroupable", () => {
   test("relation is groupable (explode-mode)", () => {
     expect(isGroupable(mkField("x", "relation"))).toBe(true);
   });
-  test("multi-select is NOT groupable in v3", () => {
-    expect(isGroupable(mkField("x", "multi-select"))).toBe(false);
+  test("select is groupable with explode semantics", () => {
+    expect(isGroupable(mkField("x", "select"))).toBe(true);
   });
   test("lookup / rollup deferred — not groupable yet", () => {
     expect(isGroupable(mkField("x", "lookup"))).toBe(false);
@@ -76,7 +76,10 @@ describe("compileGroupQuery — basic shape", () => {
 
   test("rejects empty groupBy", () => {
     const r = compileGroupQuery({
-      tableId, groupBy: [], aggregations: [], fields,
+      tableId,
+      groupBy: [],
+      aggregations: [],
+      fields,
     });
     expect(r.ok).toBe(false);
   });
@@ -84,10 +87,9 @@ describe("compileGroupQuery — basic shape", () => {
   test("rejects more than 3 levels", () => {
     const r = compileGroupQuery({
       tableId,
-      groupBy: [
-        { fieldId: author.id }, { fieldId: author.id }, { fieldId: author.id }, { fieldId: author.id },
-      ],
-      aggregations: [], fields,
+      groupBy: [{ fieldId: author.id }, { fieldId: author.id }, { fieldId: author.id }, { fieldId: author.id }],
+      aggregations: [],
+      fields,
     });
     expect(r.ok).toBe(false);
   });
@@ -95,7 +97,9 @@ describe("compileGroupQuery — basic shape", () => {
   test("rejects non-groupable field", () => {
     const formula = mkField("ffffffff-ffff-ffff-ffff-ffffffffffff", "formula");
     const r = compileGroupQuery({
-      tableId, groupBy: [{ fieldId: formula.id }], aggregations: [],
+      tableId,
+      groupBy: [{ fieldId: formula.id }],
+      aggregations: [],
       fields: [author, formula],
     });
     expect(r.ok).toBe(false);
@@ -119,6 +123,49 @@ describe("compileGroupQuery — basic shape", () => {
       expect(r.aggKeys).toContain("*__count");
       expect(r.aggKeys).toContain(`${amount.id}__sum`);
       expect(r.resolvedGroups).toHaveLength(1);
+    }
+  });
+
+  test("compiles aggregate-sorted groups for Top-N views", () => {
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [
+        { fieldId: "*", agg: "count" },
+        { fieldId: amount.id, agg: "sum" },
+      ],
+      groupSort: [{ fieldId: amount.id, agg: "sum", direction: "desc" }],
+      fields,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.cursorable).toBe(false);
+  });
+
+  test("rejects cursor pagination for aggregate-sorted groups", () => {
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: author.id }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }],
+      cursor: { keys: ["Alice"] },
+      fields,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/cursor pagination/);
+  });
+
+  test("compiles select explode grouping", () => {
+    const tags = mkField("dddddddd-dddd-dddd-dddd-dddddddddddd", "select", "tags");
+    const r = compileGroupQuery({
+      tableId,
+      groupBy: [{ fieldId: tags.id }],
+      aggregations: [{ fieldId: "*", agg: "count" }],
+      fields: [tags],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.resolvedGroups).toHaveLength(1);
+      expect(r.cursorable).toBe(true);
     }
   });
 

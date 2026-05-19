@@ -18,9 +18,20 @@ import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-field
  *   redirecting away — fits the modal context where the user came in
  *   to add a single record and likely wants to add more in a row.
  */
-export const openFormModal = (form: Form, fields: Field[]) =>
+export const openFormModal = (
+  form: Form,
+  fields: Field[],
+  options: { onSubmitted?: () => void } = {},
+) =>
   prompts.dialog<void>(
-    (close) => <FormSubmitBody form={form} fields={fields} close={close} />,
+    (close) => (
+      <FormSubmitBody
+        form={form}
+        fields={fields}
+        onSubmitted={options.onSubmitted}
+        close={close}
+      />
+    ),
     {
       title: form.config.title ?? form.name,
       icon: "ti ti-forms",
@@ -31,6 +42,7 @@ export const openFormModal = (form: Form, fields: Field[]) =>
 function FormSubmitBody(props: {
   form: Form;
   fields: Field[];
+  onSubmitted?: () => void;
   close: (result?: void) => void;
 }) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
@@ -66,6 +78,7 @@ function FormSubmitBody(props: {
         setError(await errorMessage(res, "Submit failed"));
         return;
       }
+      props.onSubmitted?.();
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Submit failed");

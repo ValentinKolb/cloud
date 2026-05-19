@@ -31,44 +31,49 @@ export type CompiledClause =
   | { kind: "or"; parts: CompiledClause[] }
   | { kind: "not"; inner: CompiledClause }
   /** A typed predicate against a JSONB field. The renderer composes it. */
-  | { kind: "predicate"; fieldId: string; fieldType: string; op: string; value?: unknown; caseInsensitive?: boolean };
+  | {
+      kind: "predicate";
+      fieldId: string;
+      fieldType: string;
+      op: string;
+      value?: unknown;
+      caseInsensitive?: boolean;
+      dateIncludeTime?: boolean;
+    };
 
 // ──────────────────────────────────────────────────────────────────
 // Operators per type (Phase-1B set)
 // ──────────────────────────────────────────────────────────────────
 
-const TEXT_OPS = new Set([
-  "equals", "notEquals", "contains", "notContains", "startsWith", "endsWith",
-  "regex", "isEmpty", "isNotEmpty",
-]);
+const TEXT_OPS = new Set(["equals", "notEquals", "contains", "notContains", "startsWith", "endsWith", "regex", "isEmpty", "isNotEmpty"]);
 const NUMBER_OPS = new Set(["=", "!=", "<", "<=", ">", ">=", "between", "isEmpty", "isNotEmpty"]);
-const DATE_OPS = new Set([
-  "=", "before", "after", "between", "today", "thisWeek", "thisMonth",
-  "lastNDays", "isEmpty", "isNotEmpty",
-]);
+const DATE_OPS = new Set(["=", "before", "after", "between", "today", "thisWeek", "thisMonth", "lastNDays", "isEmpty", "isNotEmpty"]);
 const BOOL_OPS = new Set(["=", "isEmpty", "isNotEmpty"]);
-const SINGLE_SELECT_OPS = new Set(["is", "isNot", "isAnyOf", "isNoneOf", "isEmpty", "isNotEmpty"]);
-const MULTI_SELECT_OPS = new Set(["containsAll", "containsAny", "doesNotContain", "isEmpty", "isNotEmpty"]);
+const SELECT_OPS = new Set(["is", "isNot", "isAnyOf", "isNoneOf", "isEmpty", "isNotEmpty"]);
+const RELATION_OPS = new Set(["containsAny", "isEmpty", "isNotEmpty"]);
 
 const opsForType = (type: string): Set<string> => {
   switch (type) {
-    // Tier 1
-    case "text": case "longtext":
-    // Tier 2 / 3 text-shaped subtypes — same set of text ops apply.
-    case "email": case "url": case "phone": case "slug":
-    case "barcode": case "isbn":
+    case "text":
+    case "longtext":
       return TEXT_OPS;
-    // Tier 1
-    case "number": case "decimal": case "rating": case "autonumber":
-    // Tier 2 number-shaped subtypes
-    case "percent": case "duration":
+    case "number":
+    case "decimal":
+    case "autonumber":
+    case "percent":
+    case "duration":
       return NUMBER_OPS;
-    case "date": return DATE_OPS;
-    case "boolean": return BOOL_OPS;
-    case "single-select": return SINGLE_SELECT_OPS;
-    case "multi-select": return MULTI_SELECT_OPS;
-    // currency / json stay unfilterable for now.
-    default: return new Set();
+    case "date":
+      return DATE_OPS;
+    case "boolean":
+      return BOOL_OPS;
+    case "select":
+      return SELECT_OPS;
+    case "relation":
+      return RELATION_OPS;
+    // json and computed/link fields stay unfilterable here.
+    default:
+      return new Set();
   }
 };
 
@@ -78,9 +83,7 @@ const opsForType = (type: string): Set<string> => {
 
 export type CompileError = { error: string; path?: string[] };
 
-export type CompileResult =
-  | { ok: true; clause: CompiledClause }
-  | { ok: false; error: string };
+export type CompileResult = { ok: true; clause: CompiledClause } | { ok: false; error: string };
 
 // Distinguishes group vs leaf by SHAPE, not just `op`. A leaf with op
 // "AND"/"OR" would otherwise be misclassified as a group with undefined
@@ -90,10 +93,7 @@ const isGroup = (t: FilterTree): t is FilterGroup => {
   return (g.op === "AND" || g.op === "OR") && Array.isArray(g.filters);
 };
 
-export const compileFilter = (
-  tree: FilterTree | null | undefined,
-  fields: Field[],
-): CompileResult => {
+export const compileFilter = (tree: FilterTree | null | undefined, fields: Field[]): CompileResult => {
   if (tree === null || tree === undefined) return { ok: true, clause: { kind: "true" } };
 
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
@@ -115,7 +115,7 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
   }
 
   const field = fieldsById.get(tree.fieldId);
-  if (!field) return { ok: false, error: `unknown field "${tree.fieldId}"` };
+  if (!field) return { ok: false, error: "unknown field" };
   if (field.deletedAt) return { ok: false, error: `field "${field.name}" is deleted` };
 
   const allowed = opsForType(field.type);
@@ -127,7 +127,8 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
   // coercing whatever it got: Boolean("false") → true, Number("abc")
   // → NaN, ${nonStringValue}::date → SQL cast crash on page load.
   // (chunk 3 important.)
-  const valueErr = validatePredicateValue(field.type, tree.op, tree.value);
+  const dateIncludeTime = field.type === "date" ? Boolean((field.config as { includeTime?: boolean }).includeTime) : undefined;
+  const valueErr = validatePredicateValue(field.type, tree.op, tree.value, dateIncludeTime);
   if (valueErr) {
     return { ok: false, error: `field "${field.name}" / op "${tree.op}": ${valueErr}` };
   }
@@ -141,17 +142,16 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
       op: tree.op,
       value: tree.value,
       caseInsensitive: tree.caseInsensitive,
+      dateIncludeTime,
     },
   };
 };
 
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+const LOCAL_DATE_TIME_REGEX = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const validatePredicateValue = (
-  fieldType: string,
-  op: string,
-  value: unknown,
-): string | null => {
+const validatePredicateValue = (fieldType: string, op: string, value: unknown, dateIncludeTime?: boolean): string | null => {
   // Empty-checks don't read the value.
   if (op === "isEmpty" || op === "isNotEmpty") return null;
   // Date placeholders are value-less.
@@ -162,6 +162,8 @@ const validatePredicateValue = (
     return null;
   }
   if (fieldType === "date") {
+    const datePattern = dateIncludeTime ? LOCAL_DATE_TIME_REGEX : ISO_DATE_REGEX;
+    const dateError = dateIncludeTime ? "expected local date-time string" : "expected ISO date string";
     if (op === "lastNDays") {
       if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
         return "lastNDays expects a non-negative integer";
@@ -171,20 +173,25 @@ const validatePredicateValue = (
     if (op === "between") {
       if (!Array.isArray(value) || value.length !== 2) return "between expects [from, to]";
       for (const v of value) {
-        if (typeof v !== "string" || !ISO_DATE_REGEX.test(v)) {
-          return "between bounds must be ISO date strings";
+        if (typeof v !== "string" || !datePattern.test(v)) {
+          return dateIncludeTime ? "between bounds must be local date-time strings" : "between bounds must be ISO date strings";
         }
       }
       return null;
     }
     // =, before, after
-    if (typeof value !== "string" || !ISO_DATE_REGEX.test(value)) {
-      return "expected ISO date string";
+    if (typeof value !== "string" || !datePattern.test(value)) {
+      return dateError;
     }
     return null;
   }
-  if (fieldType === "number" || fieldType === "decimal" || fieldType === "rating" ||
-      fieldType === "autonumber" || fieldType === "percent" || fieldType === "duration") {
+  if (
+    fieldType === "number" ||
+    fieldType === "decimal" ||
+    fieldType === "autonumber" ||
+    fieldType === "percent" ||
+    fieldType === "duration"
+  ) {
     if (op === "between") {
       if (!Array.isArray(value) || value.length !== 2) return "between expects [from, to]";
       for (const v of value) {
@@ -195,7 +202,7 @@ const validatePredicateValue = (
     if (typeof value !== "number" || !Number.isFinite(value)) return "expected finite number";
     return null;
   }
-  if (fieldType === "single-select") {
+  if (fieldType === "select") {
     if (op === "isAnyOf" || op === "isNoneOf") {
       if (!Array.isArray(value)) return "expected array of option ids";
       for (const v of value) if (typeof v !== "string") return "option ids must be strings";
@@ -204,10 +211,12 @@ const validatePredicateValue = (
     if (typeof value !== "string") return "expected option id";
     return null;
   }
-  if (fieldType === "multi-select") {
-    if (op === "containsAll" || op === "containsAny" || op === "doesNotContain") {
-      if (!Array.isArray(value)) return "expected array of option ids";
-      for (const v of value) if (typeof v !== "string") return "option ids must be strings";
+  if (fieldType === "relation") {
+    if (op === "containsAny") {
+      if (!Array.isArray(value) || value.length === 0) return "expected non-empty array of record ids";
+      for (const v of value) {
+        if (typeof v !== "string" || !UUID_REGEX.test(v)) return "record ids must be UUID strings";
+      }
       return null;
     }
     return null;
@@ -233,16 +242,17 @@ const escapeLikePattern = (s: string): string => s.replace(/([\\%_])/g, "\\$1");
 // Same approach is used in spaces / contacts for nested WHERE clauses.
 export const renderClause = (clause: CompiledClause): any => {
   switch (clause.kind) {
-    case "true": return sql`TRUE`;
-    case "false": return sql`FALSE`;
-    case "not": return sql`NOT (${renderClause(clause.inner)})`;
+    case "true":
+      return sql`TRUE`;
+    case "false":
+      return sql`FALSE`;
+    case "not":
+      return sql`NOT (${renderClause(clause.inner)})`;
     case "and":
     case "or": {
       if (clause.parts.length === 0) return clause.kind === "and" ? sql`TRUE` : sql`FALSE`;
       const sep = clause.kind === "and" ? sql` AND ` : sql` OR `;
-      return clause.parts
-        .map((p) => sql`(${renderClause(p)})`)
-        .reduce((acc, cur) => sql`${acc}${sep}${cur}`);
+      return clause.parts.map((p) => sql`(${renderClause(p)})`).reduce((acc, cur) => sql`${acc}${sep}${cur}`);
     }
     case "predicate":
       return renderPredicate(clause);
@@ -252,139 +262,179 @@ export const renderClause = (clause: CompiledClause): any => {
 const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any => {
   const fieldId = p.fieldId;
   // Text-side projection (no cast needed). Wrapped in LOWER() when CI.
-  const textProjection = p.caseInsensitive
-    ? sql`LOWER(data->>${fieldId})`
-    : sql`data->>${fieldId}`;
+  const textProjection = p.caseInsensitive ? sql`LOWER(data->>${fieldId})` : sql`data->>${fieldId}`;
 
   // Safe-cast wrappers: NULL on parse failure instead of raising.
   // A single corrupt record (e.g. "abc" stored in a number field after
   // schema drift) used to crash the entire query — now it just doesn't
   // match the predicate.
   const numericProjection = sql`grids.try_numeric(data->>${fieldId})`;
-  const dateProjection = sql`grids.try_date(data->>${fieldId})`;
-  const tsProjection = sql`grids.try_timestamptz(data->>${fieldId})`;
+  const dateProjection = p.dateIncludeTime ? sql`grids.try_timestamp(data->>${fieldId})` : sql`grids.try_iso_date(data->>${fieldId})`;
+  const dateOnlyProjection = p.dateIncludeTime
+    ? sql`grids.try_timestamp(data->>${fieldId})::date`
+    : sql`grids.try_iso_date(data->>${fieldId})`;
   const boolProjection = sql`grids.try_boolean(data->>${fieldId})`;
 
   const ciVal = (v: unknown) => (typeof v === "string" && p.caseInsensitive ? v.toLowerCase() : v);
 
   switch (p.fieldType) {
     case "text":
-    case "longtext":
-    // Text-shaped Tier-2/3 subtypes share the same projections + ops.
-    case "email":
-    case "url":
-    case "phone":
-    case "slug":
-    case "barcode":
-    case "isbn": {
+    case "longtext": {
       const v = ciVal(p.value);
       switch (p.op) {
-        case "equals": return sql`${textProjection} = ${v}`;
-        case "notEquals": return sql`${textProjection} <> ${v}`;
-        case "contains": return sql`${textProjection} LIKE ${"%" + escapeLikePattern(String(v ?? "")) + "%"} ESCAPE '\\'`;
-        case "notContains": return sql`${textProjection} NOT LIKE ${"%" + escapeLikePattern(String(v ?? "")) + "%"} ESCAPE '\\'`;
-        case "startsWith": return sql`${textProjection} LIKE ${escapeLikePattern(String(v ?? "")) + "%"} ESCAPE '\\'`;
-        case "endsWith": return sql`${textProjection} LIKE ${"%" + escapeLikePattern(String(v ?? ""))} ESCAPE '\\'`;
-        case "regex": return sql`${textProjection} ~ ${String(v ?? "")}`;
-        case "isEmpty": return sql`(data->>${fieldId} IS NULL OR data->>${fieldId} = '')`;
-        case "isNotEmpty": return sql`(data->>${fieldId} IS NOT NULL AND data->>${fieldId} <> '')`;
+        case "equals":
+          return sql`${textProjection} = ${v}`;
+        case "notEquals":
+          return sql`${textProjection} <> ${v}`;
+        case "contains":
+          return sql`${textProjection} LIKE ${"%" + escapeLikePattern(String(v ?? "")) + "%"} ESCAPE '\\'`;
+        case "notContains":
+          return sql`${textProjection} NOT LIKE ${"%" + escapeLikePattern(String(v ?? "")) + "%"} ESCAPE '\\'`;
+        case "startsWith":
+          return sql`${textProjection} LIKE ${escapeLikePattern(String(v ?? "")) + "%"} ESCAPE '\\'`;
+        case "endsWith":
+          return sql`${textProjection} LIKE ${"%" + escapeLikePattern(String(v ?? ""))} ESCAPE '\\'`;
+        case "regex":
+          return sql`${textProjection} ~ ${String(v ?? "")}`;
+        case "isEmpty":
+          return sql`(data->>${fieldId} IS NULL OR data->>${fieldId} = '')`;
+        case "isNotEmpty":
+          return sql`(data->>${fieldId} IS NOT NULL AND data->>${fieldId} <> '')`;
       }
       break;
     }
     case "number":
     case "decimal":
-    case "rating":
     case "autonumber":
-    // Tier-2 number-shaped subtypes
     case "percent":
     case "duration":
       switch (p.op) {
-        case "=": return sql`${numericProjection} = ${p.value}`;
-        case "!=": return sql`${numericProjection} <> ${p.value}`;
-        case "<": return sql`${numericProjection} < ${p.value}`;
-        case "<=": return sql`${numericProjection} <= ${p.value}`;
-        case ">": return sql`${numericProjection} > ${p.value}`;
-        case ">=": return sql`${numericProjection} >= ${p.value}`;
+        case "=":
+          return sql`${numericProjection} = ${p.value}`;
+        case "!=":
+          return sql`${numericProjection} <> ${p.value}`;
+        case "<":
+          return sql`${numericProjection} < ${p.value}`;
+        case "<=":
+          return sql`${numericProjection} <= ${p.value}`;
+        case ">":
+          return sql`${numericProjection} > ${p.value}`;
+        case ">=":
+          return sql`${numericProjection} >= ${p.value}`;
         case "between": {
           const v = p.value as [unknown, unknown] | undefined;
           return sql`${numericProjection} BETWEEN ${v?.[0]} AND ${v?.[1]}`;
         }
-        case "isEmpty": return sql`data->>${fieldId} IS NULL`;
-        case "isNotEmpty": return sql`data->>${fieldId} IS NOT NULL`;
+        case "isEmpty":
+          return sql`data->>${fieldId} IS NULL`;
+        case "isNotEmpty":
+          return sql`data->>${fieldId} IS NOT NULL`;
       }
       break;
     case "date":
       switch (p.op) {
-        case "=": return sql`${dateProjection} = ${p.value}::date`;
-        case "before": return sql`${dateProjection} < ${p.value}::date`;
-        case "after": return sql`${dateProjection} > ${p.value}::date`;
+        case "=":
+          return p.dateIncludeTime ? sql`${dateProjection} = ${p.value}::timestamp` : sql`${dateProjection} = ${p.value}::date`;
+        case "before":
+          return p.dateIncludeTime ? sql`${dateProjection} < ${p.value}::timestamp` : sql`${dateProjection} < ${p.value}::date`;
+        case "after":
+          return p.dateIncludeTime ? sql`${dateProjection} > ${p.value}::timestamp` : sql`${dateProjection} > ${p.value}::date`;
         case "between": {
           const v = p.value as [unknown, unknown] | undefined;
-          return sql`${dateProjection} BETWEEN ${v?.[0]}::date AND ${v?.[1]}::date`;
+          return p.dateIncludeTime
+            ? sql`${dateProjection} BETWEEN ${v?.[0]}::timestamp AND ${v?.[1]}::timestamp`
+            : sql`${dateProjection} BETWEEN ${v?.[0]}::date AND ${v?.[1]}::date`;
         }
-        case "today": return sql`${dateProjection} = CURRENT_DATE`;
-        case "thisWeek": return sql`date_trunc('week', ${tsProjection}) = date_trunc('week', now())`;
-        case "thisMonth": return sql`date_trunc('month', ${tsProjection}) = date_trunc('month', now())`;
+        case "today":
+          return sql`${dateOnlyProjection} = CURRENT_DATE`;
+        case "thisWeek":
+          return sql`date_trunc('week', ${dateProjection}) = date_trunc('week', CURRENT_TIMESTAMP::timestamp)`;
+        case "thisMonth":
+          return sql`date_trunc('month', ${dateProjection}) = date_trunc('month', CURRENT_TIMESTAMP::timestamp)`;
         case "lastNDays": {
           const n = Number(p.value ?? 0);
-          return sql`${dateProjection} >= CURRENT_DATE - ${n}::int * INTERVAL '1 day'`;
+          return sql`${dateOnlyProjection} >= CURRENT_DATE - ${n}::int * INTERVAL '1 day'`;
         }
-        case "isEmpty": return sql`data->>${fieldId} IS NULL`;
-        case "isNotEmpty": return sql`data->>${fieldId} IS NOT NULL`;
+        case "isEmpty":
+          return sql`data->>${fieldId} IS NULL`;
+        case "isNotEmpty":
+          return sql`data->>${fieldId} IS NOT NULL`;
       }
       break;
     case "boolean":
       switch (p.op) {
-        case "=": return sql`${boolProjection} = ${Boolean(p.value)}`;
-        case "isEmpty": return sql`data->>${fieldId} IS NULL`;
-        case "isNotEmpty": return sql`data->>${fieldId} IS NOT NULL`;
+        case "=":
+          return sql`${boolProjection} = ${Boolean(p.value)}`;
+        case "isEmpty":
+          return sql`data->>${fieldId} IS NULL`;
+        case "isNotEmpty":
+          return sql`data->>${fieldId} IS NOT NULL`;
       }
       break;
-    case "single-select":
+    case "select":
       switch (p.op) {
-        case "is": return sql`data->>${fieldId} = ${p.value}`;
-        case "isNot": return sql`data->>${fieldId} <> ${p.value}`;
-        case "isAnyOf": return sql`data->>${fieldId} = ANY(${(p.value as string[]) ?? []}::text[])`;
-        case "isNoneOf": return sql`(data->>${fieldId} IS NULL OR data->>${fieldId} <> ALL(${(p.value as string[]) ?? []}::text[]))`;
-        case "isEmpty": return sql`data->>${fieldId} IS NULL`;
-        case "isNotEmpty": return sql`data->>${fieldId} IS NOT NULL`;
-      }
-      break;
-    case "multi-select":
-      switch (p.op) {
-        case "containsAll": {
-          // jsonb @> for "must contain all": works on the JSONB array stored
-          // for multi-select fields. Bun encodes the JS array as JSONB.
-          const arr = (p.value as unknown[]) ?? [];
-          return sql`(data->${fieldId})::jsonb @> ${arr}::jsonb`;
-        }
-        case "containsAny": {
+        case "is":
+          return sql`(data->${fieldId})::jsonb @> ${[p.value]}::jsonb`;
+        case "isNot":
+          return sql`(
+          data->>${fieldId} IS NULL
+          OR jsonb_typeof(data->${fieldId}) <> 'array'
+          OR NOT ((data->${fieldId})::jsonb @> ${[p.value]}::jsonb)
+        )`;
+        case "isAnyOf": {
           const items = (p.value as string[]) ?? [];
           if (items.length === 0) return sql`FALSE`;
-          // Match ANY of: rewrite as OR of @> singletons.
-          const parts = items.map((s) => sql`(data->${fieldId})::jsonb @> ${[s]}::jsonb`);
-          return parts.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+          return items.map((s) => sql`(data->${fieldId})::jsonb @> ${[s]}::jsonb`).reduce((acc, cur) => sql`${acc} OR ${cur}`);
         }
-        case "doesNotContain": {
+        case "isNoneOf": {
           const items = (p.value as string[]) ?? [];
           if (items.length === 0) return sql`TRUE`;
-          const parts = items.map((s) => sql`NOT ((data->${fieldId})::jsonb @> ${[s]}::jsonb)`);
-          return parts.reduce((acc, cur) => sql`${acc} AND ${cur}`);
+          const none = items.map((s) => sql`NOT ((data->${fieldId})::jsonb @> ${[s]}::jsonb)`).reduce((acc, cur) => sql`${acc} AND ${cur}`);
+          return sql`(
+            data->>${fieldId} IS NULL
+            OR jsonb_typeof(data->${fieldId}) <> 'array'
+            OR (${none})
+          )`;
         }
-        // jsonb_array_length raises on non-arrays; corrupt JSONB
-        // (scalar/object stored where the schema expects an array)
-        // would crash the filter. Guard via jsonb_typeof so non-arrays
-        // are treated as empty — symmetric with how try_numeric/etc
-        // treat corrupt scalars elsewhere in the compiler.
-        case "isEmpty": return sql`(
+        case "isEmpty":
+          return sql`(
           data->>${fieldId} IS NULL
           OR jsonb_typeof(data->${fieldId}) <> 'array'
           OR jsonb_array_length(data->${fieldId}) = 0
         )`;
-        case "isNotEmpty": return sql`(
+        case "isNotEmpty":
+          return sql`(
           data->>${fieldId} IS NOT NULL
           AND jsonb_typeof(data->${fieldId}) = 'array'
           AND jsonb_array_length(data->${fieldId}) > 0
+        )`;
+      }
+      break;
+    case "relation":
+      switch (p.op) {
+        case "containsAny": {
+          const ids = (p.value as string[]) ?? [];
+          return sql`EXISTS (
+            SELECT 1
+            FROM grids.record_links rl
+            WHERE rl.from_record_id = r.id
+              AND rl.from_field_id = ${fieldId}::uuid
+              AND rl.to_record_id = ANY(${sql.array(ids, "UUID")})
+          )`;
+        }
+        case "isEmpty":
+          return sql`NOT EXISTS (
+          SELECT 1
+          FROM grids.record_links rl
+          WHERE rl.from_record_id = r.id
+            AND rl.from_field_id = ${fieldId}::uuid
+        )`;
+        case "isNotEmpty":
+          return sql`EXISTS (
+          SELECT 1
+          FROM grids.record_links rl
+          WHERE rl.from_record_id = r.id
+            AND rl.from_field_id = ${fieldId}::uuid
         )`;
       }
       break;

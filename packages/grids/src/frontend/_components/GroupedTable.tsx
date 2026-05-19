@@ -1,5 +1,8 @@
-import { For, Show } from "solid-js";
+import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { Show } from "solid-js";
 import type { Field } from "../../service";
+import type { FormatSpec } from "../../service/views";
+import { formatCell } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 
 /**
@@ -13,8 +16,15 @@ export type GroupBucket = {
   values: Record<string, unknown>;
 };
 
+type GroupTableColumn =
+  | { kind: "group"; id: string; spec: GroupByCol; index: number }
+  | { kind: "agg"; id: string; spec: AggCol; index: number };
+type GroupDataTableColumn = DataTableColumn<GroupBucket> & { meta: GroupTableColumn };
+
 type GroupByCol = {
   fieldId: string;
+  label?: string;
+  format?: FormatSpec;
   granularity?: "day" | "week" | "month" | "quarter" | "year";
 };
 
@@ -22,6 +32,7 @@ type AggCol = {
   fieldId: string | "*";
   agg: string;
   label?: string;
+  format?: FormatSpec;
 };
 
 type Props = {
@@ -29,6 +40,7 @@ type Props = {
    *  relation-group-key links can navigate to `/app/grids/<base>?table=…&record=…`,
    *  matching the row-mode relation cell behavior. */
   baseId: string;
+  tableShortIds?: Record<string, string>;
   fields: Field[];
   groupBy: GroupByCol[];
   aggregations: AggCol[];
@@ -42,7 +54,18 @@ type Props = {
    *  resolves it server-side for grouped responses so the keys column
    *  doesn't show raw UUIDs. */
   relationLabels?: Record<string, string>;
+  selectedBucketKey?: string | null;
+  onBucketClick?: (bucket: GroupBucket) => void;
+  adminMode?: boolean;
+  columnOrder?: string[];
+  hiddenColumnIds?: string[];
+  onColumnSettings?: (columnId: string) => void;
+  onColumnMove?: (columnId: string, direction: -1 | 1) => void;
 };
+
+export const groupedGroupColumnId = (spec: GroupByCol, index: number): string => `group:${index}:${spec.fieldId}:${spec.granularity ?? ""}`;
+
+export const groupedAggregationColumnId = (spec: AggCol, index: number): string => `agg:${index}:${spec.fieldId}:${spec.agg}`;
 
 /**
  * Renders a "summary view": one row per bucket, columns are
@@ -57,15 +80,16 @@ export default function GroupedTable(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
 
   const groupHeader = (g: GroupByCol): string => {
+    if (g.label?.trim()) return g.label.trim();
     const f = fieldsById.get(g.fieldId);
-    if (!f) return g.fieldId.slice(0, 8);
+    if (!f) return "missing field";
     return g.granularity ? `${f.name} (${g.granularity})` : f.name;
   };
   const aggHeader = (a: AggCol): string => {
     if (a.label) return a.label;
     if (a.fieldId === "*") return a.agg === "count" ? "# records" : a.agg;
     const f = fieldsById.get(a.fieldId);
-    const name = f ? f.name : a.fieldId.slice(0, 8);
+    const name = f ? f.name : "missing field";
     return `${a.agg} ${name}`;
   };
 
@@ -79,12 +103,8 @@ export default function GroupedTable(props: Props) {
     return String(val);
   };
 
-  /** Label resolution shared by RecordLink + the dash-fallback case.
-   *  Server resolves bucket-key UUIDs to presentable labels; if a stale
-   *  id ever slips through we show an 8-char prefix rather than 36
-   *  characters of UUID noise. */
-  const relationLabelFor = (val: string): string =>
-    props.relationLabels?.[val] ?? val.slice(0, 8);
+  /** Label resolution shared by RecordLink + the dash-fallback case. */
+  const relationLabelFor = (val: string): string => props.relationLabels?.[val] ?? "Unknown record";
 
   // Always include the implicit `*__count` column even if the user
   // didn't configure it — the server adds it for every group query
@@ -96,101 +116,141 @@ export default function GroupedTable(props: Props) {
   };
   const aggKeyOf = (a: AggCol): string => `${a.fieldId}__${a.agg}`;
 
-  const formatAgg = (val: unknown): string => {
+  const formatAgg = (val: unknown, spec: AggCol): string => {
     if (val === null || val === undefined) return "—";
+    if (spec.format) {
+      const field = spec.fieldId === "*" ? null : fieldsById.get(spec.fieldId);
+      return formatCell(val, field?.type ?? "number", field?.config ?? {}, spec.format) || String(val);
+    }
     if (typeof val === "number") return Number.isInteger(val) ? String(val) : val.toFixed(2);
     return String(val);
   };
+  const bucketKey = (bucket: GroupBucket): string => JSON.stringify(bucket.keys);
+
+  const columns = (): GroupDataTableColumn[] => {
+    const hidden = new Set(props.hiddenColumnIds ?? []);
+    const baseColumns: GroupDataTableColumn[] = [
+      ...props.groupBy.map((g, index) => ({
+        id: groupedGroupColumnId(g, index),
+        header: groupHeader(g),
+        subtitle: "group",
+        value: () => undefined,
+        meta: { kind: "group", id: groupedGroupColumnId(g, index), spec: g, index } as GroupTableColumn,
+      })),
+      ...aggColsWithCount().map((a, index) => ({
+        id: groupedAggregationColumnId(a, index),
+        header: aggHeader(a),
+        subtitle: "aggregate",
+        value: (bucket: GroupBucket) => bucket.values[aggKeyOf(a)],
+        cellClass: "tabular-nums",
+        meta: { kind: "agg", id: groupedAggregationColumnId(a, index), spec: a, index } as GroupTableColumn,
+      })),
+    ].filter((column) => !hidden.has(column.id));
+    const orderedIds = props.columnOrder ?? [];
+    if (orderedIds.length === 0) return baseColumns;
+    const byId = new Map(baseColumns.map((column) => [column.id, column]));
+    const orderedColumns = orderedIds.map((id) => byId.get(id)).filter((column): column is GroupDataTableColumn => !!column);
+    const orderedSet = new Set(orderedColumns.map((column) => column.id));
+    return [...orderedColumns, ...baseColumns.filter((column) => !orderedSet.has(column.id))];
+  };
+
+  const columnMeta = (col: DataTableColumn<GroupBucket>): GroupTableColumn => (col as GroupDataTableColumn).meta;
 
   return (
     <Show
       when={props.buckets.length > 0}
-      fallback={
-        <div class="paper p-6 text-center text-sm text-dimmed">
-          No groups. Adjust the filter or grouping configuration.
-        </div>
-      }
+      fallback={<div class="paper p-6 text-center text-sm text-dimmed">No groups. Adjust the filter or grouping configuration.</div>}
     >
       <Show when={props.explode}>
         <div class="text-[11px] text-dimmed flex items-center gap-1.5 px-1">
           <i class="ti ti-info-circle" />
-          Buckets may overlap — a record with multiple linked targets
-          contributes to each bucket. Counts reflect (record × link) pairs.
+          Buckets may overlap — a record with multiple linked targets contributes to each bucket. Counts reflect (record × link) pairs.
         </div>
       </Show>
-      {/* Single paper-and-scroll wrapper so sticky thead pins to the
-          paper top instead of an intermediate x-only scroll wrapper.
-          See RecordsGrid for the full rationale. */}
-      <div class="paper overflow-auto flex-1 min-h-0">
-        <table class="w-full text-xs">
-          {/* Sticky thead — mirrors RecordsGrid. */}
-          <thead class="sticky top-0 z-10 bg-white dark:bg-zinc-900">
-            <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                <For each={props.groupBy}>
-                  {(g) => (
-                    <th class="px-3 py-2 text-left">
-                      <div class="flex flex-col gap-0.5 leading-tight">
-                        <span class="text-primary font-semibold">{groupHeader(g)}</span>
-                        <span class="text-[10px] text-dimmed font-normal">group</span>
-                      </div>
-                    </th>
-                  )}
-                </For>
-                <For each={aggColsWithCount()}>
-                  {(a) => (
-                    <th class="px-3 py-2 text-left">
-                      <div class="flex flex-col gap-0.5 leading-tight">
-                        <span class="text-primary font-semibold">{aggHeader(a)}</span>
-                        <span class="text-[10px] text-dimmed font-normal">aggregate</span>
-                      </div>
-                    </th>
-                  )}
-                </For>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={props.buckets}>
-                {(b) => (
-                  <tr class="border-b border-zinc-50 last:border-0 dark:border-zinc-800/50">
-                    <For each={props.groupBy}>
-                      {(g, idx) => {
-                        const f = fieldsById.get(g.fieldId);
-                        const val = b.keys[idx()];
-                        // Relation groupBy: render as RecordLink so the
-                        // user can jump to the linked record the same
-                        // way they would from a row-mode relation cell.
-                        // The arrow icon + hover-underline match exactly.
-                        if (f && f.type === "relation" && typeof val === "string") {
-                          const cfg = f.config as { targetTableId?: string };
-                          return (
-                            <td class="px-3 py-2 text-primary">
-                              <RecordLink
-                                baseId={props.baseId}
-                                targetTableId={cfg.targetTableId}
-                                targetRecordId={val}
-                                label={relationLabelFor(val)}
-                              />
-                            </td>
-                          );
-                        }
-                        return (
-                          <td class="px-3 py-2 text-primary">{formatScalarKey(val)}</td>
-                        );
-                      }}
-                    </For>
-                    <For each={aggColsWithCount()}>
-                      {(a) => (
-                        <td class="px-3 py-2 text-primary tabular-nums">
-                          {formatAgg(b.values[aggKeyOf(a)])}
-                        </td>
-                      )}
-                    </For>
-                  </tr>
-                )}
-              </For>
-            </tbody>
-          </table>
-      </div>
+      <DataTable
+        rows={props.buckets}
+        columns={columns()}
+        selectedRowId={props.selectedBucketKey}
+        getRowId={bucketKey}
+        onRowClick={props.onBucketClick}
+        renderHeader={({ col, render }) => {
+          const meta = columnMeta(col);
+          if (!props.adminMode) return render();
+          const renderedColumns = columns();
+          const index = renderedColumns.findIndex((column) => column.id === col.id);
+          const count = renderedColumns.length;
+          const settings = props.onColumnSettings;
+          const move = props.onColumnMove;
+          if (!settings && !move) return render();
+          const adminIconClass =
+            "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300";
+          return (
+            <div class="flex min-w-0 items-start gap-2">
+              <div class="min-w-0 flex-1">{render()}</div>
+              <div class="flex shrink-0 items-center gap-0">
+                <button
+                  type="button"
+                  class={adminIconClass}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    move?.(meta.id, -1);
+                  }}
+                  disabled={!move || index === 0}
+                  title="Move column left"
+                  aria-label="Move column left"
+                >
+                  <i class="ti ti-chevron-left text-xs" />
+                </button>
+                <button
+                  type="button"
+                  class={adminIconClass}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    move?.(meta.id, 1);
+                  }}
+                  disabled={!move || index >= count - 1}
+                  title="Move column right"
+                  aria-label="Move column right"
+                >
+                  <i class="ti ti-chevron-right text-xs" />
+                </button>
+                <button
+                  type="button"
+                  class={adminIconClass}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    settings?.(meta.id);
+                  }}
+                  disabled={!settings}
+                  title="Column settings"
+                  aria-label="Column settings"
+                >
+                  <i class="ti ti-settings text-xs" />
+                </button>
+              </div>
+            </div>
+          );
+        }}
+        renderCell={({ row, col }) => {
+          const meta = columnMeta(col);
+          if (meta.kind === "agg") return formatAgg(row.values[aggKeyOf(meta.spec)], meta.spec);
+          const f = fieldsById.get(meta.spec.fieldId);
+          const val = row.keys[meta.index];
+          if (f && f.type === "relation" && typeof val === "string") {
+            const cfg = f.config as { targetTableId?: string };
+            return (
+              <RecordLink
+                baseId={props.baseId}
+                targetTableId={cfg.targetTableId}
+                targetTableShortId={cfg.targetTableId ? props.tableShortIds?.[cfg.targetTableId] : undefined}
+                targetRecordId={val}
+                label={relationLabelFor(val)}
+              />
+            );
+          }
+          return f ? formatCell(val, f.type, f.config, meta.spec.format) || formatScalarKey(val) : formatScalarKey(val);
+        }}
+      />
     </Show>
   );
 }

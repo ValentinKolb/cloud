@@ -16,9 +16,6 @@ const RelationConfigSchema = z.object({
    *  so a user can add the field first and pick the target table from the
    *  per-field config editor afterwards — matches lookup/rollup. */
   targetTableId: z.string().uuid().optional(),
-  /** Field on the target table used as the display label (Phase 4a:
-   *  callers project it themselves; Phase 4b's lookup uses this too). */
-  displayFieldId: z.string().uuid().optional(),
   /** Cardinality. Phase 4 always stores arrays; "single" caps to 1. */
   cardinality: z.enum(["single", "multiple"]).optional(),
 });
