@@ -383,6 +383,15 @@
   @apply text-zinc-400 dark:text-zinc-500;
 }
 
+/* Completion match — every occurrence of a registered completion
+   label (abbreviation or trigger result) is tinted blue so the
+   reader can see what's a recognised mention vs. plain prose.
+   No underline: a dotted underline reads too much like a spellcheck
+   squiggle and trips people into thinking something's broken. */
+.md-completion-match {
+  @apply text-blue-600 dark:text-blue-400;
+}
+
 /* Stats footer — lines / words / chars, anchored at the bottom-left
    of the editor. No border, no background tint — it inherits the
    editor body colour and sits as a quiet meta-row separated from the

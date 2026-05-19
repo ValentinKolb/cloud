@@ -1,6 +1,6 @@
 import { createSignal, Show, type JSX } from "solid-js";
 import { InputWrapper, createInputA11y } from "./util";
-import MarkdownEditor from "./markdown/MarkdownEditor";
+import MarkdownEditor, { type Completion } from "./markdown/MarkdownEditor";
 
 type TextInputProps = {
   name?: string;
@@ -41,12 +41,24 @@ type TextInputProps = {
   /** Approximate visible lines for multiline mode. Overrides default height. */
   lines?: number;
   /**
-   * AutoText dictionary for markdown mode — typing a key followed by a
-   * word-boundary (space, punctuation, newline) replaces the key with
-   * its value verbatim. Case-insensitive lookup; the dictionary value
-   * is inserted literally. Ignored outside `markdown={true}`.
+   * AutoText dictionary for markdown mode — convenience shortcut for
+   * the most common shape: a `{ short: long }` map. Typing a key
+   * followed by a word boundary replaces the key with its value
+   * (case-insensitive, exact-case preferred). Ignored outside
+   * `markdown={true}`. For richer behaviour (triggered completions,
+   * live search, ghost preview) use `completions` instead.
    */
   abbreviations?: Record<string, string>;
+  /**
+   * Full completion definitions for markdown mode. Each completion
+   * provides ghost-previewable suggestions (zinc-400 + → arrow at the
+   * caret) and optionally a `trigger` char (`#`, `@`, `:`). Tab
+   * inserts the active ghost. Sync suggestions also drive the blue
+   * dotted-underline highlight for recognised labels in the body.
+   * Combine with `abbreviations` if you want both — they're merged
+   * automatically.
+   */
+  completions?: Completion[];
   /**
    * Mobile keyboard hint. Pass-through to the underlying `<input>`.
    * Use "numeric" for digits-only inputs, "decimal" for floats,
@@ -136,6 +148,7 @@ const TextInput = (props: TextInputProps) => {
           lines={props.lines}
           maxLength={props.maxLength}
           abbreviations={props.abbreviations}
+          completions={props.completions}
           error={!!props.error?.()}
           ariaLabel={!props.label ? (props.ariaLabel ?? props.placeholder) : undefined}
           ariaDescribedBy={a11y.ariaDescribedBy()}

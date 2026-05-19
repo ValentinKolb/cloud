@@ -1,0 +1,195 @@
+/* Generic completion overlay styles — used by both MarkdownEditor's
+   in-flow preview and the standalone AutocompleteEditor. Classes
+   are markdown-agnostic (`completion-*`, not `md-*`) so they apply
+   wherever the overlay pattern is used.
+
+   IMPORTANT: these styles sit inline with editor text in editors
+   that use the overtype (mirror-textarea) pattern, so glyph metrics
+   MUST be width-safe. The ghost-arrow span is allowed to deviate
+   (it's AFTER the caret, doesn't affect cursor alignment for typed
+   content). */
+
+/* Ghost completion preview — zinc-400 tail at the cursor showing
+   the not-yet-typed continuation of the active suggestion. No
+   background — feels like a literal suggestion hovering in text,
+   not a separate UI element. */
+.completion-ghost {
+  @apply text-zinc-400 dark:text-zinc-500;
+}
+
+/* Invisible caret anchor — injected at the cursor when a dropdown
+   is open but no ghost is shown (e.g. typed text equals the
+   highlighted row). Provides a measurable bounding rect for
+   `getBoundingClientRect()` without shifting any layout. */
+.completion-caret-anchor {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: text-bottom;
+  pointer-events: none;
+}
+
+/* "Press Tab" arrow rendered after the ghost tail. Slightly larger
+   than body text so the hint is readable. Doesn't perturb cursor
+   alignment because it sits AFTER the caret position. */
+.completion-ghost-arrow {
+  @apply text-zinc-400 dark:text-zinc-500;
+  margin-left: 0.4rem;
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+/* ── AutocompleteEditor styles ─────────────────────────────────
+
+   Generic editor with optional syntax-highlighting overlay. When the
+   caller passes `highlight`, the textarea becomes invisible-text-only
+   and a preview layer beneath it renders the highlighted HTML
+   (overtype pattern). When no `highlight` is given, the textarea is
+   plain visible and the preview layer is omitted. */
+
+.ac-editor {
+  position: relative;
+  @apply rounded-md border;
+  @apply bg-zinc-100 border-zinc-100;
+  @apply hover:bg-zinc-200/70 hover:border-zinc-200/70;
+  @apply dark:bg-zinc-800 dark:border-zinc-800;
+  @apply dark:hover:bg-zinc-700 dark:hover:border-zinc-700;
+  @apply transition-colors;
+  @apply overflow-hidden;
+}
+
+.ac-editor:focus-within {
+  @apply bg-white border-blue-400;
+  @apply dark:bg-zinc-900 dark:border-blue-400;
+}
+
+.ac-editor[data-disabled="true"] {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+.ac-editor[data-error="true"],
+.ac-editor[data-error="true"]:focus-within {
+  @apply border-red-400 dark:border-red-500;
+}
+
+.ac-editor-surface {
+  position: relative;
+  height: var(--ac-h, 4.5rem);
+}
+
+.ac-editor-placeholder {
+  position: absolute;
+  inset: 0;
+  padding: 0.5rem 0.75rem;
+  pointer-events: none;
+  user-select: none;
+  @apply text-zinc-400 dark:text-zinc-500;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  z-index: 1;
+}
+
+.ac-editor-layer {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  resize: none !important;
+  padding: 0.5rem 0.75rem !important;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+  letter-spacing: 0 !important;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  background: transparent !important;
+  font-synthesis: none !important;
+  font-variant-ligatures: none !important;
+}
+
+.ac-editor-input {
+  @apply text-zinc-900 dark:text-zinc-100;
+  overflow-y: auto !important;
+  z-index: 2 !important;
+  /* Default visible textarea — caret-color inherits from text color */
+}
+
+/* Overlay mode: textarea text invisible, only caret + selection
+   show through. The preview underneath provides the visible glyphs. */
+.ac-editor-input--overlay {
+  color: transparent !important;
+  caret-color: #18181b;
+  background: transparent !important;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.dark .ac-editor-input--overlay {
+  caret-color: #f4f4f5;
+}
+
+.ac-editor-preview {
+  z-index: 1 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  overflow-y: scroll !important;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  @apply text-zinc-900 dark:text-zinc-100;
+}
+
+/* Force every descendant (every span emitted by the user's
+   `highlight` callback) to inherit the layer's typography exactly.
+   Without this, a syntax-highlighter span can pick up a slightly
+   different font-family / font-size / letter-spacing from a Tailwind
+   reset, a UA default, or any cascading rule — accumulating into
+   a visible cursor-vs-glyph offset (the classic overtype drift).
+   `display: inline` + zero margins/padding/border guarantee no box
+   tweaks shift positions either. Same rule pattern as the
+   MarkdownEditor preview. */
+.ac-editor-preview *,
+.ac-editor-preview *::before,
+.ac-editor-preview *::after {
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  font-stretch: inherit !important;
+  letter-spacing: inherit !important;
+  word-spacing: inherit !important;
+  font-weight: inherit !important;
+  font-style: inherit !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  text-indent: 0 !important;
+  vertical-align: baseline !important;
+  display: inline !important;
+}
+
+.ac-editor-preview .fn {
+  @apply text-blue-600 dark:text-blue-300;
+}
+.ac-editor-preview .field {
+  @apply text-emerald-700 dark:text-emerald-300;
+}
+.ac-editor-preview .num {
+  @apply text-violet-700 dark:text-violet-300;
+}
+.ac-editor-preview .str {
+  @apply text-amber-700 dark:text-amber-300;
+}
+.ac-editor-preview .op {
+  @apply text-zinc-500 dark:text-zinc-400;
+}
+
+.ac-editor-preview::-webkit-scrollbar-thumb,
+.ac-editor-input--overlay::-webkit-scrollbar-thumb {
+  background: transparent;
+}

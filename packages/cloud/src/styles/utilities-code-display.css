@@ -1,0 +1,23 @@
+/* Token classes emitted by `CodeDisplay`.
+   Small, dependency-free highlighting for examples and docs. */
+.code-display-code,
+.code-display-code * {
+  font-family: var(--font-mono);
+}
+
+.cd-c { @apply text-zinc-500 italic; }
+.cd-s { @apply text-blue-900 dark:text-blue-200; }
+.cd-n { @apply text-blue-700 dark:text-blue-300; }
+.cd-k { @apply text-red-700 dark:text-red-400; }
+.cd-p { @apply text-green-800 dark:text-green-300; }
+.cd-a { @apply text-blue-700 dark:text-blue-300; }
+.cd-f { @apply text-purple-700 dark:text-purple-300; }
+
+.cd-md-syntax { @apply text-blue-700 dark:text-blue-300; }
+.cd-md-checkbox { @apply text-blue-700 dark:text-blue-300; }
+.cd-md-directive { @apply text-purple-700 dark:text-purple-300; }
+.cd-md-ref { @apply text-blue-700 dark:text-blue-300; }
+.cd-md-link { @apply text-blue-700 dark:text-blue-300; }
+.cd-md-tag { @apply text-emerald-700 dark:text-emerald-300; }
+.cd-md-code { @apply text-purple-700 dark:text-purple-300; }
+.cd-md-formula { @apply text-amber-700 dark:text-amber-300; }

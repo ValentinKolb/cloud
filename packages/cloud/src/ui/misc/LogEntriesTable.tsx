@@ -1,4 +1,5 @@
 import { dates } from "@valentinkolb/stdlib";
+import DataTable, { type DataTableColumn } from "./DataTable";
 
 export type LogTableEntry = {
   id: number | string;
@@ -23,39 +24,38 @@ const levelIcon: Record<string, { icon: string; color: string; label: string }> 
 
 export default function LogEntriesTable(props: Props) {
   if (props.entries.length === 0) {
-    return <div class="py-8 text-center text-xs text-dimmed">{props.emptyMessage ?? "No log entries found."}</div>;
+    return <div class="paper py-8 text-center text-xs text-dimmed">{props.emptyMessage ?? "No log entries found."}</div>;
   }
 
+  const columns: DataTableColumn<LogTableEntry>[] = [
+    { id: "level", header: "Level", value: (entry) => entry.level },
+    { id: "source", header: `Source (${props.entries.length})`, value: (entry) => entry.source },
+    { id: "message", header: "Message", value: (entry) => entry.message },
+    { id: "time", header: "Time", value: (entry) => entry.createdAt, cellClass: "whitespace-nowrap" },
+  ];
+
   return (
-    <div class="overflow-x-auto">
-      <table class="w-full text-xs">
-        <thead>
-          <tr class="border-b border-zinc-100 dark:border-zinc-800">
-            <th class="px-3 py-2 text-left font-medium text-dimmed">Level</th>
-            <th class="px-3 py-2 text-left font-medium text-dimmed">Source ({props.entries.length})</th>
-            <th class="px-3 py-2 text-left font-medium text-dimmed">Message</th>
-            <th class="px-3 py-2 text-left font-medium text-dimmed">Time</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.entries.map((entry) => {
-            const level = levelIcon[entry.level] ?? levelIcon.debug!;
-            return (
-              <tr class="border-b border-zinc-50 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                <td class="px-3 py-1.5 whitespace-nowrap">
-                  <span class={`inline-flex items-center gap-1.5 ${level.color}`}>
-                    <i class={`${level.icon} text-sm`} />
-                    <span>{level.label}</span>
-                  </span>
-                </td>
-                <td class="px-3 py-1.5 whitespace-nowrap text-secondary">{entry.source}</td>
-                <td class="px-3 py-1.5 text-primary truncate max-w-[30rem]" title={entry.message}>{entry.message}</td>
-                <td class="whitespace-nowrap px-3 py-1.5 text-dimmed">{dates.formatDateTime(entry.createdAt)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      rows={props.entries}
+      columns={columns}
+      getRowId={(entry) => String(entry.id)}
+      hoverRows
+      class="paper overflow-x-auto"
+      renderCell={({ row, col }) => {
+        if (col.id === "level") {
+          const level = levelIcon[row.level] ?? levelIcon.debug!;
+          return (
+            <span class={`inline-flex items-center gap-1.5 whitespace-nowrap ${level.color}`}>
+              <i class={`${level.icon} text-sm`} />
+              <span>{level.label}</span>
+            </span>
+          );
+        }
+        if (col.id === "source") return <span class="whitespace-nowrap text-secondary">{row.source}</span>;
+        if (col.id === "message") return <span title={row.message}>{row.message}</span>;
+        if (col.id === "time") return <span class="text-dimmed">{dates.formatDateTime(row.createdAt)}</span>;
+        return "";
+      }}
+    />
   );
 }
