@@ -2,6 +2,7 @@ import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import type { Field, FilterTree, SortSpec } from "../../service";
 import { gridsService } from "../../service";
@@ -12,6 +13,7 @@ import DashboardWysiwygEditor from "../_components/DashboardWysiwygEditor.island
 import DashboardLayout from "../_components/dashboard/DashboardLayout";
 import { resolveWidgetData, type WidgetData } from "../../service/dashboard-widget-data";
 import FormSidebarEntry from "../_components/FormSidebarEntry.island";
+import RememberGridsPath from "../_components/RememberGridsPath.island";
 import type { GroupBucket } from "../_components/GroupedTable";
 import { resolveEffectiveQuery } from "../_components/records-view/effective-query";
 import { parseRecordsState } from "../_components/records-view/query-url";
@@ -67,6 +69,7 @@ export default ssr<AuthContext>(async (c) => {
   };
   const keepEdit = (href: string) => (adminModeRequested ? urlWithParam(href, "edit", "true") : href);
   const currentPath = new URL(c.req.url).pathname + new URL(c.req.url).search;
+  const rememberPath = urlWithoutParams(currentPath, ["edit", "form"]);
   const editModeOnHref = urlWithParam(urlWithoutParams(currentPath, ["form"]), "edit", "true");
   const editModeOffHref = urlWithoutParams(currentPath, ["edit", "form"]);
   const editModeToggleHref = adminModeRequested ? editModeOffHref : editModeOnHref;
@@ -499,73 +502,15 @@ export default ssr<AuthContext>(async (c) => {
           : []),
       ]}
     >
-      <div class="app-cols flex-1 min-h-0">
-        {/* Mobile-collapsed sidebar — opens on tap, lists tables, the
-            base settings link, and any saved views for the active table.
-            Mirrors the spaces SpaceSidebar mobile pattern. */}
-        <nav class="sidebar-container-mobile">
-          <details class="group">
-            <summary class="sidebar-mobile-toggle">
-              <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0" style="background-color:#3b82f6">
-                <i class="ti ti-table text-sm" />
-              </div>
-              <span class="font-semibold truncate flex-1">{base.name}</span>
-              <span class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed transition-transform group-open:rotate-180">
-                <i class="ti ti-chevron-down text-sm" />
-              </span>
-            </summary>
-            <div class="sidebar-mobile-actions">
-              {canUseEditMode && (
-                <a href={editModeToggleHref} class="sidebar-item-mobile">
-                  <i class={`ti ${adminModeRequested ? "ti-check" : "ti-tool"}`} />
-                  {adminModeRequested ? "Done editing" : "Edit mode"}
-                </a>
-              )}
-              {canManageBase && (
-                <a href={keepEdit(`/app/grids/${baseShortId}/settings`)} class="sidebar-item-mobile">
-                  <i class="ti ti-settings" />
-                  Settings
-                </a>
-              )}
-              <a href="/app/grids" class="sidebar-item-mobile">
-                <i class="ti ti-layout-grid" />
-                All grids
-              </a>
-              {tables.map((t) => {
-                const isActive = activeTable?.id === t.id;
-                return (
-                  <a
-                    href={keepEdit(`/app/grids/${baseShortId}/table/${t.shortId}`)}
-                    class={`sidebar-item-mobile ${
-                      isActive
-                        ? adminModeRequested
-                          ? "border-emerald-500/35 bg-emerald-50/70 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200"
-                          : "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
-                        : adminModeRequested
-                          ? "text-emerald-700 dark:text-emerald-300"
-                          : ""
-                    }`}
-                  >
-                    <i class={t.icon ?? "ti ti-table"} />
-                    {t.name}
-                  </a>
-                );
-              })}
-            </div>
-          </details>
-        </nav>
-
-        <aside class="sidebar-container">
-          <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
-            {/* Base header — name + single gear for settings. */}
-            <div class="relative flex items-center gap-3 pr-7">
-              <div class="sidebar-header-icon" style="background-color:#3b82f6">
-                <i class="ti ti-table text-xs" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <p class="sidebar-header-title">{base.name}</p>
-              </div>
-              {canManageBase && (
+      <RememberGridsPath path={rememberPath} />
+      <AppWorkspace class="flex-1 min-h-0">
+        <AppWorkspace.Sidebar>
+          <AppWorkspace.SidebarHeader
+            title={base.name}
+            icon="ti ti-table"
+            iconStyle="background-color:#3b82f6"
+            action={
+              canManageBase ? (
                 <a
                   href={keepEdit(`/app/grids/${baseShortId}/settings`)}
                   class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
@@ -573,54 +518,86 @@ export default ssr<AuthContext>(async (c) => {
                 >
                   <i class="ti ti-settings text-xs" />
                 </a>
+              ) : undefined
+            }
+          />
+          <AppWorkspace.SidebarMobile>
+            <AppWorkspace.SidebarMobileItems>
+              {canUseEditMode && (
+                <AppWorkspace.SidebarItem href={editModeToggleHref} icon={adminModeRequested ? "ti ti-check" : "ti ti-tool"}>
+                  {adminModeRequested ? "Done editing" : "Edit mode"}
+                </AppWorkspace.SidebarItem>
               )}
-            </div>
+              {canManageBase && (
+                <AppWorkspace.SidebarItem href={keepEdit(`/app/grids/${baseShortId}/settings`)} icon="ti ti-settings">
+                  Settings
+                </AppWorkspace.SidebarItem>
+              )}
+              <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid">
+                All grids
+              </AppWorkspace.SidebarItem>
+              {tables.map((t) => {
+                const isActive = activeTable?.id === t.id;
+                return (
+                  <AppWorkspace.SidebarItem
+                    href={keepEdit(`/app/grids/${baseShortId}/table/${t.shortId}`)}
+                    icon={t.icon ?? "ti ti-table"}
+                    active={isActive}
+                    activeClass={
+                      adminModeRequested
+                        ? "border-emerald-500/35 bg-emerald-50/70 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-950/40 dark:text-emerald-200"
+                        : undefined
+                    }
+                    class={adminModeRequested && !isActive ? "text-emerald-700 dark:text-emerald-300" : undefined}
+                  >
+                    {t.name}
+                  </AppWorkspace.SidebarItem>
+                );
+              })}
+            </AppWorkspace.SidebarMobileItems>
+          </AppWorkspace.SidebarMobile>
 
+          <AppWorkspace.SidebarDesktop>
             <div class="flex flex-col gap-3">
-              <section class="sidebar-group">
-                <p class="sidebar-section-title">Actions</p>
-                <a href="/app/grids" class="sidebar-item text-xs">
-                  <i class="ti ti-layout-grid text-sm" />
-                  <span>All Grids</span>
-                </a>
-              </section>
+              <AppWorkspace.SidebarSection title="Actions">
+                <AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid">
+                  All Grids
+                </AppWorkspace.SidebarItem>
+              </AppWorkspace.SidebarSection>
             </div>
 
-            <div class="sidebar-body">
+            <AppWorkspace.SidebarBody>
               {(() => {
                 if (dashboardsForBase.length === 0 && !canCreateTables) return null;
                 const sorted = [...dashboardsForBase].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
                 return (
-                  <section class="sidebar-group">
-                    <p class="sidebar-section-title">Dashboards</p>
+                  <AppWorkspace.SidebarSection title="Dashboards">
                     {sorted.map((d) => {
                       const isActive = activeDashboard?.id === d.id;
                       return (
-                        <div class={`sidebar-item group relative ${sidebarStateClass(isActive)}`}>
-                          <a
-                            href={keepEdit(`/app/grids/${baseShortId}/dashboard/${d.shortId}`)}
-                            class="flex min-w-0 flex-1 items-center gap-2 before:absolute before:inset-0 before:content-['']"
-                            aria-current={isActive ? "page" : undefined}
-                          >
-                            <i class={`${d.icon ?? "ti ti-layout-dashboard"} text-sm shrink-0`} />
-                            <span class="truncate min-w-0">{d.name}</span>
-                            {base.defaultDashboardId === d.id && (
-                              <span class="text-[9px] uppercase tracking-wider text-dimmed shrink-0">default</span>
-                            )}
-                          </a>
-                        </div>
+                        <AppWorkspace.SidebarItem
+                          href={keepEdit(`/app/grids/${baseShortId}/dashboard/${d.shortId}`)}
+                          icon={d.icon ?? "ti ti-layout-dashboard"}
+                          active={isActive}
+                          activeClass={adminModeRequested ? sidebarStateClass(true) : undefined}
+                          class={!isActive ? sidebarStateClass(false) : undefined}
+                          meta={
+                            base.defaultDashboardId === d.id ? <span class="text-[9px] uppercase tracking-wider">default</span> : undefined
+                          }
+                        >
+                          {d.name}
+                        </AppWorkspace.SidebarItem>
                       );
                     })}
                     {canCreateTables && <CreateDashboardButton baseId={baseId} baseShortId={baseShortId} />}
-                  </section>
+                  </AppWorkspace.SidebarSection>
                 );
               })()}
 
               {(() => {
                 if (sidebarForms.length === 0) return null;
                 return (
-                  <section class="sidebar-group">
-                    <p class="sidebar-section-title">Forms</p>
+                  <AppWorkspace.SidebarSection title="Forms">
                     {sidebarForms.map(({ form, table: t }) => {
                       const canEditForm = gridsService.permission.hasAtLeast(tableLevels[t.id] ?? "none", "admin");
                       return (
@@ -632,33 +609,31 @@ export default ssr<AuthContext>(async (c) => {
                         />
                       );
                     })}
-                  </section>
+                  </AppWorkspace.SidebarSection>
                 );
               })()}
 
-              <section class="sidebar-group">
-                <p class="sidebar-section-title">Tables</p>
+              <AppWorkspace.SidebarSection title="Tables">
                 {tables.length === 0 ? (
                   <p class="text-xs text-dimmed px-2 py-1">No tables yet.</p>
                 ) : (
                   tables.map((t) => {
                     const isActive = activeTable?.id === t.id;
                     return (
-                      <div class={`sidebar-item group relative ${sidebarStateClass(isActive)}`}>
-                        <a
-                          href={keepEdit(`/app/grids/${baseShortId}/table/${t.shortId}`)}
-                          class="flex min-w-0 flex-1 items-center gap-2 before:absolute before:inset-0 before:content-['']"
-                          aria-current={isActive ? "page" : undefined}
-                        >
-                          <i class={`${t.icon ?? "ti ti-table"} text-sm shrink-0`} />
-                          <span class="truncate min-w-0">{t.name}</span>
-                        </a>
-                      </div>
+                      <AppWorkspace.SidebarItem
+                        href={keepEdit(`/app/grids/${baseShortId}/table/${t.shortId}`)}
+                        icon={t.icon ?? "ti ti-table"}
+                        active={isActive}
+                        activeClass={adminModeRequested ? sidebarStateClass(true) : undefined}
+                        class={!isActive ? sidebarStateClass(false) : undefined}
+                      >
+                        {t.name}
+                      </AppWorkspace.SidebarItem>
                     );
                   })
                 )}
                 {canCreateTables && <CreateTableButton baseId={baseId} baseShortId={baseShortId} />}
-              </section>
+              </AppWorkspace.SidebarSection>
 
               {(() => {
                 type ViewRow = {
@@ -674,8 +649,7 @@ export default ssr<AuthContext>(async (c) => {
                 if (allViews.length === 0) return null;
                 allViews.sort((a, b) => a.view.name.localeCompare(b.view.name, undefined, { sensitivity: "base" }));
                 return (
-                  <section class="sidebar-group">
-                    <p class="sidebar-section-title">Views</p>
+                  <AppWorkspace.SidebarSection title="Views">
                     {allViews.map(({ view, table: t }) => {
                       // Path-based URL — resolveEffectiveQuery still pulls
                       // filter/sort/groupBy/aggregations from `view.query`
@@ -686,39 +660,38 @@ export default ssr<AuthContext>(async (c) => {
                       const url = `/app/grids/${baseShortId}/table/${t.shortId}/view/${view.shortId}`;
                       const isActive = activeTable?.id === t.id && activeViewId === view.id;
                       return (
-                        <div class={`sidebar-item group relative ${sidebarStateClass(isActive)}`}>
-                          <a
-                            href={keepEdit(url)}
-                            class="flex min-w-0 flex-1 items-center gap-2 before:absolute before:inset-0 before:content-['']"
-                            aria-current={isActive ? "page" : undefined}
-                          >
-                            <i class={`${view.icon ?? "ti ti-table-spark"} text-sm shrink-0`} />
-                            <span class="truncate min-w-0">{view.name}</span>
-                          </a>
-                        </div>
+                        <AppWorkspace.SidebarItem
+                          href={keepEdit(url)}
+                          icon={view.icon ?? "ti ti-table-spark"}
+                          active={isActive}
+                          activeClass={adminModeRequested ? sidebarStateClass(true) : undefined}
+                          class={!isActive ? sidebarStateClass(false) : undefined}
+                        >
+                          {view.name}
+                        </AppWorkspace.SidebarItem>
                       );
                     })}
-                  </section>
+                  </AppWorkspace.SidebarSection>
                 );
               })()}
-            </div>
+            </AppWorkspace.SidebarBody>
             {canUseEditMode && (
-              <div class="sidebar-footer pt-2">
-                <a
+              <AppWorkspace.SidebarFooter class="pt-2">
+                <AppWorkspace.SidebarItem
                   href={editModeToggleHref}
-                  class={`sidebar-item text-xs ${
+                  icon={adminModeRequested ? "ti ti-check" : "ti ti-tool"}
+                  class={
                     adminModeRequested
                       ? "bg-emerald-50 text-emerald-700 font-medium hover:bg-emerald-100 hover:text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
-                      : ""
-                  }`}
+                      : undefined
+                  }
                 >
-                  <i class={`ti ${adminModeRequested ? "ti-check" : "ti-tool"} text-sm`} />
-                  <span>{adminModeRequested ? "Done editing" : "Edit mode"}</span>
-                </a>
-              </div>
+                  {adminModeRequested ? "Done editing" : "Edit mode"}
+                </AppWorkspace.SidebarItem>
+              </AppWorkspace.SidebarFooter>
             )}
-          </div>
-        </aside>
+          </AppWorkspace.SidebarDesktop>
+        </AppWorkspace.Sidebar>
 
         {/* Main: dashboard layout OR records table.
             Dashboard mode wins when ?dashboard=<slug> is set (or the
@@ -733,7 +706,7 @@ export default ssr<AuthContext>(async (c) => {
             independent table/detail-panel scroll) never kicked in,
             because main was already absorbing the overflow and the
             search bar / toolbar scrolled along with the rows. */}
-        <main class="order-2 flex-1 min-w-0 min-h-0 overflow-hidden flex flex-col">
+        <AppWorkspace.Main>
           {renderDashboard ? (
             <div class="flex-1 min-h-0 overflow-y-auto">
               {adminModeRequested && canEditActiveDashboard ? (
@@ -825,12 +798,12 @@ export default ssr<AuthContext>(async (c) => {
                 : "No tables. You don't have write access to create one."}
             </div>
           )}
-        </main>
+        </AppWorkspace.Main>
 
         {/* Detail panel column lives inside RecordsView now — it renders
             conditionally based on the selectedRecordId signal so it
             appears/disappears in-place without any DOM-class flipping. */}
-      </div>
+      </AppWorkspace>
     </Layout>
   );
 });

@@ -4,6 +4,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import BasesOverview from "./_components/BasesOverview.island";
+import { parseLastGridsPath } from "./_components/GridsSettingsStore";
 
 /**
  * Bases list page — shows every base the user has access to.
@@ -28,32 +29,30 @@ export default ssr<AuthContext>(async (c) => {
     limit,
     offset,
   });
+
+  if (url.searchParams.get("recent") === "true" && visible.items.length > 0) {
+    const lastPath = parseLastGridsPath(c.req.header("Cookie"));
+    if (lastPath) {
+      const lastUrl = new URL(lastPath, "http://grids.local");
+      const baseSegment = lastUrl.pathname.split("/")[3] ?? "";
+      if (visible.items.some((base) => base.id === baseSegment || base.shortId === baseSegment)) {
+        return c.redirect(`${lastUrl.pathname}${lastUrl.search}`, 302);
+      }
+    }
+  }
+
   const templates = gridsService.template.list();
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Grids" }]}>
-      <div class="max-w-6xl mx-auto p-3 sm:p-4">
-        <header class="mb-5">
-          <div class="flex items-center gap-3">
-            <div class="w-11 h-11 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
-              <i class="ti ti-table text-xl text-zinc-600 dark:text-zinc-400" />
-            </div>
-            <div class="min-w-0">
-              <h1 class="text-xl font-semibold text-primary">Grids</h1>
-              <p class="text-sm text-dimmed">Structured bases for records, views, forms, and dashboards.</p>
-            </div>
-          </div>
-        </header>
-
-        <BasesOverview
-          bases={visible.items}
-          total={visible.total}
-          limit={limit}
-          offset={offset}
-          templates={templates}
-          initialQuery={initialQuery}
-        />
-      </div>
+      <BasesOverview
+        bases={visible.items}
+        total={visible.total}
+        limit={limit}
+        offset={offset}
+        templates={templates}
+        initialQuery={initialQuery}
+      />
     </Layout>
   );
 });

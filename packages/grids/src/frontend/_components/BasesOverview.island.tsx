@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { prompts, navigateTo, Pagination, TextInput } from "@valentinkolb/cloud/ui";
+import { AppOverview, prompts, navigateTo, Pagination, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Base } from "../../service";
@@ -86,10 +86,7 @@ export default function BasesOverview(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const createFromTemplateMutation = mutations.create<
-    Base,
-    { templateId: string; name?: string; withSampleData: boolean }
-  >({
+  const createFromTemplateMutation = mutations.create<Base, { templateId: string; name?: string; withSampleData: boolean }>({
     mutation: async (input) => {
       const res = await apiClient.templates[":templateId"].$post({
         param: { templateId: input.templateId },
@@ -155,55 +152,50 @@ export default function BasesOverview(props: Props) {
     searchDebounce.debouncedFn(value);
   };
 
-  return (
-    <div class="flex flex-col lg:flex-row gap-4 items-start">
-      <section class="min-w-0 flex-1 w-full">
-        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
-          <div>
-            <h2 class="text-sm font-semibold text-primary">Your bases</h2>
-            <p class="text-xs text-dimmed">
-              {query().trim()
-                ? `${total()} match${total() === 1 ? "" : "es"}`
-                : total() === 0
-                ? "Create a base to start storing records, views, forms, and dashboards."
-                : `${bases().length} of ${total()} base${total() === 1 ? "" : "s"} shown`}
-            </p>
-          </div>
-          <div class="w-full sm:w-80">
-            <TextInput
-              name="grids-base-search"
-              type="search"
-              ariaLabel="Search bases"
-              placeholder="Search bases..."
-              icon="ti ti-search"
-              activeIcon="ti ti-search"
-              value={query}
-              onInput={onSearchInput}
-              clearable
-              onClear={() => onSearchInput("")}
-            />
-          </div>
-        </div>
+  const overviewDescription = createMemo(() =>
+    query().trim()
+      ? `${total()} match${total() === 1 ? "" : "es"}`
+      : total() === 0
+        ? "Create a base to start storing records, views, forms, and dashboards."
+        : `${bases().length} of ${total()} base${total() === 1 ? "" : "s"} shown`,
+  );
 
+  return (
+    <AppOverview title="Grids" subtitle="Structured bases for records, views, forms, and dashboards." icon="ti ti-table">
+      <AppOverview.Main
+        title="Your bases"
+        description={overviewDescription()}
+        toolbar={
+          <TextInput
+            name="grids-base-search"
+            type="search"
+            ariaLabel="Search bases"
+            placeholder="Search bases..."
+            icon="ti ti-search"
+            activeIcon="ti ti-search"
+            value={query}
+            onInput={onSearchInput}
+            clearable
+            onClear={() => onSearchInput("")}
+          />
+        }
+      >
+        {/*
+          AppOverview owns the shared shell only. Search, pagination,
+          mutations, and card rendering stay in Grids.
+        */}
         <Show
           when={bases().length > 0}
           fallback={
             query().trim() ? (
-              <div class="paper p-8 min-h-56 flex flex-col items-center justify-center text-center">
-                <i class="ti ti-search text-2xl text-dimmed mb-2" />
-                <h3 class="text-sm font-semibold text-primary mb-1">No matching bases</h3>
-                <p class="text-xs text-dimmed">Try a different search term.</p>
-              </div>
+              <AppOverview.EmptyState title="No matching bases" description="Try a different search term." icon="ti ti-search" />
             ) : (
-              <div class="paper p-8 min-h-72 flex flex-col items-center justify-center text-center">
-                <div class="w-12 h-12 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mb-3">
-                  <i class="ti ti-database-plus text-xl text-dimmed" />
-                </div>
-                <h3 class="text-sm font-semibold text-primary mb-1">No bases yet</h3>
-                <p class="text-xs text-dimmed max-w-sm">
-                  Start from a template if you want a complete working setup, or create a blank base for a custom schema.
-                </p>
-              </div>
+              <AppOverview.EmptyState
+                title="No bases yet"
+                description="Start from a template if you want a complete working setup, or create a blank base for a custom schema."
+                icon="ti ti-database-plus"
+                class="min-h-72"
+              />
             )
           }
         >
@@ -234,16 +226,9 @@ export default function BasesOverview(props: Props) {
           </div>
           <Pagination currentPage={currentPage()} totalPages={totalPages()} baseUrl={paginationBaseUrl()} />
         </Show>
-      </section>
+      </AppOverview.Main>
 
-      <aside class="min-w-0 w-full lg:w-96 shrink-0">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h2 class="text-sm font-semibold text-primary">Create</h2>
-            <p class="text-xs text-dimmed">Start structured, or build from scratch.</p>
-          </div>
-        </div>
-
+      <AppOverview.Aside title="Create" description="Start structured, or build from scratch.">
         <div class="grid grid-cols-1 gap-2">
           <For each={props.templates}>
             {(template) => (
@@ -279,7 +264,7 @@ export default function BasesOverview(props: Props) {
             </span>
           </button>
         </div>
-      </aside>
-    </div>
+      </AppOverview.Aside>
+    </AppOverview>
   );
 }

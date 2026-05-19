@@ -9,7 +9,7 @@ export const app = defineApp({
   baseUrl: "http://app-grids:3000",
   adminHref: "/admin/grids",
   nav: {
-    href: "/app/grids",
+    href: "/app/grids?recent=true",
     match: "/app/grids",
     section: "primary",
     requiresAuth: true,
@@ -26,7 +26,8 @@ export const app = defineApp({
       kind: "boolean",
       label: "Allow Private Webhooks",
       default: false,
-      description: "Allow Grids automations to call private, loopback, and link-local webhook targets. Keep disabled unless this deployment intentionally integrates with internal services.",
+      description:
+        "Allow Grids automations to call private, loopback, and link-local webhook targets. Keep disabled unless this deployment intentionally integrates with internal services.",
     },
     "grids.automation_run_retention_days": {
       kind: "number",
