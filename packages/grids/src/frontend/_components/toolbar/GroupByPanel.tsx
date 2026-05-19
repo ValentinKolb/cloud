@@ -1,6 +1,6 @@
 import { Select } from "@valentinkolb/cloud/ui";
 import { createMemo, Index, Show } from "solid-js";
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 
 export type GroupByRow = {
   fieldId: string;
@@ -39,7 +39,7 @@ const GROUPABLE_TYPES = new Set([
   "relation",
 ]);
 
-export const groupableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && GROUPABLE_TYPES.has(f.type));
+const groupableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && GROUPABLE_TYPES.has(f.type));
 
 export const blankGroupByRow = (fields: Field[]): GroupByRow | null => {
   const usable = groupableFields(fields);

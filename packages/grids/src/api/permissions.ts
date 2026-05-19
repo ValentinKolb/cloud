@@ -1,19 +1,16 @@
-import type { Context } from "hono";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
-import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import { gridsService } from "../service";
+import type { AuthContext, PermissionLevel } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import type { Context } from "hono";
 import type { Grant, ResolveTarget, ResourceType } from "../service";
+import { gridsService } from "../service";
 
 /**
  * Loads grants for the current user and resolves the effective permission
  * for a (base | table | view) target. Returns the effective level or null
  * if the user is denied. Routes typically pass the result to {@link gateAt}.
  */
-export const effectivePermission = async (
-  c: Context<AuthContext>,
-  target: ResolveTarget,
-): Promise<PermissionLevel> => {
+const effectivePermission = async (c: Context<AuthContext>, target: ResolveTarget): Promise<PermissionLevel> => {
   const user = c.get("user");
   // Platform admins bypass per-resource ACLs — same convention as spaces /
   // contacts. Without this, even ops staff couldn't troubleshoot or recover
@@ -86,10 +83,5 @@ export const resolveWithGrants = async (
  * resource. Platform admin path returns true unconditionally — admin
  * bypass means "treat as if everything is granted to me".
  */
-export const hasExplicitGrant = (
-  grants: Grant[],
-  isAdmin: boolean,
-  resourceType: ResourceType,
-  resourceId: string,
-): boolean =>
+export const hasExplicitGrant = (grants: Grant[], isAdmin: boolean, resourceType: ResourceType, resourceId: string): boolean =>
   isAdmin || gridsService.permission.hasGrantsForResource(grants, resourceType, resourceId);

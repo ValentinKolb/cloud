@@ -1,10 +1,10 @@
 import { Checkbox, DialogHeader, dialogCore, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, Show } from "solid-js";
-import type { Field } from "../../service";
-import type { FormatSpec } from "../../service/views";
-import { TYPE_LABELS } from "./field-config-editor";
+import type { Field } from "../../../service";
+import type { FormatSpec } from "../../../service/views";
+import { TYPE_LABELS } from "../fields/field-config-editor";
 
-export type ViewColumnSettingsResult = { action: "save"; label: string | undefined; format: FormatSpec | undefined } | { action: "hide" };
+type ViewColumnSettingsResult = { action: "save"; label: string | undefined; format: FormatSpec | undefined } | { action: "hide" };
 
 type Args = {
   title: string;
@@ -88,9 +88,7 @@ export function ColumnFormatControls(props: {
   );
   const [customNumber, setCustomNumber] = createSignal(props.currentFormat?.kind === "decimal");
   const [precision, setPrecision] = createSignal<number | null>(
-    props.currentFormat?.kind === "decimal" && props.currentFormat.precision !== undefined
-      ? props.currentFormat.precision
-      : null,
+    props.currentFormat?.kind === "decimal" && props.currentFormat.precision !== undefined ? props.currentFormat.precision : null,
   );
   const [thousandsSeparator, setThousandsSeparator] = createSignal(
     props.currentFormat?.kind === "decimal" ? Boolean(props.currentFormat.thousandsSeparator) : false,
@@ -98,19 +96,21 @@ export function ColumnFormatControls(props: {
   const [customPercent, setCustomPercent] = createSignal(props.currentFormat?.kind === "percent");
   const [progress, setProgress] = createSignal(props.currentFormat?.kind === "progress");
   const [progressLabel, setProgressLabel] = createSignal<ProgressLabelChoice>(
-    props.currentFormat?.kind === "progress" ? props.currentFormat.label ?? "percent" : "percent",
+    props.currentFormat?.kind === "progress" ? (props.currentFormat.label ?? "percent") : "percent",
   );
   const [formulaFormat, setFormulaFormat] = createSignal<FormulaFormatChoice>(
-    props.currentFormat?.kind === "decimal" ? "number"
-      : props.currentFormat?.kind === "percent" ? "percent"
-      : props.currentFormat?.kind === "date" ? "date"
-      : props.currentFormat?.kind === "progress" ? "progress"
-      : "default",
+    props.currentFormat?.kind === "decimal"
+      ? "number"
+      : props.currentFormat?.kind === "percent"
+        ? "percent"
+        : props.currentFormat?.kind === "date"
+          ? "date"
+          : props.currentFormat?.kind === "progress"
+            ? "progress"
+            : "default",
   );
   const [percentPrecision, setPercentPrecision] = createSignal<number | null>(
-    props.currentFormat?.kind === "percent" && props.currentFormat.precision !== undefined
-      ? props.currentFormat.precision
-      : null,
+    props.currentFormat?.kind === "percent" && props.currentFormat.precision !== undefined ? props.currentFormat.precision : null,
   );
 
   const touch =
@@ -135,7 +135,8 @@ export function ColumnFormatControls(props: {
         : undefined;
     }
     if (fieldType() === "formula") {
-      if (formulaFormat() === "number") return { kind: "decimal", precision: precision() ?? undefined, thousandsSeparator: thousandsSeparator() };
+      if (formulaFormat() === "number")
+        return { kind: "decimal", precision: precision() ?? undefined, thousandsSeparator: thousandsSeparator() };
       if (formulaFormat() === "percent") return { kind: "percent", precision: percentPrecision() ?? undefined };
       if (formulaFormat() === "date") {
         const fmt = dateFormat();
@@ -212,7 +213,14 @@ export function ColumnFormatControls(props: {
                   </div>
                 </Show>
                 <Show when={fieldType() === "formula" && formulaFormat() === "percent"}>
-                  <NumberInput label="Decimal places" min={0} max={10} value={percentPrecision} onInput={touch(setPercentPrecision)} clearable />
+                  <NumberInput
+                    label="Decimal places"
+                    min={0}
+                    max={10}
+                    value={percentPrecision}
+                    onInput={touch(setPercentPrecision)}
+                    clearable
+                  />
                 </Show>
                 <Show when={fieldType() === "formula" && formulaFormat() === "date"}>
                   <Select
@@ -229,10 +237,17 @@ export function ColumnFormatControls(props: {
                   <Checkbox label="Include time" value={includeTime} onChange={touch(setIncludeTime)} />
                 </Show>
                 <Show when={fieldType() === "percent" && !progress()}>
-                <Checkbox label="Custom percent format" value={customPercent} onChange={touch(setCustomPercent)} />
-                <Show when={customPercent()}>
-                  <NumberInput label="Decimal places" min={0} max={10} value={percentPrecision} onInput={touch(setPercentPrecision)} clearable />
-                </Show>
+                  <Checkbox label="Custom percent format" value={customPercent} onChange={touch(setCustomPercent)} />
+                  <Show when={customPercent()}>
+                    <NumberInput
+                      label="Decimal places"
+                      min={0}
+                      max={10}
+                      value={percentPrecision}
+                      onInput={touch(setPercentPrecision)}
+                      clearable
+                    />
+                  </Show>
                 </Show>
               </Show>
             }

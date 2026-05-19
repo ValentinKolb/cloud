@@ -3,9 +3,9 @@ import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, Select, Text
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Base, Dashboard, Field, Form, Table } from "../../service";
-import { errorMessage } from "./api-helpers";
-import { SectionCard } from "./SectionCard";
+import type { Base, Dashboard, Field, Form, Table } from "../../../service";
+import { errorMessage } from "../utils/api-helpers";
+import { SectionCard } from "../utils/SectionCard";
 
 type TrashResponse = {
   tables: Table[];
@@ -47,15 +47,8 @@ export default function BaseSettingsPanel(props: Props) {
         <GeneralForm base={props.base} />
       </SectionCard>
 
-      <SectionCard
-        title="Default dashboard"
-        subtitle="Shown when opening this base directly. Tables remain accessible from the sidebar."
-      >
-        <DefaultDashboardSelect
-          baseId={props.base.id}
-          initial={props.base.defaultDashboardId}
-          dashboards={props.dashboards}
-        />
+      <SectionCard title="Default dashboard" subtitle="Shown when opening this base directly. Tables remain accessible from the sidebar.">
+        <DefaultDashboardSelect baseId={props.base.id} initial={props.base.defaultDashboardId} dashboards={props.dashboards} />
         {/* Source-permission caveat — dashboards have their own ACL,
             but the data they pull from views/tables is checked at
             render time without an extra cascade. A shared dashboard
@@ -66,8 +59,7 @@ export default function BaseSettingsPanel(props: Props) {
         <div class="info-block-warning text-xs flex items-start gap-2 mt-3">
           <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
           <span>
-            Shared dashboards can surface data from views/tables a viewer
-            can't read directly. Make sure the source views match the
+            Shared dashboards can surface data from views/tables a viewer can't read directly. Make sure the source views match the
             dashboard's audience.
           </span>
         </div>
@@ -157,17 +149,11 @@ function TrashSection(props: { baseId: string }) {
   };
 
   return (
-    <Show
-      when={!trash.loading}
-      fallback={<p class="text-xs text-dimmed">Loading…</p>}
-    >
+    <Show when={!trash.loading} fallback={<p class="text-xs text-dimmed">Loading…</p>}>
       <Show
         when={
           trash() &&
-          (trash()!.tables.length > 0 ||
-            trash()!.fields.length > 0 ||
-            trash()!.dashboards.length > 0 ||
-            trash()!.forms.length > 0)
+          (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.dashboards.length > 0 || trash()!.forms.length > 0)
         }
         fallback={<p class="text-xs text-dimmed py-1">Trash is empty.</p>}
       >
@@ -177,12 +163,7 @@ function TrashSection(props: { baseId: string }) {
               <p class="text-xs font-medium text-secondary">Tables</p>
               <For each={trash()!.tables}>
                 {(t) => (
-                  <TrashRow
-                    icon="ti-table"
-                    name={t.name}
-                    deletedAt={formatDeletedAt(t.deletedAt)}
-                    onRestore={() => restoreTable(t.id)}
-                  />
+                  <TrashRow icon="ti-table" name={t.name} deletedAt={formatDeletedAt(t.deletedAt)} onRestore={() => restoreTable(t.id)} />
                 )}
               </For>
             </div>
@@ -192,12 +173,7 @@ function TrashSection(props: { baseId: string }) {
               <p class="text-xs font-medium text-secondary">Fields</p>
               <For each={trash()!.fields}>
                 {(f) => (
-                  <TrashRow
-                    icon="ti-columns"
-                    name={f.name}
-                    deletedAt={formatDeletedAt(f.deletedAt)}
-                    onRestore={() => restoreField(f.id)}
-                  />
+                  <TrashRow icon="ti-columns" name={f.name} deletedAt={formatDeletedAt(f.deletedAt)} onRestore={() => restoreField(f.id)} />
                 )}
               </For>
             </div>
@@ -238,12 +214,7 @@ function TrashSection(props: { baseId: string }) {
   );
 }
 
-function TrashRow(props: {
-  icon: string;
-  name: string;
-  deletedAt: string;
-  onRestore: () => void;
-}) {
+function TrashRow(props: { icon: string; name: string; deletedAt: string; onRestore: () => void }) {
   return (
     <div class="flex items-center gap-2 py-1.5">
       <i class={`ti ${props.icon} text-dimmed shrink-0`} />
@@ -251,12 +222,7 @@ function TrashRow(props: {
       <Show when={props.deletedAt}>
         <span class="text-[11px] text-dimmed">deleted {props.deletedAt}</span>
       </Show>
-      <button
-        type="button"
-        class="btn-simple btn-sm shrink-0"
-        onClick={props.onRestore}
-        title="Restore"
-      >
+      <button type="button" class="btn-simple btn-sm shrink-0" onClick={props.onRestore} title="Restore">
         <i class="ti ti-arrow-back-up" /> Restore
       </button>
     </div>
@@ -326,11 +292,7 @@ function GeneralForm(props: { base: { id: string; name: string; description: str
  * The "(none)" option is always present so users can clear the
  * default; that PATCHes `defaultDashboardId: null`.
  */
-function DefaultDashboardSelect(props: {
-  baseId: string;
-  initial: string | null;
-  dashboards: Dashboard[];
-}) {
+function DefaultDashboardSelect(props: { baseId: string; initial: string | null; dashboards: Dashboard[] }) {
   const [value, setValue] = createSignal<string>(props.initial ?? "");
 
   const mutation = mutations.create<void, string | null>({
@@ -355,11 +317,7 @@ function DefaultDashboardSelect(props: {
   };
 
   if (props.dashboards.length === 0) {
-    return (
-      <p class="text-xs text-dimmed">
-        No dashboards on this base yet. Create one from the records sidebar to enable this setting.
-      </p>
-    );
+    return <p class="text-xs text-dimmed">No dashboards on this base yet. Create one from the records sidebar to enable this setting.</p>;
   }
 
   return (
@@ -367,10 +325,7 @@ function DefaultDashboardSelect(props: {
       label="Default dashboard"
       value={value}
       onChange={onChange}
-      options={[
-        { id: "", label: "(none)" },
-        ...props.dashboards.map((d) => ({ id: d.id, label: d.name })),
-      ]}
+      options={[{ id: "", label: "(none)" }, ...props.dashboards.map((d) => ({ id: d.id, label: d.name }))]}
       icon="ti ti-layout-dashboard"
     />
   );

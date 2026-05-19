@@ -1,8 +1,8 @@
 import Decimal from "decimal.js";
 
-export const NUMERIC_STRING = /^-?\d+(\.\d+)?$/;
+const NUMERIC_STRING = /^-?\d+(\.\d+)?$/;
 
-export type DecimalValue = {
+type DecimalValue = {
   decimal: Decimal;
   exact: boolean;
 };

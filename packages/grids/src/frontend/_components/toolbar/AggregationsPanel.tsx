@@ -1,15 +1,8 @@
-import { Index, createMemo } from "solid-js";
 import { Select, TextInput } from "@valentinkolb/cloud/ui";
-import type { Field } from "../../service";
+import { createMemo, Index } from "solid-js";
+import type { Field } from "../../../service";
 
-export type AggKindUI =
-  | "count"
-  | "countEmpty"
-  | "countUnique"
-  | "sum"
-  | "avg"
-  | "min"
-  | "max";
+export type AggKindUI = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
 
 export type AggregationRow = {
   /** "*" is shorthand for COUNT(*) — count of records in the bucket. */
@@ -33,13 +26,7 @@ type Props = {
   onRowsChange: (next: AggregationRow[]) => void;
 };
 
-const NUMERIC_TYPES = new Set([
-  "number",
-  "decimal",
-  "percent",
-  "duration",
-  "autonumber",
-]);
+const NUMERIC_TYPES = new Set(["number", "decimal", "percent", "duration", "autonumber"]);
 const DATE_TYPES = new Set(["date"]);
 
 /** Aggs that can be applied to a given field. Mirrors `isAggregatable`
@@ -48,8 +35,7 @@ const aggsForField = (f: Field | null): AggKindUI[] => {
   if (!f) return ["count"]; // "*" only supports count
   const out: AggKindUI[] = ["count", "countEmpty", "countUnique"];
   if (NUMERIC_TYPES.has(f.type)) out.push("sum", "avg", "min", "max");
-  else if (DATE_TYPES.has(f.type) || f.type === "text" || f.type === "longtext")
-    out.push("min", "max");
+  else if (DATE_TYPES.has(f.type) || f.type === "text" || f.type === "longtext") out.push("min", "max");
   return out;
 };
 
@@ -68,52 +54,34 @@ const AGG_LABELS: Record<AggKindUI, string> = {
  *  count entry. */
 const aggregatableFields = (fields: Field[]): Field[] =>
   fields.filter(
-    (f) =>
-      !f.deletedAt &&
-      f.type !== "relation" &&
-      f.type !== "lookup" &&
-      f.type !== "rollup" &&
-      f.type !== "formula" &&
-      f.type !== "json"
+    (f) => !f.deletedAt && f.type !== "relation" && f.type !== "lookup" && f.type !== "rollup" && f.type !== "formula" && f.type !== "json",
   );
 
-export const blankAggregationRow = (): AggregationRow => ({
+const blankAggregationRow = (): AggregationRow => ({
   fieldId: "*",
   agg: "count",
 });
 
-export const isAggregationRowComplete = (row: AggregationRow): boolean =>
-  Boolean(row.fieldId && row.agg);
+export const isAggregationRowComplete = (row: AggregationRow): boolean => Boolean(row.fieldId && row.agg);
 
 export default function AggregationsPanel(props: Props) {
   const eligibleFields = createMemo(() => aggregatableFields(props.fields));
-  const fieldsById = createMemo(
-    () => new Map(props.fields.map((f) => [f.id, f]))
-  );
+  const fieldsById = createMemo(() => new Map(props.fields.map((f) => [f.id, f])));
 
   const updateRow = (index: number, patch: Partial<AggregationRow>) => {
-    props.onRowsChange(
-      props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r))
-    );
+    props.onRowsChange(props.rows().map((r, i) => (i === index ? { ...r, ...patch } : r)));
   };
 
-  const addRow = () =>
-    props.onRowsChange([...props.rows(), blankAggregationRow()]);
+  const addRow = () => props.onRowsChange([...props.rows(), blankAggregationRow()]);
 
-  const removeRow = (index: number) =>
-    props.onRowsChange(props.rows().filter((_, i) => i !== index));
+  const removeRow = (index: number) => props.onRowsChange(props.rows().filter((_, i) => i !== index));
 
   return (
     <div class="flex flex-col gap-1.5">
       <Index each={props.rows()}>
         {(rowSignal, index) => {
-          const fld = () =>
-            rowSignal().fieldId === "*"
-              ? null
-              : fieldsById().get(rowSignal().fieldId as string) ?? null;
-          const aggOptions = createMemo(() =>
-            aggsForField(fld()).map((k) => ({ id: k, label: AGG_LABELS[k] }))
-          );
+          const fld = () => (rowSignal().fieldId === "*" ? null : (fieldsById().get(rowSignal().fieldId as string) ?? null));
+          const aggOptions = createMemo(() => aggsForField(fld()).map((k) => ({ id: k, label: AGG_LABELS[k] })));
           return (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
               <div class="w-40 shrink-0">
@@ -134,11 +102,7 @@ export default function AggregationsPanel(props: Props) {
                 />
               </div>
               <div class="w-32 shrink-0">
-                <Select
-                  value={() => rowSignal().agg}
-                  onChange={(v) => updateRow(index, { agg: v as AggKindUI })}
-                  options={aggOptions()}
-                />
+                <Select value={() => rowSignal().agg} onChange={(v) => updateRow(index, { agg: v as AggKindUI })} options={aggOptions()} />
               </div>
               <div class="w-40 shrink-0">
                 {/* Optional column-header override. Empty → renderer uses
@@ -153,12 +117,7 @@ export default function AggregationsPanel(props: Props) {
                   placeholder="Column label"
                 />
               </div>
-              <button
-                type="button"
-                class="text-dimmed hover:text-red-500 px-1"
-                onClick={() => removeRow(index)}
-                title="Remove aggregation"
-              >
+              <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeRow(index)} title="Remove aggregation">
                 <i class="ti ti-x" />
               </button>
             </div>
@@ -167,11 +126,7 @@ export default function AggregationsPanel(props: Props) {
       </Index>
 
       <div class="flex items-center gap-1">
-        <button
-          type="button"
-          class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700"
-          onClick={addRow}
-        >
+        <button type="button" class="btn-simple btn-sm text-emerald-600 hover:text-emerald-700" onClick={addRow}>
           <i class="ti ti-plus" /> Add
         </button>
       </div>

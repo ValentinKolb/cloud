@@ -50,7 +50,7 @@ export type ProjectionKind =
   | "json" // free-form JSON; data->id; no scalar projection
   | "unknown"; // unrecognised field type — defensive fallback
 
-export type FormatKind =
+type FormatKind =
   | "text"
   | "longtext"
   | "number"
@@ -68,7 +68,7 @@ export type FormatKind =
   | "system"
   | "unknown";
 
-export type StorageDescriptor = {
+type StorageDescriptor = {
   kind: ProjectionKind;
   /**
    * SQL fragment for this field's value in the given table alias's
@@ -350,12 +350,3 @@ const UNKNOWN_DESCRIPTOR: StorageDescriptor = {
  * silently coerces.
  */
 export const storageOf = (field: Field): StorageDescriptor => STORAGE[field.type] ?? UNKNOWN_DESCRIPTOR;
-
-/** Pure capability check — used by the saved-view query validator
- *  (Wave 4.x) to reject saved queries whose fields can't actually run
- *  in the requested op family. */
-export const canSort = (field: Field): boolean => storageOf(field).sortable;
-export const canFilter = (field: Field): boolean => storageOf(field).filterable;
-export const canGroup = (field: Field): boolean => storageOf(field).groupable;
-export const canAggregate = (field: Field): boolean => storageOf(field).aggregatable;
-export const canSearch = (field: Field): boolean => storageOf(field).searchable;

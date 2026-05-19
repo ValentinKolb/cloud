@@ -113,7 +113,7 @@ const runInClient = async (client: SqlClient, fromRecordId: string, fromFieldId:
  *
  * Empty record list or empty field list → empty map.
  */
-export const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Promise<Map<string, Map<string, string[]>>> => {
+const readRecordLinksBatch = async (recordIds: string[], fieldIds: string[]): Promise<Map<string, Map<string, string[]>>> => {
   const out = new Map<string, Map<string, string[]>>();
   if (recordIds.length === 0 || fieldIds.length === 0) return out;
   const recArr = `{${recordIds.join(",")}}`;
@@ -353,7 +353,7 @@ export const buildRelationLabelCache = async (records: GridRecord[], fields: Fie
  * already raw target-record UUIDs, not records on the source table)
  * can reuse the lookup without manufacturing a fake `GridRecord[]`.
  */
-export const resolveLabelsByTargetTable = async (idsByTargetTable: Map<string, Set<string>>): Promise<Record<string, string>> => {
+const resolveLabelsByTargetTable = async (idsByTargetTable: Map<string, Set<string>>): Promise<Record<string, string>> => {
   const cache: Record<string, string> = {};
   if (idsByTargetTable.size === 0) return cache;
 
@@ -546,7 +546,7 @@ export const buildRelationExpansionCache = async (
  * source table) can call it directly when we wire group-bucket
  * expansion in a later phase.
  */
-export const resolveExpansionByTargetTable = async (
+const resolveExpansionByTargetTable = async (
   idsByTargetTable: Map<string, Set<string>>,
 ): Promise<Record<string, Record<string, unknown>>> => {
   const out: Record<string, Record<string, unknown>> = {};

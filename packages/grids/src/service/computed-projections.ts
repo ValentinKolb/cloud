@@ -26,7 +26,7 @@ import type { Field } from "./types";
  * each subquery a tiny index scan.
  */
 
-export type ComputedProjection = {
+type ComputedProjection = {
   /** The lookup/rollup field whose value this projection produces. */
   fieldId: string;
   /** SQL alias under which the value is exposed in the SELECT list. */

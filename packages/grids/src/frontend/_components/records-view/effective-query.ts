@@ -25,17 +25,13 @@ import type { RecordsState } from "./query-url";
  * view with user customizations layered on top, or pure ad-hoc URL
  * state. The UI uses this to surface a "filter modified" badge.
  */
-export type EffectiveQuery = ViewQuery & {
+type EffectiveQuery = ViewQuery & {
   source: "ad-hoc" | "view" | "view-customized";
 };
 
-const isNonEmpty = <T>(v: T[] | undefined): v is T[] =>
-  Array.isArray(v) && v.length > 0;
+const isNonEmpty = <T>(v: T[] | undefined): v is T[] => Array.isArray(v) && v.length > 0;
 
-export const resolveEffectiveQuery = (
-  state: RecordsState,
-  view: View | null,
-): EffectiveQuery => {
+export const resolveEffectiveQuery = (state: RecordsState, view: View | null): EffectiveQuery => {
   if (!view) {
     const q = state.search.q.trim();
     return {
@@ -55,20 +51,14 @@ export const resolveEffectiveQuery = (
   const merged: ViewQuery = {
     filter: state.query.filter ?? view.query.filter,
     search: state.search.override
-      ? (state.search.q.trim()
-          ? { q: state.search.q.trim(), fieldIds: state.search.fieldIds }
-          : undefined)
+      ? state.search.q.trim()
+        ? { q: state.search.q.trim(), fieldIds: state.search.fieldIds }
+        : undefined
       : view.query.search,
     sort: isNonEmpty(state.query.sort) ? state.query.sort : view.query.sort,
-    groupBy: isNonEmpty(state.query.groupBy)
-      ? state.query.groupBy
-      : view.query.groupBy,
-    groupSort: isNonEmpty(state.query.groupSort)
-      ? state.query.groupSort
-      : view.query.groupSort,
-    aggregations: isNonEmpty(state.query.aggregations)
-      ? state.query.aggregations
-      : view.query.aggregations,
+    groupBy: isNonEmpty(state.query.groupBy) ? state.query.groupBy : view.query.groupBy,
+    groupSort: isNonEmpty(state.query.groupSort) ? state.query.groupSort : view.query.groupSort,
+    aggregations: isNonEmpty(state.query.aggregations) ? state.query.aggregations : view.query.aggregations,
     includeDeleted: state.query.includeDeleted ?? view.query.includeDeleted,
     deletedOnly: state.query.deletedOnly ?? view.query.deletedOnly,
     columns: view.query.columns,

@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 import type { Widget } from "../../../service";
-import DatabaseTable from "../DatabaseTable";
+import DatabaseTable from "../table/DatabaseTable";
 import type { WidgetData } from "./widget-data";
 
 type Props = {

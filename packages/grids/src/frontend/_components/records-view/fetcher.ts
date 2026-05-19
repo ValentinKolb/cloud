@@ -14,9 +14,7 @@
 import { apiClient } from "../../../api/client";
 import type { TableQueryBody, TableQueryResult, ViewQuery } from "../../../contracts";
 
-export type { TableQueryResult };
-
-export type FetchTableQueryArgs = {
+type FetchTableQueryArgs = {
   tableId: string;
   query: ViewQuery;
   cursor: string | null;
@@ -29,16 +27,16 @@ export type FetchTableQueryArgs = {
  * surface 400-vs-500 differently in the UI.
  */
 export class TableQueryError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
     super(message);
     this.name = "TableQueryError";
   }
 }
 
-export const fetchTableQuery = async (
-  args: FetchTableQueryArgs,
-  opts: { signal?: AbortSignal } = {},
-): Promise<TableQueryResult> => {
+export const fetchTableQuery = async (args: FetchTableQueryArgs, opts: { signal?: AbortSignal } = {}): Promise<TableQueryResult> => {
   const body: TableQueryBody = {
     query: args.query,
     cursor: args.cursor ?? undefined,

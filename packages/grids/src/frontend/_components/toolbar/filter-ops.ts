@@ -1,4 +1,4 @@
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 
 export type FilterOp = {
   /** Op identifier sent to the API. */
@@ -93,7 +93,7 @@ export const opsForType = (type: string): FilterOp[] => {
  * Returns true if a field type can be filtered via the UI. System fields
  * and unsupported types fall through.
  */
-export const isFilterable = (type: string): boolean => opsForType(type).length > 0;
+const isFilterable = (type: string): boolean => opsForType(type).length > 0;
 
 /**
  * Filter fields available for the filter UI. Excludes deleted fields and

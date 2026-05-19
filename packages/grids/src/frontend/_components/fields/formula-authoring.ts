@@ -1,5 +1,5 @@
 import type { Completion, SuggestContext, Suggestion } from "@valentinkolb/cloud/ui";
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 
 type FormulaValueType = "any" | "number" | "text" | "boolean" | "date";
 
@@ -8,7 +8,7 @@ type FormulaArg = {
   type: FormulaValueType;
 };
 
-export type FormulaFunction = {
+type FormulaFunction = {
   name: string;
   signature: string;
   description: string;
@@ -16,7 +16,7 @@ export type FormulaFunction = {
   returnType: FormulaValueType;
 };
 
-export type FormulaFieldRef = {
+type FormulaFieldRef = {
   id: string;
   shortId: string;
   name: string;

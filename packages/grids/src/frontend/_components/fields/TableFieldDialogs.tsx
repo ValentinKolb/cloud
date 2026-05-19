@@ -3,13 +3,13 @@ import { CheckboxCard, dialogCore, IconInput, PermissionEditor, prompts, Select,
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec } from "../../contracts";
-import type { Field } from "../../service";
-import { errorMessage } from "./api-helpers";
-import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
+import type { ColumnSpec } from "../../../contracts";
+import type { Field } from "../../../service";
+import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
+import { FieldInput } from "../forms/form-fields";
+import { errorMessage } from "../utils/api-helpers";
 import { FIELD_TYPE_DESCRIPTIONS, FieldConfigEditor, type FieldConfigState, TYPE_LABELS } from "./field-config-editor";
-import { FieldInput } from "./form-fields";
-import { ColumnFormatControls, type ColumnFormatControlsHandle } from "./ViewColumnSettingsDialog";
 
 export type TableHeader = {
   id: string;
@@ -41,7 +41,7 @@ export type TableHeader = {
 // delete close the dialog after the parent's state-update callbacks
 // fire, so the page list reflects the change immediately.
 
-export type OpenFieldEditArgs = {
+type OpenFieldEditArgs = {
   field: Field;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;

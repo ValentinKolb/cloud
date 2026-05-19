@@ -1,8 +1,8 @@
 import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
-import type { Field, Form } from "../../service";
-import { errorMessage } from "./api-helpers";
-import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-fields";
+import type { Field, Form } from "../../../service";
+import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
+import { errorMessage } from "../utils/api-helpers";
 
 /**
  * Open a modal that lets an authenticated user fill out a form and
@@ -18,39 +18,18 @@ import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-field
  *   redirecting away — fits the modal context where the user came in
  *   to add a single record and likely wants to add more in a row.
  */
-export const openFormModal = (
-  form: Form,
-  fields: Field[],
-  options: { onSubmitted?: () => void } = {},
-) =>
-  prompts.dialog<void>(
-    (close) => (
-      <FormSubmitBody
-        form={form}
-        fields={fields}
-        onSubmitted={options.onSubmitted}
-        close={close}
-      />
-    ),
-    {
-      title: form.config.title ?? form.name,
-      icon: "ti ti-forms",
-      size: "large",
-    },
-  );
+export const openFormModal = (form: Form, fields: Field[], options: { onSubmitted?: () => void } = {}) =>
+  prompts.dialog<void>((close) => <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} close={close} />, {
+    title: form.config.title ?? form.name,
+    icon: "ti ti-forms",
+    size: "large",
+  });
 
-function FormSubmitBody(props: {
-  form: Form;
-  fields: Field[];
-  onSubmitted?: () => void;
-  close: (result?: void) => void;
-}) {
+function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () => void; close: (result?: void) => void }) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
 
-  const [values, setValues] = createSignal<Record<string, unknown>>(
-    buildInitialValues(entries),
-  );
+  const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
@@ -97,11 +76,7 @@ function FormSubmitBody(props: {
     <Show
       when={!done()}
       fallback={
-        <SuccessState
-          message={props.form.config.successMessage ?? "Saved."}
-          onOk={() => props.close()}
-          onAddAnother={handleAddAnother}
-        />
+        <SuccessState message={props.form.config.successMessage ?? "Saved."} onOk={() => props.close()} onAddAnother={handleAddAnother} />
       }
     >
       <form class="flex flex-col gap-3" onSubmit={handleSubmit}>
@@ -115,13 +90,7 @@ function FormSubmitBody(props: {
             stretched a square logo to ~192 px tall and covered most
             of the modal. */}
         <Show when={props.form.config.titleImage}>
-          {(src) => (
-            <img
-              src={src()}
-              alt=""
-              class="w-full max-h-24 rounded-md object-contain"
-            />
-          )}
+          {(src) => <img src={src()} alt="" class="w-full max-h-24 rounded-md object-contain" />}
         </Show>
         <Show when={props.form.config.description}>
           <p class="text-sm text-dimmed">{props.form.config.description}</p>
@@ -131,14 +100,7 @@ function FormSubmitBody(props: {
           {(entry) => {
             const field = fieldsById.get(entry.fieldId);
             if (!field || field.deletedAt) return null;
-            return (
-              <FieldInput
-                field={field}
-                entry={entry}
-                value={values()[entry.fieldId]}
-                onChange={(v) => setValue(entry.fieldId, v)}
-              />
-            );
+            return <FieldInput field={field} entry={entry} value={values()[entry.fieldId]} onChange={(v) => setValue(entry.fieldId, v)} />;
           }}
         </For>
 
@@ -167,12 +129,7 @@ function FormSubmitBody(props: {
             )}
           </Show>
           <div class="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              class="btn-simple btn-sm"
-              onClick={() => props.close()}
-              disabled={submitting()}
-            >
+            <button type="button" class="btn-simple btn-sm" onClick={() => props.close()} disabled={submitting()}>
               Cancel
             </button>
             <button type="submit" class="btn-primary btn-sm" disabled={submitting()}>
@@ -188,11 +145,7 @@ function FormSubmitBody(props: {
   );
 }
 
-function SuccessState(props: {
-  message: string;
-  onOk: () => void;
-  onAddAnother: () => void;
-}) {
+function SuccessState(props: { message: string; onOk: () => void; onAddAnother: () => void }) {
   return (
     <div class="flex flex-col items-center gap-4 py-4 text-center">
       <div class="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">

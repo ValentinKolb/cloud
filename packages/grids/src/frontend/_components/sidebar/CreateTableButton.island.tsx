@@ -1,8 +1,8 @@
-import { prompts, navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
-import type { Table } from "../../service";
-import { errorMessage } from "./api-helpers";
+import type { Table } from "../../../service";
+import { errorMessage } from "../utils/api-helpers";
 
 export default function CreateTableButton(props: { baseId: string; baseShortId: string }) {
   const createMutation = mutations.create<Table, { name: string }>({

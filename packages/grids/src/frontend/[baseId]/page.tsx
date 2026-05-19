@@ -6,18 +6,18 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import type { Field, FilterTree, SortSpec } from "../../service";
 import { gridsService } from "../../service";
-import { filterSearchableFields } from "../../service/search";
-import CreateDashboardButton from "../_components/CreateDashboardButton.island";
-import CreateTableButton from "../_components/CreateTableButton.island";
-import DashboardWysiwygEditor from "../_components/DashboardWysiwygEditor.island";
-import DashboardLayout from "../_components/dashboard/DashboardLayout";
 import { resolveWidgetData, type WidgetData } from "../../service/dashboard-widget-data";
-import FormSidebarEntry from "../_components/FormSidebarEntry.island";
-import RememberGridsPath from "../_components/RememberGridsPath.island";
-import type { GroupBucket } from "../_components/GroupedTable";
+import { filterSearchableFields } from "../../service/search";
+import DashboardLayout from "../_components/dashboard/DashboardLayout";
+import DashboardWysiwygEditor from "../_components/dashboard/DashboardWysiwygEditor.island";
 import { resolveEffectiveQuery } from "../_components/records-view/effective-query";
 import { parseRecordsState } from "../_components/records-view/query-url";
 import RecordsView from "../_components/records-view/RecordsView.island";
+import CreateDashboardButton from "../_components/sidebar/CreateDashboardButton.island";
+import CreateTableButton from "../_components/sidebar/CreateTableButton.island";
+import FormSidebarEntry from "../_components/sidebar/FormSidebarEntry.island";
+import RememberGridsPath from "../_components/sidebar/RememberGridsPath.island";
+import type { GroupBucket } from "../_components/table/GroupedTable";
 
 type AuthUser = Parameters<typeof hasRole>[0] & {
   id: string;

@@ -1,9 +1,9 @@
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { AppOverview, prompts, navigateTo, Pagination, TextInput } from "@valentinkolb/cloud/ui";
+import { AppOverview, navigateTo, Pagination, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations, timed } from "@valentinkolb/stdlib/solid";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Base } from "../../service";
-import { errorMessage } from "./api-helpers";
+import type { Base } from "../../../service";
+import { errorMessage } from "../utils/api-helpers";
 
 type TemplateSummary = {
   id: string;

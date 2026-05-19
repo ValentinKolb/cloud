@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
-import type { Field, Form } from "../../service";
-import { errorMessage } from "./api-helpers";
+import type { Field, Form } from "../../../service";
+import { errorMessage } from "../utils/api-helpers";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-fields";
 
 type Props = {

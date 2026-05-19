@@ -8,7 +8,7 @@ export type SortSpec = {
   nullsFirst?: boolean;
 };
 
-export type CompiledSort = {
+type CompiledSort = {
   /** ORDER BY fragments ready to be embedded after a WHERE clause. */
   orderBy: any;
   /** Cursor predicate fragment for keyset pagination, or null if no cursor. */

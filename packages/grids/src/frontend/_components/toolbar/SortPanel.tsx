@@ -1,6 +1,6 @@
 import { Select } from "@valentinkolb/cloud/ui";
 import { createMemo, Index } from "solid-js";
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 
 export type SortRow = { fieldId: string; direction: "asc" | "desc" };
 
@@ -15,9 +15,9 @@ type Props = {
   onRowsChange: (next: SortRow[]) => void;
 };
 
-export const SORTABLE_TYPES = new Set(["text", "longtext", "number", "decimal", "autonumber", "date", "boolean"]);
+const SORTABLE_TYPES = new Set(["text", "longtext", "number", "decimal", "autonumber", "date", "boolean"]);
 
-export const sortableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && SORTABLE_TYPES.has(f.type));
+const sortableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && SORTABLE_TYPES.has(f.type));
 
 export const isSortRowComplete = (row: SortRow, fields: Field[]): boolean =>
   Boolean(row.fieldId && fields.some((f) => f.id === row.fieldId));

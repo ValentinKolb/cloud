@@ -3,11 +3,11 @@ import { Checkbox, dialogCore, IconInput, navigateTo, PermissionEditor, prompts,
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Field, View } from "../../service";
-import type { ViewQuery } from "../../service/views";
-import { errorMessage } from "./api-helpers";
+import type { Field, View } from "../../../service";
+import type { ViewQuery } from "../../../service/views";
+import { errorMessage } from "../utils/api-helpers";
+import { SectionCard } from "../utils/SectionCard";
 import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
-import { SectionCard } from "./SectionCard";
 
 type Props = {
   baseShortId: string;

@@ -1,10 +1,10 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, Pagination, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
 import { gridsService } from "../service";
-import AdminGridsSettings from "./_components/AdminGridsSettings.island";
+import AdminGridsSettings from "./_components/settings/AdminGridsSettings.island";
 
 const PER_PAGE = 100;
 

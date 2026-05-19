@@ -1,7 +1,7 @@
-import { Show, createSignal } from "solid-js";
 import { FilterChip, TextInput } from "@valentinkolb/cloud/ui";
 import { timed as timing } from "@valentinkolb/stdlib/solid";
-import type { Field } from "../../service";
+import { createSignal, Show } from "solid-js";
+import type { Field } from "../../../service";
 
 type Props = {
   /** Fields the server-side search compiler can search. */
@@ -45,7 +45,7 @@ export default function SearchBar(props: Props) {
   };
 
   const allFieldsLabel = () => {
-    if (qFields().length === 0) return "All columns";
+    if (qFields().length === 0) return "Search all";
     if (qFields().length === 1) {
       const f = props.fields.find((f) => f.id === qFields()[0]);
       return f?.name ?? "1 column";
@@ -74,7 +74,10 @@ export default function SearchBar(props: Props) {
           icon="ti ti-columns"
           options={[
             {
-              options: props.fields.map((f) => ({ value: f.id, label: f.name })),
+              options: props.fields.map((f) => ({
+                value: f.id,
+                label: f.name,
+              })),
               multiple: true,
             },
           ]}

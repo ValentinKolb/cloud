@@ -37,10 +37,7 @@ import type { ViewQuery } from "../../../contracts";
  * sibling `search` field. Narrowing the type makes the round-trip
  * `parse(build(s)) === s` actually hold for every well-formed state.
  */
-export type RecordsUrlQuery = Pick<
-  ViewQuery,
-  "filter" | "sort" | "groupBy" | "groupSort" | "aggregations" | "includeDeleted" | "deletedOnly"
->;
+type RecordsUrlQuery = Pick<ViewQuery, "filter" | "sort" | "groupBy" | "groupSort" | "aggregations" | "includeDeleted" | "deletedOnly">;
 
 export type RecordsState = {
   query: RecordsUrlQuery;
@@ -62,18 +59,10 @@ const tryParseJson = <T>(raw: string | null | undefined): T | null => {
 };
 
 /** Tolerant typed-array parser — keeps only entries with the required keys. */
-const tryParseArray = <T extends Record<string, unknown>>(
-  raw: string | null | undefined,
-  required: ReadonlyArray<keyof T>,
-): T[] => {
+const tryParseArray = <T extends Record<string, unknown>>(raw: string | null | undefined, required: ReadonlyArray<keyof T>): T[] => {
   const parsed = tryParseJson<unknown>(raw);
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (x): x is T =>
-      typeof x === "object" &&
-      x !== null &&
-      required.every((k) => k in (x as object)),
-  );
+  return parsed.filter((x): x is T => typeof x === "object" && x !== null && required.every((k) => k in (x as object)));
 };
 
 /**
@@ -93,30 +82,21 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => {
   if (filterParsed) query.filter = filterParsed;
 
   // Sort, groupBy, aggregations — array-shaped, validated by required-key check
-  const sort = tryParseArray<{ fieldId: string; direction: "asc" | "desc" }>(
-    params.get("sort"),
-    ["fieldId", "direction"],
-  );
+  const sort = tryParseArray<{ fieldId: string; direction: "asc" | "desc" }>(params.get("sort"), ["fieldId", "direction"]);
   if (sort.length > 0) query.sort = sort;
 
-  const groupBy = tryParseArray<{ fieldId: string }>(
-    params.get("groupBy"),
-    ["fieldId"],
-  );
+  const groupBy = tryParseArray<{ fieldId: string }>(params.get("groupBy"), ["fieldId"]);
   if (groupBy.length > 0) query.groupBy = groupBy as RecordsUrlQuery["groupBy"];
 
-  const groupSort = tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(
-    params.get("groupSort"),
-    ["fieldId", "agg"],
-  );
+  const groupSort = tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(params.get("groupSort"), [
+    "fieldId",
+    "agg",
+  ]);
   if (groupSort.length > 0) {
     query.groupSort = groupSort as RecordsUrlQuery["groupSort"];
   }
 
-  const aggregations = tryParseArray<{ fieldId: string; agg: string }>(
-    params.get("aggregations"),
-    ["fieldId", "agg"],
-  );
+  const aggregations = tryParseArray<{ fieldId: string; agg: string }>(params.get("aggregations"), ["fieldId", "agg"]);
   if (aggregations.length > 0) {
     query.aggregations = aggregations as RecordsUrlQuery["aggregations"];
   }
@@ -172,11 +152,7 @@ export type UrlPathContext = {
  * to the bookmark. Suppressing matches keeps view URLs symbolic
  * ("the view, as it stands") rather than denormalized snapshots.
  */
-export const buildRecordsUrl = (
-  path: UrlPathContext,
-  state: RecordsState,
-  viewQuery?: ViewQuery | null,
-): string => {
+export const buildRecordsUrl = (path: UrlPathContext, state: RecordsState, viewQuery?: ViewQuery | null): string => {
   const base = path.viewShortId
     ? `/app/grids/${path.baseShortId}/table/${path.tableShortId}/view/${path.viewShortId}`
     : `/app/grids/${path.baseShortId}/table/${path.tableShortId}`;
@@ -203,11 +179,7 @@ export const buildRecordsUrl = (
   if (query.groupSort && query.groupSort.length > 0 && !matchesView("groupSort")) {
     url.searchParams.set("groupSort", JSON.stringify(query.groupSort));
   }
-  if (
-    query.aggregations &&
-    query.aggregations.length > 0 &&
-    !matchesView("aggregations")
-  ) {
+  if (query.aggregations && query.aggregations.length > 0 && !matchesView("aggregations")) {
     url.searchParams.set("aggregations", JSON.stringify(query.aggregations));
   }
   if (query.deletedOnly) url.searchParams.set("trash", "1");
@@ -219,14 +191,9 @@ export const buildRecordsUrl = (
       }
     : null;
   const searchMatchesView = Boolean(
-    viewSearch &&
-      search.q.trim() === viewSearch.q &&
-      JSON.stringify(search.fieldIds) === JSON.stringify(viewSearch.fieldIds),
+    viewSearch && search.q.trim() === viewSearch.q && JSON.stringify(search.fieldIds) === JSON.stringify(viewSearch.fieldIds),
   );
-  const shouldWriteSearch =
-    search.override === true
-      ? Boolean(search.q || viewSearch)
-      : Boolean(search.q && !searchMatchesView);
+  const shouldWriteSearch = search.override === true ? Boolean(search.q || viewSearch) : Boolean(search.q && !searchMatchesView);
 
   if (shouldWriteSearch) url.searchParams.set("q", search.q);
   if (shouldWriteSearch && search.fieldIds.length > 0) {

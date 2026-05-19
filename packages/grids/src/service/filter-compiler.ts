@@ -81,9 +81,7 @@ const opsForType = (type: string): Set<string> => {
 // Compiler
 // ──────────────────────────────────────────────────────────────────
 
-export type CompileError = { error: string; path?: string[] };
-
-export type CompileResult = { ok: true; clause: CompiledClause } | { ok: false; error: string };
+type CompileResult = { ok: true; clause: CompiledClause } | { ok: false; error: string };
 
 // Distinguishes group vs leaf by SHAPE, not just `op`. A leaf with op
 // "AND"/"OR" would otherwise be misclassified as a group with undefined

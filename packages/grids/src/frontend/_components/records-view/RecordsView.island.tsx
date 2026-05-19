@@ -7,25 +7,25 @@ import type { AggregationSpec, GroupBySpec, TableQueryResult, ViewQuery } from "
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import type { ColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
-import type { AggKindUI, AggregationRow } from "../AggregationsPanel";
-import { errorMessage } from "../api-helpers";
-import DatabaseTable from "../DatabaseTable";
-import { GridsBareDialog, gridsBareDialogOptions } from "../dialog-layout";
-import { openExportRecordsDialog } from "../ExportRecordsDialog";
-import type { FilterLeaf } from "../FilterPanel";
-import GridToolbar from "../GridToolbar";
-import GroupDetailPanel from "../GroupDetailPanel";
-import GroupedTable, { type GroupBucket, groupedAggregationColumnId, groupedGroupColumnId } from "../GroupedTable";
-import RecordDetailPanel from "../RecordDetailPanel";
+import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../dialogs/TableAdminDialogs";
+import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
+import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
+import { openFieldEditDialog } from "../fields/TableFieldDialogs";
+import { openExportRecordsDialog } from "../records/ExportRecordsDialog";
+import RecordDetailPanel from "../records/RecordDetailPanel";
+import DatabaseTable from "../table/DatabaseTable";
+import GroupDetailPanel from "../table/GroupDetailPanel";
+import GroupedTable, { type GroupBucket, groupedAggregationColumnId, groupedGroupColumnId } from "../table/GroupedTable";
+import type { AggKindUI, AggregationRow } from "../toolbar/AggregationsPanel";
+import type { FilterLeaf } from "../toolbar/FilterPanel";
+import GridToolbar from "../toolbar/GridToolbar";
 // These were once-islands but are now plain components rendered inside
 // RecordsView's island. Nested islands break SSR (Seroval can't serialize
 // the function props the parent passes down) — keeping them as plain
 // children means they hydrate as part of RecordsView, sharing its state.
-import SearchBar from "../SearchBar";
-import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../TableAdminDialogs";
-import { openFieldEditDialog } from "../TableFieldDialogs";
-import { openViewColumnSettingsDialog } from "../ViewColumnSettingsDialog";
-import { openViewSettingsDialog } from "../ViewSettingsDialogs";
+import SearchBar from "../toolbar/SearchBar";
+import { errorMessage } from "../utils/api-helpers";
 import { fetchTableQuery } from "./fetcher";
 import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-url";
 
@@ -477,32 +477,6 @@ export default function RecordsView(props: Props) {
   };
 
   const normalizeFieldOrder = (ordered: Field[]) => ordered.map((field, position) => ({ ...field, position }));
-
-  const reorderFieldsMut = mutations.create<Field[], { fieldId: string; direction: -1 | 1 }>({
-    mutation: async ({ fieldId, direction }) => {
-      const current = fields();
-      const index = current.findIndex((f) => f.id === fieldId);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= current.length) return current;
-      const next = [...current];
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      const ordered = normalizeFieldOrder(next);
-      const res = await apiClient.fields["by-table"][":tableId"].reorder.$post({
-        param: { tableId: props.tableId },
-        json: { fieldIds: ordered.map((f) => f.id) },
-      });
-      if (res.status >= 400) throw new Error("Failed to reorder fields");
-      return ordered;
-    },
-    onSuccess: (ordered) => {
-      setFields(ordered);
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const moveFieldInline = (field: Field, direction: -1 | 1) => {
-    reorderFieldsMut.mutate({ fieldId: field.id, direction });
-  };
 
   const tableHeader = () => ({
     id: props.tableId,

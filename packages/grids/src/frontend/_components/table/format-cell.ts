@@ -1,4 +1,4 @@
-import type { FormatSpec } from "../../service/views";
+import type { FormatSpec } from "../../../service/views";
 
 /**
  * Renders a single field value to its display string. Type-aware:

@@ -1,17 +1,17 @@
-import { Show, createEffect, createMemo, createSignal, on } from "solid-js";
-import { apiClient } from "@/api/client";
 import { Dropdown, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type { Field, Form, GridRecord, View } from "../../service";
-import type { ViewQuery } from "../../contracts";
-import { isUserEditable } from "./field-prompt-schema";
-import { openRecordUpsertDialog } from "./RecordUpsertDialog";
-import { openFormModal } from "./FormSubmitModal";
-import { errorMessage } from "./api-helpers";
-import FilterPanel, { type FilterLeaf, blankLeaf, isFilterLeafComplete } from "./FilterPanel";
-import SortPanel, { type SortRow, blankSortRow, isSortRowComplete } from "./SortPanel";
-import GroupByPanel, { type GroupByRow, blankGroupByRow, isGroupByRowComplete } from "./GroupByPanel";
+import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import type { ViewQuery } from "../../../contracts";
+import type { Field, Form, GridRecord, View } from "../../../service";
+import { isUserEditable } from "../fields/field-prompt-schema";
+import { openFormModal } from "../records/FormSubmitModal";
+import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
+import { errorMessage } from "../utils/api-helpers";
 import AggregationsPanel, { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
+import FilterPanel, { blankLeaf, type FilterLeaf, isFilterLeafComplete } from "./FilterPanel";
+import GroupByPanel, { blankGroupByRow, type GroupByRow, isGroupByRowComplete } from "./GroupByPanel";
+import SortPanel, { blankSortRow, isSortRowComplete, type SortRow } from "./SortPanel";
 
 type Props = {
   baseId: string;

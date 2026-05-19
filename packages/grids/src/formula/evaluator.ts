@@ -2,7 +2,7 @@ import { FN_LIBRARY, isFormulaError } from "./functions";
 import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { type Expr, formulaError, type Literal } from "./types";
 
-export type EvalContext = {
+type EvalContext = {
   /** Record data keyed by field id (UUID). */
   fields: Record<string, unknown>;
   /** Optional `slug → fieldId` map. Lets the evaluator resolve `#slug`

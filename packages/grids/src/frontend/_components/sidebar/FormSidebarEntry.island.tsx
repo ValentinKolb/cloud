@@ -1,8 +1,8 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
-import type { Field, Form } from "../../service";
-import { openFormModal } from "./FormSubmitModal";
-import { openFormEditorDialog } from "./FormsManager";
+import type { Field, Form } from "../../../service";
+import { openFormEditorDialog } from "../forms/FormsManager";
+import { openFormModal } from "../records/FormSubmitModal";
 
 type Props = {
   form: Form;

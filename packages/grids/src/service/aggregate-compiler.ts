@@ -1,23 +1,13 @@
 import { sql } from "bun";
-import type { Field } from "./types";
 import { storageOf } from "./field-storage";
+import type { Field } from "./types";
 
-export type AggKind =
-  | "count"
-  | "countEmpty"
-  | "countUnique"
-  | "sum"
-  | "avg"
-  | "min"
-  | "max"
-  | "median"
-  | "earliest"
-  | "latest";
+export type AggKind = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max" | "median" | "earliest" | "latest";
 
 /** "*" is a virtual field id meaning "the row itself". Only `count` is
  *  defined for it (`COUNT(*)`); any other agg returns a compile error. */
 export type AggregateRequest = { fieldId: string | "*"; agg: AggKind };
-export type AggregateColumn = {
+type AggregateColumn = {
   /** Result key: `${fieldId}__${agg}` — stable for the renderer to extract. */
   key: string;
   /** SELECT-list fragment, ready to be embedded in the SELECT clause. */
@@ -27,9 +17,7 @@ export type AggregateColumn = {
 // Numeric-castable types all go through the same
 // `try_numeric(data->>id)` pipeline. Money is represented as a decimal
 // field with a display-only unit in config, not as its own storage type.
-const NUMERIC_TYPES = new Set([
-  "number", "decimal", "autonumber", "percent", "duration",
-]);
+const NUMERIC_TYPES = new Set(["number", "decimal", "autonumber", "percent", "duration"]);
 const DATE_TYPES = new Set(["date"]);
 
 /** SQL fragment that extracts a numeric value for the given field.
@@ -75,9 +63,7 @@ const isCompatible = (agg: AggKind, type: string): boolean => {
   }
 };
 
-export type CompileAggResult =
-  | { ok: true; columns: AggregateColumn[] }
-  | { ok: false; error: string };
+type CompileAggResult = { ok: true; columns: AggregateColumn[] } | { ok: false; error: string };
 
 /**
  * Builds a SELECT-list of aggregate expressions over the records table's
@@ -88,10 +74,7 @@ export type CompileAggResult =
  * For hot footer aggregates the field can be opt-in indexed (`indexed=true`)
  * so Postgres uses the expression index for these casts.
  */
-export const compileAggregates = (
-  requests: AggregateRequest[],
-  fields: Field[],
-): CompileAggResult => {
+export const compileAggregates = (requests: AggregateRequest[], fields: Field[]): CompileAggResult => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const columns: AggregateColumn[] = [];
   // Reject duplicate (fieldId, agg) requests instead of silently

@@ -1,9 +1,9 @@
-import { ssr } from "../../../config";
-import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { Layout } from "@valentinkolb/cloud/ssr";
+import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
-import BaseSettingsPanel from "../../_components/BaseSettingsPanel.island";
+import BaseSettingsPanel from "../../_components/settings/BaseSettingsPanel.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -59,11 +59,7 @@ export default ssr<AuthContext>(async (c) => {
       ]}
     >
       <div class="max-w-xl mx-auto w-full py-6 px-4">
-        <BaseSettingsPanel
-          base={base}
-          accessEntries={accessEntries}
-          dashboards={dashboards}
-        />
+        <BaseSettingsPanel base={base} accessEntries={accessEntries} dashboards={dashboards} />
       </div>
     </Layout>
   );

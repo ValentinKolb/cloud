@@ -1,11 +1,6 @@
 import type { BarItem, Point, Series, SliceItem } from "@valentinkolb/stdlib";
-import type {
-  AggregationSpec,
-  ChartWidget,
-  Field,
-  GroupBySpec,
-} from "../../../service";
 import { dates } from "@valentinkolb/stdlib";
+import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../service";
 
 /**
  * Transforms `record.group()` buckets into the shapes the platform
@@ -29,7 +24,7 @@ import { dates } from "@valentinkolb/stdlib";
  */
 
 /** Bucket shape as produced by `gridsService.record.group()`. */
-export type ChartBucket = {
+type ChartBucket = {
   keys: unknown[];
   values: Record<string, unknown>;
 };
@@ -41,10 +36,7 @@ export const aggKey = (spec: AggregationSpec): string => `${spec.fieldId}__${spe
 /** Derive a human label for an aggregation — same precedence the
  *  view-stats resolver uses: explicit `.label` first, then a
  *  generated `agg(fieldName)` / `agg(*)` fallback. */
-export const aggLabel = (
-  spec: AggregationSpec,
-  fieldsById: Map<string, Field>,
-): string => {
+export const aggLabel = (spec: AggregationSpec, fieldsById: Map<string, Field>): string => {
   if (spec.label) return spec.label;
   if (spec.fieldId === "*") return `${spec.agg}(*)`;
   const field = fieldsById.get(spec.fieldId);
@@ -79,11 +71,7 @@ export const toNumber = (v: unknown): number | null => {
  *       readable form. The `dates.formatDate` family is locale-aware.
  *    3. Numeric keys stringify natively; everything else falls back
  *       to `String(...)`. Nullish → em-dash. */
-export const formatCategoryKey = (
-  key: unknown,
-  spec: GroupBySpec | undefined,
-  relationLabels?: Record<string, string>,
-): string => {
+export const formatCategoryKey = (key: unknown, spec: GroupBySpec | undefined, relationLabels?: Record<string, string>): string => {
   if (key === null || key === undefined) return "—";
 
   // Relation-typed groupBy: bucket key is a UUID. Look up the
@@ -151,8 +139,7 @@ export const bucketsToBars = (
   primaryAgg: AggregationSpec,
   groupBy: GroupBySpec | undefined,
   relationLabels?: Record<string, string>,
-): BarItem[] =>
-  bucketsToSlices(buckets, primaryAgg, groupBy, relationLabels) as BarItem[];
+): BarItem[] => bucketsToSlices(buckets, primaryAgg, groupBy, relationLabels) as BarItem[];
 
 /**
  * Line — one `Series` per aggregation. x is the bucket index (0..N)
@@ -166,11 +153,7 @@ export const bucketsToBars = (
  * almost always mean. True numeric x-axes (continuous quantities)
  * can come later with an explicit `xField` knob if a use case shows up.
  */
-export const bucketsToLineSeries = (
-  buckets: ChartBucket[],
-  aggs: AggregationSpec[],
-  fieldsById: Map<string, Field>,
-): Series[] => {
+export const bucketsToLineSeries = (buckets: ChartBucket[], aggs: AggregationSpec[], fieldsById: Map<string, Field>): Series[] => {
   return aggs.map((agg) => {
     const key = aggKey(agg);
     const data: Point[] = [];
@@ -192,11 +175,7 @@ export const bucketsToLineSeries = (
  * empty series array; the wrapping Chart shows its "No data"
  * placeholder instead of an axis-only blank.
  */
-export const bucketsToScatterSeries = (
-  buckets: ChartBucket[],
-  aggs: AggregationSpec[],
-  fieldsById: Map<string, Field>,
-): Series[] => {
+export const bucketsToScatterSeries = (buckets: ChartBucket[], aggs: AggregationSpec[], fieldsById: Map<string, Field>): Series[] => {
   if (aggs.length < 2) return [];
   const xKey = aggKey(aggs[0]!);
   const yKey = aggKey(aggs[1]!);
@@ -206,7 +185,7 @@ export const bucketsToScatterSeries = (
     const x = toNumber(b.values[xKey]);
     const y = toNumber(b.values[yKey]);
     if (x === null || y === null) continue;
-    const size = sizeKey ? toNumber(b.values[sizeKey]) ?? undefined : undefined;
+    const size = sizeKey ? (toNumber(b.values[sizeKey]) ?? undefined) : undefined;
     data.push({ x, y, size });
   }
   const xLabel = aggLabel(aggs[0]!, fieldsById);
@@ -239,7 +218,7 @@ export const chartXAxisFormat = (
  * here keeps the renderer dumb (one switch on chartType) and the
  * transforms unit-testable in isolation.
  */
-export type ChartRenderData =
+type ChartRenderData =
   | { kind: "donut"; data: SliceItem[] }
   | { kind: "bar"; data: BarItem[] }
   | {
@@ -255,7 +234,7 @@ export type ChartRenderData =
  * key formatting and series labels; these used to live on the widget
  * itself but now come from the saved view that the widget points at.
  */
-export type ChartRenderInput = {
+type ChartRenderInput = {
   widget: ChartWidget;
   /** The view's groupBy specs (parallel to bucket.keys positions). */
   groupBy: GroupBySpec[];

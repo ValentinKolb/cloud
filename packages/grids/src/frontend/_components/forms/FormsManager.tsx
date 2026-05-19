@@ -14,12 +14,12 @@ import { img } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Index, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Field, Form } from "../../service";
-import type { FormConfig, FormFieldEntry } from "../../service/forms";
-import { errorMessage } from "./api-helpers";
-import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
-import { TYPE_LABELS } from "./field-config-editor";
-import { isUserEditable } from "./field-prompt-schema";
+import type { Field, Form } from "../../../service";
+import type { FormConfig, FormFieldEntry } from "../../../service/forms";
+import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import { TYPE_LABELS } from "../fields/field-config-editor";
+import { isUserEditable } from "../fields/field-prompt-schema";
+import { errorMessage } from "../utils/api-helpers";
 import { FieldInput } from "./form-fields";
 
 const canBeFormInput = (field: Field) => isUserEditable(field.type) || field.type === "relation";

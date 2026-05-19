@@ -1,7 +1,7 @@
 import type { OpenDialogOptions } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 
-export const gridsBareDialogPanelClass =
+const gridsBareDialogPanelClass =
   "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 m-0 h-[86vh] max-h-[86vh] w-[min(96vw,48rem)] overflow-hidden border-0 bg-transparent p-0 text-zinc-900 shadow-none backdrop:bg-black/45 dark:backdrop:bg-black/35 backdrop:backdrop-blur-sm dark:text-zinc-100";
 
 export const gridsBareDialogOptions = {

@@ -1,18 +1,18 @@
-export type SelectOption = {
+type SelectOption = {
   id: string;
   label: string;
   color?: string;
   description?: string;
 };
 
-export type SelectBadgeItem = {
+type SelectBadgeItem = {
   id: string;
   label: string;
   color?: string;
   known: boolean;
 };
 
-export type SelectBadgeStyle = Record<string, string>;
+type SelectBadgeStyle = Record<string, string>;
 
 const optionList = (fieldConfig?: Record<string, unknown>): SelectOption[] =>
   ((fieldConfig?.options as SelectOption[] | undefined) ?? []).filter(

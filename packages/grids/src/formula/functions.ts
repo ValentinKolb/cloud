@@ -4,7 +4,7 @@ import { formulaError, isFormulaError, type Literal } from "./types";
 
 /** Return value from any function — either a literal, an error sentinel,
  *  or null. */
-export type FnReturn = Literal | ReturnType<typeof formulaError>;
+type FnReturn = Literal | ReturnType<typeof formulaError>;
 
 const num = (v: unknown): number | null => {
   return toNumber(v);
@@ -246,7 +246,5 @@ export const FN_LIBRARY: Record<string, FnImpl> = {
     return formulaError("DATEDIFF_BAD_UNIT");
   },
 };
-
-export const knownFunction = (name: string): boolean => name.toUpperCase() in FN_LIBRARY;
 
 export { isFormulaError };

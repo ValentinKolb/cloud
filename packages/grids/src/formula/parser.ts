@@ -278,9 +278,9 @@ class Parser {
   }
 }
 
-export type ParseResult = { ok: true; ast: Expr } | { ok: false; error: string };
+type ParseResult = { ok: true; ast: Expr } | { ok: false; error: string };
 
-export const normalizeFormulaSource = (source: string): string => {
+const normalizeFormulaSource = (source: string): string => {
   const trimmed = source.trim();
   return trimmed.startsWith("=") ? trimmed.slice(1).trimStart() : source;
 };

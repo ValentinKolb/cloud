@@ -1,17 +1,17 @@
-import { sql } from "bun";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
-import { ColumnSpecSchema, ViewQuerySchema, type View } from "../contracts";
+import { sql } from "bun";
+import { ColumnSpecSchema, type View, ViewQuerySchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
-import { parseJsonbRow } from "./jsonb";
 import type { Form, FormConfig, FormFieldEntry } from "./forms";
+import { parseJsonbRow } from "./jsonb";
 import type { Field, Table } from "./types";
 
 type DbRow = Record<string, unknown>;
 
 type RankedTable = Table & { level: PermissionLevel };
 
-export type BaseCatalog = {
+type BaseCatalog = {
   dashboards: Awaited<ReturnType<typeof listDashboardsForBase>>;
   tables: RankedTable[];
   tableLevels: Record<string, PermissionLevel>;
@@ -132,11 +132,7 @@ const mapForm = (row: DbRow): Form => ({
   updatedAt: (row.updated_at as Date).toISOString(),
 });
 
-const principalWhere = (
-  principal: "user" | "group" | "authenticated" | "public",
-  userId: string,
-  groups: unknown,
-) =>
+const principalWhere = (principal: "user" | "group" | "authenticated" | "public", userId: string, groups: unknown) =>
   principal === "user"
     ? sql`a.user_id = ${userId}::uuid`
     : principal === "group"
@@ -181,7 +177,11 @@ const resourceRanks = (
 
 const byTable = <T extends { tableId: string }>(items: T[]): Record<string, T[]> => {
   const out: Record<string, T[]> = {};
-  for (const item of items) (out[item.tableId] ??= []).push(item);
+  for (const item of items) {
+    const tableItems = out[item.tableId] ?? [];
+    tableItems.push(item);
+    out[item.tableId] = tableItems;
+  }
   return out;
 };
 
@@ -194,7 +194,9 @@ export const listForBase = async (params: {
   const groups = toPgUuidArray(params.userGroups);
   const tableRanks = resourceRanks("grids.table_access", "ta", "table_id", sql`t.id`, params.userId, groups);
   const baseRanks = resourceRanks("grids.base_access", "ba", "base_id", sql`t.base_id`, params.userId, groups);
-  const tableLevelExpr = params.isAdmin ? sql`3` : sql`COALESCE(${tableRanks[0]}, ${tableRanks[1]}, ${tableRanks[2]}, ${tableRanks[3]}, ${baseRanks[0]}, ${baseRanks[1]}, ${baseRanks[2]}, ${baseRanks[3]}, 0)`;
+  const tableLevelExpr = params.isAdmin
+    ? sql`3`
+    : sql`COALESCE(${tableRanks[0]}, ${tableRanks[1]}, ${tableRanks[2]}, ${tableRanks[3]}, ${baseRanks[0]}, ${baseRanks[1]}, ${baseRanks[2]}, ${baseRanks[3]}, 0)`;
 
   const [dashboards, tableRows] = await Promise.all([
     listDashboardsForBase({ baseId: params.baseId, userId: params.userId, userGroups: params.userGroups }),
@@ -223,7 +225,9 @@ export const listForBase = async (params: {
   const formRanks = resourceRanks("grids.form_access", "fa", "form_id", sql`f.id`, params.userId, groups);
   const formTableRanks = resourceRanks("grids.table_access", "fta", "table_id", sql`f.table_id`, params.userId, groups);
   const formBaseRanks = resourceRanks("grids.base_access", "fba", "base_id", sql`t.base_id`, params.userId, groups);
-  const formLevelExpr = params.isAdmin ? sql`3` : sql`COALESCE(${formRanks[0]}, ${formRanks[1]}, ${formRanks[2]}, ${formRanks[3]}, ${formTableRanks[0]}, ${formTableRanks[1]}, ${formTableRanks[2]}, ${formTableRanks[3]}, ${formBaseRanks[0]}, ${formBaseRanks[1]}, ${formBaseRanks[2]}, ${formBaseRanks[3]}, 0)`;
+  const formLevelExpr = params.isAdmin
+    ? sql`3`
+    : sql`COALESCE(${formRanks[0]}, ${formRanks[1]}, ${formRanks[2]}, ${formRanks[3]}, ${formTableRanks[0]}, ${formTableRanks[1]}, ${formTableRanks[2]}, ${formTableRanks[3]}, ${formBaseRanks[0]}, ${formBaseRanks[1]}, ${formBaseRanks[2]}, ${formBaseRanks[3]}, 0)`;
 
   const viewRanks = resourceRanks("grids.view_access", "va", "view_id", sql`v.id`, params.userId, groups);
   const viewWinning = sql`COALESCE(${viewRanks[0]}, ${viewRanks[1]}, ${viewRanks[2]}, ${viewRanks[3]})`;

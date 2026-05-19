@@ -1,10 +1,10 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { Layout } from "@valentinkolb/cloud/ssr";
 import { hasRole } from "@valentinkolb/cloud/contracts";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { Layout } from "@valentinkolb/cloud/ssr";
+import { ssr } from "../config";
 import { gridsService } from "../service";
-import BasesOverview from "./_components/BasesOverview.island";
-import { parseLastGridsPath } from "./_components/GridsSettingsStore";
+import BasesOverview from "./_components/overview/BasesOverview.island";
+import { parseLastGridsPath } from "./_components/sidebar/GridsSettingsStore";
 
 /**
  * Bases list page — shows every base the user has access to.

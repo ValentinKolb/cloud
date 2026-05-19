@@ -1,9 +1,9 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { DataTable, type DataTableColumn, MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
-import type { AggregationSpec } from "../../contracts";
-import type { Field, GridRecord, RecordList } from "../../service";
-import type { ColumnSpec } from "../../service/views";
+import type { AggregationSpec } from "../../../contracts";
+import type { Field, GridRecord, RecordList } from "../../../service";
+import type { ColumnSpec } from "../../../service/views";
 import { formatCell, progressRatio } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 import { SelectValueBadges } from "./select-badges";

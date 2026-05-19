@@ -4,13 +4,13 @@ import { text } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { AuditEntry, Field, GridFile, GridRecord } from "../../service";
-import { errorMessage } from "./api-helpers";
-import { isUserEditable } from "./field-prompt-schema";
-import { formatCell } from "./format-cell";
-import { RecordLink } from "./RecordLink";
+import type { AuditEntry, Field, GridFile, GridRecord } from "../../../service";
+import { isUserEditable } from "../fields/field-prompt-schema";
+import { formatCell } from "../table/format-cell";
+import { RecordLink } from "../table/RecordLink";
+import { SelectValueBadges } from "../table/select-badges";
+import { errorMessage } from "../utils/api-helpers";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
-import { SelectValueBadges } from "./select-badges";
 
 type Props = {
   baseId: string;

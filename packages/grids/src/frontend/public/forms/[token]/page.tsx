@@ -1,8 +1,8 @@
-import { ssr } from "../../../../config";
-import type { AuthContext } from "@valentinkolb/cloud/server";
 import { listLegalLinks } from "@valentinkolb/cloud";
+import type { AuthContext } from "@valentinkolb/cloud/server";
+import { ssr } from "../../../../config";
 import { gridsService } from "../../../../service";
-import PublicFormSubmit from "../../../_components/PublicFormSubmit.island";
+import PublicFormSubmit from "../../../_components/forms/PublicFormSubmit.island";
 
 /**
  * Public form rendering page. Anonymous, no auth required.
@@ -47,11 +47,7 @@ export default ssr<AuthContext>(async (c) => {
   // server-applied — the anonymous HTML must not contain their target
   // field metadata (would leak schema details, even if values are
   // applied server-side).
-  const userInputIds = new Set(
-    form.config.fields
-      .filter((e) => e.kind === "user_input")
-      .map((e) => e.fieldId),
-  );
+  const userInputIds = new Set(form.config.fields.filter((e) => e.kind === "user_input").map((e) => e.fieldId));
   const liveFields = await gridsService.field.listByTable(form.tableId);
   const fields = liveFields.filter((f) => userInputIds.has(f.id));
 
@@ -88,9 +84,7 @@ type LegalLink = { label: string; href: string; icon?: string };
 function PublicShell(props: { legalLinks: LegalLink[]; children: any }) {
   return (
     <div class="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950">
-      <main class="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-10">
-        {props.children}
-      </main>
+      <main class="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-10">{props.children}</main>
       <footer class="shrink-0 w-full px-4 py-3 flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs text-dimmed">
         {props.legalLinks.map((link) => (
           <a href={link.href} class="hover:text-primary transition-colors flex items-center gap-1">

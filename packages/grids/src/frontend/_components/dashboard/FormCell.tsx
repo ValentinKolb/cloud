@@ -1,11 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import type { FormWidget } from "../../../service";
-import { errorMessage } from "../api-helpers";
-import {
-  buildInitialValues,
-  FieldInput,
-  userInputEntriesOf,
-} from "../form-fields";
+import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
+import { errorMessage } from "../utils/api-helpers";
 import type { WidgetData } from "./widget-data";
 
 type Props = {
@@ -34,8 +30,7 @@ type Props = {
  * they'd just bounce off of. Zero extra client-side perm fetches.
  */
 export default function FormCell(props: Props) {
-  const isForm = (d: WidgetData): d is Extract<WidgetData, { kind: "form" }> =>
-    d.kind === "form";
+  const isForm = (d: WidgetData): d is Extract<WidgetData, { kind: "form" }> => d.kind === "form";
 
   return (
     <div class="paper flex-1 w-full flex flex-col min-h-0 min-w-0 overflow-hidden">
@@ -44,9 +39,7 @@ export default function FormCell(props: Props) {
         fallback={
           <div class="flex-1 flex items-center justify-center text-xs text-dimmed px-3 py-2 text-center">
             <Show when={props.data.kind === "error"} fallback="Loading…">
-              <span class="text-red-600 dark:text-red-400">
-                {(props.data as { kind: "error"; reason: string }).reason}
-              </span>
+              <span class="text-red-600 dark:text-red-400">{(props.data as { kind: "error"; reason: string }).reason}</span>
             </Show>
           </div>
         }
@@ -56,9 +49,7 @@ export default function FormCell(props: Props) {
           if (!d.canSubmit) {
             return <NoAccessPlaceholder widget={props.widget} formName={d.form.name} />;
           }
-          return (
-            <FormBody widget={props.widget} form={d.form} fields={d.fields} />
-          );
+          return <FormBody widget={props.widget} form={d.form} fields={d.fields} />;
         })()}
       </Show>
     </div>
@@ -70,10 +61,7 @@ export default function FormCell(props: Props) {
  *  layout stays stable across users with different permission sets —
  *  the alternative (collapse the cell) would make screenshots and
  *  permalinks behave differently for different viewers. */
-function NoAccessPlaceholder(props: {
-  widget: FormWidget;
-  formName: string;
-}) {
+function NoAccessPlaceholder(props: { widget: FormWidget; formName: string }) {
   const titleOf = () => props.widget.title ?? props.formName;
   return (
     <>
@@ -83,9 +71,7 @@ function NoAccessPlaceholder(props: {
       </header>
       <div class="flex-1 flex flex-col items-center justify-center text-center px-4 py-6 gap-1">
         <i class="ti ti-shield-lock text-2xl text-dimmed" />
-        <p class="text-xs text-dimmed">
-          You don't have permission to submit this form.
-        </p>
+        <p class="text-xs text-dimmed">You don't have permission to submit this form.</p>
       </div>
     </>
   );
@@ -102,14 +88,11 @@ function FormBody(props: {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
 
-  const [values, setValues] = createSignal<Record<string, unknown>>(
-    buildInitialValues(entries),
-  );
+  const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
-  const setValue = (fieldId: string, v: unknown) =>
-    setValues({ ...values(), [fieldId]: v });
+  const setValue = (fieldId: string, v: unknown) => setValues({ ...values(), [fieldId]: v });
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
@@ -144,18 +127,14 @@ function FormBody(props: {
     }
   };
 
-  const titleOf = () =>
-    props.widget.title ?? props.form.config.title ?? props.form.name;
+  const titleOf = () => props.widget.title ?? props.form.config.title ?? props.form.name;
 
   return (
     <>
       <header class="px-3 py-2">
         <span class="text-xs font-semibold text-primary truncate">{titleOf()}</span>
       </header>
-      <form
-        class="flex-1 min-h-0 overflow-auto px-3 pb-3 flex flex-col gap-3"
-        onSubmit={handleSubmit}
-      >
+      <form class="flex-1 min-h-0 overflow-auto px-3 pb-3 flex flex-col gap-3" onSubmit={handleSubmit}>
         <Show when={props.form.config.description}>
           <p class="text-xs text-dimmed">{props.form.config.description}</p>
         </Show>
@@ -164,14 +143,7 @@ function FormBody(props: {
           {(entry) => {
             const field = fieldsById.get(entry.fieldId);
             if (!field || field.deletedAt) return null;
-            return (
-              <FieldInput
-                field={field}
-                entry={entry}
-                value={values()[entry.fieldId]}
-                onChange={(v) => setValue(entry.fieldId, v)}
-              />
-            );
+            return <FieldInput field={field} entry={entry} value={values()[entry.fieldId]} onChange={(v) => setValue(entry.fieldId, v)} />;
           }}
         </For>
 

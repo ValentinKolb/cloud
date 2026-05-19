@@ -20,9 +20,9 @@ const normalizeSettings = (raw: unknown): GridsSettings => {
 
 const isSafeGridsPath = (path: string): boolean => path === "/app/grids" || path.startsWith("/app/grids/");
 
-export const readGridsSettings = (): GridsSettings => normalizeSettings(cookies.readJsonCookie(COOKIE_NAME, DEFAULT_SETTINGS));
+const readGridsSettings = (): GridsSettings => normalizeSettings(cookies.readJsonCookie(COOKIE_NAME, DEFAULT_SETTINGS));
 
-export const writeGridsSettings = (settings: GridsSettings) => cookies.writeJsonCookie(COOKIE_NAME, settings);
+const writeGridsSettings = (settings: GridsSettings) => cookies.writeJsonCookie(COOKIE_NAME, settings);
 
 export const setLastGridsPath = (path: string) => {
   if (!isSafeGridsPath(path) || path === "/app/grids") return;

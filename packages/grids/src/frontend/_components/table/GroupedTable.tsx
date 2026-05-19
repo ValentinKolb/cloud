@@ -1,7 +1,7 @@
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { Show } from "solid-js";
-import type { Field } from "../../service";
-import type { FormatSpec } from "../../service/views";
+import type { Field } from "../../../service";
+import type { FormatSpec } from "../../../service/views";
 import { formatCell } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 

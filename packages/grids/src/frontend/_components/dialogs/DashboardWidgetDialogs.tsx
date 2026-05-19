@@ -1,15 +1,29 @@
 import { dialogCore, IconInput, MarkdownEditor, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
-import { createMemo, createSignal, Show, type JSX } from "solid-js";
-import type { AggregationSpec } from "../../contracts";
-import type { ChartWidget, Dashboard, Field, Form, FormWidget, LinkWidget, MarkdownWidget, StatWidget, View, ViewStatsWidget, ViewWidget, Widget } from "../../service";
-import { formatWidgetValue } from "./dashboard/widget-format";
+import { createMemo, createSignal, type JSX, Show } from "solid-js";
+import type { AggregationSpec } from "../../../contracts";
+import type {
+  ChartWidget,
+  Dashboard,
+  Field,
+  Form,
+  FormWidget,
+  LinkWidget,
+  MarkdownWidget,
+  StatWidget,
+  View,
+  ViewStatsWidget,
+  ViewWidget,
+  Widget,
+} from "../../../service";
+import { formatWidgetValue } from "../dashboard/widget-format";
 import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
-export const DEFAULT_AGG: AggregationSpec = { fieldId: "*", agg: "count" };
+const DEFAULT_AGG: AggregationSpec = { fieldId: "*", agg: "count" };
 
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().slice(0, 8)}`;
 
-export const isChartReadyView = (view: View): boolean => (view.query.groupBy?.length ?? 0) > 0 && (view.query.aggregations?.length ?? 0) > 0;
+export const isChartReadyView = (view: View): boolean =>
+  (view.query.groupBy?.length ?? 0) > 0 && (view.query.aggregations?.length ?? 0) > 0;
 
 const isChartReadyForType = (view: View, chartType: ChartWidget["chartType"]): boolean => {
   if (!isChartReadyView(view)) return false;
@@ -73,7 +87,7 @@ export const defaultLinkWidget = (): LinkWidget => ({
   target: { kind: "url", url: "https://example.com" },
 });
 
-export type CellEditDialogResult = { action: "save"; widget: Widget } | { action: "delete" };
+type CellEditDialogResult = { action: "save"; widget: Widget } | { action: "delete" };
 
 export const openCellEditDialog = (
   widget: Widget,
@@ -336,7 +350,11 @@ function StatCellBody(props: {
           onChange={(v) =>
             props.onUpdate({
               ...props.widget,
-              source: { ...props.widget.source, tableId: v, aggregations: [normalizeAggForFields(DEFAULT_AGG, props.fieldsByTable[v] ?? [])] },
+              source: {
+                ...props.widget.source,
+                tableId: v,
+                aggregations: [normalizeAggForFields(DEFAULT_AGG, props.fieldsByTable[v] ?? [])],
+              },
             })
           }
           options={props.tables.map((t) => ({ id: t.id, label: t.name }))}
@@ -425,9 +443,7 @@ function StatTrendSection(props: { widget: StatWidget; fields: Field[]; onUpdate
             </button>
           </Show>
         </div>
-        <p class="text-xs text-dimmed">
-          Adds a small history line using the same stat value grouped by a date field.
-        </p>
+        <p class="text-xs text-dimmed">Adds a small history line using the same stat value grouped by a date field.</p>
         <Show when={trend()}>
           {(t) => (
             <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -478,25 +494,25 @@ function ViewStatsCellBody(props: {
         detail="Grouped views show the first group bucket. Ungrouped views show the first record's visible fields."
       />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <TextInput
-        label="Title"
-        value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-        placeholder="Defaults to the view name"
-      />
-      <Select
-        label="View"
-        value={() => props.widget.viewId}
-        onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
-        options={[
-          { id: "", label: "(pick a view)" },
-          ...allViews().map(({ view, tableName }) => ({
-            id: view.id,
-            label: `${tableName} · ${view.name}`,
-            description: viewStatsViewDescription(view),
-          })),
-        ]}
-      />
+        <TextInput
+          label="Title"
+          value={() => props.widget.title ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          placeholder="Defaults to the view name"
+        />
+        <Select
+          label="View"
+          value={() => props.widget.viewId}
+          onChange={(v) => props.onUpdate({ ...props.widget, viewId: v })}
+          options={[
+            { id: "", label: "(pick a view)" },
+            ...allViews().map(({ view, tableName }) => ({
+              id: view.id,
+              label: `${tableName} · ${view.name}`,
+              description: viewStatsViewDescription(view),
+            })),
+          ]}
+        />
       </div>
     </WidgetEditorSection>
   );
@@ -517,25 +533,25 @@ function FormCellBody(props: {
         detail="Submissions create records in the form's table. Users without submit permission see a read-only placeholder."
       />
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-      <TextInput
-        label="Title"
-        value={() => props.widget.title ?? ""}
-        onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
-        placeholder="Defaults to the form name"
-      />
-      <Select
-        label="Form"
-        value={() => props.widget.formId}
-        onChange={(v) => props.onUpdate({ ...props.widget, formId: v })}
-        options={[
-          { id: "", label: "(pick a form)" },
-          ...allForms().map(({ form, tableName }) => ({
-            id: form.id,
-            label: `${tableName} · ${form.name}`,
-            description: `${form.config.fields.length} fields · creates records in ${tableName}`,
-          })),
-        ]}
-      />
+        <TextInput
+          label="Title"
+          value={() => props.widget.title ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          placeholder="Defaults to the form name"
+        />
+        <Select
+          label="Form"
+          value={() => props.widget.formId}
+          onChange={(v) => props.onUpdate({ ...props.widget, formId: v })}
+          options={[
+            { id: "", label: "(pick a form)" },
+            ...allForms().map(({ form, tableName }) => ({
+              id: form.id,
+              label: `${tableName} · ${form.name}`,
+              description: `${form.config.fields.length} fields · creates records in ${tableName}`,
+            })),
+          ]}
+        />
       </div>
     </WidgetEditorSection>
   );
@@ -594,7 +610,10 @@ function ViewCellBody(props: {
               label="Table"
               value={() => (props.widget.source.kind === "table" ? props.widget.source.tableId : "")}
               onChange={(v) => props.onUpdate({ ...props.widget, source: { kind: "table", tableId: v } })}
-              options={[{ id: "", label: "(pick a table)" }, ...props.tables.map((t) => ({ id: t.id, label: t.name, description: "Recent records, no saved filters." }))]}
+              options={[
+                { id: "", label: "(pick a table)" },
+                ...props.tables.map((t) => ({ id: t.id, label: t.name, description: "Recent records, no saved filters." })),
+              ]}
             />
           }
         >
@@ -907,7 +926,10 @@ function LinkCellBody(props: {
             label="Dashboard"
             value={() => (props.widget.target.kind === "dashboard" ? props.widget.target.dashboardId : "")}
             onChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "dashboard", dashboardId: v } })}
-            options={[{ id: "", label: "(pick a dashboard)" }, ...props.dashboards.map((d) => ({ id: d.id, label: d.name, description: d.description ?? undefined }))]}
+            options={[
+              { id: "", label: "(pick a dashboard)" },
+              ...props.dashboards.map((d) => ({ id: d.id, label: d.name, description: d.description ?? undefined })),
+            ]}
           />
         </Show>
         <Show when={props.widget.target.kind === "table"}>
@@ -925,7 +947,11 @@ function LinkCellBody(props: {
             onChange={(v) => props.onUpdate({ ...props.widget, target: { kind: "view", viewId: v } })}
             options={[
               { id: "", label: "(pick a view)" },
-              ...allViews().map(({ view, tableName }) => ({ id: view.id, label: `${tableName} · ${view.name}`, description: embeddedViewDescription(view) })),
+              ...allViews().map(({ view, tableName }) => ({
+                id: view.id,
+                label: `${tableName} · ${view.name}`,
+                description: embeddedViewDescription(view),
+              })),
             ]}
           />
         </Show>

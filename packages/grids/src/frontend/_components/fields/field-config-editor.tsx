@@ -1,6 +1,6 @@
 import { AutocompleteEditor, CheckboxCard, ColorInput, CopyButton, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { For, Index, Show } from "solid-js";
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 import { buildFormulaCompletions, formulaFieldRefs, formulaHighlight, GRID_FORMULA_FUNCTIONS } from "./formula-authoring";
 
 // =============================================================================

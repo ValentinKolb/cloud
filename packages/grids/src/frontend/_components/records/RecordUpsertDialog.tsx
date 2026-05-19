@@ -1,8 +1,8 @@
 import { DialogHeader, dialogCore } from "@valentinkolb/cloud/ui";
 import { createSignal, For } from "solid-js";
-import type { Field, GridRecord } from "../../service";
-import { isUserEditable } from "./field-prompt-schema";
-import { FieldInput, type UserInputEntry } from "./form-fields";
+import type { Field, GridRecord } from "../../../service";
+import { isUserEditable } from "../fields/field-prompt-schema";
+import { FieldInput, type UserInputEntry } from "../forms/form-fields";
 
 /**
  * Shared create/edit dialog for grids records.

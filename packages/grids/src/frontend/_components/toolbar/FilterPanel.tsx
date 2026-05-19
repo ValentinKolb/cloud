@@ -1,6 +1,6 @@
 import { DateTimeInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, Index, Match, Switch } from "solid-js";
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 import { type FilterOp, filterableFields, opsForType } from "./filter-ops";
 
 export type FilterLeaf = {

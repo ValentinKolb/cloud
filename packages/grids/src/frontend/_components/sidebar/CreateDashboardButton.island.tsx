@@ -1,8 +1,8 @@
 import { navigateTo, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
-import type { Dashboard } from "../../service";
-import { errorMessage } from "./api-helpers";
+import type { Dashboard } from "../../../service";
+import { errorMessage } from "../utils/api-helpers";
 
 /**
  * "+ New dashboard" entry under the Dashboards sidebar section.

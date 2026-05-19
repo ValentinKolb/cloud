@@ -12,19 +12,13 @@ export type Expr =
   | { kind: "unop"; op: UnOp; operand: Expr }
   | { kind: "call"; fn: string; args: Expr[] };
 
-export type BinOp =
-  | "+" | "-" | "*" | "/" | "%"
-  | "=" | "!=" | "<" | "<=" | ">" | ">="
-  | "&&" | "||";
+export type BinOp = "+" | "-" | "*" | "/" | "%" | "=" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||";
 
-export type UnOp = "-" | "!";
-
-export const isExpr = (v: unknown): v is Expr =>
-  typeof v === "object" && v !== null && typeof (v as Expr).kind === "string";
+type UnOp = "-" | "!";
 
 /** Sentinel for runtime errors (division by zero, etc). Renderable as "#ERROR". */
-export const FORMULA_ERROR = Symbol.for("grids.formula.error");
-export type FormulaError = { [FORMULA_ERROR]: true; code: string };
+const FORMULA_ERROR = Symbol.for("grids.formula.error");
+type FormulaError = { [FORMULA_ERROR]: true; code: string };
 
 export const formulaError = (code: string): FormulaError => ({ [FORMULA_ERROR]: true, code });
 

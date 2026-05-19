@@ -40,7 +40,7 @@ export type GroupBySpec = {
   granularity?: "day" | "week" | "month" | "quarter" | "year";
 };
 
-export type AggKindForGroup = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
+type AggKindForGroup = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
 
 export type GroupAggregationSpec = {
   /** "*" is shorthand for COUNT(*). */
@@ -63,15 +63,6 @@ export type GroupBucket = {
    *  COUNT(*)). Values are JS numbers for numeric aggs, raw text for
    *  text aggs, null when no rows in the bucket. */
   values: Record<string, unknown>;
-};
-
-export type CompiledGroup = {
-  /** SELECT list + GROUP BY + ORDER BY + cursor predicate, ready to embed. */
-  query: any;
-  /** Number of group keys — used by the runner to decode the result rows. */
-  keyCount: number;
-  /** Aggregation column keys in emit order. */
-  aggKeys: string[];
 };
 
 // ──────────────────────────────────────────────────────────────────
@@ -300,7 +291,7 @@ const buildAggExpr = (req: GroupAggregationSpec, field: Field | null): { ok: tru
   }
 };
 
-export type CompileGroupParams = {
+type CompileGroupParams = {
   tableId: string;
   groupBy: GroupBySpec[];
   aggregations: GroupAggregationSpec[];
@@ -318,7 +309,7 @@ export type CompileGroupParams = {
   deletedOnly?: boolean;
 };
 
-export type CompileGroupResult =
+type CompileGroupResult =
   | { ok: true; query: any; resolvedGroups: ResolvedGroup[]; aggKeys: string[]; cursorable: boolean }
   | { ok: false; error: string };
 

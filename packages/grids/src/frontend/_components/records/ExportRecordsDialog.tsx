@@ -1,6 +1,6 @@
 import { prompts } from "@valentinkolb/cloud/ui";
-import { For, Show, createSignal, onMount } from "solid-js";
-import type { ExportBody, Field, ViewQuery } from "../../contracts";
+import { createSignal, For, onMount, Show } from "solid-js";
+import type { ExportBody, Field, ViewQuery } from "../../../contracts";
 
 type RowState = {
   fieldId: string;
@@ -24,9 +24,7 @@ const relationTargetTableId = (field: Field): string | null => {
 };
 
 const initialRows = (args: OpenArgs): RowState[] => {
-  const visible = args.viewColumns?.length
-    ? new Set(args.viewColumns.map((c) => c.fieldId))
-    : null;
+  const visible = args.viewColumns?.length ? new Set(args.viewColumns.map((c) => c.fieldId)) : null;
   return args.fields
     .filter((f) => !f.deletedAt)
     .sort((a, b) => a.position - b.position)
@@ -84,9 +82,7 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
   const toggleTargetField = (index: number, fieldId: string, checked: boolean) => {
     const row = rows()[index];
     if (!row) return;
-    const next = checked
-      ? [...row.targetFieldIds, fieldId]
-      : row.targetFieldIds.filter((id) => id !== fieldId);
+    const next = checked ? [...row.targetFieldIds, fieldId] : row.targetFieldIds.filter((id) => id !== fieldId);
     updateRow(index, { targetFieldIds: next });
   };
 
@@ -107,12 +103,13 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
         return {
           fieldId: row.fieldId,
           label: row.label.trim() || field?.name || "Field",
-          relation: field?.type === "relation"
-            ? {
-                mode: row.relationMode,
-                fieldIds: row.relationMode === "fields" ? row.targetFieldIds : undefined,
-              }
-            : undefined,
+          relation:
+            field?.type === "relation"
+              ? {
+                  mode: row.relationMode,
+                  fieldIds: row.relationMode === "fields" ? row.targetFieldIds : undefined,
+                }
+              : undefined,
         };
       }),
     };
@@ -250,7 +247,4 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
 };
 
 export const openExportRecordsDialog = (args: OpenArgs): Promise<void> =>
-  prompts.dialog<void>(
-    (close) => <ExportDialogBody {...args} close={close} />,
-    { title: "Export records", icon: "ti ti-download" },
-  );
+  prompts.dialog<void>((close) => <ExportDialogBody {...args} close={close} />, { title: "Export records", icon: "ti ti-download" });

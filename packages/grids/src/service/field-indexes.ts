@@ -242,7 +242,7 @@ export const findUniqueConflicts = async (fieldId: string, tableId: string): Pro
  * which is the desired property: rolled-back inserts still consume a
  * sequence value, ensuring monotonicity even under failures).
  */
-export const ensureAutonumberSequence = async (fieldId: string): Promise<string | null> => {
+const ensureAutonumberSequence = async (fieldId: string): Promise<string | null> => {
   if (!isSafeFieldId(fieldId)) return null;
   const seq = autonumberSeqName(fieldId);
   await sql.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${seq} AS BIGINT INCREMENT 1 MINVALUE 1`);

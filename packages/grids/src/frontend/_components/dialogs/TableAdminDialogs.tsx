@@ -1,14 +1,14 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Checkbox, CopyButton, dialogCore, IconInput, navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, dialogCore, IconInput, navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Field, Form, Table } from "../../service";
-import { errorMessage } from "./api-helpers";
+import type { Field, Form, Table } from "../../../service";
+import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
+import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
+import FormsManager from "../forms/FormsManager";
+import { errorMessage } from "../utils/api-helpers";
 import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
-import FormsManager from "./FormsManager";
-import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "./field-config-editor";
-import { openFieldEditDialog, type TableHeader, TablePermissions } from "./TableFieldDialogs";
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
@@ -26,22 +26,6 @@ export const openTableSettingsDialog = (args: {
           onDeleted={args.onDeleted}
           onCancel={() => close()}
         />
-      </GridsBareDialog>
-    ),
-    gridsBareDialogOptions,
-  );
-
-export const openFieldManagerDialog = (args: {
-  table: TableHeader;
-  fields: Field[];
-  otherTables: Array<{ id: string; name: string }>;
-  fieldsByTable: Record<string, Field[]>;
-  onFieldsChanged: (fields: Field[]) => void;
-}) =>
-  dialogCore.open<void>(
-    (close) => (
-      <GridsBareDialog title={`Fields — ${args.table.name}`} icon="ti ti-columns-3" close={() => close()}>
-        <FieldManagerBody {...args} />
       </GridsBareDialog>
     ),
     gridsBareDialogOptions,
@@ -366,136 +350,6 @@ function TableSettingsBody(props: {
           {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
         </button>
       </div>
-    </div>
-  );
-}
-
-function FieldManagerBody(props: {
-  table: TableHeader;
-  fields: Field[];
-  otherTables: Array<{ id: string; name: string }>;
-  fieldsByTable: Record<string, Field[]>;
-  onFieldsChanged: (fields: Field[]) => void;
-}) {
-  const [fields, setFields] = createSignal([...props.fields].sort((a, b) => a.position - b.position));
-
-  const updateFields = (next: Field[]) => {
-    setFields(next);
-    props.onFieldsChanged(next);
-  };
-
-  const reorderMut = mutations.create<void, string[]>({
-    mutation: async (fieldIds) => {
-      const res = await apiClient.fields["by-table"][":tableId"].reorder.$post({
-        param: { tableId: props.table.id },
-        json: { fieldIds },
-      });
-      if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to reorder fields"));
-    },
-    onError: (e) => prompts.error(e.message),
-  });
-
-  const moveField = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    const next = [...fields()];
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target]!, next[index]!];
-    updateFields(next);
-    reorderMut.mutate(next.map((f) => f.id));
-  };
-
-  const deleteField = async (field: Field) => {
-    if (await deleteFieldWithChecks(field)) updateFields(fields().filter((f) => f.id !== field.id));
-  };
-
-  const editField = (field: Field) => {
-    openFieldEditDialog({
-      field,
-      otherTables: props.otherTables,
-      fieldsByTable: { ...props.fieldsByTable, [props.table.id]: fields() },
-      onSaved: (updated) => updateFields(fields().map((f) => (f.id === updated.id ? updated : f))),
-      onDeleted: () => deleteField(field),
-    });
-  };
-
-  const addField = async () => {
-    const created = await createFieldFromPrompt({ table: props.table });
-    if (!created) return;
-    updateFields([...fields(), created]);
-    editField(created);
-  };
-
-  return (
-    <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-      <Show when={fields().length > 0} fallback={<p class="paper p-4 text-xs text-dimmed">No fields yet.</p>}>
-        <ul class="flex flex-col gap-2">
-          <For each={fields()}>
-            {(field, index) => (
-              <li class="group paper transition-colors hover:bg-zinc-50 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600 dark:hover:bg-zinc-800/40">
-                <div class="flex min-h-12 items-center gap-2 px-3 py-2">
-                  <div class="flex w-6 shrink-0 flex-col items-center">
-                    <button
-                      type="button"
-                      class="flex h-4 w-6 items-center justify-center text-dimmed transition-colors hover:text-blue-500 disabled:opacity-30"
-                      onClick={() => moveField(index(), -1)}
-                      disabled={index() === 0 || reorderMut.loading()}
-                      title="Move up"
-                      aria-label="Move up"
-                    >
-                      <i class="ti ti-chevron-up text-xs" />
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-4 w-6 items-center justify-center text-dimmed transition-colors hover:text-blue-500 disabled:opacity-30"
-                      onClick={() => moveField(index(), 1)}
-                      disabled={index() === fields().length - 1 || reorderMut.loading()}
-                      title="Move down"
-                      aria-label="Move down"
-                    >
-                      <i class="ti ti-chevron-down text-xs" />
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    class="flex min-h-8 flex-1 min-w-0 items-center gap-2 text-left focus:outline-none focus-visible:outline-none"
-                    onClick={() => editField(field)}
-                  >
-                    <Show when={field.icon}>{(icon) => <i class={`${icon()} text-sm text-dimmed shrink-0`} />}</Show>
-                    <span class="text-sm font-semibold text-primary truncate">{field.name}</span>
-                    <span class="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] text-dimmed dark:bg-zinc-800">
-                      {TYPE_LABELS[field.type] ?? field.type}
-                    </span>
-                    <Show when={field.required}>
-                      <span class="rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                        required
-                      </span>
-                    </Show>
-                    <Show when={field.presentable}>
-                      <span class="rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                        label
-                      </span>
-                    </Show>
-                  </button>
-                  <div class="flex shrink-0 items-center gap-0">
-                    <button type="button" class="icon-btn" onClick={() => editField(field)} title="Edit field" aria-label="Edit field">
-                      <i class="ti ti-pencil" />
-                    </button>
-                    <CopyButton
-                      text={`#${field.shortId}`}
-                      label="Copy ref"
-                      class="btn-simple btn-sm shrink-0 !text-zinc-400 hover:!text-zinc-700 dark:!text-zinc-500 dark:hover:!text-zinc-200"
-                    />
-                  </div>
-                </div>
-              </li>
-            )}
-          </For>
-        </ul>
-      </Show>
-
-      <button type="button" class="btn-input btn-input-sm self-start text-emerald-600 hover:text-emerald-700" onClick={addField}>
-        <i class="ti ti-plus" /> Add field
-      </button>
     </div>
   );
 }

@@ -2,20 +2,19 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import {
   Checkbox,
   DialogHeader,
+  dialogCore,
   IconInput,
   PermissionEditor,
-  Select,
-  dialogCore,
   prompts,
   refreshCurrentPath,
+  Select,
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget } from "../../service";
-import { errorMessage } from "./api-helpers";
+import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget } from "../../../service";
 import {
   defaultChartWidget,
   defaultFormWidget,
@@ -26,11 +25,12 @@ import {
   defaultViewWidget,
   isChartReadyView,
   openCellEditDialog,
-} from "./DashboardWidgetDialogs";
-import DashboardLayout from "./dashboard/DashboardLayout";
-import { clampInsertionIndex, moveItemByInsertionIndex } from "./dashboard/dashboard-reorder";
-import type { WidgetData } from "./dashboard/widget-data";
-import { SectionCard } from "./SectionCard";
+} from "../dialogs/DashboardWidgetDialogs";
+import { errorMessage } from "../utils/api-helpers";
+import { SectionCard } from "../utils/SectionCard";
+import DashboardLayout from "./DashboardLayout";
+import { clampInsertionIndex, moveItemByInsertionIndex } from "./dashboard-reorder";
+import type { WidgetData } from "./widget-data";
 
 type Props = {
   baseShortId: string;
@@ -224,7 +224,13 @@ export default function DashboardWysiwygEditor(props: Props) {
       formsByTable: props.formsByTable,
     });
     if (!initialWidget) {
-      prompts.error(kind === "form" ? "Create a form before adding a form widget." : kind === "chart" ? "Create a view with Group by and Aggregation first." : "Create a view before adding this widget.");
+      prompts.error(
+        kind === "form"
+          ? "Create a form before adding a form widget."
+          : kind === "chart"
+            ? "Create a view with Group by and Aggregation first."
+            : "Create a view before adding this widget.",
+      );
       return;
     }
     const result = await openCellEditDialog(withSpan(initialWidget, row.cells.length === 0 ? 12 : (initialWidget.span ?? 3)), {

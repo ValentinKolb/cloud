@@ -1,7 +1,7 @@
 import { Checkbox, CheckboxCard, DateTimeInput, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { For, Show } from "solid-js";
-import type { Field, FormFieldEntry } from "../../service";
-import RelationPicker from "./RelationPicker";
+import type { Field, FormFieldEntry } from "../../../service";
+import RelationPicker from "../records/RelationPicker";
 
 /** A user_input form-field entry — `form_value` entries don't render. */
 export type UserInputEntry = Extract<FormFieldEntry, { kind: "user_input" }>;

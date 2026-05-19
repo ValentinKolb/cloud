@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Field } from "../../service";
+import type { Field } from "../../../service";
 import {
   buildFormulaCompletions,
   expectedFormulaValueType,

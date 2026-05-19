@@ -1,11 +1,11 @@
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import type { AggregationSpec, FilterTree, GroupBySpec, TableQueryResult, ViewQuery } from "../../contracts";
-import type { Field, GridRecord } from "../../service";
+import type { AggregationSpec, FilterTree, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
+import type { Field, GridRecord } from "../../../service";
+import { fetchTableQuery } from "../records-view/fetcher";
 import { formatCell } from "./format-cell";
 import type { GroupBucket } from "./GroupedTable";
-import { fetchTableQuery } from "./records-view/fetcher";
 
 const PAGE_SIZE = 30;
 
