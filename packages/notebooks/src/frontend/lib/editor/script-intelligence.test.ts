@@ -27,8 +27,8 @@ describe("script type intelligence", () => {
     expect(__testing.findScriptBlock(stateFor(jsDoc), jsPos)).toBeNull();
   });
 
-  test("completes local variables and typed kit results", async () => {
-    const doc = '```script\nconst notes = await kit.notes.searchTags("garden");\nnotes.\n```';
+  test("completes local variables and typed script API results", async () => {
+    const doc = '```script\nconst notes = await nb.searchTags("garden");\nnotes.\n```';
     const pos = doc.lastIndexOf("notes.") + "notes.".length;
     const source = createScriptTypeCompletionSource(() => ({
       complete: async () => [
@@ -44,7 +44,7 @@ describe("script type intelligence", () => {
   });
 
   test("does not complete inside non-script fences", async () => {
-    const doc = '```ts\nconst notes = await kit.notes.searchTags("garden");\nnotes.\n```';
+    const doc = '```ts\nconst notes = await nb.searchTags("garden");\nnotes.\n```';
     const pos = doc.lastIndexOf("notes.") + "notes.".length;
     const source = createScriptTypeCompletionSource(() => ({
       complete: async () => [{ label: "shouldNotAppear", type: "property" }],
@@ -54,7 +54,7 @@ describe("script type intelligence", () => {
     expect(result).toBeNull();
   });
 
-  test("language service includes DOM and stdlib-backed kit types", async () => {
+  test("language service includes DOM and stdlib-backed script API types", async () => {
     const service = await createScriptIntelligenceService(await loadScriptIntelligenceTypeFiles());
 
     const documentLabels = service.complete("document.", "document.".length)?.map((option) => option.label) ?? [];
@@ -63,7 +63,50 @@ describe("script type intelligence", () => {
     const arrayLabels = service.complete("[1, 2].", "[1, 2].".length)?.map((option) => option.label) ?? [];
     expect(arrayLabels).toContain("map");
 
-    const textLabels = service.complete("kit.text.", "kit.text.".length)?.map((option) => option.label) ?? [];
+    const textLabels = service.complete("std.text.", "std.text.".length)?.map((option) => option.label) ?? [];
     expect(textLabels).toContain("slugify");
+
+    const uiLabels = service.complete("ui.", "ui.".length)?.map((option) => option.label) ?? [];
+    expect(uiLabels).toContain("chart");
+    expect(uiLabels).toContain("live");
+
+    const chartOptionLabels = service
+      .complete(`ui.chart("bar", { `, `ui.chart("bar", { `.length)
+      ?.map((option) => option.label) ?? [];
+    expect(chartOptionLabels).toContain("data");
+    expect(chartOptionLabels).toContain("height");
+    expect(chartOptionLabels).toContain("showValues");
+
+    const chartLabels = service.complete("std.charts.", "std.charts.".length)?.map((option) => option.label) ?? [];
+    expect(chartLabels).toContain("bar");
+    expect(chartLabels).toContain("line");
+    expect(chartLabels).toContain("donut");
+
+    const currentLabels = service.complete("current.", "current.".length)?.map((option) => option.label) ?? [];
+    expect(currentLabels).toContain("table");
+    expect(currentLabels).toContain("tables");
+    expect(currentLabels).toContain("todo");
+    expect(currentLabels).toContain("todos");
+    expect(currentLabels).toContain("appendContent");
+
+    const nbLabels = service.complete("nb.", "nb.".length)?.map((option) => option.label) ?? [];
+    expect(nbLabels).toContain("search");
+
+    const stdLabels = service.complete("std.dates.", "std.dates.".length)?.map((option) => option.label) ?? [];
+    expect(stdLabels).toContain("formatDate");
+
+    const tableLabels =
+      service.complete("const t = current.table('ideas');\nt?.", "const t = current.table('ideas');\nt?.".length)?.map((option) => option.label) ?? [];
+    expect(tableLabels).toContain("rows");
+    expect(tableLabels).toContain("add");
+
+    const todoLabels =
+      service.complete("const t = current.todo('today');\nt?.", "const t = current.todo('today');\nt?.".length)?.map((option) => option.label) ?? [];
+    expect(todoLabels).toContain("items");
+    expect(todoLabels).toContain("add");
+
+    const liveLabels =
+      service.complete("ui.live(() => ui.", "ui.live(() => ui.".length)?.map((option) => option.label) ?? [];
+    expect(liveLabels).toContain("table");
   });
 });

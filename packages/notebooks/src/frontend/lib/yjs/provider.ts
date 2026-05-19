@@ -2,6 +2,7 @@ import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } f
 import { encoding } from "@valentinkolb/stdlib";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
+import { notebooksWorkspace, type NotebookWorkspaceEvent } from "../../../lib/workspace-events";
 import { notebooksYjs } from "../../../lib/yjs";
 
 type YjsErrorCode = (typeof notebooksYjs.errorCode)[keyof typeof notebooksYjs.errorCode];
@@ -21,11 +22,18 @@ export type YjsProviderOptions = {
   initialCursor?: string | null;
   onConnectionChange?: (connected: boolean) => void;
   onPresenceChange?: (participants: NotebookPresenceParticipant[]) => void;
+  workspace?: {
+    notebookId: string;
+    initialCursor?: string | null;
+    onEvent?: (event: NotebookWorkspaceEvent, cursor: string | null) => void;
+    onError?: (error: YjsProviderError) => void;
+  };
   onError?: (error: YjsProviderError) => void;
   onFatal?: (error: YjsProviderError) => void;
 };
 
 const WS_TYPE = notebooksYjs.wsType;
+const WORKSPACE_WS_TYPE = notebooksWorkspace.wsType;
 const TERMINAL_ERROR_CODES = new Set<string>(notebooksYjs.terminalErrorCodes);
 const KNOWN_ERROR_CODES = new Set<string>(Object.values(notebooksYjs.errorCode));
 const RECONNECT_BASE_DELAY_MS = 2_000;
@@ -61,6 +69,8 @@ export function createYjsProvider(opts: YjsProviderOptions) {
   let isTerminated = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let lastCursor = opts.initialCursor ?? null;
+  let lastWorkspaceCursor = opts.workspace?.initialCursor ?? null;
+  let activeWorkspaceId = opts.workspace?.notebookId ?? null;
   let replayReady = false;
   let localStateSent = false;
   let needsFullResync = false;
@@ -98,6 +108,15 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       fromCursor,
       sessionToken: opts.sessionToken,
     });
+
+  const sendWorkspaceSubscribe = (): boolean => {
+    if (!opts.workspace) return false;
+    return sendJson(WORKSPACE_WS_TYPE.subscribe, {
+      notebookId: opts.workspace.notebookId,
+      fromCursor: lastWorkspaceCursor,
+      sessionToken: opts.sessionToken,
+    });
+  };
 
   const sendLocalStateIfNeeded = () => {
     if (!replayReady || localStateSent) return;
@@ -222,6 +241,32 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       return;
     }
 
+    if (msg.type === WORKSPACE_WS_TYPE.error || msg.type === WORKSPACE_WS_TYPE.revoked) {
+      const error = normalizeError(msg.payload);
+      opts.workspace?.onError?.(error);
+      return;
+    }
+
+    if (msg.type === WORKSPACE_WS_TYPE.ready) {
+      const payload = (msg.payload ?? {}) as { notebookId?: unknown };
+      if (typeof payload.notebookId === "string") activeWorkspaceId = payload.notebookId;
+      return;
+    }
+
+    if (msg.type === WORKSPACE_WS_TYPE.event) {
+      const payload = (msg.payload ?? {}) as {
+        notebookId?: unknown;
+        cursor?: unknown;
+        event?: unknown;
+      };
+      if (!opts.workspace || payload.notebookId !== activeWorkspaceId) return;
+      if (typeof payload.cursor === "string") lastWorkspaceCursor = payload.cursor;
+      const event = payload.event as NotebookWorkspaceEvent | undefined;
+      if (!event || event.v !== 1 || event.notebookId !== activeWorkspaceId) return;
+      opts.workspace.onEvent?.(event, typeof payload.cursor === "string" ? payload.cursor : null);
+      return;
+    }
+
     if (msg.type === WS_TYPE.replayReady) {
       const payload = (msg.payload ?? {}) as { noteId?: unknown };
       // Adopt the server-canonical id form. We may have sent a
@@ -288,6 +333,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       opts.onConnectionChange?.(true);
       replayReady = false;
       localStateSent = false;
+      sendWorkspaceSubscribe();
       sendReplayRequest(lastCursor);
     };
 

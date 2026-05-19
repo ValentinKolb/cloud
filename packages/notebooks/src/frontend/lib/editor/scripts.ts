@@ -4,7 +4,7 @@
  * Markdown body authoring contract:
  *
  *   ```script
- *   kit.ui.button("Hello", () => kit.ui.toast(kit.note.title));
+ *   ui.button("Hello", () => ui.toast(current.title));
  *   ```
  *
  * # Architecture — minimal, mirrors the homepage app's `code` ext
@@ -28,14 +28,14 @@
  *   re-invoking the script.
  * - `contenteditable=false` on the widget root keeps CM6's
  *   MutationObserver out of the kit's runtime DOM mutations
- *   (kit.ui.button, error blocks, toasts). Without this, those
+ *   (ui.button, error blocks, toasts). Without this, those
  *   mutations get misinterpreted as user edits and corrupt the
  *   script body.
  * - `ignoreEvent` returns true — clicks on internal buttons stay
  *   self-contained; CM doesn't try to caret-move on them.
  * - `disposed` flag handles the late-registration race for async
  *   scripts that `await` before subscribing via
- *   `kit.state.observe`.
+ *   `current.kv.observe`.
  * - `runId` guards stale async runs. We can't cancel an already
  *   executing AsyncFunction, but late kit side effects from old
  *   source are rejected after a re-run/destroy.
@@ -65,7 +65,7 @@ import { selectionIntersectsRange } from "./_lib/cursor-zone-field";
  *  `notebookId` is the user-visible short-id (6-char base62). The
  *  kit uses it both as the `:id` param for API calls (notebooks
  *  API accepts either UUID or short-id) and as the value of
- *  `kit.note.notebook.id` exposed to script authors. */
+ *  `current.notebook.id` exposed to script authors. */
 export type ScriptsConfig = {
   scriptsEnabled: () => boolean;
   notebookId: string;
@@ -76,7 +76,7 @@ export type ScriptsConfig = {
   /** Live Y.Text for the current note's content — kit writes
    *  mutate this directly. */
   ytext: Y.Text;
-  /** Y.Doc for the current note — feeds `kit.state.*`. */
+  /** Y.Doc for the current note — feeds `current.kv.*`. */
   ydoc: Y.Doc;
 };
 
@@ -92,7 +92,7 @@ const RERUN_DEBOUNCE_MS = 500;
 // =============================================================================
 
 /**
- * Widget that hosts the `.md-script-output` container the kit renders
+ * Widget that hosts the `.md-script-output` container the runtime renders
  * into. In collapsed mode it is used as the replacement widget for the
  * whole script source range; in edit mode it is a block widget after
  * the closing fence.
@@ -336,9 +336,9 @@ class OutputWidget extends WidgetType {
     state.outputEl.replaceChildren();
     state.errorEl.replaceChildren();
 
-    // Defense in depth: wrap the kit + run-script setup in a
+    // Defense in depth: wrap the runtime + run-script setup in a
     // try/catch so any failure during widget-side preparation
-    // (kit factory throws, console proxy init throws, etc.) is
+    // (runtime factory throws, console proxy init throws, etc.) is
     // surfaced as a visible error chip rather than silently
     // bringing down the widget. `runScript` itself already catches
     // user-script errors and renders them into `errorEl`; this
@@ -696,7 +696,7 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
       marginTop: "0.5rem",
     },
     ".dark .cm-script-output-frame": {
-      background: "linear-gradient(135deg, rgb(30 64 175 / 0.24) 0%, rgb(15 118 110 / 0.22) 100%)",
+      background: "linear-gradient(135deg, rgb(30 64 175 / 0.24) 0%, rgb(23 37 84 / 0.22) 100%)",
     },
     ".dark .cm-script-output-frame.cm-script-output-frame-editing": {
       backgroundColor: "transparent",

@@ -168,7 +168,9 @@ export const extractNamedBlocks = (md: string | null | undefined): NamedBlock[] 
       startLine,
       endLine,
     });
-    i = endLine;
+    // Sections may contain additional named blocks. Keep scanning their
+    // body so a dashboard section can expose smaller referenceable parts.
+    if (type !== "section") i = endLine;
   }
 
   return blocks;

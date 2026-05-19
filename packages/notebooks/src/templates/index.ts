@@ -1,7 +1,7 @@
 import { dailyNotesTemplate } from "./daily";
 import { gardenPlannerTemplate } from "./garden";
-import { projectHubTemplate } from "./project";
-import { topicWikiTemplate } from "./wiki";
+import { readingListTemplate } from "./reading";
+import { recipeCollectorTemplate } from "./recipe";
 import type { NotebookTemplate } from "./types";
 
 export type {
@@ -17,8 +17,8 @@ export { materializeTemplate, noteLink } from "./types";
 export const templates: NotebookTemplate[] = [
   dailyNotesTemplate,
   gardenPlannerTemplate,
-  topicWikiTemplate,
-  projectHubTemplate,
+  recipeCollectorTemplate,
+  readingListTemplate,
 ];
 
 export const getTemplate = (id: string): NotebookTemplate | null =>

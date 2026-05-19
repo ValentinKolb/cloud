@@ -18,7 +18,7 @@ type TagSummary = {
   count: number;
 };
 
-type Variant = "sidebar" | "sidebar-mobile";
+type Variant = "sidebar" | "sidebar-mobile" | "icon";
 
 type Props = {
   notebookId: string;
@@ -107,6 +107,20 @@ const openTagsModal = (notebookId: string) =>
   );
 
 export default function TagsButton(props: Props) {
+  if (props.variant === "icon") {
+    return (
+      <button
+        type="button"
+        class="sidebar-icon-action"
+        onClick={() => void openTagsModal(props.notebookId)}
+        title={`${props.tagCount} tag${props.tagCount === 1 ? "" : "s"}`}
+        aria-label="Tags"
+      >
+        <i class="ti ti-hash text-base" />
+      </button>
+    );
+  }
+
   if (props.variant === "sidebar-mobile") {
     return (
       <button type="button" class="sidebar-item-mobile w-full" onClick={() => void openTagsModal(props.notebookId)}>

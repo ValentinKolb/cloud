@@ -109,6 +109,17 @@
   @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:border-blue-400;
 }
 
+@utility btn-input-success {
+  @apply btn-input bg-white text-emerald-600 border-emerald-400;
+  @apply hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-500;
+  @apply active:bg-emerald-100 active:border-emerald-500;
+  @apply focus-visible:bg-white focus-visible:border-emerald-500;
+  @apply dark:bg-transparent dark:text-emerald-400 dark:border-emerald-400;
+  @apply dark:hover:bg-emerald-950 dark:hover:text-emerald-300 dark:hover:border-emerald-400;
+  @apply dark:active:bg-emerald-900;
+  @apply dark:focus-visible:bg-zinc-900 dark:focus-visible:border-emerald-400;
+}
+
 /* Input: grey bg + matching border unfocused, white bg + blue border on focus */
 @utility input {
   padding: var(--theme-input-py) var(--theme-input-px);
@@ -133,4 +144,18 @@
   @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-950;
   @apply active:bg-zinc-200 dark:active:bg-zinc-700;
   @apply disabled:cursor-not-allowed disabled:opacity-40 disabled:transition-none;
+}
+
+/* Active / pressed state — set `aria-pressed="true"` on an `icon-btn`
+   to mark it as the currently-selected option (active filter, toggled
+   toolbar mode, etc.). Same blue tint as the markdown-editor toolbar's
+   active state so the platform reads consistently for "this is on". */
+.icon-btn[aria-pressed="true"] {
+  @apply text-blue-600 bg-blue-50;
+  @apply dark:text-blue-400 dark:bg-blue-950/40;
+}
+
+.icon-btn[aria-pressed="true"]:hover {
+  @apply bg-blue-100 text-blue-700;
+  @apply dark:bg-blue-900/40 dark:text-blue-300;
 }

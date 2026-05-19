@@ -12,6 +12,7 @@ import {
 import type { Notebook } from "./notebooks";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
+import { invalidated } from "./workspace-events";
 
 export type TemplateSummary = {
   id: string;
@@ -162,6 +163,7 @@ export const instantiate = async (
       finalNotebook = requireResult(await notebooks.update({ id: notebook.id, data: { homepageNoteId: homepage.id } }));
     }
 
+    await invalidated({ notebookId: finalNotebook.id, reason: "template", scopes: ["notebook", "tree", "tags", "references"] });
     return ok(finalNotebook);
   } catch (error) {
     await sql`DELETE FROM notebooks.notebooks WHERE id = ${notebook.id}::uuid`.catch(() => {});

@@ -1,5 +1,5 @@
 /**
- * `kit.attachments` — file attachments for the current notebook.
+ * `nb.attachments` — file attachments for the current notebook.
  *
  * Hard boundary: every operation runs against `ctx.notebookId`.
  * `listInNote()` filters the notebook list to only those referenced
@@ -58,7 +58,7 @@ const extractAttachmentRefs = (content: string): string[] => {
 // Factory
 // =============================================================================
 
-const READ_MODE_WRITE_ERROR = "kit.attachments.insertIntoContent is only available in edit mode";
+const READ_MODE_WRITE_ERROR = "nb.attachments.insertIntoContent is only available in edit mode";
 
 /** Raw-fetch the attachment endpoints. The Hono-derived `apiClient`
  *  type doesn't include `.attachments` because the attachment routes
@@ -74,9 +74,9 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     // The non-paginated `/:id/attachments` endpoint returns a flat
     // `Attachment[]` (via `respond(c, ok(...))`). The paginated
     // overview endpoint is a different route — we use the flat one
-    // here because the kit doesn't paginate attachments.
+    // here because the runtime doesn't paginate attachments.
     const res = await fetch(apiBase(ctx.notebookId));
-    if (!res.ok) throw new Error("kit.attachments.list: API call failed");
+    if (!res.ok) throw new Error("nb.attachments.list: API call failed");
     const payload = (await res.json()) as ApiAttachment[];
     return payload.map(toKitAttachment);
   };
@@ -94,10 +94,10 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   const get = async (shortId: string): Promise<KitAttachment | null> => {
     // Direct GET-by-id endpoint — O(1) lookup. Previously this did
     // a full list() + Array.find which made `for (id of ids)
-    // kit.attachments.get(id)` O(N²) on notebook size.
+    // nb.attachments.get(id)` O(N²) on notebook size.
     const res = await fetch(`${apiBase(ctx.notebookId)}/${encodeURIComponent(shortId)}`);
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error("kit.attachments.get: API call failed");
+    if (!res.ok) throw new Error("nb.attachments.get: API call failed");
     const att = (await res.json()) as ApiAttachment;
     return toKitAttachment(att);
   };
@@ -105,15 +105,15 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   const upload = async (file: File | Blob, filename?: string): Promise<KitAttachment> => {
     assertActive(ctx);
     const name = filename ?? (file instanceof File ? file.name : undefined);
-    if (!name) throw new Error("kit.attachments.upload: filename required for Blob inputs");
+    if (!name) throw new Error("nb.attachments.upload: filename required for Blob inputs");
     const form = new FormData();
     form.append("file", file, name);
     const res = await fetch(apiBase(ctx.notebookId), { method: "POST", body: form });
     if (!res.ok) {
-      let message = "kit.attachments.upload: API call failed";
+      let message = "nb.attachments.upload: API call failed";
       try {
         const body = (await res.json()) as { message?: string };
-        if (body.message) message = `kit.attachments.upload: ${body.message}`;
+        if (body.message) message = `nb.attachments.upload: ${body.message}`;
       } catch {
         // Non-JSON error body — keep the generic message.
       }
@@ -147,7 +147,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     // emit the correct image-vs-file markdown form.
     const att = await get(shortId);
     assertActive(ctx);
-    if (!att) throw new Error(`kit.attachments.insertIntoContent: attachment ${shortId} not found`);
+    if (!att) throw new Error(`nb.attachments.insertIntoContent: attachment ${shortId} not found`);
     const md =
       att.kind === "image"
         ? `![${att.filename}](attach://${att.id})`
@@ -163,7 +163,7 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     const res = await fetch(`${apiBase(ctx.notebookId)}/${encodeURIComponent(shortId)}`, {
       method: "DELETE",
     });
-    if (!res.ok) throw new Error("kit.attachments.remove: API call failed");
+    if (!res.ok) throw new Error("nb.attachments.remove: API call failed");
   };
 
   return { list, listInNote, get, upload, uploadFromPicker, insertIntoContent, remove };

@@ -1,7 +1,16 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { IconInput, navigateTo, PermissionEditor, prompts, refreshCurrentPath, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  Checkbox,
+  IconInput,
+  navigateTo,
+  PermissionEditor,
+  prompts,
+  SelectInput,
+  SettingsModal,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal } from "solid-js";
+import { createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 
@@ -31,97 +40,109 @@ const flattenNoteOptions = (nodes: NoteTreeNode[], depth = 0): NoteSelectOption[
     ...flattenNoteOptions(note.children, depth + 1),
   ]);
 
-// =============================================================================
-// General Settings
-// =============================================================================
+const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+  try {
+    const data = (await response.json()) as { message?: string };
+    if (typeof data?.message === "string" && data.message.length > 0) return data.message;
+  } catch {
+    // Keep the caller-provided fallback.
+  }
+  return fallback;
+};
 
-function GeneralSection(props: { notebook: Notebook }) {
-  const [name, setName] = createSignal(props.notebook.name);
-  const [description, setDescription] = createSignal(props.notebook.description ?? "");
-  const [icon, setIcon] = createSignal(props.notebook.icon ?? "");
+export const openNotebookSettingsDialog = (props: Props): Promise<void> =>
+  prompts.dialog<void>(
+    (close) => <NotebookSettingsBody {...props} bare close={() => close()} />,
+    { surface: "bare", header: false, size: "large" },
+  );
 
-  const mutation = mutations.create({
-    mutation: async (data: { name?: string; description?: string | null; icon?: string | null }) => {
-      const res = await apiClient[":id"].$patch({
-        param: { id: props.notebook.shortId },
-        json: data,
-      });
-      if (!res.ok) throw new Error("Failed to update notebook");
-      return res.json();
-    },
-    onSuccess: () => refreshCurrentPath(),
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const handleSave = () => {
-    mutation.mutate({
-      name: name(),
-      description: description() || null,
-      icon: icon() || null,
-    });
-  };
-
-  const hasChanges = () =>
-    name() !== props.notebook.name ||
-    (description() || null) !== (props.notebook.description ?? null) ||
-    (icon() || null) !== (props.notebook.icon ?? null);
-
+function LocalSaveStrip(props: {
+  dirty: boolean;
+  loading: boolean;
+  label?: string;
+  onSave: () => void;
+}) {
   return (
-    <div class="flex flex-col gap-4">
-      <h3 class="section-label mb-0 flex items-center gap-2">
-        <i class="ti ti-settings text-dimmed" />
-        General
-      </h3>
-
-      <TextInput label="Name" value={() => name()} onChange={setName} required placeholder="Notebook name" icon="ti ti-notebook" />
-
-      <TextInput
-        label="Description"
-        value={() => description()}
-        onChange={setDescription}
-        multiline
-        placeholder="Optional description"
-        icon="ti ti-align-left"
-      />
-
-      <IconInput
-        label="Icon"
-        value={() => icon()}
-        onChange={setIcon}
-        placeholder="Search icons…"
-      />
-
-      <button type="button" onClick={handleSave} disabled={mutation.loading() || !hasChanges()} class="btn-primary btn-md self-start">
-        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-      </button>
-    </div>
+    <Show
+      when={props.dirty}
+      fallback={
+        <p class="flex items-center gap-1.5 text-xs text-dimmed">
+          <i class="ti ti-check text-emerald-500" />
+          Saved
+        </p>
+      }
+    >
+      <div class="flex flex-wrap items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-200">
+        <span class="flex items-center gap-1.5">
+          <i class="ti ti-pencil" />
+          Unsaved changes
+        </span>
+        <button type="button" class="btn-primary btn-sm ml-auto" disabled={props.loading} onClick={props.onSave}>
+          {props.loading ? (
+            <>
+              <i class="ti ti-loader-2 animate-spin" />
+              Saving
+            </>
+          ) : (
+            props.label ?? "Save"
+          )}
+        </button>
+      </div>
+    </Show>
   );
 }
 
+function SaveStatus(props: { loading: boolean; saved: boolean; error?: string | null }) {
+  if (props.loading) {
+    return (
+      <span class="inline-flex items-center gap-1.5 text-xs text-dimmed">
+        <i class="ti ti-loader-2 animate-spin" />
+        Saving...
+      </span>
+    );
+  }
+  if (props.error) {
+    return (
+      <span class="inline-flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+        <i class="ti ti-alert-circle" />
+        Failed
+      </span>
+    );
+  }
+  if (props.saved) {
+    return (
+      <span class="inline-flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+        <i class="ti ti-check" />
+        Saved
+      </span>
+    );
+  }
+  return null;
+}
+
 // =============================================================================
-// Homepage
+// General
 // =============================================================================
 
-function HomepageSection(props: { notebook: Notebook; tree: NoteTreeNode[] }) {
+function GeneralSection(props: { notebook: Notebook; tree: NoteTreeNode[]; canWrite: boolean; onNotebookChange: (notebook: Notebook) => void }) {
   const options = createMemo(() => flattenNoteOptions(props.tree));
-  const initialValue = props.notebook.homepageNoteShortId ?? "";
-  const [homepageNoteId, setHomepageNoteId] = createSignal(initialValue);
+  const [base, setBase] = createSignal({
+    name: props.notebook.name,
+    description: props.notebook.description ?? "",
+    icon: props.notebook.icon ?? "",
+    homepageNoteId: props.notebook.homepageNoteShortId ?? "",
+  });
+  const [name, setName] = createSignal(base().name);
+  const [description, setDescription] = createSignal(base().description);
+  const [icon, setIcon] = createSignal(base().icon);
+  const [homepageNoteId, setHomepageNoteId] = createSignal(base().homepageNoteId);
 
   const selectedLabel = () => options().find((option) => option.id === homepageNoteId())?.label;
-  const hasChanges = () => homepageNoteId() !== initialValue;
-
-  const mutation = mutations.create({
-    mutation: async (value: string) => {
-      const res = await apiClient[":id"].$patch({
-        param: { id: props.notebook.shortId },
-        json: { homepageNoteId: value || null },
-      });
-      if (!res.ok) throw new Error("Failed to update homepage note");
-      return res.json();
-    },
-    onSuccess: () => refreshCurrentPath(),
-    onError: (err) => prompts.error(err.message),
-  });
+  const dirty = () =>
+    name() !== base().name ||
+    description() !== base().description ||
+    icon() !== base().icon ||
+    homepageNoteId() !== base().homepageNoteId;
 
   const fetchNotes = async (query: string, signal: AbortSignal): Promise<NoteSelectOption[]> => {
     if (signal.aborted) return [];
@@ -132,16 +153,71 @@ function HomepageSection(props: { notebook: Notebook; tree: NoteTreeNode[] }) {
     return filtered.slice(0, 50);
   };
 
+  const mutation = mutations.create({
+    mutation: async () => {
+      if (!name().trim()) throw new Error("Name is required");
+      const res = await apiClient[":id"].$patch({
+        param: { id: props.notebook.shortId },
+        json: {
+          name: name().trim(),
+          description: description().trim() || null,
+          icon: icon().trim() || null,
+          homepageNoteId: homepageNoteId() || null,
+        },
+      });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update notebook."));
+      return (await res.json()) as Notebook;
+    },
+    onSuccess: (next) => {
+      setBase({
+        name: next.name,
+        description: next.description ?? "",
+        icon: next.icon ?? "",
+        homepageNoteId: next.homepageNoteShortId ?? "",
+      });
+      props.onNotebookChange(next);
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+
   return (
     <div class="flex flex-col gap-4">
-      <h3 class="section-label mb-0 flex items-center gap-2">
-        <i class="ti ti-home text-dimmed" />
-        Homepage
-      </h3>
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <TextInput
+          label="Name"
+          description="Shown in the sidebar and overview."
+          value={name}
+          onInput={setName}
+          icon="ti ti-notebook"
+          required
+          disabled={!props.canWrite}
+        />
+        <IconInput
+          label="Icon"
+          description="Used in the sidebar header."
+          value={icon}
+          onChange={setIcon}
+          placeholder="Search icons..."
+          disabled={!props.canWrite}
+        />
+      </div>
+
+      <TextInput
+        label="Description"
+        description="Optional short note for the overview."
+        value={description}
+        onInput={setDescription}
+        multiline
+        lines={2}
+        placeholder="What is this notebook for?"
+        icon="ti ti-align-left"
+        disabled={!props.canWrite}
+      />
+
       <SelectInput
-        label="Homepage note"
+        label="Homepage"
         description="Opened when this notebook has no URL note and no valid last active note."
-        value={() => homepageNoteId()}
+        value={homepageNoteId}
         onChange={setHomepageNoteId}
         selectedLabel={selectedLabel}
         fetchData={fetchNotes}
@@ -149,59 +225,55 @@ function HomepageSection(props: { notebook: Notebook; tree: NoteTreeNode[] }) {
         icon="ti ti-home"
         activeIcon="ti ti-search"
         clearable
+        disabled={!props.canWrite}
       />
-      <button
-        type="button"
-        onClick={() => mutation.mutate(homepageNoteId())}
-        disabled={mutation.loading() || !hasChanges()}
-        class="btn-primary btn-md self-start"
+
+      <Show
+        when={props.canWrite}
+        fallback={<p class="text-xs text-dimmed">You can view this notebook, but only editors can change identity settings.</p>}
       >
-        {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save homepage"}
-      </button>
+        <LocalSaveStrip dirty={dirty()} loading={mutation.loading()} onSave={() => mutation.mutate(undefined)} />
+      </Show>
     </div>
   );
 }
 
 // =============================================================================
-// Scripting (admin-only) — toggles the per-notebook opt-in for
-// `\`\`\`script` block execution. Off by default. Toggling triggers a
-// PATCH /:id with `scriptsEnabled` which the API gates to admin only.
+// Features
 // =============================================================================
 
-function ScriptingSection(props: { notebook: Notebook }) {
+function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebookChange: (notebook: Notebook) => void }) {
   const [enabled, setEnabled] = createSignal(props.notebook.scriptsEnabled);
+  const [saved, setSaved] = createSignal(true);
+  const [error, setError] = createSignal<string | null>(null);
 
-  const mutation = mutations.create({
-    mutation: async (next: boolean) => {
+  const mutation = mutations.create<Notebook, boolean>({
+    mutation: async (next) => {
       const res = await apiClient[":id"].$patch({
         param: { id: props.notebook.shortId },
         json: { scriptsEnabled: next },
       });
-      if (!res.ok) throw new Error("Failed to update scripting setting");
-      return res.json();
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update scripting setting."));
+      return (await res.json()) as Notebook;
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: (next) => {
+      setEnabled(next.scriptsEnabled);
+      setSaved(true);
+      setError(null);
+      props.onNotebookChange(next);
+    },
     onError: (err) => {
-      // Revert on failure so the toggle reflects the persisted state.
       setEnabled(props.notebook.scriptsEnabled);
+      setSaved(false);
+      setError(err.message);
       prompts.error(err.message);
     },
   });
 
-  const handleToggle = async (event: Event) => {
-    // The browser already flipped the native checkbox by the time
-    // this fires. Capture the input element so we can revert the DOM
-    // when the user cancels — Solid won't re-render `checked` if the
-    // signal value didn't change, so the visual state would otherwise
-    // diverge from the persisted setting (codex review on commit
-    // 14642fc).
-    const input = event.currentTarget as HTMLInputElement;
-    const next = !enabled();
-    if (next) {
-      // Confirm before turning ON — the warning copy needs an
-      // explicit "yes I understand" gesture, not just a tap.
+  const setScriptsEnabled = async (next: boolean) => {
+    if (next && !enabled()) {
       const confirmed = await prompts.confirm(
-        `Scripts in this notebook can read your notes, modify content, and call any browser API on your behalf — only enable for notebooks you trust.\n\nEnable scripting in "${props.notebook.name}"?`,
+        `Scripts in this notebook can read your notes, modify content, and call browser APIs on your behalf.\n\nEnable scripting in "${props.notebook.name}"?`,
         {
           title: "Enable scripting",
           icon: "ti ti-alert-triangle",
@@ -209,40 +281,64 @@ function ScriptingSection(props: { notebook: Notebook }) {
           confirmText: "Enable",
         },
       );
-      if (!confirmed) {
-        input.checked = false;
-        return;
-      }
+      if (!confirmed) return;
     }
     setEnabled(next);
+    setSaved(false);
+    setError(null);
     mutation.mutate(next);
   };
 
   return (
     <div class="flex flex-col gap-3">
-      <h3 class="section-label mb-0 flex items-center gap-2">
-        <i class="ti ti-code text-dimmed" />
-        Scripting
-      </h3>
-      <p class="text-xs text-dimmed">
-        When enabled, fenced code blocks tagged{" "}
-        <code class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[11px]">```script</code>{" "}
-        evaluate as JavaScript in the editor. Scripts run with the same permissions as your browser session — only enable for notebooks you trust.
-      </p>
-      <label class="flex items-center gap-2 cursor-pointer select-none">
-        <input
-          type="checkbox"
-          checked={enabled()}
-          disabled={mutation.loading()}
-          onChange={handleToggle}
-          class="h-4 w-4 rounded border-zinc-300 dark:border-zinc-600"
-        />
-        <span class="text-sm">
-          Enable scripting in this notebook
-          {mutation.loading() && <i class="ti ti-loader-2 animate-spin ml-2 text-xs" />}
-        </span>
-      </label>
+      <Checkbox
+        label="Enable script blocks"
+        description="Allows ```script fences to run JavaScript in this notebook. Admin only."
+        value={enabled}
+        onChange={setScriptsEnabled}
+        disabled={!props.isAdmin || mutation.loading()}
+      />
+      <SaveStatus loading={mutation.loading()} saved={saved()} error={error()} />
     </div>
+  );
+}
+
+// =============================================================================
+// Permissions
+// =============================================================================
+
+function PermissionsSection(props: { notebook: Notebook; accessEntries: AccessEntry[]; isAdmin: boolean }) {
+  return (
+    <Show
+      when={props.isAdmin}
+      fallback={<p class="text-xs text-dimmed">Only notebook admins can manage access.</p>}
+    >
+      <PermissionEditor
+        initialEntries={props.accessEntries}
+        canEdit
+        grantAccess={async (principal, permission) => {
+          const res = await apiClient[":id"].access.$post({
+            param: { id: props.notebook.shortId },
+            json: { principal, permission },
+          });
+          if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to grant access."));
+          return (await res.json()) as AccessEntry;
+        }}
+        updateAccess={async (accessId, permission) => {
+          const res = await apiClient[":id"].access[":accessId"].$patch({
+            param: { id: props.notebook.shortId, accessId },
+            json: { permission },
+          });
+          if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update access."));
+        }}
+        revokeAccess={async (accessId) => {
+          const res = await apiClient[":id"].access[":accessId"].$delete({
+            param: { id: props.notebook.shortId, accessId },
+          });
+          if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to revoke access."));
+        }}
+      />
+    </Show>
   );
 }
 
@@ -256,17 +352,15 @@ function DangerZone(props: { notebook: Notebook }) {
       const res = await apiClient[":id"].$delete({
         param: { id: props.notebook.shortId },
       });
-      if (!res.ok) throw new Error("Failed to delete notebook");
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to delete notebook."));
     },
-    onSuccess: () => {
-      navigateTo("/app/notebooks");
-    },
+    onSuccess: () => navigateTo("/app/notebooks"),
     onError: (err) => prompts.error(err.message),
   });
 
   const handleDelete = async () => {
     const confirmed = await prompts.confirm(`Delete "${props.notebook.name}" and all its notes? This cannot be undone.`, {
-      title: "Delete Notebook",
+      title: "Delete notebook",
       icon: "ti ti-trash",
       variant: "danger",
       confirmText: "Delete",
@@ -276,18 +370,17 @@ function DangerZone(props: { notebook: Notebook }) {
 
   return (
     <div class="flex flex-col gap-3">
-      <h3 class="section-label mb-0 flex items-center gap-2 text-red-600 dark:text-red-400">
-        <i class="ti ti-alert-triangle" />
-        Danger Zone
-      </h3>
-      <p class="text-xs text-dimmed">Deleting this notebook will permanently remove all notes and their version history.</p>
+      <p class="text-xs text-dimmed">This removes notes, versions, attachments, and access grants. It cannot be undone.</p>
       <button type="button" onClick={handleDelete} disabled={mutation.loading()} class="btn-danger btn-md self-start">
         {mutation.loading() ? (
-          <i class="ti ti-loader-2 animate-spin" />
+          <>
+            <i class="ti ti-loader-2 animate-spin" />
+            Deleting
+          </>
         ) : (
           <>
-            <i class="ti ti-trash mr-1" />
-            Delete Notebook
+            <i class="ti ti-trash" />
+            Delete notebook
           </>
         )}
       </button>
@@ -296,78 +389,50 @@ function DangerZone(props: { notebook: Notebook }) {
 }
 
 // =============================================================================
-// Main Settings Panel
+// Shared Body
 // =============================================================================
 
-export default function NotebookSettingsPanel(props: Props) {
-  const backUrl = `/app/notebooks/${props.notebook.shortId}`;
+function NotebookSettingsBody(props: Props & { bare?: boolean; close?: () => void }) {
+  const [notebook, setNotebook] = createSignal(props.notebook);
 
   return (
-    <div class="flex-1 overflow-y-auto">
-      <div class="max-w-xl mx-auto py-6 px-4 flex flex-col gap-8">
-        {/* Header */}
-        <div class="flex items-center gap-3">
-          <a href={backUrl} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to editor">
-            <i class="ti ti-arrow-left" />
-          </a>
-          <h2 class="text-lg font-semibold">Notebook Settings</h2>
-        </div>
-
-        {/* General */}
-        {props.canWrite && <GeneralSection notebook={props.notebook} />}
-
-        {/* Homepage */}
-        {props.canWrite && <HomepageSection notebook={props.notebook} tree={props.tree} />}
-
-        {/* Scripting (admin-only opt-in for `\`\`\`script` blocks) */}
-        {props.isAdmin && <ScriptingSection notebook={props.notebook} />}
-
-        {/* Permissions */}
-        {props.isAdmin && (
-          <>
-            <hr class="border-zinc-200 dark:border-zinc-700" />
-            <div class="flex flex-col gap-4">
-              <h3 class="section-label mb-0 flex items-center gap-2">
-                <i class="ti ti-shield text-dimmed" />
-                Permissions
-              </h3>
-              <PermissionEditor
-                initialEntries={props.accessEntries}
-                canEdit
-                grantAccess={async (principal, permission) => {
-                  const res = await apiClient[":id"].access.$post({
-                    param: { id: props.notebook.shortId },
-                    json: { principal, permission },
-                  });
-                  if (!res.ok) throw new Error("Failed to grant access");
-                  return res.json() as Promise<AccessEntry>;
-                }}
-                updateAccess={async (accessId, permission) => {
-                  const res = await apiClient[":id"].access[":accessId"].$patch({
-                    param: { id: props.notebook.shortId, accessId },
-                    json: { permission },
-                  });
-                  if (!res.ok) throw new Error("Failed to update access");
-                }}
-                revokeAccess={async (accessId) => {
-                  const res = await apiClient[":id"].access[":accessId"].$delete({
-                    param: { id: props.notebook.shortId, accessId },
-                  });
-                  if (!res.ok) throw new Error("Failed to revoke access");
-                }}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Danger Zone */}
-        {props.isAdmin && (
-          <>
-            <hr class="border-zinc-200 dark:border-zinc-700" />
-            <DangerZone notebook={props.notebook} />
-          </>
-        )}
+    <div class={props.bare ? "flex h-[86vh] min-h-0 flex-col overflow-hidden" : "flex-1 overflow-y-auto"}>
+      <div class={props.bare ? "min-h-0 flex-1 overflow-hidden" : "mx-auto flex h-full min-h-[70vh] max-w-5xl flex-col px-4 py-6"}>
+        <SettingsModal
+          title="Notebook settings"
+          subtitle={notebook().name}
+          icon={notebook().icon || "ti-notebook"}
+          onClose={props.close}
+          closeLabel="Close settings"
+        >
+          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and default start page.">
+            <GeneralSection notebook={notebook()} tree={props.tree} canWrite={props.canWrite} onNotebookChange={setNotebook} />
+          </SettingsModal.Tab>
+          {props.isAdmin && (
+            <>
+              <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
+                <PermissionsSection notebook={notebook()} accessEntries={props.accessEntries} isAdmin={props.isAdmin} />
+              </SettingsModal.Tab>
+              <SettingsModal.Tab id="features" title="Features" icon="ti ti-toggle-right" description="Notebook-level behavior that saves immediately.">
+                <FeaturesSection notebook={notebook()} isAdmin={props.isAdmin} onNotebookChange={setNotebook} />
+              </SettingsModal.Tab>
+              <SettingsModal.Tab
+                id="danger"
+                title="Danger zone"
+                icon="ti ti-alert-triangle"
+                description="Permanently delete this notebook and all of its notes."
+                tone="danger"
+              >
+                <DangerZone notebook={notebook()} />
+              </SettingsModal.Tab>
+            </>
+          )}
+        </SettingsModal>
       </div>
     </div>
   );
+}
+
+export default function NotebookSettingsPanel(props: Props) {
+  return <NotebookSettingsBody {...props} />;
 }

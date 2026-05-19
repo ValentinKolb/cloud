@@ -48,7 +48,8 @@ describe("built-in notebook templates", () => {
     for (const template of templates) {
       const materialized = materializeTemplate(template, now);
       assertUnique(materialized.notes.map((note) => note.key), `${template.id} note keys`);
-      expect(materialized.notes.length, `${template.id} must create real starter notes`).toBeGreaterThanOrEqual(6);
+      expect(materialized.notes.length, `${template.id} must create real starter notes`).toBeGreaterThanOrEqual(2);
+      expect(materialized.notes.length, `${template.id} should stay small enough to scan`).toBeLessThanOrEqual(6);
 
       const keys = new Set(materialized.notes.map((note) => note.key));
       expect(materialized.homepageNoteKey, `${template.id} should declare a homepage note`).toBeTruthy();
@@ -80,8 +81,22 @@ describe("built-in notebook templates", () => {
       };
 
       for (const note of materialized.notes) {
+        expect(note.content, `${template.id}:${note.key} should not be an empty page`).toBeTruthy();
         const content = note.content;
-        if (typeof content === "function") expect(() => content(ctx)).not.toThrow();
+        const resolvedContent = typeof content === "function" ? content(ctx) : content;
+        if (typeof content === "function") {
+          expect(() => content(ctx)).not.toThrow();
+        }
+        expect(resolvedContent, `${template.id}:${note.key} should use the new script globals`).not.toContain("kit.");
+        expect(resolvedContent, `${template.id}:${note.key} should use nb.attachments, not top-level attachments`).not.toMatch(
+          /(^|[^\w.])attachments\./,
+        );
+        expect(resolvedContent, `${template.id}:${note.key} should use nb.tags, not top-level tags`).not.toMatch(/(^|[^\w.])tags\./);
+        expect(resolvedContent, `${template.id}:${note.key} should use current.kv, not top-level state`).not.toContain("state.");
+        expect(resolvedContent, `${template.id}:${note.key} should use nb.localKV, not top-level localState`).not.toContain(
+          "localState",
+        );
+        expect(resolvedContent, `${template.id}:${note.key} should use block selectors, not note.tasks`).not.toContain("note.tasks");
       }
     }
   });

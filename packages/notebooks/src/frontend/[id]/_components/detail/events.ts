@@ -37,6 +37,8 @@ export const EDITOR_INSERT_ATTACHMENT_EVENT = "notebooks.editor.insertAttachment
 export const ATTACHMENTS_UPDATE_EVENT = "notebooks.attachments.updated";
 /** Editor → panel: current `@name` block handles in the note. */
 export const NAMED_BLOCKS_UPDATE_EVENT = "notebooks.namedBlocks.updated";
+/** Panel → editor/read view: scroll to a named `@ref` block handle. */
+export const NAMED_BLOCK_SCROLL_EVENT = "notebooks.namedBlocks.scrollTo";
 
 /**
  * Editor-side progressive enhancement: same-notebook note navigation updated

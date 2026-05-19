@@ -1,6 +1,7 @@
 import type { NotebookPresenceParticipant, User } from "@valentinkolb/cloud/contracts";
 import { accounts, logger } from "@valentinkolb/cloud/services";
 import { auth } from "@valentinkolb/cloud/server";
+import { notebooksWorkspace } from "./lib/workspace-events";
 import { notebooksYjs } from "./lib/yjs";
 import type { TopicLiveEvent } from "@valentinkolb/sync";
 import type { ServerWebSocket } from "bun";
@@ -26,6 +27,7 @@ import { createYjsTopic, maxStreamCursor, NODE_ID, toBase64 } from "./service/yj
  */
 const log = logger("yjs");
 const WS_TYPE = notebooksYjs.wsType;
+const WORKSPACE_WS_TYPE = notebooksWorkspace.wsType;
 const ERROR_CODE = notebooksYjs.errorCode;
 type NotebooksYjsErrorCode = (typeof ERROR_CODE)[keyof typeof ERROR_CODE];
 type NotebooksYjsErrorPayload = {
@@ -76,10 +78,20 @@ const AwarenessPublishMessageSchema = z.object({
   }),
 });
 
+const WorkspaceSubscribeMessageSchema = z.object({
+  type: z.literal(WORKSPACE_WS_TYPE.subscribe),
+  payload: z.object({
+    notebookId: z.string().min(6).max(36),
+    sessionToken: z.string().min(1).optional(),
+    fromCursor: z.string().regex(notebooksWorkspace.streamCursorPattern).nullable().optional(),
+  }),
+});
+
 const ClientMessageSchema = z.discriminatedUnion("type", [
   ReplayRequestMessageSchema,
   SyncPublishMessageSchema,
   AwarenessPublishMessageSchema,
+  WorkspaceSubscribeMessageSchema,
 ]);
 
 type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -103,6 +115,9 @@ type WsContext = {
   snapshotInterval: ReturnType<typeof setInterval> | null;
   presenceHeartbeatInterval: ReturnType<typeof setInterval> | null;
   accessRefreshTimeout: ReturnType<typeof setTimeout> | null;
+  workspaceNotebookId: string | null;
+  workspaceAbort: AbortController | null;
+  workspaceAccessRefreshTimeout: ReturnType<typeof setTimeout> | null;
   dirty: boolean;
   lastPublishedCursor: string | null;
 };
@@ -153,6 +168,9 @@ const createContext = (socket: ServerWebSocket<unknown>): WsContext => ({
   snapshotInterval: null,
   presenceHeartbeatInterval: null,
   accessRefreshTimeout: null,
+  workspaceNotebookId: null,
+  workspaceAbort: null,
+  workspaceAccessRefreshTimeout: null,
   dirty: false,
   lastPublishedCursor: null,
 });
@@ -196,6 +214,16 @@ const stopPresenceHeartbeat = (ctx: WsContext) => {
 const stopAccessRefresh = (ctx: WsContext) => {
   if (ctx.accessRefreshTimeout) clearTimeout(ctx.accessRefreshTimeout);
   ctx.accessRefreshTimeout = null;
+};
+
+const stopWorkspaceStream = (ctx: WsContext) => {
+  if (ctx.workspaceAbort) ctx.workspaceAbort.abort();
+  ctx.workspaceAbort = null;
+};
+
+const stopWorkspaceAccessRefresh = (ctx: WsContext) => {
+  if (ctx.workspaceAccessRefreshTimeout) clearTimeout(ctx.workspaceAccessRefreshTimeout);
+  ctx.workspaceAccessRefreshTimeout = null;
 };
 
 const sendPresenceMessage = (
@@ -392,11 +420,18 @@ const leaveCurrentNote = async (ctx: WsContext) => {
   }
 };
 
+const leaveCurrentWorkspace = (ctx: WsContext) => {
+  stopWorkspaceAccessRefresh(ctx);
+  stopWorkspaceStream(ctx);
+  ctx.workspaceNotebookId = null;
+};
+
 const fatal = async (ctx: WsContext, code: NotebooksYjsErrorCode, message: string, noteId?: string) => {
   if (ctx.phase === "closing") return;
   ctx.phase = "closing";
   warn(ctx.socket, code, message, noteId);
   await leaveCurrentNote(ctx);
+  leaveCurrentWorkspace(ctx);
   ctx.socket.close(closeCodeForError(code), code);
 };
 
@@ -469,6 +504,43 @@ const evaluateAccess = async (
   };
 };
 
+const evaluateNotebookAccess = async (
+  notebookIdOrShortId: string,
+  user: User,
+  deniedCode: NotebooksYjsErrorCode,
+): Promise<AccessEvaluation & { notebookId?: string }> => {
+  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShortId });
+  if (!notebook) {
+    return {
+      ok: false,
+      code: ERROR_CODE.noteNotFound,
+      message: "Notebook not found",
+      noteId: notebookIdOrShortId,
+    };
+  }
+
+  const permission = await notebooksService.notebook.permission.get({
+    notebookId: notebook.id,
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+  });
+
+  if (permission === "none") {
+    return {
+      ok: false,
+      code: deniedCode,
+      message: deniedCode === ERROR_CODE.accessRevoked ? "Access was revoked" : "Access denied",
+      noteId: notebook.id,
+    };
+  }
+
+  return {
+    ok: true,
+    notebookId: notebook.id,
+    canWrite: isWritablePermission(permission),
+  };
+};
+
 const refreshJoinedAccess = async (ctx: WsContext): Promise<AccessEvaluation> => {
   if (!ctx.noteId) {
     return {
@@ -492,6 +564,31 @@ const refreshJoinedAccess = async (ctx: WsContext): Promise<AccessEvaluation> =>
   if (!access.ok) return access;
   ctx.user = user;
   ctx.canWrite = access.canWrite ?? false;
+  return access;
+};
+
+const refreshWorkspaceAccess = async (ctx: WsContext): Promise<AccessEvaluation> => {
+  if (!ctx.workspaceNotebookId) {
+    return {
+      ok: false,
+      code: ERROR_CODE.noteNotFound,
+      message: "Notebook not found",
+    };
+  }
+
+  const user = await resolveSessionUser(ctx.sessionToken);
+  if (!user) {
+    return {
+      ok: false,
+      code: ERROR_CODE.sessionExpired,
+      message: "Session expired",
+      noteId: ctx.workspaceNotebookId,
+    };
+  }
+
+  const access = await evaluateNotebookAccess(ctx.workspaceNotebookId, user, ERROR_CODE.accessRevoked);
+  if (!access.ok) return access;
+  ctx.user = user;
   return access;
 };
 
@@ -519,6 +616,38 @@ const startAccessRefresh = (ctx: WsContext) => {
         error: error instanceof Error ? error.message : String(error),
       });
       await fatal(ctx, ERROR_CODE.internalError, "Access refresh failed", ctx.noteId ?? undefined);
+    }
+  }, ACCESS_REFRESH_INTERVAL_MS);
+};
+
+const startWorkspaceAccessRefresh = (ctx: WsContext) => {
+  stopWorkspaceAccessRefresh(ctx);
+  if (!ctx.workspaceNotebookId) return;
+
+  ctx.workspaceAccessRefreshTimeout = setTimeout(async () => {
+    try {
+      const access = await refreshWorkspaceAccess(ctx);
+      if (!access.ok) {
+        send(ctx.socket, WORKSPACE_WS_TYPE.revoked, {
+          notebookId: ctx.workspaceNotebookId,
+          code: access.code ?? ERROR_CODE.accessRevoked,
+          message: access.message ?? "Workspace access revoked",
+        });
+        leaveCurrentWorkspace(ctx);
+        return;
+      }
+      startWorkspaceAccessRefresh(ctx);
+    } catch (error) {
+      log.error("Workspace access refresh failed", {
+        notebookId: ctx.workspaceNotebookId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      send(ctx.socket, WORKSPACE_WS_TYPE.error, {
+        notebookId: ctx.workspaceNotebookId,
+        code: ERROR_CODE.internalError,
+        message: "Workspace access refresh failed",
+      });
+      leaveCurrentWorkspace(ctx);
     }
   }, ACCESS_REFRESH_INTERVAL_MS);
 };
@@ -778,6 +907,46 @@ const startLiveStream = (
   })();
 };
 
+const startWorkspaceStream = (ctx: WsContext, notebookId: string, afterCursor: string | null) => {
+  stopWorkspaceStream(ctx);
+  const abort = new AbortController();
+  ctx.workspaceAbort = abort;
+
+  void (async () => {
+    try {
+      send(ctx.socket, WORKSPACE_WS_TYPE.ready, { notebookId });
+      for await (const event of notebooksService.workspaceEvents.live({
+        notebookId,
+        after: afterCursor ?? undefined,
+        signal: abort.signal,
+      })) {
+        if (abort.signal.aborted || ctx.workspaceNotebookId !== notebookId) break;
+        send(ctx.socket, WORKSPACE_WS_TYPE.event, {
+          notebookId,
+          cursor: event.cursor,
+          event: event.data,
+        });
+      }
+    } catch (error) {
+      if (!abort.signal.aborted) {
+        log.error("Workspace event stream failed", {
+          notebookId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        send(ctx.socket, WORKSPACE_WS_TYPE.error, {
+          notebookId,
+          code: ERROR_CODE.internalError,
+          message: "Workspace event stream failed",
+        });
+      }
+    } finally {
+      if (ctx.workspaceAbort === abort) {
+        ctx.workspaceAbort = null;
+      }
+    }
+  })();
+};
+
 const ensurePhase = (ctx: WsContext, allowedTypes: readonly string[], attemptedType: string): boolean => {
   if (allowedTypes.includes(attemptedType)) return true;
   warn(ctx.socket, ERROR_CODE.invalidMessage, `Message "${attemptedType}" is not allowed in phase "${ctx.phase}"`);
@@ -924,17 +1093,47 @@ const handleAwarenessPublish = async (ctx: WsContext, payload: z.infer<typeof Aw
   });
 };
 
+const handleWorkspaceSubscribe = async (ctx: WsContext, payload: z.infer<typeof WorkspaceSubscribeMessageSchema.shape.payload>) => {
+  if (payload.sessionToken) ctx.sessionToken = payload.sessionToken;
+
+  const user = await resolveSessionUser(ctx.sessionToken);
+  if (!user) {
+    send(ctx.socket, WORKSPACE_WS_TYPE.error, {
+      notebookId: payload.notebookId,
+      code: ERROR_CODE.loginRequired,
+      message: "Login required",
+    });
+    return;
+  }
+
+  const access = await evaluateNotebookAccess(payload.notebookId, user, ERROR_CODE.accessDenied);
+  if (!access.ok || !access.notebookId) {
+    send(ctx.socket, WORKSPACE_WS_TYPE.error, {
+      notebookId: payload.notebookId,
+      code: access.code ?? ERROR_CODE.accessDenied,
+      message: access.message ?? "Access denied",
+    });
+    return;
+  }
+
+  ctx.user = user;
+  ctx.workspaceNotebookId = access.notebookId;
+  startWorkspaceStream(ctx, access.notebookId, payload.fromCursor ?? null);
+  startWorkspaceAccessRefresh(ctx);
+};
+
 const handlers = {
   [WS_TYPE.replayRequest]: handleReplayRequest,
   [WS_TYPE.syncPublish]: handleSyncPublish,
   [WS_TYPE.awarenessPublish]: handleAwarenessPublish,
+  [WORKSPACE_WS_TYPE.subscribe]: handleWorkspaceSubscribe,
 } satisfies {
   [K in ClientMessage["type"]]: (ctx: WsContext, payload: Extract<ClientMessage, { type: K }>["payload"]) => Promise<void>;
 };
 
 const allowedTypesByPhase: Record<WsPhase, readonly ClientMessage["type"][]> = {
-  open: [WS_TYPE.replayRequest],
-  joined: [WS_TYPE.replayRequest, WS_TYPE.syncPublish, WS_TYPE.awarenessPublish],
+  open: [WS_TYPE.replayRequest, WORKSPACE_WS_TYPE.subscribe],
+  joined: [WS_TYPE.replayRequest, WS_TYPE.syncPublish, WS_TYPE.awarenessPublish, WORKSPACE_WS_TYPE.subscribe],
   closing: [],
 };
 
@@ -945,6 +1144,10 @@ const dispatchClientMessage = async (ctx: WsContext, message: ClientMessage) => 
   }
   if (message.type === WS_TYPE.syncPublish) {
     await handlers[WS_TYPE.syncPublish](ctx, message.payload);
+    return;
+  }
+  if (message.type === WORKSPACE_WS_TYPE.subscribe) {
+    await handlers[WORKSPACE_WS_TYPE.subscribe](ctx, message.payload);
     return;
   }
   await handlers[WS_TYPE.awarenessPublish](ctx, message.payload);
@@ -1017,6 +1220,7 @@ const app = new Hono().get(
         if (ctx.phase === "closing") return;
         ctx.phase = "closing";
         await leaveCurrentNote(ctx);
+        leaveCurrentWorkspace(ctx);
       },
     };
   }),

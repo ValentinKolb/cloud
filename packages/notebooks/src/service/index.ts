@@ -10,6 +10,7 @@ import * as presence from "./presence";
 import { reindexRuntime } from "./reindex-scheduler";
 import * as tags from "./tags";
 import * as templates from "./templates";
+import * as workspaceEvents from "./workspace-events";
 import { yjsSnapshotWorker } from "./yjs-snapshot-worker";
 
 const pageFromPagination = (pagination?: PageParams) => {
@@ -105,6 +106,7 @@ export const notebooksService = {
         };
       },
       grant: access.grantNotebookAccess,
+      update: access.updateNotebookAccess,
       remove: (config: { notebookId: string; accessId: string }) => access.removeNotebookAccess(config.notebookId, config.accessId),
       add: (config: { notebookId: string; accessId: string }) => access.addNotebookAccess(config.notebookId, config.accessId),
       count: (config: { notebookId: string }) => access.countNotebookAccess(config.notebookId),
@@ -180,6 +182,14 @@ export const notebooksService = {
     snapshot: presence.snapshot,
     reader: presence.reader,
   },
+  workspaceEvents: {
+    live: workspaceEvents.live,
+    notebookUpdated: workspaceEvents.notebookUpdated,
+    noteCreated: workspaceEvents.noteCreated,
+    noteUpdated: workspaceEvents.noteUpdated,
+    noteDeleted: workspaceEvents.noteDeleted,
+    invalidated: workspaceEvents.invalidated,
+  },
   tag: {
     listForNotebook: tags.listForNotebook,
     listNotesForTag: tags.listNotesForTag,
@@ -231,7 +241,7 @@ export const notebooksService = {
   },
 };
 
-export { notebooks, notes, access, attachments, links, presence, tags, noteRefs, reindexRuntime, yjsSnapshotWorker };
+export { notebooks, notes, access, attachments, links, presence, tags, noteRefs, workspaceEvents, reindexRuntime, yjsSnapshotWorker };
 
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";

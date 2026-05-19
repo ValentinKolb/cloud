@@ -6,7 +6,7 @@ import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 
 type Props = {
   notebookId: string;
-  variant?: "compact" | "chip" | "sidebar";
+  variant?: "compact" | "chip" | "sidebar" | "icon";
 };
 
 type CreateNoteResult = {
@@ -50,6 +50,14 @@ const CreateNoteButton = (props: Props) => {
     return (
       <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="p-1.5 text-dimmed hover:text-primary">
         <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-file-plus"}`} />
+      </button>
+    );
+  }
+
+  if (props.variant === "icon") {
+    return (
+      <button type="button" onClick={handleCreate} disabled={mutation.loading()} class="sidebar-icon-action sidebar-icon-action-success" title="New Note" aria-label="New Note">
+        <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
       </button>
     );
   }

@@ -31,21 +31,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Notebooks" }]}>
-      <div class="max-w-6xl mx-auto p-3 sm:p-4">
-        <header class="mb-5">
-          <div class="flex items-center gap-3">
-            <div class="w-11 h-11 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0">
-              <i class="ti ti-note text-xl text-zinc-600 dark:text-zinc-400" />
-            </div>
-            <div class="min-w-0">
-              <h1 class="text-xl font-semibold text-primary">Notebooks</h1>
-              <p class="text-sm text-dimmed">Collaborative notes, linked knowledge, scripts, and reusable workspaces.</p>
-            </div>
-          </div>
-        </header>
-
-        <NotebooksOverview notebooks={notebooks} templates={templates} initialQuery={initialQuery} />
-      </div>
+      <NotebooksOverview notebooks={notebooks} templates={templates} initialQuery={initialQuery} />
     </Layout>
   );
 });

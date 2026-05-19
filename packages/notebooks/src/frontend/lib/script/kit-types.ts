@@ -1,8 +1,8 @@
 /**
- * Type definitions for the kit API surface.
+ * Type definitions for the notebook script runtime.
  *
  * Lives in its own file so that the sub-module factories
- * (`kit-note.ts`, `kit-notes.ts`, …) can share the wire shapes
+ * (`script sub-modules) can share the wire shapes
  * without circular imports through the main `kit.ts` factory.
  */
 import type * as Y from "yjs";
@@ -15,13 +15,13 @@ export type KitMode = "edit" | "read";
 
 /**
  * Snapshot of the current note's metadata + content captured at
- * script-run time. Used by the read-mode kit (no live Y.Doc); also
- * used by the edit-mode kit for fields that don't live in the doc
+ * script-run time. Used by the read-mode runtime (no live Y.Doc); also
+ * used by the edit-mode runtime for fields that don't live in the doc
  * itself (createdAt, updatedAt, parentId — these come from the DB,
  * not from yjs).
  */
 export type KitNoteSnapshot = {
-  /** 6-char base62 — exposed to scripts as `kit.note.id` and used
+  /** 6-char base62 — exposed to scripts as `current.id` and used
    *  as the `noteId` param for API calls. The notebooks API accepts
    *  either UUID or short-id at the `:noteId` boundary, so the kit
    *  uses short-ids end-to-end for consistency with the user-facing
@@ -38,37 +38,37 @@ export type KitNoteSnapshot = {
 
 /**
  * Inputs the host (CM6 extension or read-mode renderer) gives the
- * kit factory. Carries everything the kit modules might need so the
+ * runtime factory. Carries everything the runtime modules might need so the
  * factory itself stays a thin wiring layer.
  *
  * Edit-mode contexts include `ytext` + `ydoc` for live mutations
  * and Y.Map-based state. Read-mode contexts omit them — write
- * methods on `kit.note` then throw and `kit.state.*` becomes a
+ * methods on `current` then throw and `current.kv.*` becomes a
  * no-op + console.warn.
  */
 export type KitContext = {
   mode: KitMode;
   /** Notebook short-id (6-char base62). Exposed to scripts as
-   *  `kit.note.notebook.id` and used as the `:id` param for every
-   *  API call the kit makes. APIs accept either UUID or short-id;
+   *  `current.notebook.id` and used as the `:id` param for every
+   *  API call the runtime makes. APIs accept either UUID or short-id;
    *  short-id keeps the wire form aligned with the user-visible
    *  identifier. */
   notebookId: string;
   /** Snapshot of the current note at script-run time. Updates to
    *  `ytext` (edit-mode) are reflected via the live getters in the
-   *  kit factory; the snapshot is the fallback for fields the doc
+   *  runtime factory; the snapshot is the fallback for fields the doc
    *  doesn't carry. */
   note: KitNoteSnapshot;
   /** Y.Text handle for the current note's content. Edit-mode only. */
   ytext?: Y.Text;
-  /** Y.Doc — feeds `kit.state.*`. Edit-mode only. */
+  /** Y.Doc — feeds `current.kv.*`. Edit-mode only. */
   ydoc?: Y.Doc;
-  /** DOM container `kit.ui.*` mounts into. */
+  /** DOM container `ui.*` mounts into. */
   outputEl: HTMLElement;
   /**
    * Register a teardown function to run when the script is about
    * to re-evaluate (debounced doc change in edit-mode) or the
-   * widget is destroyed. Used by `kit.state.observe` to drop its
+   * widget is destroyed. Used by `current.kv.observe` to drop its
    * Y.Map listener so the old script run's callback doesn't keep
    * firing into a detached output slot. Optional: in read-mode
    * (no re-run) the runner doesn't need to track these — calls
@@ -85,7 +85,7 @@ export type KitContext = {
 
 /**
  * Throw if the host has marked the script run as no longer active.
- * Used by every kit method that performs a side effect (Y.Doc write,
+ * Used by every runtime method that performs a side effect (Y.Doc write,
  * API call, DOM mutation, …) so a late-completing await from a
  * superseded run can't corrupt the current state.
  */
@@ -113,17 +113,17 @@ import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
 import type { files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
 
 /**
- * Curated `@valentinkolb/stdlib` namespaces re-exposed on the kit so
+ * Curated `@valentinkolb/stdlib` namespaces re-exposed as `std` so
  * script authors can build small applications without importing
- * anything. Each entry is a thin pass-through — the kit doesn't wrap
+ * anything. Each entry is a thin pass-through — the runtime doesn't wrap
  * or rename functions, so the full stdlib API reference applies.
  *
  * What's NOT included on purpose:
  *  - `notifications`, `cache`, `gradients`, `svg` — user dropped.
  *  - `result`, `searchParams`, `streaming`, `theme`, `cookies`,
  *    `fileicons`, `solid/*` — not script-relevant.
- *  - `kvStore` — already exposed as `kit.localState.*` with proper
- *    namespacing per notebook.
+ *  - `kvStore` — exposed as `nb.localKV.*` with proper namespacing
+ *    per notebook.
  */
 export type KitStdLib = {
   /** String manipulation — `slugify`, `humanize`, `truncate`,
@@ -139,7 +139,7 @@ export type KitStdLib = {
   /** Byte ↔ string conversions — Base64, Hex, Base62. */
   encoding: typeof stdEncoding;
   /** SVG chart generators — scatter, line, bar, pie, donut, sparkline.
-   *  Combine with `kit.ui.html(svg)` to render the result. */
+   *  Combine with `ui.html(svg)` to render the result. */
   charts: typeof stdCharts;
   /** QR-code generators (WiFi, email, tel, vCard, event) + SVG render. */
   qr: typeof stdQr;
@@ -154,50 +154,108 @@ export type KitStdLib = {
   /** Chainable image processing — resize, crop, filter, rotate,
    *  flip, presets, batch. Browser-only. */
   images: typeof stdImages;
-  /** Single-method facade — `kit.clipboard.copy(text)`. The full
+  /** Single-method facade — `std.clipboard.copy(text)`. The full
    *  stdlib clipboard module has more (read, hasPermission, etc.)
    *  but we deliberately keep the surface minimal here. */
   clipboard: { copy: (text: string) => Promise<void> };
 };
 
 export type Kit = {
-  note: KitCurrentNote;
-  notes: KitNotesAPI;
-  attachments: KitAttachmentsAPI;
-  tags: KitTagsAPI;
-  table: (name: string) => KitTableBlockAPI;
-  list: (name: string) => KitListBlockAPI;
-  data: (name: string) => KitDataBlockAPI;
-  section: (name: string) => KitSectionBlockAPI;
-  state: KitStateAPI;
-  localState: KitLocalStateAPI;
+  std: KitStdLib;
+  nb: KitNotebookAPI;
+  current: KitScriptCurrentNote;
   ui: KitUI;
-} & KitStdLib;
-
-// ----- kit.note ----------------------------------------------------
-
-/**
- * A single task extracted from the current note's markdown content.
- * Tasks are detected via the `- [ ]` / `- [x]` checkbox syntax (also
- * accepts `* [ ]` / `* [x]`); the `line` field is 0-indexed and refs
- * the line in `kit.note.content`.
- */
-export type KitTask = {
-  /** The task text, with the `- [ ]` checkbox stripped. */
-  text: string;
-  done: boolean;
-  /** 0-indexed line in the note's content. Pass to
-   *  `kit.note.toggleTask(line)` or `replaceLine(line, ...)`. */
-  line: number;
 };
 
-export type KitCurrentNote = {
+// ----- current ----------------------------------------------------
+
+export type KitTableRow = Record<string, string>;
+
+export type KitTableView = {
+  readonly name: string;
+  readonly columns: string[];
+  readonly rows: KitTableRow[];
+};
+
+export type KitWritableTableView = KitTableView & {
+  add: (...cells: unknown[]) => Promise<void>;
+};
+
+export type KitListView = {
+  readonly name: string;
+  readonly items: string[];
+};
+
+export type KitWritableListView = KitListView & {
+  add: (...items: unknown[]) => Promise<void>;
+};
+
+export type KitTodoItem = {
+  readonly done: boolean;
+  readonly content: string;
+  /** 0-indexed line in the note content. */
+  readonly line: number;
+};
+
+export type KitTodoView = {
+  readonly name: string;
+  readonly items: KitTodoItem[];
+};
+
+export type KitWritableTodoView = KitTodoView & {
+  add: (...items: string[]) => Promise<void>;
+};
+
+export type KitDataView = {
+  readonly name: string;
+  readonly value: Record<string, unknown>;
+};
+
+export type KitWritableDataView = KitDataView & {
+  set: (value: Record<string, unknown>) => Promise<void>;
+};
+
+export type KitSectionView = {
+  readonly name: string;
+  readonly markdown: string;
+};
+
+export type KitWritableSectionView = KitSectionView & {
+  append: (markdown: string) => Promise<void>;
+};
+
+export type KitReadableNoteBlocks = {
+  table: (name: string) => KitTableView | undefined;
+  tables: (name?: string) => KitTableView[];
+  list: (name: string) => KitListView | undefined;
+  lists: (name?: string) => KitListView[];
+  todo: (name: string) => KitTodoView | undefined;
+  todos: (name?: string) => KitTodoView[];
+  data: (name: string) => KitDataView | undefined;
+  dataBlocks: (name?: string) => KitDataView[];
+  section: (name: string) => KitSectionView | undefined;
+  sections: (name?: string) => KitSectionView[];
+};
+
+export type KitWritableNoteBlocks = {
+  table: (name: string) => KitWritableTableView | undefined;
+  tables: (name?: string) => KitWritableTableView[];
+  list: (name: string) => KitWritableListView | undefined;
+  lists: (name?: string) => KitWritableListView[];
+  todo: (name: string) => KitWritableTodoView | undefined;
+  todos: (name?: string) => KitWritableTodoView[];
+  data: (name: string) => KitWritableDataView | undefined;
+  dataBlocks: (name?: string) => KitWritableDataView[];
+  section: (name: string) => KitWritableSectionView | undefined;
+  sections: (name?: string) => KitWritableSectionView[];
+};
+
+export type KitCurrentNote = KitWritableNoteBlocks & {
   // ----- read getters (live in edit-mode, snapshot in read-mode) -----
   readonly id: string;
   readonly title: string;
   readonly content: string;
   readonly tags: string[];
-  readonly tasks: KitTask[];
   readonly notebook: { id: string; name: string };
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -227,22 +285,21 @@ export type KitCurrentNote = {
    *  newline at the end is preserved; pass text that doesn't
    *  contain `\n` to keep the line count stable. */
   replaceLine(line: number, text: string): Promise<void>;
-  /** Toggle the task checkbox on the given 0-indexed line. Throws
-   *  if the line doesn't contain a `- [ ]` / `- [x]` marker. The
-   *  flip is a single-character Y.Text mutation so collab cursors
-   *  stay put. */
-  toggleTask(line: number): Promise<void>;
 };
 
-// ----- kit.notes ---------------------------------------------------
+export type KitScriptCurrentNote = KitCurrentNote & {
+  /** Collaborative per-current-note key-value store. */
+  readonly kv: KitStateAPI;
+};
 
-export type KitNote = {
+// ----- currents ---------------------------------------------------
+
+export type KitNote = KitReadableNoteBlocks & {
   /** Short-id used in URLs and `note://...` links. */
   id: string;
   title: string;
   content: string | null;
   tags: string[];
-  tasks: KitTask[];
   /** Parent note short-id, or null for root notes. */
   parentId: string | null;
   createdAt: string;
@@ -250,7 +307,7 @@ export type KitNote = {
   lockedAt: string | null;
 };
 
-/** Filter object for `kit.notes.search`. Single-string searches
+/** Filter object for `currents.search`. Single-string searches
  *  match against title + content; tag filter is AND (all listed
  *  tags must be present). All fields optional. */
 export type KitQuery = {
@@ -281,7 +338,7 @@ export type KitNotesAPI = {
    *  a non-enumerable `__truncated: true` property — scripts that
    *  need to detect cap-overflow can read it:
    *
-   *      const notes = await kit.notes.search({ tags: ['old'] });
+   *      const notes = await currents.search({ tags: ['old'] });
    *      if (notes.__truncated) { ... }
    *
    *  String-only searches forwarded to the server are NOT subject
@@ -295,7 +352,16 @@ export type KitNotesAPI = {
   remove(shortId: string): Promise<void>;
 };
 
-// ----- kit.attachments --------------------------------------------
+export type KitNotebookAPI = Pick<KitNotesAPI, "list" | "get" | "search" | "searchTags" | "create" | "update" | "remove"> & {
+  /** Attachments in the current notebook. */
+  readonly attachments: KitAttachmentsAPI;
+  /** Tag index for the current notebook. */
+  readonly tags: KitTagsAPI;
+  /** Private per-user, per-notebook key-value store. */
+  readonly localKV: KitLocalStateAPI;
+};
+
+// ----- nb.attachments --------------------------------------------
 
 export type KitAttachment = {
   id: string;
@@ -325,7 +391,7 @@ export type KitAttachmentsAPI = {
   remove(shortId: string): Promise<void>;
 };
 
-// ----- kit.tags ---------------------------------------------------
+// ----- nb.tags ---------------------------------------------------
 
 export type KitTagSummary = { tag: string; count: number };
 
@@ -341,35 +407,13 @@ export type KitTagsAPI = {
 
 // ----- named blocks ------------------------------------------------
 
-export type KitTableBlockAPI = {
-  /** Add a row to every `@name` table in the current note. Accepts
-   *  varargs, one array, or one object keyed by table headers. */
-  add: (...cells: unknown[]) => Promise<void>;
-};
+// ----- current.kv (collab Y.Map) -----------------------------------
 
-export type KitListBlockAPI = {
-  /** Append one or more list items to every `@name` list in the
-   *  current note. */
-  add: (...items: unknown[]) => Promise<void>;
-};
-
-export type KitDataBlockAPI = {
-  /** Read the first `@name :::data` block in the current note. */
-  get: () => Record<string, unknown> | null;
-  /** Replace every `@name :::data` block in the current note. */
-  set: (value: Record<string, unknown>) => Promise<void>;
-};
-
-export type KitSectionBlockAPI = {
-  /** Append markdown to every `@name` heading section in the current note. */
-  append: (markdown: string) => Promise<void>;
-};
-
-// ----- kit.state (collab Y.Map) -----------------------------------
+export type KitKVSetter<T> = T | ((current: T | undefined) => T);
 
 export type KitStateAPI = {
   get<T = unknown>(key: string): T | undefined;
-  set<T>(key: string, value: T): void;
+  set<T>(key: string, value: KitKVSetter<T>): void;
   delete(key: string): void;
   /** All currently-set keys, sorted alphabetically. */
   keys(): string[];
@@ -378,11 +422,11 @@ export type KitStateAPI = {
   observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void;
 };
 
-// ----- kit.localState (OPFS, async) -------------------------------
+// ----- nb.localKV (OPFS, async) -------------------------------
 
 export type KitLocalStateAPI = {
   get<T = unknown>(key: string): Promise<T | undefined>;
-  set<T>(key: string, value: T): Promise<void>;
+  set<T>(key: string, value: KitKVSetter<T>): Promise<void>;
   delete(key: string): Promise<void>;
   /** Keys for THIS notebook's local-state namespace, sorted
    *  alphabetically. Other notebooks' keys aren't visible. */
@@ -394,7 +438,7 @@ export type KitLocalStateAPI = {
   observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void;
 };
 
-// ----- kit.ui ------------------------------------------------------
+// ----- ui ------------------------------------------------------
 
 export type KitToastOptions = {
   variant?: "default" | "success" | "error";
@@ -405,30 +449,30 @@ export type KitToastOptions = {
 };
 
 /**
- * The DOM element returned by every `kit.ui.*` builder. Carries a
+ * The DOM element returned by every `ui.*` builder. Carries a
  * `.show()` shortcut so users can mount via either of:
  *
- *   kit.ui.render(kit.ui.button("hi", fn));   // declarative
- *   kit.ui.button("hi", fn).show();           // chaining sugar
+ *   ui.render(ui.button("hi", fn));   // declarative
+ *   ui.button("hi", fn).show();           // chaining sugar
  *
  * The element is a plain `HTMLElement` under the hood — escape
- * hatches like `kit.ui.html(...)` and the children-as-`HTMLElement`
- * accept points let scripts plug in any DOM, not just kit-built
+ * hatches like `ui.html(...)` and the children-as-`HTMLElement`
+ * accept points let scripts plug in any DOM, not just runtime-built
  * nodes.
  */
 export type KitElement = HTMLElement & {
   /** Mount this element into the script's output container. Same
-   *  effect as `kit.ui.render(this)`. Returns nothing. */
+   *  effect as `ui.render(this)`. Returns nothing. */
   show: () => void;
 };
 
 /** Anything the layout builders accept as a child:
- *  - a `KitElement` (returned by other `kit.ui.*` builders)
+ *  - a `KitElement` (returned by other `ui.*` builders)
  *  - any raw `HTMLElement` (escape hatch — your own canvas, charts,
  *    third-party components)
- *  - a `string` (auto-wrapped in `kit.ui.text`)
+ *  - a `string` (auto-wrapped in `ui.text`)
  *  - `null` / `false` / `undefined` (skipped — useful for inline
- *    conditionals: `cond && kit.ui.text(...)`) */
+ *    conditionals: `cond && ui.text(...)`) */
 export type KitChild = KitElement | HTMLElement | string | null | false | undefined;
 
 export type KitButtonVariant = "primary" | "secondary" | "danger";
@@ -445,6 +489,13 @@ export type KitButtonOptions = {
 };
 
 export type KitHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
+export type KitChartKind = keyof typeof stdCharts;
+
+export type KitChartOptions<K extends KitChartKind> = Omit<Parameters<(typeof stdCharts)[K]>[0], "width" | "height"> & {
+  /** CSS pixel height of the chart container. Default 240. Width is measured from the parent. */
+  height?: number;
+};
 
 export type KitUI = {
   // ── Layout ─────────────────────────────────────────────────────
@@ -475,7 +526,11 @@ export type KitUI = {
   /** Render rows with the same tile-style table surface as Markdown
    *  tables. Notes become note links, tag arrays become tag pills,
    *  and task arrays / progress-like objects render as compact text. */
-  table: (rows: unknown[][] | Record<string, unknown>[], options?: { columns?: string[]; emptyText?: string }) => KitElement;
+  table: (rows: unknown[][] | Record<string, unknown>[] | KitTableView, options?: { columns?: string[]; emptyText?: string }) => KitElement;
+  /** Render an SVG chart using the same stdlib chart options as
+   *  `std.charts.*`. Width is measured from the container; pass
+   *  `height` in pixels for the vertical size. */
+  chart: <K extends KitChartKind>(kind: K, options: KitChartOptions<K>) => KitElement;
 
   // ── Interactive ────────────────────────────────────────────────
   /** Button. Async `onClick` errors are caught and rendered as a
@@ -488,6 +543,10 @@ export type KitUI = {
   html: (rawHtml: string) => KitElement;
 
   // ── Mount ──────────────────────────────────────────────────────
+  /** Render a small reactive slot. The function runs once
+   *  immediately and again whenever the current note body changes in
+   *  edit mode. In read mode it is a normal one-shot render. */
+  live: (render: () => KitChild | KitChild[]) => KitElement;
   /** Mount one or more elements into the script's output container.
    *  Equivalent to calling `.show()` on each one in order. */
   render: (...elements: KitChild[]) => void;
@@ -498,17 +557,17 @@ export type KitUI = {
   toast: (description: string, options?: KitToastOptions) => void;
   /** Modal prompts — pass-through to the platform `prompts.*` API.
    *  Async, return null/undefined on cancel:
-   *    - `kit.ui.prompt.alert(msg)` — info dialog with OK
-   *    - `kit.ui.prompt.confirm(msg)` — Yes/No, returns boolean
-   *    - `kit.ui.prompt.text(msg, def?)` — single text input
-   *    - `kit.ui.prompt.form(spec)` — multi-field form (see platform
+   *    - `ui.prompt.alert(msg)` — info dialog with OK
+   *    - `ui.prompt.confirm(msg)` — Yes/No, returns boolean
+   *    - `ui.prompt.text(msg, def?)` — single text input
+   *    - `ui.prompt.form(spec)` — multi-field form (see platform
    *      docs for field types: text / number / select / boolean /
    *      tags / image / currency / pin) */
   prompt: KitPromptAPI;
 };
 
 /** Pass-through binding for the platform `prompts.*` modal API,
- *  exposed via `kit.ui.prompt`. We re-declare the surface here as a
+ *  exposed via `ui.prompt`. We re-declare the surface here as a
  *  thin type so script-side typings don't reach into
  *  `@valentinkolb/cloud/ui`. */
 export type KitPromptAPI = {
@@ -518,12 +577,12 @@ export type KitPromptAPI = {
   form: (spec: KitFormSpec) => Promise<Record<string, unknown> | null>;
 };
 
-/** Shape of the `kit.ui.prompt.form` argument. Mirrors the platform
+/** Shape of the `ui.prompt.form` argument. Mirrors the platform
  *  `prompts.form` config — fields can be text / textarea / number /
  *  boolean / select. Multi-line input is normalized to the platform's
  *  `{ type: "text", multiline: true }` shape at runtime. The platform supports more types (tags, image,
  *  currency, pin, datetime) — scripts needing those can drop down
- *  to `kit.ui.html` + a manual form. */
+ *  to `ui.html` + a manual form. */
 export type KitFormField =
   | {
       type: "text";

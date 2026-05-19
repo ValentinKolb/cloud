@@ -1,4 +1,5 @@
 import { ssr } from "../../config";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import { get } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
@@ -13,12 +14,14 @@ import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island
 import { extractTaskProgress } from "./_components/detail/tasks";
 import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
+import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
 import NotebookGraph from "./_components/graph/NotebookGraph.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import { parseDetailPanelOpen, parseSettings } from "./_components/settings/NotebookSettingsStore";
 import NotebookHotkeys from "./_components/shortcuts/NotebookHotkeys.island";
-import NotebookSidebar from "./_components/sidebar/NotebookSidebar";
+import NotebookSidebar from "./_components/sidebar/NotebookSidebar.island";
+import WorkspaceEventBridge from "./_components/sidebar/WorkspaceEventBridge.island";
 import type { NotebookContext } from "./_components/sidebar/types";
 import VersionHistory from "./_components/versions/VersionHistory.island";
 import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../params";
@@ -295,14 +298,16 @@ export default ssr<AuthContext>(async (c) => {
         ...(selectedNote ? [{ title: selectedNote.title }] : isSettingsMode ? [{ title: "Settings" }] : []),
       ]}
     >
-      <div class="app-cols flex-1 min-h-0">
+      <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
+        <NotebookLayoutHelp />
+        {actualReadMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} sessionToken={sessionToken!} />}
 
         {/* Sidebar */}
         <NotebookSidebar ctx={ctx} />
 
         {/* Main Content */}
-        <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <AppWorkspace.Main>
           {isSettingsMode ? (
             <NotebookSettingsPanel notebook={notebook} tree={tree} accessEntries={accessEntries} isAdmin={isAdmin} canWrite={canWrite} />
           ) : isVersionsMode && selectedNoteId ? (
@@ -368,7 +373,7 @@ export default ssr<AuthContext>(async (c) => {
               </p>
             </div>
           )}
-        </div>
+        </AppWorkspace.Main>
 
         {/* Right-side detail panel — TOC, backlinks, online users, info */}
         {showDetailPanel && selectedNote && (
@@ -394,7 +399,7 @@ export default ssr<AuthContext>(async (c) => {
             isLocked={!!selectedNote.lockedAt}
           />
         )}
-      </div>
+      </AppWorkspace>
     </Layout>
   );
 });

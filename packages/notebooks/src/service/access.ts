@@ -7,7 +7,9 @@ import {
   createAccess,
   deleteAccess,
   getEffectivePermission,
+  updateAccess,
 } from "@valentinkolb/cloud/server";
+import { invalidated } from "./workspace-events";
 
 // ==========================
 // Notebook Access Adapter
@@ -172,6 +174,7 @@ export const addNotebookAccess = async (notebookId: string, accessId: string): P
       INSERT INTO notebooks.notebook_access (notebook_id, access_id)
       VALUES (${notebookId}::uuid, ${accessId}::uuid)
     `;
+    await invalidated({ notebookId, reason: "permissions", scopes: ["permissions"] });
     return ok();
   } catch (e: unknown) {
     const error = e as { code?: string };
@@ -199,7 +202,11 @@ export const removeNotebookAccess = async (notebookId: string, accessId: string)
     return fail(err.notFound("Access entry for this notebook"));
   }
 
-  return deleteAccess({ id: accessId });
+  const result = await deleteAccess({ id: accessId });
+  if (result.ok) {
+    await invalidated({ notebookId, reason: "permissions", scopes: ["permissions"] });
+  }
+  return result;
 };
 
 /**
@@ -316,4 +323,16 @@ export const grantNotebookAccess = async (params: {
   }
 
   return ok(created);
+};
+
+export const updateNotebookAccess = async (params: {
+  notebookId: string;
+  accessId: string;
+  permission: PermissionLevel;
+}): Promise<Result<void>> => {
+  const result = await updateAccess({ id: params.accessId, permission: params.permission });
+  if (result.ok) {
+    await invalidated({ notebookId: params.notebookId, reason: "permissions", scopes: ["permissions"] });
+  }
+  return result;
 };

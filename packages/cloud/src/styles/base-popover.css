@@ -4,8 +4,11 @@ solid-island {
   display: contents;
 }
 
-/* Popover positioning */
-[popover]:not(.paper) {
+/* Popover positioning. Strip the UA-default white box for popovers
+   that don't opt into one of our paper-ish surfaces (`.paper`,
+   `.popup`) — those are typically tooltips / soft-hint popovers that
+   provide their own chrome. */
+[popover]:not(.paper):not(.popup) {
   background: transparent;
   border: none;
 }

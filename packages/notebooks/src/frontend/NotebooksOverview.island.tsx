@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { AppOverview, navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../service/notebooks";
@@ -125,55 +125,47 @@ export default function NotebooksOverview(props: Props) {
   };
 
   return (
-    <div class="flex flex-col lg:flex-row gap-4 items-start">
-      <section class="min-w-0 flex-1 w-full">
-        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
-          <div>
-            <h2 class="text-sm font-semibold text-primary">Your notebooks</h2>
-            <p class="text-xs text-dimmed">
-              {props.notebooks.length === 0
-                ? "Start from a template, or create a blank notebook."
-                : `${props.notebooks.length} notebook${props.notebooks.length === 1 ? "" : "s"} available`}
-            </p>
-          </div>
-          <div class="w-full sm:w-80">
-            <TextInput
-              name="notebooks-search"
-              type="search"
-              ariaLabel="Search notebooks"
-              placeholder="Search notebooks..."
-              icon="ti ti-search"
-              activeIcon="ti ti-search"
-              value={query}
-              onInput={onSearchInput}
-              clearable
-              onClear={() => onSearchInput("")}
-            />
-          </div>
-        </div>
-
+    <AppOverview
+      title="Notebooks"
+      subtitle="Collaborative notes, linked knowledge, scripts, and reusable workspaces."
+      icon="ti ti-note"
+    >
+      <AppOverview.Main
+        title="Your notebooks"
+        description={
+          props.notebooks.length === 0
+            ? "Start from a template, or create a blank notebook."
+            : `${props.notebooks.length} notebook${props.notebooks.length === 1 ? "" : "s"} available`
+        }
+        toolbar={
+          <TextInput
+            name="notebooks-search"
+            type="search"
+            ariaLabel="Search notebooks"
+            placeholder="Search notebooks..."
+            icon="ti ti-search"
+            activeIcon="ti ti-search"
+            value={query}
+            onInput={onSearchInput}
+            clearable
+            onClear={() => onSearchInput("")}
+          />
+        }
+      >
         <Show
           when={props.notebooks.length > 0}
           fallback={
-            <div class="paper p-8 min-h-72 flex flex-col items-center justify-center text-center">
-              <div class="w-12 h-12 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mb-3">
-                <i class="ti ti-notebook text-xl text-dimmed" />
-              </div>
-              <h3 class="text-sm font-semibold text-primary mb-1">No notebooks yet</h3>
-              <p class="text-xs text-dimmed max-w-sm">
+            <AppOverview.EmptyState title="No notebooks yet" icon="ti ti-notebook" class="min-h-72">
+              <p class="max-w-sm text-xs text-dimmed">
                 Templates create a complete starter workspace with useful notes, links, tables, and small automations.
               </p>
-            </div>
+            </AppOverview.EmptyState>
           }
         >
           <Show
             when={filteredNotebooks().length > 0}
             fallback={
-              <div class="paper p-8 min-h-56 flex flex-col items-center justify-center text-center">
-                <i class="ti ti-search text-2xl text-dimmed mb-2" />
-                <h3 class="text-sm font-semibold text-primary mb-1">No matching notebooks</h3>
-                <p class="text-xs text-dimmed">Try a different search term.</p>
-              </div>
+              <AppOverview.EmptyState title="No matching notebooks" description="Try a different search term." icon="ti ti-search" />
             }
           >
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -197,16 +189,9 @@ export default function NotebooksOverview(props: Props) {
             </div>
           </Show>
         </Show>
-      </section>
+      </AppOverview.Main>
 
-      <aside class="min-w-0 w-full lg:w-96 shrink-0">
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h2 class="text-sm font-semibold text-primary">Create</h2>
-            <p class="text-xs text-dimmed">Choose a useful starter, or start blank.</p>
-          </div>
-        </div>
-
+      <AppOverview.Aside title="Create" description="Choose a useful starter, or start blank.">
         <div class="grid grid-cols-1 gap-2">
           <For each={props.templates}>
             {(template) => (
@@ -242,7 +227,7 @@ export default function NotebooksOverview(props: Props) {
             </span>
           </button>
         </div>
-      </aside>
-    </div>
+      </AppOverview.Aside>
+    </AppOverview>
   );
 }

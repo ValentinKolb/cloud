@@ -647,3 +647,25 @@ log.error("Failed to process", { error: err.message, itemId });
 ```
 
 Logs are written to both console and `logging.entries` table (fire-and-forget).
+
+## Best-Effort Live Metadata Events
+
+For UI metadata that should update live but is still safe to heal by reload, use `@valentinkolb/sync` `topic()` with Redis-backed fanout.
+
+```ts
+const events = topic<AppEvent>({
+  id: "workspace",
+  prefix: "cloud:my-app:events",
+  retentionMs: 24 * 60 * 60 * 1000,
+});
+
+await events.pub({
+  tenantId: resourceId,
+  orderingKey: resourceId,
+  data: { v: 1, type: "item.updated", item },
+});
+```
+
+Keep the database as the only source of truth. Emit from service functions after successful DB mutations, never from HTTP routes, so scripts, jobs, templates, and APIs all share the same event path. WebSocket handlers should subscribe with `topic.live({ tenantId, after, signal })` per connection; do not keep process-local broadcaster maps.
+
+Use small idempotent events for normal changes (`upsertItem`, `removeItem`). For bulk or uncertain changes, publish an `invalidated` event with scopes so the client refetches a slice. If an event is missed, reload or targeted refetch must reconstruct the correct state from the DB.

@@ -1,9 +1,9 @@
 /**
- * `kit.tags` — tag listing for the current notebook.
+ * `nb.tags` — tag listing for the current notebook.
  *
  * `notesForTag` does NOT have a dedicated server endpoint yet
  * (only the SSR /tags/:tag page does); for V1 we reuse
- * `kit.notes.search({ tags: [...] })` which fetches the note list
+ * `currents.search({ tags: [...] })` which fetches the note list
  * and post-filters by tag client-side. Cheap for typical
  * notebooks; if the notebook grows large move this server-side
  * via a new `/tags/:tag/notes` endpoint.
@@ -18,7 +18,7 @@ import type { KitContext, KitNote, KitTagSummary, KitTagsAPI } from "./kit-types
 export const createKitTagsAPI = (ctx: KitContext): KitTagsAPI => {
   const list = async (): Promise<KitTagSummary[]> => {
     const res = await fetch(`/api/notebooks/${encodeURIComponent(ctx.notebookId)}/tags`);
-    if (!res.ok) throw new Error("kit.tags.list: API call failed");
+    if (!res.ok) throw new Error("nb.tags.list: API call failed");
     return (await res.json()) as KitTagSummary[];
   };
 

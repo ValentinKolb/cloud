@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import type { PaginationParams } from "@valentinkolb/cloud/contracts";
 import { reindexNoteRefsSafe } from "./note-refs";
+import { noteCreated, noteDeleted, noteUpdated } from "./workspace-events";
 import { parseStreamCursor } from "./yjs-sync";
 import { generateUniqueShortId, isShortId } from "../lib/short-id";
 
@@ -206,9 +207,11 @@ export const lock = async (params: { id: string }): Promise<MutationResult<Note>
     return { ok: false, error: "Failed to lock note", status: 500 };
   }
 
+  const note = mapToNote({ ...row, has_children: existing.hasChildren });
+  await noteUpdated(note);
   return {
     ok: true,
-    data: mapToNote({ ...row, has_children: existing.hasChildren }),
+    data: note,
   };
 };
 
@@ -585,8 +588,9 @@ export const create = async (params: { data: CreateNote; creatorId: string | nul
       if (!saveResult.ok) return { ok: false, error: saveResult.error, status: saveResult.status };
     }
 
-    const note = await get({ id: row.id });
-    return { ok: true, data: note ?? mapToNote({ ...row, content_md: data.contentMd ?? null, has_children: false }) };
+    const note = (await get({ id: row.id })) ?? mapToNote({ ...row, content_md: data.contentMd ?? null, has_children: false });
+    await noteCreated(note);
+    return { ok: true, data: note };
   } catch (e: unknown) {
     const error = e as { code?: string };
     if (error.code === "23503") {
@@ -651,6 +655,7 @@ export const update = async (params: { id: string; data: UpdateNote }): Promise<
 
   // Get hasChildren for the updated note
   const note = await get({ id });
+  await noteUpdated(note!);
   return { ok: true, data: note! };
 };
 
@@ -674,6 +679,7 @@ const checkIsDescendant = async (ancestorId: string, descendantId: string): Prom
  * Delete a note and all its children.
  */
 export const remove = async (params: { id: string }): Promise<MutationResult<void>> => {
+  const existing = await get({ id: params.id });
   const result = await sql`
     DELETE FROM notebooks.notes
     WHERE id = ${params.id}::uuid
@@ -683,6 +689,9 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
     return { ok: false, error: "Note not found", status: 404 };
   }
 
+  if (existing) {
+    await noteDeleted({ notebookId: existing.notebookId, noteId: existing.id, shortId: existing.shortId });
+  }
   return { ok: true, data: undefined };
 };
 

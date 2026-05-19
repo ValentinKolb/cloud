@@ -33,14 +33,62 @@ import type { qr as stdQr } from "@valentinkolb/stdlib/qr";
 import type { files as stdFiles, images as stdImages } from "@valentinkolb/stdlib/browser";
 
 declare global {
-type KitTask = { text: string; done: boolean; line: number };
-type KitNote = {
-  id: string;
-  title: string;
-  content: string | null;
-  tags: string[];
-  tasks: KitTask[];
-  parentId: string | null;
+	type KitTableRow = Record<string, string>;
+	type KitTableView = { readonly name: string; readonly columns: string[]; readonly rows: KitTableRow[] };
+	type KitWritableTableView = KitTableView & { add(...cells: unknown[]): Promise<void> };
+	type KitListView = { readonly name: string; readonly items: string[] };
+	type KitWritableListView = KitListView & { add(...items: unknown[]): Promise<void> };
+	type KitTodoItem = { readonly done: boolean; readonly content: string; readonly line: number };
+	type KitTodoView = { readonly name: string; readonly items: KitTodoItem[] };
+	type KitWritableTodoView = KitTodoView & { add(...items: string[]): Promise<void> };
+	type KitDataView = { readonly name: string; readonly value: Record<string, unknown> };
+	type KitWritableDataView = KitDataView & { set(value: Record<string, unknown>): Promise<void> };
+	type KitSectionView = { readonly name: string; readonly markdown: string };
+	type KitWritableSectionView = KitSectionView & { append(markdown: string): Promise<void> };
+	interface KitReadableNoteBlocks {
+	  table(name: string): KitTableView | undefined;
+	  tables(name?: string): KitTableView[];
+	  list(name: string): KitListView | undefined;
+	  lists(name?: string): KitListView[];
+	  todo(name: string): KitTodoView | undefined;
+	  todos(name?: string): KitTodoView[];
+	  data(name: string): KitDataView | undefined;
+	  dataBlocks(name?: string): KitDataView[];
+	  section(name: string): KitSectionView | undefined;
+	  sections(name?: string): KitSectionView[];
+	}
+	interface KitWritableNoteBlocks {
+	  table(name: string): KitWritableTableView | undefined;
+	  tables(name?: string): KitWritableTableView[];
+	  list(name: string): KitWritableListView | undefined;
+	  lists(name?: string): KitWritableListView[];
+	  todo(name: string): KitWritableTodoView | undefined;
+	  todos(name?: string): KitWritableTodoView[];
+	  data(name: string): KitWritableDataView | undefined;
+	  dataBlocks(name?: string): KitWritableDataView[];
+	  section(name: string): KitWritableSectionView | undefined;
+	  sections(name?: string): KitWritableSectionView[];
+	}
+	type KitStdLib = {
+	  text: typeof stdText;
+	  dates: typeof stdDates;
+	  fuzzy: typeof stdFuzzy;
+	  crypto: typeof stdCrypto;
+	  encoding: typeof stdEncoding;
+	  charts: typeof stdCharts;
+	  qr: typeof stdQr;
+	  password: typeof stdPassword;
+	  timing: typeof stdTiming;
+	  files: typeof stdFiles;
+	  images: typeof stdImages;
+	  clipboard: { copy(text: string): Promise<void> };
+	};
+	type KitNote = KitReadableNoteBlocks & {
+	  id: string;
+	  title: string;
+	  content: string | null;
+	  tags: string[];
+	  parentId: string | null;
   createdAt: string;
   updatedAt: string;
   lockedAt: string | null;
@@ -51,34 +99,35 @@ type KitQuery = { search?: string; tags?: string[]; createdAfter?: string; creat
 type KitElement = HTMLElement & { show(): void };
 type KitChild = KitElement | HTMLElement | string | null | false | undefined;
 type KitButtonOptions = { variant?: "primary" | "secondary" | "danger"; icon?: string; disabled?: boolean };
+type KitChartKind = keyof typeof stdCharts;
+type KitChartOptions<K extends KitChartKind> = Omit<Parameters<(typeof stdCharts)[K]>[0], "width" | "height"> & { height?: number };
 
-interface KitCurrentNote {
-  readonly id: string;
-  readonly title: string;
-  readonly content: string;
-  readonly tags: string[];
-  readonly tasks: KitTask[];
-  readonly notebook: { id: string; name: string };
+	interface KitCurrentNote extends KitWritableNoteBlocks {
+	  readonly id: string;
+	  readonly title: string;
+	  readonly content: string;
+	  readonly tags: string[];
+	  readonly notebook: { id: string; name: string };
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly lockedAt: string | null;
+  readonly kv: KitStateAPI;
   setTitle(title: string): Promise<void>;
   setContent(content: string): Promise<void>;
   appendContent(markdown: string): Promise<void>;
-  prependContent(markdown: string): Promise<void>;
-  insertContentAt(position: { line: number; col?: number }, markdown: string): Promise<void>;
-  replaceLine(line: number, text: string): Promise<void>;
-  toggleTask(line: number): Promise<void>;
-}
-interface KitNotesAPI {
+	  prependContent(markdown: string): Promise<void>;
+	  insertContentAt(position: { line: number; col?: number }, markdown: string): Promise<void>;
+	  replaceLine(line: number, text: string): Promise<void>;
+	}
+	interface KitNotesAPI {
   list(): Promise<KitNote[]>;
   get(shortId: string): Promise<KitNote | null>;
   search(query: string | KitQuery): Promise<KitNote[] & { __truncated?: boolean }>;
   searchTags(tags: string | string[], options?: { limit?: number; offset?: number }): Promise<KitNote[] & { __truncated?: boolean }>;
   create(data: { title: string; parentId?: string; content?: string }): Promise<KitNote>;
   update(shortId: string, data: { title?: string; parentId?: string | null }): Promise<KitNote>;
-  remove(shortId: string): Promise<void>;
-}
+	  remove(shortId: string): Promise<void>;
+	}
 interface KitAttachmentsAPI {
   list(): Promise<KitAttachment[]>;
   listInNote(): Promise<KitAttachment[]>;
@@ -89,12 +138,14 @@ interface KitAttachmentsAPI {
   remove(shortId: string): Promise<void>;
 }
 interface KitTagsAPI { list(): Promise<KitTagSummary[]>; notesForTag(tag: string): Promise<KitNote[]>; }
-interface KitTableBlockAPI { add(...cells: unknown[]): Promise<void>; }
-interface KitListBlockAPI { add(...items: unknown[]): Promise<void>; }
-interface KitDataBlockAPI { get(): Record<string, unknown> | null; set(value: Record<string, unknown>): Promise<void>; }
-interface KitSectionBlockAPI { append(markdown: string): Promise<void>; }
-interface KitStateAPI { get<T = unknown>(key: string): T | undefined; set<T>(key: string, value: T): void; delete(key: string): void; keys(): string[]; observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void; }
-interface KitLocalStateAPI { get<T = unknown>(key: string): Promise<T | undefined>; set<T>(key: string, value: T): Promise<void>; delete(key: string): Promise<void>; keys(): Promise<string[]>; observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void; }
+type KitNotebookAPI = Pick<KitNotesAPI, "list" | "get" | "search" | "searchTags" | "create" | "update" | "remove"> & {
+  readonly attachments: KitAttachmentsAPI;
+  readonly tags: KitTagsAPI;
+  readonly localKV: KitLocalStateAPI;
+};
+type KitKVSetter<T> = T | ((current: T | undefined) => T);
+interface KitStateAPI { get<T = unknown>(key: string): T | undefined; set<T>(key: string, value: KitKVSetter<T>): void; delete(key: string): void; keys(): string[]; observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void; }
+interface KitLocalStateAPI { get<T = unknown>(key: string): Promise<T | undefined>; set<T>(key: string, value: KitKVSetter<T>): Promise<void>; delete(key: string): Promise<void>; keys(): Promise<string[]>; observe<T = unknown>(key: string, cb: (newValue: T | undefined) => void): () => void; }
 interface KitUI {
   row(...children: KitChild[]): KitElement;
   col(...children: KitChild[]): KitElement;
@@ -105,9 +156,11 @@ interface KitUI {
   md(markdown: string): KitElement;
   noteLink(note: KitNote | string, label?: string): KitElement;
   noteList(notes: KitNote[], options?: { emptyText?: string }): KitElement;
-  table(rows: unknown[][] | Record<string, unknown>[], options?: { columns?: string[]; emptyText?: string }): KitElement;
+	  table(rows: unknown[][] | Record<string, unknown>[] | KitTableView, options?: { columns?: string[]; emptyText?: string }): KitElement;
+  chart<K extends KitChartKind>(kind: K, options: KitChartOptions<K>): KitElement;
   button(label: string, onClick: () => void | Promise<void>, options?: KitButtonOptions): KitElement;
   html(rawHtml: string): KitElement;
+  live(render: () => KitChild | KitChild[]): KitElement;
   render(...elements: KitChild[]): void;
   toast(description: string, options?: { variant?: "default" | "success" | "error"; duration?: number; iconClass?: string; title?: string }): void;
   prompt: {
@@ -117,33 +170,11 @@ interface KitUI {
     form(spec: { title?: string; icon?: string; submitText?: string; cancelText?: string; fields: Record<string, unknown> }): Promise<Record<string, unknown> | null>;
   };
 }
-interface Kit {
-  note: KitCurrentNote;
-  notes: KitNotesAPI;
-  attachments: KitAttachmentsAPI;
-  tags: KitTagsAPI;
-  table(name: string): KitTableBlockAPI;
-  list(name: string): KitListBlockAPI;
-  data(name: string): KitDataBlockAPI;
-  section(name: string): KitSectionBlockAPI;
-  state: KitStateAPI;
-  localState: KitLocalStateAPI;
-  ui: KitUI;
-  text: typeof stdText;
-  dates: typeof stdDates;
-  fuzzy: typeof stdFuzzy;
-  crypto: typeof stdCrypto;
-  encoding: typeof stdEncoding;
-  charts: typeof stdCharts;
-  qr: typeof stdQr;
-  password: typeof stdPassword;
-  timing: typeof stdTiming;
-  files: typeof stdFiles;
-  images: typeof stdImages;
-  clipboard: { copy(text: string): Promise<void> };
-}
-declare const kit: Kit;
-}
+	declare const std: KitStdLib;
+	declare const ui: KitUI;
+	declare const nb: KitNotebookAPI;
+	declare const current: KitCurrentNote;
+	}
 export {};
 `;
 

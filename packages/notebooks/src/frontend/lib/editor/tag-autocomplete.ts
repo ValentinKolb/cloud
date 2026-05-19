@@ -4,7 +4,7 @@
  * Trigger: cursor sits right after a `#<partial>` sequence (`#`,
  * followed by at least one word char) anywhere mid-text. Suggestions
  * are the existing tags in the current notebook, pulled from
- * `/api/notebooks/:id/tags` — the same endpoint `kit.tags.list()`
+ * `/api/notebooks/:id/tags` — the same endpoint `nb.tags.list()`
  * uses, so the autocomplete reflects exactly what the rest of the
  * app sees.
  *

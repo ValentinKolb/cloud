@@ -1,8 +1,8 @@
 /**
- * `kit.localState` — per-user, per-notebook key-value store backed
+ * `nb.localKV` — per-user, per-notebook key-value store backed
  * by the platform OPFS `kvStore` from `@valentinkolb/stdlib/browser`.
  *
- * Differences from `kit.state` (which uses a Y.Map):
+ * Differences from `current.kv` (which uses a Y.Map):
  *  - NOT collaborative — only the user who set it sees the value.
  *  - Persists in the browser's Origin Private File System; survives
  *    reload + cross-tab sync via BroadcastChannel.
@@ -17,7 +17,7 @@
  * are impossible.
  */
 import { kvStore } from "@valentinkolb/stdlib/browser";
-import { assertActive, type KitContext, type KitLocalStateAPI } from "./kit-types";
+import { assertActive, type KitContext, type KitKVSetter, type KitLocalStateAPI } from "./kit-types";
 
 const KEY_NAMESPACE = "notebooks:script-state";
 type LocalStateObserver = (newValue: unknown) => void;
@@ -39,13 +39,15 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
     return kvStore.get<T>(fullKey(key));
   };
 
-  const set = async <T>(key: string, value: T): Promise<void> => {
+  const set = async <T>(key: string, value: KitKVSetter<T>): Promise<void> => {
     assertActive(ctx);
     const full = fullKey(key);
+    const nextValue = typeof value === "function" ? (value as (current: T | undefined) => T)(await get<T>(key)) : value;
+    assertActive(ctx);
     suppressedWatchKeys.add(full);
     try {
-      await kvStore.set(full, value);
-      notifyObservers(key, value);
+      await kvStore.set(full, nextValue);
+      notifyObservers(key, nextValue);
     } finally {
       suppressedWatchKeys.delete(full);
     }
@@ -98,7 +100,7 @@ export const createKitLocalStateAPI = (ctx: KitContext): KitLocalStateAPI => {
     }, full);
 
     // Auto-cleanup on script re-run / widget destroy. Identical
-    // pattern to `kit.state.observe`'s `registerDisposer` usage.
+    // pattern to `current.kv.observe`'s `registerDisposer` usage.
     let disposed = false;
     const dispose = () => {
       if (disposed) return;

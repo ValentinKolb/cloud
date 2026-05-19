@@ -490,47 +490,28 @@ import { PermissionEditor } from "@valentinkolb/cloud/ui";
 
 See `packages/contacts/src/frontend/_components/BookSettingsForm.island.tsx` for a real example.
 
-### SidebarLayout / SidebarFromSpec
+### AppWorkspace
 
 ```jsx
-import { SidebarFromSpec, type SidebarSpec } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
-const spec: SidebarSpec = {
-  header: {                              // required object, NOT array
-    title: "My Sidebar",
-    subtitle: "optional",
-    icon: "ti ti-list",
-    settingsHref: "/app/my-app/settings",
-  },
-  actions: [                             // SidebarSection[] or SidebarRow[]
-    { title: "Actions", rows: [
-      { id: "new", label: "New Item", icon: "ti ti-plus", actionIcon: "ti ti-plus", onActionClick: handleCreate },
-    ]},
-  ],
-  nav: [                                 // SidebarSection[] or SidebarRow[]
-    { id: "all", label: "All Items", href: "/app/my-app", icon: "ti ti-list", active: isAll },
-    { id: "fav", label: "Favorites", href: "/app/my-app?fav=1", icon: "ti ti-star", active: isFav },
-  ],
-  tree: {                                // optional SidebarTreeSpec
-    nodes: treeNodes,
-    selectedId: selectedId(),
-    onSelect: (id) => navigate(id),
-    expandedIds: expandedIds(),
-    onToggle: (id) => toggleExpand(id),
-  },
-  mobile: {                              // optional mobile behavior
-    mode: "auto",
-    defaultOpen: false,
-  },
-};
-
-<div class="app-cols h-full">
-  <SidebarFromSpec spec={spec} />
-  <div class="flex-1 min-w-0 flex flex-col">{children}</div>
-</div>
+<AppWorkspace>
+  <AppWorkspace.Sidebar>
+    <AppWorkspace.SidebarHeader title="My App" icon="ti ti-list" />
+    <AppWorkspace.SidebarDesktop>
+      <AppWorkspace.SidebarSection title="Navigation">
+        <AppWorkspace.SidebarItem href="/app/my-app" icon="ti ti-list" active>
+          All Items
+        </AppWorkspace.SidebarItem>
+      </AppWorkspace.SidebarSection>
+    </AppWorkspace.SidebarDesktop>
+  </AppWorkspace.Sidebar>
+  <AppWorkspace.Main>{children}</AppWorkspace.Main>
+  <AppWorkspace.Detail open={hasSelection}>{detail}</AppWorkspace.Detail>
+</AppWorkspace>
 ```
 
-**SidebarRow:** `{ id, label?, href?, icon?, labelIcon?, meta?, active?, class?, content?, actionIcon?, actionLabel?, onActionClick? }`
+Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, and meta styling.
 
 ### CopyButton
 

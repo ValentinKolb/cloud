@@ -27,7 +27,7 @@ import { runScript } from "./runner";
 export type ReadModeScriptsConfig = {
   /** Per-notebook opt-in. When false this entire pass is a no-op. */
   scriptsEnabled: boolean;
-  /** Notebook short-id — used both as the `kit.note.notebook.id`
+  /** Notebook short-id — used both as the `current.notebook.id`
    *  value and as the `:id` API param for kit-driven calls. */
   notebookId: string;
   /** Snapshot of the note these blocks live in — feeds the

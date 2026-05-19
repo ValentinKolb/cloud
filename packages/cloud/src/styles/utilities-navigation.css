@@ -77,6 +77,37 @@
   @apply mt-auto flex flex-col gap-2;
 }
 
+@utility sidebar-icon-grid-wrap {
+  @apply flex flex-col gap-1;
+}
+
+@utility sidebar-icon-grid {
+  @apply grid gap-1.5;
+}
+
+@utility sidebar-icon-action {
+  @apply flex h-12 w-full min-w-0 items-center justify-center rounded-xl border-0 bg-zinc-100/70 text-zinc-600;
+  @apply transition-[background-color,color,transform] duration-150 ease-out hover:bg-zinc-200 hover:text-zinc-900;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  @apply active:scale-[0.98];
+  @apply dark:bg-zinc-800/65 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-950;
+}
+
+@utility sidebar-icon-action-active {
+  @apply bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800;
+  @apply dark:bg-blue-950/45 dark:text-blue-300 dark:hover:bg-blue-900/45 dark:hover:text-blue-200;
+}
+
+@utility sidebar-icon-action-success {
+  @apply bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800;
+  @apply dark:bg-green-950/35 dark:text-green-300 dark:hover:bg-green-900/45 dark:hover:text-green-200;
+}
+
+@utility sidebar-icon-action-danger {
+  @apply bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800;
+  @apply dark:bg-red-950/35 dark:text-red-300 dark:hover:bg-red-900/45 dark:hover:text-red-200;
+}
+
 @utility sidebar-section {
   @apply flex flex-col gap-1;
 }

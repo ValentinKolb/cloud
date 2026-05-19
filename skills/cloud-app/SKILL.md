@@ -11,7 +11,7 @@ description: >
 
 This skill covers everything you need to build a complete app. For platform overview and auth concepts, see the `cloud` skill. For deployment, see `cloud-ops`.
 
-> **Detailed references:** Backend patterns → `references/backend.md` | Frontend patterns → `references/frontend.md`
+> **Detailed references:** Backend patterns → `references/backend.md` | Frontend patterns → `references/frontend.md` | New frontend addenda → `references/add-frontend.md`
 
 ## What Belongs In An App — And What Does NOT
 
@@ -710,7 +710,8 @@ The `app-cols` class creates a responsive sidebar + content grid (sidebar hidden
 | `FilterChip` | Multi-option filter dropdown |
 | `EntitySearch` | User/group search autocomplete |
 | `PermissionEditor` | Access control UI (grant/revoke via ResourceAccessAdapter) |
-| `SidebarLayout` / `SidebarFromSpec` | Sidebar with nav, tree, controls |
+| `AppOverview` | Shared app overview/start-page shell |
+| `AppWorkspace` | Shared sidebar + main + detail workspace shell |
 | `DialogHeader` | Standard dialog header |
 | `CopyButton` | Clipboard copy with feedback |
 

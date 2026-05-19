@@ -83,6 +83,7 @@ export type AppWorkspaceSidebarIconActionTone = "default" | "success" | "danger"
 export type AppWorkspaceSidebarItemProps = {
   href?: string;
   active?: boolean;
+  activeClass?: string;
   icon?: string;
   meta?: JSX.Element;
   tone?: AppWorkspaceSidebarItemTone;
@@ -132,8 +133,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   SidebarIconAction: (props: AppWorkspaceSidebarIconActionProps) => JSX.Element;
 };
 
-const isSidebarSlot = (value: unknown): value is SidebarSlot =>
-  !!value && typeof value === "object" && "kind" in value;
+const isSidebarSlot = (value: unknown): value is SidebarSlot => !!value && typeof value === "object" && "kind" in value;
 
 const collectSidebarSlots = (value: unknown): SidebarSlot[] => {
   if (Array.isArray(value)) return value.flatMap(collectSidebarSlots);
@@ -161,9 +161,7 @@ const detailWidthClass = (props: AppWorkspaceDetailProps): string => {
 };
 
 const AppWorkspaceMain = (props: AppWorkspaceMainProps) => (
-  <main class={`order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}>
-    {props.children}
-  </main>
+  <main class={`order-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2 ${props.class ?? ""}`}>{props.children}</main>
 );
 
 const AppWorkspaceDetail = (props: AppWorkspaceDetailProps) => (
@@ -252,9 +250,7 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
   );
 };
 
-const AppWorkspaceSidebarMobileItems = (props: { children: JSX.Element }) => (
-  <div class="sidebar-mobile-actions">{props.children}</div>
-);
+const AppWorkspaceSidebarMobileItems = (props: { children: JSX.Element }) => <div class="sidebar-mobile-actions">{props.children}</div>;
 
 const AppWorkspaceSidebarMobileBody = (props: { class?: string; children: JSX.Element }) => (
   <div class={`mt-2 max-h-64 overflow-y-auto p-2 ${props.class ?? ""}`}>{props.children}</div>
@@ -300,8 +296,7 @@ const itemToneClass = (tone: AppWorkspaceSidebarItemTone | undefined, mobile: bo
   return "";
 };
 
-const activeMobileClass =
-  "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200";
+const activeMobileClass = "border-blue-500/35 bg-blue-50/70 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200";
 
 const iconActionToneClass = (tone: AppWorkspaceSidebarIconActionTone | undefined): string => {
   if (tone === "success") return "sidebar-icon-action-success";
@@ -314,8 +309,8 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
   const mobile = () => mode === "mobile";
   const className = () =>
     mobile()
-      ? `sidebar-item-mobile ${props.active ? activeMobileClass : ""} ${itemToneClass(props.tone, true)} ${props.class ?? ""}`
-      : `sidebar-item text-xs ${props.active ? "sidebar-item-active" : ""} ${itemToneClass(props.tone, false)} ${props.class ?? ""}`;
+      ? `sidebar-item-mobile ${props.active ? (props.activeClass ?? activeMobileClass) : ""} ${itemToneClass(props.tone, true)} ${props.class ?? ""}`
+      : `sidebar-item text-xs ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.class ?? ""}`;
   const style = () => (props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined);
   const dataAttrs = () =>
     Object.fromEntries(
@@ -379,7 +374,15 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
     <Show
       when={href()}
       fallback={
-        <button type="button" class={className()} title={props.label} aria-label={props.label} disabled={props.disabled} style={style()} onClick={props.onClick}>
+        <button
+          type="button"
+          class={className()}
+          title={props.label}
+          aria-label={props.label}
+          disabled={props.disabled}
+          style={style()}
+          onClick={props.onClick}
+        >
           {content}
         </button>
       }

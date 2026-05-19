@@ -1,6 +1,7 @@
 import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts";
+import { AppWorkspace, toast } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Backlink } from "../../../../service/links";
 import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../../../params";
@@ -14,6 +15,7 @@ import {
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
   NAMED_BLOCKS_UPDATE_EVENT,
+  NAMED_BLOCK_SCROLL_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
@@ -63,6 +65,24 @@ type SoftNavigatedDetail = {
 };
 
 const ACTION_BTN = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
+
+const namedBlockSnippet = (block: NamedBlockSummary): string => {
+  const name = JSON.stringify(block.name);
+  switch (block.type) {
+    case "table":
+      return `const rows = current.table(${name})?.rows ?? [];`;
+    case "list":
+      return `const items = current.list(${name})?.items ?? [];`;
+    case "data":
+      return `const data = current.data(${name})?.value ?? {};`;
+    case "section":
+      return `const markdown = current.section(${name})?.markdown ?? "";`;
+    case "script":
+      return `// @${block.name} marks a script block. Script blocks are not readable through current.* yet.`;
+    default:
+      return `// @${block.name} has no typed script helper yet.`;
+  }
+};
 
 /**
  * Right-side detail panel — outline + backlinks + (edit-mode) online users +
@@ -177,6 +197,16 @@ export default function NotebookDetailPanel(props: Props) {
     window.dispatchEvent(new CustomEvent(TOC_SCROLL_EVENT, { detail: { id } }));
   };
 
+  const scrollToNamedBlock = (block: NamedBlockSummary) => {
+    window.dispatchEvent(new CustomEvent(NAMED_BLOCK_SCROLL_EVENT, { detail: block }));
+  };
+
+  const copyNamedBlockSnippet = async (event: MouseEvent, block: NamedBlockSummary) => {
+    event.stopPropagation();
+    await clipboard.copy(namedBlockSnippet(block));
+    toast.success("Reference snippet copied", { title: "Copied", iconClass: "ti ti-clipboard-check" });
+  };
+
   onMount(() => {
     const onTocUpdate = (event: Event) => {
       const detail = (event as CustomEvent<TocItem[]>).detail;
@@ -249,9 +279,7 @@ export default function NotebookDetailPanel(props: Props) {
   });
 
   return (
-    <aside
-      class={`${open() ? "flex" : "hidden"} order-3 flex-col min-h-0 overflow-y-auto w-full shrink-0 lg:h-full lg:w-[20rem] xl:w-[24rem]`}
-    >
+    <AppWorkspace.Detail open={open()} class="overflow-y-auto">
       {/* Contents */}
       <Show when={tocItems().length >= 1}>
         <section class="detail-section">
@@ -305,12 +333,28 @@ export default function NotebookDetailPanel(props: Props) {
           <ul class="flex flex-col gap-1">
             <For each={namedBlocks()}>
               {(block) => (
-                <li class="flex items-center justify-between gap-2 px-2 py-1 text-xs">
-                  <span class="inline-flex min-w-0 items-center gap-1">
-                    <i class="ti ti-at text-dimmed" />
-                    <code class="truncate">@{block.name}</code>
-                  </span>
-                  <span class="text-dimmed capitalize">{block.type}</span>
+                <li class="group flex items-center gap-1 text-xs">
+                  <button
+                    type="button"
+                    class="detail-row min-w-0 flex-1 justify-between hover:text-blue-500"
+                    onClick={() => scrollToNamedBlock(block)}
+                    title={`Jump to @${block.name}`}
+                  >
+                    <span class="inline-flex min-w-0 items-center gap-1">
+                      <i class="ti ti-at detail-row-icon" />
+                      <code class="truncate">{block.name}</code>
+                    </span>
+                    <span class="text-dimmed capitalize">{block.type}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn h-6 w-6 shrink-0 text-dimmed opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                    onClick={(event) => void copyNamedBlockSnippet(event, block)}
+                    title={`Copy script snippet for @${block.name}`}
+                    aria-label={`Copy script snippet for ${block.name}`}
+                  >
+                    <i class="ti ti-copy text-xs" />
+                  </button>
                 </li>
               )}
             </For>
@@ -459,6 +503,6 @@ export default function NotebookDetailPanel(props: Props) {
           )}
         </dl>
       </section>
-    </aside>
+    </AppWorkspace.Detail>
   );
 }

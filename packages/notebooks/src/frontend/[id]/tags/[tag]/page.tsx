@@ -13,7 +13,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Pagination } from "@valentinkolb/cloud/ui";
 import { notebooksService } from "@/service";
 import { parseSettings } from "../../_components/settings/NotebookSettingsStore";
-import NotebookSidebar from "../../_components/sidebar/NotebookSidebar";
+import NotebookSidebar from "../../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../../_components/sidebar/types";
 import { buildNoteUrl, buildTagPageUrl } from "../../../params";
 

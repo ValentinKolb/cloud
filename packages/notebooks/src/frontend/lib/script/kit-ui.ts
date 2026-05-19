@@ -1,32 +1,35 @@
 /**
- * `kit.ui` — declarative UI builder surface for `\`\`\`script` blocks.
+ * `ui` — declarative UI builder surface for `\`\`\`script` blocks.
  *
  * Two equivalent ways to mount:
  *
- *   kit.ui.render(kit.ui.button("Hi", fn));   // declarative
- *   kit.ui.button("Hi", fn).show();           // chaining sugar
+ *   ui.render(ui.button("Hi", fn));   // declarative
+ *   ui.button("Hi", fn).show();           // chaining sugar
  *
  * Builders are pure: they return a `KitElement` (an `HTMLElement`
  * with a `.show()` method bolted on) and do NOT auto-mount. The
- * only side-effecting calls are `kit.ui.render(...)`, `.show()`,
- * and `kit.ui.toast(...)` (which fires the platform toast UI, not
+ * only side-effecting calls are `ui.render(...)`, `.show()`,
+ * and `ui.toast(...)` (which fires the platform toast UI, not
  * tied to the script's output container).
  *
  * Children passed to layout primitives can be `KitElement`,
- * `HTMLElement`, plain `string` (auto-wrapped in `kit.ui.text`),
+ * `HTMLElement`, plain `string` (auto-wrapped in `ui.text`),
  * or falsy (`null` / `false` / `undefined` — skipped, useful for
- * inline conditionals like `cond && kit.ui.text(...)`).
+ * inline conditionals like `cond && ui.text(...)`).
  *
  * No CSS classes are exposed to scripts on purpose. Layout is
  * composed via `row` / `col` / `card`; visual variants live behind
  * specific options (e.g. `button({ variant: "danger" })`). For
- * advanced cases scripts can drop down to `kit.ui.html(...)`.
+ * advanced cases scripts can drop down to `ui.html(...)`.
  */
 import { prompts, toast as platformToast } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { charts as stdCharts } from "@valentinkolb/stdlib";
 import { renderPrettyTableHtml } from "../pretty-table";
 import type {
   KitButtonOptions,
+  KitChartKind,
+  KitChartOptions,
   KitChild,
   KitContext,
   KitElement,
@@ -34,7 +37,8 @@ import type {
   KitFormSpec,
   KitHeadingLevel,
   KitNote,
-  KitTask,
+  KitTableView,
+  KitTodoItem,
   KitPromptAPI,
   KitUI,
 } from "./kit-types";
@@ -51,7 +55,7 @@ import type {
  *  explicitly on every kit element gives every mutation a
  *  deterministic `target.isContentEditable === false` answer and
  *  closes the door on the Y.Text → CM → re-render → ytext-edit
- *  feedback loop that froze scripts with `kit.ui.text(\`${kit.note
+ *  feedback loop that froze scripts with `ui.text(\`${current
  *  .tags.length}\`).show()`. */
 const brand = (el: HTMLElement, ctx: KitContext): KitElement => {
   if (!el.hasAttribute("contenteditable")) {
@@ -110,7 +114,7 @@ const makeMd = (markdownSrc: string, ctx: KitContext): KitElement => {
   const el = document.createElement("div");
   el.className = "md-script-ui-md";
   // Trusted-script-only — per-notebook opt-in is the security
-  // boundary, same as `kit.ui.html`. The same `markdown.render` the
+  // boundary, same as `ui.html`. The same `markdown.render` the
   // server uses for read-mode parses GFM + our custom extensions
   // (info blocks, task lists, etc.).
   el.innerHTML = markdown.renderSync(markdownSrc);
@@ -150,15 +154,15 @@ const makeNoteList = (notes: KitNote[], options: { emptyText?: string } | undefi
 const isKitNote = (value: unknown): value is KitNote =>
   !!value && typeof value === "object" && typeof (value as KitNote).id === "string" && typeof (value as KitNote).title === "string";
 
-const isTaskArray = (value: unknown[]): value is KitTask[] =>
+const isTodoArray = (value: unknown[]): value is KitTodoItem[] =>
   value.length > 0 &&
   value.every(
     (item) =>
       !!item &&
       typeof item === "object" &&
-      typeof (item as KitTask).done === "boolean" &&
-      typeof (item as KitTask).text === "string" &&
-      typeof (item as KitTask).line === "number",
+      typeof (item as KitTodoItem).done === "boolean" &&
+      typeof (item as KitTodoItem).content === "string" &&
+      typeof (item as KitTodoItem).line === "number",
   );
 
 const normalizeTableValue = (value: unknown, column?: string): string => {
@@ -166,7 +170,7 @@ const normalizeTableValue = (value: unknown, column?: string): string => {
   if (isKitNote(value)) return `[${value.title}](note://${value.id})`;
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (Array.isArray(value)) {
-    if (isTaskArray(value)) {
+    if (isTodoArray(value)) {
       const done = value.filter((task) => task.done).length;
       return `=PROGRESS(${done}, ${value.length})`;
     }
@@ -185,17 +189,26 @@ const normalizeTableValue = (value: unknown, column?: string): string => {
   return String(value);
 };
 
+const isTableView = (value: unknown): value is KitTableView =>
+  !!value &&
+  typeof value === "object" &&
+  Array.isArray((value as KitTableView).columns) &&
+  Array.isArray((value as KitTableView).rows);
+
 const makeTable = (
-  rows: unknown[][] | Record<string, unknown>[],
+  input: unknown[][] | Record<string, unknown>[] | KitTableView,
   options: { columns?: string[]; emptyText?: string } | undefined,
   ctx: KitContext,
 ): KitElement => {
+  const rows = isTableView(input) ? input.rows : input;
   if (rows.length === 0) return makeText(options?.emptyText ?? "No rows", ctx);
   const columns =
     options?.columns ??
-    (Array.isArray(rows[0])
-      ? (rows[0] as unknown[]).map((_, index) => `Column ${index + 1}`)
-      : Object.keys(rows[0] as Record<string, unknown>));
+    (isTableView(input)
+      ? input.columns
+      : Array.isArray(rows[0])
+        ? (rows[0] as unknown[]).map((_, index) => `Column ${index + 1}`)
+        : Object.keys(rows[0] as Record<string, unknown>));
   const normalizedRows = rows.map((row) =>
     columns.map((column, index) => {
       const value = Array.isArray(row) ? row[index] : (row as Record<string, unknown>)[column];
@@ -205,6 +218,92 @@ const makeTable = (
   const el = document.createElement("div");
   el.className = "md-script-ui-table";
   el.innerHTML = renderPrettyTableHtml({ headers: columns, rows: normalizedRows }, { notebookId: ctx.notebookId });
+  return brand(el, ctx);
+};
+
+const isEmptyChart = (kind: KitChartKind, options: Record<string, unknown>): boolean => {
+  if (kind === "line" || kind === "scatter") {
+    const series = options.series as Array<{ data?: unknown[] }> | undefined;
+    return !series?.length || series.every((item) => !item.data?.length);
+  }
+  if (kind === "bar" || kind === "donut" || kind === "pie") {
+    const data = options.data as unknown[] | undefined;
+    return !data?.length;
+  }
+  if (kind === "histogram" || kind === "sparkline") {
+    const data = options.data as unknown[] | undefined;
+    return !data?.length;
+  }
+  if (kind === "boxplot") {
+    const groups = options.groups as unknown[] | undefined;
+    return !groups?.length;
+  }
+  return false;
+};
+
+const makeChart = <K extends KitChartKind>(kind: K, options: KitChartOptions<K>, ctx: KitContext): KitElement => {
+  const { height: requestedHeight, ...chartOptions } = options;
+  const height = Math.max(32, Math.round(typeof requestedHeight === "number" ? requestedHeight : 240));
+  const el = document.createElement("div");
+  el.className = "md-script-ui-chart text-dimmed";
+  el.style.height = `${height}px`;
+
+  const render = (width: number) => {
+    if (ctx.isActive && !ctx.isActive()) return;
+    const normalizedWidth = Math.max(120, Math.round(width || 480));
+    const opts = chartOptions as Record<string, unknown>;
+    if (isEmptyChart(kind, opts)) {
+      el.replaceChildren();
+      const empty = document.createElement("div");
+      empty.className = "md-script-ui-chart-empty";
+      empty.textContent = "No data";
+      el.appendChild(empty);
+      return;
+    }
+    // The stdlib chart functions are a discriminated namespace. At
+    // runtime they all accept one options object; the public KitUI
+    // type above keeps call sites per-kind typed.
+    el.innerHTML = (stdCharts[kind] as (opts: unknown) => string)({
+      ...opts,
+      width: normalizedWidth,
+      height,
+    });
+  };
+
+  render(480);
+
+  if (typeof ResizeObserver !== "undefined") {
+    let lastWidth = 0;
+    const ro = new ResizeObserver((entries) => {
+      if (ctx.isActive && !ctx.isActive()) {
+        ro.disconnect();
+        return;
+      }
+      const entry = entries[0];
+      if (!entry) return;
+      const width = Math.round(entry.contentRect.width);
+      if (width <= 0 || width === lastWidth) return;
+      lastWidth = width;
+      render(width);
+    });
+    ro.observe(el);
+
+    if (typeof MutationObserver !== "undefined") {
+      let hasBeenConnected = false;
+      const mo = new MutationObserver(() => {
+        if (ctx.outputEl.contains(el)) {
+          hasBeenConnected = true;
+          return;
+        }
+        if ((ctx.isActive && !ctx.isActive()) || hasBeenConnected) {
+          ro.disconnect();
+          mo.disconnect();
+        }
+      });
+      mo.observe(ctx.outputEl, { childList: true, subtree: true });
+    }
+  }
+
   return brand(el, ctx);
 };
 
@@ -239,14 +338,6 @@ const makeDivider = (ctx: KitContext): KitElement => {
 
 // ── Interactive ──────────────────────────────────────────────────
 
-/** Map button variants to Tailwind utility classes. Kept in one
- *  place so the visual language stays consistent across the kit. */
-const BUTTON_VARIANT_CLASSES: Record<NonNullable<KitButtonOptions["variant"]>, string> = {
-  primary: "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 " + "hover:bg-blue-100 dark:hover:bg-blue-900/50",
-  secondary: "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 " + "hover:bg-zinc-200 dark:hover:bg-zinc-700",
-  danger: "bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 " + "hover:bg-red-100 dark:hover:bg-red-900/50",
-};
-
 const makeButton = (
   label: string,
   onClick: () => void | Promise<void>,
@@ -256,17 +347,11 @@ const makeButton = (
   const btn = document.createElement("button");
   btn.type = "button";
   const variant = options?.variant ?? "primary";
-  btn.className =
-    "md-script-ui-button md-script-button inline-flex items-center gap-1 px-2 py-1 " +
-    "rounded text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 " +
-    "disabled:cursor-not-allowed " +
-    BUTTON_VARIANT_CLASSES[variant];
+  btn.className = `md-script-ui-button md-script-button btn-sm ${variant === "danger" ? "btn-danger" : variant === "secondary" ? "btn-secondary" : "btn-primary"}`;
 
-  if (options?.icon) {
-    const icon = document.createElement("i");
-    icon.className = options.icon;
-    btn.appendChild(icon);
-  }
+  const icon = document.createElement("i");
+  icon.className = options?.icon ?? "ti ti-sparkles";
+  btn.appendChild(icon);
 
   const labelEl = document.createElement("span");
   labelEl.textContent = label;
@@ -282,11 +367,11 @@ const makeButton = (
       const result = onClick();
       if (result && typeof (result as Promise<void>).then === "function") {
         (result as Promise<void>).catch((err) => {
-          console.error("[kit.ui.button] onClick threw:", err);
+          console.error("[ui.button] onClick threw:", err);
         });
       }
     } catch (err) {
-      console.error("[kit.ui.button] onClick threw:", err);
+      console.error("[ui.button] onClick threw:", err);
     }
   });
 
@@ -300,6 +385,63 @@ const makeHtml = (rawHtml: string, ctx: KitContext): KitElement => {
   el.className = "md-script-ui-html";
   el.innerHTML = rawHtml;
   return brand(el, ctx);
+};
+
+const normalizeLiveChildren = (value: KitChild | KitChild[]): KitChild[] => (Array.isArray(value) ? value : [value]);
+
+const makeLive = (renderFn: () => KitChild | KitChild[], ctx: KitContext): KitElement => {
+  const slot = document.createElement("div");
+  slot.className = "md-script-ui-live";
+  let disposed = false;
+  let scheduledFrame: number | null = null;
+
+  const render = () => {
+    if (disposed || (ctx.isActive && !ctx.isActive())) return;
+    try {
+      const nodes = normalizeLiveChildren(renderFn())
+        .map((child) => childToNode(child, ctx))
+        .filter((node): node is Node => node !== null);
+      slot.replaceChildren(...nodes);
+    } catch (err) {
+      console.error("[ui.live] render threw:", err);
+      const error = document.createElement("div");
+      error.className = "md-script-ui-error text-red-600 dark:text-red-400";
+      error.textContent = err instanceof Error ? err.message : String(err);
+      slot.replaceChildren(error);
+    }
+  };
+
+  const scheduleRender = () => {
+    if (disposed || scheduledFrame !== null) return;
+    const run = () => {
+      scheduledFrame = null;
+      render();
+    };
+    scheduledFrame =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(run)
+        : window.setTimeout(run, 0);
+  };
+
+  render();
+
+  if (ctx.mode === "edit" && ctx.ytext) {
+    const handler = () => scheduleRender();
+    ctx.ytext.observe(handler);
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      if (scheduledFrame !== null) {
+        if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(scheduledFrame);
+        else clearTimeout(scheduledFrame);
+        scheduledFrame = null;
+      }
+      ctx.ytext?.unobserve(handler);
+    };
+    ctx.registerDisposer?.(dispose);
+  }
+
+  return brand(slot, ctx);
 };
 
 // =============================================================================
@@ -320,6 +462,7 @@ export const createKitUI = (ctx: KitContext): KitUI => ({
   noteLink: (note, label) => makeNoteLink(note, label, ctx),
   noteList: (notes, options) => makeNoteList(notes, options, ctx),
   table: (rows, options) => makeTable(rows, options, ctx),
+  chart: (kind, options) => makeChart(kind, options, ctx),
 
   // Interactive
   button: (label, onClick, options) => makeButton(label, onClick, options, ctx),
@@ -328,6 +471,7 @@ export const createKitUI = (ctx: KitContext): KitUI => ({
   html: (rawHtml) => makeHtml(rawHtml, ctx),
 
   // Mount
+  live: (renderFn) => makeLive(renderFn, ctx),
   render: (...elements) => {
     if (ctx.isActive && !ctx.isActive()) return;
     for (const child of elements) {

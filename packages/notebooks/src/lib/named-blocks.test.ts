@@ -43,6 +43,24 @@ Wood
     expect(blocks.map((block) => block.name)).toEqual(["outside"]);
   });
 
+  test("detects nested handles inside named sections", () => {
+    const blocks = extractNamedBlocks(`@review
+# Review
+
+- Use the weekly review button after a few daily notes.
+
+@fooo
+## Starter links
+
+- [2026](note://abc123)
+`);
+
+    expect(blocks.map((block) => [block.name, block.type])).toEqual([
+      ["review", "section"],
+      ["fooo", "section"],
+    ]);
+  });
+
   test("renders only real handles for markdown output", () => {
     const rendered = renderNamedBlockHandlesMarkdown(`\`\`\`script
 @insideCode

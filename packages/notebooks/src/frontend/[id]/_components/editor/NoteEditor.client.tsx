@@ -19,6 +19,7 @@ import {
   EDITOR_INSERT_ATTACHMENT_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
   NAMED_BLOCKS_UPDATE_EVENT,
+  NAMED_BLOCK_SCROLL_EVENT,
   PRESENCE_EVENT,
   RICH_MODE_CHANGED_EVENT,
   TASKS_UPDATE_EVENT,
@@ -29,9 +30,10 @@ import {
 import { extractTaskProgress } from "../detail/tasks";
 import { extractTocFromMarkdown } from "../detail/toc";
 import { readSettings, writeSettings } from "../settings/NotebookSettingsStore";
+import { WORKSPACE_EVENT } from "../sidebar/workspace-events";
 import { extractAttachmentIds } from "../../../lib/editor/attachment-url";
 import { handleSoftNoteNavigationRequests } from "../../../lib/soft-navigation";
-import { extractNamedBlockSummaries } from "../../../../lib/named-blocks";
+import { extractNamedBlockSummaries, type NamedBlockSummary } from "../../../../lib/named-blocks";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import type { Backlink } from "../../../../service/links";
 import { MAX_ATTACHMENT_SIZE_BYTES, formatBytes, insertAttachment, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
@@ -430,6 +432,12 @@ function EditorInstance(props: Props) {
     onPresenceChange: (next) => {
       window.dispatchEvent(new CustomEvent(PRESENCE_EVENT, { detail: next }));
     },
+    workspace: {
+      notebookId: props.notebookId,
+      onEvent: (event, cursor) => {
+        window.dispatchEvent(new CustomEvent(WORKSPACE_EVENT, { detail: { event, cursor } }));
+      },
+    },
     onFatal: (error) => {
       if (fatalPromptOpen) return;
       fatalPromptOpen = true;
@@ -548,6 +556,17 @@ function EditorInstance(props: Props) {
     view.dispatch({ selection: { anchor: lineFrom }, scrollIntoView: true });
   };
 
+  const onScrollToNamedBlock = (event: Event) => {
+    const detail = (event as CustomEvent<NamedBlockSummary>).detail;
+    const view = editorView();
+    if (!view || typeof detail?.line !== "number") return;
+
+    const lineNumber = Math.min(Math.max(1, detail.line + 1), view.state.doc.lines);
+    const lineFrom = view.state.doc.line(lineNumber).from;
+    view.dispatch({ selection: { anchor: lineFrom }, scrollIntoView: true });
+    view.focus();
+  };
+
   const focusEditor = (attempts = 0, target: "start" | "end" = "start"): boolean => {
     const view = editorView();
     if (!view) {
@@ -624,6 +643,7 @@ function EditorInstance(props: Props) {
     emitDerivedDocState();
 
     window.addEventListener(TOC_SCROLL_EVENT, onScrollToHeading);
+    window.addEventListener(NAMED_BLOCK_SCROLL_EVENT, onScrollToNamedBlock);
     window.addEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);
     window.addEventListener(EDITOR_COPY_EVENT, onCopy);
     window.addEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);
@@ -648,6 +668,7 @@ function EditorInstance(props: Props) {
     }
     ytext.unobserve(onTextUpdate);
     window.removeEventListener(TOC_SCROLL_EVENT, onScrollToHeading);
+    window.removeEventListener(NAMED_BLOCK_SCROLL_EVENT, onScrollToNamedBlock);
     window.removeEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);
     window.removeEventListener(EDITOR_COPY_EVENT, onCopy);
     window.removeEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);

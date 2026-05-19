@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
+import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { notebooksService, reindexRuntime } from "../service";
 import { settings, settingsService } from "@valentinkolb/cloud/services";
@@ -1180,7 +1180,7 @@ const app = new Hono<AuthContext>()
       if (guard.currentPermission === "admin" && permission !== "admin" && guard.otherAdmins <= 0) {
         return respond(c, fail(err.badInput("Cannot remove the last admin")));
       }
-      return respondMessage(c, updateAccess({ id: accessId, permission }), "Access updated");
+      return respondMessage(c, notebooksService.notebook.access.update({ notebookId, accessId, permission }), "Access updated");
     },
   )
 

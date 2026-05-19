@@ -5,7 +5,7 @@ import { openNoteSearchPrompt } from "./openNoteSearchPrompt";
 type Props = {
   notebookId: string;
   notebookName: string;
-  variant?: "compact" | "chip" | "sidebar" | "sidebar-mobile";
+  variant?: "compact" | "chip" | "sidebar" | "sidebar-mobile" | "icon";
 };
 
 export default function SearchButton(props: Props) {
@@ -25,6 +25,14 @@ export default function SearchButton(props: Props) {
         title="Search notes (Mod+Shift+K)"
       >
         <i class="ti ti-search text-xs" />
+      </button>
+    );
+  }
+
+  if (props.variant === "icon") {
+    return (
+      <button type="button" onClick={handleSearch} class="sidebar-icon-action" title="Search notes (Mod+Shift+K)" aria-label="Search notes">
+        <i class="ti ti-search text-base" />
       </button>
     );
   }

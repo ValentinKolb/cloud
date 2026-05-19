@@ -1,6 +1,6 @@
 /**
  * Script runner — evaluates a ```script block's source as an
- * `AsyncFunction(kit, console)` body and renders its output / errors
+ * `AsyncFunction(std, ui, nb, current, console)` body and renders its output / errors
  * into a caller-supplied container.
  *
  * Why AsyncFunction (not Web Worker / iframe / QuickJS):
@@ -17,7 +17,7 @@
  * Phase 1 the trust model is "you authored / you opted in."
  *
  * Console interception: a per-run `console`-like object is injected
- * as the second AsyncFunction parameter. Because that parameter
+ * as an AsyncFunction parameter. Because that parameter
  * SHADOWS the global `console` inside the script's body, the user's
  * `console.log(...)` calls land in our object — no global mutation,
  * no concurrency issues across multiple scripts running in parallel.
@@ -35,7 +35,7 @@ export type RunScriptOptions = {
   /** Optional separate container for error blocks. When provided,
    *  parse / runtime errors render here instead of in `outputEl` —
    *  giving the UI a visually distinct "error" box outside the
-   *  kit/console output card. Falls back to `outputEl` for callers
+   *  script output card. Falls back to `outputEl` for callers
    *  (e.g. read-mode) that don't need the split. */
   errorEl?: HTMLElement;
 };
@@ -48,7 +48,8 @@ const AsyncFunctionCtor = Object.getPrototypeOf(async function () {}).constructo
 ) => (...args: unknown[]) => Promise<unknown>;
 
 /**
- * Evaluate `source` as the body of `async (kit, console) => { ... }`
+ * Evaluate `source` as the body of
+ * `async (std, ui, nb, current, console) => { ... }`
  * and await its completion. Errors (parse + runtime, sync + async)
  * are caught and rendered as a red error block inside `outputEl`.
  *
@@ -62,7 +63,7 @@ const AsyncFunctionCtor = Object.getPrototypeOf(async function () {}).constructo
  */
 export const runScript = async (
   source: string,
-  kit: Kit,
+  runtime: Kit,
   outputEl: HTMLElement,
   options?: RunScriptOptions,
 ): Promise<RunResult> => {
@@ -76,7 +77,7 @@ export const runScript = async (
 
   let fn: (...args: unknown[]) => Promise<unknown>;
   try {
-    fn = new AsyncFunctionCtor("kit", "console", source);
+    fn = new AsyncFunctionCtor("std", "ui", "nb", "current", "console", source);
   } catch (parseError) {
     // SyntaxError — surface with line/column when the engine provides it.
     if (isActive()) renderError(errorEl, parseError, "parse error");
@@ -84,7 +85,7 @@ export const runScript = async (
   }
 
   try {
-    await fn(kit, scriptConsole);
+    await fn(runtime.std, runtime.ui, runtime.nb, runtime.current, scriptConsole);
     return { ok: true };
   } catch (runError) {
     if (isActive()) renderError(errorEl, runError, "runtime error");

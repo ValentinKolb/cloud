@@ -1,7 +1,8 @@
-import { onMount } from "solid-js";
+import { onCleanup, onMount } from "solid-js";
 import { MarkdownView } from "@valentinkolb/cloud/ui";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { enhanceReadModeScripts } from "../../../lib/script/read-mode";
+import { NAMED_BLOCK_SCROLL_EVENT } from "../detail/events";
 
 type Props = {
   noteId: string;
@@ -55,6 +56,18 @@ export default function ReadonlyNote(props: Props) {
         },
       });
     }
+
+    const onScrollToNamedBlock = (event: Event) => {
+      const name = (event as CustomEvent<{ name?: string }>).detail?.name;
+      if (!name || !containerRef) return;
+      const target = Array.from(containerRef.querySelectorAll<HTMLElement>("[data-block-name]")).find(
+        (el) => el.dataset.blockName === name,
+      );
+      target?.scrollIntoView({ block: "start", behavior: "smooth" });
+    };
+
+    window.addEventListener(NAMED_BLOCK_SCROLL_EVENT, onScrollToNamedBlock);
+    onCleanup(() => window.removeEventListener(NAMED_BLOCK_SCROLL_EVENT, onScrollToNamedBlock));
   });
 
   return (

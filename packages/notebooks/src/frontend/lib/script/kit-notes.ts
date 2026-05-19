@@ -1,5 +1,5 @@
 /**
- * `kit.notes` — query / mutate OTHER notes in the same notebook.
+ * `nb` — query / mutate OTHER notes in the same notebook.
  *
  * Hard boundary: this module never accepts a notebook parameter and
  * the caller cannot reach across notebooks. `get(shortId)` returns
@@ -10,12 +10,13 @@
  * persisting via a one-shot HTTP write would skip that path and
  * cause merge conflicts when other peers are editing. If a script
  * needs to set content programmatically, do it on the CURRENT note
- * via `kit.note.setContent` (which does mutate Y.Text correctly) —
+ * via `current.setContent` (which does mutate Y.Text correctly) —
  * or open the target note manually.
  */
 import { apiClient } from "../../../api/client";
 import { extractTags } from "../tag-extract";
-import { assertActive, type KitContext, type KitNote, type KitNotesAPI, type KitQuery, type KitTask } from "./kit-types";
+import { createReadableNoteBlocks } from "./kit-blocks";
+import { assertActive, type KitContext, type KitNote, type KitNotesAPI, type KitQuery } from "./kit-types";
 
 // =============================================================================
 // Wire shape (matches NoteSchema in api/index.ts)
@@ -35,8 +36,18 @@ type ApiNote = {
 
 const toKitNote = (n: ApiNote, parentId: string | null): KitNote => {
   let tags: string[] | undefined;
-  let tasks: KitTask[] | undefined;
+  const blocks = createReadableNoteBlocks(() => n.contentMd);
   return {
+    table: blocks.table,
+    tables: blocks.tables,
+    list: blocks.list,
+    lists: blocks.lists,
+    todo: blocks.todo,
+    todos: blocks.todos,
+    data: blocks.data,
+    dataBlocks: blocks.dataBlocks,
+    section: blocks.section,
+    sections: blocks.sections,
     id: n.shortId,
     title: n.title,
     content: n.contentMd,
@@ -44,26 +55,11 @@ const toKitNote = (n: ApiNote, parentId: string | null): KitNote => {
       tags ??= extractTags(n.contentMd);
       return tags;
     },
-    get tasks() {
-      tasks ??= extractTasks(n.contentMd ?? "");
-      return tasks;
-    },
     parentId,
     createdAt: n.createdAt,
     updatedAt: n.updatedAt,
     lockedAt: n.lockedAt,
   };
-};
-
-const extractTasks = (content: string): KitTask[] => {
-  const tasks: KitTask[] = [];
-  const lines = content.split("\n");
-  for (let line = 0; line < lines.length; line++) {
-    const match = lines[line]!.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+)$/);
-    if (!match) continue;
-    tasks.push({ text: match[2]!, done: match[1]!.toLowerCase() === "x", line });
-  }
-  return tasks;
 };
 
 const toKitNotesWithShortParents = (notes: ApiNote[]): KitNote[] => {
@@ -127,7 +123,7 @@ const fetchPagesUpTo = async (
       param: { id: notebookId },
       query: apiQuery,
     });
-    if (!res.ok) throw new Error("kit.notes: API call failed");
+    if (!res.ok) throw new Error("nb: API call failed");
     const payload = (await res.json()) as { data: ApiNote[]; pagination?: { total?: number } };
     if (payload.data.length === 0) return { items: toKitNotesWithShortParents(out), truncated: false };
     for (const n of payload.data) out.push(n);
@@ -198,7 +194,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       param: { id: ctx.notebookId, noteId: shortId },
     });
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error("kit.notes.get: API call failed");
+    if (!res.ok) throw new Error("nb.get: API call failed");
     const note = (await res.json()) as ApiNote;
     let parentId: string | null = null;
     if (note.parentId) {
@@ -269,7 +265,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       // programmatically. The result is still returned (degraded
       // gracefully — same behaviour as before, plus a signal).
       console.warn(
-        `kit.notes.search: notebook has more than ${SEARCH_FETCH_CAP} notes; ` +
+        `nb.search: notebook has more than ${SEARCH_FETCH_CAP} notes; ` +
           "filter-based search saw only the first page set. " +
           "Results may be incomplete. Add a `search` term to narrow server-side.",
       );
@@ -290,7 +286,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       param: { id: ctx.notebookId },
       json: { title: data.title, parentId: data.parentId, contentMd: data.content },
     });
-    if (!res.ok) throw new Error("kit.notes.create: API call failed");
+    if (!res.ok) throw new Error("nb.create: API call failed");
     const note = (await res.json()) as ApiNote;
     return toKitNote(note, data.parentId ?? null);
   };
@@ -301,7 +297,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
       param: { id: ctx.notebookId, noteId: shortId },
       json: data,
     });
-    if (!res.ok) throw new Error("kit.notes.update: API call failed");
+    if (!res.ok) throw new Error("nb.update: API call failed");
     const note = (await res.json()) as ApiNote;
     const parentId = data.parentId === undefined ? (note.parentId ? ((await get(note.shortId))?.parentId ?? null) : null) : data.parentId;
     return toKitNote(note, parentId);
@@ -312,7 +308,7 @@ export const createKitNotesAPI = (ctx: KitContext): KitNotesAPI => {
     const res = await apiClient[":id"].notes[":noteId"].$delete({
       param: { id: ctx.notebookId, noteId: shortId },
     });
-    if (!res.ok) throw new Error("kit.notes.remove: API call failed");
+    if (!res.ok) throw new Error("nb.remove: API call failed");
   };
 
   return { list, get, search, searchTags, create, update, remove };

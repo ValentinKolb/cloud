@@ -209,7 +209,7 @@
    primitives (`kit.ui.row` / `col`) handle their own flex inside. */
 
 .dark .md-script-output {
-  background: linear-gradient(135deg, rgb(15 118 110 / 0.34) 0%, rgb(22 101 52 / 0.3) 100%);
+  background: linear-gradient(135deg, rgb(30 64 175 / 0.3) 0%, rgb(23 37 84 / 0.28) 100%);
 }
 
 /* Tight gap between adjacent block-level output (logs, headings,
@@ -303,8 +303,12 @@
   border-color: rgb(63 63 70); /* zinc-700 */
 }
 
+.dark .md-script-table td {
+  background: rgb(39 39 42 / 0.96); /* zinc-800 */
+}
+
 .dark .md-script-table th {
-  background: rgb(39 39 42); /* zinc-800 */
+  background: rgb(63 63 70 / 0.92); /* zinc-700 */
 }
 
 /* ── console.html container — content is trusted (per-notebook
@@ -416,6 +420,39 @@
   margin-bottom: 0;
 }
 
+.md-script-ui-chart {
+  display: block;
+  width: 100%;
+  min-height: 2rem;
+}
+
+.md-script-ui-row > .md-script-ui-chart,
+.md-script-ui-row > .md-script-ui-table {
+  flex: 1 1 20rem;
+  min-width: min(100%, 18rem);
+  width: auto;
+}
+
+.md-script-ui-chart .stdlib-chart {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.md-script-ui-chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: rgb(113 113 122);
+  font-size: 0.75rem;
+}
+
+.dark .md-script-ui-chart-empty {
+  color: rgb(161 161 170);
+}
+
 .md-script-output .md-table thead .md-table-cell,
 .md-script-ui-table .md-table-cell,
 .md-script-ui-table .md-table tbody tr.md-table-total-row .md-table-cell,
@@ -432,7 +469,11 @@
 .dark .md-script-ui-table .md-table-cell,
 .dark .md-script-ui-table .md-table tbody tr.md-table-total-row .md-table-cell,
 .dark .md-script-ui-table .md-table tbody td:first-child .md-table-cell {
-  background-color: rgb(24 24 27 / 0.9);
+  background-color: rgb(39 39 42 / 0.96);
+}
+
+.dark .md-script-output .md-table thead .md-table-cell {
+  background-color: rgb(63 63 70 / 0.92);
 }
 
 .dark .md-script-output .md-table thead .md-table-cell {

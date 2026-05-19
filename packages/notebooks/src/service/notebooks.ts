@@ -3,6 +3,7 @@ import type { MutationResult } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { getNotebookPermission, grantNotebookAccess } from "./access";
 import * as notes from "./notes";
+import { invalidated, notebookUpdated } from "./workspace-events";
 import { generateUniqueShortId, isShortId } from "../lib/short-id";
 import helloMd from "./hello.md" with { type: "text" };
 
@@ -447,7 +448,9 @@ export const create = async (params: {
     });
   }
 
-  return { ok: true, data: mapToNotebook(row) };
+  const notebook = mapToNotebook(row);
+  await notebookUpdated(notebook);
+  return { ok: true, data: notebook };
 };
 
 /**
@@ -498,7 +501,9 @@ export const update = async (params: { id: string; data: UpdateNotebook }): Prom
     return { ok: false, error: "Failed to update notebook", status: 500 };
   }
 
-  return { ok: true, data: (await get({ id: row.id })) ?? mapToNotebook(row) };
+  const notebook = (await get({ id: row.id })) ?? mapToNotebook(row);
+  await notebookUpdated(notebook);
+  return { ok: true, data: notebook };
 };
 
 /**
@@ -514,5 +519,6 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
     return { ok: false, error: "Notebook not found", status: 404 };
   }
 
+  await invalidated({ notebookId: params.id, reason: "bulk", scopes: ["notebook", "tree", "tags", "references", "permissions"] });
   return { ok: true, data: undefined };
 };

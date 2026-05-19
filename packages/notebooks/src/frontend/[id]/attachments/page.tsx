@@ -14,7 +14,7 @@ import { Pagination } from "@valentinkolb/cloud/ui";
 import { notebooksService } from "@/service";
 import AttachmentsOverview from "../_components/attachments-overview/AttachmentsOverview.island";
 import { parseSettings } from "../_components/settings/NotebookSettingsStore";
-import NotebookSidebar from "../_components/sidebar/NotebookSidebar";
+import NotebookSidebar from "../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../_components/sidebar/types";
 import { buildAttachmentsUrl } from "../../params";
 

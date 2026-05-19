@@ -59,9 +59,9 @@ const LANGUAGES: FenceLang[] = [
   // syntax-highlighted code.
   {
     name: "script",
-    detail: "Live kit script",
+    detail: "Live notebook script",
     icon: "ti-bolt",
-    bodyPlaceholder: "kit.ui.toast('Hello');",
+    bodyPlaceholder: "ui.toast('Hello');",
   },
   {
     name: "mermaid",

@@ -1,5 +1,5 @@
 /**
- * `kit.state` — collaborative per-note key-value store backed by a
+ * `current.kv` — collaborative per-note key-value store backed by a
  * Y.Map on the same Y.Doc as the note body. Automatic conflict-free
  * sync via the existing yjs collab pipeline; persisted via the
  * existing snapshot worker.
@@ -15,15 +15,14 @@
  * objects, arrays — anything that survives a JSON round-trip) and
  * makes the wire format inspectable.
  *
- * If the script ever needs richer types (Y.Array, Y.Map nested),
- * Phase 3+ can expose a separate `kit.yjs` escape hatch — for
- * now keep it simple.
+ * If scripts ever need richer types (Y.Array, Y.Map nested), add a
+ * separate explicit escape hatch. For now keep it simple.
  */
 import * as Y from "yjs";
-import { assertActive, type KitContext, type KitStateAPI } from "./kit-types";
+import { assertActive, type KitContext, type KitKVSetter, type KitStateAPI } from "./kit-types";
 
 const STATE_MAP_NAME = "kit:state";
-const READ_MODE_WARN = "kit.state.* is a no-op in read mode (no Y.Doc available)";
+const READ_MODE_WARN = "current.kv.* is a no-op in read mode (no Y.Doc available)";
 
 const noopUnsubscribe = (): void => {};
 
@@ -65,9 +64,10 @@ export const createKitStateAPI = (ctx: KitContext): KitStateAPI => {
     }
   };
 
-  const set = <T>(key: string, value: T): void => {
+  const set = <T>(key: string, value: KitKVSetter<T>): void => {
     assertActive(ctx);
-    ymap.set(key, JSON.stringify(value));
+    const nextValue = typeof value === "function" ? (value as (current: T | undefined) => T)(get<T>(key)) : value;
+    ymap.set(key, JSON.stringify(nextValue));
   };
 
   const del = (key: string): void => {

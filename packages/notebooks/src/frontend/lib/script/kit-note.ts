@@ -1,74 +1,16 @@
 /**
- * `kit.note` — the current note. Read getters reflect live state in
+ * `current` — the current note. Read getters reflect live state in
  * edit-mode (via Y.Text) and the snapshot in read-mode. Write methods
  * mutate Y.Text directly when available; in read-mode they throw.
  *
- * Tag + task extraction reuses the same markdown semantics as the
- * platform (notebook tag pills, sidebar task counter) so what
- * `kit.note.tags` returns matches what the user sees in the UI.
+ * Tag extraction reuses the same markdown semantics as the platform
+ * (notebook tag pills) so what `current.tags` returns matches what
+ * the user sees in the UI.
  */
 import { apiClient } from "../../../api/client";
 import { extractTags } from "../tag-extract";
-import type { KitContext, KitCurrentNote, KitTask } from "./kit-types";
-
-// =============================================================================
-// Task extraction
-// =============================================================================
-
-const WHITESPACE_REGEX = /\s/;
-
-const isWhitespace = (char: string): boolean => WHITESPACE_REGEX.test(char);
-
-const parseTaskLine = (
-  line: string,
-): { text: string; done: boolean; checkboxIndex: number } | null => {
-  let i = 0;
-  while (i < line.length && isWhitespace(line[i]!)) i++;
-
-  const bullet = line[i];
-  if (bullet !== "-" && bullet !== "*") return null;
-  i++;
-
-  const afterBullet = i;
-  while (i < line.length && isWhitespace(line[i]!)) i++;
-  if (i === afterBullet) return null;
-
-  if (line[i] !== "[") return null;
-  const checkboxIndex = i + 1;
-  const checkbox = line[checkboxIndex];
-  if (checkbox !== " " && checkbox !== "x" && checkbox !== "X") return null;
-  if (line[i + 2] !== "]") return null;
-  i += 3;
-
-  const afterCheckbox = i;
-  while (i < line.length && isWhitespace(line[i]!)) i++;
-  if (i === afterCheckbox) return null;
-
-  return { text: line.slice(i), done: checkbox.toLowerCase() === "x", checkboxIndex };
-};
-
-const extractTasks = (content: string): KitTask[] => {
-  if (!content) return [];
-  const tasks: KitTask[] = [];
-  let line = 0;
-  let start = 0;
-  while (start <= content.length) {
-    const next = content.indexOf("\n", start);
-    const end = next === -1 ? content.length : next;
-    const task = parseTaskLine(content.slice(start, end));
-    if (task) {
-      tasks.push({
-        text: task.text,
-        done: task.done,
-        line,
-      });
-    }
-    if (next === -1) break;
-    start = next + 1;
-    line++;
-  }
-  return tasks;
-};
+import { createWritableNoteBlocks } from "./kit-blocks";
+import type { KitContext, KitCurrentNote } from "./kit-types";
 
 // =============================================================================
 // Y.Text helpers — minimal-diff mutations
@@ -102,7 +44,7 @@ const lineRange = (text: string, line: number): { start: number; end: number } |
 
 /** Sentinel error message — keep verbatim with the readMode kit's
  *  caller so users searching for it find every site. */
-const READ_MODE_WRITE_ERROR = "kit.note.* writes are only available in edit mode";
+const READ_MODE_WRITE_ERROR = "current.* writes are only available in edit mode";
 
 type YTextItemLike = {
   deleted?: boolean;
@@ -117,12 +59,12 @@ type YTextWithInternals = {
   toString(): string;
 };
 
-/** Hard cap for content read by sync getters (`kit.note.content`,
- *  `kit.note.tags`, `kit.note.tasks`). For pathologically large notes
- *  the synchronous regex passes in `extractTags` / `extractTasks`
+/** Hard cap for content read by sync getters (`current.content`,
+ *  `current.tags`). For pathologically large notes
+ *  the synchronous regex pass in `extractTags`
  *  could block the JS thread visibly. Truncating at 256K chars gives a
  *  predictable upper bound on the parse work — users with notes
- *  bigger than that should be querying via `kit.notes` etc. instead. */
+ *  bigger than that should be querying via `currents` etc. instead. */
 const LIVE_CONTENT_HARD_CAP_CHARS = 256 * 1024;
 
 const readYTextPrefix = (ytext: NonNullable<KitContext["ytext"]>, maxChars: number): string => {
@@ -173,7 +115,7 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
       json: { title },
     });
     if (!res.ok) throw new Error("Failed to update note title");
-    // The title change won't be reflected in `kit.note.title` until
+    // The title change won't be reflected in `current.title` until
     // the script re-runs — the snapshot is captured at run time.
     // Phase 3+ may wire a live notebook-meta channel.
   };
@@ -216,34 +158,29 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
     requireWrite();
     const ytext = ctx.ytext!;
     const range = lineRange(ytext.toString(), line);
-    if (!range) throw new Error(`kit.note.replaceLine: line ${line} is out of range`);
+    if (!range) throw new Error(`current.replaceLine: line ${line} is out of range`);
     ytext.doc?.transact(() => {
       ytext.delete(range.start, range.end - range.start);
       if (text.length > 0) ytext.insert(range.start, text);
     });
   };
 
-  const toggleTask = async (line: number) => {
-    requireWrite();
-    const ytext = ctx.ytext!;
-    const current = ytext.toString();
-    const range = lineRange(current, line);
-    if (!range) throw new Error(`kit.note.toggleTask: line ${line} is out of range`);
-    const lineText = current.slice(range.start, range.end);
-    const task = parseTaskLine(lineText);
-    if (!task) throw new Error(`kit.note.toggleTask: line ${line} doesn't contain a task checkbox`);
-    const checkboxCharOffset = range.start + task.checkboxIndex;
-    const newChar = task.done ? " " : "x";
-    // Single-character flip — minimal-diff so remote cursors don't shift.
-    ytext.doc?.transact(() => {
-      ytext.delete(checkboxCharOffset, 1);
-      ytext.insert(checkboxCharOffset, newChar);
-    });
-  };
-
   // ----- read getters -----
 
+  const blocks = createWritableNoteBlocks(ctx);
+
   return {
+    table: blocks.table,
+    tables: blocks.tables,
+    list: blocks.list,
+    lists: blocks.lists,
+    todo: blocks.todo,
+    todos: blocks.todos,
+    data: blocks.data,
+    dataBlocks: blocks.dataBlocks,
+    section: blocks.section,
+    sections: blocks.sections,
+
     // Snapshot fields — these don't live in the doc.
     get id() {
       return ctx.note.shortId;
@@ -256,9 +193,6 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
     },
     get tags() {
       return extractTags(liveContent());
-    },
-    get tasks() {
-      return extractTasks(liveContent());
     },
     get notebook() {
       return { id: ctx.notebookId, name: ctx.note.notebookName };
@@ -278,6 +212,5 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
     prependContent,
     insertContentAt,
     replaceLine,
-    toggleTask,
   };
 };

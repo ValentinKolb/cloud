@@ -69,7 +69,7 @@ const PER_PAGE = 100;
 const noteCache = createNotebookFetchCache<CachedNotes>(
   async (notebookId) => {
     // Fetch pages up to FETCH_CAP. We use the same paginated
-    // endpoint `kit.notes.list()` uses so the autocomplete +
+    // endpoint `nb.list()` uses so the autocomplete +
     // scripts agree on what's in the notebook.
     const all: NoteRef[] = [];
     let truncated = false;

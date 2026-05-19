@@ -1,26 +1,15 @@
 /**
- * CodeMirror autocompletion for the `kit.*` API surface inside
- * ` ```script ` (and ` ```js ` / ` ```ts ` / similar) fenced code
- * blocks.
+ * CodeMirror autocompletion for notebook script globals inside
+ * ` ```script ` fenced code blocks.
  *
- * Pattern adopted from the homepage reference impl
- * (`~/Git/homepage/src/lib/codemirror-extentions/autocomplete/
- * kit-autocomplete.ts`): a single Completion source registered on
- * `javascriptLanguage.data` triggers inside any JS-language region.
- * Our `markdown.ts` maps `script` (along with `js`, `ts`, etc.) as
- * an alias of the JS language, so this autocomplete fires inside
- * script blocks too. In regular ` ```js ` blocks the kit isn't
- * defined, but completing it is harmless (just inserts a path that
- * won't resolve at runtime).
- *
- * Detection: a `kit(.path)?` regex matched against the text right
- * before the cursor captures any of `kit`, `kit.`, `kit.foo`,
- * `kit.foo.bar`, etc. (See `kitCompletionSource` below — the
- * regex literal would close this block comment if I quoted it
- * here, so I'm describing it in prose instead.)
+ * The runtime intentionally exposes only four top-level namespaces:
+ * `current`, `nb`, `ui`, and `std`. Completion is scoped to script
+ * fences so normal JS/TS code blocks do not receive notebook-only
+ * globals.
  *
  * Registry: a top-level list of namespaces + one list of methods
- * per namespace, plus a nested list for `kit.ui.prompt`. Each
+ * per namespace, plus nested lists for paths like `ui.prompt` and
+ * `nb.attachments`. Each
  * Completion carries:
  *  - `label` — the identifier
  *  - `type` — `namespace` / `method` / `property` (drives CM's icon)
@@ -37,7 +26,7 @@ import type { EditorState } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 
 /**
- * Custom field we attach to each kit `Completion` so the shared
+ * Custom field we attach to each script API `Completion` so the shared
  * option-renderer in `slash-commands/index.ts` can pick the right
  * Tabler icon. CM doesn't have a built-in `icon` field; we tag our
  * own and the renderer reads it via the `KitCompletion` cast.
@@ -47,7 +36,7 @@ import type { SyntaxNode } from "@lezer/common";
  * falls back to type-derived icons:
  *  - `method`    → `ti-bracket-x`  ("call this")
  *  - `property`  → `ti-circle-dot` ("read this")
- *  - `namespace` → `ti-folder`     (sub-namespace like `kit.crypto.common`)
+ *  - `namespace` → `ti-folder`     (sub-namespace like `std.crypto.common`)
  */
 export type KitCompletion = Completion & { kitIcon?: string };
 
@@ -81,146 +70,93 @@ const ns = (label: string, kitIcon: string, detail: string, info: string): KitCo
 });
 
 const topLevelCompletions: KitCompletion[] = [
-  // App-aware modules ──────────────────────────────────────────
   ns(
-    "note",
+    "current",
     "ti-note",
     "Current note",
-    "Read getters (title, content, tags, tasks, …) and write methods (setTitle, appendContent, …) for the note this script lives in.",
+    "Read/write access to the note this script lives in. Includes named-block helpers like `current.table('ideas')`.",
   ),
-  ns(
-    "notes",
-    "ti-files",
-    "Notes in this notebook",
-    "List, search, fetch, create, update, delete notes within the current notebook (notebook-scoped — no cross-notebook access).",
-  ),
-  ns(
-    "attachments",
-    "ti-paperclip",
-    "Notebook attachments",
-    "Upload via picker or programmatically, list all or just those referenced from this note, insert as markdown links.",
-  ),
-  ns("tags", "ti-tag", "Tag index", "List all `#tags` used in the notebook with counts, find every note that references a given tag."),
-  withIcon(
-    snippetCompletion("table(${1:'ideas'})", {
-      label: "table",
-      type: "method",
-      detail: "(name) → KitTableBlockAPI",
-      info: "Target an `@name` table in the current note and append rows from script data.",
-    }),
-    "ti-table",
-  ),
-  withIcon(
-    snippetCompletion("list(${1:'shopping'})", {
-      label: "list",
-      type: "method",
-      detail: "(name) → KitListBlockAPI",
-      info: "Target an `@name` list in the current note and append list items.",
-    }),
-    "ti-list",
-  ),
-  withIcon(
-    snippetCompletion("data(${1:'recipe'})", {
-      label: "data",
-      type: "method",
-      detail: "(name) → KitDataBlockAPI",
-      info: "Read or replace an `@name` / `:::data` block in the current note.",
-    }),
-    "ti-database",
-  ),
-  withIcon(
-    snippetCompletion("section(${1:'materials'})", {
-      label: "section",
-      type: "method",
-      detail: "(name) → KitSectionBlockAPI",
-      info: "Target an `@name` heading section in the current note and append markdown.",
-    }),
-    "ti-section",
-  ),
-  ns(
-    "state",
-    "ti-users-group",
-    "Collaborative Y.Map",
-    "Per-note key-value store that syncs across all viewers via yjs. Edit-mode only. Use `observe(key, cb)` for live updates.",
-  ),
-  ns(
-    "localState",
-    "ti-device-floppy",
-    "Per-user OPFS store",
-    "Per-user, per-notebook persistent key-value (not collaborative). Backed by Origin Private File System. Cross-tab sync via BroadcastChannel.",
-  ),
-  ns(
-    "ui",
-    "ti-layout-grid",
-    "Declarative UI",
-    "Build the output block: layout (row/col/card), content (text/heading/md), interactive (button), modals via `kit.ui.prompt.*`, toasts.",
-  ),
-  // stdlib pass-throughs ───────────────────────────────────────
-  ns("text", "ti-typography", "Text manipulation", "slugify, humanize, titleify, truncate, summarize, case conversions, pprintBytes."),
-  ns(
-    "dates",
-    "ti-calendar",
-    "Date / time formatting",
-    'formatDate, formatDateTime, formatDateTimeRelative ("3 mins ago"), formatDuration, getMonthGrid.',
-  ),
-  ns(
-    "fuzzy",
-    "ti-search",
-    "Fuzzy search",
-    "match / filter / segments / closest / distance — useful for in-script command palettes and typo-correction.",
-  ),
-  ns(
-    "crypto",
-    "ti-shield-lock",
-    "Hashing + crypto",
-    "common (hash, uuid, readableId, fnv1aHash), asymmetric (ECDSA, ECDH+AES-GCM), symmetric (AES-GCM), totp.",
-  ),
-  ns("encoding", "ti-binary", "Byte ↔ string", "toBase64 / fromBase64, toHex / fromHex, toBase62 / fromBase62."),
-  ns(
-    "charts",
-    "ti-chart-bar",
-    "SVG charts",
-    "scatter / line / bar / pie / donut / histogram / boxplot / sparkline — return SVG strings, render via `kit.ui.html(svg)`.",
-  ),
-  ns(
-    "qr",
-    "ti-qrcode",
-    "QR code generators",
-    "Generate payloads for wifi / email / tel / vcard / event, then render as SVG via `kit.qr.toSvg(payload)`.",
-  ),
-  ns("password", "ti-key", "Password generation", "random, memorable (EFF wordlist), pin, strength meter."),
-  ns("timing", "ti-clock", "Timing helpers", "sleep, debounce, throttle, jitter, random, shuffle, buffer, withMinLoadTime."),
-  ns(
-    "files",
-    "ti-file-download",
-    "File downloads + dialogs",
-    "downloadFileFromContent, createZip / downloadAsZip, showFileDialog / showFolderDialog, getMimeType, OPFS.",
-  ),
-  ns(
-    "images",
-    "ti-photo",
-    "Image processing",
-    "Chainable pipeline: create → resize / crop / filter / rotate / flip → toBlob / toFile / toBase64. Presets: avatar, thumbnail.",
-  ),
-  ns("clipboard", "ti-clipboard", "Clipboard", "Single method: `kit.clipboard.copy(text)`."),
+  ns("nb", "ti-notebook", "Notebook API", "List, search, fetch, create, update, and delete notes in the current notebook."),
+  ns("ui", "ti-layout-grid", "UI builders", "Build script output: tables, charts, buttons, prompts, markdown, links, cards."),
+  ns("std", "ti-tool", "Stdlib helpers", "Curated @valentinkolb/stdlib namespaces: dates, text, fuzzy, charts, files, images, timing, ..."),
 ];
 
 // =============================================================================
 // Per-namespace completions
 // =============================================================================
 
-// ── kit.note ─────────────────────────────────────────────────────
+// ── current ──────────────────────────────────────────────────────
 const noteCompletions: Completion[] = [
   // Read getters
   { label: "id", type: "property", detail: "string", info: "6-char short-id of this note." },
   { label: "title", type: "property", detail: "string", info: "Current title (snapshot at script-run time)." },
   { label: "content", type: "property", detail: "string", info: "Live note body (reads Y.Text in edit-mode)." },
   { label: "tags", type: "property", detail: "string[]", info: "Extracted `#tags` from the current content." },
-  { label: "tasks", type: "property", detail: "KitTask[]", info: "Extracted `- [ ]` / `- [x]` checkboxes with { text, done, line }." },
   { label: "notebook", type: "property", detail: "{ id, name }", info: "Owning notebook reference." },
   { label: "createdAt", type: "property", detail: "ISO string", info: "Creation timestamp." },
   { label: "updatedAt", type: "property", detail: "ISO string", info: "Last update timestamp." },
   { label: "lockedAt", type: "property", detail: "ISO string | null", info: "Non-null when the note is locked (read-only)." },
+  ns("kv", "ti-users-group", "Current note KV", "Collaborative per-current-note key-value store. Use `current.kv.observe(...)` for live updates."),
+  snippetCompletion("table(${1:'ideas'})", {
+    label: "table",
+    type: "method",
+    detail: "(name) → table view | undefined",
+    info: "Read a named `@name` markdown table. On `current`, the returned table also has `.add(...)`.",
+  }),
+  snippetCompletion("tables(${1:'ideas'})", {
+    label: "tables",
+    type: "method",
+    detail: "(name?) → table views",
+    info: "Read all matching named tables. Omit the name to read every named table in this note.",
+  }),
+  snippetCompletion("list(${1:'shopping'})", {
+    label: "list",
+    type: "method",
+    detail: "(name) → list view | undefined",
+    info: "Read a named `@name` list. On `current`, the returned list also has `.add(...)`.",
+  }),
+  snippetCompletion("lists(${1:'shopping'})", {
+    label: "lists",
+    type: "method",
+    detail: "(name?) → list views",
+    info: "Read all matching named bullet lists. Omit the name to read every named list.",
+  }),
+  snippetCompletion("todo(${1:'shopping'})", {
+    label: "todo",
+    type: "method",
+    detail: "(name) → todo view | undefined",
+    info: "Read a named checkbox list like `@shopping` followed by `- [ ] milk`.",
+  }),
+  snippetCompletion("todos(${1:'shopping'})", {
+    label: "todos",
+    type: "method",
+    detail: "(name?) → todo views",
+    info: "Read all matching named checkbox lists. Omit the name to read every named todo list.",
+  }),
+  snippetCompletion("data(${1:'recipe'})", {
+    label: "data",
+    type: "method",
+    detail: "(name) → data view | undefined",
+    info: "Read a named `@name` / `:::data` block. On `current`, the returned data view also has `.set(...)`.",
+  }),
+  snippetCompletion("dataBlocks(${1:'recipe'})", {
+    label: "dataBlocks",
+    type: "method",
+    detail: "(name?) → data views",
+    info: "Read all matching named `:::data` blocks. Omit the name to read every named data block.",
+  }),
+  snippetCompletion("section(${1:'log'})", {
+    label: "section",
+    type: "method",
+    detail: "(name) → section view | undefined",
+    info: "Read a named heading section. On `current`, the returned section also has `.append(...)`.",
+  }),
+  snippetCompletion("sections(${1:'log'})", {
+    label: "sections",
+    type: "method",
+    detail: "(name?) → section views",
+    info: "Read all matching named heading sections. Omit the name to read every named section.",
+  }),
   // Writes
   snippetCompletion("setTitle(${1:'new title'})", {
     label: "setTitle",
@@ -258,16 +194,23 @@ const noteCompletions: Completion[] = [
     detail: "(line, text) → Promise<void>",
     info: "Replace the entire line at the given 0-indexed line number.",
   }),
-  snippetCompletion("toggleTask(${1:0})", {
-    label: "toggleTask",
-    type: "method",
-    detail: "(line) → Promise<void>",
-    info: "Toggle the `[ ]` / `[x]` checkbox at the given 0-indexed line. Single-char diff to keep collab cursors stable.",
-  }),
 ];
 
-// ── kit.notes ────────────────────────────────────────────────────
+// ── nb ────────────────────────────────────────────────────
 const notesCompletions: Completion[] = [
+  ns(
+    "attachments",
+    "ti-paperclip",
+    "Notebook attachments",
+    "Upload, list, fetch, insert, and remove attachments in the current notebook.",
+  ),
+  ns("tags", "ti-tag", "Tag index", "List all `#tags` in the notebook and find notes for a tag."),
+  ns(
+    "localKV",
+    "ti-device-floppy",
+    "Personal notebook KV",
+    "Private per-user, per-notebook persistent key-value store.",
+  ),
   {
     label: "list",
     type: "method",
@@ -312,7 +255,7 @@ const notesCompletions: Completion[] = [
   }),
 ];
 
-// ── kit.attachments ──────────────────────────────────────────────
+// ── nb.attachments ──────────────────────────────────────────────
 const attachmentsCompletions: Completion[] = [
   { label: "list", type: "method", detail: "() → Promise<KitAttachment[]>", info: "All attachments in this notebook." },
   {
@@ -353,7 +296,7 @@ const attachmentsCompletions: Completion[] = [
   }),
 ];
 
-// ── kit.tags ─────────────────────────────────────────────────────
+// ── nb.tags ─────────────────────────────────────────────────────
 const tagsCompletions: Completion[] = [
   { label: "list", type: "method", detail: "() → Promise<KitTagSummary[]>", info: "All tags in this notebook with note counts." },
   snippetCompletion("notesForTag(${1:'tag'})", {
@@ -364,7 +307,7 @@ const tagsCompletions: Completion[] = [
   }),
 ];
 
-// ── kit.state ────────────────────────────────────────────────────
+// ── current.kv ────────────────────────────────────────────────────
 const stateCompletions: Completion[] = [
   snippetCompletion("get(${1:'key'})", {
     label: "get",
@@ -372,11 +315,11 @@ const stateCompletions: Completion[] = [
     detail: "(key) → T | undefined",
     info: "Sync read from the collaborative Y.Map. Returns undefined if key not set.",
   }),
-  snippetCompletion("set(${1:'key'}, ${2:value})", {
+  snippetCompletion("set(${1:'key'}, (${2:value} = 0) => ${2:value} + 1)", {
     label: "set",
     type: "method",
-    detail: "(key, value) → void",
-    info: "Sync write. JSON-serialised. Syncs to all collaborators.",
+    detail: "(key, value | updater) → void",
+    info: "Sync write. Pass a value or an updater function that receives the current value.",
   }),
   snippetCompletion("delete(${1:'key'})", {
     label: "delete",
@@ -393,19 +336,19 @@ const stateCompletions: Completion[] = [
   }),
 ];
 
-// ── kit.localState ───────────────────────────────────────────────
-const localStateCompletions: Completion[] = [
+// ── nb.localKV ───────────────────────────────────────────────
+const localKVCompletions: Completion[] = [
   snippetCompletion("get(${1:'key'})", {
     label: "get",
     type: "method",
     detail: "(key) → Promise<T | undefined>",
     info: "Async read from per-user OPFS store.",
   }),
-  snippetCompletion("set(${1:'key'}, ${2:value})", {
+  snippetCompletion("set(${1:'key'}, (${2:value} = 0) => ${2:value} + 1)", {
     label: "set",
     type: "method",
-    detail: "(key, value) → Promise<void>",
-    info: "Async write. Cross-tab sync via BroadcastChannel.",
+    detail: "(key, value | updater) → Promise<void>",
+    info: "Async write. Pass a value or an updater function that receives the current value.",
   }),
   snippetCompletion("delete(${1:'key'})", {
     label: "delete",
@@ -422,7 +365,7 @@ const localStateCompletions: Completion[] = [
   }),
 ];
 
-// ── kit.ui ───────────────────────────────────────────────────────
+// ── ui ───────────────────────────────────────────────────────
 const uiCompletions: Completion[] = [
   // Layout
   snippetCompletion("row(${1:...children})", {
@@ -481,8 +424,17 @@ const uiCompletions: Completion[] = [
     detail: "(rows, options?) → KitElement",
     info: "Render rows with the same tile table surface as markdown tables. KitNote values become note links; tag arrays become pills.",
   }),
+  snippetCompletion(
+    "chart('bar', {\n  data: [\n    { label: '${1:Done}', value: ${2:12} },\n    { label: '${3:Open}', value: ${4:5} }\n  ],\n  height: ${5:240}\n})",
+    {
+      label: "chart",
+      type: "method",
+      detail: "(kind, options) → KitElement",
+      info: "Render a stdlib SVG chart. Width is measured from the output container; pass height in pixels.",
+    },
+  ),
   // Interactive
-  snippetCompletion("button(${1:'label'}, () => ${2:kit.ui.toast('clicked')})", {
+  snippetCompletion("button(${1:'label'}, () => ${2:ui.toast('clicked')})", {
     label: "button",
     type: "method",
     detail: "(label, onClick, options?) → KitElement",
@@ -496,6 +448,12 @@ const uiCompletions: Completion[] = [
     info: "Wrap raw HTML in a container. Trusted-script-only; no sanitisation.",
   }),
   // Mount
+  snippetCompletion("live(() => ${1:ui.table(current.table('ideas')?.rows ?? [])})", {
+    label: "live",
+    type: "method",
+    detail: "(render) → KitElement",
+    info: "Render one reactive slot. Re-runs when the current note body changes in edit mode; static one-shot in read mode.",
+  }),
   snippetCompletion("render(${1:...elements})", {
     label: "render",
     type: "method",
@@ -518,7 +476,7 @@ const uiCompletions: Completion[] = [
   },
 ];
 
-// ── kit.ui.prompt ────────────────────────────────────────────────
+// ── ui.prompt ────────────────────────────────────────────────
 const uiPromptCompletions: Completion[] = [
   snippetCompletion("alert(${1:'message'})", {
     label: "alert",
@@ -831,13 +789,33 @@ const clipboardCompletions: Completion[] = [
 // =============================================================================
 
 const NAMESPACE_OPTIONS: Record<string, Completion[]> = {
-  note: noteCompletions,
-  notes: notesCompletions,
-  attachments: attachmentsCompletions,
-  tags: tagsCompletions,
-  state: stateCompletions,
-  localState: localStateCompletions,
+  current: noteCompletions,
+  nb: notesCompletions,
+  std: [
+    ns("text", "ti-typography", "Text manipulation", "slugify, humanize, titleify, truncate, summarize, case conversions, pprintBytes."),
+    ns("dates", "ti-calendar", "Date / time formatting", 'formatDate, formatDateTime, formatDateTimeRelative ("3 mins ago"), formatDuration.'),
+    ns("fuzzy", "ti-search", "Fuzzy search", "match / filter / segments / closest / distance."),
+    ns("crypto", "ti-shield-lock", "Hashing + crypto", "Hashing, ids, asymmetric/symmetric crypto, TOTP."),
+    ns("encoding", "ti-binary", "Byte ↔ string", "Base64, Hex, Base62."),
+    ns("charts", "ti-chart-bar", "SVG charts", "Low-level SVG chart generators. Prefer `ui.chart(kind, options)` for rendered output."),
+    ns("qr", "ti-qrcode", "QR code generators", "Generate payloads and render QR SVGs."),
+    ns("password", "ti-key", "Password generation", "random, memorable, pin, strength meter."),
+    ns("timing", "ti-clock", "Timing helpers", "sleep, debounce, throttle, jitter, withMinLoadTime."),
+    ns("files", "ti-file-download", "File downloads + dialogs", "Downloads, ZIP files, file/folder pickers, MIME helpers."),
+    ns("images", "ti-photo", "Image processing", "Resize, crop, filter, rotate, convert."),
+    ns("clipboard", "ti-clipboard", "Clipboard", "copy(text)."),
+  ],
   ui: uiCompletions,
+};
+
+const STANDALONE_NAMESPACE_OPTIONS: Record<string, Completion[]> = {
+  current: noteCompletions,
+  nb: notesCompletions,
+  ui: uiCompletions,
+  std: NAMESPACE_OPTIONS.std ?? [],
+};
+
+const STD_NAMESPACE_OPTIONS: Record<string, Completion[]> = {
   text: textCompletions,
   dates: datesCompletions,
   fuzzy: fuzzyCompletions,
@@ -852,8 +830,12 @@ const NAMESPACE_OPTIONS: Record<string, Completion[]> = {
   clipboard: clipboardCompletions,
 };
 
-// Two-level namespaces (kit.ui.prompt.*)
+// Two-level namespaces (`ui.prompt.*`, `nb.attachments.*`, ...).
 const NESTED_OPTIONS: Record<string, Completion[]> = {
+  "current.kv": stateCompletions,
+  "nb.attachments": attachmentsCompletions,
+  "nb.tags": tagsCompletions,
+  "nb.localKV": localKVCompletions,
   "ui.prompt": uiPromptCompletions,
 };
 
@@ -862,7 +844,8 @@ const NESTED_OPTIONS: Record<string, Completion[]> = {
 // =============================================================================
 
 /**
- * Parse `kit.<a>.<b>.<c>` style paths from the user's typed text and
+ * Parse `current.<...>`, `nb.<...>`, `ui.<...>`, and `std.<...>`
+ * style paths from the user's typed text and
  * return the matching `Completion[]` to offer plus the `from` offset
  * CM should replace from. Returns null when the path doesn't match
  * a known namespace.
@@ -870,49 +853,29 @@ const NESTED_OPTIONS: Record<string, Completion[]> = {
 const completionsForPath = (word: { from: number; to: number; text: string }): CompletionResult | null => {
   const text = word.text;
 
-  // Plain `k`, `ki`, or `kit` — offer the top-level namespace stub
-  // so users discover the existence of the kit at the FIRST keystroke.
-  // `validFor` keeps the option in CM's filtered list as long as the
-  // typed prefix stays a prefix of "kit"; switch to a non-match like
-  // `kis` and the completion source returns null on the next stroke.
-  if (text === "k" || text === "ki" || text === "kit") {
+  if (/^(?:c(?:u(?:r(?:r(?:e(?:n(?:t)?)?)?)?)?)?|n(?:b)?|u(?:i)?|s(?:t(?:d)?)?)$/.test(text)) {
     return {
       from: word.from,
-      options: [
-        {
-          label: "kit",
-          type: "namespace",
-          detail: "Notebook scripts API",
-          info: "Top-level kit object — access notes, attachments, tags, state, UI builders, and curated stdlib utilities. Type `kit.` to see all namespaces.",
-        },
-      ],
-      validFor: /^k(?:i(?:t)?)?$/,
-    };
-  }
-
-  // `kit.` or `kit.<partial>` — top-level namespaces.
-  if (/^kit\.\w*$/.test(text)) {
-    const dotIdx = text.indexOf(".");
-    return {
-      from: word.from + dotIdx + 1,
-      options: topLevelCompletions,
+      options: topLevelCompletions.filter((option) => option.label.startsWith(text)),
       validFor: /^\w*$/,
     };
   }
 
-  // `kit.<ns>.<partial>` — single-level namespace methods.
-  const oneLevel = text.match(/^kit\.(\w+)\.(\w*)$/);
-  if (oneLevel) {
-    const [, namespace, suffix] = oneLevel;
-    // Nested two-level path (e.g. `kit.ui.prompt`) — check that
-    // first so `kit.ui.` doesn't shadow `kit.ui.prompt.*`.
-    if (NESTED_OPTIONS[`${namespace}.${suffix ?? ""}`]) {
-      // The user has typed `kit.ui.prompt` exactly — re-emit the
-      // single-level palette for the parent (ui) so the user can
-      // still pick other ui methods. The next dot will trigger the
-      // two-level branch below.
-    }
-    const opts = NAMESPACE_OPTIONS[namespace!];
+  const standalone = text.match(/^(current|nb|ui|std)\.(\w*)$/);
+  if (standalone) {
+    const [, namespace] = standalone;
+    const dotIdx = text.lastIndexOf(".");
+    return {
+      from: word.from + dotIdx + 1,
+      options: STANDALONE_NAMESPACE_OPTIONS[namespace!] ?? [],
+      validFor: /^\w*$/,
+    };
+  }
+
+  const nested = text.match(/^(current|nb|ui)\.(\w+)\.(\w*)$/);
+  if (nested) {
+    const [, namespace, sub] = nested;
+    const opts = NESTED_OPTIONS[`${namespace}.${sub}`];
     if (!opts) return null;
     const dotIdx = text.lastIndexOf(".");
     return {
@@ -922,11 +885,10 @@ const completionsForPath = (word: { from: number; to: number; text: string }): C
     };
   }
 
-  // `kit.<ns>.<sub>.<partial>` — two-level nested namespace methods.
-  const twoLevel = text.match(/^kit\.(\w+)\.(\w+)\.(\w*)$/);
-  if (twoLevel) {
-    const [, ns, sub] = twoLevel;
-    const opts = NESTED_OPTIONS[`${ns}.${sub}`];
+  const stdOneLevel = text.match(/^std\.(\w+)\.(\w*)$/);
+  if (stdOneLevel) {
+    const [, namespace] = stdOneLevel;
+    const opts = STD_NAMESPACE_OPTIONS[namespace!];
     if (!opts) return null;
     const dotIdx = text.lastIndexOf(".");
     return {
@@ -941,18 +903,16 @@ const completionsForPath = (word: { from: number; to: number; text: string }): C
 
 /**
  * Check whether the cursor is currently inside a FencedCode block
- * whose info-string identifies a JS-family language (`script`,
- * `js`, `jsx`, `ts`, `tsx`, `typescript` — same set our
- * `markdown.ts` aliases for the JS parser).
+ * whose info-string identifies the notebook script language.
  *
- * Without this scope check, kit completion would also fire inside
+ * Without this scope check, script API completion would also fire inside
  * plain markdown text (because `matchBefore` only inspects the
  * characters before the cursor — it doesn't know what kind of
  * region those characters live in). That's leaky UX: users typing
- * the word "kit" in a regular paragraph shouldn't see API
+ * a script namespace word in a regular paragraph shouldn't see API
  * completions.
  */
-const SCRIPT_LIKE_INFO = new Set(["script", "js", "jsx", "ts", "tsx", "typescript"]);
+const SCRIPT_LIKE_INFO = new Set(["script"]);
 
 type FenceScopeCache = {
   pos: number;
@@ -988,24 +948,19 @@ export const isInsideScriptLikeFence = (context: CompletionContext): boolean => 
 };
 
 /**
- * Completion source for `kit.*` paths. Exported as a CompletionSource
+ * Completion source for notebook script API paths. Exported as a CompletionSource
  * function (not as an extension) so it can be combined with the
  * slash-command source in a single `autocompletion({ override: […] })`
  * config — see `slash-commands/index.ts` for the integration point.
  *
- * Scoped to JS-family fenced code blocks via `isInsideScriptLikeFence`
+ * Scoped to `script` fenced code blocks via `isInsideScriptLikeFence`
  * so the completion doesn't leak into regular markdown context.
  *
- * The trigger regex matches the partial prefixes `k`, `ki`, `kit`, and
- * any continuation like `kit.foo.bar`. We deliberately offer the
- * top-level `kit` stub already at `k`/`ki` so users discover the API
- * surface as soon as they start typing — `completionsForPath` filters
- * the right list to return based on the captured text. (Earlier
- * revision only matched `kit*`, which made the `ki` discovery branch
- * dead code.)
+ * The trigger regex matches identifier paths such as `current.table`,
+ * `nb.search`, `ui.prompt.text`, and `std.dates.formatDate`.
  */
 export const kitCompletionSource = (context: CompletionContext): CompletionResult | null => {
-  const word = context.matchBefore(/\bk(?:i(?:t(?:\.[\w.]*)?)?)?/);
+  const word = context.matchBefore(/\b[A-Za-z_][\w.]*/);
   if (!word) return null;
   if (!isInsideScriptLikeFence(context)) return null;
   return completionsForPath(word);
