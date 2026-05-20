@@ -67,7 +67,7 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const cookieHeader = c.req.header("Cookie");
-  const settings = parseSettings(cookieHeader, notebookId);
+  const settings = parseSettings(cookieHeader, notebook.shortId);
 
   // Three queries in parallel:
   //   1. Note tree for the sidebar
@@ -75,7 +75,7 @@ export default ssr<AuthContext>(async (c) => {
   //   3. Unfiltered total count for the sidebar's "Attachments" badge —
   //      independent of the active search so the badge always reflects
   //      the notebook's actual size, not the current view.
-  const [tree, paginatedResult, totalAttachmentCount, tagCount] = await Promise.all([
+  const [tree, paginatedResult, totalAttachmentCount, tags, favoriteRows] = await Promise.all([
     notebooksService.note.getTree({ notebookId }),
     notebooksService.attachment.listPaginated({
       notebookId,
@@ -83,8 +83,10 @@ export default ssr<AuthContext>(async (c) => {
       filter: { query: search || undefined },
     }),
     notebooksService.attachment.count({ notebookId }),
-    notebooksService.tag.count({ notebookId }),
+    notebooksService.tag.listForNotebook({ notebookId }),
+    notebooksService.note.favorites.listIds({ notebookId, userId: user.id }),
   ]);
+  const tagCount = tags.length;
 
   const totalPages = Math.max(1, Math.ceil(paginatedResult.total / paginatedResult.perPage));
   const baseHref = buildAttachmentsUrl(notebook.shortId);
@@ -94,11 +96,14 @@ export default ssr<AuthContext>(async (c) => {
     notebook,
     tree,
     selectedNoteId: null,
+    userId: user.id,
     settings,
     permission,
     viewMode: "edit",
     attachmentCount: totalAttachmentCount,
     tagCount,
+    favoriteNoteIds: favoriteRows.map((row) => row.noteId),
+    tags,
   };
 
   return () => (

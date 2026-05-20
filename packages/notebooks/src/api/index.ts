@@ -133,6 +133,19 @@ const NoteGraphSchema = z.object({
   edges: z.array(GraphEdgeSchema),
 });
 
+const FavoriteNoteSchema = z.object({
+  noteId: z.uuid(),
+  createdAt: z.string(),
+});
+
+const SetFavoriteSchema = z.object({
+  favorite: z.boolean(),
+});
+
+const FavoriteStateSchema = z.object({
+  favorite: z.boolean(),
+});
+
 const AttachmentSchema = z.object({
   id: z.uuid(),
   shortId: z.string().describe("6-char base62 alias for `attach://` schemes"),
@@ -470,6 +483,30 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  // List current user's favorite note ids
+  .get(
+    "/:id/favorites",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "List favorite notes",
+      description: "List the current user's favorite notes in a notebook.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(FavoriteNoteSchema), "Favorite note ids"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    async (c) => {
+      const user = c.get("user");
+      let notebookId = c.req.param("id")!;
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      notebookId = notebook!.id;
+      return respond(c, ok(await notebooksService.note.favorites.listIds({ notebookId, userId: user.id })));
+    },
+  )
+
   // List Notes (flat)
   .get(
     "/:id/notes",
@@ -586,6 +623,38 @@ const app = new Hono<AuthContext>()
       }
 
       return respond(c, ok(note));
+    },
+  )
+
+  // Set current user's favorite state for one note
+  .put(
+    "/:id/notes/:noteId/favorite",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Set note favorite",
+      description: "Set whether the current user has favorited a note.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(FavoriteStateSchema, "Favorite state"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Note not found"),
+      },
+    }),
+    v("json", SetFavoriteSchema),
+    async (c) => {
+      const user = c.get("user");
+      let notebookId = c.req.param("id")!;
+      let noteId = c.req.param("noteId")!;
+      const data = c.req.valid("json");
+
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      notebookId = notebook!.id;
+      const noteCheck = await requireNoteInNotebook(notebookId, noteId);
+      if (!noteCheck.ok) return respond(c, noteCheck);
+      noteId = noteCheck.data.id;
+
+      return respond(c, notebooksService.note.favorites.set({ notebookId, noteId, userId: user.id, favorite: data.favorite }));
     },
   )
 

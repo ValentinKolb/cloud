@@ -89,6 +89,19 @@ export const noteDeleted = (config: { notebookId: string; noteId: string; shortI
     `note:${config.noteId}:deleted`,
   );
 
+export const noteFavoriteChanged = (config: { notebookId: string; noteId: string; userId: string; favorite: boolean }): Promise<void> =>
+  publish(
+    {
+      v: 1,
+      type: "note.favorite.changed",
+      notebookId: config.notebookId,
+      noteId: config.noteId,
+      userId: config.userId,
+      favorite: config.favorite,
+    },
+    `note:${config.noteId}:favorite:${config.userId}:${config.favorite}`,
+  );
+
 export const invalidated = (config: {
   notebookId: string;
   reason: InvalidationReason;

@@ -175,6 +175,24 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   console.log("  ✓ notebooks.note_tags table");
 
+  // Per-user starred notes. Favorites are intentionally user-scoped
+  // instead of notebook-global so collaborators do not fight over one
+  // shared navigation preference.
+  await sql`
+    CREATE TABLE IF NOT EXISTS notebooks.note_favorites (
+      user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      notebook_id UUID NOT NULL REFERENCES notebooks.notebooks(id) ON DELETE CASCADE,
+      note_id     UUID NOT NULL REFERENCES notebooks.notes(id) ON DELETE CASCADE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, note_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_note_favorites_user_notebook
+    ON notebooks.note_favorites(user_id, notebook_id, created_at DESC)
+  `.simple();
+  console.log("  ✓ notebooks.note_favorites table");
+
   // Index table for `attach://<shortId>` references inside note bodies.
   // Replaces the previous `LIKE '%attach://...'` scan in
   // `attachment.usageCount` with an O(log N) lookup.

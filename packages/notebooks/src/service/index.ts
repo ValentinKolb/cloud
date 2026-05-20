@@ -3,6 +3,7 @@ import { type PageParams, paginate, type Paginated } from "@valentinkolb/stdlib"
 import * as access from "./access";
 import * as attachments from "./attachments";
 import * as links from "./links";
+import * as favorites from "./favorites";
 import * as noteRefs from "./note-refs";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
@@ -167,6 +168,11 @@ export const notebooksService = {
     /** Single-query cross-notebook search used by the global search dialog. */
     searchAcross: notes.searchAcross,
     recentForUser: notes.recentForUser,
+    favorites: {
+      listIds: favorites.listIds,
+      isFavorite: favorites.isFavorite,
+      set: favorites.setFavorite,
+    },
     backlinks: {
       list: links.listBacklinks,
     },
@@ -188,6 +194,7 @@ export const notebooksService = {
     noteCreated: workspaceEvents.noteCreated,
     noteUpdated: workspaceEvents.noteUpdated,
     noteDeleted: workspaceEvents.noteDeleted,
+    noteFavoriteChanged: workspaceEvents.noteFavoriteChanged,
     invalidated: workspaceEvents.invalidated,
   },
   tag: {
@@ -241,7 +248,7 @@ export const notebooksService = {
   },
 };
 
-export { notebooks, notes, access, attachments, links, presence, tags, noteRefs, workspaceEvents, reindexRuntime, yjsSnapshotWorker };
+export { notebooks, notes, access, attachments, favorites, links, presence, tags, noteRefs, workspaceEvents, reindexRuntime, yjsSnapshotWorker };
 
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";

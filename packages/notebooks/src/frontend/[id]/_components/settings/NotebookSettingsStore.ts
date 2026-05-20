@@ -10,23 +10,25 @@ const COOKIE_NAME = "settings-app-notebooks";
 
 export type NotebookSettings = {
   lastNoteId: string | null;
-  sidebarCollapsed: boolean;
   richMode: "rich" | "source";
+  sidebarMode: "simple" | "navigator";
 };
 
 type AllNotebookSettings = {
   lastNotebookId: string | null;
-  notebooks: Record<string, NotebookSettings>;
+  sidebarMode: NotebookSettings["sidebarMode"];
+  notebooks: Record<string, Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">>>;
 };
 
 const DEFAULT_SETTINGS: NotebookSettings = {
   lastNoteId: null,
-  sidebarCollapsed: false,
   richMode: "rich",
+  sidebarMode: "simple",
 };
 
 const DEFAULT_ALL: AllNotebookSettings = {
   lastNotebookId: null,
+  sidebarMode: "simple",
   notebooks: {},
 };
 
@@ -35,6 +37,15 @@ const DEFAULT_ALL: AllNotebookSettings = {
 const writeCookie = (data: AllNotebookSettings) => cookies.writeJsonCookie(COOKIE_NAME, data);
 
 const readCookie = (): AllNotebookSettings => cookies.readJsonCookie(COOKIE_NAME, DEFAULT_ALL);
+
+const isSidebarMode = (value: unknown): value is NotebookSettings["sidebarMode"] => value === "simple" || value === "navigator";
+
+const compactNotebookSettings = (settings: Partial<NotebookSettings>): Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">> => {
+  const compact: Partial<Pick<NotebookSettings, "lastNoteId" | "richMode">> = {};
+  if (typeof settings.lastNoteId === "string" && settings.lastNoteId.length > 0) compact.lastNoteId = settings.lastNoteId;
+  if (settings.richMode && settings.richMode !== DEFAULT_SETTINGS.richMode) compact.richMode = settings.richMode;
+  return compact;
+};
 
 // --- Client-side ---
 
@@ -46,6 +57,7 @@ export const readSettings = (notebookId: string): NotebookSettings => {
   return {
     ...DEFAULT_SETTINGS,
     ...(all.notebooks[notebookId] ?? {}),
+    sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
   };
 };
 
@@ -53,13 +65,21 @@ export const readSettings = (notebookId: string): NotebookSettings => {
  * Merges and writes notebook-specific UI settings for the current notebook id.
  */
 export const writeSettings = (notebookId: string, patch: Partial<NotebookSettings>) => {
+  const hasCookieBackedPatch = "lastNoteId" in patch || "richMode" in patch || "sidebarMode" in patch;
+  if (!hasCookieBackedPatch) return;
+  const persistentPatch = compactNotebookSettings(patch);
+
   const all = readCookie();
-  all.notebooks[notebookId] = {
-    ...DEFAULT_SETTINGS,
-    ...(all.notebooks[notebookId] ?? {}),
-    ...patch,
-  };
-  writeCookie(all);
+  writeCookie({
+    lastNotebookId: all.lastNotebookId,
+    sidebarMode: patch.sidebarMode ?? (isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode),
+    notebooks: {
+      [notebookId]: compactNotebookSettings({
+        ...(all.notebooks[notebookId] ?? {}),
+        ...persistentPatch,
+      }),
+    },
+  });
 };
 
 /**
@@ -67,8 +87,11 @@ export const writeSettings = (notebookId: string, patch: Partial<NotebookSetting
  */
 export const setLastNotebookId = (id: string) => {
   const all = readCookie();
-  all.lastNotebookId = id;
-  writeCookie(all);
+  writeCookie({
+    lastNotebookId: id,
+    sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
+    notebooks: {},
+  });
 };
 
 /** Detail-panel open/closed is ephemeral UI state. Keep it out of
@@ -90,7 +113,11 @@ export const parseSettings = (cookieHeader: string | undefined, notebookId: stri
         ...DEFAULT_ALL,
         ...JSON.parse(decodeURIComponent(match[1]!)),
       };
-      return { ...DEFAULT_SETTINGS, ...(all.notebooks[notebookId] ?? {}) };
+      return {
+        ...DEFAULT_SETTINGS,
+        ...(all.notebooks[notebookId] ?? {}),
+        sidebarMode: isSidebarMode(all.sidebarMode) ? all.sidebarMode : DEFAULT_SETTINGS.sidebarMode,
+      };
     }
   } catch {
     /* ignore */

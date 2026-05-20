@@ -253,20 +253,25 @@ export default ssr<AuthContext>(async (c) => {
   const graph = isGraphMode ? await notebooksService.notebook.graph({ notebookId }) : null;
 
   // Cheap COUNTs — gate the sidebar's "Attachments" + "Tags" links.
-  const [attachmentCount, tagCount] = await Promise.all([
+  const [attachmentCount, tags, favoriteRows] = await Promise.all([
     notebooksService.attachment.count({ notebookId }),
-    notebooksService.tag.count({ notebookId }),
+    notebooksService.tag.listForNotebook({ notebookId }),
+    notebooksService.note.favorites.listIds({ notebookId, userId: user.id }),
   ]);
+  const tagCount = tags.length;
 
   const ctx: NotebookContext = {
     notebook,
     tree,
     selectedNoteId,
+    userId: user.id,
     settings,
     permission,
     viewMode: isReadMode ? "read" : "edit",
     attachmentCount,
     tagCount,
+    favoriteNoteIds: favoriteRows.map((row) => row.noteId),
+    tags,
   };
 
   // Read app.url once in the async handler and pass it through closure into the

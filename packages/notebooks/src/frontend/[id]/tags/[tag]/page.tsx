@@ -70,14 +70,14 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const cookieHeader = c.req.header("Cookie");
-  const settings = parseSettings(cookieHeader, notebookId);
+  const settings = parseSettings(cookieHeader, notebook.shortId);
 
   // Four parallel queries:
   //   1. Note tree for sidebar
   //   2. Page of notes-with-tag (filtered by ?search if any)
   //   3. Total notes-with-tag (unfiltered) for the header counter
   //   4. Sidebar badge counts
-  const [tree, paginatedResult, totalNotesForTag, attachmentCount, tagCount] = await Promise.all([
+  const [tree, paginatedResult, totalNotesForTag, attachmentCount, tags, favoriteRows] = await Promise.all([
     notebooksService.note.getTree({ notebookId }),
     notebooksService.tag.listNotesForTag({
       notebookId,
@@ -87,8 +87,10 @@ export default ssr<AuthContext>(async (c) => {
     }),
     notebooksService.tag.countNotesForTag({ notebookId, tag: tagParam }),
     notebooksService.attachment.count({ notebookId }),
-    notebooksService.tag.count({ notebookId }),
+    notebooksService.tag.listForNotebook({ notebookId }),
+    notebooksService.note.favorites.listIds({ notebookId, userId: user.id }),
   ]);
+  const tagCount = tags.length;
 
   const totalPages = Math.max(1, Math.ceil(paginatedResult.total / PER_PAGE));
   const baseHref = buildTagPageUrl(notebook.shortId, tagParam);
@@ -98,11 +100,14 @@ export default ssr<AuthContext>(async (c) => {
     notebook,
     tree,
     selectedNoteId: null,
+    userId: user.id,
     settings,
     permission,
     viewMode: "edit",
     attachmentCount,
     tagCount,
+    favoriteNoteIds: favoriteRows.map((row) => row.noteId),
+    tags,
   };
 
   return () => (

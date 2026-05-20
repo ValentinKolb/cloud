@@ -67,7 +67,7 @@ function getNodeDepthLabel(
 // Note Actions
 // =============================================================================
 
-function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
+export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   const createNoteMut = mutations.create<
     { id: string; shortId: string },
     { title: string; parentId?: string }

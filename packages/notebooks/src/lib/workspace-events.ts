@@ -68,6 +68,14 @@ export type NotebookWorkspaceEvent =
     }
   | {
       v: 1;
+      type: "note.favorite.changed";
+      notebookId: string;
+      noteId: string;
+      userId: string;
+      favorite: boolean;
+    }
+  | {
+      v: 1;
       type: "workspace.invalidated";
       notebookId: string;
       reason: "bulk" | "template" | "permissions" | "unknown";

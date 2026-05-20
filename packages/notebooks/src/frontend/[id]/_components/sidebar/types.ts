@@ -34,11 +34,17 @@ export type NoteTreeNode = {
   children: NoteTreeNode[];
 };
 
+export type TagSummary = {
+  tag: string;
+  count: number;
+};
+
 /** Shared context for notebook components */
 export type NotebookContext = {
   notebook: Notebook;
   tree: NoteTreeNode[];
   selectedNoteId: string | null;
+  userId: string;
   settings: NotebookSettings;
   permission: string;
   viewMode: "read" | "edit";
@@ -46,4 +52,8 @@ export type NotebookContext = {
   attachmentCount: number;
   /** Number of distinct tags in the notebook — gates the sidebar link. */
   tagCount: number;
+  /** Current user's favorite note UUIDs for this notebook. */
+  favoriteNoteIds: string[];
+  /** Tag summaries for the navigator sidebar. */
+  tags: TagSummary[];
 };

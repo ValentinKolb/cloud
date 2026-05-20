@@ -3,9 +3,10 @@ import SearchButton from "../search/SearchButton.island";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton.island";
 import CreateNoteButton from "./CreateNoteButton.island";
 import TagsButton from "./TagsButton.island";
+import NotebookNavigator from "./NotebookNavigator.island";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import type { NotebookContext, NoteTreeNode } from "./types";
-import { createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { WORKSPACE_EVENT, type WorkspaceEventDetail } from "./workspace-events";
@@ -63,7 +64,9 @@ const insertNoteIntoTree = (nodes: NoteTreeNode[], note: NoteTreeNode) => {
 export default function NotebookSidebar(props: Props) {
   const [notebook, setNotebook] = createSignal(props.ctx.notebook);
   const [noteTree, setNoteTree] = createSignal(props.ctx.tree);
+  const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(props.ctx.favoriteNoteIds));
   const canWrite = props.ctx.permission === "write" || props.ctx.permission === "admin";
+  const navigatorMode = () => props.ctx.settings.sidebarMode === "navigator";
   const attachmentsHref = () => buildAttachmentsUrl(notebook().shortId);
   const hasTags = props.ctx.tagCount > 0;
   const allNotebooksHref = "/app/notebooks";
@@ -100,6 +103,21 @@ export default function NotebookSidebar(props: Props) {
         removeNoteFromTree(next, event.noteId);
         return next;
       });
+      setFavoriteNoteIds((current) => {
+        const next = new Set(current);
+        next.delete(event.noteId);
+        return next;
+      });
+      return;
+    }
+    if (event.type === "note.favorite.changed") {
+      if (event.userId !== props.ctx.userId) return;
+      setFavoriteNoteIds((current) => {
+        const next = new Set(current);
+        if (event.favorite) next.add(event.noteId);
+        else next.delete(event.noteId);
+        return next;
+      });
       return;
     }
     if (event.type === "note.created" || event.type === "note.updated") {
@@ -132,7 +150,7 @@ export default function NotebookSidebar(props: Props) {
   );
 
   return (
-    <AppWorkspace.Sidebar>
+    <AppWorkspace.Sidebar class={navigatorMode() ? "lg:!w-[35rem] [&>.paper>div:first-child]:lg:hidden" : ""}>
       <AppWorkspace.SidebarHeader
         title={notebook().name}
         icon={notebook().icon || "ti-notebook"}
@@ -196,49 +214,66 @@ export default function NotebookSidebar(props: Props) {
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
-        <div class="flex flex-col gap-3">
-          <AppWorkspace.SidebarIconGrid columns={3}>
-            {canWrite && (
-              <div style={`view-transition-name:${vt("create-desktop")}`}>
-                <CreateNoteButton notebookId={notebook().shortId} variant="icon" />
+        <Show
+          when={navigatorMode()}
+          fallback={
+            <>
+              <div class="flex flex-col gap-3">
+                <AppWorkspace.SidebarIconGrid columns={3}>
+                  {canWrite && (
+                    <div style={`view-transition-name:${vt("create-desktop")}`}>
+                      <CreateNoteButton notebookId={notebook().shortId} variant="icon" />
+                    </div>
+                  )}
+                  <div style={`view-transition-name:${vt("search-desktop")}`}>
+                    <SearchButton notebookId={notebook().shortId} notebookName={notebook().name} variant="icon" />
+                  </div>
+                  <AppWorkspace.SidebarIconAction
+                    href={homepageHref()}
+                    icon="ti ti-home"
+                    label={homepageHref() ? "Homepage" : "Set homepage in notebook settings"}
+                    active={homepageIsActive()}
+                    viewTransitionName={vt("homepage-desktop")}
+                    onClick={homepageHref() ? undefined : explainMissingHomepage}
+                  />
+                  <AppWorkspace.SidebarIconAction
+                    href={allNotebooksHref}
+                    icon="ti ti-library"
+                    label="All Notebooks"
+                    viewTransitionName={vt("all-notebooks-desktop")}
+                  />
+                  <AppWorkspace.SidebarIconAction
+                    href={attachmentsHref()}
+                    icon="ti ti-paperclip"
+                    label={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
+                    viewTransitionName={vt("attachments-desktop")}
+                  />
+                  {hasTags && (
+                    <div style={`view-transition-name:${vt("tags-desktop")}`}>
+                      <TagsButton notebookId={notebook().shortId} tagCount={props.ctx.tagCount} variant="icon" />
+                    </div>
+                  )}
+                </AppWorkspace.SidebarIconGrid>
               </div>
-            )}
-            <div style={`view-transition-name:${vt("search-desktop")}`}>
-              <SearchButton notebookId={notebook().shortId} notebookName={notebook().name} variant="icon" />
-            </div>
-            <AppWorkspace.SidebarIconAction
-              href={homepageHref()}
-              icon="ti ti-home"
-              label={homepageHref() ? "Homepage" : "Set homepage in notebook settings"}
-              active={homepageIsActive()}
-              viewTransitionName={vt("homepage-desktop")}
-              onClick={homepageHref() ? undefined : explainMissingHomepage}
-            />
-            <AppWorkspace.SidebarIconAction
-              href={allNotebooksHref}
-              icon="ti ti-library"
-              label="All Notebooks"
-              viewTransitionName={vt("all-notebooks-desktop")}
-            />
-            <AppWorkspace.SidebarIconAction
-              href={attachmentsHref()}
-              icon="ti ti-paperclip"
-              label={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
-              viewTransitionName={vt("attachments-desktop")}
-            />
-            {hasTags && (
-              <div style={`view-transition-name:${vt("tags-desktop")}`}>
-                <TagsButton notebookId={notebook().shortId} tagCount={props.ctx.tagCount} variant="icon" />
-              </div>
-            )}
-          </AppWorkspace.SidebarIconGrid>
-        </div>
 
-        <AppWorkspace.SidebarBody>
-          <AppWorkspace.SidebarSection title="Notes" class="min-h-0 flex-1">
-            {renderTreeView()}
-          </AppWorkspace.SidebarSection>
-        </AppWorkspace.SidebarBody>
+              <AppWorkspace.SidebarBody>
+                <AppWorkspace.SidebarSection title="Notes" class="min-h-0 flex-1">
+                  {renderTreeView()}
+                </AppWorkspace.SidebarSection>
+              </AppWorkspace.SidebarBody>
+            </>
+          }
+        >
+          <NotebookNavigator
+            notebook={notebook()}
+            tree={noteTree()}
+            selectedNoteId={props.ctx.selectedNoteId}
+            permission={props.ctx.permission}
+            canWrite={canWrite}
+            favoriteNoteIds={[...favoriteNoteIds()]}
+            tags={props.ctx.tags}
+          />
+        </Show>
 
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>

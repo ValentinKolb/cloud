@@ -13,6 +13,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
+import { readSettings, writeSettings } from "./NotebookSettingsStore";
 
 type Props = {
   notebook: Notebook;
@@ -239,6 +240,56 @@ function GeneralSection(props: { notebook: Notebook; tree: NoteTreeNode[]; canWr
 }
 
 // =============================================================================
+// View
+// =============================================================================
+
+function ViewSection(props: { notebook: Notebook }) {
+  const [mode, setMode] = createSignal(readSettings(props.notebook.shortId).sidebarMode);
+
+  const selectMode = (next: "simple" | "navigator") => {
+    if (next === mode()) return;
+    setMode(next);
+    writeSettings(props.notebook.shortId, { sidebarMode: next });
+    window.location.reload();
+  };
+
+  return (
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <button
+        type="button"
+        class={`rounded-lg border p-4 text-left transition-colors ${
+          mode() === "simple"
+            ? "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100"
+            : "border-zinc-200 bg-zinc-50 text-secondary hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:bg-zinc-800"
+        }`}
+        onClick={() => selectMode("simple")}
+      >
+        <span class="flex items-center gap-2 text-sm font-semibold">
+          <i class="ti ti-layout-sidebar" />
+          Simple sidebar
+        </span>
+        <span class="mt-1 block text-xs text-dimmed">A compact note tree with quick actions.</span>
+      </button>
+      <button
+        type="button"
+        class={`rounded-lg border p-4 text-left transition-colors ${
+          mode() === "navigator"
+            ? "border-blue-300 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100"
+            : "border-zinc-200 bg-zinc-50 text-secondary hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:bg-zinc-800"
+        }`}
+        onClick={() => selectMode("navigator")}
+      >
+        <span class="flex items-center gap-2 text-sm font-semibold">
+          <i class="ti ti-layout-list" />
+          Navigator
+        </span>
+        <span class="mt-1 block text-xs text-dimmed">Roots, tags, favorites, and a metadata-rich note list.</span>
+      </button>
+    </div>
+  );
+}
+
+// =============================================================================
 // Features
 // =============================================================================
 
@@ -290,15 +341,41 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
   };
 
   return (
-    <div class="flex flex-col gap-3">
-      <Checkbox
-        label="Enable script blocks"
-        description="Allows ```script fences to run JavaScript in this notebook. Admin only."
-        value={enabled}
-        onChange={setScriptsEnabled}
-        disabled={!props.isAdmin || mutation.loading()}
-      />
-      <SaveStatus loading={mutation.loading()} saved={saved()} error={error()} />
+    <div class="flex flex-col gap-5">
+      <div class="flex flex-col gap-2">
+        <div class="flex items-start gap-3">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            <i class="ti ti-layout-sidebar text-sm" />
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-primary">Navigation layout</h3>
+            <p class="text-xs text-dimmed">Stored for this browser. Reloads render the same layout from SSR.</p>
+          </div>
+        </div>
+        <ViewSection notebook={props.notebook} />
+      </div>
+
+      <div class="h-px bg-zinc-200/70 dark:bg-zinc-800" />
+
+      <div class="flex flex-col gap-3">
+        <div class="flex items-start gap-3">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+            <i class="ti ti-code text-sm" />
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-primary">Scripting</h3>
+            <p class="text-xs text-dimmed">Notebook-level script execution. Admin only.</p>
+          </div>
+        </div>
+        <Checkbox
+          label="Enable script blocks"
+          description="Allows ```script fences to run JavaScript in this notebook."
+          value={enabled}
+          onChange={setScriptsEnabled}
+          disabled={!props.isAdmin || mutation.loading()}
+        />
+        <SaveStatus loading={mutation.loading()} saved={saved()} error={error()} />
+      </div>
     </div>
   );
 }
@@ -408,13 +485,18 @@ function NotebookSettingsBody(props: Props & { bare?: boolean; close?: () => voi
           <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and default start page.">
             <GeneralSection notebook={notebook()} tree={props.tree} canWrite={props.canWrite} onNotebookChange={setNotebook} />
           </SettingsModal.Tab>
+          <SettingsModal.Tab
+            id="features"
+            title="View & features"
+            icon="ti ti-toggle-right"
+            description="Navigation layout and notebook-level behavior."
+          >
+            <FeaturesSection notebook={notebook()} isAdmin={props.isAdmin} onNotebookChange={setNotebook} />
+          </SettingsModal.Tab>
           {props.isAdmin && (
             <>
               <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
                 <PermissionsSection notebook={notebook()} accessEntries={props.accessEntries} isAdmin={props.isAdmin} />
-              </SettingsModal.Tab>
-              <SettingsModal.Tab id="features" title="Features" icon="ti ti-toggle-right" description="Notebook-level behavior that saves immediately.">
-                <FeaturesSection notebook={notebook()} isAdmin={props.isAdmin} onNotebookChange={setNotebook} />
               </SettingsModal.Tab>
               <SettingsModal.Tab
                 id="danger"
