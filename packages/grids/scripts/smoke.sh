@@ -384,6 +384,15 @@ http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"wid
 expect_status 201 "POST item record → 201"
 ITEM_REC_ID=$(json '.id')
 
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=$ITEM_REC_ID"
+expect_status 200 "GET relation lookup with excludeIds → 200"
+LOOKUP_EXCLUDED_COUNT=$(json '.items | length')
+[[ "$LOOKUP_EXCLUDED_COUNT" == "0" ]] && pass "relation lookup excludeIds hides selected record" \
+  || fail "relation lookup excludeIds" "expected 0, got $LOOKUP_EXCLUDED_COUNT"
+
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=not-a-uuid"
+expect_status 400 "GET relation lookup invalid excludeIds → 400"
+
 http POST /api/grids/records/by-table/$ORDERS_TABLE_ID "{\"$RELATION_FIELD_ID\":[\"$ITEM_REC_ID\"]}"
 expect_status 201 "POST order with relation link → 201"
 ORDER_REC_ID=$(json '.id')

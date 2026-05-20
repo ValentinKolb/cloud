@@ -384,6 +384,7 @@ const main = async (): Promise<void> => {
     search: { q: "Month", fieldIds: [title.id] },
     sort: [{ fieldId: amount.id, direction: "desc" }],
     limit: 10,
+    includeAggregates: true,
   }));
   assert(listResult.items.length === 3, `record.list expected 3 rows, got ${listResult.items.length}`);
   assert(listResult.items[0]?.data[amount.id] === 50, "record.list sort should put amount=50 first");
