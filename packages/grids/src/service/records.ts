@@ -200,6 +200,7 @@ export const list = async (params: {
    * (the call site has already gated access).
    */
   viewer?: ExpansionViewer;
+  includeAggregates?: boolean;
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
@@ -292,15 +293,17 @@ export const list = async (params: {
     await attachRelationExpansion(items, fields, params.viewer);
   }
 
-  const aggregatesResult = await aggregate({
-    tableId: params.tableId,
-    filter: params.filter ?? null,
-    search: params.search ?? null,
-    includeDeleted: params.includeDeleted,
-    deletedOnly: params.deletedOnly,
-    requests: defaultListAggregates(fields),
-    viewer: params.viewer,
-  });
+  const aggregatesResult = params.includeAggregates
+    ? await aggregate({
+        tableId: params.tableId,
+        filter: params.filter ?? null,
+        search: params.search ?? null,
+        includeDeleted: params.includeDeleted,
+        deletedOnly: params.deletedOnly,
+        requests: defaultListAggregates(fields),
+        viewer: params.viewer,
+      })
+    : ok<Record<string, unknown>>({});
   if (!aggregatesResult.ok) return aggregatesResult;
 
   // Echo fields back in the response — list is the table-page entry
@@ -697,12 +700,17 @@ export const update = async (
 };
 
 export const softDelete = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
-  const result = await sql`
-    UPDATE grids.records SET deleted_at = now(), updated_by = ${actorId}::uuid
-    WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NULL
-  `;
-  if (result.count === 0) return fail(err.notFound("Record"));
-  await logAudit({ tableId, recordId, userId: actorId, action: "deleted" });
+  const deleted = await sql.begin(async (tx) => {
+    const result = await tx`
+      UPDATE grids.records
+      SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
+      WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NULL
+    `;
+    if (result.count === 0) return false;
+    await logAudit({ tableId, recordId, userId: actorId, action: "deleted" }, tx);
+    return true;
+  });
+  if (!deleted) return fail(err.notFound("Record"));
   return ok();
 };
 
@@ -713,11 +721,16 @@ export const restore = async (tableId: string, recordId: string, actorId: string
   const parentAlive = await requireTableAlive(tableId);
   if (!parentAlive.ok) return parentAlive;
 
-  const result = await sql`
-    UPDATE grids.records SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
-    WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NOT NULL
-  `;
-  if (result.count === 0) return fail(err.notFound("Record"));
-  await logAudit({ tableId, recordId, userId: actorId, action: "restored" });
+  const restored = await sql.begin(async (tx) => {
+    const result = await tx`
+      UPDATE grids.records
+      SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
+      WHERE id = ${recordId}::uuid AND table_id = ${tableId}::uuid AND deleted_at IS NOT NULL
+    `;
+    if (result.count === 0) return false;
+    await logAudit({ tableId, recordId, userId: actorId, action: "restored" }, tx);
+    return true;
+  });
+  if (!restored) return fail(err.notFound("Record"));
   return ok();
 };

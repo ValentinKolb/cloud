@@ -42,6 +42,13 @@ const toAggregationRows = (specs: AggregationSpec[] | undefined): AggregationRow
     .filter((s): s is AggregationSpec & { agg: AggKindUI } => UI_AGG_KINDS.has(s.agg as AggKindUI))
     .map((s) => ({ fieldId: s.fieldId, agg: s.agg, label: s.label }));
 
+const filterRowsFromQuery = (filter: ViewQuery["filter"]): FilterLeaf[] => {
+  if (!filter || typeof filter !== "object" || (filter as { op?: string }).op !== "AND") return [];
+  const filters = (filter as { filters?: unknown[] }).filters;
+  if (!Array.isArray(filters)) return [];
+  return filters.filter((l): l is FilterLeaf => typeof l === "object" && l !== null && "fieldId" in l && "op" in l);
+};
+
 /**
  * Records-area island. Phase 3: owns the canonical {query, cursor,
  * selectedRecordId, search} state machine. Toolbar + SearchBar emit
@@ -151,6 +158,15 @@ export default function RecordsView(props: Props) {
   const [search, setSearch] = createSignal<RecordsState["search"]>(resolvedSearchState(props.initialState.search));
   const groupBy = () => (query().groupBy ?? []) as GroupBySpec[];
   const aggregations = () => (query().aggregations ?? []) as AggregationSpec[];
+  const toolbarFilterRows = createMemo(() => filterRowsFromQuery(query().filter));
+  const toolbarSortRows = createMemo(() =>
+    (query().sort ?? []).map((s) => ({
+      fieldId: s.fieldId,
+      direction: s.direction,
+    })),
+  );
+  const toolbarGroupByRows = createMemo(() => groupBy());
+  const toolbarAggregationRows = createMemo(() => toAggregationRows(aggregations()));
   const isGrouped = () => groupBy().length > 0;
   const customForms = () => forms().filter((form) => !form.isDefault);
   const formsButtonLabel = () => {
@@ -321,12 +337,13 @@ export default function RecordsView(props: Props) {
     groupBy?: ViewQuery["groupBy"];
     aggregations?: ViewQuery["aggregations"];
   }) => {
-    setQuery({
-      ...patch,
-      // Preserve the trash flag (toolbar doesn't own it).
-      includeDeleted: query().includeDeleted,
-      deletedOnly: query().deletedOnly,
-    });
+    setQuery((prev) => ({
+      ...prev,
+      filter: patch.filter,
+      sort: patch.sort,
+      groupBy: patch.groupBy,
+      aggregations: patch.aggregations,
+    }));
     setSelectedGroup(null);
     setCursor(null);
     syncUrl({ replace: true });
@@ -855,20 +872,6 @@ export default function RecordsView(props: Props) {
     );
   };
 
-  // ── Initial filter rows for the toolbar ─────────────────────────────
-  // Reconstruct the flat leaf list from the AND-tree the URL parser
-  // produced. The toolbar holds its own signal seeded from this; it's
-  // computed once at mount because the toolbar's signals are NOT
-  // controlled by us during a session (popstate would diverge them,
-  // accepted as known limitation for Phase 3 — Phase 4 may revisit).
-  const initialFilterRows: FilterLeaf[] = (() => {
-    const f = props.initialState.query.filter;
-    if (!f || typeof f !== "object" || (f as { op?: string }).op !== "AND") return [];
-    const filters = (f as { filters?: unknown[] }).filters;
-    if (!Array.isArray(filters)) return [];
-    return filters.filter((l): l is FilterLeaf => typeof l === "object" && l !== null && "fieldId" in l && "op" in l);
-  })();
-
   // ── Render ─────────────────────────────────────────────────────────
   // Two-column layout (records + detail). The detail column appears
   // when a record is selected and disappears when none is — pure
@@ -968,13 +971,10 @@ export default function RecordsView(props: Props) {
               tableName={tableName()}
               disableDirectInsert={disableDirectInsert()}
               fields={fields()}
-              initialFilter={initialFilterRows}
-              initialSort={(props.initialState.query.sort ?? []).map((s) => ({
-                fieldId: s.fieldId,
-                direction: s.direction,
-              }))}
-              initialGroupBy={groupBy()}
-              initialAggregations={toAggregationRows(aggregations())}
+              initialFilter={toolbarFilterRows()}
+              initialSort={toolbarSortRows()}
+              initialGroupBy={toolbarGroupByRows()}
+              initialAggregations={toolbarAggregationRows()}
               currentSearch={search()}
               forms={forms()}
               canWrite={props.canWrite}

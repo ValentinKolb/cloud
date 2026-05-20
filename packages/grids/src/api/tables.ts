@@ -54,7 +54,7 @@ const app = new Hono<AuthContext>()
     v("json", CreateTableSchema),
     async (c) => {
       const baseId = c.req.param("baseId")!;
-      const gate = await gateAt(c, { baseId }, "write");
+      const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const body = c.req.valid("json");

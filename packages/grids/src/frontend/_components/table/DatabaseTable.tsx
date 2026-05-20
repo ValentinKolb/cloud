@@ -189,7 +189,7 @@ export default function DatabaseTable(props: Props) {
   const renderLookupCell = (record: GridRecord, field: Field) => {
     const cfg = field.config as { relationFieldId?: string };
     const relationField = cfg.relationFieldId
-      ? visibleFields().find((f) => f.id === cfg.relationFieldId && f.type === "relation")
+      ? props.result.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation" && !f.deletedAt)
       : undefined;
     const value = formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id));
     if (!value || !relationField) return value;

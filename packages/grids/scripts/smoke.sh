@@ -178,8 +178,8 @@ http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"attachment","type
 expect_status 201 "POST fields/items.attachment (file) → 201"
 FILE_FIELD_ID=$(json '.id')
 
-http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"tags","type":"multi-select","config":{"options":[{"id":"hardware","label":"Hardware"},{"id":"sale","label":"Sale"}]}}'
-expect_status 201 "POST fields/items.tags (multi-select) → 201"
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"tags","type":"select","config":{"multiple":true,"options":[{"id":"hardware","label":"Hardware"},{"id":"sale","label":"Sale"}]}}'
+expect_status 201 "POST fields/items.tags (multi select) → 201"
 TAGS_FIELD_ID=$(json '.id')
 
 # Relation field on orders → items.
@@ -480,14 +480,14 @@ echo "━━━ group-by + aggregations ━━━"
 http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"gadget\",\"$PRICE_FIELD_ID\":150,\"$TAGS_FIELD_ID\":[\"hardware\"]}"
 expect_status 201 "POST second item record → 201"
 
-http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$TAGS_FIELD_ID\",\"op\":\"containsAny\",\"value\":[\"sale\"]}}}"
-expect_status 200 "POST list query returns default aggregates → 200"
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$TAGS_FIELD_ID\",\"op\":\"isAnyOf\",\"value\":[\"sale\"]},\"aggregations\":[{\"fieldId\":\"*\",\"agg\":\"count\"},{\"fieldId\":\"$PRICE_FIELD_ID\",\"agg\":\"sum\"}]}}"
+expect_status 200 "POST list query returns requested aggregates → 200"
 DEFAULT_COUNT=$(json '.aggregates["*__count"]')
 DEFAULT_SALE_SUM=$(json ".aggregates[\"${PRICE_FIELD_ID}__sum\"]")
 if [[ "$DEFAULT_COUNT" == "1" && ( "$DEFAULT_SALE_SUM" == "99.99" || "$DEFAULT_SALE_SUM" == "99.990000" || "$DEFAULT_SALE_SUM" == "99.99000000000000" ) ]]; then
-  pass "default list aggregates respect filter over full result set"
+  pass "requested list aggregates respect filter over full result set"
 else
-  fail "default list aggregates" "expected count=1 sum=99.99, got count=$DEFAULT_COUNT sum=$DEFAULT_SALE_SUM"
+  fail "requested list aggregates" "expected count=1 sum=99.99, got count=$DEFAULT_COUNT sum=$DEFAULT_SALE_SUM"
 fi
 
 echo ""
@@ -499,7 +499,7 @@ SEARCH_HITS=$(json '.items | length')
 [[ "$SEARCH_HITS" -ge 1 ]] && pass "search finds text field" \
   || fail "search text hits" "expected ≥1, got $SEARCH_HITS"
 
-http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$TAGS_FIELD_ID\",\"op\":\"containsAny\",\"value\":[\"sale\"]},\"search\":{\"q\":\"gadget\",\"fieldIds\":[]}}}"
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query "{\"query\":{\"filter\":{\"fieldId\":\"$TAGS_FIELD_ID\",\"op\":\"isAnyOf\",\"value\":[\"sale\"]},\"search\":{\"q\":\"gadget\",\"fieldIds\":[]}}}"
 expect_status 200 "POST filter+search precedence → 200"
 FILTER_SEARCH_HITS=$(json '.items | length')
 [[ "$FILTER_SEARCH_HITS" == "0" ]] && pass "filter+search keeps AND precedence" \

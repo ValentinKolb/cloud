@@ -145,7 +145,7 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
   };
 };
 
-const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?)?$/;
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_DATE_TIME_REGEX = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -175,6 +175,7 @@ const validatePredicateValue = (fieldType: string, op: string, value: unknown, d
           return dateIncludeTime ? "between bounds must be local date-time strings" : "between bounds must be ISO date strings";
         }
       }
+      if (value[0] > value[1]) return "between lower bound must be before upper bound";
       return null;
     }
     // =, before, after
@@ -195,6 +196,7 @@ const validatePredicateValue = (fieldType: string, op: string, value: unknown, d
       for (const v of value) {
         if (typeof v !== "number" || !Number.isFinite(v)) return "between bounds must be finite numbers";
       }
+      if (value[0] > value[1]) return "between lower bound must be <= upper bound";
       return null;
     }
     if (typeof value !== "number" || !Number.isFinite(value)) return "expected finite number";
@@ -250,7 +252,8 @@ export const renderClause = (clause: CompiledClause): any => {
     case "or": {
       if (clause.parts.length === 0) return clause.kind === "and" ? sql`TRUE` : sql`FALSE`;
       const sep = clause.kind === "and" ? sql` AND ` : sql` OR `;
-      return clause.parts.map((p) => sql`(${renderClause(p)})`).reduce((acc, cur) => sql`${acc}${sep}${cur}`);
+      const joined = clause.parts.map((p) => sql`(${renderClause(p)})`).reduce((acc, cur) => sql`${acc}${sep}${cur}`);
+      return sql`(${joined})`;
     }
     case "predicate":
       return renderPredicate(clause);
@@ -351,7 +354,7 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
           return sql`date_trunc('month', ${dateProjection}) = date_trunc('month', CURRENT_TIMESTAMP::timestamp)`;
         case "lastNDays": {
           const n = Number(p.value ?? 0);
-          return sql`${dateOnlyProjection} >= CURRENT_DATE - ${n}::int * INTERVAL '1 day'`;
+          return sql`(${dateOnlyProjection} >= CURRENT_DATE - ${n}::int * INTERVAL '1 day' AND ${dateOnlyProjection} <= CURRENT_DATE)`;
         }
         case "isEmpty":
           return sql`data->>${fieldId} IS NULL`;
@@ -382,7 +385,8 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
         case "isAnyOf": {
           const items = (p.value as string[]) ?? [];
           if (items.length === 0) return sql`FALSE`;
-          return items.map((s) => sql`(data->${fieldId})::jsonb @> ${[s]}::jsonb`).reduce((acc, cur) => sql`${acc} OR ${cur}`);
+          const any = items.map((s) => sql`(data->${fieldId})::jsonb @> ${[s]}::jsonb`).reduce((acc, cur) => sql`${acc} OR ${cur}`);
+          return sql`(${any})`;
         }
         case "isNoneOf": {
           const items = (p.value as string[]) ?? [];

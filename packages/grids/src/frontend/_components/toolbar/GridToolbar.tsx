@@ -1,6 +1,6 @@
 import { Dropdown, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createSignal, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, Show, untrack } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ViewQuery } from "../../../contracts";
 import type { Field, Form, GridRecord, View } from "../../../service";
@@ -72,6 +72,18 @@ export default function GridToolbar(props: Props) {
   const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg();
   const hasSaveableQuery = () => hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
   const activeForms = createMemo(() => (props.forms ?? []).filter((f) => f.isActive));
+  const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+  createEffect(() => {
+    const nextFilter = props.initialFilter;
+    const nextSort = props.initialSort;
+    const nextGroupBy = props.initialGroupBy;
+    const nextAgg = props.initialAggregations;
+    if (!sameJson(untrack(filterRows), nextFilter)) setFilterRows(nextFilter);
+    if (!sameJson(untrack(sortRows), nextSort)) setSortRows(nextSort);
+    if (!sameJson(untrack(groupByRows), nextGroupBy)) setGroupByRows(nextGroupBy);
+    if (!sameJson(untrack(aggRows), nextAgg)) setAggRows(nextAgg);
+  });
 
   // Validators trim incomplete rows before emitting upstream — same
   // contract as before, just propagated through onCommit instead of

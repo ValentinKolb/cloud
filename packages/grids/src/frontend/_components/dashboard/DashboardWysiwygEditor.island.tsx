@@ -137,12 +137,18 @@ const rebalanceEvenCells = (cells: Widget[]) => {
 export default function DashboardWysiwygEditor(props: Props) {
   const [config, setConfig] = createSignal<DashboardConfig>(props.initialDashboard.config);
   const [widgetData, setWidgetData] = createSignal<Record<string, WidgetData>>(props.widgetData);
+  let saveToken = 0;
 
-  const saveConfigMut = mutations.create<Dashboard, DashboardConfig, { previous: DashboardConfig; widgetsToResolve: Widget[] }>({
+  const saveConfigMut = mutations.create<
+    Dashboard,
+    DashboardConfig,
+    { previous: DashboardConfig; widgetsToResolve: Widget[]; token: number }
+  >({
     onBefore: (next) => {
       const previous = config();
+      const token = ++saveToken;
       setConfig(next);
-      return { previous, widgetsToResolve: changedServerWidgets(previous, next, widgetData()) };
+      return { previous, widgetsToResolve: changedServerWidgets(previous, next, widgetData()), token };
     },
     mutation: async (next) => {
       const res = await apiClient.dashboards[":dashboardId"].$patch({
@@ -153,17 +159,19 @@ export default function DashboardWysiwygEditor(props: Props) {
       return (await res.json()) as Dashboard;
     },
     onSuccess: (dashboard, ctx) => {
+      if (ctx?.token !== saveToken) return;
       setConfig(dashboard.config);
       setWidgetData((current) => pruneWidgetData(current, dashboard.config));
-      if (ctx?.widgetsToResolve.length) void resolveWidgets(ctx.widgetsToResolve);
+      if (ctx.widgetsToResolve.length) void resolveWidgets(ctx.widgetsToResolve, ctx.token);
     },
     onError: (e, ctx) => {
+      if (ctx?.token !== saveToken) return;
       if (ctx?.previous) setConfig(ctx.previous);
       prompts.error(e.message);
     },
   });
 
-  const resolveWidgets = async (widgets: Widget[]) => {
+  const resolveWidgets = async (widgets: Widget[], token: number) => {
     await Promise.all(
       widgets.map(async (widget) => {
         const res = await apiClient.dashboards[":dashboardId"].widgets.resolve.$post({
@@ -172,10 +180,12 @@ export default function DashboardWysiwygEditor(props: Props) {
         });
         if (!res.ok) {
           const reason = await errorMessage(res, "Failed to refresh widget");
+          if (token !== saveToken) return;
           setWidgetData((current) => ({ ...current, [widget.id]: { kind: "error", reason } }));
           return;
         }
         const data = (await res.json()) as WidgetData;
+        if (token !== saveToken) return;
         setWidgetData((current) => ({ ...current, [widget.id]: data }));
       }),
     );

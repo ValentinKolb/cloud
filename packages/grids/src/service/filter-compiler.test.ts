@@ -149,6 +149,20 @@ describe("compileFilter — structural compilation", () => {
     if (!shifted.ok) expect(shifted.error).toMatch(/local date-time/);
   });
 
+  test("date-only filters reject date-times and reversed ranges", () => {
+    const shifted = compileFilter({ fieldId: "fld_date", op: "=", value: "2026-05-02T12:00:00+02:00" }, fields);
+    expect(shifted.ok).toBe(false);
+    if (!shifted.ok) expect(shifted.error).toMatch(/ISO date/);
+
+    const reversedDate = compileFilter({ fieldId: "fld_date", op: "between", value: ["2026-05-03", "2026-05-02"] }, fields);
+    expect(reversedDate.ok).toBe(false);
+    if (!reversedDate.ok) expect(reversedDate.error).toMatch(/lower bound/);
+
+    const reversedNumber = compileFilter({ fieldId: "fld_amount", op: "between", value: [5, 1] }, fields);
+    expect(reversedNumber.ok).toBe(false);
+    if (!reversedNumber.ok) expect(reversedNumber.error).toMatch(/lower bound/);
+  });
+
   test("select isAnyOf with array", () => {
     const r = compileFilter({ fieldId: "fld_status", op: "isAnyOf", value: ["open", "blocked"] }, fields);
     expect(r.ok).toBe(true);
