@@ -58,7 +58,6 @@ const opsForType = (type: string): Set<string> => {
     case "longtext":
       return TEXT_OPS;
     case "number":
-    case "decimal":
     case "autonumber":
     case "percent":
     case "duration":
@@ -186,7 +185,6 @@ const validatePredicateValue = (fieldType: string, op: string, value: unknown, d
   }
   if (
     fieldType === "number" ||
-    fieldType === "decimal" ||
     fieldType === "autonumber" ||
     fieldType === "percent" ||
     fieldType === "duration"
@@ -305,7 +303,6 @@ const renderPredicate = (p: Extract<CompiledClause, { kind: "predicate" }>): any
       break;
     }
     case "number":
-    case "decimal":
     case "autonumber":
     case "percent":
     case "duration":

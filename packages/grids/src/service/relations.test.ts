@@ -70,13 +70,13 @@ describe("relationLabelFields", () => {
 
 describe("enrichRecordsWithFormulas — basic evaluation", () => {
   test("computes a single formula referencing a #shortId", () => {
-    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "decimal" });
+    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "number" });
     const total = mkFormula("fld-total", "TOTAL", "#PRICE * 1.19");
     const rec = mkRecord("rec-1", {
       "fld-price": "24.50",
     });
     enrichRecordsWithFormulas([rec], [price, total]);
-    // Decimal arithmetic preserves precision via decimal.js.
+    // Decimal-safe number arithmetic preserves precision via decimal.js.
     expect(rec.data["fld-total"]).toBe("29.155");
   });
 
@@ -191,7 +191,7 @@ describe("enrichRecordsWithFormulas — shortId map", () => {
   test("shortId map is built across all alive non-formula fields, not just formulas", () => {
     // The formula references a non-formula field by shortId. If the shortId map
     // skipped non-formulas, this would fail to resolve and return null.
-    const price = mkField({ id: "fld-price", shortId: "Pr1cE", type: "decimal" });
+    const price = mkField({ id: "fld-price", shortId: "Pr1cE", type: "number" });
     const total = mkFormula("fld-total", "TOTAL", "#Pr1cE * 2");
     const rec = mkRecord("rec-1", { "fld-price": "5" });
     enrichRecordsWithFormulas([rec], [price, total]);

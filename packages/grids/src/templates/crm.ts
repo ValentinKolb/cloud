@@ -93,9 +93,9 @@ export const crmTemplate: GridTemplate = {
         {
           key: "value",
           name: "value",
-          type: "decimal",
+          type: "number",
           icon: "ti ti-currency-euro",
-          config: { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" },
+          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
         },
         {
           key: "stage",

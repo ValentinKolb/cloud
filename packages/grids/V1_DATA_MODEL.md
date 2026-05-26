@@ -43,9 +43,9 @@ V1 field-type consolidation:
   phone, isbn, barcode, slug, and similar text-shaped values.
 - `longtext`: plain string. Markdown-capable by convention; export may emit raw
   Markdown or sanitized rendered HTML.
-- `decimal`: canonical decimal string with optional unit/symbol/format config.
-  This absorbs currency/money. The unit lives in config; there is no separate
-  currency field type.
+- `number`: canonical decimal string with optional precision, decimalPlaces,
+  unit/symbol, and format config. This absorbs decimal/currency/money. The unit
+  lives in config; there are no separate decimal or currency field types.
 - `percent`: kept because it has a distinct range contract and percent display.
 - `duration`: kept because it accepts HH:MM:SS/MM:SS input and stores seconds.
 - `boolean`, `date`, `single-select`, `multi-select`, `json`, `relation`,

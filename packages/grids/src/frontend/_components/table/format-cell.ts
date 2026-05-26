@@ -1,10 +1,11 @@
 import type { FormatSpec } from "../../../service/views";
+import Decimal from "decimal.js";
 
 /**
  * Renders a single field value to its display string. Type-aware:
  *  - boolean → "Yes" / "No"
  *  - select   → option labels, not ids
- *  - decimal with unit → "<amount> <unit>" or "<unit> <amount>"
+ *  - number with unit → "<amount> <unit>" or "<unit> <amount>"
  *  - duration → HH:MM:SS
  *  - object   → JSON-stringify fallback
  *
@@ -23,7 +24,7 @@ export const formatCell = (value: unknown, type: string, fieldConfig?: Record<st
     if (format.kind === "date" && (type === "date" || type === "formula") && typeof value === "string") {
       return formatDate(value, format);
     }
-    if (format.kind === "decimal" && (type === "number" || type === "decimal" || type === "formula") && typeof value !== "object") {
+    if (format.kind === "decimal" && (type === "number" || type === "formula") && typeof value !== "object") {
       return formatDecimal(value as number | string, format);
     }
     if (format.kind === "percent" && (type === "percent" || type === "formula")) {
@@ -40,7 +41,7 @@ export const formatCell = (value: unknown, type: string, fieldConfig?: Record<st
     const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
     return value.map((id) => options.find((o) => o.id === id)?.label ?? String(id)).join(", ");
   }
-  if (type === "decimal") {
+  if (type === "number") {
     const unit = typeof fieldConfig?.unit === "string" ? (fieldConfig.unit as string) : "";
     const unitPosition = fieldConfig?.unitPosition === "prefix" ? "prefix" : "suffix";
     const amount =
@@ -90,12 +91,17 @@ const formatDate = (iso: string, spec: Extract<FormatSpec, { kind: "date" }>): s
 };
 
 const formatDecimal = (v: number | string, spec: Extract<FormatSpec, { kind: "decimal" }>): string => {
-  const n = typeof v === "string" ? Number(v) : v;
-  if (!Number.isFinite(n)) return String(v);
-  const fixed = spec.precision !== undefined ? n.toFixed(spec.precision) : String(n);
+  let dec: Decimal;
+  try {
+    dec = new Decimal(typeof v === "number" ? String(v) : v);
+  } catch {
+    return String(v);
+  }
+  if (!dec.isFinite()) return String(v);
+  const fixed = spec.precision !== undefined ? dec.toFixed(spec.precision) : dec.toFixed();
   if (!spec.thousandsSeparator) return fixed;
-  const [int, dec] = fixed.split(".");
-  return dec === undefined ? int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : `${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${dec}`;
+  const [int, fraction] = fixed.split(".");
+  return fraction === undefined ? int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : `${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
 };
 
 const formatPercent = (value: unknown, spec: Extract<FormatSpec, { kind: "percent" }>): string => {

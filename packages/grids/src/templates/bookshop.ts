@@ -72,8 +72,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "price",
           name: "price",
-          type: "decimal",
-          config: { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" },
+          type: "number",
+          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
           icon: "ti ti-currency-euro",
         },
         { key: "published", name: "published", type: "date", icon: "ti ti-calendar" },
@@ -152,8 +152,8 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "line_total",
           name: "line_total",
-          type: "decimal",
-          config: { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" },
+          type: "number",
+          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
           icon: "ti ti-currency-euro",
         },
         { key: "ordered_at", name: "ordered_at", type: "date", icon: "ti ti-calendar" },

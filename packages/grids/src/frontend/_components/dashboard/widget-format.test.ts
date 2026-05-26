@@ -4,7 +4,7 @@ import { formatWidgetValue } from "./widget-format";
 // =============================================================================
 // formatWidgetValue — pure stat-card / chart-axis number formatter.
 // Goal of these tests: lock down the "looks-like-a-number" branch
-// (decimal cells store as strings) and the empty-state behaviour. We
+// (decimal-safe number cells store as strings) and the empty-state behaviour. We
 // stay locale-agnostic in expectations (Intl output varies by runtime
 // default locale) by checking for substring patterns where the number
 // formatting itself is the concern.

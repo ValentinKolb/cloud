@@ -6,7 +6,6 @@ test("registry: covers all Tier-1 types", () => {
     "text",
     "longtext",
     "number",
-    "decimal",
     "boolean",
     "date",
     "select",
@@ -35,7 +34,7 @@ test("userWritableFieldTypes: excludes system fields", () => {
   expect(writable).not.toContain("created_at");
   expect(writable).not.toContain("autonumber");
   expect(writable).toContain("text");
-  expect(writable).toContain("decimal");
+  expect(writable).toContain("number");
 });
 
 test("system fields refuse user input", () => {

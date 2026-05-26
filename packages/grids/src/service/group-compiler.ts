@@ -69,14 +69,14 @@ export type GroupBucket = {
 // Type helpers — every capability check + SQL projection goes through
 // the storage descriptor (field-storage.ts) so this compiler stops
 // re-spelling rules already encoded once. The descriptor knows that
-// numeric/decimal/percent/duration cast through try_numeric,
+// numeric/percent/duration cast through try_numeric,
 // and that system fields are real columns not JSONB. Touching the
 // descriptor adds the new shape in one place instead of n compilers.
 // ──────────────────────────────────────────────────────────────────
 
 /** Projection kinds whose SQL value is numeric-shaped. sum/avg work
  *  over these; min/max work over these plus date / datetime / text. */
-const NUMERIC_KINDS: ReadonlySet<ProjectionKind> = new Set(["numeric", "decimal"]);
+const NUMERIC_KINDS: ReadonlySet<ProjectionKind> = new Set(["numeric"]);
 const DATE_KINDS: ReadonlySet<ProjectionKind> = new Set(["date", "datetime"]);
 
 /** Field-types that can appear in groupBy.
@@ -205,7 +205,7 @@ const resolveGroupBy = (specs: GroupBySpec[], fields: Field[]): { ok: true; reso
       continue;
     }
 
-    // Every other groupable type routes through the descriptor: decimal
+    // Every other groupable type routes through the descriptor: number
     // uses try_numeric, date uses try_iso_date, boolean uses try_boolean,
     // and text/select/system fields get their native shape.
     const projected = desc.project(field, "r");

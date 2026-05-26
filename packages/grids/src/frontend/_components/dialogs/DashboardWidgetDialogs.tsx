@@ -263,7 +263,7 @@ const AGG_OPTIONS = [
   { id: "max", label: "max" },
 ];
 
-const NUMERIC_AGG_FIELD_TYPES = new Set(["number", "decimal", "autonumber", "percent", "duration"]);
+const NUMERIC_AGG_FIELD_TYPES = new Set(["number", "autonumber", "percent", "duration"]);
 const MIN_MAX_FIELD_TYPES = new Set([...NUMERIC_AGG_FIELD_TYPES, "date", "text", "longtext"]);
 
 function fieldWorksForAgg(field: Field, agg: AggregationSpec["agg"]): boolean {

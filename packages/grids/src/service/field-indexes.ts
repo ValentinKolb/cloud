@@ -26,7 +26,6 @@ const isSafeFieldId = (fieldId: string): boolean => /^[a-f0-9-]+$/i.test(fieldId
 const indexExpressionForType = (fieldId: string, type: string): string | null => {
   switch (type) {
     case "number":
-    case "decimal":
     case "autonumber":
     case "percent":
     case "duration":
@@ -153,7 +152,7 @@ export const dropFieldIndex = async (fieldId: string): Promise<void> => {
 // API boundary because their value isn't a scalar — uniqueness over
 // a JSONB array doesn't have a well-defined semantic.
 
-const UNIQUE_SUPPORTED_TYPES = new Set(["text", "longtext", "number", "decimal", "percent", "date", "boolean", "autonumber"]);
+const UNIQUE_SUPPORTED_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "autonumber"]);
 
 export const isUniqueable = (type: string): boolean => UNIQUE_SUPPORTED_TYPES.has(type);
 

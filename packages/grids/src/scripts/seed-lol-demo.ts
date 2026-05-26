@@ -5,7 +5,7 @@
  *
  *   Authors      — text, number (year), select (country)
  *   Genres       — text, longtext
- *   Books        — text, longtext, number (pages), decimal (price),
+ *   Books        — text, longtext, number (pages), number (price),
  *                  currency, percent (discount), date (published),
  *                  boolean (in_stock), select (genre, via relation),
  *                  select (tags), numeric score (1-5), relation→Authors,
@@ -14,7 +14,7 @@
  *   Customers    — text, email, phone, number, date (joined),
  *                  rollup (total spent via Orders)
  *   Orders       — autonumber (order#), relation→Customer, relation→Book,
- *                  number (qty), decimal (line_total), date (ordered_at),
+ *                  number (qty), number (line_total), date (ordered_at),
  *                  select (status), lookup (customer name),
  *                  lookup (book title)
  *   Load Test Orders — 2,200 flat rows for infinite-scroll/search testing
@@ -176,7 +176,7 @@ const main = async () => {
   const B_AUTHOR = await mkField(booksTable, "author", "relation", { targetTableId: authorsTable, cardinality: "single" });
   const B_GENRE = await mkField(booksTable, "genre", "relation", { targetTableId: genresTable, cardinality: "single" });
   const B_PAGES = await mkField(booksTable, "pages", "number", { min: 1 });
-  const B_PRICE = await mkField(booksTable, "price", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const B_PRICE = await mkField(booksTable, "price", "number", { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" });
   const B_DISCOUNT = await mkField(booksTable, "discount", "percent", { range: "fraction", decimals: 2 });
   const B_PUBLISHED = await mkField(booksTable, "published", "date");
   const B_INSTOCK = await mkField(booksTable, "in_stock", "boolean", {}, { defaultValue: true });
@@ -318,7 +318,7 @@ const main = async () => {
   const O_CUST = await mkField(ordersTable, "customer", "relation", { targetTableId: customersTable, cardinality: "single" });
   const O_BOOK = await mkField(ordersTable, "book", "relation", { targetTableId: booksTable, cardinality: "single" });
   const O_QTY = await mkField(ordersTable, "qty", "number", { min: 1 }, { defaultValue: 1, required: true });
-  const O_TOTAL = await mkField(ordersTable, "line_total", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const O_TOTAL = await mkField(ordersTable, "line_total", "number", { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" });
   const O_DATE = await mkField(ordersTable, "ordered_at", "date", {}, { required: true });
   const O_STATUS = await mkField(ordersTable, "status", "select", {
     options: [
@@ -379,7 +379,7 @@ const main = async () => {
   const L_CUSTOMER = await mkField(loadTable, "customer", "text", { maxLength: 200 });
   const L_BOOK = await mkField(loadTable, "book", "text", { maxLength: 240 });
   const L_QTY = await mkField(loadTable, "qty", "number", { min: 1 });
-  const L_TOTAL = await mkField(loadTable, "line_total", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const L_TOTAL = await mkField(loadTable, "line_total", "number", { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" });
   const L_DATE = await mkField(loadTable, "ordered_at", "date");
   const L_STATUS = await mkField(loadTable, "status", "select", {
     options: [

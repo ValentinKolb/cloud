@@ -39,7 +39,6 @@ import type { Field } from "./types";
 export type ProjectionKind =
   | "text" // data->>id (text)
   | "numeric" // try_numeric(data->>id)
-  | "decimal" // try_numeric(data->>id) — same SQL shape as numeric, formatKind differs.
   | "boolean" // try_boolean(data->>id)
   | "date" // try_iso_date(data->>id)
   | "datetime" // try_timestamp(data->>id)
@@ -54,7 +53,6 @@ type FormatKind =
   | "text"
   | "longtext"
   | "number"
-  | "decimal"
   | "boolean"
   | "date"
   | "datetime"
@@ -128,17 +126,6 @@ const STORAGE: Record<string, StorageDescriptor> = {
     kind: "numeric",
     project: (f, a) => tryNumeric(a, f.id),
     formatKind: "number",
-    sortable: true,
-    filterable: true,
-    groupable: true,
-    aggregatable: true,
-    cursorable: true,
-    searchable: false,
-  },
-  decimal: {
-    kind: "decimal",
-    project: (f, a) => tryNumeric(a, f.id),
-    formatKind: "decimal",
     sortable: true,
     filterable: true,
     groupable: true,

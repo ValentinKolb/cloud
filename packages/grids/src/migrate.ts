@@ -459,14 +459,27 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`
     UPDATE grids.fields
-    SET type = 'decimal',
+    SET type = 'number',
         config = jsonb_build_object(
           'precision', 16,
-          'scale', 2,
+          'decimalPlaces', 2,
           'unit', COALESCE(NULLIF(config->>'currency', ''), 'EUR'),
           'unitPosition', 'suffix'
         )
     WHERE type = 'currency'
+  `.simple();
+  await sql`
+    UPDATE grids.fields
+    SET type = 'number',
+        config = jsonb_strip_nulls(
+          (config - 'scale')
+          || CASE
+            WHEN config ? 'decimalPlaces' THEN '{}'::jsonb
+            WHEN config->>'scale' ~ '^[0-9]+$' THEN jsonb_build_object('decimalPlaces', (config->>'scale')::int)
+            ELSE '{}'::jsonb
+          END
+        )
+    WHERE type = 'decimal'
   `.simple();
   await sql`UPDATE grids.fields SET config = config - 'preset' WHERE type = 'text' AND config ? 'preset'`.simple();
   console.log("  ✓ deprecated field types collapsed");

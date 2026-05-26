@@ -6,13 +6,13 @@ import { fail, ok, type FieldTypeHandler } from "./types";
 //
 // Email/url/phone/slug/barcode/isbn are plain text fields; the UI can
 // fill common regex patterns, but storage stays text. Currency is a
-// decimal field with a display-only `unit`. Keeping those as separate
+// number field with a display-only `unit`. Keeping those as separate
 // field types made the registry and SQL compilers larger without adding
 // storage semantics.
 // ─────────────────────────────────────────────────────────────────
 
 // ── percent ───────────────────────────────────────────────────────
-// Stored as a decimal in the user's chosen scale. UI typically shows
+// Stored as a number in the user's chosen scale. UI typically shows
 // "%". Range defaults to 0..100; pass `range: "fraction"` for 0..1.
 const PercentConfigSchema = z.object({
   range: z.enum(["percent", "fraction"]).optional(),

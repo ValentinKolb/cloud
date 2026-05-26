@@ -170,7 +170,7 @@ http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"description","typ
 expect_status 201 "POST fields/items.description (longtext) → 201"
 DESC_FIELD_ID=$(json '.id')
 
-http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"price","type":"number"}'
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"price","type":"number","config":{"precision":16,"decimalPlaces":2,"unit":"EUR","unitPosition":"suffix"}}'
 expect_status 201 "POST fields/items.price (number) → 201"
 PRICE_FIELD_ID=$(json '.id')
 
@@ -349,14 +349,14 @@ expect_status 400 "POST dashboard with cross-base source → 400"
 cleanup_delete /api/grids/bases/$OTHER_BASE_ID
 
 # ────────────────────────────────────────────────────────────────────
-# Decimal config invariant (Wave 5.2): scale > precision rejected.
+# Number config invariant: decimalPlaces > precision rejected.
 # ────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "━━━ decimal config invariant ━━━"
+echo "━━━ number config invariant ━━━"
 
-http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"badnum","type":"decimal","config":{"precision":5,"scale":10}}'
-expect_status 400 "POST decimal scale>precision → 400"
+http POST /api/grids/fields/by-table/$ITEMS_TABLE_ID '{"name":"badnum","type":"number","config":{"precision":5,"decimalPlaces":10}}'
+expect_status 400 "POST number decimalPlaces>precision → 400"
 
 BAD_FORM=$(cat <<JSON
 {
@@ -383,6 +383,13 @@ echo "━━━ records + relations ━━━"
 http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"widget\",\"$DESC_FIELD_ID\":\"**bold** item\",\"$PRICE_FIELD_ID\":99.99,\"$TAGS_FIELD_ID\":[\"hardware\",\"sale\"]}"
 expect_status 201 "POST item record → 201"
 ITEM_REC_ID=$(json '.id')
+PRICE_TYPE=$(json ".data[\"$PRICE_FIELD_ID\"] | type")
+PRICE_VALUE=$(json ".data[\"$PRICE_FIELD_ID\"]")
+if [[ "$PRICE_TYPE" == "string" && "$PRICE_VALUE" == "99.99" ]]; then
+  pass "number field stores decimal-safe string"
+else
+  fail "number field canonical storage" "expected string 99.99, got type=$PRICE_TYPE value=$PRICE_VALUE"
+fi
 
 http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget"
 expect_status 200 "GET relation lookup baseline → 200"

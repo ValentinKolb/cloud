@@ -48,7 +48,6 @@ export const TYPE_OPTIONS = [
   { value: "text", label: "Text" },
   { value: "longtext", label: "Long text" },
   { value: "number", label: "Number" },
-  { value: "decimal", label: "Decimal (money-safe)" },
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
   { value: "select", label: "Select" },
@@ -84,9 +83,8 @@ TYPE_LABELS["updated_by"] = "Updated by";
 export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   text: "A single line of text — names, titles, codes, anything short. Set min/max length if the value should be a certain size, or a regex pattern to enforce a format like a postcode.",
   longtext: "Multi-line text — paragraphs, notes, instructions. Bound the size the same way as text if you need to.",
-  number: 'A number. Set min and max to bound the range; tick "integer only" to reject decimals.',
-  decimal:
-    "Use this for money or anything where rounding matters. Precision is how many digits the value can have in total; Scale is how many of those come after the decimal point.",
+  number:
+    "A number, stored decimal-safe. Use decimal places for money or exact measurements; set 0 decimal places for whole numbers.",
   boolean: "A yes/no checkbox.",
   date: "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
   select: "A fixed list of choices. Use single mode for one choice, or multiple mode for tags/categories.",
@@ -106,8 +104,6 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
 /** Default config blob for a brand-new field of `type`. */
 export const defaultConfigForType = (type: string): FieldConfigState => {
   switch (type) {
-    case "decimal":
-      return { precision: 10, scale: 2 };
     case "select":
       return { multiple: false, options: [] };
     case "autonumber":
@@ -152,7 +148,6 @@ const CONFIGURABLE = new Set([
   "number",
   "percent",
   "duration",
-  "decimal",
   "date",
   "select",
   "autonumber",
@@ -225,9 +220,6 @@ export function FieldConfigEditor(props: EditorProps) {
       </Show>
       <Show when={props.type === "number" || props.type === "percent" || props.type === "duration"}>
         <NumberConstraints config={props.config} onChange={props.onChange} />
-      </Show>
-      <Show when={props.type === "decimal"}>
-        <DecimalConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={props.type === "date"}>
         <DateConstraints config={props.config} onChange={props.onChange} />
@@ -352,19 +344,26 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
   const cfg = () => props.config();
   const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
 
-  const min = () => (typeof cfg().min === "number" ? String(cfg().min) : "");
-  const max = () => (typeof cfg().max === "number" ? String(cfg().max) : "");
+  const min = () => (typeof cfg().min === "number" || typeof cfg().min === "string" ? String(cfg().min) : "");
+  const max = () => (typeof cfg().max === "number" || typeof cfg().max === "string" ? String(cfg().max) : "");
+  const precision = () => (typeof cfg().precision === "number" ? String(cfg().precision) : "");
+  const decimalPlaces = () =>
+    typeof cfg().decimalPlaces === "number" ? String(cfg().decimalPlaces) : typeof cfg().scale === "number" ? String(cfg().scale) : "";
+  const unit = () => (typeof cfg().unit === "string" ? (cfg().unit as string) : "");
+  const unitPosition = () => (cfg().unitPosition === "prefix" ? "prefix" : "suffix");
   const integerOnly = () => Boolean(cfg().integerOnly);
 
-  // TextInput (not NumberField) for the same reason as TextConstraints —
-  // optional needs a clearable empty state. Accepts decimals here
-  // because the field type is "number", not integer-only.
   const onBound = (key: "min" | "max", v: string) => {
     const t = v.trim();
     if (t === "") return update({ [key]: undefined });
+    update({ [key]: t });
+  };
+  const onInt = (key: "precision" | "decimalPlaces", v: string, minValue: number, maxValue: number) => {
+    const t = v.trim();
+    if (t === "") return update({ [key]: undefined, ...(key === "decimalPlaces" ? { scale: undefined } : {}) });
     const n = Number(t);
-    if (!Number.isFinite(n)) return;
-    update({ [key]: n });
+    if (!Number.isInteger(n) || n < minValue || n > maxValue) return;
+    update({ [key]: n, ...(key === "decimalPlaces" ? { scale: undefined, integerOnly: n === 0 ? true : undefined } : {}) });
   };
 
   return (
@@ -383,65 +382,19 @@ function NumberConstraints(props: { config: () => FieldConfigState; onChange: (n
         onInput={(v) => onBound("max", v)}
         placeholder="e.g. 100"
       />
-      <div class="col-span-2">
-        <CheckboxCard
-          label="Integer only"
-          description="Reject decimal values for this field."
-          icon="ti ti-number"
-          value={integerOnly}
-          onChange={(checked) => update({ integerOnly: checked || undefined })}
-        />
-      </div>
-    </div>
-  );
-}
-
-function DecimalConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
-  const cfg = () => props.config();
-  const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
-
-  const precision = () => (typeof cfg().precision === "number" ? String(cfg().precision) : "10");
-  const scale = () => (typeof cfg().scale === "number" ? String(cfg().scale) : "2");
-  const min = () => (typeof cfg().min === "string" ? (cfg().min as string) : "");
-  const max = () => (typeof cfg().max === "string" ? (cfg().max as string) : "");
-  const unit = () => (typeof cfg().unit === "string" ? (cfg().unit as string) : "");
-  const unitPosition = () => (cfg().unitPosition === "prefix" ? "prefix" : "suffix");
-
-  return (
-    <div class="grid grid-cols-2 gap-3">
-      <NumberField
-        label="Precision (total digits, 1-38)"
+      <TextInput
+        label="Precision (optional)"
+        description="Max total digits. Empty = no limit."
         value={precision}
-        min={1}
-        max={38}
-        onInput={(v) => {
-          const n = Number(v);
-          if (Number.isInteger(n) && n >= 1 && n <= 38) update({ precision: n });
-        }}
-      />
-      <NumberField
-        label="Scale (decimal places)"
-        value={scale}
-        min={0}
-        max={20}
-        onInput={(v) => {
-          const n = Number(v);
-          if (Number.isInteger(n) && n >= 0 && n <= 20) update({ scale: n });
-        }}
+        onInput={(v) => onInt("precision", v, 1, 38)}
+        placeholder="e.g. 16"
       />
       <TextInput
-        label="Min (optional)"
-        description="Empty = no minimum."
-        value={min}
-        onInput={(v) => update({ min: v.trim() === "" ? undefined : v.trim() })}
-        placeholder="e.g. 0"
-      />
-      <TextInput
-        label="Max (optional)"
-        description="Empty = no maximum."
-        value={max}
-        onInput={(v) => update({ max: v.trim() === "" ? undefined : v.trim() })}
-        placeholder="e.g. 9999.99"
+        label="Decimal places (optional)"
+        description="Empty = flexible. Use 0 for whole numbers."
+        value={decimalPlaces}
+        onInput={(v) => onInt("decimalPlaces", v, 0, 20)}
+        placeholder="e.g. 2"
       />
       <TextInput
         label="Unit (optional)"
@@ -459,6 +412,15 @@ function DecimalConstraints(props: { config: () => FieldConfigState; onChange: (
           { id: "prefix", label: "Before value" },
         ]}
       />
+      <div class="col-span-2">
+        <CheckboxCard
+          label="Integer only"
+          description="Reject decimal values for this field."
+          icon="ti ti-number"
+          value={integerOnly}
+          onChange={(checked) => update({ integerOnly: checked || undefined, decimalPlaces: checked ? 0 : undefined, scale: undefined })}
+        />
+      </div>
     </div>
   );
 }

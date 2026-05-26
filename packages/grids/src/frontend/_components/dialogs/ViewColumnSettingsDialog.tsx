@@ -125,7 +125,7 @@ export function ColumnFormatControls(props: {
       const fmt = dateFormat();
       return fmt === "default" ? undefined : { kind: "date", format: fmt, includeTime: includeTime() };
     }
-    if (fieldType() === "number" || fieldType() === "decimal" || fieldType() === "autonumber") {
+    if (fieldType() === "number" || fieldType() === "autonumber") {
       return customNumber()
         ? {
             kind: "decimal",
@@ -159,7 +159,7 @@ export function ColumnFormatControls(props: {
         when={fieldType() === "date"}
         fallback={
           <Show
-            when={fieldType() === "number" || fieldType() === "decimal" || fieldType() === "autonumber"}
+            when={fieldType() === "number" || fieldType() === "autonumber"}
             fallback={
               <Show
                 when={fieldType() === "percent" || fieldType() === "formula"}

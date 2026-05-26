@@ -202,7 +202,7 @@ function FieldEditor(props: {
     <div class="flex min-h-0 flex-1 flex-col gap-2">
       <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
         {/* Type primer — short, type-specific blurb so the constraint
-          inputs further down ("precision", "scale", "regex" etc.) make
+          inputs further down ("precision", "decimal places", "regex" etc.) make
           immediate sense to non-power users. */}
         <Show when={typeDescription}>
           <div class="info-block-info text-xs flex items-start gap-2">

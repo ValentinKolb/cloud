@@ -165,7 +165,7 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
     if (field.type === "boolean") return "boolean";
     if (field.type === "date" && op.id === "lastNDays") return "number-days";
     if (field.type === "date") return "date";
-    if (field.type === "number" || field.type === "decimal" || field.type === "autonumber") {
+    if (field.type === "number" || field.type === "autonumber") {
       return "number";
     }
     return "text";

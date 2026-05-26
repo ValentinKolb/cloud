@@ -64,7 +64,7 @@ type Props = {
    * Optional saved-view column override. When set, dictates BOTH the
    * visible field set AND their order (instead of the default
    * `!hideInTable` + `position` rule). Per-column `format` lives here
-   * too; used by date / decimal / currency / percent renderers to
+   * too; used by date / number / currency / percent renderers to
    * pick up the view's saved style.
    */
   viewColumns?: ColumnSpec[];
@@ -143,7 +143,7 @@ export default function DatabaseTable(props: Props) {
   };
 
   /** Look up a per-column FormatSpec from the active viewColumns, if
-   *  any. Drives date / decimal / currency / percent rendering. */
+   *  any. Drives date / number / currency / percent rendering. */
   const columnFormat = (fieldId: string) => {
     if (!props.viewColumns) return undefined;
     const col = props.viewColumns.find((c) => c.fieldId === fieldId);

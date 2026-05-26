@@ -26,7 +26,7 @@ describe("defaultTableAggregations", () => {
   test("keeps the default footer useful but quiet", () => {
     expect(defaultTableAggregations([
       field("n", "number"),
-      field("d", "decimal"),
+      field("d", "number"),
       field("p", "percent"),
       field("date", "date"),
       field("auto", "autonumber"),
@@ -41,4 +41,3 @@ describe("defaultTableAggregations", () => {
     ]);
   });
 });
-

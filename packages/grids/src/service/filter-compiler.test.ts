@@ -24,7 +24,7 @@ const mkField = (id: string, type: string, config: Record<string, unknown> = {})
 
 const fields: Field[] = [
   mkField("fld_name", "text"),
-  mkField("fld_amount", "decimal"),
+  mkField("fld_amount", "number"),
   mkField("fld_date", "date"),
   mkField("fld_done", "boolean"),
   mkField("fld_status", "select"),

@@ -140,7 +140,7 @@ test("renderResult passes literals through, errors as #CODE", () => {
 
 // ── Decimal precision ─────────────────────────────────────────────
 //
-// Decimal cells store their value as a string ("24.50") to dodge JS
+// Decimal-safe number cells store their value as a string ("24.50") to dodge JS
 // double drift.
 describe("exact-arithmetic for decimal-string values", () => {
   test("decimal string * number literal preserves precision", () => {

@@ -4,5 +4,5 @@
  * formula, lookup, rollup, created_*, updated_* are server-managed.
  */
 export const isUserEditable = (type: string): boolean => {
-  return ["text", "longtext", "number", "decimal", "boolean", "date", "select", "percent", "duration", "json"].includes(type);
+  return ["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json"].includes(type);
 };

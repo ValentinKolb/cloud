@@ -11,7 +11,7 @@ const mkField = (id: string, type: string): Field => ({
 
 const fields: Field[] = [
   mkField("fld_text", "text"),
-  mkField("fld_amount", "decimal"),
+  mkField("fld_amount", "number"),
   mkField("fld_date", "date"),
   mkField("fld_done", "boolean"),
 ];

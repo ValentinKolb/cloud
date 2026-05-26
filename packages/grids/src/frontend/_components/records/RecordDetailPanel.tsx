@@ -255,7 +255,7 @@ export default function RecordDetailPanel(props: Props) {
     if (name.includes("stock") || field.type === "boolean") return "ti ti-check";
     if (name.includes("tag") || field.type.includes("select")) return "ti ti-tags";
     if (name.includes("sku")) return "ti ti-barcode";
-    if (field.type === "number" || field.type === "decimal" || field.type === "percent") return "ti ti-hash";
+    if (field.type === "number" || field.type === "percent") return "ti ti-hash";
     return "ti ti-info-circle";
   };
   const isComputedField = (field: Field) => ["formula", "lookup", "rollup"].includes(field.type);

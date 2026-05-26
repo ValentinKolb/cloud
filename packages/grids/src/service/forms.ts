@@ -169,7 +169,7 @@ export const getByShortId = async (tableId: string, shortId: string): Promise<Fo
  * computed / system / autonumber fields — those are server-managed and
  * shouldn't surface as form inputs.
  */
-const DEFAULT_FORM_TYPES = new Set(["text", "longtext", "number", "decimal", "boolean", "date", "select"]);
+const DEFAULT_FORM_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select"]);
 
 export const isFormFieldEligible = (field: Field): boolean => {
   if (field.deletedAt) return false;

@@ -34,8 +34,8 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * create-record dialog, default-value editor in the field designer).
  *
  * Why this matters: rendering used to fork between FormSubmit (here) and
- * `RecordUpsertDialog`. Decimal was a `NumberInput` here and a custom text
- * shape elsewhere; select was stacked
+ * `RecordUpsertDialog`. Numeric fields must preserve exact decimal text;
+ * select was stacked
  * CheckboxCards here and a freeform `TagsInput` there (which let users type
  * non-existent option ids that the server rejected). Post-cleanup #7
  * collapses both onto this renderer so users see the same widget for the
@@ -45,7 +45,8 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * - text / unknown → TextInput
  * - longtext → TextInput multiline
  * - json → TextInput multiline (lines=6)
- * - number / decimal / percent → NumberInput
+ * - number → TextInput with decimal keyboard hint (server validates exactly)
+ * - percent → NumberInput
  * - duration → TextInput with "HH:MM:SS or seconds"; same lenient parser
  *   server-side. NumberInput would lose the HH:MM:SS shorthand.
  * - boolean → Checkbox
@@ -124,55 +125,27 @@ export function FieldInput(props: {
       );
 
     case "number": {
-      // Number can be integer or float depending on field config.
-      // `integerOnly` flag locks it to integers; otherwise allow a
-      // generous 10 decimal places (enough for the long-tail cases
-      // while still capping cosmic-noise input).
-      const integerOnly = Boolean((props.field.config as { integerOnly?: boolean }).integerOnly);
-      return (
-        <NumberInput
-          label={label}
-          description={helpText}
-          required={required}
-          value={numberValue}
-          onInput={(v) => props.onChange(v)}
-          decimalPlaces={integerOnly ? 0 : 10}
-          error={error}
-        />
-      );
-    }
-
-    case "decimal": {
-      // Decimal carries an explicit `scale` (default 2 — see decimalHandler).
-      const scale = (props.field.config as { scale?: number }).scale ?? 2;
+      const decimalPlaces = (props.field.config as { decimalPlaces?: number; scale?: number }).decimalPlaces
+        ?? (props.field.config as { scale?: number }).scale;
       const unit = (props.field.config as { unit?: string }).unit;
       const unitPosition = (props.field.config as { unitPosition?: "prefix" | "suffix" }).unitPosition ?? "suffix";
-      const decimalValue = (): number | null => {
+      const numberText = (): string => {
         const v = props.value;
-        if (v === null || v === undefined || v === "") return null;
-        if (typeof v === "number") return Number.isFinite(v) ? v : null;
-        if (typeof v === "string") {
-          const n = Number(v.trim());
-          return Number.isFinite(n) ? n : null;
-        }
-        if (typeof v === "object") {
-          const obj = v as { amount?: unknown };
-          const n = typeof obj.amount === "number" ? obj.amount : typeof obj.amount === "string" ? Number(obj.amount) : NaN;
-          return Number.isFinite(n) ? n : null;
-        }
-        return null;
+        if (v === null || v === undefined) return "";
+        if (typeof v === "object" && "amount" in v) return String((v as { amount?: unknown }).amount ?? "");
+        return String(v);
       };
       return (
-        <NumberInput
+        <TextInput
           label={label}
           description={helpText}
           required={required}
-          value={decimalValue}
+          value={numberText}
           onInput={(v) => props.onChange(v)}
-          decimalPlaces={scale}
+          inputMode={decimalPlaces === 0 ? "numeric" : "decimal"}
+          icon="ti ti-number"
           prefix={unit && unitPosition === "prefix" ? <span class="font-mono">{unit}</span> : undefined}
           suffix={unit && unitPosition !== "prefix" ? <span class="font-mono">{unit}</span> : undefined}
-          showSteppers={false}
           clearable={!required}
           error={error}
         />

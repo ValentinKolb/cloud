@@ -27,7 +27,7 @@ describe("search field targeting", () => {
   test("UI search scope includes SQL-searchable scalar, select, and relation fields", () => {
     const fields = [
       mkField("txt", "text"),
-      mkField("dec", "decimal"),
+      mkField("dec", "number"),
       mkField("num", "number"),
       mkField("dat", "date"),
       mkField("boo", "boolean"),

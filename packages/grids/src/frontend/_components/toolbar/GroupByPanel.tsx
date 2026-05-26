@@ -29,7 +29,6 @@ const GROUPABLE_TYPES = new Set([
   "text",
   "longtext",
   "number",
-  "decimal",
   "percent",
   "duration",
   "autonumber",

@@ -120,7 +120,7 @@ const validateFieldConfig = (type: string, config: Record<string, unknown>): Res
   const parsed = handler.configSchema.safeParse(config);
   if (!parsed.success) {
     // Surface the first issue's message so users see WHY the config was
-    // rejected (e.g. "scale cannot exceed precision") instead of a
+    // rejected (e.g. "decimal places cannot exceed precision") instead of a
     // generic "invalid config".
     const firstIssue = parsed.error.issues[0];
     const detail = firstIssue?.message ?? "invalid config";

@@ -116,7 +116,7 @@ Resolve specificity in app code, cache per request.
 ## 6. Field types — three tiers
 
 ### Tier 1 (MVP)
-text, longtext, number (int/float), **decimal (precision/scale, money-safe)**, boolean, date (date or datetime), single-select, multi-select, rating, autonumber, created_at, updated_at, created_by, updated_by
+text, longtext, **number (decimal-safe, optional precision/decimalPlaces/unit)**, boolean, date (date or datetime), single-select, multi-select, rating, autonumber, created_at, updated_at, created_by, updated_by
 
 ### Tier 1.5 (close behind, but in their own phases)
 relation, lookup, rollup, attachment (bytea), user-link, formula
@@ -140,8 +140,7 @@ barcode/qr, isbn (with checksum), location (lat/lng + label, no radius queries),
 | Type | JSONB representation |
 |---|---|
 | text/longtext | string |
-| number | number (JSON number) |
-| decimal | string in canonical form (`"123.45"`) — never JS number, prevents float drift. Aggregations cast to Postgres `numeric` natively: `SUM((data->>'fld_x')::numeric)` — fast, in-DB, no JS roundtrip. JS-side `decimal.js` only at API boundary + formula evaluator. |
+| number | string in canonical decimal form (`"123.45"`) — never JS number, prevents float drift. Aggregations cast to Postgres `numeric` natively: `SUM(grids.try_numeric(data->>'fld_x'))` — fast, in-DB, no JS roundtrip. JS-side `decimal.js` only at API boundary + formula evaluator. |
 | boolean | true/false |
 | date | ISO 8601 date string (`"2026-05-02"`) or RFC 3339 datetime (`"2026-05-02T10:00:00Z"`) |
 | single-select | option-id string |
@@ -166,7 +165,7 @@ Before any field rename / type-change / delete, run `getFieldDependents(fieldId)
 | Mutation | Behavior |
 |---|---|
 | **Rename** | Metadata-only update. Field id unchanged. No record migration. Trivial. |
-| **Type-change** | Only narrow → broad allowed (text→longtext, int→decimal, single-select→text). Wide changes (text→date, number→select) require explicit migration step with preview + per-row validation. Rebuild indexes + unique constraints atomically. Block if formula/lookup/rollup depend on this field. |
+| **Type-change** | Only narrow → broad allowed (text→longtext, integer-only number→decimal number, single-select→text). Wide changes (text→date, number→select) require explicit migration step with preview + per-row validation. Rebuild indexes + unique constraints atomically. Block if formula/lookup/rollup depend on this field. |
 | **Delete** | Soft-delete (`deleted_at` on field row). UI hides it. JSONB keys stay in records. Auto-remove from views/forms (since views are user-savable). **Block** if any formula/lookup/rollup depends on it — user must remove dependents first. |
 | **Required ON** | Validate all existing rows pass. If any row has null/empty for this field, reject toggle with row count. Validate that default-value is set OR that all forms/API-create surfaces will provide a value. |
 | **Select-option delete** | If field is `required`, **block** the option-delete with the row-count using it. Otherwise cascade null on those records, audit-log the cascade. |
@@ -185,7 +184,7 @@ Tree-shaped JSON, AND/OR groupable. UI: pill-builder (Phase 1B basic, Phase 2 po
 
 Per-field-type operator set (full):
 - **text/longtext**: equals, notEquals, contains, startsWith, endsWith, regex, isEmpty, isNotEmpty
-- **number/decimal**: =, !=, <, <=, >, >=, between, isEmpty
+- **number**: =, !=, <, <=, >, >=, between, isEmpty
 - **date**: =, before, after, between, today, thisWeek, thisMonth, lastNDays, isEmpty
 - **single-select**: is, isNot, isAnyOf, isNoneOf
 - **multi-select**: containsAll, containsAny, doesNotContain
@@ -303,7 +302,7 @@ Token-based URL `/forms/<publicToken>`. Anonymous, captcha + rate-limited. Stric
 - **division-by-zero**: returns ERROR sentinel, displayed as `#DIV/0`
 - **regex flavor**: JS regex only (when introduced)
 - **timezone**: all date ops in user's timezone (from settings)
-- **decimal precision**: formula on decimal fields preserves precision via decimal.js or similar — no JS-number arithmetic on money
+- **number precision**: formulas preserve precision for numeric strings via decimal.js — no JS-number arithmetic on money
 
 ### Phase 6+ (later)
 - SQL compilation for arithmetic + simple text/date subset → unlocks filter-by-formula
@@ -316,7 +315,7 @@ Token-based URL `/forms/<publicToken>`. Anonymous, captcha + rate-limited. Stric
 - Respects current view (filter + sort + visible-fields)
 - Token-driven export endpoint for automation
 - Streaming response for large tables (chunked CSV with header row)
-- Decimal/date canonical: ISO 8601 dates, decimal as string with `.` separator
+- Number/date canonical: ISO 8601 dates, numbers as decimal strings with `.` separator
 
 ## 14. CMS / API
 
@@ -356,7 +355,7 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 
 | Phase | Scope |
 |---|---|
-| **1A — Data Core** | Bases, Tables, Fields (text/longtext/number/decimal/boolean/date/single-select/multi-select/rating/autonumber/timestamps), Records (JSONB + composite + partial indexes), validation+default+required, optimistic-lock via `version`, soft-delete, audit log, schema-evolution rules + `getFieldDependents()`, hard-limits enforcement |
+| **1A — Data Core** | Bases, Tables, Fields (text/longtext/number/boolean/date/single-select/multi-select/rating/autonumber/timestamps), Records (JSONB + composite + partial indexes), validation+default+required, optimistic-lock via `version`, soft-delete, audit log, schema-evolution rules + `getFieldDependents()`, hard-limits enforcement |
 | **1B — Query Core** | Keyset pagination (with tuple-cursor for sorted), Filter-JSON-Compiler, Sort-Compiler, Aggregate-Compiler (footer aggregates), opt-in expression index lifecycle (CONCURRENTLY + retry), trgm indexes |
 | **1C — Product Shell** | Table-UI (read + edit + create), ACL UI (base + table + view), Schema-Evolution UI (add/rename/type-change/delete with dependents-warning), Restore-from-trash UI, basic permission resolver |
 | **2 — Power-Filter** | Pill-builder UI, JSON-advanced-mode editor, multi-sort UI, view ACL public/personal/shared, view-create/edit UI |
@@ -365,7 +364,7 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 | **5 — Formula** | Pratt parser + AST + JS evaluator (display-only, visible-rows only), cycle detection, type inference, scoped function library |
 | **6 — Tier-2 fields** | currency, email, url, phone, percent, duration, slug, attachment (bytea + grids_blobs), user-link |
 | **7 — Tier-3 fields** | barcode, isbn, location, color, rich-text, json, signature |
-| **8 — Export** | CSV / Excel / JSON streaming, view-aware, decimal/date canonical |
+| **8 — Export** | CSV / Excel / JSON streaming, view-aware, number/date canonical |
 | **9 — Polish** | Bulk-edit, group-by view, field-level perms, audit-log UI, formula function-library expansion |
 | **10 — Later** | Bulk-import, calendar/gallery/kanban views, SQL-compiled formulas, snapshots, S3-backed blobs, formula-filter/sort, relation aggregates in formulas |
 
@@ -387,7 +386,7 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 | Performance target | hundreds to ~100k rows per table comfortably |
 | Import | not in MVP |
 | Export | yes, view-aware, streaming |
-| Field types | all 3 tiers + ISBN, decimal in MVP |
+| Field types | all 3 tiers + ISBN |
 | Forms | virtual default + custom + public |
 | Field IDs | stable, never reused |
 | Pagination | keyset with tuple-cursor for sorted views, OFFSET forbidden |
@@ -398,7 +397,7 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 - [x] `getFieldDependents(fieldId)` signature locked: returns `FieldDependent[]` with `{type, resourceId, resourceName, context?, blocking}`
 - [x] Filter-tree Zod-schema sketched (rekursiv via `z.lazy`)
 - [x] Field-validation-config Zod-schemas per type (in `contracts/field-validation.ts`)
-- [x] Canonical storage rules locked per type (decimal + date especially)
+- [x] Canonical storage rules locked per type (number + date especially)
 - [x] **UUIDv7** for `grids_records.id` via `Bun.randomUUIDv7()`, **UUIDv4** for schema entities (bases/tables/fields/views/forms) via `crypto.randomUUID()`
 - [x] Hono route shapes sketched for Phase 1A (REST under `/api/grids/`)
 - [x] Formula parser location: `packages/grids/src/formula/` (parser/validator/evaluator/functions/types/index)
@@ -412,12 +411,12 @@ Enforced at validation boundary. Rejected with helpful error messages including 
 
 | Phase | Test targets |
 |---|---|
-| 1A | Field-type validation/normalization (text, number, decimal, date, boolean, single-select, multi-select, rating), `getFieldDependents()` |
+| 1A | Field-type validation/normalization (text, number, date, boolean, single-select, multi-select, rating), `getFieldDependents()` |
 | 1B | Filter-tree → SQL compiler (snapshot tests for SQL output), sort compiler, tuple-cursor pagination math |
 | 1C | Permission resolver (most-specific-wins, explicit-deny override, write-implies-read, public scope) |
-| 5 | **Formula engine — primary test focus**: parser (input → AST snapshots), validator (cycle detection, type inference), evaluator (AST + record-ctx → result), null-propagation, division-by-zero, decimal-precision in formulas |
+| 5 | **Formula engine — primary test focus**: parser (input → AST snapshots), validator (cycle detection, type inference), evaluator (AST + record-ctx → result), null-propagation, division-by-zero, number-precision in formulas |
 | 6/7 | Tier-2/3 field-type validation/normalization |
-| 8 | Export-format compiler (record → CSV row, escaping edge cases, decimal canonical form) |
+| 8 | Export-format compiler (record → CSV row, escaping edge cases, number canonical form) |
 
 ### Out of scope for unit tests (KISS)
 

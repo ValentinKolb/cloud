@@ -16,7 +16,7 @@ export const formatWidgetValue = (
 ): string => {
   if (value === null || value === undefined) return "—";
 
-  // Coerce string-numerics (decimal cells store as strings to dodge
+  // Coerce string-numerics (decimal-safe number cells store as strings to dodge
   // float drift) to JS numbers for Intl formatting. Genuine non-numeric
   // strings just pass through.
   const asNumber =

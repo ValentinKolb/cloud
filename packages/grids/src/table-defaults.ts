@@ -1,7 +1,7 @@
 import type { AggregationSpec } from "./contracts";
 import type { Field } from "./service/types";
 
-const SUM_TYPES = new Set(["number", "decimal", "duration"]);
+const SUM_TYPES = new Set(["number", "duration"]);
 
 export const defaultTableAggregations = (fields: Field[]): AggregationSpec[] => [
   { fieldId: "*", agg: "count", label: "records" },

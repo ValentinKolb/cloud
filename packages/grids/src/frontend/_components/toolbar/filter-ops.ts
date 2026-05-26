@@ -72,8 +72,7 @@ export const opsForType = (type: string): FilterOp[] => {
     case "longtext":
       return TEXT_OPS;
     case "number":
-    case "decimal":
-    case "autonumber":
+        case "autonumber":
     case "percent":
     case "duration":
       return NUMBER_OPS;

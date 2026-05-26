@@ -35,7 +35,7 @@ type CastKind = "numeric" | "date" | "boolean" | "text";
 
 /**
  * Maps the storage descriptor's projection kind onto the cast kind used
- * by sort cursors. Decimal/numeric/percent/duration project as numeric.
+ * by sort cursors. Numeric/percent/duration project as numeric.
  * text/date/boolean carry through directly. Anything non-orderable (relation/computed/multi-
  * select/json/system-without-projection) reports as `null` here so the
  * caller can reject it with a clean compile error.
@@ -43,7 +43,6 @@ type CastKind = "numeric" | "date" | "boolean" | "text";
 const cursorCastFor = (kind: ProjectionKind): CastKind | null => {
   switch (kind) {
     case "numeric":
-    case "decimal":
       return "numeric";
     case "date":
     case "datetime":

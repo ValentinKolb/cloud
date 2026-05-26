@@ -63,7 +63,7 @@ describe("toNumber", () => {
   });
 
   test("parses string-encoded decimals", () => {
-    // Decimal-cell aggregations come back as strings (no float drift) —
+    // Decimal-safe number aggregations come back as strings (no float drift) —
     // the transform must coerce them or we'd silently drop every
     // sum/avg of a currency column.
     expect(toNumber("42.50")).toBe(42.5);

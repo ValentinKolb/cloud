@@ -1,6 +1,5 @@
 import { booleanHandler } from "./boolean";
 import { dateHandler } from "./date";
-import { decimalHandler } from "./decimal";
 import { formulaHandler } from "./formula";
 import { numberHandler } from "./number";
 import { lookupHandler, relationHandler, rollupHandler } from "./relations";
@@ -16,7 +15,6 @@ const handlers: FieldTypeHandler[] = [
   textHandler,
   longtextHandler,
   numberHandler,
-  decimalHandler,
   booleanHandler,
   dateHandler,
   selectHandler,

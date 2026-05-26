@@ -89,18 +89,18 @@ const main = async () => {
   const F_UNITS = await mkField("Units", "number", { min: 0, integerOnly: true }, { required: true });
   const F_UNIT_PRICE = await mkField(
     "Unit price",
-    "decimal",
-    { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" },
+    "number",
+    { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
     { required: true },
   );
   const F_UNIT_COST = await mkField(
     "Unit cost",
-    "decimal",
-    { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" },
+    "number",
+    { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
     { required: true },
   );
   const F_DISCOUNT = await mkField("Discount", "percent", { range: "fraction", decimals: 2 });
-  const F_PAID = await mkField("Amount paid", "decimal", { precision: 16, scale: 2, unit: "EUR", unitPosition: "suffix" });
+  const F_PAID = await mkField("Amount paid", "number", { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" });
   const F_ACTIVE = await mkField("Active", "boolean", {}, { defaultValue: true });
   const F_NOTES = await mkField("Notes", "longtext", { markdown: true });
 

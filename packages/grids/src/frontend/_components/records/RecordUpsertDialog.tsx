@@ -102,7 +102,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
 
         // Pre-flight required check. Mirrors the server's per-field
         // validation closely but only catches the "obvious empty" cases
-        // — full type validation (regex, min/max, decimal parsing) is
+        // — full type validation (regex, min/max, number parsing) is
         // left to the server, which surfaces errors via prompts.error.
         const validate = (): boolean => {
           const errs: Record<string, string> = {};
@@ -138,7 +138,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
         // Field renderer. Synthesizes a UserInputEntry from the field
         // (label/required from the field itself, no per-form override)
         // and hands it to FieldInput — the platform's single field
-        // renderer. Everything that diverged here (decimal widget,
+        // renderer. Everything that diverged here (numeric widget,
         // select widget, relation widget) now matches what
         // PublicFormSubmit, FormSubmitModal, and the field-designer's
         // default-value editor render for the same type.

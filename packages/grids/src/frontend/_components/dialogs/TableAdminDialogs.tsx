@@ -61,7 +61,6 @@ const FIELD_TYPE_ICONS: Record<string, string> = {
   text: "ti ti-typography",
   longtext: "ti ti-align-left",
   number: "ti ti-number",
-  decimal: "ti ti-currency-euro",
   boolean: "ti ti-toggle-left",
   date: "ti ti-calendar",
   select: "ti ti-list-details",
@@ -79,8 +78,7 @@ const FIELD_TYPE_ICONS: Record<string, string> = {
 const FIELD_TYPE_EXAMPLES: Record<string, string> = {
   text: "Book title",
   longtext: "Internal notes in Markdown",
-  number: "42",
-  decimal: "19.99 EUR",
+  number: "19.99 EUR",
   boolean: "Yes / no",
   date: "2026-05-15",
   select: "Status: shipped",
@@ -98,8 +96,7 @@ const FIELD_TYPE_EXAMPLES: Record<string, string> = {
 const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
   text: "Short values like names, titles, or codes.",
   longtext: "Paragraphs, notes, or Markdown content.",
-  number: "Numeric values with optional limits.",
-  decimal: "Money-safe numbers with fixed decimals.",
+  number: "Decimal-safe numbers with optional limits, units, and fixed places.",
   boolean: "A simple yes/no checkbox.",
   date: "Calendar dates, optionally with time.",
   select: "One or more options from a fixed list.",

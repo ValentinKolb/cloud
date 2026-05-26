@@ -27,7 +27,7 @@ const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name"
 });
 
 const fields = formulaFieldRefs([
-  field({ id: "price", shortId: "Pr1cE", name: "Unit price", type: "decimal" }),
+  field({ id: "price", shortId: "Pr1cE", name: "Unit price", type: "number" }),
   field({ id: "qty", shortId: "Qty01", name: "Quantity", type: "number" }),
   field({ id: "name", shortId: "Nm001", name: "Product name", type: "text" }),
   field({ id: "date", shortId: "Date1", name: "Invoice date", type: "date" }),
@@ -55,7 +55,7 @@ describe("formula authoring helpers", () => {
       text: "Unit price",
       expansion: "#Pr1cE",
       label: "Unit price",
-      hint: "decimal · #Pr1cE",
+      hint: "number · #Pr1cE",
     });
   });
 

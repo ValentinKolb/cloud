@@ -45,7 +45,7 @@ export const aggLabel = (spec: AggregationSpec, fieldsById: Map<string, Field>):
 
 /** Coerce a bucket-value to a finite number, or null when it's
  *  missing / non-numeric. The group resolver returns strings for
- *  decimal aggregations (matching `record.aggregate()`), so we cast
+ *  decimal-safe number aggregations (matching `record.aggregate()`), so we cast
  *  carefully and reject NaN / Infinity so the chart layer never sees
  *  a bad point. */
 export const toNumber = (v: unknown): number | null => {
