@@ -384,14 +384,41 @@ http POST /api/grids/records/by-table/$ITEMS_TABLE_ID "{\"$NAME_FIELD_ID\":\"wid
 expect_status 201 "POST item record → 201"
 ITEM_REC_ID=$(json '.id')
 
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget"
+expect_status 200 "GET relation lookup baseline → 200"
+LOOKUP_BASE_TYPE=$(json '.items | type')
+LOOKUP_BASE_HAS_ITEM=$(json ".items | if type == \"array\" then any(.[]; .id == \"$ITEM_REC_ID\") else false end")
+if [[ "$LOOKUP_BASE_TYPE" == "array" && "$LOOKUP_BASE_HAS_ITEM" == "true" ]]; then
+  pass "relation lookup baseline finds selected record"
+else
+  fail "relation lookup baseline" "expected items[] to include $ITEM_REC_ID, got type=$LOOKUP_BASE_TYPE hasItem=$LOOKUP_BASE_HAS_ITEM"
+fi
+
 http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=$ITEM_REC_ID"
 expect_status 200 "GET relation lookup with excludeIds → 200"
-LOOKUP_EXCLUDED_COUNT=$(json '.items | length')
-[[ "$LOOKUP_EXCLUDED_COUNT" == "0" ]] && pass "relation lookup excludeIds hides selected record" \
-  || fail "relation lookup excludeIds" "expected 0, got $LOOKUP_EXCLUDED_COUNT"
+LOOKUP_EXCLUDED_TYPE=$(json '.items | type')
+LOOKUP_EXCLUDED_HAS_ITEM=$(json ".items | if type == \"array\" then any(.[]; .id == \"$ITEM_REC_ID\") else true end")
+if [[ "$LOOKUP_EXCLUDED_TYPE" == "array" && "$LOOKUP_EXCLUDED_HAS_ITEM" == "false" ]]; then
+  pass "relation lookup excludeIds hides selected record"
+else
+  fail "relation lookup excludeIds" "expected items[] to omit $ITEM_REC_ID, got type=$LOOKUP_EXCLUDED_TYPE hasItem=$LOOKUP_EXCLUDED_HAS_ITEM"
+fi
+
+LOOKUP_UNUSED_ID="$BASE_ID"
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=$ITEM_REC_ID,$LOOKUP_UNUSED_ID"
+expect_status 200 "GET relation lookup with multiple excludeIds → 200"
+LOOKUP_MULTI_HAS_ITEM=$(json ".items | if type == \"array\" then any(.[]; .id == \"$ITEM_REC_ID\") else true end")
+if [[ "$LOOKUP_MULTI_HAS_ITEM" == "false" ]]; then
+  pass "relation lookup multiple excludeIds hides selected record"
+else
+  fail "relation lookup multiple excludeIds" "expected items[] to omit $ITEM_REC_ID, got hasItem=$LOOKUP_MULTI_HAS_ITEM"
+fi
 
 http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=not-a-uuid"
 expect_status 400 "GET relation lookup invalid excludeIds → 400"
+
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=$ITEM_REC_ID,not-a-uuid"
+expect_status 400 "GET relation lookup mixed invalid excludeIds → 400"
 
 http POST /api/grids/records/by-table/$ORDERS_TABLE_ID "{\"$RELATION_FIELD_ID\":[\"$ITEM_REC_ID\"]}"
 expect_status 201 "POST order with relation link → 201"
