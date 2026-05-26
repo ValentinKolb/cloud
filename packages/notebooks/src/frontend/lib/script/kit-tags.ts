@@ -8,18 +8,16 @@
  * notebooks; if the notebook grows large move this server-side
  * via a new `/tags/:tag/notes` endpoint.
  *
- * Raw-fetch for the same reason as `kit-attachments.ts`: the
- * Hono-derived `apiClient` type doesn't expose `.tags` because
- * those routes are defined on a separate chain.
  */
+import { apiClient } from "@/api/client";
 import { createKitNotesAPI } from "./kit-notes";
 import type { KitContext, KitNote, KitTagSummary, KitTagsAPI } from "./kit-types";
 
 export const createKitTagsAPI = (ctx: KitContext): KitTagsAPI => {
   const list = async (): Promise<KitTagSummary[]> => {
-    const res = await fetch(`/api/notebooks/${encodeURIComponent(ctx.notebookId)}/tags`);
+    const res = await apiClient[":id"].tags.$get({ param: { id: ctx.notebookId } });
     if (!res.ok) throw new Error("nb.tags.list: API call failed");
-    return (await res.json()) as KitTagSummary[];
+    return await res.json();
   };
 
   const notesForTag = async (tag: string): Promise<KitNote[]> => {

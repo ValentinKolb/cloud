@@ -27,6 +27,7 @@ import {
 import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
+import { apiClient } from "@/api/client";
 
 /** Lightweight attachment projection — only what the picker needs. */
 type AttRef = {
@@ -51,12 +52,9 @@ type ApiAttachment = {
 
 const attachmentCache = createNotebookFetchCache<AttRef[]>(
   async (notebookId) => {
-    // Non-paginated endpoint — returns a flat list. See
-    // `kit-attachments.ts` for why this is a raw fetch (the
-    // Hono-derived apiClient type doesn't include attachments).
-    const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/attachments`);
+    const res = await apiClient[":id"].attachments.$get({ param: { id: notebookId } });
     if (!res.ok) return [];
-    const payload = (await res.json()) as ApiAttachment[];
+    const payload = await res.json();
     return payload.map((a) => ({
       shortId: a.shortId,
       filename: a.filename,

@@ -1,4 +1,5 @@
 import { prompts } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@/api/client";
 
 type NoteResult = {
   id: string;
@@ -57,18 +58,16 @@ const runNotePrompt = async (
       const trimmed = query.trim();
       if (trimmed.length === 0) return [];
 
-      const params = new URLSearchParams({
-        q: trimmed,
-        page: "1",
-        per_page: String(PER_PAGE),
-      });
-
-      const response = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/search?${params.toString()}`, {
-        signal: abortSignal,
-      });
+      const response = await apiClient[":id"].search.$get(
+        {
+          param: { id: notebookId },
+          query: { q: trimmed, page: "1", per_page: String(PER_PAGE) },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!response.ok) return [];
 
-      const payload = (await response.json()) as SearchResponse;
+      const payload = await response.json();
       return payload.data.map((note) => ({
         value: { id: note.id, shortId: note.shortId, title: note.title },
         label: note.title,

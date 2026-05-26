@@ -2,10 +2,11 @@
  * Attachment upload + insertion helpers — single entry point for every
  * upload trigger (drag-drop, paste, slash-command modal, footer button).
  *
- * Browser-only. Uses fetch to the notebooks API (same-origin via gateway).
+ * Browser-only. Uses the typed notebooks API client (same-origin via gateway).
  */
 import { images } from "@valentinkolb/stdlib/browser";
 import type { EditorView } from "@codemirror/view";
+import { apiClient } from "../../../../api/client";
 
 // =============================================================================
 // Auto-shrink oversize images
@@ -86,15 +87,12 @@ export type Attachment = AttachmentRef & {
 export const uploadFile = async (notebookId: string, file: File): Promise<Attachment> => {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/attachments`, {
-    method: "POST",
-    body: fd,
-  });
+  const res = await apiClient[":id"].attachments.$post({ param: { id: notebookId } }, { init: { body: fd } });
   if (!res.ok) {
     const msg = await res.json().then((d: { message?: string }) => d?.message).catch(() => null);
     throw new Error(msg ?? `Upload failed (${res.status})`);
   }
-  return (await res.json()) as Attachment;
+  return await res.json();
 };
 
 /** Human-readable file size — used by picker, detail panel, overview. */

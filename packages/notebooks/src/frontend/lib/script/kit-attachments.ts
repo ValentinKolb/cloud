@@ -9,6 +9,7 @@
  * Other operations are HTTP-based and work in both modes.
  */
 import { files } from "@valentinkolb/stdlib/browser";
+import { apiClient } from "@/api/client";
 import {
   assertActive,
   type KitAttachment,
@@ -60,24 +61,15 @@ const extractAttachmentRefs = (content: string): string[] => {
 
 const READ_MODE_WRITE_ERROR = "nb.attachments.insertIntoContent is only available in edit mode";
 
-/** Raw-fetch the attachment endpoints. The Hono-derived `apiClient`
- *  type doesn't include `.attachments` because the attachment routes
- *  are defined on a separate `app.<verb>(...)` chain after the main
- *  Hono builder; the type narrowing only follows the original chain.
- *  Other islands hit these endpoints with raw fetch for the same
- *  reason — keeping kit consistent. */
-const apiBase = (notebookId: string): string =>
-  `/api/notebooks/${encodeURIComponent(notebookId)}/attachments`;
-
 export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
   const list = async (): Promise<KitAttachment[]> => {
     // The non-paginated `/:id/attachments` endpoint returns a flat
     // `Attachment[]` (via `respond(c, ok(...))`). The paginated
     // overview endpoint is a different route — we use the flat one
     // here because the runtime doesn't paginate attachments.
-    const res = await fetch(apiBase(ctx.notebookId));
+    const res = await apiClient[":id"].attachments.$get({ param: { id: ctx.notebookId } });
     if (!res.ok) throw new Error("nb.attachments.list: API call failed");
-    const payload = (await res.json()) as ApiAttachment[];
+    const payload = await res.json();
     return payload.map(toKitAttachment);
   };
 
@@ -95,10 +87,12 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     // Direct GET-by-id endpoint — O(1) lookup. Previously this did
     // a full list() + Array.find which made `for (id of ids)
     // nb.attachments.get(id)` O(N²) on notebook size.
-    const res = await fetch(`${apiBase(ctx.notebookId)}/${encodeURIComponent(shortId)}`);
+    const res = await apiClient[":id"].attachments[":attId"].$get({
+      param: { id: ctx.notebookId, attId: shortId },
+    });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error("nb.attachments.get: API call failed");
-    const att = (await res.json()) as ApiAttachment;
+    const att = await res.json();
     return toKitAttachment(att);
   };
 
@@ -108,18 +102,18 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
     if (!name) throw new Error("nb.attachments.upload: filename required for Blob inputs");
     const form = new FormData();
     form.append("file", file, name);
-    const res = await fetch(apiBase(ctx.notebookId), { method: "POST", body: form });
+    const res = await apiClient[":id"].attachments.$post({ param: { id: ctx.notebookId } }, { init: { body: form } });
     if (!res.ok) {
       let message = "nb.attachments.upload: API call failed";
       try {
-        const body = (await res.json()) as { message?: string };
+        const body = await res.json();
         if (body.message) message = `nb.attachments.upload: ${body.message}`;
       } catch {
         // Non-JSON error body — keep the generic message.
       }
       throw new Error(message);
     }
-    const att = (await res.json()) as ApiAttachment;
+    const att = await res.json();
     return toKitAttachment(att);
   };
 
@@ -160,8 +154,8 @@ export const createKitAttachmentsAPI = (ctx: KitContext): KitAttachmentsAPI => {
 
   const remove = async (shortId: string): Promise<void> => {
     assertActive(ctx);
-    const res = await fetch(`${apiBase(ctx.notebookId)}/${encodeURIComponent(shortId)}`, {
-      method: "DELETE",
+    const res = await apiClient[":id"].attachments[":attId"].$delete({
+      param: { id: ctx.notebookId, attId: shortId },
     });
     if (!res.ok) throw new Error("nb.attachments.remove: API call failed");
   };

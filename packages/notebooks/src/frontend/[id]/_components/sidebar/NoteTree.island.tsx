@@ -24,6 +24,7 @@ type Props = {
   viewMode?: "read" | "edit";
   showSearch?: boolean;
   showHeaderActions?: boolean;
+  favoriteNoteIds?: string[];
 };
 
 // =============================================================================
@@ -401,6 +402,8 @@ function TreeNode(props: {
   canWrite: boolean;
   viewMode: "read" | "edit";
   actions: ReturnType<typeof useNoteActions>;
+  favoriteNoteIds?: () => Set<string>;
+  onToggleFavorite?: (node: NoteTreeNode, event: MouseEvent) => void;
 }) {
   const [expanded, setExpanded] = createSignal(true);
   const isSelected = () => props.node.id === props.selectedNoteId();
@@ -452,6 +455,21 @@ function TreeNode(props: {
         </a>
 
         {/* Context menu */}
+        <Show when={props.onToggleFavorite}>
+          {(toggleFavorite) => (
+            <button
+              type="button"
+              class={`sidebar-item-action opacity-0 group-hover/node:opacity-100 group-focus-within/node:opacity-100 ${
+                props.favoriteNoteIds?.().has(props.node.id) ? "opacity-100 !text-amber-500 hover:!text-amber-500" : ""
+              }`}
+              title={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
+              aria-label={props.favoriteNoteIds?.().has(props.node.id) ? "Remove favorite" : "Add favorite"}
+              onClick={(event) => toggleFavorite()(props.node, event)}
+            >
+              <i class="ti ti-star text-xs" />
+            </button>
+          )}
+        </Show>
         <Show when={props.canWrite}>
           <div class="opacity-0 group-hover/node:opacity-100 transition-opacity shrink-0">
             <Dropdown
@@ -536,6 +554,8 @@ function TreeNode(props: {
               canWrite={props.canWrite}
               viewMode={props.viewMode}
               actions={props.actions}
+              favoriteNoteIds={props.favoriteNoteIds}
+              onToggleFavorite={props.onToggleFavorite}
             />
           )}
         </For>
@@ -552,6 +572,33 @@ export default function NoteTree(props: Props) {
   const actions = useNoteActions(props.notebookId, () => props.tree);
   const showHeaderActions = () => props.showHeaderActions ?? true;
   const [selectedNoteId, setSelectedNoteId] = createSignal(props.selectedNoteId);
+  const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(props.favoriteNoteIds ?? []));
+
+  const toggleFavorite = async (note: NoteTreeNode, event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const next = !favoriteNoteIds().has(note.id);
+    setFavoriteNoteIds((current) => {
+      const copy = new Set(current);
+      if (next) copy.add(note.id);
+      else copy.delete(note.id);
+      return copy;
+    });
+
+    const response = await apiClient[":id"].notes[":noteId"].favorite.$put({
+      param: { id: props.notebookId, noteId: note.shortId },
+      json: { favorite: next },
+    });
+    if (!response.ok) {
+      setFavoriteNoteIds((current) => {
+        const copy = new Set(current);
+        if (next) copy.delete(note.id);
+        else copy.add(note.id);
+        return copy;
+      });
+      void prompts.error("Failed to update favorite.");
+    }
+  };
 
   onMount(() => {
     const onSoftNavigated = (event: Event) => {
@@ -610,6 +657,8 @@ export default function NoteTree(props: Props) {
               canWrite={props.canWrite ?? false}
               viewMode={props.viewMode ?? "edit"}
               actions={actions}
+              favoriteNoteIds={favoriteNoteIds}
+              onToggleFavorite={toggleFavorite}
             />
           )}
         </For>

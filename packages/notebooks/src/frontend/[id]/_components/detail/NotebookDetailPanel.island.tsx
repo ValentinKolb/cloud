@@ -7,6 +7,7 @@ import type { Backlink } from "../../../../service/links";
 import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../../../params";
 import type { Attachment } from "../editor/attachments-client";
 import { buildAttachmentContentUrl, confirmAndDownload, formatBytes } from "../editor/attachments-client";
+import { apiClient } from "@/api/client";
 import { setDetailPanelOpen } from "../settings/NotebookSettingsStore";
 import {
   ATTACHMENTS_UPDATE_EVENT,
@@ -140,9 +141,9 @@ export default function NotebookDetailPanel(props: Props) {
   };
 
   const refetchAttachments = async () => {
-    const res = await fetch(`/api/notebooks/${encodeURIComponent(props.notebookId)}/attachments`);
+    const res = await apiClient[":id"].attachments.$get({ param: { id: props.notebookId } });
     if (!res.ok) return;
-    const list = (await res.json()) as Attachment[];
+    const list = await res.json();
     setAttachmentCache(new Map(list.map((a) => [a.shortId, a])));
   };
   const [participants, setParticipants] = createSignal<NotebookPresenceParticipant[]>([]);

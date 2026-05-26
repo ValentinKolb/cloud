@@ -26,7 +26,7 @@ export const extractAttachmentIds = (md: string | null): string[] => {
  *  or short-id, and we keep the short-id end-to-end so the rendered
  *  `<img src>` / `<a href>` stays short and copy-paste-friendly. */
 export const buildAttachmentContentUrl = (notebookId: string, attachmentIdOrShortId: string): string =>
-  `/api/notebooks/${encodeURIComponent(notebookId)}/attachments/${encodeURIComponent(attachmentIdOrShortId)}/content`;
+  `/api/notebooks/${encodeURIComponent(notebookId)}/attachments/${encodeURIComponent(attachmentIdOrShortId)}/content?v=1`;
 
 const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 

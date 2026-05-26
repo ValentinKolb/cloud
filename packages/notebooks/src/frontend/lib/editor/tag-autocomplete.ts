@@ -42,6 +42,7 @@ import {
 import { createNotebookFetchCache } from "./_lib/notebook-fetch-cache";
 import { isInsideFencedCode } from "./editor-scope";
 import { withIcon } from "./kit-autocomplete";
+import { apiClient } from "@/api/client";
 
 /** Server response shape — matches `KitTagSummary` in `kit-types.ts`. */
 type TagSummary = { tag: string; count: number };
@@ -53,9 +54,9 @@ const BARE_HASH_DELAY_MS = 500;
 
 const tagCache = createNotebookFetchCache<CachedTags>(
   async (notebookId) => {
-    const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/tags`);
+    const res = await apiClient[":id"].tags.$get({ param: { id: notebookId } });
     if (!res.ok) return EMPTY_CACHED;
-    const tags = (await res.json()) as TagSummary[];
+    const tags = await res.json();
     return { tags };
   },
   { fallback: EMPTY_CACHED },

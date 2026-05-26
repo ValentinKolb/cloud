@@ -298,7 +298,7 @@ export const reindexAttachmentRefs = async (params: { noteId: string; notebookId
  * the route `:attId` param works either way.
  */
 const buildContentUrl = (notebookId: string, idOrShortId: string) =>
-  `/api/notebooks/${notebookId}/attachments/${idOrShortId}/content`;
+  `/api/notebooks/${notebookId}/attachments/${idOrShortId}/content?v=1`;
 
 export const transformAttachments = (html: string, params: { notebookId: string; shortIdToFilename?: Map<string, string> }): string => {
   const { notebookId, shortIdToFilename } = params;

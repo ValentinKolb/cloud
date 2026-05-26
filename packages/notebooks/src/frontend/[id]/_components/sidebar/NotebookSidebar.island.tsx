@@ -146,6 +146,7 @@ export default function NotebookSidebar(props: Props) {
       viewMode={props.ctx.viewMode}
       showSearch={false}
       showHeaderActions={false}
+      favoriteNoteIds={[...favoriteNoteIds()]}
     />
   );
 

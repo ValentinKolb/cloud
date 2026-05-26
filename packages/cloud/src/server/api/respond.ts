@@ -1,9 +1,14 @@
-import type { Context } from "hono";
-import { isServiceError, type Result } from "@valentinkolb/stdlib";
+import type { Context, TypedResponse } from "hono";
+import type { StatusCode } from "hono/utils/http-status";
+import { isServiceError, type Result, type ServiceError } from "@valentinkolb/stdlib";
 
 type LegacyResult<T = void> = { ok: true; data: T } | { ok: false; error: string; status: number };
 
 type AnyResult<T = unknown> = Result<T> | LegacyResult<T>;
+type ResultOrFn<T> = T | Promise<T> | (() => T | Promise<T>);
+type SuccessStatus = 200 | 201;
+type ErrorStatus = ServiceError["status"];
+type JsonTypedResponse<T, Status extends StatusCode> = Response & TypedResponse<T, Status, "json">;
 
 type ErrorResponseBody = {
   message: string;
@@ -35,11 +40,31 @@ const toErrorResponse = (result: AnyResult): [ErrorResponseBody, number] => {
   return [{ message: "Internal server error", code: "INTERNAL" }, 500];
 };
 
-export const respond = async <T>(
+export async function respond<E extends ServiceError>(
   c: Context,
-  resultOrFn: AnyResult<T> | Promise<AnyResult<T>> | (() => AnyResult<T> | Promise<AnyResult<T>>),
-  successStatus = 200,
-) => {
+  resultOrFn: ResultOrFn<Result<never, E>>,
+  successStatus?: SuccessStatus,
+): Promise<JsonTypedResponse<ErrorResponseBody, E["status"]>>;
+export async function respond<T>(
+  c: Context,
+  resultOrFn: ResultOrFn<Result<T, never>>,
+  successStatus?: SuccessStatus,
+): Promise<JsonTypedResponse<T, SuccessStatus>>;
+export async function respond<T, E extends ServiceError>(
+  c: Context,
+  resultOrFn: ResultOrFn<Result<T, E>>,
+  successStatus?: SuccessStatus,
+): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, E["status"]>>;
+export async function respond<T>(
+  c: Context,
+  resultOrFn: ResultOrFn<AnyResult<T>>,
+  successStatus?: SuccessStatus,
+): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, ErrorStatus>>;
+export async function respond<T>(
+  c: Context,
+  resultOrFn: ResultOrFn<AnyResult<T>>,
+  successStatus: SuccessStatus = 200,
+) {
   const result = typeof resultOrFn === "function" ? await resultOrFn() : await resultOrFn;
 
   if (!result.ok) {
@@ -48,7 +73,7 @@ export const respond = async <T>(
   }
 
   return c.json(result.data, successStatus as 200 | 201);
-};
+}
 
 export const api = {
   respond,

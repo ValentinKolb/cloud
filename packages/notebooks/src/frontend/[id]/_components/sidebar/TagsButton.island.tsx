@@ -11,6 +11,7 @@
 import { prompts } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
 import { For, Show, createMemo, createResource, createSignal } from "solid-js";
+import { apiClient } from "@/api/client";
 import { buildTagPageUrl } from "../../../params";
 
 type TagSummary = {
@@ -27,9 +28,9 @@ type Props = {
 };
 
 const fetchTags = async (notebookId: string): Promise<TagSummary[]> => {
-  const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/tags`);
+  const res = await apiClient[":id"].tags.$get({ param: { id: notebookId } });
   if (!res.ok) throw new Error(`Failed to load tags (${res.status})`);
-  return (await res.json()) as TagSummary[];
+  return await res.json();
 };
 
 const TagsModal = (props: { notebookId: string; close: () => void }) => {

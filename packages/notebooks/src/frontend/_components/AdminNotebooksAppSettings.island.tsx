@@ -11,6 +11,7 @@
  */
 import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { For, Show, createResource, createSignal } from "solid-js";
+import { apiClient } from "../../api/client";
 
 type SettingEntry = {
   key: string;
@@ -23,16 +24,15 @@ type SettingEntry = {
 };
 
 const fetchSettings = async (): Promise<SettingEntry[]> => {
-  const res = await fetch("/api/notebooks/admin/settings");
+  const res = await apiClient.admin.settings.$get();
   if (!res.ok) throw new Error(`Failed to load settings (${res.status})`);
-  return (await res.json()) as SettingEntry[];
+  return await res.json();
 };
 
 const updateSetting = async (key: string, value: unknown): Promise<void> => {
-  const res = await fetch(`/api/notebooks/admin/settings/${encodeURIComponent(key)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ value }),
+  const res = await apiClient.admin.settings[":key"].$put({
+    param: { key },
+    json: { value },
   });
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -41,7 +41,7 @@ const updateSetting = async (key: string, value: unknown): Promise<void> => {
 };
 
 const runReindex = async (): Promise<void> => {
-  const res = await fetch("/api/notebooks/admin/reindex", { method: "POST" });
+  const res = await apiClient.admin.reindex.$post();
   if (!res.ok) {
     const data = (await res.json().catch(() => null)) as { message?: string } | null;
     throw new Error(data?.message ?? "Failed to submit reindex");

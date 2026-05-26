@@ -39,6 +39,7 @@ import type { Backlink } from "../../../../service/links";
 import { MAX_ATTACHMENT_SIZE_BYTES, formatBytes, insertAttachment, maybeShrinkOversizeImage, uploadAndInsert } from "./attachments-client";
 import EditorToolbar, { formattingKeymap } from "./EditorToolbar";
 import { slashCommandsExtension } from "./slash-commands";
+import { apiClient } from "@/api/client";
 
 const TOC_DEBOUNCE_MS = 300;
 const NOTE_NAV_LOADING_MIN_MS = 150;
@@ -137,12 +138,6 @@ const parseSameNotebookEditNoteUrl = (href: string, notebookId: string): SameNot
   }
 };
 
-const fetchJson = async <T,>(url: string): Promise<T> => {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-  return (await res.json()) as T;
-};
-
 export default function NoteEditor(props: Props) {
   const [current, setCurrent] = createSignal<Props>(props);
   const [isNavigating, setIsNavigating] = createSignal(false);
@@ -157,15 +152,23 @@ export default function NoteEditor(props: Props) {
   };
 
   const loadNote = async (noteShortId: string): Promise<LoadedNote | null> => {
-    const encodedNotebookId = encodeURIComponent(props.notebookId);
-    const encodedNoteId = encodeURIComponent(noteShortId);
-    const note = await fetchJson<NoteContentPayload>(`/api/notebooks/${encodedNotebookId}/notes/${encodedNoteId}/content`);
+    const noteRes = await apiClient[":id"].notes[":noteId"].content.$get({
+      param: { id: props.notebookId, noteId: noteShortId },
+    });
+    if (!noteRes.ok) throw new Error(`Request failed: ${noteRes.status}`);
+    const note = await noteRes.json();
     if (note.lockedAt) return null;
 
-    const [backlinksPayload, allAttachments] = await Promise.all([
-      fetchJson<{ data: Backlink[] }>(`/api/notebooks/${encodedNotebookId}/notes/${encodedNoteId}/backlinks`),
-      fetchJson<Attachment[]>(`/api/notebooks/${encodedNotebookId}/attachments`),
+    const [backlinksRes, attachmentsRes] = await Promise.all([
+      apiClient[":id"].notes[":noteId"].backlinks.$get({
+        param: { id: props.notebookId, noteId: noteShortId },
+      }),
+      apiClient[":id"].attachments.$get({ param: { id: props.notebookId } }),
     ]);
+    if (!backlinksRes.ok) throw new Error(`Request failed: ${backlinksRes.status}`);
+    if (!attachmentsRes.ok) throw new Error(`Request failed: ${attachmentsRes.status}`);
+    const backlinksPayload = await backlinksRes.json();
+    const allAttachments = await attachmentsRes.json();
     const attachmentIds = new Set(extractAttachmentIds(note.contentMd ?? ""));
     const attachments = allAttachments.filter((attachment) => attachmentIds.has(attachment.shortId));
     const tocItems = extractTocFromMarkdown(note.contentMd);

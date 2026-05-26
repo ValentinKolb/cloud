@@ -12,6 +12,7 @@ import { fileIcons } from "@valentinkolb/stdlib";
 import { dropzone } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { For, Show, createResource, createSignal } from "solid-js";
+import { apiClient } from "@/api/client";
 import { EDITOR_INSERT_ATTACHMENT_EVENT } from "../detail/events";
 import type { Attachment, AttachmentRef } from "./attachments-client";
 import { formatBytes, uploadFile } from "./attachments-client";
@@ -22,9 +23,9 @@ type Props = {
 };
 
 const fetchList = async (notebookId: string): Promise<Attachment[]> => {
-  const res = await fetch(`/api/notebooks/${encodeURIComponent(notebookId)}/attachments`);
+  const res = await apiClient[":id"].attachments.$get({ param: { id: notebookId } });
   if (!res.ok) throw new Error(`Failed to load attachments (${res.status})`);
-  return (await res.json()) as Attachment[];
+  return await res.json();
 };
 
 const dispatchInsert = (att: AttachmentRef) =>

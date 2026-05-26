@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
-  Checkbox,
+  CheckboxCard,
   IconInput,
   navigateTo,
   PermissionEditor,
@@ -343,33 +343,14 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
   return (
     <div class="flex flex-col gap-5">
       <div class="flex flex-col gap-2">
-        <div class="flex items-start gap-3">
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            <i class="ti ti-layout-sidebar text-sm" />
-          </div>
-          <div>
-            <h3 class="text-sm font-semibold text-primary">Navigation layout</h3>
-            <p class="text-xs text-dimmed">Stored for this browser. Reloads render the same layout from SSR.</p>
-          </div>
-        </div>
         <ViewSection notebook={props.notebook} />
       </div>
 
-      <div class="h-px bg-zinc-200/70 dark:bg-zinc-800" />
-
       <div class="flex flex-col gap-3">
-        <div class="flex items-start gap-3">
-          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-            <i class="ti ti-code text-sm" />
-          </div>
-          <div>
-            <h3 class="text-sm font-semibold text-primary">Scripting</h3>
-            <p class="text-xs text-dimmed">Notebook-level script execution. Admin only.</p>
-          </div>
-        </div>
-        <Checkbox
+        <CheckboxCard
           label="Enable script blocks"
           description="Allows ```script fences to run JavaScript in this notebook."
+          icon="ti ti-code"
           value={enabled}
           onChange={setScriptsEnabled}
           disabled={!props.isAdmin || mutation.loading()}

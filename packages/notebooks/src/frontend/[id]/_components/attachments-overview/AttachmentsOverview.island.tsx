@@ -15,6 +15,7 @@ import { fileIcons } from "@valentinkolb/stdlib";
 import { clipboard } from "@valentinkolb/stdlib/browser";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { For, Show, createSignal } from "solid-js";
+import { apiClient } from "@/api/client";
 import {
   type Attachment,
   attachmentMarkdown,
@@ -52,16 +53,14 @@ const AttachmentsOverview = (props: Props) => {
   };
 
   const onDelete = async (att: Attachment) => {
-    const usageRes = await fetch(
-      `/api/notebooks/${encodeURIComponent(props.notebookId)}/attachments/${
-        att.id
-      }/usage`
-    );
+    const usageRes = await apiClient[":id"].attachments[":attId"].usage.$get({
+      param: { id: props.notebookId, attId: att.shortId },
+    });
     if (!usageRes.ok) {
       await prompts.error("Failed to check attachment usage");
       return;
     }
-    const { count } = (await usageRes.json()) as { count: number };
+    const { count } = await usageRes.json();
 
     const message =
       count > 0
@@ -78,14 +77,9 @@ const AttachmentsOverview = (props: Props) => {
     });
     if (!ok) return;
 
-    const delRes = await fetch(
-      `/api/notebooks/${encodeURIComponent(props.notebookId)}/attachments/${
-        att.id
-      }`,
-      {
-        method: "DELETE",
-      }
-    );
+    const delRes = await apiClient[":id"].attachments[":attId"].$delete({
+      param: { id: props.notebookId, attId: att.shortId },
+    });
     if (!delRes.ok) {
       const data = (await delRes.json().catch(() => null)) as {
         message?: string;

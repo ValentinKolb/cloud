@@ -274,16 +274,13 @@ const requireNoteInNotebook = async (notebookId: string, noteIdOrShortId: string
   return ok(note);
 };
 
-const fileTooLarge = (maxBytes: number) =>
-  new Response(
-    JSON.stringify({
+const fileTooLarge = (c: Context, maxBytes: number) =>
+  c.json(
+    {
       message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`,
       code: "PAYLOAD_TOO_LARGE",
-    }),
-    {
-      status: 413,
-      headers: { "Content-Type": "application/json" },
     },
+    413,
   );
 
 // ==========================
@@ -1306,7 +1303,7 @@ const app = new Hono<AuthContext>()
 // Attachments — file/image blobs stored as bytea, FK to notebook (CASCADE)
 // =============================================================================
 
-app
+const appWithAttachments = app
   // Upload — multipart with `file` field
   .post(
     "/:id/attachments",
@@ -1333,14 +1330,14 @@ app
       const maxBytes = await getMaxAttachmentSizeBytes();
       const contentLength = Number(c.req.header("content-length") ?? 0);
       if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-        return fileTooLarge(maxBytes);
+        return fileTooLarge(c, maxBytes);
       }
 
       const form = await c.req.formData().catch(() => null);
       const file = form?.get("file");
       if (!(file instanceof File)) return respond(c, fail(err.badInput("Missing 'file' field")));
       if (file.size > maxBytes) {
-        return fileTooLarge(maxBytes);
+        return fileTooLarge(c, maxBytes);
       }
 
       const content = new Uint8Array(await file.arrayBuffer());
@@ -1419,7 +1416,7 @@ app
           "Content-Type": contentType,
           "Content-Disposition": disposition,
           "X-Content-Type-Options": "nosniff",
-          "Cache-Control": "private, max-age=300",
+          "Cache-Control": "no-store",
         },
       });
     },
@@ -1517,7 +1514,7 @@ const TagSummarySchema = z.object({
   count: z.number().int(),
 });
 
-app.get(
+const appWithTags = appWithAttachments.get(
   "/:id/tags",
   describeRoute({
     tags: ["Notebooks"],
@@ -1556,7 +1553,7 @@ const LimitsSchema = z.object({
   maxImageDimensionPx: z.number().int().positive(),
 });
 
-app.get(
+const appWithLimits = appWithTags.get(
   "/limits",
   describeRoute({
     tags: ["Notebooks"],
@@ -1606,7 +1603,7 @@ const requireAdmin = (c: Context<AuthContext>) => {
   return null;
 };
 
-app
+const appWithAdmin = appWithLimits
   // List all notebooks-namespaced settings
   .get(
     "/admin/settings",
@@ -1690,5 +1687,5 @@ app
     },
   );
 
-export default app;
-export type ApiType = typeof app;
+export default appWithAdmin;
+export type ApiType = typeof appWithAdmin;
