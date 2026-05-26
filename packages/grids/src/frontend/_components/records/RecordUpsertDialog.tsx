@@ -89,7 +89,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
         const [errors, setErrors] = createSignal<Record<string, string>>({});
 
         const update = (id: string, v: unknown) => {
-          setValues({ ...values(), [id]: v });
+          setValues((current) => ({ ...current, [id]: v }));
           // Clear the error on user touch — let server-side feedback be
           // the authoritative re-check, but don't keep a stale red banner
           // visible while they're typing.

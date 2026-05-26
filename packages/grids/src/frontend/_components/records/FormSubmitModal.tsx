@@ -34,7 +34,7 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
 
-  const setValue = (fieldId: string, v: unknown) => setValues({ ...values(), [fieldId]: v });
+  const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
