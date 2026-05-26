@@ -647,26 +647,26 @@ const CHART_TYPE_INFO: Record<ChartWidget["chartType"], { title: string; body: s
   donut: {
     title: "Donut chart",
     body: "Use this when you want to show parts of one total, for example tasks by status or revenue by product group.",
-    requirement: "The source view needs Group by for the slices and one Aggregation for the slice size.",
-    example: "Example: Group by Status, Aggregation Count.",
+    requirement: "The source view must group rows into slices and include one summary value for the slice size.",
+    example: "Example: group by Status, summarize with Count.",
   },
   bar: {
     title: "Bar chart",
     body: "Use this when you want to compare categories side by side, for example sales per month or tickets per team.",
-    requirement: "The source view needs Group by for the bars and one Aggregation for the bar height.",
-    example: "Example: Group by Month, Aggregation Sum Amount.",
+    requirement: "The source view must group rows into bars and include one summary value for the bar height.",
+    example: "Example: group by Month, summarize Amount with Sum.",
   },
   line: {
     title: "Line chart",
     body: "Use this when you want to show change over time or another ordered list, for example monthly income.",
-    requirement: "The source view needs Group by for the x-axis and one or more Aggregations for the lines.",
-    example: "Example: Group by Month, Aggregation Sum Amount.",
+    requirement: "The source view must group rows for the x-axis and include one or more summary values for the lines.",
+    example: "Example: group by Month, summarize Amount with Sum.",
   },
   scatter: {
     title: "Scatter chart",
     body: "Use this when you want to compare two numbers for each category, for example hours spent vs revenue.",
-    requirement: "The source view needs Group by and at least two Aggregations. The first Aggregation is X, the second is Y.",
-    example: "Example: Group by Customer, Aggregations Sum Hours and Sum Revenue.",
+    requirement: "The source view must group rows and include at least two summary values. The first value is X, the second is Y.",
+    example: "Example: group by Customer, summarize Hours and Revenue with Sum.",
   },
 };
 
@@ -1066,8 +1066,8 @@ function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]
       .flat()
       .find((candidate) => candidate.id === widget.viewId);
     if (!view) return "Pick an existing source view.";
-    if (!isChartReadyView(view)) return "Chart views need Group by and Aggregation.";
-    if (widget.chartType === "scatter" && (view.query.aggregations?.length ?? 0) < 2) return "Scatter needs two Aggregations.";
+    if (!isChartReadyView(view)) return "Chart views need grouped rows and at least one summary value.";
+    if (widget.chartType === "scatter" && (view.query.aggregations?.length ?? 0) < 2) return "Scatter needs two summary values.";
   }
   if (widget.kind === "link") {
     if (widget.target.kind === "url") {

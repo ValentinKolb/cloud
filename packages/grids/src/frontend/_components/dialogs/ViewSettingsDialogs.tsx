@@ -7,7 +7,7 @@ import type { Field, View } from "../../../service";
 import type { ViewQuery } from "../../../service/views";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
-import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
+import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 type Props = {
   baseShortId: string;
@@ -31,35 +31,38 @@ type Props = {
 };
 
 export const openViewSettingsDialog = (props: Props) =>
-  dialogCore.open<void>(
-    (close) => (
-      <GridsBareDialog title={`View settings — ${props.initialView.name}`} icon="ti ti-table-spark" close={() => close()}>
-        <ViewSettingsBody {...props} />
-      </GridsBareDialog>
-    ),
-    gridsBareDialogOptions,
-  );
+  dialogCore.open<void>((close) => <ViewSettingsDialog props={props} close={close} />, gridsBareDialogOptions);
 
-function ViewSettingsBody(props: Props) {
+function ViewSettingsDialog(props: { props: Props; close: () => void }) {
+  const [dirty, setDirty] = createSignal(false);
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  return (
+    <GridsBareDialog title={`View settings — ${props.props.initialView.name}`} icon="ti ti-table-spark" close={closeIfClean}>
+      <ViewSettingsBody {...props.props} onDirtyChange={setDirty} />
+    </GridsBareDialog>
+  );
+}
+
+function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => void }) {
   const isGrouped = (props.initialView.query.groupBy ?? []).length > 0;
   return (
     <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-      <GeneralSection viewId={props.initialView.id} initial={props.initialView} tableName={props.tableName} />
+      <GeneralSection
+        viewId={props.initialView.id}
+        initial={props.initialView}
+        tableName={props.tableName}
+        onDirtyChange={props.onDirtyChange}
+      />
 
       <QuerySnapshotSection query={props.initialView.query} fields={props.fields} isGrouped={isGrouped} />
 
-      <SectionCard
-        title="Permissions"
-        subtitle="Grant read access on this view to specific users or groups. Only Read is offered — views are saved queries; there's no Write or Admin level for them."
-      >
+      <SectionCard title="Permissions" subtitle="Choose who can open this view. Views only support View access.">
         <ViewPermissions viewId={props.initialView.id} initialEntries={props.initialAccessEntries} canEdit={props.canEditAccess} />
       </SectionCard>
 
-      <SectionCard
-        title="Danger zone"
-        subtitle="Permanently delete this view. Records remain — only the saved filter / sort / columns go away."
-        variant="danger"
-      >
+      <SectionCard title="Danger zone" subtitle="Delete this view. Records remain; only this saved setup is removed." variant="danger">
         <DeleteButton
           viewId={props.initialView.id}
           baseShortId={props.baseShortId}
@@ -75,7 +78,7 @@ function ViewSettingsBody(props: Props) {
 // General — name + shared
 // =============================================================================
 
-function GeneralSection(props: { viewId: string; initial: View; tableName: string }) {
+function GeneralSection(props: { viewId: string; initial: View; tableName: string; onDirtyChange?: (dirty: boolean) => void }) {
   const [name, setName] = createSignal(props.initial.name);
   const [icon, setIcon] = createSignal(props.initial.icon ?? "");
   const [shared, setShared] = createSignal(props.initial.ownerUserId === null);
@@ -86,6 +89,7 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
     (v: T) => {
       setter(v);
       setDirty(true);
+      props.onDirtyChange?.(true);
     };
 
   const mut = mutations.create<View, void>({
@@ -97,7 +101,10 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
       return (await res.json()) as View;
     },
-    onSuccess: () => setDirty(false),
+    onSuccess: () => {
+      setDirty(false);
+      props.onDirtyChange?.(false);
+    },
     onError: (e) => prompts.error(e.message),
   });
 
@@ -107,7 +114,7 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
       <IconInput label="Icon" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
       <Checkbox
         label="Shared view"
-        description={`A shared view is automatically visible to all users with reading permission on the table ${props.tableName}, unless a permission below blocks them. A private view is visible to the owner and to users or groups granted below.`}
+        description={`Visible to users who can read ${props.tableName}. Permissions below can narrow access.`}
         value={shared}
         onChange={wrap(setShared)}
       />
@@ -137,8 +144,8 @@ function QuerySnapshotSection(props: { query: ViewQuery; fields: Field[]; isGrou
   const structureItems = createMemo(() => items().filter((item) => item.group === "structure"));
   return (
     <SectionCard
-      title="Query snapshot"
-      subtitle="Saved views keep their current filter, search, sort, grouping, and aggregations as a stable snapshot."
+      title="Saved view setup"
+      subtitle="This view saves its current search, filters, sorting, groups, summary values, and columns."
       meta={props.isGrouped ? "Grouped view" : "Record view"}
     >
       <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -146,8 +153,7 @@ function QuerySnapshotSection(props: { query: ViewQuery; fields: Field[]; isGrou
         <SnapshotGroup title="Structure" items={structureItems()} />
       </div>
       <p class="text-[11px] leading-snug text-dimmed">
-        This page edits the view name, visibility, and permissions. To change filters, search, sort, grouping, or aggregations, open the
-        records page and save the adjusted query as a new view.
+        This page edits the view name, visibility, and permissions. To change the saved setup, open the records page and save a new view.
       </p>
     </SectionCard>
   );
@@ -280,10 +286,10 @@ const querySnapshotItems = (query: ViewQuery, fields: Field[]): SnapshotItem[] =
       group: "structure",
     },
     {
-      label: "Aggregations",
+      label: "Summary values",
       value: joinNames(
         aggregations.map((a) => aggregationName(fieldsById, a)),
-        "No aggregations",
+        "No summary values",
       ),
       icon: "ti ti-math-function",
       group: "structure",

@@ -1,7 +1,6 @@
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
-  DialogHeader,
   dialogCore,
   IconInput,
   PermissionEditor,
@@ -26,6 +25,7 @@ import {
   isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
+import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
 import DashboardLayout from "./DashboardLayout";
@@ -238,7 +238,7 @@ export default function DashboardWysiwygEditor(props: Props) {
         kind === "form"
           ? "Create a form before adding a form widget."
           : kind === "chart"
-            ? "Create a view with Group by and Aggregation first."
+            ? "Create a grouped view with at least one summary value first."
             : "Create a view before adding this widget.",
       );
       return;
@@ -346,29 +346,33 @@ const pruneWidgetData = (current: Record<string, WidgetData>, config: DashboardC
 };
 
 const chooseCellKind = () =>
-  prompts.dialog<Widget["kind"]>(
+  dialogCore.open<Widget["kind"] | undefined>(
     (close) => (
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <For each={CELL_KIND_OPTIONS}>
-          {(opt) => (
-            <button
-              type="button"
-              class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-zinc-900"
-              onClick={() => close(opt.id)}
-            >
-              <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                <i class={opt.icon} />
-              </span>
-              <span class="min-w-0">
-                <span class="block font-semibold text-primary">{opt.label}</span>
-                <span class="mt-0.5 block text-xs text-dimmed">{opt.description}</span>
-              </span>
-            </button>
-          )}
-        </For>
-      </div>
+      <GridsBareDialog title="Add cell" icon="ti ti-plus" close={() => close(undefined)}>
+        <div class="min-h-0 overflow-y-auto">
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <For each={CELL_KIND_OPTIONS}>
+              {(opt) => (
+                <button
+                  type="button"
+                  class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  onClick={() => close(opt.id)}
+                >
+                  <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                    <i class={opt.icon} />
+                  </span>
+                  <span class="min-w-0">
+                    <span class="block font-semibold text-primary">{opt.label}</span>
+                    <span class="mt-0.5 block text-xs text-dimmed">{opt.description}</span>
+                  </span>
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
+      </GridsBareDialog>
     ),
-    { title: "Add cell", surface: "bare", header: false, size: "medium" },
+    gridsBareDialogOptions,
   );
 
 const ROW_HEIGHT_OPTIONS: Array<{ id: DashboardRow["height"]; label: string; description: string; icon: string }> = [
@@ -380,23 +384,27 @@ const ROW_HEIGHT_OPTIONS: Array<{ id: DashboardRow["height"]; label: string; des
 type RowSettingsResult = { action: "save"; height: DashboardRow["height"] } | { action: "delete" };
 
 const openRowSettingsDialog = (current: DashboardRow["height"]) =>
-  prompts.dialog<RowSettingsResult>(
-    (close) => {
-      const [height, setHeight] = createSignal<DashboardRow["height"]>(current);
-      return (
-        <div class="flex flex-col gap-4">
-          <Select
-            label="Row height"
-            value={height}
-            onChange={(value) => setHeight(value as DashboardRow["height"])}
-            options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
-          />
-          <footer class="flex items-center gap-2">
+  dialogCore.open<RowSettingsResult | undefined>((close) => {
+    const [height, setHeight] = createSignal<DashboardRow["height"]>(current);
+    return (
+      <GridsBareDialog title="Row settings" icon="ti ti-settings" close={() => close(undefined)}>
+        <div class="flex min-h-0 flex-1 flex-col gap-2">
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <section class="paper p-4">
+              <Select
+                label="Row height"
+                value={height}
+                onChange={(value) => setHeight(value as DashboardRow["height"])}
+                options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
+              />
+            </section>
+          </div>
+          <footer class="paper flex shrink-0 items-center gap-2 p-4">
             <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
               <i class="ti ti-trash" /> Delete row
             </button>
             <div class="ml-auto flex items-center gap-2">
-              <button type="button" class="btn-input btn-sm" onClick={() => close()}>
+              <button type="button" class="btn-input btn-sm" onClick={() => close(undefined)}>
                 Cancel
               </button>
               <button type="button" class="btn-primary btn-sm" onClick={() => close({ action: "save", height: height() })}>
@@ -405,10 +413,9 @@ const openRowSettingsDialog = (current: DashboardRow["height"]) =>
             </div>
           </footer>
         </div>
-      );
-    },
-    { title: "Row settings", icon: "ti ti-settings", size: "small" },
-  );
+      </GridsBareDialog>
+    );
+  }, gridsBareDialogOptions);
 
 function openDashboardGeneralDialog(props: {
   dashboard: Dashboard;
@@ -417,17 +424,25 @@ function openDashboardGeneralDialog(props: {
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
 }) {
-  return dialogCore.open<void>(
-    (close) => (
-      <div class="flex max-h-[86vh] min-h-0 flex-col gap-4">
-        <DialogHeader title={`Dashboard settings — ${props.dashboard.name}`} icon="ti ti-layout-dashboard" close={() => close()} />
-        <DashboardGeneralBody {...props} close={() => close()} />
-      </div>
-    ),
-    {
-      panelClassName:
-        "fixed left-1/2 top-1/2 m-0 flex w-[min(94vw,56rem)] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl bg-white p-4 text-zinc-900 shadow-xl ring-1 ring-zinc-200 dark:bg-zinc-950 dark:text-zinc-100 dark:ring-zinc-800 backdrop:bg-black/45 backdrop:backdrop-blur-sm",
-    },
+  return dialogCore.open<void>((close) => <DashboardGeneralDialog {...props} close={close} />, gridsBareDialogOptions);
+}
+
+function DashboardGeneralDialog(props: {
+  dashboard: Dashboard;
+  isBaseDefault: boolean;
+  baseShortId: string;
+  initialAccessEntries: AccessEntry[];
+  canEditAccess: boolean;
+  close: () => void;
+}) {
+  const [dirty, setDirty] = createSignal(false);
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  return (
+    <GridsBareDialog title={`Dashboard settings — ${props.dashboard.name}`} icon="ti ti-layout-dashboard" close={closeIfClean}>
+      <DashboardGeneralBody {...props} onDirtyChange={setDirty} close={closeIfClean} />
+    </GridsBareDialog>
   );
 }
 
@@ -438,6 +453,7 @@ function DashboardGeneralBody(props: {
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
   close: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [name, setName] = createSignal(props.dashboard.name);
   const [description, setDescription] = createSignal(props.dashboard.description ?? "");
@@ -449,6 +465,7 @@ function DashboardGeneralBody(props: {
     (value: T) => {
       setter(value);
       setDirty(true);
+      props.onDirtyChange?.(true);
     };
 
   const saveMut = mutations.create<Dashboard, void>({
@@ -463,6 +480,7 @@ function DashboardGeneralBody(props: {
     },
     onSuccess: () => {
       setDirty(false);
+      props.onDirtyChange?.(false);
       toast.success("Dashboard settings saved");
       refreshCurrentPath();
     },
@@ -480,7 +498,7 @@ function DashboardGeneralBody(props: {
           </div>
           <Checkbox
             label="Shared dashboard"
-            description="A shared dashboard is visible to users with base access, unless a permission below narrows access."
+            description="Visible to users who can open this base. Permissions below can narrow access."
             value={shared}
             onChange={wrap(setShared)}
           />
@@ -489,7 +507,7 @@ function DashboardGeneralBody(props: {
           </Show>
         </SectionCard>
 
-        <SectionCard title="Permissions" subtitle="Grant read access on this dashboard to specific users or groups. Only Read is offered.">
+        <SectionCard title="Permissions" subtitle="Choose who can open this dashboard. Dashboards only support View access.">
           <DashboardPermissions
             dashboardId={props.dashboard.id}
             initialEntries={props.initialAccessEntries}

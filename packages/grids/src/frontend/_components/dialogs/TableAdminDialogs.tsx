@@ -8,28 +8,39 @@ import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
-import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
+import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
   initialAccessEntries: AccessEntry[];
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
-}) =>
-  dialogCore.open<void>(
-    (close) => (
-      <GridsBareDialog title={`Table settings — ${args.table.name}`} icon="ti ti-settings" close={() => close()}>
-        <TableSettingsBody
-          table={args.table}
-          initialAccessEntries={args.initialAccessEntries}
-          onSaved={args.onSaved}
-          onDeleted={args.onDeleted}
-          onCancel={() => close()}
-        />
-      </GridsBareDialog>
-    ),
-    gridsBareDialogOptions,
+}) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, gridsBareDialogOptions);
+
+function TableSettingsDialog(props: {
+  args: { table: TableHeader; initialAccessEntries: AccessEntry[]; onSaved: (table: Table) => void; onDeleted?: () => void };
+  close: () => void;
+}) {
+  const [dirty, setDirty] = createSignal(false);
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  return (
+    <GridsBareDialog title={`Table settings — ${props.args.table.name}`} icon="ti ti-settings" close={closeIfClean}>
+      <TableSettingsBody
+        table={props.args.table}
+        initialAccessEntries={props.args.initialAccessEntries}
+        onDirtyChange={setDirty}
+        onSaved={(table) => {
+          setDirty(false);
+          props.args.onSaved(table);
+        }}
+        onDeleted={props.args.onDeleted}
+        onCancel={closeIfClean}
+      />
+    </GridsBareDialog>
   );
+}
 
 export const createFieldFromPrompt = async (args: { table: TableHeader }): Promise<Field | null> => {
   const type = await chooseFieldType();
@@ -219,6 +230,7 @@ function TableSettingsBody(props: {
   initialAccessEntries: AccessEntry[];
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = createSignal(props.table.name);
@@ -231,6 +243,7 @@ function TableSettingsBody(props: {
     (v: T) => {
       setter(v);
       setDirty(true);
+      props.onDirtyChange?.(true);
     };
 
   const saveMut = mutations.create<Table, void>({
@@ -251,6 +264,7 @@ function TableSettingsBody(props: {
     },
     onSuccess: (next) => {
       setDirty(false);
+      props.onDirtyChange?.(false);
       props.onSaved(next);
     },
     onError: (e) => prompts.error(e.message),
@@ -269,10 +283,11 @@ function TableSettingsBody(props: {
   });
 
   const deleteTable = async () => {
-    const ok = await prompts.confirm(
-      `Permanently delete "${name()}" and all of its fields, records, files, and audit history. This cannot be undone.`,
-      { title: "Delete table?", variant: "danger", confirmText: "Delete" },
-    );
+    const ok = await prompts.confirm(`Delete "${name()}" and move its fields, records, files, and audit history out of the active app.`, {
+      title: "Delete table?",
+      variant: "danger",
+      confirmText: "Delete",
+    });
     if (ok) deleteMut.mutate(undefined);
   };
 
@@ -302,8 +317,8 @@ function TableSettingsBody(props: {
               placeholder="Optional"
             />
             <Checkbox
-              label="Use forms for new records"
-              description="Users add records through forms by default. Admins can still manage table structure here."
+              label="Add records through forms"
+              description="New records use forms by default. Admins can still edit the table directly."
               value={disableDirectInsert}
               onChange={wrap(setDisableDirectInsert)}
             />
@@ -317,7 +332,7 @@ function TableSettingsBody(props: {
             </span>
             <div>
               <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Permissions</h3>
-              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">Table grants override base grants for this table.</p>
+              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">These permissions apply only to this table.</p>
             </div>
           </header>
           <TablePermissions tableId={props.table.id} initialEntries={props.initialAccessEntries} />
@@ -330,7 +345,7 @@ function TableSettingsBody(props: {
             </span>
             <div>
               <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-red-500">Danger zone</h3>
-              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">Delete the table and all dependent data.</p>
+              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">Remove this table from the active app.</p>
             </div>
           </header>
           <button type="button" class="btn-danger btn-sm" onClick={deleteTable} disabled={deleteMut.loading()}>

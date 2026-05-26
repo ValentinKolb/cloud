@@ -1,8 +1,9 @@
-import { Checkbox, DialogHeader, dialogCore, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, dialogCore, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createSignal, Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormatSpec } from "../../../service/views";
 import { TYPE_LABELS } from "../fields/field-config-editor";
+import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 type ViewColumnSettingsResult = { action: "save"; label: string | undefined; format: FormatSpec | undefined } | { action: "hide" };
 
@@ -21,7 +22,10 @@ type FormulaFormatChoice = "default" | "number" | "percent" | "date" | "progress
 export type ColumnFormatControlsHandle = { value: () => FormatSpec | undefined };
 
 export const openViewColumnSettingsDialog = (args: Args) =>
-  dialogCore.open<ViewColumnSettingsResult | null>((close) => <ViewColumnSettingsDialog args={args} close={close} />);
+  dialogCore.open<ViewColumnSettingsResult | null>(
+    (close) => <ViewColumnSettingsDialog args={args} close={close} />,
+    gridsBareDialogOptions,
+  );
 
 function ViewColumnSettingsDialog(props: { args: Args; close: (result: ViewColumnSettingsResult | null) => void }) {
   const [label, setLabel] = createSignal(props.args.currentLabel ?? "");
@@ -35,41 +39,46 @@ function ViewColumnSettingsDialog(props: { args: Args; close: (result: ViewColum
     });
 
   return (
-    <div class="flex flex-col gap-4">
-      <DialogHeader title={`Column — ${props.args.title}`} icon="ti ti-settings" close={() => props.close(null)} />
+    <GridsBareDialog title={`Column — ${props.args.title}`} icon="ti ti-settings" close={() => props.close(null)}>
+      <div class="flex min-h-0 flex-1 flex-col gap-2">
+        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+          <section class="paper p-4">
+            <div class="flex flex-col gap-4">
+              <TextInput
+                label="Column name"
+                description="Shown in this view. Empty uses the generated name."
+                placeholder={props.args.labelPlaceholder}
+                icon="ti ti-heading"
+                value={label}
+                onInput={setLabel}
+                clearable
+              />
 
-      <TextInput
-        label="Column name"
-        description="Shown in this view. Empty uses the generated name."
-        placeholder={props.args.labelPlaceholder}
-        icon="ti ti-heading"
-        value={label}
-        onInput={setLabel}
-        clearable
-      />
-
-      <ColumnFormatControls
-        field={props.args.formatField}
-        currentFormat={props.args.currentFormat}
-        expose={(handle) => {
-          formatControls = handle;
-        }}
-      />
-
-      <div class="flex items-center justify-between gap-4 pt-1">
-        <button type="button" class="btn-danger btn-sm" onClick={() => props.close({ action: "hide" })}>
-          <i class="ti ti-eye-off" /> {props.args.hideLabel}
-        </button>
-        <div class="flex items-center gap-2">
-          <button type="button" class="btn-input btn-input-sm" onClick={() => props.close(null)}>
-            Cancel
+              <ColumnFormatControls
+                field={props.args.formatField}
+                currentFormat={props.args.currentFormat}
+                expose={(handle) => {
+                  formatControls = handle;
+                }}
+              />
+            </div>
+          </section>
+        </div>
+        <div class="paper flex shrink-0 items-center justify-between gap-4 p-4">
+          <button type="button" class="btn-danger btn-sm" onClick={() => props.close({ action: "hide" })}>
+            <i class="ti ti-eye-off" /> {props.args.hideLabel}
           </button>
-          <button type="button" class="btn-primary btn-sm" onClick={save}>
-            Save
-          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-input btn-input-sm" onClick={() => props.close(null)}>
+              Cancel
+            </button>
+            <button type="button" class="btn-primary btn-sm" onClick={save}>
+              Save
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </GridsBareDialog>
   );
 }
 

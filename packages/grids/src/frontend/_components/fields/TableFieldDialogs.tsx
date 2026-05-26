@@ -5,7 +5,7 @@ import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
-import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
@@ -52,29 +52,36 @@ type OpenFieldEditArgs = {
 };
 
 export const openFieldEditDialog = (args: OpenFieldEditArgs): Promise<void> =>
-  dialogCore.open<void>(
-    (close) => (
-      <GridsBareDialog title={`Edit field — ${args.field.name}`} icon="ti ti-pencil" close={() => close()}>
-        <FieldEditor
-          field={args.field}
-          otherTables={args.otherTables}
-          fieldsByTable={args.fieldsByTable}
-          tableColumns={args.tableColumns}
-          onSaved={(next) => {
-            args.onSaved(next);
-            close();
-          }}
-          onTableColumnsSaved={args.onTableColumnsSaved}
-          onDeleted={async () => {
-            await args.onDeleted();
-            close();
-          }}
-          onCancel={() => close()}
-        />
-      </GridsBareDialog>
-    ),
-    gridsBareDialogOptions,
+  dialogCore.open<void>((close) => <FieldEditDialog args={args} close={close} />, gridsBareDialogOptions);
+
+function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) {
+  const [dirty, setDirty] = createSignal(false);
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  return (
+    <GridsBareDialog title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean}>
+      <FieldEditor
+        field={props.args.field}
+        otherTables={props.args.otherTables}
+        fieldsByTable={props.args.fieldsByTable}
+        tableColumns={props.args.tableColumns}
+        onDirtyChange={setDirty}
+        onSaved={(next) => {
+          setDirty(false);
+          props.args.onSaved(next);
+          props.close();
+        }}
+        onTableColumnsSaved={props.args.onTableColumnsSaved}
+        onDeleted={async () => {
+          await props.args.onDeleted();
+          props.close();
+        }}
+        onCancel={closeIfClean}
+      />
+    </GridsBareDialog>
   );
+}
 
 // =============================================================================
 // FieldEditor — body of the field-edit modal
@@ -88,6 +95,7 @@ function FieldEditor(props: {
   onSaved: (next: Field) => void;
   onTableColumnsSaved?: (columns: ColumnSpec[]) => void;
   onDeleted: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   /** Optional cancel handler — only set when the editor is rendered
    *  inside a dialog. The footer adds a "Cancel" button next to Save
    *  so users have a clear way out without triggering a save. */
@@ -125,6 +133,7 @@ function FieldEditor(props: {
     (v: T) => {
       setter(v);
       setDirty(true);
+      props.onDirtyChange?.(true);
     };
 
   const cleanColumn = (column: ColumnSpec): ColumnSpec => ({
@@ -181,6 +190,7 @@ function FieldEditor(props: {
     },
     onSuccess: (next) => {
       setDirty(false);
+      props.onDirtyChange?.(false);
       if (next.tableColumns) props.onTableColumnsSaved?.(next.tableColumns);
       props.onSaved(next.field);
     },
@@ -258,8 +268,8 @@ function FieldEditor(props: {
               onChange={wrap(setRequired)}
             />
             <CheckboxCard
-              label="Presentable"
-              description="Use this field in relation labels and pickers."
+              label="Use as record label"
+              description="Show this field when another table links to this record."
               icon="ti ti-tag"
               value={presentable}
               onChange={wrap(setPresentable)}
@@ -298,7 +308,7 @@ function FieldEditor(props: {
             icon="ti ti-table"
           >
             <TextInput
-              label="Column label override"
+              label="Table column name"
               description="Empty uses the field name."
               value={columnLabel}
               onInput={wrap(setColumnLabel)}
@@ -314,7 +324,10 @@ function FieldEditor(props: {
               expose={(handle) => {
                 formatControls = handle;
               }}
-              onChange={() => setDirty(true)}
+              onChange={() => {
+                setDirty(true);
+                props.onDirtyChange?.(true);
+              }}
             />
           </FieldEditorSection>
         </Show>
@@ -345,7 +358,7 @@ function FieldEditor(props: {
               }
             >
               <Select
-                label="Default mode"
+                label="Default value"
                 value={dateDefaultMode}
                 onChange={(v) => {
                   const mode = (v as "none" | "fixed" | "now" | null) ?? "none";
@@ -355,7 +368,7 @@ function FieldEditor(props: {
                 options={[
                   { id: "none", label: "None" },
                   { id: "fixed", label: "Fixed date" },
-                  { id: "now", label: "Current date on create" },
+                  { id: "now", label: "Current date when created" },
                 ]}
               />
               <Show when={dateDefaultMode() === "fixed"}>
@@ -386,6 +399,7 @@ function FieldEditor(props: {
             onChange={(next) => {
               setConfig(next);
               setDirty(true);
+              props.onDirtyChange?.(true);
             }}
             otherTables={props.otherTables}
             fieldsByTable={props.fieldsByTable}

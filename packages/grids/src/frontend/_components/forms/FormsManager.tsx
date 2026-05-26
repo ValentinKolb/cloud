@@ -16,7 +16,7 @@ import { createMemo, createSignal, For, Index, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import type { FormConfig, FormFieldEntry } from "../../../service/forms";
-import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { TYPE_LABELS } from "../fields/field-config-editor";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
@@ -48,29 +48,45 @@ export const openFormEditorDialog = (args: {
   canManageAccess: boolean;
   onSaved?: (next: Form) => void;
   onDelete?: () => Promise<void> | void;
-}) =>
-  dialogCore.open<void>(
-    (close) => (
-      <GridsBareDialog title={`Edit form — ${args.form.name}`} icon="ti ti-forms" close={() => close()}>
-        <FormEditor
-          form={args.form}
-          tableFields={args.tableFields}
-          initialAccessEntries={args.initialAccessEntries ?? []}
-          canManageAccess={args.canManageAccess}
-          onSaved={(next) => {
-            args.onSaved?.(next);
-            close();
-          }}
-          onDelete={async () => {
-            await args.onDelete?.();
-            close();
-          }}
-          onCancel={() => close()}
-        />
-      </GridsBareDialog>
-    ),
-    gridsBareDialogOptions,
+}) => dialogCore.open<void>((close) => <FormEditorDialog args={args} close={close} />, gridsBareDialogOptions);
+
+function FormEditorDialog(props: {
+  args: {
+    form: Form;
+    tableFields: Field[];
+    initialAccessEntries?: AccessEntry[];
+    canManageAccess: boolean;
+    onSaved?: (next: Form) => void;
+    onDelete?: () => Promise<void> | void;
+  };
+  close: () => void;
+}) {
+  const [dirty, setDirty] = createSignal(false);
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  return (
+    <GridsBareDialog title={`Edit form — ${props.args.form.name}`} icon="ti ti-forms" close={closeIfClean}>
+      <FormEditor
+        form={props.args.form}
+        tableFields={props.args.tableFields}
+        initialAccessEntries={props.args.initialAccessEntries ?? []}
+        canManageAccess={props.args.canManageAccess}
+        onDirtyChange={setDirty}
+        onSaved={(next) => {
+          setDirty(false);
+          props.args.onSaved?.(next);
+          props.close();
+        }}
+        onDelete={async () => {
+          await props.args.onDelete?.();
+          props.close();
+        }}
+        onCancel={closeIfClean}
+      />
+    </GridsBareDialog>
   );
+}
 
 /**
  * Form builder. Mirrors the field-editor card pattern: every form
@@ -258,6 +274,7 @@ function FormEditor(props: {
   canManageAccess: boolean;
   onSaved: (next: Form) => void;
   onDelete: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
   /** Cancel handler — only set when the editor lives inside a dialog.
    *  Footer adds a Cancel button so users have a clear no-op exit. */
   onCancel?: () => void;
@@ -279,6 +296,7 @@ function FormEditor(props: {
     (v: T) => {
       setter(v);
       setDirty(true);
+      props.onDirtyChange?.(true);
     };
 
   // Fields available to ADD — i.e. on the table, user-editable, not in the
@@ -312,6 +330,7 @@ function FormEditor(props: {
     },
     onSuccess: (next) => {
       setDirty(false);
+      props.onDirtyChange?.(false);
       props.onSaved(next);
     },
     onError: (e) => prompts.error(e.message),
@@ -327,7 +346,7 @@ function FormEditor(props: {
     // so authors don't accidentally break a campaign mid-flight.
     if (props.form.publicToken && props.form.isActive) {
       const confirmed = await prompts.confirm(
-        "This form is currently live and shared via the public link. Saving any changes (fields, options, labels, etc.) takes effect immediately for new submissions. Existing submissions stay as-is. Continue?",
+        "This public form is live. Saved changes affect new submissions immediately. Existing submissions stay as-is. Continue?",
         { title: "Save live form?", confirmText: "Save" },
       );
       if (!confirmed) return;
@@ -337,7 +356,7 @@ function FormEditor(props: {
 
   // What kind of entry the next "Add field" pick creates. user_input
   // is the default (renders an input the visitor fills); form_value
-  // is the power-user mode (the form supplies a fixed server-applied
+  // is the power-user mode (the form supplies a fixed hidden
   // value, not editable by the visitor).
   const [addKind, setAddKind] = createSignal<"user_input" | "form_value">("user_input");
 
@@ -350,11 +369,13 @@ function FormEditor(props: {
       setEntries([...entries(), { kind: "user_input", fieldId, required: f.required }]);
     }
     setDirty(true);
+    props.onDirtyChange?.(true);
   };
 
   const removeEntry = (index: number) => {
     setEntries(entries().filter((_, i) => i !== index));
     setDirty(true);
+    props.onDirtyChange?.(true);
   };
 
   /** Patch a user_input entry. */
@@ -367,9 +388,10 @@ function FormEditor(props: {
       }),
     );
     setDirty(true);
+    props.onDirtyChange?.(true);
   };
 
-  /** Patch a form_value entry's `value` (server-applied payload). */
+  /** Patch a form_value entry's hidden fixed value. */
   const updateFormValue = (index: number, value: unknown) => {
     setEntries(
       entries().map((e, i) => {
@@ -379,6 +401,7 @@ function FormEditor(props: {
       }),
     );
     setDirty(true);
+    props.onDirtyChange?.(true);
   };
 
   const moveEntry = (index: number, direction: -1 | 1) => {
@@ -388,6 +411,7 @@ function FormEditor(props: {
     [next[index], next[target]] = [next[target]!, next[index]!];
     setEntries(next);
     setDirty(true);
+    props.onDirtyChange?.(true);
   };
 
   const handleCopyPublicUrl = async () => {
@@ -540,7 +564,7 @@ function FormEditor(props: {
         </FormEditorSection>
 
         {/* Fields */}
-        <FormEditorSection title="Fields" subtitle="Inputs shown to visitors, plus optional server-applied values." icon="ti ti-forms">
+        <FormEditorSection title="Fields" subtitle="Inputs shown to visitors, plus optional fixed values." icon="ti ti-forms">
           <div class="flex items-center justify-between">
             <span class="text-xs font-medium text-secondary">Fields in this form</span>
             <span class="text-[10px] text-dimmed">{entries().length} field(s)</span>
@@ -640,20 +664,20 @@ function FormEditor(props: {
                           }
                         >
                           {(ve) => (
-                            // Server-applied value tile — the visitor never sees
+                            // Fixed value tile — the visitor never sees
                             // this field but every submission gets stamped with
                             // the configured value (e.g. "source = website" on a
                             // public lead form). FieldInput renders the platform
                             // input matching the field type with a synthetic
                             // entry; we don't want overrides for label/help on a
-                            // hidden server-side stamp.
+                            // hidden value.
                             <li class="paper p-4 flex flex-col gap-2">
                               <div class="flex items-center gap-2">
                                 <i class="ti ti-lock text-dimmed shrink-0" />
                                 <span class="flex-1 min-w-0 flex items-baseline gap-2">
                                   <span class="text-sm font-medium text-primary truncate">{field().name}</span>
                                   <span class="text-[10px] text-dimmed shrink-0">
-                                    {TYPE_LABELS[field().type] ?? field().type} · server-applied
+                                    {TYPE_LABELS[field().type] ?? field().type} · fixed value
                                   </span>
                                 </span>
                                 <button
@@ -673,8 +697,7 @@ function FormEditor(props: {
                                 onChange={(v) => updateFormValue(idx, v)}
                               />
                               <p class="text-[11px] text-dimmed leading-snug">
-                                Every submission to this form gets stamped with this value. Visitors don't see this field — and any payload
-                                they submit for it is rejected by the server.
+                                Every submission gets this value. Visitors don't see this field.
                               </p>
                             </li>
                           )}
@@ -692,15 +715,14 @@ function FormEditor(props: {
               <SegmentedControl
                 options={[
                   { value: "user_input", label: "User input", icon: "ti ti-pencil" },
-                  { value: "form_value", label: "Server value", icon: "ti ti-lock" },
+                  { value: "form_value", label: "Fixed value", icon: "ti ti-lock" },
                 ]}
                 value={addKind}
                 onChange={(v) => setAddKind(v as "user_input" | "form_value")}
               />
               <p class="text-[11px] text-dimmed leading-snug">
                 <Show when={addKind() === "form_value"} fallback="User-input fields show as inputs the visitor fills out.">
-                  Server-value fields don't render in the form. Every submission gets stamped with the configured value (e.g. "source =
-                  website" or a fixed status).
+                  Fixed values don't show in the form. Every submission gets the configured value, such as source = website.
                 </Show>
               </p>
               <div class="flex items-center gap-2">

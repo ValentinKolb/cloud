@@ -1,4 +1,4 @@
-import type { OpenDialogOptions } from "@valentinkolb/cloud/ui";
+import { prompts, type OpenDialogOptions } from "@valentinkolb/cloud/ui";
 import type { JSX } from "solid-js";
 
 const gridsBareDialogPanelClass =
@@ -25,3 +25,13 @@ export function GridsBareDialog(props: { title: string; icon: string; close: () 
     </div>
   );
 }
+
+export const confirmDiscardIfDirty = async (dirty: boolean | (() => boolean)) => {
+  const hasChanges = typeof dirty === "function" ? dirty() : dirty;
+  if (!hasChanges) return true;
+  return prompts.confirm("Discard unsaved changes?", {
+    title: "Unsaved changes",
+    variant: "danger",
+    confirmText: "Discard",
+  });
+};
