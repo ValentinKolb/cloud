@@ -1,4 +1,4 @@
-import { Show, For, createSignal } from "solid-js";
+import { Show, For, createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { dates } from "@valentinkolb/stdlib";
@@ -371,16 +371,6 @@ export default function ItemDetailPanel(props: Props) {
   // Comments state
   const [comments, setComments] = createSignal<SpaceComment[]>(props.initialComments ?? []);
 
-  const refreshComments = async () => {
-    const res = await apiClient[":id"].items[":itemId"].comments.$get({
-      param: { id: props.spaceId, itemId: props.item.id },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (isSpaceCommentArray(data)) setComments(data);
-    }
-  };
-
   const patchItem = async (data: Record<string, unknown>) => {
     const res = await apiClient[":id"].items[":itemId"].$patch({
       param: { id: props.spaceId, itemId: props.item.id },
@@ -397,6 +387,34 @@ export default function ItemDetailPanel(props: Props) {
     toast.success("Item updated");
     requestCurrentSpacesRouteRefresh();
   };
+
+  const refreshCommentsMutation = mutations.create<SpaceComment[], void>({
+    mutation: async (_vars, ctx) => {
+      const res = await apiClient[":id"].items[":itemId"].comments.$get(
+        {
+          param: { id: props.spaceId, itemId: props.item.id },
+        },
+        { init: { signal: ctx.abortSignal } },
+      );
+      if (!res.ok) {
+        throw new Error(await getResponseErrorMessage(res, "Failed to refresh comments"));
+      }
+      const data = await res.json();
+      return isSpaceCommentArray(data) ? data : [];
+    },
+    onSuccess: setComments,
+    onError: (err) => {
+      if (err.name === "AbortError") return;
+      prompts.error(err.message);
+    },
+  });
+
+  const refreshComments = () => {
+    refreshCommentsMutation.abort();
+    void refreshCommentsMutation.mutate(undefined);
+  };
+
+  onCleanup(() => refreshCommentsMutation.abort());
 
   const updateMutation = mutations.create<SpaceItem, Record<string, unknown>>({
     mutation: patchItem,
