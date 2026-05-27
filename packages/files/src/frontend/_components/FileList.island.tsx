@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-j
 import { Portal } from "solid-js/web";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 import { mutation as mutations, dnd } from "@valentinkolb/stdlib/solid";
-import { Lightbox, prompts, type LightboxImage } from "@valentinkolb/cloud/ui";
+import { Lightbox, prompts, toast, type LightboxImage } from "@valentinkolb/cloud/ui";
 import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { text } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
@@ -201,6 +201,8 @@ export default function FileList(props: FileListProps) {
     onSuccess: (result, ctx) => {
       if (result.errors.length > 0) {
         prompts.error(`Moved ${result.transferred} item(s), but ${result.errors.length} failed.`);
+      } else if (result.transferred > 0) {
+        toast.success(`Moved ${result.transferred} item${result.transferred === 1 ? "" : "s"}`);
       }
       setHighlightedFiles((ctx?.sourcePaths ?? []).map((path) => path.split("/").pop() ?? path));
       clearSelection();

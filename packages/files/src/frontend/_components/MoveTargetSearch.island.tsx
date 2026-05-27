@@ -1,7 +1,7 @@
 import { createSignal, Show, For, createMemo, onMount } from "solid-js";
 import { timed as timing, mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { parseSelectionKey, type SelectionKey } from "./context";
 import type { FileBaseInfo } from "@/contracts";
 type MoveTargetSearchProps = {
@@ -37,6 +37,8 @@ const formatDisplayPath = (path: string, baseName: string): string => {
   if (segments.length <= 3) return path;
   return `/${segments[0]}/.../${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
 };
+const transferSuccessMessage = (action: "Copy" | "Move", count: number) =>
+  `${action === "Copy" ? "Copied" : "Moved"} ${count} item${count === 1 ? "" : "s"}`;
 export default function MoveTargetSearch(props: MoveTargetSearchProps) {
   const [selectedBase, setSelectedBase] = createSignal<FileBaseInfo>(
     props.bases.find((b) => b.type === props.sourceBaseType && b.id === props.sourceBaseId) ?? props.bases[0]!,
@@ -141,6 +143,8 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
           `Transferred ${data.transferred} item(s), but ${data.errors.length} failed:\n\n${data.errors.map((e) => `${e.path}: ${e.error}`).join("\n")}`,
           { title: "Partial Success", icon: "ti ti-alert-triangle" },
         );
+      } else if (data.transferred > 0) {
+        toast.success(transferSuccessMessage(actionLabel() as "Copy" | "Move", data.transferred));
       }
       props.close();
       const movedFiles =
@@ -196,25 +200,25 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
       <div class="flex flex-col gap-2">
         <div class="section-label mb-0">Destination</div>
         <div class="flex flex-wrap gap-2">
-        <For each={props.bases}>
-          {(base) => {
-            const isSelected = () => selectedBase().type === base.type && selectedBase().id === base.id;
-            const isCurrent = base.type === props.sourceBaseType && base.id === props.sourceBaseId;
-            return (
-              <button
-                type="button"
-                onClick={() => handleBaseChange(base)}
-                class={`btn-input btn-sm ${isSelected() ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : ""}`}
-              >
-                <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"}`} /> {base.name}
-                <Show when={isCurrent}>
-                  <span class="opacity-60">(current)</span>
-                </Show>
-              </button>
-            );
-          }}
-        </For>
-      </div>
+          <For each={props.bases}>
+            {(base) => {
+              const isSelected = () => selectedBase().type === base.type && selectedBase().id === base.id;
+              const isCurrent = base.type === props.sourceBaseType && base.id === props.sourceBaseId;
+              return (
+                <button
+                  type="button"
+                  onClick={() => handleBaseChange(base)}
+                  class={`btn-input btn-sm ${isSelected() ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300" : ""}`}
+                >
+                  <i class={`ti ${base.type === "home" ? "ti-home" : "ti-users-group"}`} /> {base.name}
+                  <Show when={isCurrent}>
+                    <span class="opacity-60">(current)</span>
+                  </Show>
+                </button>
+              );
+            }}
+          </For>
+        </div>
       </div>
       <div class="group relative flex">
         <div class="absolute left-3 inset-y-0 flex items-center pointer-events-none text-zinc-400 dark:text-zinc-500">
@@ -235,51 +239,51 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
           <span>{directories().length} results</span>
         </div>
         <div class="max-h-[22rem] overflow-y-auto">
-        <Show when={loading()}>
-          <div class="flex items-center justify-center py-10 text-dimmed">
-            <i class="ti ti-loader-2 animate-spin text-xl" />
-          </div>
-        </Show>
-        <Show when={!loading() && directories().length === 0}>
-          <div class="flex items-center gap-2 px-4 py-6 text-sm text-dimmed">
-            <i class="ti ti-folder-off" /> <span>No folders found</span>
-          </div>
-        </Show>
-        <Show when={!loading() && directories().length > 0}>
-          <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
-            <For each={directories()}>
-              {(dir) => (
-                <div class="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/40">
-                  <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                    <i class="ti ti-folder text-base" />
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm text-primary">{dir.name || "/"}</div>
-                    <div class="truncate text-xs text-dimmed">{formatDisplayPath(dir.path, selectedBase().name)}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleTransfer(dir.path)}
-                    disabled={transferringPath() !== null}
-                    class="btn-input btn-sm disabled:opacity-50"
-                  >
-                    <Show
-                      when={transferringPath() === dir.path}
-                      fallback={
-                        <>
-                          {actionLabel()} here <i class="ti ti-arrow-right" />
-                        </>
-                      }
+          <Show when={loading()}>
+            <div class="flex items-center justify-center py-10 text-dimmed">
+              <i class="ti ti-loader-2 animate-spin text-xl" />
+            </div>
+          </Show>
+          <Show when={!loading() && directories().length === 0}>
+            <div class="flex items-center gap-2 px-4 py-6 text-sm text-dimmed">
+              <i class="ti ti-folder-off" /> <span>No folders found</span>
+            </div>
+          </Show>
+          <Show when={!loading() && directories().length > 0}>
+            <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
+              <For each={directories()}>
+                {(dir) => (
+                  <div class="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/40">
+                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                      <i class="ti ti-folder text-base" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-sm text-primary">{dir.name || "/"}</div>
+                      <div class="truncate text-xs text-dimmed">{formatDisplayPath(dir.path, selectedBase().name)}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleTransfer(dir.path)}
+                      disabled={transferringPath() !== null}
+                      class="btn-input btn-sm disabled:opacity-50"
                     >
-                      <i class="ti ti-loader-2 animate-spin" />
-                    </Show>
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
+                      <Show
+                        when={transferringPath() === dir.path}
+                        fallback={
+                          <>
+                            {actionLabel()} here <i class="ti ti-arrow-right" />
+                          </>
+                        }
+                      >
+                        <i class="ti ti-loader-2 animate-spin" />
+                      </Show>
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
       </div>
     </div>
   );
