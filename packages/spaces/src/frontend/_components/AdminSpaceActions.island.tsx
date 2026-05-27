@@ -20,17 +20,7 @@ const readErrorMessage = async (response: Response, fallback: string): Promise<s
   return fallback;
 };
 
-const openPermissionDialog = async (props: AdminSpaceActionsProps) => {
-  const listResponse = await apiClient[":id"].access.$get({
-    param: { id: props.spaceId },
-  });
-  if (!listResponse.ok) {
-    await prompts.error(await readErrorMessage(listResponse, "Failed to load space permissions."));
-    return;
-  }
-
-  const entries = (await listResponse.json()) as AccessEntry[];
-
+const openPermissionDialog = async (props: AdminSpaceActionsProps, entries: AccessEntry[]) => {
   await prompts.dialog<void>(
     (_close) => (
       <div class="w-full max-w-full flex flex-col gap-3">
@@ -76,6 +66,21 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps) => {
 };
 
 const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
+  const permissionsMutation = mutations.create<void, void>({
+    mutation: async () => {
+      const listResponse = await apiClient[":id"].access.$get({
+        param: { id: props.spaceId },
+      });
+      if (!listResponse.ok) {
+        throw new Error(await readErrorMessage(listResponse, "Failed to load space permissions."));
+      }
+
+      const entries = (await listResponse.json()) as AccessEntry[];
+      await openPermissionDialog(props, entries);
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+
   const deleteMutation = mutations.create<boolean, void>({
     mutation: async () => {
       const confirmed = await prompts.confirm(`Delete "${props.spaceName}" and all its items? This cannot be undone.`, {
@@ -117,7 +122,7 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
             {
               icon: "ti ti-shield",
               label: "Permissions",
-              action: () => void openPermissionDialog(props),
+              action: () => void permissionsMutation.mutate(undefined),
             },
           ],
         },
