@@ -36,6 +36,7 @@ export default function Calendar(props: CalendarProps) {
           />
         ) : (
           <WeekView
+            spaceId={props.spaceId}
             weekStart={weekStart}
             items={props.items}
             currentView={props.view}

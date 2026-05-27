@@ -453,7 +453,7 @@ export default function KanbanBoard(props: Props) {
     boardDnd.isDragging() && boardDnd.intent()?.bucketKey === bucketKey && boardDnd.intent()?.previewIndex === index;
 
   return (
-    <div class="h-full overflow-x-auto overflow-y-hidden px-3 py-1">
+    <div class="h-full overflow-x-auto overflow-y-hidden px-3 py-1" data-scroll-preserve={`spaces-kanban-board-${props.spaceId}`}>
       <div class="flex h-full min-w-max items-stretch gap-3">
         <For each={buckets()}>
           {(bucket) => {
@@ -484,6 +484,7 @@ export default function KanbanBoard(props: Props) {
                       ? "bg-blue-500/5 ring-1 ring-inset ring-blue-500/30 dark:bg-blue-400/5 dark:ring-blue-400/25"
                       : ""
                   }`}
+                  data-scroll-preserve={`spaces-kanban-column-${props.spaceId}-${bucket.key}`}
                 >
                   <Show when={bucket.items.length > 0} fallback={<p class="px-2 py-6 text-center text-[11px] text-dimmed">No items</p>}>
                     <For each={bucket.items}>

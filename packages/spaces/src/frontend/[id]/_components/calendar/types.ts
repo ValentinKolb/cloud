@@ -32,6 +32,7 @@ export type MonthViewProps = {
 };
 
 export type WeekViewProps = {
+  spaceId: string;
   weekStart: Date;
   items: CalendarItem[];
   currentView: CalendarView;

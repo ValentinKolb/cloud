@@ -48,7 +48,10 @@ export default function WeekView(props: WeekViewProps) {
                 </div>
 
                 {/* Items */}
-                <div class="flex-1 p-1 overflow-y-auto flex flex-col gap-1">
+                <div
+                  class="flex-1 p-1 overflow-y-auto flex flex-col gap-1"
+                  data-scroll-preserve={`spaces-calendar-week-day-${props.spaceId}-${dateKey}`}
+                >
                   {dayItems.length > 0 ? (
                     <For each={dayItems}>
                       {(item) => (
