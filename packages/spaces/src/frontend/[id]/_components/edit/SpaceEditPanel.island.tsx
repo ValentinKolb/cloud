@@ -184,6 +184,7 @@ function SpaceSettingsForm(props: { space: SpaceDetail }) {
     },
     onSuccess: () => {
       setHasChanges(false);
+      toast.success("Space settings saved");
       requestCurrentSpacesRouteRefresh();
     },
     onError: (err) => prompts.error(err.message),
@@ -363,6 +364,7 @@ function TagsManager(props: { spaceId: string; tags: SpaceTag[] }) {
     },
     onSuccess: (newTag) => {
       setTags([...tags(), newTag as SpaceTag]);
+      toast.success("Tag created");
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -382,6 +384,7 @@ function TagsManager(props: { spaceId: string; tags: SpaceTag[] }) {
     onSuccess: (updated) => {
       setTags(tags().map((t) => (t.id === (updated as SpaceTag).id ? (updated as SpaceTag) : t)));
       setEditingId(null);
+      toast.success("Tag updated");
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -538,6 +541,7 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
     },
     onSuccess: (newColumn) => {
       setColumns([...columns(), newColumn as SpaceColumn]);
+      toast.success("Status created");
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -557,6 +561,7 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
     onSuccess: (updated) => {
       setColumns(columns().map((c) => (c.id === (updated as SpaceColumn).id ? (updated as SpaceColumn) : c)));
       setEditingId(null);
+      toast.success("Status updated");
     },
     onError: (err) => prompts.error(err.message),
   });
