@@ -1,10 +1,10 @@
 import { useContext } from "solid-js";
-import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { Dropdown, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
 import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import MoveTargetSearch from "./MoveTargetSearch.island";
 import { FileContext, fileAppUrlForPath, fileApiUrl, requestFileLightboxOpen, setDetailFileInUrl, setHighlightedFiles } from "./context";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import type { FileBaseInfo, FileInfo } from "@/contracts";
 
 export type FileActionContext = {
@@ -34,7 +34,13 @@ const buildCopyName = (name: string) => {
 
 export const canOpenFileInline = (item: FileInfo) => {
   const mime = item.mimeType ?? "";
-  return mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/") || mime === "application/pdf" || mime.startsWith("text/");
+  return (
+    mime.startsWith("image/") ||
+    mime.startsWith("video/") ||
+    mime.startsWith("audio/") ||
+    mime === "application/pdf" ||
+    mime.startsWith("text/")
+  );
 };
 
 export const openFileItem = ({ item, itemPath, ctx }: Pick<FileActionOptions, "item" | "itemPath" | "ctx">) => {
@@ -52,7 +58,11 @@ export const openFileItem = ({ item, itemPath, ctx }: Pick<FileActionOptions, "i
     return;
   }
 
-  window.open(`${fileApiUrl(ctx.baseType, ctx.baseId)}/content?path=${encodeURIComponent(itemPath)}&inline=true`, "_blank", "noopener,noreferrer");
+  window.open(
+    `${fileApiUrl(ctx.baseType, ctx.baseId)}/content?path=${encodeURIComponent(itemPath)}&inline=true`,
+    "_blank",
+    "noopener,noreferrer",
+  );
 };
 
 export const downloadFileItem = ({ item, itemPath, ctx }: Pick<FileActionOptions, "item" | "itemPath" | "ctx">) => {
@@ -84,7 +94,7 @@ export const renameFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOpt
     },
   });
 
-  if (!result || result.newName.trim() === item.name) return;
+  if (!result || result.newName.trim() === item.name) return false;
   const newName = result.newName.trim();
 
   if (!isDirectory && !hasFileExtension(newName)) {
@@ -94,7 +104,7 @@ export const renameFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOpt
       confirmText: "Rename anyway",
       cancelText: "Cancel",
     });
-    if (!confirmed) return;
+    if (!confirmed) return false;
   }
 
   const parentPath = itemPath.substring(0, itemPath.lastIndexOf("/")) || "/";
@@ -108,6 +118,7 @@ export const renameFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOpt
     const data = await res.json().catch(() => ({ message: "Rename failed" }));
     throw new Error("message" in data ? data.message : "Rename failed");
   }
+  return true;
 };
 
 export const duplicateFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOptions, "item" | "itemPath" | "ctx">) => {
@@ -132,7 +143,7 @@ export const duplicateFileItem = async ({ item, itemPath, ctx }: Pick<FileAction
     },
   });
 
-  if (!result) return;
+  if (!result) return false;
 
   const res = await apiClient[":baseType"][":baseId"].duplicate.$post({
     param: { baseType: ctx.baseType, baseId: ctx.baseId },
@@ -143,11 +154,11 @@ export const duplicateFileItem = async ({ item, itemPath, ctx }: Pick<FileAction
     const data = await res.json().catch(() => ({ message: "Duplicate failed" }));
     throw new Error("message" in data ? data.message : "Duplicate failed");
   }
+  return true;
 };
 
 export const deleteFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOptions, "item" | "itemPath" | "ctx">) => {
-  const message =
-    item.type === "directory" ? `Move "${item.name}" and all contained items to Trash?` : `Move "${item.name}" to Trash?`;
+  const message = item.type === "directory" ? `Move "${item.name}" and all contained items to Trash?` : `Move "${item.name}" to Trash?`;
   const confirmed = await prompts.confirm(message, {
     title: "Move to Trash",
     icon: "ti ti-trash",
@@ -155,7 +166,7 @@ export const deleteFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOpt
     confirmText: "Move to Trash",
     cancelText: "Cancel",
   });
-  if (!confirmed) return;
+  if (!confirmed) return false;
 
   const res = await apiClient[":baseType"][":baseId"].$delete({
     param: { baseType: ctx.baseType, baseId: ctx.baseId },
@@ -166,9 +177,15 @@ export const deleteFileItem = async ({ item, itemPath, ctx }: Pick<FileActionOpt
     const data = await res.json().catch(() => ({ message: "Delete failed" }));
     throw new Error("message" in data ? data.message : "Delete failed");
   }
+  return true;
 };
 
-export const moveFileItem = async ({ item, itemPath, ctx, onCloseDetail }: Pick<FileActionOptions, "item" | "itemPath" | "ctx" | "onCloseDetail">) => {
+export const moveFileItem = async ({
+  item,
+  itemPath,
+  ctx,
+  onCloseDetail,
+}: Pick<FileActionOptions, "item" | "itemPath" | "ctx" | "onCloseDetail">) => {
   if (ctx.bases.length === 0) return;
 
   prompts.dialog(
@@ -190,9 +207,68 @@ export const moveFileItem = async ({ item, itemPath, ctx, onCloseDetail }: Pick<
   );
 };
 
-export const buildFileMenuElements = ({ item, itemPath, ctx, onShowDetail, onCloseDetail }: FileActionOptions): DropdownItem[] => {
+type FileActionHandlers = {
+  rename: (options: FileActionOptions) => void;
+  duplicate: (options: FileActionOptions) => void;
+  delete: (options: FileActionOptions) => void;
+};
+
+export const createFileActionMutations = () => {
+  const renameMutation = mutations.create<boolean, FileActionOptions, FileActionOptions>({
+    onBefore: (options) => options,
+    mutation: renameFileItem,
+    onSuccess: (renamed, options) => {
+      if (!renamed || !options) return;
+      toast.success(options.item.type === "directory" ? "Folder renamed" : "File renamed");
+      if (options.onShowDetail) {
+        setDetailFileInUrl(options.itemPath, options.item, options.ctx.baseType, options.ctx.baseId);
+      }
+      refreshCurrentPath();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const duplicateMutation = mutations.create<boolean, FileActionOptions>({
+    mutation: duplicateFileItem,
+    onSuccess: (duplicated) => {
+      if (!duplicated) return;
+      toast.success("Item duplicated");
+      refreshCurrentPath();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const deleteMutation = mutations.create<boolean, FileActionOptions, FileActionOptions>({
+    onBefore: (options) => options,
+    mutation: deleteFileItem,
+    onSuccess: (deleted, options) => {
+      if (!deleted) return;
+      toast.success("Moved to Trash");
+      options?.onCloseDetail?.();
+      refreshCurrentPath();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const handlers: FileActionHandlers = {
+    rename: (options) => renameMutation.mutate(options),
+    duplicate: (options) => duplicateMutation.mutate(options),
+    delete: (options) => deleteMutation.mutate(options),
+  };
+
+  return {
+    buildFileMenuElements: (options: FileActionOptions) => buildFileMenuElements(options, handlers),
+    loading: () => renameMutation.loading() || duplicateMutation.loading() || deleteMutation.loading(),
+  };
+};
+
+export const buildFileMenuElements = (
+  { item, itemPath, ctx, onShowDetail, onCloseDetail }: FileActionOptions,
+  handlers?: FileActionHandlers,
+): DropdownItem[] => {
   const detailItemKey = itemPath;
   const canOpenInline = item.type === "directory" || canOpenFileInline(item);
+  const actionOptions = { item, itemPath, ctx, onShowDetail, onCloseDetail };
 
   return [
     {
@@ -214,7 +290,12 @@ export const buildFileMenuElements = ({ item, itemPath, ctx, onShowDetail, onClo
       icon: "ti ti-pencil",
       label: "Rename",
       action: async () => {
-        await renameFileItem({ item, itemPath, ctx });
+        if (handlers) {
+          handlers.rename(actionOptions);
+          return;
+        }
+        const renamed = await renameFileItem({ item, itemPath, ctx });
+        if (!renamed) return;
         if (onShowDetail) {
           setDetailFileInUrl(detailItemKey, item, ctx.baseType, ctx.baseId);
         }
@@ -225,7 +306,12 @@ export const buildFileMenuElements = ({ item, itemPath, ctx, onShowDetail, onClo
       icon: "ti ti-copy",
       label: "Duplicate",
       action: async () => {
-        await duplicateFileItem({ item, itemPath, ctx });
+        if (handlers) {
+          handlers.duplicate(actionOptions);
+          return;
+        }
+        const duplicated = await duplicateFileItem({ item, itemPath, ctx });
+        if (!duplicated) return;
         refreshCurrentPath();
       },
     },
@@ -243,7 +329,8 @@ export const buildFileMenuElements = ({ item, itemPath, ctx, onShowDetail, onClo
           {
             icon: "ti ti-external-link",
             label: "Open in new tab",
-            action: () => window.open(`${fileApiUrl(ctx.baseType, ctx.baseId)}/content?path=${encodeURIComponent(itemPath)}&inline=true`, "_blank"),
+            action: () =>
+              window.open(`${fileApiUrl(ctx.baseType, ctx.baseId)}/content?path=${encodeURIComponent(itemPath)}&inline=true`, "_blank"),
           },
         ]
       : []),
@@ -252,7 +339,12 @@ export const buildFileMenuElements = ({ item, itemPath, ctx, onShowDetail, onClo
       label: "Delete",
       variant: "danger" as const,
       action: async () => {
-        await deleteFileItem({ item, itemPath, ctx });
+        if (handlers) {
+          handlers.delete(actionOptions);
+          return;
+        }
+        const deleted = await deleteFileItem({ item, itemPath, ctx });
+        if (!deleted) return;
         onCloseDetail?.();
         refreshCurrentPath();
       },
@@ -268,6 +360,7 @@ type FileActionsProps = {
 export default function FileActions(props: FileActionsProps) {
   const ctx = useContext(FileContext);
   if (!ctx) return null;
+  const fileActions = createFileActionMutations();
 
   return (
     <Dropdown
@@ -276,7 +369,7 @@ export default function FileActions(props: FileActionsProps) {
           <i class="ti ti-dots" />
         </span>
       }
-      elements={buildFileMenuElements({
+      elements={fileActions.buildFileMenuElements({
         item: props.item,
         itemPath: props.itemPath,
         ctx,

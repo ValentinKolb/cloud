@@ -28,7 +28,7 @@ import {
   setSelectedInUrl,
 } from "./context";
 import { type FileListColumn, type FileSettings, DEFAULT_FILE_SETTINGS, getGridSizePixels } from "./FileSettings.island";
-import { buildFileMenuElements, openFileItem } from "./FileActions";
+import { createFileActionMutations, openFileItem } from "./FileActions";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type FileListProps = {
@@ -93,6 +93,7 @@ const createRowTemplate = (columns: FileListColumn[]) => {
 };
 
 export default function FileList(props: FileListProps) {
+  const fileActions = createFileActionMutations();
   const settings = props.settings ?? DEFAULT_FILE_SETTINGS;
   const viewMode = props.forceListView ? "list" : settings.viewMode;
   const isGrid = () => viewMode === "grid";
@@ -529,34 +530,36 @@ export default function FileList(props: FileListProps) {
                   top: `${Math.min(menu().y, window.innerHeight - 320)}px`,
                 }}
               >
-                {buildFileMenuElements({
-                  item: menu().item,
-                  itemPath: menu().itemPath,
-                  ctx: contextValue,
-                  onShowDetail: () => selectForDetail(menu().item),
-                  onCloseDetail: closeContextMenu,
-                }).map((entry) =>
-                  "label" in entry ? (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      class={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 ${
-                        entry.variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300"
-                      }`}
-                      onClick={() => {
-                        if ("action" in entry && entry.action) {
-                          void Promise.resolve(entry.action()).finally(closeContextMenu);
-                        } else if ("href" in entry && entry.href) {
-                          window.open(entry.href, entry.external ? "_blank" : "_self");
-                          closeContextMenu();
-                        }
-                      }}
-                    >
-                      {entry.icon && <i class={entry.icon} />}
-                      <span>{entry.label}</span>
-                    </button>
-                  ) : null,
-                )}
+                {fileActions
+                  .buildFileMenuElements({
+                    item: menu().item,
+                    itemPath: menu().itemPath,
+                    ctx: contextValue,
+                    onShowDetail: () => selectForDetail(menu().item),
+                    onCloseDetail: closeContextMenu,
+                  })
+                  .map((entry) =>
+                    "label" in entry ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        class={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors hover:bg-white/30 dark:hover:bg-white/10 ${
+                          entry.variant === "danger" ? "text-red-600 dark:text-red-400" : "text-zinc-700 dark:text-zinc-300"
+                        }`}
+                        onClick={() => {
+                          if ("action" in entry && entry.action) {
+                            void Promise.resolve(entry.action()).finally(closeContextMenu);
+                          } else if ("href" in entry && entry.href) {
+                            window.open(entry.href, entry.external ? "_blank" : "_self");
+                            closeContextMenu();
+                          }
+                        }}
+                      >
+                        {entry.icon && <i class={entry.icon} />}
+                        <span>{entry.label}</span>
+                      </button>
+                    ) : null,
+                  )}
               </div>
             </Portal>
           )}

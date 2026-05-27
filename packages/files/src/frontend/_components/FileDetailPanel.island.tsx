@@ -2,17 +2,8 @@ import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-j
 import type { FileInfo, FileBaseInfo } from "@/contracts";
 import { dates, fileIcons } from "@valentinkolb/stdlib";
 import { text } from "@valentinkolb/stdlib";
-import {
-  fileApiUrl,
-  setDetailFileInUrl,
-  DETAIL_FILE_SELECT_EVENT,
-  type DetailFileSelectPayload,
-} from "./context";
-import {
-  buildFileMenuElements,
-  canOpenFileInline,
-  type FileActionContext,
-} from "./FileActions";
+import { fileApiUrl, setDetailFileInUrl, DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload } from "./context";
+import { type buildFileMenuElements, canOpenFileInline, createFileActionMutations, type FileActionContext } from "./FileActions";
 
 type FileDetailPanelProps = {
   initialFile: FileInfo | null;
@@ -57,6 +48,7 @@ const parseFullDetailKey = (key: string) => {
 };
 
 export default function FileDetailPanel(props: FileDetailPanelProps) {
+  const fileActions = createFileActionMutations();
   const [file, setFile] = createSignal<FileInfo | null>(props.initialFile);
   const [filePath, setFilePath] = createSignal<string | null>(props.initialFilePath);
   const [baseType, setBaseType] = createSignal(props.initialBaseType);
@@ -139,17 +131,20 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
   const actionItems = createMemo<FileActionEntry[]>(() => {
     const currentFile = file();
     if (!currentFile) return [];
-    const items = buildFileMenuElements({
-      item: currentFile,
-      itemPath: itemPath(),
-      ctx: actionContext(),
-      onCloseDetail: handleClose,
-    }).filter(isActionEntry);
+    const items = fileActions
+      .buildFileMenuElements({
+        item: currentFile,
+        itemPath: itemPath(),
+        ctx: actionContext(),
+        onCloseDetail: handleClose,
+      })
+      .filter(isActionEntry);
     return items.filter((entry) => !entry.label.startsWith("Show "));
   });
 
   const actionButtonClass = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-dimmed hover:text-primary";
-  const dangerActionButtonClass = "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300";
+  const dangerActionButtonClass =
+    "btn-simple btn-sm justify-start gap-2 px-2 text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300";
 
   return (
     <Show
