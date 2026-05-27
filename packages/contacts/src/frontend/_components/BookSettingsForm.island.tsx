@@ -1,5 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { PermissionEditor, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, prompts, refreshCurrentPath, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -47,6 +47,7 @@ export default function BookSettingsForm(props: Props) {
       }
     },
     onSuccess: () => {
+      toast.success("Book settings saved");
       refreshCurrentPath();
     },
     onError: (error) => {
