@@ -1,9 +1,10 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { buildNoteUrl, buildReadUrl } from "../../../params";
 import { Dropdown } from "@valentinkolb/cloud/ui";
+import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import SearchButton from "../search/SearchButton";
 import { listAccessibleNotebooks } from "./notebooks";
 import type { NoteTreeNode, Notebook } from "./types";
@@ -390,6 +391,67 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   };
 }
 
+export const noteActionItems = (
+  node: NoteTreeNode,
+  actions: ReturnType<typeof useNoteActions>,
+): DropdownItem[] => [
+  {
+    icon: "ti ti-file-plus",
+    label: "New Subnote",
+    action: () => actions.handleCreateNote(node.id),
+  },
+  {
+    sectionLabel: "Manage",
+    items: [
+      ...(node.lockedAt
+        ? []
+        : [
+            {
+              icon: "ti ti-pencil",
+              label: "Edit Title",
+              action: () => actions.handleEdit(node),
+            },
+            {
+              icon: "ti ti-arrow-move-right",
+              label: "Move",
+              action: () => actions.handleMove(node),
+            },
+          ]),
+      {
+        icon: "ti ti-copy",
+        label: "Duplicate",
+        action: () => actions.handleCopy(node),
+      },
+    ],
+  },
+  ...(node.lockedAt
+    ? []
+    : [
+        {
+          sectionLabel: "Security",
+          items: [
+            {
+              icon: "ti ti-lock",
+              label: "Lock Note",
+              variant: "danger" as const,
+              action: () => actions.handleLock(node),
+            },
+          ],
+        },
+      ]),
+  {
+    sectionLabel: "",
+    items: [
+      {
+        icon: "ti ti-trash",
+        label: "Delete",
+        variant: "danger",
+        action: () => actions.handleDelete(node),
+      },
+    ],
+  },
+];
+
 // =============================================================================
 // Tree Node
 // =============================================================================
@@ -480,63 +542,7 @@ function TreeNode(props: {
               }
               position="bottom-right"
               width="w-48"
-              elements={[
-                {
-                  icon: "ti ti-file-plus",
-                  label: "New Subnote",
-                  action: () => props.actions.handleCreateNote(props.node.id),
-                },
-                {
-                  sectionLabel: "Manage",
-                  items: [
-                    ...(props.node.lockedAt
-                      ? []
-                      : [
-                          {
-                            icon: "ti ti-pencil",
-                            label: "Edit Title",
-                            action: () => props.actions.handleEdit(props.node),
-                          },
-                          {
-                            icon: "ti ti-arrow-move-right",
-                            label: "Move",
-                            action: () => props.actions.handleMove(props.node),
-                          },
-                        ]),
-                    {
-                      icon: "ti ti-copy",
-                      label: "Duplicate",
-                      action: () => props.actions.handleCopy(props.node),
-                    },
-                  ],
-                },
-                ...(props.node.lockedAt
-                  ? []
-                  : [
-                      {
-                        sectionLabel: "Security",
-                        items: [
-                          {
-                            icon: "ti ti-lock",
-                            label: "Lock Note",
-                            variant: "danger" as const,
-                            action: () => props.actions.handleLock(props.node),
-                          },
-                        ],
-                      },
-                    ]),
-                {
-                  sectionLabel: "",
-                  items: [
-                    {
-                      icon: "ti ti-trash",
-                      label: "Delete",
-                      variant: "danger" as const,
-                      action: () => props.actions.handleDelete(props.node),
-                    },
-                  ],
-                },
-              ]}
+              elements={noteActionItems(props.node, props.actions)}
             />
           </div>
         </Show>
@@ -573,6 +579,8 @@ export default function NoteTree(props: Props) {
   const showHeaderActions = () => props.showHeaderActions ?? true;
   const [selectedNoteId, setSelectedNoteId] = createSignal(props.selectedNoteId);
   const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(props.favoriteNoteIds ?? []));
+
+  createEffect(() => setFavoriteNoteIds(new Set(props.favoriteNoteIds ?? [])));
 
   const toggleFavorite = async (note: NoteTreeNode, event: MouseEvent) => {
     event.preventDefault();

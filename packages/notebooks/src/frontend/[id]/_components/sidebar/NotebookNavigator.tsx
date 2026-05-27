@@ -1,14 +1,14 @@
 import { apiClient } from "@/api/client";
 import { Dropdown, SelectChip, prompts } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { buildAttachmentsUrl, buildNoteUrl, buildReadUrl } from "../../../params";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import type { NoteTreeNode, Notebook, TagSummary } from "./types";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import SearchButton from "../search/SearchButton";
-import { useNoteActions } from "./NoteTree";
+import { noteActionItems, useNoteActions } from "./NoteTree";
 
 type SortMode = "updated" | "created" | "title";
 type TreeMode = "deep" | "level";
@@ -20,6 +20,7 @@ type Props = {
   selectedNoteId: string | null;
   permission: string;
   canWrite: boolean;
+  viewMode: "read" | "edit";
   favoriteNoteIds: string[];
   tags: TagSummary[];
 };
@@ -184,6 +185,8 @@ export default function NotebookNavigator(props: Props) {
     return current.root === "tags" ? current.tag : null;
   };
   const attachmentsHref = () => buildAttachmentsUrl(props.notebook.shortId);
+  const noteHref = (note: NoteTreeNode) =>
+    props.viewMode === "read" ? buildReadUrl(props.notebook.shortId, note.shortId) : buildNoteUrl(props.notebook.shortId, note.shortId);
 
   const noteTags = (note: NoteTreeNode) => tagsFromMarkdown(note.contentMd);
 
@@ -218,6 +221,11 @@ export default function NotebookNavigator(props: Props) {
   });
 
   const vt = (key: string) => `notebook-navigator-${props.notebook.shortId}-${key}`;
+
+  createEffect(() => setFavoriteIds(new Set(props.favoriteNoteIds)));
+  createEffect(() => {
+    if (props.selectedNoteId) setActiveNoteId(props.selectedNoteId);
+  });
 
   const toggleNoteExpanded = (noteId: string) =>
     setCollapsedNoteIds((current) => {
@@ -256,31 +264,28 @@ export default function NotebookNavigator(props: Props) {
   onMount(() => {
     const onSoftNavigated = (event: Event) => {
       const detail = (event as CustomEvent<{ canonicalNoteId?: string }>).detail;
-      if (detail?.canonicalNoteId) setActiveNoteId(detail.canonicalNoteId);
+      if (!detail?.canonicalNoteId) return;
+      setActiveNoteId(detail.canonicalNoteId);
+      const noteVisibleInCurrentRoot = visibleNotes().some((note) => note.id === detail.canonicalNoteId) || pinnedNote()?.id === detail.canonicalNoteId;
+      if (!noteVisibleInCurrentRoot) {
+        setSelection({ root: "notes", noteId: noteFolderContext(props.tree, detail.canonicalNoteId) });
+      }
     };
     window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
     onCleanup(() => window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated));
   });
 
-  const createNote = async () => {
-    const result = await prompts.form({
-      title: "New Note",
-      icon: "ti ti-file-plus",
-      fields: {
-        title: { type: "text" as const, label: "Title", required: true, placeholder: "Note title" },
-      },
-    });
-    if (!result) return;
-    const response = await apiClient[":id"].notes.$post({
-      param: { id: props.notebook.shortId },
-      json: { title: result.title },
-    });
-    if (!response.ok) {
-      void prompts.error("Failed to create note.");
+  const openHomepage = () => {
+    const home = homepageNote();
+    if (!home) {
+      void prompts.alert(
+        "No homepage is selected for this notebook yet. Open notebook settings and choose a homepage in the General tab.",
+        { title: "No homepage selected", icon: "ti ti-home" },
+      );
       return;
     }
-    const note = (await response.json()) as { shortId: string };
-    void navigateToNotebookNote(buildNoteUrl(props.notebook.shortId, note.shortId));
+    setActiveNoteId(home.id);
+    void navigateToNotebookNote(noteHref(home));
   };
 
   return (
@@ -317,6 +322,14 @@ export default function NotebookNavigator(props: Props) {
                 </button>
               )}
             </For>
+            <button
+              type="button"
+              class={`sidebar-item text-xs ${homepageNote()?.id === activeNoteId() ? "sidebar-item-active" : ""}`}
+              onClick={openHomepage}
+            >
+              <i class="ti ti-home text-sm" />
+              <span class="min-w-0 flex-1 truncate text-left">Homepage</span>
+            </button>
             <SearchButton notebookId={props.notebook.shortId} notebookName={props.notebook.name} variant="sidebar" />
           </div>
 
@@ -404,7 +417,7 @@ export default function NotebookNavigator(props: Props) {
           <SelectChip value={treeMode()} options={TREE_MODE_OPTIONS} onChange={setTreeMode} icon="ti ti-list-tree" />
           <SelectChip value={sortMode()} options={SORT_OPTIONS} onChange={setSortMode} icon="ti ti-sort-descending" />
           <Show when={props.canWrite}>
-            <button type="button" class="icon-btn ml-auto text-green-600 dark:text-green-400" title="New note" aria-label="New note" onClick={createNote}>
+            <button type="button" class="icon-btn ml-auto text-green-600 dark:text-green-400" title="New note" aria-label="New note" onClick={() => actions.handleCreateNote()}>
               <i class="ti ti-plus" />
             </button>
           </Show>
@@ -419,14 +432,14 @@ export default function NotebookNavigator(props: Props) {
               <Show when={pinnedNote()}>
                 {(note) => (
                   <a
-                    href={buildNoteUrl(props.notebook.shortId, note().shortId)}
+                    href={noteHref(note())}
                     class={`group rounded-lg px-3 py-2 transition-colors ${
                       "bg-zinc-50/80 hover:bg-zinc-100 dark:bg-zinc-900/45 dark:hover:bg-zinc-800/70"
                     }`}
                     onClick={(event) => {
                       event.preventDefault();
                       setActiveNoteId(note().id);
-                      void navigateToNotebookNote(buildNoteUrl(props.notebook.shortId, note().shortId));
+                      void navigateToNotebookNote(noteHref(note()));
                     }}
                   >
                     <div class="flex items-center gap-2">
@@ -445,63 +458,7 @@ export default function NotebookNavigator(props: Props) {
                           }
                           position="bottom-right"
                           width="w-48"
-                          elements={[
-                            {
-                              icon: "ti ti-file-plus",
-                              label: "New Subnote",
-                              action: () => actions.handleCreateNote(note().id),
-                            },
-                            {
-                              sectionLabel: "Manage",
-                              items: [
-                                ...(note().lockedAt
-                                  ? []
-                                  : [
-                                      {
-                                        icon: "ti ti-pencil",
-                                        label: "Edit Title",
-                                        action: () => actions.handleEdit(note()),
-                                      },
-                                      {
-                                        icon: "ti ti-arrow-move-right",
-                                        label: "Move",
-                                        action: () => actions.handleMove(note()),
-                                      },
-                                    ]),
-                                {
-                                  icon: "ti ti-copy",
-                                  label: "Duplicate",
-                                  action: () => actions.handleCopy(note()),
-                                },
-                              ],
-                            },
-                            ...(note().lockedAt
-                              ? []
-                              : [
-                                  {
-                                    sectionLabel: "Security",
-                                    items: [
-                                      {
-                                        icon: "ti ti-lock",
-                                        label: "Lock Note",
-                                        variant: "danger" as const,
-                                        action: () => actions.handleLock(note()),
-                                      },
-                                    ],
-                                  },
-                                ]),
-                            {
-                              sectionLabel: "",
-                              items: [
-                                {
-                                  icon: "ti ti-trash",
-                                  label: "Delete",
-                                  variant: "danger" as const,
-                                  action: () => actions.handleDelete(note()),
-                                },
-                              ],
-                            },
-                          ]}
+                          elements={noteActionItems(note(), actions)}
                         />
                       </Show>
                     </div>
@@ -510,7 +467,7 @@ export default function NotebookNavigator(props: Props) {
               </Show>
               <For each={visibleNotes()}>
                 {(note) => {
-                  const href = () => buildNoteUrl(props.notebook.shortId, note.shortId);
+                  const href = () => noteHref(note);
                   const active = () => note.id === activeNoteId();
                   const tags = () => noteTags(note).slice(0, 3);
                   return (
@@ -554,63 +511,7 @@ export default function NotebookNavigator(props: Props) {
                             }
                             position="bottom-right"
                             width="w-48"
-                            elements={[
-                              {
-                                icon: "ti ti-file-plus",
-                                label: "New Subnote",
-                                action: () => actions.handleCreateNote(note.id),
-                              },
-                              {
-                                sectionLabel: "Manage",
-                                items: [
-                                  ...(note.lockedAt
-                                    ? []
-                                    : [
-                                        {
-                                          icon: "ti ti-pencil",
-                                          label: "Edit Title",
-                                          action: () => actions.handleEdit(note),
-                                        },
-                                        {
-                                          icon: "ti ti-arrow-move-right",
-                                          label: "Move",
-                                          action: () => actions.handleMove(note),
-                                        },
-                                      ]),
-                                  {
-                                    icon: "ti ti-copy",
-                                    label: "Duplicate",
-                                    action: () => actions.handleCopy(note),
-                                  },
-                                ],
-                              },
-                              ...(note.lockedAt
-                                ? []
-                                : [
-                                    {
-                                      sectionLabel: "Security",
-                                      items: [
-                                        {
-                                          icon: "ti ti-lock",
-                                          label: "Lock Note",
-                                          variant: "danger" as const,
-                                          action: () => actions.handleLock(note),
-                                        },
-                                      ],
-                                    },
-                                  ]),
-                              {
-                                sectionLabel: "",
-                                items: [
-                                  {
-                                    icon: "ti ti-trash",
-                                    label: "Delete",
-                                    variant: "danger" as const,
-                                    action: () => actions.handleDelete(note),
-                                  },
-                                ],
-                              },
-                            ]}
+                            elements={noteActionItems(note, actions)}
                           />
                         </Show>
                       </div>

@@ -271,6 +271,7 @@ export default function NotebookSidebar(props: Props) {
             selectedNoteId={props.ctx.selectedNoteId}
             permission={props.ctx.permission}
             canWrite={canWrite}
+            viewMode={props.ctx.viewMode}
             favoriteNoteIds={[...favoriteNoteIds()]}
             tags={props.ctx.tags}
           />
