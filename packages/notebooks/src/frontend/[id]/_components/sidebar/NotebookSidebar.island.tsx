@@ -1,14 +1,14 @@
-import NoteTree from "./NoteTree";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import SearchButton from "../search/SearchButton";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import CreateNoteButton from "./CreateNoteButton";
-import TagsButton from "./TagsButton";
 import NotebookNavigator from "./NotebookNavigator";
-import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
+import NoteTree from "./NoteTree";
+import TagsButton from "./TagsButton";
 import type { NotebookContext, NoteTreeNode } from "./types";
-import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import { apiClient } from "@/api/client";
 import { WORKSPACE_EVENT, type WorkspaceEventDetail } from "./workspace-events";
 
 type Props = {
@@ -76,10 +76,10 @@ export default function NotebookSidebar(props: Props) {
   const vt = (key: string) => `notebook-sidebar-${notebook().shortId}-${key}`;
 
   const explainMissingHomepage = () =>
-    void prompts.alert(
-      "No homepage is selected for this notebook yet. Open notebook settings and choose a homepage in the General tab.",
-      { title: "No homepage selected", icon: "ti ti-home" },
-    );
+    void prompts.alert("No homepage is selected for this notebook yet. Open notebook settings and choose a homepage in the General tab.", {
+      title: "No homepage selected",
+      icon: "ti ti-home",
+    });
 
   const refetchTree = async () => {
     const response = await apiClient[":id"].tree.$get({ param: { id: notebook().shortId } });
@@ -143,7 +143,6 @@ export default function NotebookSidebar(props: Props) {
       notebookName={notebook().name}
       selectedNoteId={props.ctx.selectedNoteId}
       canWrite={canWrite}
-      viewMode={props.ctx.viewMode}
       showSearch={false}
       showHeaderActions={false}
       favoriteNoteIds={[...favoriteNoteIds()]}
@@ -185,13 +184,19 @@ export default function NotebookSidebar(props: Props) {
               href={homepageHref()!}
               icon="ti ti-home"
               active={homepageIsActive()}
+              navigation="document"
               data={{ "notebooks-homepage-note-id": homepageNote()?.id }}
               viewTransitionName={vt("homepage-mobile")}
             >
               Homepage
             </AppWorkspace.SidebarItem>
           )}
-          <AppWorkspace.SidebarItem href={allNotebooksHref} icon="ti ti-notebook" viewTransitionName={vt("all-notebooks-mobile")}>
+          <AppWorkspace.SidebarItem
+            href={allNotebooksHref}
+            icon="ti ti-notebook"
+            navigation="document"
+            viewTransitionName={vt("all-notebooks-mobile")}
+          >
             All Notebooks
           </AppWorkspace.SidebarItem>
           <div style={`view-transition-name:${vt("search-mobile")}`}>
@@ -201,6 +206,7 @@ export default function NotebookSidebar(props: Props) {
             href={attachmentsHref()}
             icon="ti ti-paperclip"
             meta={props.ctx.attachmentCount}
+            navigation="document"
             viewTransitionName={vt("attachments-mobile")}
           >
             Attachments
@@ -234,6 +240,7 @@ export default function NotebookSidebar(props: Props) {
                     icon="ti ti-home"
                     label={homepageHref() ? "Homepage" : "Set homepage in notebook settings"}
                     active={homepageIsActive()}
+                    navigation="document"
                     viewTransitionName={vt("homepage-desktop")}
                     onClick={homepageHref() ? undefined : explainMissingHomepage}
                   />
@@ -241,12 +248,14 @@ export default function NotebookSidebar(props: Props) {
                     href={allNotebooksHref}
                     icon="ti ti-library"
                     label="All Notebooks"
+                    navigation="document"
                     viewTransitionName={vt("all-notebooks-desktop")}
                   />
                   <AppWorkspace.SidebarIconAction
                     href={attachmentsHref()}
                     icon="ti ti-paperclip"
                     label={`${props.ctx.attachmentCount} attachment${props.ctx.attachmentCount === 1 ? "" : "s"}`}
+                    navigation="document"
                     viewTransitionName={vt("attachments-desktop")}
                   />
                   {hasTags && (
@@ -271,12 +280,10 @@ export default function NotebookSidebar(props: Props) {
             selectedNoteId={props.ctx.selectedNoteId}
             permission={props.ctx.permission}
             canWrite={canWrite}
-            viewMode={props.ctx.viewMode}
             favoriteNoteIds={[...favoriteNoteIds()]}
             tags={props.ctx.tags}
           />
         </Show>
-
       </AppWorkspace.SidebarDesktop>
     </AppWorkspace.Sidebar>
   );

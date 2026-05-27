@@ -24,7 +24,7 @@ import NotebookSidebar from "./_components/sidebar/NotebookSidebar.island";
 import WorkspaceEventBridge from "./_components/sidebar/WorkspaceEventBridge.island";
 import type { NotebookContext } from "./_components/sidebar/types";
 import VersionHistory from "./_components/versions/VersionHistory.island";
-import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../params";
+import { buildNoteUrl, buildVersionsUrl } from "../params";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -75,11 +75,9 @@ export default ssr<AuthContext>(async (c) => {
 
   // Check mode
   const mode = c.req.query("mode");
-  const view = c.req.query("view");
   const isSettingsMode = mode === "settings";
   const isVersionsMode = mode === "versions";
   const isGraphMode = mode === "graph";
-  const isReadMode = view === "read";
 
   // Load note tree
   const tree = await notebooksService.note.getTree({ notebookId });
@@ -122,7 +120,7 @@ export default ssr<AuthContext>(async (c) => {
     createdBy: string | null;
   } | null = null;
 
-  // TOC items shared by detail panel + read-mode anchor injection.
+  // TOC items shared by detail panel + readonly anchor injection.
   // Extracted from `content_md` once and reused.
   let tocItems: ReturnType<typeof extractTocFromMarkdown> = [];
   let namedBlocks: ReturnType<typeof extractNamedBlockSummaries> = [];
@@ -153,9 +151,10 @@ export default ssr<AuthContext>(async (c) => {
         id: selectedNoteId,
       });
       if (noteWithContent?.notebookId === notebookId) {
-        // Force read mode for locked notes
+        // Force readonly rendering for locked notes and readers without write
+        // permission. This is not a user-facing view mode.
         const isNoteLocked = !!noteWithContent.lockedAt;
-        const shouldRenderHtml = isReadMode || isNoteLocked || !canWrite;
+        const shouldRenderHtml = isNoteLocked || !canWrite;
 
         tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
         namedBlocks = extractNamedBlockSummaries(noteWithContent.contentMd);
@@ -185,7 +184,7 @@ export default ssr<AuthContext>(async (c) => {
           noteShortIdToHref.set(shortId, `/app/notebooks/${resolved.notebookShortId}/notes/${resolved.noteShortId}`);
         }
 
-        // For read mode: pipe markdown.render through link transforms +
+        // For readonly rendering: pipe markdown.render through link transforms +
         // tag pills + attachment URL rewrite + heading id injection so
         // the rendered HTML mirrors the editor's pill widgets.
         const renderedHtml = shouldRenderHtml
@@ -225,15 +224,13 @@ export default ssr<AuthContext>(async (c) => {
   if (!noteParam && selectedNote && !isSettingsMode && !isGraphMode) {
     const href = isVersionsMode
       ? buildVersionsUrl(notebook.shortId, selectedNote.shortId)
-      : isReadMode
-        ? buildReadUrl(notebook.shortId, selectedNote.shortId)
-        : buildNoteUrl(notebook.shortId, selectedNote.shortId);
+      : buildNoteUrl(notebook.shortId, selectedNote.shortId);
     return c.redirect(href);
   }
 
-  // Determine actual read mode. Users without write permission must
+  // Determine actual readonly rendering. Users without write permission must
   // not mount the edit-mode Y.Doc/kit surface.
-  const actualReadMode = isReadMode || !canWrite || !!selectedNote?.lockedAt;
+  const readonlyMode = !canWrite || !!selectedNote?.lockedAt;
 
   // Backlinks: only loaded for actual note views (skip settings + versions
   // modes). Cheap query; rendered server-side via SSR — no client fetch.
@@ -267,7 +264,6 @@ export default ssr<AuthContext>(async (c) => {
     userId: user.id,
     settings,
     permission,
-    viewMode: isReadMode ? "read" : "edit",
     attachmentCount,
     tagCount,
     favoriteNoteIds: favoriteRows.map((row) => row.noteId),
@@ -306,7 +302,7 @@ export default ssr<AuthContext>(async (c) => {
       <AppWorkspace class="flex-1 min-h-0">
         <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
         <NotebookLayoutHelp />
-        {actualReadMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} sessionToken={sessionToken!} />}
+        {readonlyMode && <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} sessionToken={sessionToken!} />}
 
         {/* Sidebar */}
         <NotebookSidebar ctx={ctx} />
@@ -326,7 +322,7 @@ export default ssr<AuthContext>(async (c) => {
           ) : isGraphMode && graph ? (
             <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />
           ) : selectedNote ? (
-            actualReadMode ? (
+            readonlyMode ? (
               <ReadonlyNote
                 // Editor + readonly view get the canonical UUID, NOT the
                 // short-id. The yjs websocket, presence channel, attachment
@@ -383,11 +379,10 @@ export default ssr<AuthContext>(async (c) => {
         {/* Right-side detail panel — TOC, backlinks, online users, info */}
         {showDetailPanel && selectedNote && (
           <NotebookDetailPanel
-            mode={actualReadMode ? "read" : "edit"}
-            // Read mode has no footer / no in-content actions — the panel is
-            // the only UI surface for switching to Edit / opening Version
-            // history / etc. Force it open here regardless of cookie.
-            initiallyOpen={actualReadMode ? true : detailPanelOpen}
+            mode={readonlyMode ? "read" : "edit"}
+            // Readonly rendering has no footer / no in-content actions. Keep
+            // the panel open so readers can still copy/download/open history.
+            initiallyOpen={readonlyMode ? true : detailPanelOpen}
             tocItems={tocItems}
             taskProgress={extractTaskProgress(selectedNote.contentMd)}
             attachments={panelAttachments}

@@ -41,7 +41,9 @@ const Section = (props: { title: string; icon: string; children: JSX.Element }) 
 );
 
 const InlineCode = (props: { children: JSX.Element }) => (
-  <code class="rounded bg-zinc-100 px-1 py-px font-mono text-[11px] text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">{props.children}</code>
+  <code class="rounded bg-zinc-100 px-1 py-px font-mono text-[11px] text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+    {props.children}
+  </code>
 );
 
 const Snippet = (props: { title: string; code: string; language?: CodeDisplayLanguage }) => (
@@ -158,17 +160,23 @@ tags:
 ## @notes
 Add notes here. Scripts can append to this section.`;
 
-const dashboardSnippet = "```script\nui.render(\n  ui.heading(\"Notebook dashboard\", 2),\n  ui.live(() => {\n    const ideas = current.table(\"ideas\");\n    const tasks = current.todo(\"tasks\");\n    const recipe = current.data(\"recipe\")?.value ?? {};\n\n    return ui.row(\n      ui.card(ui.heading(\"Ideas\", 3), ui.text(String(ideas?.rows.length ?? 0))),\n      ui.card(ui.heading(\"Open tasks\", 3), ui.text(String(tasks?.items.filter((t) => !t.done).length ?? 0))),\n      ui.card(ui.heading(\"Servings\", 3), ui.text(String(recipe.servings ?? \"-\"))),\n    );\n  }),\n);\n```";
+const dashboardSnippet =
+  '```script\nui.render(\n  ui.heading("Notebook dashboard", 2),\n  ui.live(() => {\n    const ideas = current.table("ideas");\n    const tasks = current.todo("tasks");\n    const recipe = current.data("recipe")?.value ?? {};\n\n    return ui.row(\n      ui.card(ui.heading("Ideas", 3), ui.text(String(ideas?.rows.length ?? 0))),\n      ui.card(ui.heading("Open tasks", 3), ui.text(String(tasks?.items.filter((t) => !t.done).length ?? 0))),\n      ui.card(ui.heading("Servings", 3), ui.text(String(recipe.servings ?? "-"))),\n    );\n  }),\n);\n```';
 
-const searchSnippet = "```script\nconst notes = await nb.search(\"#garden\");\n\nawait ui.table(notes.map((note) => ({\n  note,\n  tags: note.tags,\n  openTasks: note.todos().flatMap((list) => list.items).filter((todo) => !todo.done).length,\n}))).show();\n```";
+const searchSnippet =
+  '```script\nconst notes = await nb.search("#garden");\n\nawait ui.table(notes.map((note) => ({\n  note,\n  tags: note.tags,\n  openTasks: note.todos().flatMap((list) => list.items).filter((todo) => !todo.done).length,\n}))).show();\n```';
 
-const createSnippet = "```script\nui.render(\n  ui.live(() => ui.table(current.table(\"ideas\")?.rows ?? [], { emptyText: \"No ideas yet.\" })),\n  ui.button(\"Add idea\", async () => {\n    const title = await ui.prompt.text(\"New idea title\");\n    if (!title) return;\n\n    const note = await nb.create({ title, content: \"# \" + title + \"\\n\\n#idea\" });\n    await current.table(\"ideas\")?.add(title, note, \"new\", 0);\n    ui.toast(\"Idea added\", { variant: \"success\" });\n  }),\n);\n```";
+const createSnippet =
+  '```script\nui.render(\n  ui.live(() => ui.table(current.table("ideas")?.rows ?? [], { emptyText: "No ideas yet." })),\n  ui.button("Add idea", async () => {\n    const title = await ui.prompt.text("New idea title");\n    if (!title) return;\n\n    const note = await nb.create({ title, content: "# " + title + "\\n\\n#idea" });\n    await current.table("ideas")?.add(title, note, "new", 0);\n    ui.toast("Idea added", { variant: "success" });\n  }),\n);\n```';
 
-const chartSnippet = "```script\nui.live(() => {\n  const harvest = current.table(\"harvest\")?.rows ?? [];\n  return ui.chart(\"bar\", {\n    height: 220,\n    data: harvest.map((row) => ({\n      label: row.Plant,\n      value: Number(row.Grams ?? 0),\n    })),\n  });\n}).show();\n```";
+const chartSnippet =
+  '```script\nui.live(() => {\n  const harvest = current.table("harvest")?.rows ?? [];\n  return ui.chart("bar", {\n    height: 220,\n    data: harvest.map((row) => ({\n      label: row.Plant,\n      value: Number(row.Grams ?? 0),\n    })),\n  });\n}).show();\n```';
 
-const stateSnippet = "```script\nconst KEY = \"clicks\";\nconst render = async () => {\n  const clicks = (await nb.localKV.get(KEY)) ?? 0;\n  slot.replaceChildren(\n    ui.row(\n      ui.text(\"Personal clicks: \" + clicks),\n      ui.button(\"+1\", async () => {\n        await nb.localKV.set(KEY, (current = 0) => current + 1);\n        await render();\n      }),\n    ),\n  );\n};\n\nconst slot = ui.col();\nslot.show();\nawait render();\n```";
+const stateSnippet =
+  '```script\nconst KEY = "clicks";\nconst render = async () => {\n  const clicks = (await nb.localKV.get(KEY)) ?? 0;\n  slot.replaceChildren(\n    ui.row(\n      ui.text("Personal clicks: " + clicks),\n      ui.button("+1", async () => {\n        await nb.localKV.set(KEY, (current = 0) => current + 1);\n        await render();\n      }),\n    ),\n  );\n};\n\nconst slot = ui.col();\nslot.show();\nawait render();\n```';
 
-const attachmentsSnippet = "```script\nconst picked = await nb.attachments.uploadFromPicker({ accept: \"image/*\", multiple: true });\n\nfor (const file of picked) {\n  await nb.attachments.insertIntoContent(file.id);\n}\n\nui.toast(`${picked.length} file(s) inserted`, { variant: \"success\" });\n```";
+const attachmentsSnippet =
+  '```script\nconst picked = await nb.attachments.uploadFromPicker({ accept: "image/*", multiple: true });\n\nfor (const file of picked) {\n  await nb.attachments.insertIntoContent(file.id);\n}\n\nui.toast(`${picked.length} file(s) inserted`, { variant: "success" });\n```';
 
 const setupSnippet = `@ideas
 | Idea | Note | Status | Progress |
@@ -239,12 +247,12 @@ const OverviewTab = () => (
         <InlineCode>[Label](note://abc123)</InlineCode>. The label is what readers see. The id is the target note.
       </p>
       <Info>
-        You usually do not type this by hand. Type <InlineCode>/note</InlineCode>, search for the target note, and pick it from the
-        menu. The editor inserts the correct link for you.
+        You usually do not type this by hand. Type <InlineCode>/note</InlineCode>, search for the target note, and pick it from the menu.
+        The editor inserts the correct link for you.
       </Info>
       <p>
-        Use note links when a note becomes too large, when one row in a table needs more detail, or when a dashboard should open a
-        source note. In read mode and script tables, note links render as compact blue pills.
+        Use note links when a note becomes too large, when one row in a table needs more detail, or when a dashboard should open a source
+        note. In rendered Markdown and script tables, note links render as compact blue pills.
       </p>
       <Snippet title="A small hub page" code={noteLinksSnippet} />
       <Tip>
@@ -255,12 +263,12 @@ const OverviewTab = () => (
 
     <Section title="Tags" icon="ti-tags">
       <p>
-        Tags are simple labels. Type <InlineCode>#garden</InlineCode> or <InlineCode>#waiting</InlineCode> anywhere in a note. The
-        notebook indexes them automatically, so search, the sidebar tag list, and scripts can find related notes.
+        Tags are simple labels. Type <InlineCode>#garden</InlineCode> or <InlineCode>#waiting</InlineCode> anywhere in a note. The notebook
+        indexes them automatically, so search, the sidebar tag list, and scripts can find related notes.
       </p>
       <p>
-        Tags work best for groups that are not a strict tree. A note can live under one parent, but it can have many tags: project,
-        status, topic, person, season, or workflow.
+        Tags work best for groups that are not a strict tree. A note can live under one parent, but it can have many tags: project, status,
+        topic, person, season, or workflow.
       </p>
       <Snippet title="Useful tag patterns" code={tagsSnippet} />
       <MiniGrid>
@@ -272,28 +280,25 @@ const OverviewTab = () => (
         </MiniCard>
       </MiniGrid>
       <Warning>
-        Keep tag names boring and consistent. <InlineCode>#garden</InlineCode> and <InlineCode>#gardening</InlineCode> are different
-        tags.
+        Keep tag names boring and consistent. <InlineCode>#garden</InlineCode> and <InlineCode>#gardening</InlineCode> are different tags.
       </Warning>
     </Section>
 
     <Section title="Readable boxes and rich blocks" icon="ti-info-square-rounded">
       <p>
-        Use boxes when a paragraph should stand out. They are good for hints, decisions, warnings, and summaries. You can also add math
-        and diagrams when a note needs them.
+        Use boxes when a paragraph should stand out. They are good for hints, decisions, warnings, and summaries. You can also add math and
+        diagrams when a note needs them.
       </p>
       <Snippet title="Boxes, links, math, and Mermaid" code={richMarkdownSnippet} />
     </Section>
 
     <Section title="A tiny app in one note" icon="ti-apps">
       <p>
-        A useful notebook app usually has three parts: a small data source, a script that reads it, and one or two buttons that update
-        the note. Start small and let the dashboard grow only when it earns its place.
+        A useful notebook app usually has three parts: a small data source, a script that reads it, and one or two buttons that update the
+        note. Start small and let the dashboard grow only when it earns its place.
       </p>
       <Snippet title="Copy this into a note" code={setupSnippet} />
-      <Tip>
-        Keep source data easy to edit by hand. Use scripts for summaries and workflows, not for hiding all information behind code.
-      </Tip>
+      <Tip>Keep source data easy to edit by hand. Use scripts for summaries and workflows, not for hiding all information behind code.</Tip>
     </Section>
   </div>
 );
@@ -301,14 +306,14 @@ const OverviewTab = () => (
 const AdvancedTab = () => (
   <div class="space-y-5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
     <p>
-      Advanced blocks let scripts read and update structured parts of the current note. Put an <InlineCode>@ref</InlineCode> line
-      above a table, list, data block, todo list, or section. Scripts can then find it by name.
+      Advanced blocks let scripts read and update structured parts of the current note. Put an <InlineCode>@ref</InlineCode> line above a
+      table, list, data block, todo list, or section. Scripts can then find it by name.
     </p>
 
     <Section title="Named tables" icon="ti-table">
       <p>
-        Tables are the best place for small structured data. Formula cells render as useful values. When a script adds a row, values
-        like notes, tags, arrays, dates, and formulas are converted to readable Markdown.
+        Tables are the best place for small structured data. Formula cells render as useful values. When a script adds a row, values like
+        notes, tags, arrays, dates, and formulas are converted to readable Markdown.
       </p>
       <Snippet title="Table with formulas" code={tableSnippet} />
       <MiniGrid>
@@ -323,8 +328,8 @@ const AdvancedTab = () => (
 
     <Section title="Lists, todos, data, and sections" icon="ti-components">
       <p>
-        Use lists for simple ordered data, todos for checkboxes, data blocks for key-value facts, and sections for larger Markdown
-        text. All use the same <InlineCode>@ref</InlineCode> idea.
+        Use lists for simple ordered data, todos for checkboxes, data blocks for key-value facts, and sections for larger Markdown text. All
+        use the same <InlineCode>@ref</InlineCode> idea.
       </p>
       <Snippet title="Four named block types" code={blocksSnippet} />
       <Warning>
@@ -334,9 +339,7 @@ const AdvancedTab = () => (
     </Section>
 
     <Section title="Formulas" icon="ti-calculator">
-      <p>
-        Formula cells are still plain text. That keeps tables portable, but the editor and script tables can render them nicely.
-      </p>
+      <p>Formula cells are still plain text. That keeps tables portable, but the editor and script tables can render them nicely.</p>
       <MiniGrid>
         <MiniCard title="Progress">
           <InlineCode>=PROGRESS(0.4)</InlineCode> or <InlineCode>=PROGRESS(2,10)</InlineCode>
@@ -358,45 +361,48 @@ const AdvancedTab = () => (
 
     <Section title="Create and update" icon="ti-pencil-plus">
       <p>
-        Scripts can create notes and update the current note. They can only write current-note content safely; other-note body writes
-        are intentionally not exposed because collaboration happens through the open note.
+        Scripts can create notes and update the current note. They can only write current-note content safely; other-note body writes are
+        intentionally not exposed because collaboration happens through the open note.
       </p>
       <Snippet title="Create a linked note and append a table row" code={createSnippet} language="script" />
     </Section>
 
     <Section title="Charts and personal state" icon="ti-chart-bar">
-      <p>
-        Use charts for summaries and trends. Use local state for personal UI state, such as collapsed panels or a private counter.
-      </p>
+      <p>Use charts for summaries and trends. Use local state for personal UI state, such as collapsed panels or a private counter.</p>
       <Snippet title="Render a chart" code={chartSnippet} language="script" />
       <Snippet title="Personal local state" code={stateSnippet} language="script" />
     </Section>
   </div>
 );
 
-const promptFormSnippet = "```script\nconst values = await ui.prompt.form({\n  title: \"Add plant\",\n  submitText: \"Add\",\n  fields: {\n    name: {\n      type: \"text\",\n      label: \"Plant name\",\n      required: true,\n      placeholder: \"Tomato\",\n    },\n    notes: {\n      type: \"textarea\",\n      label: \"Notes\",\n      rows: 3,\n    },\n    count: {\n      type: \"number\",\n      label: \"Seedlings\",\n      min: 0,\n      defaultValue: 1,\n    },\n    perennial: {\n      type: \"boolean\",\n      label: \"Perennial plant\",\n      defaultValue: false,\n    },\n    status: {\n      type: \"select\",\n      label: \"Status\",\n      options: [\"planned\", \"sown\", \"planted\", \"harvested\"],\n      defaultValue: \"planned\",\n    },\n  },\n});\n\nif (!values) return; // user cancelled\nawait current.table(\"plants\")?.add(values.name, values.status, values.count, values.notes);\nui.toast(\"Plant added\", { variant: \"success\" });\n```";
+const promptFormSnippet =
+  '```script\nconst values = await ui.prompt.form({\n  title: "Add plant",\n  submitText: "Add",\n  fields: {\n    name: {\n      type: "text",\n      label: "Plant name",\n      required: true,\n      placeholder: "Tomato",\n    },\n    notes: {\n      type: "textarea",\n      label: "Notes",\n      rows: 3,\n    },\n    count: {\n      type: "number",\n      label: "Seedlings",\n      min: 0,\n      defaultValue: 1,\n    },\n    perennial: {\n      type: "boolean",\n      label: "Perennial plant",\n      defaultValue: false,\n    },\n    status: {\n      type: "select",\n      label: "Status",\n      options: ["planned", "sown", "planted", "harvested"],\n      defaultValue: "planned",\n    },\n  },\n});\n\nif (!values) return; // user cancelled\nawait current.table("plants")?.add(values.name, values.status, values.count, values.notes);\nui.toast("Plant added", { variant: "success" });\n```';
 
-const uiTableExample = "```script\nconst notes = await nb.search(\"#garden\");\n\nui.table(notes.map((note) => ({\n  note,\n  tags: note.tags,\n  tasks: note.todos().flatMap((list) => list.items).filter((todo) => !todo.done).length,\n  created: note.createdAt,\n}))).show();\n```";
+const uiTableExample =
+  '```script\nconst notes = await nb.search("#garden");\n\nui.table(notes.map((note) => ({\n  note,\n  tags: note.tags,\n  tasks: note.todos().flatMap((list) => list.items).filter((todo) => !todo.done).length,\n  created: note.createdAt,\n}))).show();\n```';
 
-const nbUpdateExample = "```script\nconst archived = await nb.search(\"#archive-candidate\");\n\nif (archived.length === 0) {\n  ui.toast(\"No archive candidates found\");\n  return;\n}\n\nconst ok = await ui.prompt.confirm(`Rename ${archived.length} note(s) as archived?`);\nif (!ok) return;\n\nfor (const note of archived) {\n  if (!note.title.startsWith(\"Archived: \")) {\n    await nb.update(note.id, { title: \"Archived: \" + note.title });\n  }\n}\n\nui.toast(\"Archive titles updated\", { variant: \"success\" });\n```";
+const nbUpdateExample =
+  '```script\nconst archived = await nb.search("#archive-candidate");\n\nif (archived.length === 0) {\n  ui.toast("No archive candidates found");\n  return;\n}\n\nconst ok = await ui.prompt.confirm(`Rename ${archived.length} note(s) as archived?`);\nif (!ok) return;\n\nfor (const note of archived) {\n  if (!note.title.startsWith("Archived: ")) {\n    await nb.update(note.id, { title: "Archived: " + note.title });\n  }\n}\n\nui.toast("Archive titles updated", { variant: "success" });\n```';
 
-const localKVExample = "```script\nconst slot = ui.col();\nslot.show();\n\nconst render = async () => {\n  const clicks = (await nb.localKV.get(\"clicks\")) ?? 0;\n  slot.replaceChildren(\n    ui.row(\n      ui.text(`Personal clicks: ${clicks}`),\n      ui.button(\"+1\", async () => {\n        await nb.localKV.set(\"clicks\", (current = 0) => current + 1);\n        await render();\n      }),\n    ),\n  );\n};\n\nawait render();\n```";
+const localKVExample =
+  '```script\nconst slot = ui.col();\nslot.show();\n\nconst render = async () => {\n  const clicks = (await nb.localKV.get("clicks")) ?? 0;\n  slot.replaceChildren(\n    ui.row(\n      ui.text(`Personal clicks: ${clicks}`),\n      ui.button("+1", async () => {\n        await nb.localKV.set("clicks", (current = 0) => current + 1);\n        await render();\n      }),\n    ),\n  );\n};\n\nawait render();\n```';
 
-const collabStateExample = "```script\nconst slot = ui.col();\nslot.show();\n\nconst render = () => {\n  const value = current.kv.get(\"counter\") ?? 0;\n  slot.replaceChildren(\n    ui.row(\n      ui.text(`Shared counter: ${value}`),\n      ui.button(\"+1\", () => current.kv.set(\"counter\", (current = 0) => current + 1)),\n      ui.button(\"Reset\", () => current.kv.delete(\"counter\")),\n    ),\n  );\n};\n\nrender();\ncurrent.kv.observe(\"counter\", render);\n```";
+const collabStateExample =
+  '```script\nconst slot = ui.col();\nslot.show();\n\nconst render = () => {\n  const value = current.kv.get("counter") ?? 0;\n  slot.replaceChildren(\n    ui.row(\n      ui.text(`Shared counter: ${value}`),\n      ui.button("+1", () => current.kv.set("counter", (current = 0) => current + 1)),\n      ui.button("Reset", () => current.kv.delete("counter")),\n    ),\n  );\n};\n\nrender();\ncurrent.kv.observe("counter", render);\n```';
 
-const tagsExample = "```script\nconst all = await nb.tags.list();\n\nui.table(all.map((tag) => ({\n  tag: \"#\" + tag.tag,\n  notes: tag.count,\n}))).show();\n```";
+const tagsExample =
+  '```script\nconst all = await nb.tags.list();\n\nui.table(all.map((tag) => ({\n  tag: "#" + tag.tag,\n  notes: tag.count,\n}))).show();\n```';
 
 const ApiTab = () => (
   <div class="space-y-5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
     <p>
-      Script blocks expose four main namespaces: <InlineCode>current</InlineCode>, <InlineCode>nb</InlineCode>,{" "}
-      <InlineCode>ui</InlineCode>, and <InlineCode>std</InlineCode>. You do not import anything. Type a namespace and a dot to use
-      autocomplete.
+      Script blocks expose four main namespaces: <InlineCode>current</InlineCode>, <InlineCode>nb</InlineCode>, <InlineCode>ui</InlineCode>,
+      and <InlineCode>std</InlineCode>. You do not import anything. Type a namespace and a dot to use autocomplete.
     </p>
     <Info>
       Normal JavaScript globals are available too: <InlineCode>Date</InlineCode>, <InlineCode>Math</InlineCode>,{" "}
-      <InlineCode>JSON</InlineCode>, <InlineCode>Array</InlineCode>, <InlineCode>Promise</InlineCode>,{" "}
-      <InlineCode>console</InlineCode>, and the usual language features.
+      <InlineCode>JSON</InlineCode>, <InlineCode>Array</InlineCode>, <InlineCode>Promise</InlineCode>, <InlineCode>console</InlineCode>, and
+      the usual language features.
     </Info>
 
     <Section title="Rules before the reference" icon="ti-info-circle">
@@ -411,9 +417,7 @@ const ApiTab = () => (
         <MiniCard title="Cancel">
           Prompt calls return <InlineCode>null</InlineCode> when the user cancels. Always handle that before writing data.
         </MiniCard>
-        <MiniCard title="Scope">
-          Scripts only see the current notebook. Note and attachment ids are short ids.
-        </MiniCard>
+        <MiniCard title="Scope">Scripts only see the current notebook. Note and attachment ids are short ids.</MiniCard>
       </MiniGrid>
     </Section>
 
@@ -422,16 +426,21 @@ const ApiTab = () => (
         <MiniCard title="current">Read and update the note that contains the script.</MiniCard>
         <MiniCard title="nb">Search, create, update, and remove notes in the current notebook.</MiniCard>
         <MiniCard title="ui">Render output: text, tables, charts, buttons, prompts, cards, and toasts.</MiniCard>
-        <MiniCard title="std">Curated standard-library helpers: text, dates, fuzzy search, crypto, charts, QR, files, images, timing.</MiniCard>
+        <MiniCard title="std">
+          Curated standard-library helpers: text, dates, fuzzy search, crypto, charts, QR, files, images, timing.
+        </MiniCard>
       </MiniGrid>
       <Info>
-        Notebook helpers live under their owners: <InlineCode>current.kv</InlineCode>, <InlineCode>nb.localKV</InlineCode>, <InlineCode>nb.attachments</InlineCode>, and <InlineCode>nb.tags</InlineCode>.
+        Notebook helpers live under their owners: <InlineCode>current.kv</InlineCode>, <InlineCode>nb.localKV</InlineCode>,{" "}
+        <InlineCode>nb.attachments</InlineCode>, and <InlineCode>nb.tags</InlineCode>.
       </Info>
     </Section>
 
     <Section title="Function index" icon="ti-list-search">
       <MiniGrid>
-        <MiniCard title="Current note">current.id, current.title, current.content, current.tags, current.setTitle, current.appendContent</MiniCard>
+        <MiniCard title="Current note">
+          current.id, current.title, current.content, current.tags, current.setTitle, current.appendContent
+        </MiniCard>
         <MiniCard title="Named blocks">current.table(s), current.list(s), current.todo(s), current.dataBlocks, current.section(s)</MiniCard>
         <MiniCard title="Notebook notes">nb.list, nb.get, nb.search, nb.searchTags, nb.create, nb.update, nb.remove</MiniCard>
         <MiniCard title="UI output">ui.text, ui.heading, ui.md, ui.table, ui.chart, ui.noteLink, ui.noteList, ui.button, ui.toast</MiniCard>
@@ -442,11 +451,15 @@ const ApiTab = () => (
 
     <Section title="current note" icon="ti-note">
       <p>
-        <InlineCode>current</InlineCode> is the note that contains the script. Metadata reads are sync. Content writes are async and
-        only affect this note.
+        <InlineCode>current</InlineCode> is the note that contains the script. Metadata reads are sync. Content writes are async and only
+        affect this note.
       </p>
       <ApiCardGrid>
-        <ApiMethod name="Metadata fields" signature="current.id / title / content / tags / notebook / createdAt / updatedAt / lockedAt" returns="plain values">
+        <ApiMethod
+          name="Metadata fields"
+          signature="current.id / title / content / tags / notebook / createdAt / updatedAt / lockedAt"
+          returns="plain values"
+        >
           <p>
             <InlineCode>id</InlineCode> is the short id. <InlineCode>tags</InlineCode> are strings without <InlineCode>#</InlineCode>.{" "}
             <InlineCode>notebook</InlineCode> contains the current notebook id and name.
@@ -462,14 +475,16 @@ const ApiTab = () => (
       <Snippet
         title="Current note basics"
         language="script"
-        code={"```script\nui.heading(current.title, 2).show();\nui.text(`Tags: ${current.tags.join(\", \") || \"none\"}`).show();\n\nawait current.appendContent(\"\\n## Log\\nUpdated from script.\\n\");\n```"}
+        code={
+          '```script\nui.heading(current.title, 2).show();\nui.text(`Tags: ${current.tags.join(", ") || "none"}`).show();\n\nawait current.appendContent("\\n## Log\\nUpdated from script.\\n");\n```'
+        }
       />
     </Section>
 
     <Section title="Named block pattern" icon="ti-blockquote">
       <p>
-        Put <InlineCode>@ref</InlineCode> above a table, list, todo list, data block, or section. Singular reads return the first match
-        or <InlineCode>null</InlineCode>. Plural reads return all matches; without a name they return every block of that type.
+        Put <InlineCode>@ref</InlineCode> above a table, list, todo list, data block, or section. Singular reads return the first match or{" "}
+        <InlineCode>null</InlineCode>. Plural reads return all matches; without a name they return every block of that type.
       </p>
       <div class="overflow-x-auto rounded-lg bg-zinc-50 p-2 text-xs dark:bg-zinc-900/60">
         <table class="w-full min-w-[42rem] table-fixed border-separate border-spacing-1">
@@ -482,11 +497,66 @@ const ApiTab = () => (
             </tr>
           </thead>
           <tbody>
-            <tr><td class="p-2">table</td><td class="p-2"><InlineCode>current.table("x")</InlineCode></td><td class="p-2"><InlineCode>current.tables("x")</InlineCode></td><td class="p-2"><InlineCode>table.add(...cells)</InlineCode></td></tr>
-            <tr><td class="p-2">list</td><td class="p-2"><InlineCode>current.list("x")</InlineCode></td><td class="p-2"><InlineCode>current.lists("x")</InlineCode></td><td class="p-2"><InlineCode>list.add(...items)</InlineCode></td></tr>
-            <tr><td class="p-2">todo</td><td class="p-2"><InlineCode>current.todo("x")</InlineCode></td><td class="p-2"><InlineCode>current.todos("x")</InlineCode></td><td class="p-2"><InlineCode>todo.add(...items)</InlineCode></td></tr>
-            <tr><td class="p-2">data</td><td class="p-2"><InlineCode>current.data("x")</InlineCode></td><td class="p-2"><InlineCode>current.dataBlocks("x")</InlineCode></td><td class="p-2"><InlineCode>data.set(object)</InlineCode></td></tr>
-            <tr><td class="p-2">section</td><td class="p-2"><InlineCode>current.section("x")</InlineCode></td><td class="p-2"><InlineCode>current.sections("x")</InlineCode></td><td class="p-2"><InlineCode>section.append(markdown)</InlineCode></td></tr>
+            <tr>
+              <td class="p-2">table</td>
+              <td class="p-2">
+                <InlineCode>current.table("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>current.tables("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>table.add(...cells)</InlineCode>
+              </td>
+            </tr>
+            <tr>
+              <td class="p-2">list</td>
+              <td class="p-2">
+                <InlineCode>current.list("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>current.lists("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>list.add(...items)</InlineCode>
+              </td>
+            </tr>
+            <tr>
+              <td class="p-2">todo</td>
+              <td class="p-2">
+                <InlineCode>current.todo("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>current.todos("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>todo.add(...items)</InlineCode>
+              </td>
+            </tr>
+            <tr>
+              <td class="p-2">data</td>
+              <td class="p-2">
+                <InlineCode>current.data("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>current.dataBlocks("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>data.set(object)</InlineCode>
+              </td>
+            </tr>
+            <tr>
+              <td class="p-2">section</td>
+              <td class="p-2">
+                <InlineCode>current.section("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>current.sections("x")</InlineCode>
+              </td>
+              <td class="p-2">
+                <InlineCode>section.append(markdown)</InlineCode>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -496,19 +566,17 @@ const ApiTab = () => (
       <ApiCardGrid>
         <ApiMethod name="Read one table" signature="current.table(name)" returns="table object or null">
           <p>
-            The table object has <InlineCode>columns</InlineCode>, <InlineCode>rows</InlineCode>, and{" "}
-            <InlineCode>add</InlineCode>. Each row is an object keyed by the Markdown table headers.
+            The table object has <InlineCode>columns</InlineCode>, <InlineCode>rows</InlineCode>, and <InlineCode>add</InlineCode>. Each row
+            is an object keyed by the Markdown table headers.
           </p>
         </ApiMethod>
         <ApiMethod name="Read many tables" signature="current.tables(name?)" returns="table object[]">
-          <p>
-            Pass a name to get all matching refs. Omit the name to read all tables in the current note.
-          </p>
+          <p>Pass a name to get all matching refs. Omit the name to read all tables in the current note.</p>
         </ApiMethod>
         <ApiMethod name="Append row" signature="await table.add(...cells)" returns="void">
           <p>
-            Accepts varargs, one array, or one object keyed by column names. Notes become note links, arrays are joined, formulas stay
-            as formulas.
+            Accepts varargs, one array, or one object keyed by column names. Notes become note links, arrays are joined, formulas stay as
+            formulas.
           </p>
         </ApiMethod>
       </ApiCardGrid>
@@ -556,7 +624,7 @@ const ApiTab = () => (
         <ApiMethod name="Search" signature="await nb.search(query), await nb.searchTags(tags, options?)" returns="note[]">
           <p>
             Search by text, <InlineCode>#tag</InlineCode>, or a structured filter object such as{" "}
-            <InlineCode>{"{ tags: [\"garden\"], limit: 20 }"}</InlineCode>.
+            <InlineCode>{'{ tags: ["garden"], limit: 20 }'}</InlineCode>.
           </p>
         </ApiMethod>
         <ApiMethod name="Create" signature="await nb.create({ title, parentId?, content? })" returns="created note">
@@ -564,10 +632,12 @@ const ApiTab = () => (
             <InlineCode>parentId</InlineCode> is a note short id. The new note belongs to the current notebook.
           </p>
         </ApiMethod>
-        <ApiMethod name="Update and remove" signature="await nb.update(shortId, patch), await nb.remove(shortId)" returns="updated note or void">
-          <p>
-            Update note metadata such as title or parent. Body writes for other notes are intentionally not exposed.
-          </p>
+        <ApiMethod
+          name="Update and remove"
+          signature="await nb.update(shortId, patch), await nb.remove(shortId)"
+          returns="updated note or void"
+        >
+          <p>Update note metadata such as title or parent. Body writes for other notes are intentionally not exposed.</p>
         </ApiMethod>
       </ApiCardGrid>
       <Snippet title="Search notes and render a table" code={uiTableExample} language="script" />
@@ -583,13 +653,11 @@ const ApiTab = () => (
         </ApiMethod>
         <ApiMethod name="Text and Markdown" signature="ui.text, ui.heading, ui.md" returns="UI element">
           <p>
-            <InlineCode>ui.md</InlineCode> renders Markdown with the same engine as read mode.
+            <InlineCode>ui.md</InlineCode> renders Markdown with the same engine as notebook content.
           </p>
         </ApiMethod>
         <ApiMethod name="Notes and tables" signature="ui.noteLink, ui.noteList, ui.table" returns="UI element">
-          <p>
-            Tables understand note objects, tags, ISO dates, formulas, progress values, arrays, and plain objects.
-          </p>
+          <p>Tables understand note objects, tags, ISO dates, formulas, progress values, arrays, and plain objects.</p>
         </ApiMethod>
         <ApiMethod name="Actions and feedback" signature="ui.button, ui.toast, ui.render" returns="UI element or void">
           <p>
@@ -604,9 +672,9 @@ const ApiTab = () => (
 
     <Section title="ui.prompt" icon="ti-forms">
       <p>
-        Prompt calls open modal dialogs. <InlineCode>alert</InlineCode> returns when the user closes it.{" "}
-        <InlineCode>confirm</InlineCode> returns a boolean. <InlineCode>text</InlineCode> and <InlineCode>form</InlineCode> return{" "}
-        <InlineCode>null</InlineCode> when cancelled.
+        Prompt calls open modal dialogs. <InlineCode>alert</InlineCode> returns when the user closes it. <InlineCode>confirm</InlineCode>{" "}
+        returns a boolean. <InlineCode>text</InlineCode> and <InlineCode>form</InlineCode> return <InlineCode>null</InlineCode> when
+        cancelled.
       </p>
       <ApiCardGrid>
         <ApiMethod name="Simple prompts" signature="await ui.prompt.alert/confirm/text(...)" returns="void, boolean, or string | null">
@@ -635,7 +703,11 @@ const ApiTab = () => (
 
     <Section title="nb.attachments, nb.tags, and std" icon="ti-tool">
       <ApiCardGrid>
-        <ApiMethod name="nb.attachments" signature="await nb.attachments.list/upload/uploadFromPicker/get/remove(...)" returns="attachment data">
+        <ApiMethod
+          name="nb.attachments"
+          signature="await nb.attachments.list/upload/uploadFromPicker/get/remove(...)"
+          returns="attachment data"
+        >
           <p>
             Use <InlineCode>insertIntoContent(shortId)</InlineCode> to append an attachment link or image embed to the current note.
           </p>
@@ -646,9 +718,7 @@ const ApiTab = () => (
           </p>
         </ApiMethod>
         <ApiMethod name="std" signature="std.text, std.dates, std.fuzzy, std.crypto, std.charts, ..." returns="utility namespaces">
-          <p>
-            Use stdlib helpers for formatting, dates, fuzzy search, charts, QR codes, files, images, clipboard, passwords, and timing.
-          </p>
+          <p>Use stdlib helpers for formatting, dates, fuzzy search, charts, QR codes, files, images, clipboard, passwords, and timing.</p>
         </ApiMethod>
       </ApiCardGrid>
       <Snippet title="Pick images and insert them into the current note" code={attachmentsSnippet} language="script" />

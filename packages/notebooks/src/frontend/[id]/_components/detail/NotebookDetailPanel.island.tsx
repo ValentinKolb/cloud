@@ -4,7 +4,7 @@ import type { NotebookPresenceParticipant } from "@valentinkolb/cloud/contracts"
 import { AppWorkspace, toast } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Backlink } from "../../../../service/links";
-import { buildNoteUrl, buildReadUrl, buildVersionsUrl } from "../../../params";
+import { buildVersionsUrl } from "../../../params";
 import type { Attachment } from "../editor/attachments-client";
 import { buildAttachmentContentUrl, confirmAndDownload, formatBytes } from "../editor/attachments-client";
 import { apiClient } from "@/api/client";
@@ -104,7 +104,7 @@ const namedBlockSnippet = (block: NamedBlockSummary): string => {
  *  - panel → TOGGLE_RICH_MODE_EVENT → editor flips its `richMode` signal
  *  - panel → EDITOR_COPY_EVENT / EDITOR_DOWNLOAD_EVENT → editor uses its
  *    current `ytext` rather than the SSR-time `contentMd` snapshot
- *  - read mode falls back to `contentMd` prop directly (no editor present)
+ *  - readonly rendering falls back to `contentMd` prop directly (no editor present)
  */
 export default function NotebookDetailPanel(props: Props) {
   const [open, setOpen] = createSignal(props.initiallyOpen);
@@ -420,7 +420,7 @@ export default function NotebookDetailPanel(props: Props) {
         </section>
       </Show>
 
-      {/* Online (edit mode only — read mode has no presence connection) */}
+      {/* Online (edit mode only — readonly rendering has no presence connection) */}
       <Show when={props.mode === "edit" && participants().length > 0}>
         <section class="detail-section">
           <h3 class="detail-section-label">Online · {participants().length}</h3>
@@ -453,18 +453,6 @@ export default function NotebookDetailPanel(props: Props) {
               <span>{isRich() ? "Markdown source" : "Rich text mode"}</span>
             </button>
           </Show>
-
-          {props.mode === "edit" ? (
-            <a href={buildReadUrl(props.notebookId, noteId())} class={ACTION_BTN}>
-              <i class="ti ti-eye" />
-              <span>Read view</span>
-            </a>
-          ) : !isLocked() ? (
-            <a href={buildNoteUrl(props.notebookId, noteId())} class={ACTION_BTN}>
-              <i class="ti ti-pencil" />
-              <span>Edit</span>
-            </a>
-          ) : null}
 
           <button type="button" class={ACTION_BTN} onClick={copyContent}>
             <i class="ti ti-clipboard" />

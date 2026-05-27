@@ -12,7 +12,7 @@ type Props = {
    *  false the enhancer is a no-op and the source stays visible. */
   scriptsEnabled: boolean;
   // ---- script-kit metadata snapshot (mirrors NoteEditor.client.tsx).
-  // Read-mode is no-Y.Doc, so every kit.note.* read returns this
+  // Readonly rendering has no Y.Doc, so every script metadata read returns this
   // snapshot's value at script-run time.
   noteShortId: string;
   noteContent: string;
@@ -27,9 +27,8 @@ type Props = {
 };
 
 /**
- * Distraction-free read view: just the rendered content, full height, no
- * footer chrome. The detail panel (forced open in read mode by `page.tsx`)
- * carries the Edit button and other note actions.
+ * Readonly note renderer: just the rendered content, full height, no footer
+ * chrome. Used for locked notes and users without write permission.
  */
 export default function ReadonlyNote(props: Props) {
   let containerRef: HTMLDivElement | undefined;

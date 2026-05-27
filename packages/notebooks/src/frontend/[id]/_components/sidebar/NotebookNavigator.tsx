@@ -2,7 +2,7 @@ import { apiClient } from "@/api/client";
 import { Dropdown, SelectChip, prompts } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { buildAttachmentsUrl, buildNoteUrl, buildReadUrl } from "../../../params";
+import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import type { NoteTreeNode, Notebook, TagSummary } from "./types";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
@@ -20,7 +20,6 @@ type Props = {
   selectedNoteId: string | null;
   permission: string;
   canWrite: boolean;
-  viewMode: "read" | "edit";
   favoriteNoteIds: string[];
   tags: TagSummary[];
 };
@@ -74,9 +73,7 @@ const subtree = (nodes: NoteTreeNode[], noteId: string | null): NoteTreeNode[] =
 };
 
 const branchNodes = (nodes: NoteTreeNode[]): NoteTreeNode[] =>
-  nodes
-    .filter((note) => note.children.length > 0)
-    .map((note) => ({ ...note, children: branchNodes(note.children) }));
+  nodes.filter((note) => note.children.length > 0).map((note) => ({ ...note, children: branchNodes(note.children) }));
 
 const noteFolderContext = (nodes: NoteTreeNode[], selectedNoteId: string | null): string | null => {
   if (!selectedNoteId) return null;
@@ -128,10 +125,7 @@ const NoteBranchPicker = (props: {
             style={`padding-left:${1.25 + (props.depth ?? 0) * 0.75}rem`}
             onClick={() => props.onSelect(note.id)}
           >
-            <Show
-              when={note.children.length > 0}
-              fallback={<span class="h-4 w-4 shrink-0" />}
-            >
+            <Show when={note.children.length > 0} fallback={<span class="h-4 w-4 shrink-0" />}>
               <span
                 class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-dimmed hover:bg-zinc-200/70 hover:text-secondary dark:hover:bg-zinc-700"
                 onClick={(event) => {
@@ -174,7 +168,7 @@ export default function NotebookNavigator(props: Props) {
   const allNotes = createMemo(() => flattenTree(props.tree));
   const notesById = createMemo(() => new Map(allNotes().map((note) => [note.id, note])));
   const branchTree = createMemo(() => branchNodes(props.tree));
-  const homepageNote = createMemo(() => props.notebook.homepageNoteId ? notesById().get(props.notebook.homepageNoteId) ?? null : null);
+  const homepageNote = createMemo(() => (props.notebook.homepageNoteId ? (notesById().get(props.notebook.homepageNoteId) ?? null) : null));
   const selectedRoot = () => selection().root;
   const selectedNoteRootId = () => {
     const current = selection();
@@ -185,8 +179,7 @@ export default function NotebookNavigator(props: Props) {
     return current.root === "tags" ? current.tag : null;
   };
   const attachmentsHref = () => buildAttachmentsUrl(props.notebook.shortId);
-  const noteHref = (note: NoteTreeNode) =>
-    props.viewMode === "read" ? buildReadUrl(props.notebook.shortId, note.shortId) : buildNoteUrl(props.notebook.shortId, note.shortId);
+  const noteHref = (note: NoteTreeNode) => buildNoteUrl(props.notebook.shortId, note.shortId);
 
   const noteTags = (note: NoteTreeNode) => tagsFromMarkdown(note.contentMd);
 
@@ -266,7 +259,8 @@ export default function NotebookNavigator(props: Props) {
       const detail = (event as CustomEvent<{ canonicalNoteId?: string }>).detail;
       if (!detail?.canonicalNoteId) return;
       setActiveNoteId(detail.canonicalNoteId);
-      const noteVisibleInCurrentRoot = visibleNotes().some((note) => note.id === detail.canonicalNoteId) || pinnedNote()?.id === detail.canonicalNoteId;
+      const noteVisibleInCurrentRoot =
+        visibleNotes().some((note) => note.id === detail.canonicalNoteId) || pinnedNote()?.id === detail.canonicalNoteId;
       if (!noteVisibleInCurrentRoot) {
         setSelection({ root: "notes", noteId: noteFolderContext(props.tree, detail.canonicalNoteId) });
       }
@@ -417,7 +411,13 @@ export default function NotebookNavigator(props: Props) {
           <SelectChip value={treeMode()} options={TREE_MODE_OPTIONS} onChange={setTreeMode} icon="ti ti-list-tree" />
           <SelectChip value={sortMode()} options={SORT_OPTIONS} onChange={setSortMode} icon="ti ti-sort-descending" />
           <Show when={props.canWrite}>
-            <button type="button" class="icon-btn ml-auto text-green-600 dark:text-green-400" title="New note" aria-label="New note" onClick={() => actions.handleCreateNote()}>
+            <button
+              type="button"
+              class="icon-btn ml-auto text-green-600 dark:text-green-400"
+              title="New note"
+              aria-label="New note"
+              onClick={() => actions.handleCreateNote()}
+            >
               <i class="ti ti-plus" />
             </button>
           </Show>
@@ -433,9 +433,7 @@ export default function NotebookNavigator(props: Props) {
                 {(note) => (
                   <a
                     href={noteHref(note())}
-                    class={`group rounded-lg px-3 py-2 transition-colors ${
-                      "bg-zinc-50/80 hover:bg-zinc-100 dark:bg-zinc-900/45 dark:hover:bg-zinc-800/70"
-                    }`}
+                    class={`group rounded-lg px-3 py-2 transition-colors ${"bg-zinc-50/80 hover:bg-zinc-100 dark:bg-zinc-900/45 dark:hover:bg-zinc-800/70"}`}
                     onClick={(event) => {
                       event.preventDefault();
                       setActiveNoteId(note().id);
@@ -445,7 +443,9 @@ export default function NotebookNavigator(props: Props) {
                     <div class="flex items-center gap-2">
                       <div class="min-w-0 flex-1">
                         <p class="flex min-w-0 items-center gap-2 truncate text-sm font-semibold text-primary">
-                          <i class={`ti ${selectedNoteRootId() ? "ti-folder" : "ti-home"} shrink-0 text-sm text-zinc-500 dark:text-zinc-400`} />
+                          <i
+                            class={`ti ${selectedNoteRootId() ? "ti-folder" : "ti-home"} shrink-0 text-sm text-zinc-500 dark:text-zinc-400`}
+                          />
                           <span class="min-w-0 truncate">{note().title || "Untitled"}</span>
                         </p>
                       </div>
@@ -516,7 +516,13 @@ export default function NotebookNavigator(props: Props) {
                         </Show>
                       </div>
                       <div class="mt-1.5 flex items-center gap-1.5">
-                        <For each={tags()}>{(tag) => <span class="truncate rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">#{tag}</span>}</For>
+                        <For each={tags()}>
+                          {(tag) => (
+                            <span class="truncate rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                              #{tag}
+                            </span>
+                          )}
+                        </For>
                         <span class="ml-auto shrink-0 text-[10px] text-dimmed">{dates.formatDateTimeRelative(note.updatedAt)}</span>
                       </div>
                     </a>

@@ -47,7 +47,6 @@ export type NotebookContext = {
   userId: string;
   settings: NotebookSettings;
   permission: string;
-  viewMode: "read" | "edit";
   /** Number of attachments in the notebook — gates the sidebar link. */
   attachmentCount: number;
   /** Number of distinct tags in the notebook — gates the sidebar link. */

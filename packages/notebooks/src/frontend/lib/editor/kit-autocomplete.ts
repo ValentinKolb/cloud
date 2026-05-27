@@ -96,7 +96,12 @@ const noteCompletions: Completion[] = [
   { label: "createdAt", type: "property", detail: "ISO string", info: "Creation timestamp." },
   { label: "updatedAt", type: "property", detail: "ISO string", info: "Last update timestamp." },
   { label: "lockedAt", type: "property", detail: "ISO string | null", info: "Non-null when the note is locked (read-only)." },
-  ns("kv", "ti-users-group", "Current note KV", "Collaborative per-current-note key-value store. Use `current.kv.observe(...)` for live updates."),
+  ns(
+    "kv",
+    "ti-users-group",
+    "Current note KV",
+    "Collaborative per-current-note key-value store. Use `current.kv.observe(...)` for live updates.",
+  ),
   snippetCompletion("table(${1:'ideas'})", {
     label: "table",
     type: "method",
@@ -198,19 +203,9 @@ const noteCompletions: Completion[] = [
 
 // ── nb ────────────────────────────────────────────────────
 const notesCompletions: Completion[] = [
-  ns(
-    "attachments",
-    "ti-paperclip",
-    "Notebook attachments",
-    "Upload, list, fetch, insert, and remove attachments in the current notebook.",
-  ),
+  ns("attachments", "ti-paperclip", "Notebook attachments", "Upload, list, fetch, insert, and remove attachments in the current notebook."),
   ns("tags", "ti-tag", "Tag index", "List all `#tags` in the notebook and find notes for a tag."),
-  ns(
-    "localKV",
-    "ti-device-floppy",
-    "Personal notebook KV",
-    "Private per-user, per-notebook persistent key-value store.",
-  ),
+  ns("localKV", "ti-device-floppy", "Personal notebook KV", "Private per-user, per-notebook persistent key-value store."),
   {
     label: "list",
     type: "method",
@@ -404,7 +399,7 @@ const uiCompletions: Completion[] = [
     label: "md",
     type: "method",
     detail: "(markdown) → KitElement",
-    info: "Render arbitrary markdown using the same engine as read-mode.",
+    info: "Render arbitrary markdown using the same engine as notebook content.",
   }),
   snippetCompletion("noteLink(${1:note})", {
     label: "noteLink",
@@ -452,7 +447,7 @@ const uiCompletions: Completion[] = [
     label: "live",
     type: "method",
     detail: "(render) → KitElement",
-    info: "Render one reactive slot. Re-runs when the current note body changes in edit mode; static one-shot in read mode.",
+    info: "Render one reactive slot. Re-runs when the current note body changes in edit mode; static one-shot in readonly output.",
   }),
   snippetCompletion("render(${1:...elements})", {
     label: "render",
@@ -793,7 +788,12 @@ const NAMESPACE_OPTIONS: Record<string, Completion[]> = {
   nb: notesCompletions,
   std: [
     ns("text", "ti-typography", "Text manipulation", "slugify, humanize, titleify, truncate, summarize, case conversions, pprintBytes."),
-    ns("dates", "ti-calendar", "Date / time formatting", 'formatDate, formatDateTime, formatDateTimeRelative ("3 mins ago"), formatDuration.'),
+    ns(
+      "dates",
+      "ti-calendar",
+      "Date / time formatting",
+      'formatDate, formatDateTime, formatDateTimeRelative ("3 mins ago"), formatDuration.',
+    ),
     ns("fuzzy", "ti-search", "Fuzzy search", "match / filter / segments / closest / distance."),
     ns("crypto", "ti-shield-lock", "Hashing + crypto", "Hashing, ids, asymmetric/symmetric crypto, TOTP."),
     ns("encoding", "ti-binary", "Byte ↔ string", "Base64, Hex, Base62."),

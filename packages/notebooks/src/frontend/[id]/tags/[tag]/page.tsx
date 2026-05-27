@@ -103,7 +103,6 @@ export default ssr<AuthContext>(async (c) => {
     userId: user.id,
     settings,
     permission,
-    viewMode: "edit",
     attachmentCount,
     tagCount,
     favoriteNoteIds: favoriteRows.map((row) => row.noteId),
