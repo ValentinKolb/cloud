@@ -1,5 +1,5 @@
 import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { coreSettings } from "@valentinkolb/cloud/services";
 import WeatherSettingsForm from "./_components/WeatherSettingsForm.island";
@@ -14,7 +14,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Weather" stretch>
-      <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="weather-admin">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-weather-title">
             <h1 class="text-base font-semibold text-primary">Weather</h1>
