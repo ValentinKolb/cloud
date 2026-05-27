@@ -1,4 +1,5 @@
 import { createContext } from "solid-js";
+import { navigateTo } from "@valentinkolb/cloud/ui";
 import type { FileBaseInfo } from "@/contracts";
 import type { FileSettings } from "./FileSettings.island";
 import { filePageUrl } from "../url";
@@ -92,7 +93,7 @@ export const clearSelection = () => {
 export const navigateWithParam = (key: string, value?: string) => {
   const url = new URL(window.location.href);
   value !== undefined ? url.searchParams.set(key, value) : url.searchParams.delete(key);
-  window.location.href = url.toString();
+  navigateTo(url.toString());
 };
 
 // =============================================================================
