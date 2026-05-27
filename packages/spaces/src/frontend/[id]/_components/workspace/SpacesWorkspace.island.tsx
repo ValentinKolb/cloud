@@ -92,7 +92,7 @@ export default function SpacesWorkspace(props: Props) {
   onMount(() => {
     const handleRouteNavigation = (event: Event) => {
       const detail = (event as CustomEvent<SpacesRouteNavigationDetail>).detail;
-      if (detail?.href) void openRoute(detail.href);
+      if (detail?.href) void openRoute(detail.href, { replace: detail.replace, scroll: detail.scroll });
     };
 
     const handlePopState = () => {

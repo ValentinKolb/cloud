@@ -2,8 +2,8 @@ import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceTag } from "@/contracts";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
+import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
 
 type Props = {
   spaceId: string;
@@ -25,7 +25,7 @@ export default function CreateItemButton(props: Props) {
       }
       return res.json();
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => requestCurrentSpacesRouteRefresh(),
     onError: (err) => prompts.error(err.message),
   });
 

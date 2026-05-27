@@ -11,7 +11,8 @@ import {
 import { dates } from "@valentinkolb/stdlib";
 import { prompts } from "@valentinkolb/cloud/ui";
 import type { KanbanBucketInitial } from "./types";
-import { getDetailItemFromUrl, setDetailItemInUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = {
   spaceId: string;
@@ -31,9 +32,7 @@ type DragMeta = {
   itemId: string;
 };
 
-type DropMeta =
-  | { kind: "item"; bucketKey: string; index: number }
-  | { kind: "column"; bucketKey: string };
+type DropMeta = { kind: "item"; bucketKey: string; index: number } | { kind: "column"; bucketKey: string };
 
 type DropIntent = {
   bucketKey: string;
@@ -187,7 +186,8 @@ export default function KanbanBoard(props: Props) {
     if (params.sourceBucketKey === params.targetBucketKey && params.sourceIndex < targetIndex) {
       targetIndex -= 1;
     }
-    const maxIndex = params.sourceBucketKey === params.targetBucketKey ? Math.max(0, params.targetBucketLength - 1) : params.targetBucketLength;
+    const maxIndex =
+      params.sourceBucketKey === params.targetBucketKey ? Math.max(0, params.targetBucketLength - 1) : params.targetBucketLength;
     return clamp(targetIndex, 0, maxIndex);
   };
 
@@ -209,10 +209,7 @@ export default function KanbanBoard(props: Props) {
 
     let rawIndex: number;
     if (ctx.over.meta.kind === "item") {
-      rawIndex =
-        ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2
-          ? ctx.over.meta.index
-          : ctx.over.meta.index + 1;
+      rawIndex = ctx.pointer.y <= ctx.over.rect.top + ctx.over.rect.height / 2 ? ctx.over.meta.index : ctx.over.meta.index + 1;
     } else {
       // Pointer is somewhere in the column body; locate insert index from card rects.
       const cards = ctx.over.element.querySelectorAll<HTMLElement>("[data-card-index]");
@@ -539,7 +536,7 @@ export default function KanbanBoard(props: Props) {
                                   if (!shouldHandleDetailClick(event, event.currentTarget)) return;
                                   event.preventDefault();
                                   setSelectedItemId(item.id);
-                                  setDetailItemInUrl(item.id, item);
+                                  requestSpacesRouteNavigation(buildItemUrl(props.baseUrl, item.id), { scroll: "preserve" });
                                 }}
                                 class="block"
                               >
@@ -547,7 +544,9 @@ export default function KanbanBoard(props: Props) {
                                   <Show when={priority}>
                                     <i class={`ti ${priority!.icon} ${priority!.color} mt-0.5 shrink-0 text-xs`} />
                                   </Show>
-                                  <p class={`break-words text-xs font-medium leading-tight ${item.completedAt ? "line-through text-dimmed" : ""}`}>
+                                  <p
+                                    class={`break-words text-xs font-medium leading-tight ${item.completedAt ? "line-through text-dimmed" : ""}`}
+                                  >
                                     {item.title}
                                   </p>
                                 </div>

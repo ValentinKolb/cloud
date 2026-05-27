@@ -2,7 +2,8 @@ import type { JSX } from "solid-js";
 import type { SpaceColumn, SpaceItem } from "@/contracts";
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
-import { setDetailItemInUrl, shouldHandleDetailClick } from "../../../lib/detail";
+import { shouldHandleDetailClick } from "../../../lib/detail";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = {
   items: SpaceItem[];
@@ -37,7 +38,7 @@ function CellLink(props: { href: string; item: SpaceItem; class?: string; title?
       onClick={(event) => {
         if (!shouldHandleDetailClick(event, event.currentTarget)) return;
         event.preventDefault();
-        setDetailItemInUrl(props.item.id, props.item);
+        requestSpacesRouteNavigation(props.href, { scroll: "preserve" });
       }}
     >
       {props.children}

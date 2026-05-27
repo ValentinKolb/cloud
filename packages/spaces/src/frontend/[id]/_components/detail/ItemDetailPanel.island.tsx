@@ -4,9 +4,8 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { dates } from "@valentinkolb/stdlib";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Dropdown, EntitySearch, MarkdownView, prompts, type DropdownItem, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
-import { setDetailItemInUrl, shouldHandleDetailClick } from "../../../lib/detail";
-import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { shouldHandleDetailClick } from "../../../lib/detail";
+import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CommentsSection from "./CommentsSection";
 import type { SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/contracts";
 
@@ -44,8 +43,6 @@ const PRIORITY_DROPDOWN_OPTIONS = PRIORITY_OPTIONS.map((priority) => ({
   icon: priority.icon,
   color: priority.color,
 }));
-
-const getPriorityMeta = (priority: SpaceItem["priority"]) => PRIORITY_OPTIONS.find((entry) => entry.value === priority) ?? null;
 
 const DROPDOWN_TRIGGER_CLASS =
   "inline-flex items-center gap-2 btn-sm rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors";
@@ -397,7 +394,7 @@ export default function ItemDetailPanel(props: Props) {
       }
       return res.json();
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => requestCurrentSpacesRouteRefresh(),
     onError: (err) => prompts.error(err.message),
   });
 
@@ -412,52 +409,59 @@ export default function ItemDetailPanel(props: Props) {
       }
       return res.json();
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => requestCurrentSpacesRouteRefresh(),
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleDuplicate = async () => {
-    const res = await apiClient[":id"].items.$post({
-      param: { id: props.spaceId },
-      json: {
-        columnId: props.item.columnId,
-        title: `${props.item.title} (Copy)`,
-        description: props.item.description ?? undefined,
-        startsAt: props.item.startsAt ?? undefined,
-        endsAt: props.item.endsAt ?? undefined,
-        deadline: props.item.deadline ?? undefined,
-        priority: props.item.priority ?? undefined,
-        assigneeIds: props.item.assignees?.map((a) => a.id),
-        tagIds: props.item.tags?.map((t) => t.id),
-      },
-    });
-    if (!res.ok) {
-      prompts.error(await getResponseErrorMessage(res, "Failed to duplicate item"));
-      return;
-    }
-    refreshCurrentPath();
-  };
+  const duplicateMutation = mutations.create({
+    mutation: async () => {
+      const res = await apiClient[":id"].items.$post({
+        param: { id: props.spaceId },
+        json: {
+          columnId: props.item.columnId,
+          title: `${props.item.title} (Copy)`,
+          description: props.item.description ?? undefined,
+          startsAt: props.item.startsAt ?? undefined,
+          endsAt: props.item.endsAt ?? undefined,
+          deadline: props.item.deadline ?? undefined,
+          priority: props.item.priority ?? undefined,
+          assigneeIds: props.item.assignees?.map((a) => a.id),
+          tagIds: props.item.tags?.map((t) => t.id),
+        },
+      });
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to duplicate item"));
+      return res.json();
+    },
+    onSuccess: () => requestCurrentSpacesRouteRefresh(),
+    onError: (err) => prompts.error(err.message),
+  });
 
-  const handleDelete = async () => {
-    const confirmed = await prompts.confirm(`Are you sure you want to delete "${props.item.title}"?`, {
-      title: "Delete Item",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Delete",
-    });
-    if (!confirmed) return;
+  const deleteMutation = mutations.create({
+    mutation: async () => {
+      const confirmed = await prompts.confirm(`Are you sure you want to delete "${props.item.title}"?`, {
+        title: "Delete Item",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (!confirmed) return false;
 
-    const res = await apiClient[":id"].items[":itemId"].$delete({
-      param: { id: props.spaceId, itemId: props.item.id },
-    });
-    if (!res.ok) {
-      prompts.error(await getResponseErrorMessage(res, "Failed to delete item"));
-      return;
-    }
-    requestSpacesRouteNavigation(props.baseUrl);
-  };
+      const res = await apiClient[":id"].items[":itemId"].$delete({
+        param: { id: props.spaceId, itemId: props.item.id },
+      });
+      if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to delete item"));
+      return true;
+    },
+    onSuccess: (deleted) => {
+      if (deleted) requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
+    },
+    onError: (err) => prompts.error(err.message),
+  });
 
-  const isLoading = () => updateMutation.loading() || completeMutation.loading();
+  const handleDuplicate = () => duplicateMutation.mutate({});
+  const handleDelete = () => deleteMutation.mutate({});
+
+  const isLoading = () => updateMutation.loading() || completeMutation.loading() || duplicateMutation.loading() || deleteMutation.loading();
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
@@ -607,7 +611,7 @@ export default function ItemDetailPanel(props: Props) {
             onClick={(event) => {
               if (!shouldHandleDetailClick(event, event.currentTarget)) return;
               event.preventDefault();
-              setDetailItemInUrl(null);
+              requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
             }}
             class="inline-flex h-5 w-5 shrink-0 items-center justify-center text-orange-500 transition-colors hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300"
             aria-label="Close detail"

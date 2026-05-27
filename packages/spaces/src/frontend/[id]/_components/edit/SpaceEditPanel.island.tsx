@@ -1,13 +1,4 @@
-import {
-  ColorInput,
-  CopyButton,
-  navigateTo,
-  PermissionEditor,
-  prompts,
-  refreshCurrentPath,
-  SegmentedControl,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
+import { ColorInput, CopyButton, navigateTo, PermissionEditor, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -23,6 +14,7 @@ import {
   writeAllSettings,
   writeWidgetSettings,
 } from "@/frontend/[id]/_components/settings/SpaceSettingsStore";
+import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = {
   space: SpaceDetail;
@@ -43,7 +35,16 @@ export default function SpaceEditPanel(props: Props) {
     <div class="flex flex-col gap-8">
       {/* Header */}
       <div class="flex items-center gap-3">
-        <a href={`/app/spaces/${props.space.id}`} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to space">
+        <a
+          href={`/app/spaces/${props.space.id}`}
+          class="p-1.5 text-dimmed hover:text-primary transition-colors"
+          title="Back to space"
+          onClick={(event) => {
+            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            requestSpacesRouteNavigation(`/app/spaces/${props.space.id}`, { scroll: "preserve" });
+          }}
+        >
           <i class="ti ti-arrow-left" />
         </a>
         <h2 class="text-lg font-semibold">Space Settings</h2>
@@ -183,7 +184,7 @@ function SpaceSettingsForm(props: { space: SpaceDetail }) {
     },
     onSuccess: () => {
       setHasChanges(false);
-      refreshCurrentPath();
+      requestCurrentSpacesRouteRefresh();
     },
     onError: (err) => prompts.error(err.message),
   });

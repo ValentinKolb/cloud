@@ -6,9 +6,6 @@ export const SPACE_ITEM_SELECT_EVENT = "space-item-select";
 
 export const getDetailItemFromUrl = () => detailPanel.getUrlParam(SPACE_DETAIL_PARAM);
 
-export const setDetailItemInUrl = (itemId: string | null, item: SpaceItem | null = null) =>
-  detailPanel.select(SPACE_DETAIL_PARAM, SPACE_ITEM_SELECT_EVENT, item, itemId);
-
 export const shouldHandleDetailClick = detailPanel.shouldHandleClick;
 
 type DetailChange = {

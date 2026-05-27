@@ -4,8 +4,8 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceItem } from "@/contracts";
 import { dates } from "@valentinkolb/stdlib";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
-import { getDetailItemFromUrl, setDetailItemInUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type ItemRowProps = {
   item: SpaceItem;
@@ -52,7 +52,7 @@ export default function ItemRow(props: ItemRowProps) {
       }
       return res.json();
     },
-    onSuccess: () => refreshCurrentPath(),
+    onSuccess: () => requestCurrentSpacesRouteRefresh(),
     onError: (err) => prompts.error(err.message),
   });
 
@@ -73,12 +73,12 @@ export default function ItemRow(props: ItemRowProps) {
       onClick={(event) => {
         if (!shouldHandleDetailClick(event)) return;
         event.preventDefault();
-        setDetailItemInUrl(props.item.id, props.item);
+        requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        setDetailItemInUrl(props.item.id, props.item);
+        requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
       }}
       class={`group flex cursor-pointer items-center gap-3 rounded-md px-4 py-2.5 transition-colors ${
         isSelectedLocal()
