@@ -1,5 +1,12 @@
 import { createSignal, onCleanup, onMount } from "solid-js";
-import { AppWorkspace, navigate, prompts, type LinkNavigateEvent, type NavigationScrollMode } from "@valentinkolb/cloud/ui";
+import {
+  AppWorkspace,
+  documentNavigate,
+  navigate,
+  prompts,
+  type LinkNavigateEvent,
+  type NavigationScrollMode,
+} from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import SpaceSidebar from "../sidebar/SpaceSidebar";
 import FilterBar from "../filter/FilterBar.island";
@@ -67,7 +74,7 @@ export default function SpacesWorkspace(props: Props) {
   const openRoute = async (href: string, options: { replace?: boolean; scroll?: NavigationScrollMode } = {}) => {
     const next = await fetchRouteState(href);
     if (!next) {
-      window.location.assign(href);
+      documentNavigate(href);
       return;
     }
     setState(next);
