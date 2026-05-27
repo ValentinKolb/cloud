@@ -1,11 +1,17 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { resolveContactName } from "../../shared";
 import type { Contact, ContactNote, ContactRef } from "../../service";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
-import { CONTACT_DETAIL_EVENT, clearSelectedContactInUrl, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
+import {
+  CONTACT_DETAIL_EVENT,
+  clearSelectedContactInUrl,
+  getSelectedContactFromUrl,
+  setSelectedContactInUrl,
+  type ContactDetailPayload,
+} from "./context";
 import ContactUpsertForm from "./ContactUpsertForm.island";
 import AddMemberDialog from "./AddMemberDialog.island";
 import ContactNotesSection from "./ContactNotesSection.island";
@@ -34,19 +40,12 @@ const formatBirthday = (value: string | null) => {
 const formatAddress = (address: Contact["addresses"][number]) => {
   const cityLine = [address.postalCode, address.city].filter(Boolean).join(" ");
   const regionLine = [address.stateRegion, address.countryCode].filter(Boolean).join(" · ");
-  return [
-    address.recipientName,
-    address.companyName,
-    address.line1,
-    address.line2,
-    cityLine,
-    regionLine,
-  ].filter(Boolean) as string[];
+  return [address.recipientName, address.companyName, address.line1, address.line2, cityLine, regionLine].filter(Boolean) as string[];
 };
 
 export default function ContactDetailPanel(props: Props) {
   const [contact, setContact] = createSignal<Contact | null>(props.initialContact);
-  const [contactId, setContactId] = createSignal<string | null>(props.initialContactId);
+  const [, setContactId] = createSignal<string | null>(props.initialContactId);
   const [bookId, setBookId] = createSignal<string | null>(props.initialBookId);
 
   const findContact = (id: string | null, selectedBookId: string | null) => {
@@ -97,14 +96,42 @@ export default function ContactDetailPanel(props: Props) {
     return props.writableBooks.some((entry) => entry.id !== selectedBookId);
   };
 
-  const moveMutation = mutations.create<Contact, { targetBookId: string; contact: Contact }>({
-    mutation: async ({ targetBookId, contact }) => {
+  const moveMutation = mutations.create<Contact | null, Contact>({
+    mutation: async (contact) => {
+      const targetOptions = props.writableBooks.filter((entry) => entry.id !== contact.bookId);
+      if (targetOptions.length === 0) {
+        await prompts.alert("There is no other writable contact book available.", {
+          title: "No target book",
+          icon: "ti ti-address-book-off",
+        });
+        return null;
+      }
+
+      const result = await prompts.form({
+        title: "Move Contact",
+        icon: "ti ti-arrows-transfer-up-down",
+        confirmText: "Move",
+        fields: {
+          targetBookId: {
+            type: "select",
+            label: "Move this contact to which book?",
+            required: true,
+            options: targetOptions.map((entry) => ({
+              id: entry.id,
+              label: entry.name,
+              icon: "ti ti-address-book",
+            })),
+          },
+        },
+      });
+      if (!result) return null;
+
       const response = await apiClient.books[":bookId"].contacts[":contactId"].move.$post({
         param: {
           bookId: contact.bookId,
           contactId: contact.id,
         },
-        json: { targetBookId },
+        json: { targetBookId: result.targetBookId },
       });
 
       if (!response.ok) {
@@ -115,6 +142,8 @@ export default function ContactDetailPanel(props: Props) {
       return (await response.json()) as Contact;
     },
     onSuccess: (moved) => {
+      if (!moved) return;
+      toast.success("Contact moved");
       navigateTo(`/app/contacts/${moved.bookId}?contact=${moved.id}&contactBook=${moved.bookId}`);
     },
     onError: (error) => {
@@ -122,40 +151,51 @@ export default function ContactDetailPanel(props: Props) {
     },
   });
 
+  const unlinkMemberMutation = mutations.create<ContactRef | null, { member: ContactRef; parent: Contact }>({
+    mutation: async ({ member, parent }) => {
+      const confirmed = await prompts.confirm(
+        `Remove "${resolveContactName(member)}" from members of "${resolveContactName(parent)}"? The contact stays — only the link is removed.`,
+        {
+          title: "Remove member",
+          icon: "ti ti-unlink",
+          confirmText: "Remove",
+          cancelText: "Cancel",
+        },
+      );
+      if (!confirmed) return null;
+
+      const res = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
+        param: { bookId: parent.bookId, contactId: member.id },
+        json: { parentContactId: null },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        throw new Error(data.message ?? "Failed to remove member");
+      }
+      return member;
+    },
+    onSuccess: (member) => {
+      if (!member) return;
+      toast.success("Member removed");
+      refreshCurrentPath();
+    },
+    onError: (error) => {
+      void prompts.error(error.message);
+    },
+  });
+
   const openAddMemberDialog = async (parent: Contact) => {
-    const member = await prompts.dialog<Contact | null>(
-      (close) => <AddMemberDialog parent={parent} close={close} />,
-      {
-        title: `Add member to ${resolveContactName(parent)}`,
-        icon: "ti ti-users-plus",
-        size: "large",
-      },
-    );
+    const member = await prompts.dialog<Contact | null>((close) => <AddMemberDialog parent={parent} close={close} />, {
+      title: `Add member to ${resolveContactName(parent)}`,
+      icon: "ti ti-users-plus",
+      size: "large",
+    });
     if (!member) return;
     refreshCurrentPath();
   };
 
-  const unlinkMember = async (member: ContactRef, parent: Contact) => {
-    const confirmed = await prompts.confirm(
-      `Remove "${resolveContactName(member)}" from members of "${resolveContactName(parent)}"? The contact stays — only the link is removed.`,
-      {
-        title: "Remove member",
-        icon: "ti ti-unlink",
-        confirmText: "Remove",
-        cancelText: "Cancel",
-      },
-    );
-    if (!confirmed) return;
-    const res = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
-      param: { bookId: parent.bookId, contactId: member.id },
-      json: { parentContactId: null },
-    });
-    if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { message?: string };
-      prompts.error(data.message ?? "Failed to remove member");
-      return;
-    }
-    refreshCurrentPath();
+  const unlinkMember = (member: ContactRef, parent: Contact) => {
+    unlinkMemberMutation.mutate({ member, parent });
   };
 
   const openEditDialog = async (selectedContact: Contact) => {
@@ -184,36 +224,8 @@ export default function ContactDetailPanel(props: Props) {
     });
   };
 
-  const moveToBook = async (selectedContact: Contact) => {
-    const targetOptions = props.writableBooks.filter((entry) => entry.id !== selectedContact.bookId);
-    if (targetOptions.length === 0) {
-      await prompts.alert("There is no other writable contact book available.", {
-        title: "No target book",
-        icon: "ti ti-address-book-off",
-      });
-      return;
-    }
-
-    const result = await prompts.form({
-      title: "Move Contact",
-      icon: "ti ti-arrows-transfer-up-down",
-      confirmText: "Move",
-      fields: {
-        targetBookId: {
-          type: "select",
-          label: "Move this contact to which book?",
-          required: true,
-          options: targetOptions.map((entry) => ({
-            id: entry.id,
-            label: entry.name,
-            icon: "ti ti-address-book",
-          })),
-        },
-      },
-    });
-
-    if (!result) return;
-    moveMutation.mutate({ targetBookId: result.targetBookId, contact: selectedContact });
+  const moveToBook = (selectedContact: Contact) => {
+    moveMutation.mutate(selectedContact);
   };
 
   return (
@@ -259,9 +271,7 @@ export default function ContactDetailPanel(props: Props) {
                           <button
                             type="button"
                             class="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-0.5 font-medium text-zinc-600 transition-colors hover:bg-zinc-200 hover:text-primary dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                            onClick={() =>
-                              setSelectedContactInUrl({ contactId: parent().id, bookId: c().bookId, contact: null })
-                            }
+                            onClick={() => setSelectedContactInUrl({ contactId: parent().id, bookId: c().bookId, contact: null })}
                             title={`Open ${resolveContactName(parent())}`}
                           >
                             <i class="ti ti-corner-down-right text-[10px]" />
@@ -409,9 +419,7 @@ export default function ContactDetailPanel(props: Props) {
                             <li class="group flex items-center gap-1">
                               <button
                                 type="button"
-                                onClick={() =>
-                                  setSelectedContactInUrl({ contactId: member.id, bookId: c().bookId, contact: null })
-                                }
+                                onClick={() => setSelectedContactInUrl({ contactId: member.id, bookId: c().bookId, contact: null })}
                                 class="flex flex-1 items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
                               >
                                 <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium dark:bg-zinc-700">
@@ -485,7 +493,6 @@ export default function ContactDetailPanel(props: Props) {
                   isBookAdmin={props.adminBookIds.includes(c().bookId)}
                 />
               </section>
-
             </div>
           </div>
         );
