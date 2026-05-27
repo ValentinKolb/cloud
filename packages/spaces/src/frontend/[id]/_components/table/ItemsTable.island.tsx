@@ -10,6 +10,7 @@ type Props = {
   columns: SpaceColumn[];
   selectedItemId?: string;
   baseUrl: string;
+  scrollPreserveKey?: string;
 };
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -94,6 +95,7 @@ export default function ItemsTable(props: Props) {
         selectedRowId={props.selectedItemId}
         hoverRows
         class="overflow-x-auto"
+        scrollPreserveKey={props.scrollPreserveKey}
         renderCell={({ row: item, col }) => {
           const column = columnsById.get(item.columnId) ?? null;
           const isEvent = Boolean(item.startsAt && item.endsAt);

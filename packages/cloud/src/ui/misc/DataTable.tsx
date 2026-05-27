@@ -45,6 +45,7 @@ export type DataTableProps<T> = {
   fillHeight?: boolean;
   class?: string;
   tableClass?: string;
+  scrollPreserveKey?: string | false;
 };
 
 const defaultRender = (value: unknown): JSX.Element => {
@@ -148,6 +149,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
         role="region"
         aria-label="Data table"
         class={props.class ?? "paper overflow-auto flex-1 min-h-0"}
+        data-scroll-preserve={props.scrollPreserveKey || undefined}
         onScroll={maybeLoadMore}
         onMouseLeave={() => setHoveredColumn(null)}
       >

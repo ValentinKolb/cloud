@@ -191,6 +191,7 @@ export default function SpacesWorkspace(props: Props) {
                   columns={state().space.columns}
                   selectedItemId={selectedItemId()}
                   baseUrl={itemLinkBaseUrl()}
+                  scrollPreserveKey={`spaces-table-${spaceId()}`}
                 />
               ) : (
                 <ItemsList
