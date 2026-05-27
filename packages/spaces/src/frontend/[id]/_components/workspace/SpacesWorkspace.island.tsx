@@ -1,33 +1,33 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import {
   AppWorkspace,
   documentNavigate,
-  navigate,
-  prompts,
   type LinkNavigateEvent,
   type NavigationScrollMode,
+  navigate,
+  Pagination,
+  prompts,
 } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
-import SpaceSidebar from "../sidebar/SpaceSidebar";
-import FilterBar from "../filter/FilterBar.island";
-import {
-  buildSpacesItemLinkBaseUrl,
-  buildSpacesPaginationBaseUrl,
-  parseSpacesWorkspaceHref,
-  spacesDetailPanelWidthClass,
-  type SpacesWorkspaceState,
-} from "./workspace-types";
-import { defaultFilter, parseFilterFromUrl } from "../filter/types";
-import ItemsList from "../list";
-import ItemsTable from "../table/ItemsTable.island";
-import KanbanBoard from "../kanban/KanbanBoard.island";
 import Calendar from "../calendar";
 import ItemDetailHost from "../detail/ItemDetailHost.island";
 import SpaceDetailLayoutSync from "../detail/SpaceDetailLayoutSync.island";
 import SpaceEditPanel from "../edit/SpaceEditPanel.island";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import FilterBar from "../filter/FilterBar.island";
+import { defaultFilter, parseFilterFromUrl } from "../filter/types";
+import KanbanBoard from "../kanban/KanbanBoard.island";
+import ItemsList from "../list";
+import SpaceSidebar from "../sidebar/SpaceSidebar";
+import ItemsTable from "../table/ItemsTable.island";
 import { SPACES_ROUTE_NAVIGATION_EVENT, type SpacesRouteNavigationDetail } from "./workspace-events";
+import {
+  buildSpacesItemLinkBaseUrl,
+  buildSpacesPaginationBaseUrl,
+  parseSpacesWorkspaceHref,
+  type SpacesWorkspaceState,
+  spacesDetailPanelWidthClass,
+} from "./workspace-types";
 
 type Props = {
   initialState: Extract<SpacesWorkspaceState, { kind: "ok" }>;

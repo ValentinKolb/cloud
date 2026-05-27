@@ -1,8 +1,8 @@
-import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { weatherService, type WeatherData } from "@valentinkolb/cloud/services";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { ssr } from "../../config";
 import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
 import LocationSidebar from "../_components/LocationSidebar";
 import DeleteLocationButton from "../DeleteLocation.island";

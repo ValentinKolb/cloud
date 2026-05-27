@@ -1,9 +1,9 @@
-import CreateItemButton from "./CreateItemButton.island";
-import CopyICalButton from "./CopyICalButton.island";
-import SidebarSettings from "../settings/SidebarSettings.island";
-import type { SpaceContext } from "./types";
-import type { ViewType } from "../settings/SpaceSettingsStore";
 import { AppWorkspace, type LinkNavigateEvent } from "@valentinkolb/cloud/ui";
+import SidebarSettings from "../settings/SidebarSettings.island";
+import type { ViewType } from "../settings/SpaceSettingsStore";
+import CopyICalButton from "./CopyICalButton.island";
+import CreateItemButton from "./CreateItemButton.island";
+import type { SpaceContext } from "./types";
 
 type Props = {
   ctx: SpaceContext;

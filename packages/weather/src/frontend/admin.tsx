@@ -1,7 +1,7 @@
-import { ssr } from "../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { coreSettings } from "@valentinkolb/cloud/services";
+import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { ssr } from "../config";
 import WeatherSettingsForm from "./_components/WeatherSettingsForm.island";
 
 export default ssr<AuthContext>(async (c) => {

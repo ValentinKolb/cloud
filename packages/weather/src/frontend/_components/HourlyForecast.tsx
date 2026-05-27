@@ -1,4 +1,4 @@
-import { weatherService, type HourlyForecast as HourlyForecastType } from "@valentinkolb/cloud/services";
+import { type HourlyForecast as HourlyForecastType, weatherService } from "@valentinkolb/cloud/services";
 
 const formatHour = (timestamp: string, isFirst: boolean): string => {
   if (isFirst) return "Now";

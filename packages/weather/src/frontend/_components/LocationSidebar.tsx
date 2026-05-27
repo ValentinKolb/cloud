@@ -1,4 +1,4 @@
-import { weatherService, type WeatherData } from "@valentinkolb/cloud/services";
+import { type WeatherData, weatherService } from "@valentinkolb/cloud/services";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import AddLocationButton from "../AddLocation.island";
 

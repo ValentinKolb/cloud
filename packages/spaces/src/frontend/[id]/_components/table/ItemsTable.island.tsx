@@ -1,7 +1,7 @@
-import type { JSX } from "solid-js";
-import type { SpaceColumn, SpaceItem } from "@/contracts";
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
+import type { JSX } from "solid-js";
+import type { SpaceColumn, SpaceItem } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
