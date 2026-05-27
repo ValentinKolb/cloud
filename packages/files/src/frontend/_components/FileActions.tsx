@@ -1,6 +1,6 @@
 import { useContext } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { Dropdown, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, navigateTo, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
 import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import MoveTargetSearch from "./MoveTargetSearch.island";
@@ -45,7 +45,7 @@ export const canOpenFileInline = (item: FileInfo) => {
 
 export const openFileItem = ({ item, itemPath, ctx }: Pick<FileActionOptions, "item" | "itemPath" | "ctx">) => {
   if (item.type === "directory") {
-    window.location.href = fileAppUrlForPath(ctx.baseType, ctx.baseId, itemPath);
+    navigateTo(fileAppUrlForPath(ctx.baseType, ctx.baseId, itemPath));
     return;
   }
 
@@ -198,7 +198,7 @@ export const moveFileItem = async ({
         onComplete={(target) => {
           onCloseDetail?.();
           setHighlightedFiles(target.movedFiles);
-          window.location.href = fileAppUrlForPath(target.baseType, target.baseId, target.path);
+          navigateTo(fileAppUrlForPath(target.baseType, target.baseId, target.path));
         }}
         close={close}
       />
