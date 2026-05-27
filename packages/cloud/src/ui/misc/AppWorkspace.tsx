@@ -19,6 +19,8 @@ type SidebarHeaderSlot = SidebarSlot & {
   subtitle?: string;
   icon?: string;
   iconStyle?: string;
+  iconViewTransitionName?: string;
+  titleViewTransitionName?: string;
   action?: JSX.Element;
 };
 
@@ -66,6 +68,8 @@ export type AppWorkspaceSidebarHeaderProps = {
   subtitle?: string;
   icon?: string;
   iconStyle?: string;
+  iconViewTransitionName?: string;
+  titleViewTransitionName?: string;
   action?: JSX.Element;
 };
 
@@ -241,12 +245,17 @@ const SidebarHeaderContent = (props: { header: SidebarHeaderSlot; mobile?: boole
   <>
     <div
       class={`${props.mobile ? "h-8 w-8 rounded-lg" : "sidebar-header-icon"} flex shrink-0 items-center justify-center bg-blue-500 text-white`}
-      style={props.header.iconStyle}
+      style={`${props.header.iconStyle ?? ""}${props.header.iconViewTransitionName ? `;view-transition-name:${props.header.iconViewTransitionName}` : ""}`}
     >
       <i class={`${tablerIconClass(props.header.icon, "ti-layout-sidebar")} ${props.mobile ? "text-sm" : "text-xs"}`} />
     </div>
     <div class="min-w-0 flex-1">
-      <p class={props.mobile ? "truncate font-semibold" : "sidebar-header-title"}>{props.header.title}</p>
+      <p
+        class={props.mobile ? "truncate font-semibold" : "sidebar-header-title"}
+        style={props.header.titleViewTransitionName ? `view-transition-name:${props.header.titleViewTransitionName}` : undefined}
+      >
+        {props.header.title}
+      </p>
       <Show when={!props.mobile && props.header.subtitle}>
         <p class="sidebar-header-subtitle">{props.header.subtitle}</p>
       </Show>

@@ -1,5 +1,9 @@
 import { dates as calendar } from "@valentinkolb/stdlib";
 import type { CalendarItemDisplayProps } from "./types";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
+
+const shouldRouteClientSide = (event: MouseEvent) =>
+  !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 
 /** Renders a calendar item in different variants */
 export default function CalendarItem(props: CalendarItemDisplayProps) {
@@ -46,6 +50,11 @@ export default function CalendarItem(props: CalendarItemDisplayProps) {
       <a
         href={itemUrl}
         data-space-item-id={props.item.id}
+        onClick={(event) => {
+          if (!shouldRouteClientSide(event)) return;
+          event.preventDefault();
+          requestSpacesRouteNavigation(itemUrl);
+        }}
         class="relative z-20 group flex items-center gap-1 px-1 py-0.5 text-[11px] truncate hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded transition-colors"
         title={props.item.title}
       >
@@ -70,6 +79,11 @@ export default function CalendarItem(props: CalendarItemDisplayProps) {
     <a
       href={itemUrl}
       data-space-item-id={props.item.id}
+      onClick={(event) => {
+        if (!shouldRouteClientSide(event)) return;
+        event.preventDefault();
+        requestSpacesRouteNavigation(itemUrl);
+      }}
       class="relative z-20 block p-1.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors border-l-2"
       style={`border-color: ${isDeadline ? "#f97316" : props.item.spaceColor}`}
     >

@@ -1,6 +1,7 @@
 import type { JSX } from "solid-js";
 import { dates as calendar } from "@valentinkolb/stdlib";
 import type { CalendarCellProps } from "./types";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = CalendarCellProps & {
   children: JSX.Element;
@@ -36,7 +37,18 @@ export default function CalendarCell(props: Props) {
       tabindex={0}
     >
       {/* Mobile: Full cell link overlay - goes to week view */}
-      <a href={weekUrl} class="md:hidden absolute inset-0 z-10" aria-label={`View ${ariaLabel}`}>
+      <a
+        href={weekUrl}
+        onClick={(event) => {
+          if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+          }
+          event.preventDefault();
+          requestSpacesRouteNavigation(weekUrl);
+        }}
+        class="md:hidden absolute inset-0 z-10"
+        aria-label={`View ${ariaLabel}`}
+      >
         <span class="sr-only">View {ariaLabel}</span>
       </a>
       {/* Content */}

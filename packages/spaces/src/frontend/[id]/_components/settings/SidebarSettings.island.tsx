@@ -2,7 +2,7 @@ import { createSignal, Show } from "solid-js";
 import { SegmentedControl } from "@valentinkolb/cloud/ui";
 import { type DetailPanelWidth, type ViewType, writeSpaceSettings } from "./SpaceSettingsStore";
 import { buildPanelWidthUrl, clearViewOverrides } from "../filter/types";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type Props = {
   spaceId: string;
@@ -26,19 +26,13 @@ const WIDTH_OPTIONS = [
  * Sidebar settings panel.
  * Sets query params to temporarily override the cookie defaults.
  */
-export default function SidebarSettings({
-  spaceId,
-  currentView,
-  currentPanelWidth,
-  hasOverride,
-  hideSettings: initialHideSettings,
-}: Props) {
-  const [hideSettings, setHideSettings] = createSignal(initialHideSettings);
+export default function SidebarSettings(props: Props) {
+  const [hideSettings, setHideSettings] = createSignal(props.hideSettings);
 
   const toggleMinimize = () => {
     const newValue = !hideSettings();
     setHideSettings(newValue);
-    writeSpaceSettings(spaceId, { hideSettings: newValue });
+    writeSpaceSettings(props.spaceId, { hideSettings: newValue });
   };
 
   return (
@@ -58,10 +52,10 @@ export default function SidebarSettings({
 
       <Show when={!hideSettings()}>
         {/* Override indicator */}
-        <Show when={hasOverride}>
+        <Show when={props.hasOverride}>
           <button
             type="button"
-            onClick={() => navigateTo(clearViewOverrides())}
+            onClick={() => requestSpacesRouteNavigation(clearViewOverrides())}
             class="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
           >
             <i class="ti ti-refresh text-sm" />
@@ -72,8 +66,8 @@ export default function SidebarSettings({
         {/* Detail panel width */}
         <SegmentedControl
           options={WIDTH_OPTIONS}
-          value={() => currentPanelWidth}
-          onChange={(v) => navigateTo(buildPanelWidthUrl(v))}
+          value={() => props.currentPanelWidth}
+          onChange={(v) => requestSpacesRouteNavigation(buildPanelWidthUrl(v))}
         />
       </Show>
     </div>

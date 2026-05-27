@@ -1,4 +1,5 @@
 import { weatherService, type WeatherData } from "@valentinkolb/cloud/services";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import AddLocationButton from "../AddLocation.island";
 
 type Location = {
@@ -22,79 +23,63 @@ export default function LocationSidebar(props: Props) {
     const tempClass = data?.current ? weatherService.ui.getTempColorClass(data.current.temperature) : "";
 
     return (
-      <a
+      <AppWorkspace.SidebarItem
         href={`/app/weather/${loc.id}`}
-        class={`sidebar-item sidebar-item-tall ${isActive ? "sidebar-item-active" : ""}`}
-        aria-current={isActive ? "page" : undefined}
+        navigation="document"
+        active={isActive}
+        class={mode === "desktop" ? "sidebar-item-tall" : ""}
+        title={loc.name}
       >
-        <i
-          class={`ti ti-${data?.current ? weatherService.ui.getTablerIcon(data.current.icon) : "map-pin"} shrink-0 text-sm ${
-            tempClass || "text-dimmed"
-          }`}
-        />
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-xs">{loc.name}</p>
-          <p class="sidebar-item-meta mt-0.5 text-[11px]">
-            {data?.current ? (
-              <span class={tempClass}>{weatherService.ui.formatTemp(data.current.temperature)}</span>
-            ) : (
-              <span class="text-dimmed">No forecast</span>
-            )}
-            {mode === "desktop" && loc.state ? <span class="ml-1 text-dimmed">· {loc.state}</span> : null}
-          </p>
-        </div>
-      </a>
+        <span class="flex min-w-0 flex-1 items-center gap-2">
+          <i
+            class={`ti ti-${data?.current ? weatherService.ui.getTablerIcon(data.current.icon) : "map-pin"} shrink-0 text-sm ${
+              tempClass || "text-dimmed"
+            }`}
+          />
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-xs">{loc.name}</span>
+            <span class="sidebar-item-meta mt-0.5 block text-[11px]">
+              {data?.current ? (
+                <span class={tempClass}>{weatherService.ui.formatTemp(data.current.temperature)}</span>
+              ) : (
+                <span class="text-dimmed">No forecast</span>
+              )}
+              {mode === "desktop" && loc.state ? <span class="ml-1 text-dimmed">· {loc.state}</span> : null}
+            </span>
+          </span>
+        </span>
+      </AppWorkspace.SidebarItem>
     );
   };
 
   return (
-    <>
-      <nav class="sidebar-container-mobile">
-        <details class="group">
-          <summary class="sidebar-mobile-toggle">
-            <div class="sidebar-header-icon bg-cyan-500">
-              <i class="ti ti-temperature-celsius text-xs" />
-            </div>
-            <span class="sidebar-header-title">Weather</span>
-            <span class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed transition-transform group-open:rotate-180">
-              <i class="ti ti-chevron-down text-sm" />
-            </span>
-          </summary>
-          <div class="sidebar-mobile-actions">
-            <div class="w-full">
-              <AddLocationButton />
-            </div>
-          </div>
-          <div class="mt-2 max-h-64 overflow-y-auto px-1 pb-2">
-            <div class="sidebar-group">{props.locations.map((loc) => renderLocation(loc, "mobile"))}</div>
-          </div>
-        </details>
-      </nav>
+    <AppWorkspace.Sidebar>
+      <AppWorkspace.SidebarHeader title="Weather" icon="ti ti-temperature-celsius" iconStyle="background-color: var(--color-cyan-500)" />
 
-      <aside class="sidebar-container">
-        <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
-          <div class="flex items-center gap-3">
-            <div class="sidebar-header-icon bg-cyan-500">
-              <i class="ti ti-temperature-celsius text-xs" />
-            </div>
-            <p class="sidebar-header-title">Weather</p>
+      <AppWorkspace.SidebarMobile>
+        <AppWorkspace.SidebarMobileItems>
+          <div class="w-full">
+            <AddLocationButton />
           </div>
+        </AppWorkspace.SidebarMobileItems>
+        <AppWorkspace.SidebarMobileBody scrollPreserveKey="weather-locations-mobile">
+          <AppWorkspace.SidebarSection>{props.locations.map((loc) => renderLocation(loc, "mobile"))}</AppWorkspace.SidebarSection>
+        </AppWorkspace.SidebarMobileBody>
+      </AppWorkspace.SidebarMobile>
 
-          <div class="flex flex-col gap-3">
-            <section class="sidebar-group">
-              <p class="sidebar-section-title">Actions</p>
-              <AddLocationButton />
-            </section>
-          </div>
-
-          <div class="sidebar-body">
-            <section class="sidebar-group">
-              <p class="sidebar-section-title">Locations</p>
-              <div class="sidebar-group">{props.locations.map((loc) => renderLocation(loc, "desktop"))}</div>
-            </section>
-          </div>
+      <AppWorkspace.SidebarDesktop>
+        <div class="flex flex-col gap-3">
+          <AppWorkspace.SidebarSection title="Actions">
+            <AddLocationButton />
+          </AppWorkspace.SidebarSection>
         </div>
-      </aside>
-    </>
+
+        <AppWorkspace.SidebarBody scrollPreserveKey="weather-locations">
+          <AppWorkspace.SidebarSection title="Locations">
+            {props.locations.map((loc) => renderLocation(loc, "desktop"))}
+          </AppWorkspace.SidebarSection>
+        </AppWorkspace.SidebarBody>
+      </AppWorkspace.SidebarDesktop>
+    </AppWorkspace.Sidebar>
   );
 }

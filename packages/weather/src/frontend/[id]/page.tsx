@@ -2,6 +2,7 @@ import { ssr } from "../../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { weatherService, type WeatherData } from "@valentinkolb/cloud/services";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import LocationSidebar from "../_components/LocationSidebar";
 import DeleteLocationButton from "../DeleteLocation.island";
 import DisplaySettingsButton from "../DisplaySettings.island";
@@ -278,7 +279,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const id = c.req.param("id");
+  const id = c.req.param("id") ?? "";
 
   // Get user's locations
   const locations = (await weatherService.location.saved.list({ userId: user.id })).items;
@@ -288,15 +289,15 @@ export default ssr<AuthContext>(async (c) => {
   if (!activeLocation) {
     return () => (
       <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: "Not Found" }]}>
-        <div class="app-cols h-full">
+        <AppWorkspace>
           <LocationSidebar locations={locations} activeId={id} weatherMap={new Map()} />
-          <div class="flex-1 min-w-0 flex flex-col">
+          <AppWorkspace.Main>
             <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
               <i class="ti ti-map-pin-off text-sm" />
               Location not found
             </p>
-          </div>
-        </div>
+          </AppWorkspace.Main>
+        </AppWorkspace>
       </Layout>
     );
   }
@@ -324,11 +325,10 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Weather", href: "/app/weather" }, { title: activeLocation.name }]}
     >
-      <div class="app-cols h-full">
+      <AppWorkspace>
         <LocationSidebar locations={locations} activeId={id} weatherMap={weatherMap} />
 
-        {/* Main */}
-        <div class="flex-1 min-w-0 flex flex-col">
+        <AppWorkspace.Main>
           {/* Scrollable content */}
           <div class="flex-1 min-h-0 overflow-y-auto">
             {activeWeather ? (
@@ -353,8 +353,8 @@ export default ssr<AuthContext>(async (c) => {
               </div>
             )}
           </div>
-        </div>
-      </div>
+        </AppWorkspace.Main>
+      </AppWorkspace>
     </Layout>
   );
 });

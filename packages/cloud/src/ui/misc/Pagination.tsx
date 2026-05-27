@@ -1,9 +1,11 @@
 import type { JSX } from "solid-js";
+import { Link, type LinkNavigateEvent } from "../NavigationLink";
 
 type PaginationProps = {
   currentPage: number;
   totalPages: number;
   baseUrl: string;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
 };
 
 /**
@@ -31,18 +33,35 @@ export const Pagination = (props: PaginationProps): null | JSX.Element => {
                 ...
               </span>
             )}
-            <a
-              href={`${props.baseUrl}${page}`}
-              class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
-                isActive
-                  ? "border-blue-500/35 bg-blue-50 text-blue-700 font-medium dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
-                  : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              }`}
-              aria-current={isActive ? "page" : undefined}
-              aria-label={`Page ${page}`}
-            >
-              {page}
-            </a>
+            {props.onNavigate ? (
+              <Link
+                href={`${props.baseUrl}${page}`}
+                scroll="top"
+                onNavigate={props.onNavigate}
+                class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
+                  isActive
+                    ? "border-blue-500/35 bg-blue-50 text-blue-700 font-medium dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
+                    : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={`Page ${page}`}
+              >
+                {page}
+              </Link>
+            ) : (
+              <a
+                href={`${props.baseUrl}${page}`}
+                class={`flex h-7 w-7 items-center justify-center rounded-lg text-xs tabular-nums transition-colors ${
+                  isActive
+                    ? "border-blue-500/35 bg-blue-50 text-blue-700 font-medium dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
+                    : "text-dimmed hover:text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                }`}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={`Page ${page}`}
+              >
+                {page}
+              </a>
+            )}
           </>
         );
       })}

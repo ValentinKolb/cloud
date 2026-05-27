@@ -1,5 +1,4 @@
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
-import type { DailyForecast } from "@valentinkolb/cloud/services";
 
 export type CalendarView = "month" | "week";
 

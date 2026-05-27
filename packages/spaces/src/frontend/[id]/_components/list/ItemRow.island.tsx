@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -28,6 +28,10 @@ const PRIORITY_STYLES: Record<string, { icon: string; color: string }> = {
  */
 export default function ItemRow(props: ItemRowProps) {
   const [isSelectedLocal, setIsSelectedLocal] = createSignal(props.isSelected);
+
+  createEffect(() => {
+    setIsSelectedLocal(props.isSelected);
+  });
 
   onMount(() => {
     const unsubscribe = subscribeToDetailSelection(({ itemId }) => {
@@ -102,10 +106,7 @@ export default function ItemRow(props: ItemRowProps) {
       </button>
 
       {/* Item Link - Main content area */}
-      <a
-        href={itemUrl()}
-        class="flex-1 min-w-0 flex items-center gap-3"
-      >
+      <a href={itemUrl()} class="flex-1 min-w-0 flex items-center gap-3">
         {/* Priority Icon */}
         <Show when={priority()}>
           <i class={`ti ${priority()!.icon} ${priority()!.color} text-sm shrink-0`} />

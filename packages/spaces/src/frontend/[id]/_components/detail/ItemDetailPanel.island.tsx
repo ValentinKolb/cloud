@@ -4,8 +4,9 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { dates } from "@valentinkolb/stdlib";
 import { markdown } from "@valentinkolb/cloud/shared";
 import { Dropdown, EntitySearch, MarkdownView, prompts, type DropdownItem, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { setDetailItemInUrl, shouldHandleDetailClick } from "../../../lib/detail";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CommentsSection from "./CommentsSection";
 import type { SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/contracts";
 
@@ -89,13 +90,7 @@ const getResponseErrorMessage = async (res: Response, fallback: string) => {
 // Helper Components
 // =============================================================================
 
-function IconActionButton(props: {
-  icon: string;
-  title: string;
-  onClick: () => void;
-  disabled?: boolean;
-  danger?: boolean;
-}) {
+function IconActionButton(props: { icon: string; title: string; onClick: () => void; disabled?: boolean; danger?: boolean }) {
   return (
     <button
       type="button"
@@ -316,12 +311,7 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
     const result = await prompts.dialog<EntitySearchPrincipal | null>(
       (close) => (
         <div class="min-h-70">
-          <EntitySearch
-            includeUsers
-            excludeUserIds={currentIds()}
-            onSelect={(result) => close(result)}
-            placeholder="Search users..."
-          />
+          <EntitySearch includeUsers excludeUserIds={currentIds()} onSelect={(result) => close(result)} placeholder="Search users..." />
         </div>
       ),
       { title: "Add Assignee", icon: "ti ti-user-plus" },
@@ -464,7 +454,7 @@ export default function ItemDetailPanel(props: Props) {
       prompts.error(await getResponseErrorMessage(res, "Failed to delete item"));
       return;
     }
-    navigateTo(props.baseUrl);
+    requestSpacesRouteNavigation(props.baseUrl);
   };
 
   const isLoading = () => updateMutation.loading() || completeMutation.loading();
@@ -511,8 +501,7 @@ export default function ItemDetailPanel(props: Props) {
           type: "info",
           content: () => (
             <div class="text-[11px] leading-relaxed text-dimmed">
-              <span class="font-medium">Markdown:</span>{" "}
-              <code class="font-mono">**bold**</code>
+              <span class="font-medium">Markdown:</span> <code class="font-mono">**bold**</code>
               {"  ·  "}
               <code class="font-mono">*italic*</code>
               {"  ·  "}

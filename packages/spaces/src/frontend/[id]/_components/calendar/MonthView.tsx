@@ -1,9 +1,10 @@
 import { For } from "solid-js";
 import { dates as calendar } from "@valentinkolb/stdlib";
-import { weatherService } from "@valentinkolb/cloud/services";
 import CalendarItemDisplay from "./CalendarItem";
 import CalendarCell from "./CalendarCell";
 import type { MonthViewProps } from "./types";
+import { formatTemp, getAvgTempColorClass, getTempColorClass } from "./weather-ui";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 const MAX_VISIBLE_ITEMS = 2;
 
@@ -60,12 +61,8 @@ export default function MonthView(props: MonthViewProps) {
                           {/* Desktop: Weather chip */}
                           {dayWeather && (
                             <span class="hidden md:inline-flex items-center gap-0.5 text-[10px]">
-                              <i
-                                class={`ti ti-${dayWeather.icon} ${weatherService.ui.getAvgTempColorClass(dayWeather.tempMin, dayWeather.tempMax)}`}
-                              />
-                              <span class={weatherService.ui.getTempColorClass(dayWeather.tempMax)}>
-                                {weatherService.ui.formatTemp(dayWeather.tempMax)}
-                              </span>
+                              <i class={`ti ti-${dayWeather.icon} ${getAvgTempColorClass(dayWeather.tempMin, dayWeather.tempMax)}`} />
+                              <span class={getTempColorClass(dayWeather.tempMax)}>{formatTemp(dayWeather.tempMax)}</span>
                             </span>
                           )}
                         </div>
@@ -104,10 +101,29 @@ export default function MonthView(props: MonthViewProps) {
                         </For>
                         {hiddenCount > 0 && (
                           <a
-                                  href={calendar.buildCalendarUrl(props.baseUrl, {
+                            href={calendar.buildCalendarUrl(props.baseUrl, {
                               view: "week",
                               date,
                             })}
+                            onClick={(event) => {
+                              if (
+                                event.defaultPrevented ||
+                                event.button !== 0 ||
+                                event.metaKey ||
+                                event.ctrlKey ||
+                                event.shiftKey ||
+                                event.altKey
+                              ) {
+                                return;
+                              }
+                              event.preventDefault();
+                              requestSpacesRouteNavigation(
+                                calendar.buildCalendarUrl(props.baseUrl, {
+                                  view: "week",
+                                  date,
+                                }),
+                              );
+                            }}
                             class="relative z-20 text-[10px] text-dimmed hover:text-blue-500 text-left px-1"
                           >
                             +{hiddenCount} more

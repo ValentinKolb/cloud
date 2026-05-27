@@ -1,4 +1,4 @@
-import { Show, createSignal, onCleanup, onMount } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
@@ -39,6 +39,12 @@ export default function ItemDetailHost(props: Props) {
   const [comments, setComments] = createSignal<SpaceComment[]>(props.initialComments ?? []);
   const [loading, setLoading] = createSignal(false);
   let requestId = 0;
+
+  createEffect(() => {
+    setItem(props.initialItem);
+    setComments(props.initialComments ?? []);
+    setLoading(false);
+  });
 
   const clearSelection = () => {
     requestId += 1;

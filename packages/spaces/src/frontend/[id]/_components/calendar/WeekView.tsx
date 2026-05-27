@@ -1,8 +1,8 @@
 import { For } from "solid-js";
 import { dates as calendar } from "@valentinkolb/stdlib";
-import { weatherService } from "@valentinkolb/cloud/services";
 import CalendarItemDisplay from "./CalendarItem";
 import type { WeekViewProps } from "./types";
+import { formatTemp, getAvgTempColorClass, getTempColorClass } from "./weather-ui";
 
 export default function WeekView(props: WeekViewProps) {
   const days = calendar.getWeekDays(props.weekStart);
@@ -35,11 +35,9 @@ export default function WeekView(props: WeekViewProps) {
                     <div class="flex items-center justify-center gap-1 mt-0.5 h-4">
                       {dayWeather ? (
                         <>
-                          <i
-                            class={`ti ti-${dayWeather.icon} text-xs ${weatherService.ui.getAvgTempColorClass(dayWeather.tempMin, dayWeather.tempMax)}`}
-                          />
+                          <i class={`ti ti-${dayWeather.icon} text-xs ${getAvgTempColorClass(dayWeather.tempMin, dayWeather.tempMax)}`} />
                           <span class="text-[10px] text-dimmed">
-                            {weatherService.ui.formatTemp(dayWeather.tempMax)} / {weatherService.ui.formatTemp(dayWeather.tempMin)}
+                            {formatTemp(dayWeather.tempMax)} / {formatTemp(dayWeather.tempMin)}
                           </span>
                         </>
                       ) : (
@@ -91,12 +89,8 @@ export default function WeekView(props: WeekViewProps) {
                   {/* Weather */}
                   {dayWeather && (
                     <div class="flex items-center justify-center gap-0.5 text-[10px]">
-                      <i
-                        class={`ti ti-${dayWeather.icon} ${weatherService.ui.getAvgTempColorClass(dayWeather.tempMin, dayWeather.tempMax)}`}
-                      />
-                      <span class={weatherService.ui.getTempColorClass(dayWeather.tempMax)}>
-                        {weatherService.ui.formatTemp(dayWeather.tempMax)}
-                      </span>
+                      <i class={`ti ti-${dayWeather.icon} ${getAvgTempColorClass(dayWeather.tempMin, dayWeather.tempMax)}`} />
+                      <span class={getTempColorClass(dayWeather.tempMax)}>{formatTemp(dayWeather.tempMax)}</span>
                     </div>
                   )}
                 </div>

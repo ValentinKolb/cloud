@@ -3,6 +3,8 @@ import { describeRoute } from "hono-openapi";
 import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { spacesService } from "../service";
+import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
+import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
 import type { MutationResult, Space, PermissionLevel } from "@/contracts";
 import {
   SpaceSchema,
@@ -121,6 +123,34 @@ const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
   .use(auth.requireRole("user"))
 
+  .get(
+    "/workspace/route",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Load workspace route state",
+      description: "Resolve an enhanced Spaces workspace route into client-renderable state.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.any(), "Workspace route state"),
+        400: jsonResponse(ErrorResponseSchema, "Unsupported route"),
+      },
+    }),
+    v("query", z.object({ href: z.string().min(1).max(3000) })),
+    async (c) => {
+      const href = c.req.valid("query").href;
+      const target = parseSpacesWorkspaceHref(href);
+      if (!target) return c.json({ message: "Unsupported workspace route" }, 400);
+      const state = await loadSpacesWorkspaceState({
+        user: c.get("user"),
+        spaceId: target.spaceId,
+        href,
+        cookieHeader: c.req.header("Cookie"),
+        settings: target.settings,
+      });
+      return c.json(state);
+    },
+  )
+
   // ==========================
   // List Spaces
   // ==========================
@@ -186,7 +216,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id") ?? "";
       const { error } = await checkSpaceAccess(c, id);
       if (error) return error;
 
@@ -214,7 +244,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateSpaceSchema),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, id, "write");
@@ -240,7 +270,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id") ?? "";
 
       const { error } = await checkSpaceAccess(c, id, "admin");
       if (error) return error;
@@ -265,7 +295,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id") ?? "";
 
       const { error } = await checkSpaceAccess(c, id, "admin");
       if (error) return error;
@@ -294,7 +324,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateColumnSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -319,8 +349,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateColumnSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const columnId = c.req.param("columnId");
+      const spaceId = c.req.param("id") ?? "";
+      const columnId = c.req.param("columnId") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -345,8 +375,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const columnId = c.req.param("columnId");
+      const spaceId = c.req.param("id") ?? "";
+      const columnId = c.req.param("columnId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
@@ -371,7 +401,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ReorderColumnsSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const { columnIds } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -401,7 +431,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateTagSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -427,8 +457,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateTagSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const tagId = c.req.param("tagId");
+      const spaceId = c.req.param("id") ?? "";
+      const tagId = c.req.param("tagId") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -452,8 +482,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const tagId = c.req.param("tagId");
+      const spaceId = c.req.param("id") ?? "";
+      const tagId = c.req.param("tagId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
@@ -480,7 +510,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const includeCompleted = c.req.query("includeCompleted") === "true";
 
       const { error } = await checkSpaceAccess(c, spaceId);
@@ -508,7 +538,7 @@ const app = new Hono<AuthContext>()
     v("json", ItemFilterSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const filter = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId);
@@ -537,7 +567,7 @@ const app = new Hono<AuthContext>()
     v("json", CreateItemSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -562,8 +592,8 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
@@ -595,8 +625,8 @@ const app = new Hono<AuthContext>()
     v("json", UpdateItemSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -623,8 +653,8 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
@@ -652,8 +682,8 @@ const app = new Hono<AuthContext>()
     v("json", MoveItemSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
       const { columnId, rank, completed } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -681,8 +711,8 @@ const app = new Hono<AuthContext>()
     v("json", SetCompletedSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
       const { completed } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -712,8 +742,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
@@ -744,8 +774,8 @@ const app = new Hono<AuthContext>()
     v("json", CreateCommentSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
       const { content } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -780,9 +810,9 @@ const app = new Hono<AuthContext>()
     v("json", UpdateCommentSchema),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
-      const commentId = c.req.param("commentId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      const commentId = c.req.param("commentId") ?? "";
       const { content } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
@@ -825,9 +855,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const user = c.get("user");
-      const spaceId = c.req.param("id");
-      const itemId = c.req.param("itemId");
-      const commentId = c.req.param("commentId");
+      const spaceId = c.req.param("id") ?? "";
+      const itemId = c.req.param("itemId") ?? "";
+      const commentId = c.req.param("commentId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
@@ -870,7 +900,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
@@ -897,7 +927,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
+      const spaceId = c.req.param("id") ?? "";
       const { principal, permission } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
@@ -929,8 +959,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const accessId = c.req.param("accessId");
+      const spaceId = c.req.param("id") ?? "";
+      const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
 
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
@@ -964,8 +994,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id");
-      const accessId = c.req.param("accessId");
+      const spaceId = c.req.param("id") ?? "";
+      const accessId = c.req.param("accessId") ?? "";
 
       const { error } = await checkSpaceAccess(c, spaceId, "admin");
       if (error) return error;
@@ -1099,11 +1129,7 @@ const icalApp = new Hono().get(
 // would otherwise match the literal path "calendar" and try to parse it as a
 // space UUID (causing a 500 from Postgres uuid validation). Hono's router
 // honours registration order for overlapping static-vs-dynamic paths.
-const combined = new Hono()
-  .use(rateLimit())
-  .route("/calendar", calendarApp)
-  .route("/calendar", icalApp)
-  .route("/", app);
+const combined = new Hono().use(rateLimit()).route("/calendar", calendarApp).route("/calendar", icalApp).route("/", app);
 
 export default combined;
 export type ApiType = typeof combined;

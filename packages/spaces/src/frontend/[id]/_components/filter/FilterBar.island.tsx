@@ -12,9 +12,9 @@ import type {
 import { onMount } from "solid-js";
 import { type FilterState, defaultFilter, buildFilterUrl, hasActiveFilters } from "./types";
 import { setLastSpaceId } from "../settings/SpaceSettingsStore";
-import { navigateTo } from "@valentinkolb/cloud/ui";
 import SearchInput from "./SearchInput.island";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 type FilterBarProps = {
   spaceId: string;
@@ -134,10 +134,8 @@ const SORT_DEFAULT = [`sort:${defaultFilter.sort}`, `dir:asc`];
 export default function FilterBar(props: FilterBarProps) {
   onMount(() => setLastSpaceId(props.spaceId));
 
-  const { filter } = props;
-
   const navigate = (params: Partial<FilterState>) => {
-    navigateTo(buildFilterUrl(props.baseUrl, { ...params, page: 1 }, filter));
+    requestSpacesRouteNavigation(buildFilterUrl(props.baseUrl, { ...params, page: 1 }, props.filter));
   };
 
   // Dynamic options based on props
@@ -165,14 +163,14 @@ export default function FilterBar(props: FilterBarProps) {
 
   const hasFilters = props.hideGroupBy
     ? hasActiveFilters({
-        ...filter,
+        ...props.filter,
         groupBy: defaultFilter.groupBy,
       })
-    : hasActiveFilters(filter);
+    : hasActiveFilters(props.filter);
 
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: filter-bar">
-      <SearchInput value={filter.search} baseUrl={buildFilterUrl(props.baseUrl, {}, filter)} />
+      <SearchInput value={props.filter.search} baseUrl={buildFilterUrl(props.baseUrl, {}, props.filter)} />
 
       <div class="flex flex-wrap items-center gap-2">
         {/* View: Type + Status + Assigned To */}
@@ -180,7 +178,7 @@ export default function FilterBar(props: FilterBarProps) {
           label="View"
           icon="ti ti-filter"
           options={VIEW_OPTIONS}
-          value={[`type:${filter.type}`, `status:${filter.status}`, `assigned:${filter.assignedTo}`]}
+          value={[`type:${props.filter.type}`, `status:${props.filter.status}`, `assigned:${props.filter.assignedTo}`]}
           onChange={(v) => {
             const type = (v.find((x) => x.startsWith("type:"))?.slice(5) ?? defaultFilter.type) as ItemType;
             const status = (v.find((x) => x.startsWith("status:"))?.slice(7) ?? defaultFilter.status) as ItemStatus;
@@ -188,7 +186,9 @@ export default function FilterBar(props: FilterBarProps) {
             navigate({ type, status, assignedTo });
           }}
           isActive={
-            filter.type !== defaultFilter.type || filter.status !== defaultFilter.status || filter.assignedTo !== defaultFilter.assignedTo
+            props.filter.type !== defaultFilter.type ||
+            props.filter.status !== defaultFilter.status ||
+            props.filter.assignedTo !== defaultFilter.assignedTo
           }
           defaultValue={VIEW_DEFAULT}
         />
@@ -198,7 +198,7 @@ export default function FilterBar(props: FilterBarProps) {
           label="Priority"
           icon="ti ti-flag"
           options={PRIORITY_OPTIONS}
-          value={filter.priority}
+          value={props.filter.priority}
           onChange={(v) => navigate({ priority: v as Priority[] })}
         />
 
@@ -207,9 +207,9 @@ export default function FilterBar(props: FilterBarProps) {
           label="Deadline"
           icon="ti ti-clock"
           options={DEADLINE_OPTIONS}
-          value={[filter.deadlineFilter]}
+          value={[props.filter.deadlineFilter]}
           onChange={(v) => navigate({ deadlineFilter: (v[0] ?? "all") as DeadlineFilter })}
-          isActive={filter.deadlineFilter !== defaultFilter.deadlineFilter}
+          isActive={props.filter.deadlineFilter !== defaultFilter.deadlineFilter}
           defaultValue={[defaultFilter.deadlineFilter]}
         />
 
@@ -219,7 +219,7 @@ export default function FilterBar(props: FilterBarProps) {
             label="Tags"
             icon="ti ti-tag"
             options={tagOptions()}
-            value={filter.tagIds}
+            value={props.filter.tagIds}
             onChange={(v) => navigate({ tagIds: v })}
           />
         )}
@@ -230,7 +230,7 @@ export default function FilterBar(props: FilterBarProps) {
             label="Kanban"
             icon="ti ti-layout-kanban"
             options={columnOptions()}
-            value={filter.columnIds}
+            value={props.filter.columnIds}
             onChange={(v) => navigate({ columnIds: v })}
           />
         </div>
@@ -241,13 +241,13 @@ export default function FilterBar(props: FilterBarProps) {
             label="Sort"
             icon="ti ti-arrows-sort"
             options={SORT_OPTIONS}
-            value={[`sort:${filter.sort}`, `dir:${filter.sortDesc ? "desc" : "asc"}`]}
+            value={[`sort:${props.filter.sort}`, `dir:${props.filter.sortDesc ? "desc" : "asc"}`]}
             onChange={(v) => {
               const sort = (v.find((x) => x.startsWith("sort:"))?.slice(5) ?? defaultFilter.sort) as ItemSort;
               const sortDesc = v.includes("dir:desc");
               navigate({ sort, sortDesc });
             }}
-            isActive={filter.sort !== defaultFilter.sort || filter.sortDesc !== defaultFilter.sortDesc}
+            isActive={props.filter.sort !== defaultFilter.sort || props.filter.sortDesc !== defaultFilter.sortDesc}
             defaultValue={SORT_DEFAULT}
           />
         </div>
@@ -259,13 +259,13 @@ export default function FilterBar(props: FilterBarProps) {
               label="Group By"
               icon="ti ti-layout-list"
               options={GROUP_BY_OPTIONS}
-              value={[filter.groupBy]}
+              value={[props.filter.groupBy]}
               onChange={(v) =>
                 navigate({
                   groupBy: (v[0] ?? defaultFilter.groupBy) as ItemGroupBy,
                 })
               }
-              isActive={filter.groupBy !== defaultFilter.groupBy}
+              isActive={props.filter.groupBy !== defaultFilter.groupBy}
               defaultValue={[defaultFilter.groupBy]}
             />
           </div>
@@ -275,6 +275,11 @@ export default function FilterBar(props: FilterBarProps) {
         {hasFilters && (
           <a
             href={buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter)}
+            onClick={(event) => {
+              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              requestSpacesRouteNavigation(buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter));
+            }}
             class="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
             aria-label="Clear all filters"
           >
@@ -284,9 +289,9 @@ export default function FilterBar(props: FilterBarProps) {
         )}
 
         <span class="text-xs text-dimmed whitespace-nowrap">
-          {filter.search && `Results for "${filter.search}": `}
+          {props.filter.search && `Results for "${props.filter.search}": `}
           {props.total === 0 ? "No items" : props.total === 1 ? "1 item" : `${props.total} items`}
-          {hasFilters && !filter.search && " (filtered)"}
+          {hasFilters && !props.filter.search && " (filtered)"}
         </span>
       </div>
     </div>

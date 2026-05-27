@@ -2,6 +2,7 @@ import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { spacesService } from "@/service";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { AppOverview } from "@valentinkolb/cloud/ui";
 import { parseLastSpaceId } from "./[id]/_components/settings/SpaceSettingsStore";
 import CreateSpaceButton from "./_components/CreateSpaceButton.island";
 
@@ -29,58 +30,44 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Spaces" }]}>
-      <div class="max-w-4xl mx-auto">
-        {/* Hero */}
-        <div class="p-6 mb-4 text-center">
-          <div class="flex items-center justify-center gap-3 mb-2">
-            <div class="w-12 h-12 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-              <i class="ti ti-layout-kanban text-2xl text-zinc-600 dark:text-zinc-400" />
-            </div>
-          </div>
-          <h1 class="text-xl font-semibold mb-1">Spaces</h1>
-          <p class="text-sm text-dimmed">Organize your tasks, events, and tickets</p>
-        </div>
-
-        {/* Info block */}
-        <div class="info-block-info mb-6 flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2">
-            <i class="ti ti-layout-kanban shrink-0" />
-            <span>
-              {userSpaces.length === 0
-                ? "No spaces yet. Create one to get started!"
-                : `${userSpaces.length} space${userSpaces.length !== 1 ? "s" : ""} available`}
-            </span>
-          </div>
-          <CreateSpaceButton />
-        </div>
-
-        {/* Spaces grid */}
-        {userSpaces.length > 0 && (
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {userSpaces.map((space) => (
-              <a
-                href={`/app/spaces/${space.id}`}
-                class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
-                style={`view-transition-name: space-card-${space.id}`}
-              >
-                <div
-                  class="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0"
-                  style={`background-color: ${space.color}; view-transition-name: space-color-${space.id}`}
+      <AppOverview title="Spaces" subtitle="Organize your tasks, events, and tickets." icon="ti ti-layout-kanban">
+        <AppOverview.Main title="Your spaces" description={`${userSpaces.length} space${userSpaces.length !== 1 ? "s" : ""} available`}>
+          {userSpaces.length === 0 ? (
+            <AppOverview.EmptyState title="No spaces yet" description="Create one to get started." icon="ti ti-layout-kanban" />
+          ) : (
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {userSpaces.map((space) => (
+                <a
+                  href={`/app/spaces/${space.id}`}
+                  class="paper flex items-center gap-4 p-4 no-underline transition-all hover:paper-highlighted"
+                  style={`view-transition-name: space-card-${space.id}`}
                 >
-                  <i class="ti ti-layout-kanban text-lg" />
-                </div>
-                <div class="flex-1 min-w-0">
-                  <span class="text-sm font-semibold text-primary block truncate" style={`view-transition-name: space-name-${space.id}`}>
-                    {space.name}
-                  </span>
-                  <p class="text-xs text-dimmed truncate">{space.description || "No description"}</p>
-                </div>
-                <i class="ti ti-chevron-right text-dimmed" />
-              </a>
-            ))}
+                  <div
+                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white"
+                    style={`background-color: ${space.color}; view-transition-name: space-color-${space.id}`}
+                  >
+                    <i class="ti ti-layout-kanban text-lg" />
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <span class="block truncate text-sm font-semibold text-primary" style={`view-transition-name: space-name-${space.id}`}>
+                      {space.name}
+                    </span>
+                    <p class="truncate text-xs text-dimmed">{space.description || "No description"}</p>
+                  </div>
+                  <i class="ti ti-chevron-right text-dimmed" />
+                </a>
+              ))}
+            </div>
+          )}
+        </AppOverview.Main>
+
+        <AppOverview.Aside title="Create" description="Start a new space for tasks, events, or tickets.">
+          <div class="paper flex flex-col gap-3 p-4">
+            <p class="text-xs text-dimmed">You become the admin of spaces you create and can adjust access later in settings.</p>
+            <CreateSpaceButton />
           </div>
-        )}
-      </div>
+        </AppOverview.Aside>
+      </AppOverview>
     </Layout>
   );
 });

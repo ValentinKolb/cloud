@@ -2,7 +2,7 @@ import { dates as calendar } from "@valentinkolb/stdlib";
 import dayjs from "dayjs";
 import { SelectChip, SegmentedControl } from "@valentinkolb/cloud/ui";
 import type { CalendarHeaderProps, CalendarView } from "./types";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 
 export default function CalendarHeader(props: CalendarHeaderProps) {
   const currentYear = () => dayjs(props.date).year();
@@ -10,49 +10,61 @@ export default function CalendarHeader(props: CalendarHeaderProps) {
 
   // Navigation handlers
   const goToToday = () => {
-    navigateTo(calendar.buildCalendarUrl(props.baseUrl, {
-      view: props.view,
-      date: calendar.today(),
-    }));
+    requestSpacesRouteNavigation(
+      calendar.buildCalendarUrl(props.baseUrl, {
+        view: props.view,
+        date: calendar.today(),
+      }),
+    );
   };
 
   const goToPrev = () => {
     const newDate = props.view === "month" ? calendar.addMonths(props.date, -1) : calendar.addWeeks(props.date, -1);
-    navigateTo(calendar.buildCalendarUrl(props.baseUrl, {
-      view: props.view,
-      date: newDate,
-    }));
+    requestSpacesRouteNavigation(
+      calendar.buildCalendarUrl(props.baseUrl, {
+        view: props.view,
+        date: newDate,
+      }),
+    );
   };
 
   const goToNext = () => {
     const newDate = props.view === "month" ? calendar.addMonths(props.date, 1) : calendar.addWeeks(props.date, 1);
-    navigateTo(calendar.buildCalendarUrl(props.baseUrl, {
-      view: props.view,
-      date: newDate,
-    }));
+    requestSpacesRouteNavigation(
+      calendar.buildCalendarUrl(props.baseUrl, {
+        view: props.view,
+        date: newDate,
+      }),
+    );
   };
 
   const changeView = (view: CalendarView) => {
-    navigateTo(calendar.buildCalendarUrl(props.baseUrl, {
-      view,
-      date: props.date,
-    }));
+    requestSpacesRouteNavigation(
+      calendar.buildCalendarUrl(props.baseUrl, {
+        view,
+        date: props.date,
+      }),
+    );
   };
 
   const changeMonth = (month: number) => {
     const newDate = dayjs(props.date).month(month).toDate();
-    navigateTo(calendar.buildCalendarUrl(props.baseUrl, {
-      view: props.view,
-      date: newDate,
-    }));
+    requestSpacesRouteNavigation(
+      calendar.buildCalendarUrl(props.baseUrl, {
+        view: props.view,
+        date: newDate,
+      }),
+    );
   };
 
   const changeYear = (year: number) => {
     const newDate = dayjs(props.date).year(year).toDate();
-    navigateTo(calendar.buildCalendarUrl(props.baseUrl, {
-      view: props.view,
-      date: newDate,
-    }));
+    requestSpacesRouteNavigation(
+      calendar.buildCalendarUrl(props.baseUrl, {
+        view: props.view,
+        date: newDate,
+      }),
+    );
   };
 
   // Options for SelectChip
