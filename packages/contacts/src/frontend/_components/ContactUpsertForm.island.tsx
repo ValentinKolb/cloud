@@ -1,6 +1,6 @@
 import { createSignal, Index, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { RemoveBtn } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
@@ -266,6 +266,7 @@ export default function ContactUpsertForm(props: Props) {
       return (await response.json()) as Contact;
     },
     onSuccess: (contact) => {
+      toast.success(props.mode === "create" ? "Contact created" : "Contact updated");
       if (props.onSaved) {
         props.onSaved(contact);
         return;
@@ -277,11 +278,20 @@ export default function ContactUpsertForm(props: Props) {
     },
   });
 
-  const removeMutation = mutations.create<void, void>({
+  const removeMutation = mutations.create<Contact | null, void>({
     mutation: async () => {
       if (!initialContact) {
         throw new Error("Missing contact data for delete");
       }
+
+      const confirmed = await prompts.confirm(`Delete "${resolveContactName(initialContact)}"? This cannot be undone.`, {
+        title: "Delete Contact",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+      });
+      if (!confirmed) return null;
 
       const response = await apiClient.books[":bookId"].contacts[":contactId"].$delete({
         param: {
@@ -296,8 +306,12 @@ export default function ContactUpsertForm(props: Props) {
         };
         throw new Error(data.message ?? "Failed to delete contact");
       }
+
+      return initialContact;
     },
-    onSuccess: () => {
+    onSuccess: (contact) => {
+      if (!contact) return;
+      toast.success("Contact deleted");
       if (props.onDeleted) {
         props.onDeleted();
         return;
@@ -311,16 +325,6 @@ export default function ContactUpsertForm(props: Props) {
 
   const handleDelete = async () => {
     if (!initialContact) return;
-
-    const confirmed = await prompts.confirm(`Delete "${resolveContactName(initialContact)}"? This cannot be undone.`, {
-      title: "Delete Contact",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Delete",
-      cancelText: "Cancel",
-    });
-
-    if (!confirmed) return;
     removeMutation.mutate(undefined);
   };
 
@@ -364,21 +368,16 @@ export default function ContactUpsertForm(props: Props) {
             />
           </div>
           <div class="md:col-span-2">
-            <label class="text-label mb-1.5 block text-xs">
+            <div class="text-label mb-1.5 block text-xs">
               Belongs to <span class="font-normal text-dimmed">(optional)</span>
-            </label>
+            </div>
             <p class="mb-2 text-[11px] text-dimmed">
-              Link this contact under a parent (e.g. an employee under their company). Cycles are blocked
-              by the server.
+              Link this contact under a parent (e.g. an employee under their company). Cycles are blocked by the server.
             </p>
             <Show
               when={parentRef()}
               fallback={
-                <button
-                  type="button"
-                  class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary"
-                  onClick={openParentPicker}
-                >
+                <button type="button" class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary" onClick={openParentPicker}>
                   <i class="ti ti-corner-down-right" /> Pick a parent contact
                 </button>
               }
@@ -389,18 +388,10 @@ export default function ContactUpsertForm(props: Props) {
                     <i class="ti ti-corner-down-right text-[10px]" />
                     {resolveContactName(parent())}
                   </span>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                    onClick={openParentPicker}
-                  >
+                  <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-primary" onClick={openParentPicker}>
                     Change
                   </button>
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
-                    onClick={() => setParentRef(null)}
-                  >
+                  <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500" onClick={() => setParentRef(null)}>
                     Clear
                   </button>
                 </div>
@@ -408,9 +399,9 @@ export default function ContactUpsertForm(props: Props) {
             </Show>
           </div>
           <div class="md:col-span-2">
-            <label class="text-label mb-1.5 block text-xs">
+            <div class="text-label mb-1.5 block text-xs">
               Tags <span class="font-normal text-dimmed">(optional)</span>
-            </label>
+            </div>
             <p class="mb-2 text-[11px] text-dimmed">
               Categorize the contact (e.g. „VIP", „Lead", „Supplier"). Tags are scoped to this book.
             </p>
@@ -502,7 +493,10 @@ export default function ContactUpsertForm(props: Props) {
                     onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
                   />
                   <div class="flex items-center justify-end">
-                    <RemoveBtn ariaLabel="Remove phone number" onClick={() => setPhones((current) => current.filter((_, i) => i !== index))} />
+                    <RemoveBtn
+                      ariaLabel="Remove phone number"
+                      onClick={() => setPhones((current) => current.filter((_, i) => i !== index))}
+                    />
                   </div>
                 </div>
               )}
@@ -569,7 +563,9 @@ export default function ContactUpsertForm(props: Props) {
                     placeholder="Max Mustermann"
                     icon="ti ti-user"
                     value={() => address().recipientName}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))}
+                    onInput={(value) =>
+                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))
+                    }
                   />
                   <div class="md:col-span-2">
                     <TextInput
@@ -577,7 +573,9 @@ export default function ContactUpsertForm(props: Props) {
                       placeholder="Example GmbH"
                       icon="ti ti-building"
                       value={() => address().companyName}
-                      onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))}
+                      onInput={(value) =>
+                        setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))
+                      }
                     />
                   </div>
                   <TextInput
@@ -601,7 +599,9 @@ export default function ContactUpsertForm(props: Props) {
                     icon="ti ti-map-pin"
                     required
                     value={() => address().postalCode}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))}
+                    onInput={(value) =>
+                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))
+                    }
                   />
                   <TextInput
                     label="City"
@@ -617,7 +617,9 @@ export default function ContactUpsertForm(props: Props) {
                     description="Optional. US state or other region."
                     icon="ti ti-map-2"
                     value={() => address().stateRegion}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))}
+                    onInput={(value) =>
+                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))
+                    }
                   />
                   <TextInput
                     label="Country Code"
@@ -625,7 +627,9 @@ export default function ContactUpsertForm(props: Props) {
                     description="ISO 2-letter, e.g. DE, AT, CH."
                     icon="ti ti-flag"
                     value={() => address().countryCode}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))}
+                    onInput={(value) =>
+                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))
+                    }
                   />
                 </div>
                 <div class="mt-4 flex justify-end">
