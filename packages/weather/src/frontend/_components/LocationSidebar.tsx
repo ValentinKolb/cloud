@@ -58,9 +58,7 @@ export default function LocationSidebar(props: Props) {
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
-          <div class="w-full">
-            <AddLocationButton />
-          </div>
+          <AddLocationButton variant="sidebar" />
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="weather-locations-mobile">
           <AppWorkspace.SidebarSection>{props.locations.map((loc) => renderLocation(loc, "mobile"))}</AppWorkspace.SidebarSection>
