@@ -100,6 +100,7 @@ export type AppWorkspaceSidebarItemProps = {
   onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
   active?: boolean;
   activeClass?: string;
+  disabled?: boolean;
   icon?: string;
   meta?: JSX.Element;
   tone?: AppWorkspaceSidebarItemTone;
@@ -366,8 +367,8 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
   const mobile = () => mode === "mobile";
   const className = () =>
     mobile()
-      ? `sidebar-item-mobile ${props.active ? (props.activeClass ?? activeMobileClass) : ""} ${itemToneClass(props.tone, true)} ${props.class ?? ""}`
-      : `sidebar-item text-xs ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.class ?? ""}`;
+      ? `sidebar-item-mobile ${props.active ? (props.activeClass ?? activeMobileClass) : ""} ${itemToneClass(props.tone, true)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`
+      : `sidebar-item text-xs ${props.active ? (props.activeClass ?? "sidebar-item-active") : ""} ${itemToneClass(props.tone, false)} ${props.disabled ? "pointer-events-none opacity-50" : ""} ${props.class ?? ""}`;
   const style = () => (props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined);
   const dataAttrs = () =>
     Object.fromEntries(
@@ -412,9 +413,17 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
 
   return (
     <Show
-      when={props.href}
+      when={props.disabled ? undefined : props.href}
       fallback={
-        <button type="button" class={className()} title={props.title} style={style()} onClick={props.onClick} {...dataAttrs()}>
+        <button
+          type="button"
+          class={className()}
+          title={props.title}
+          style={style()}
+          disabled={props.disabled}
+          onClick={props.onClick}
+          {...dataAttrs()}
+        >
           {content}
         </button>
       }

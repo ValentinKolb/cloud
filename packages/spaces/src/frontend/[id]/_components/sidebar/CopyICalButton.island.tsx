@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { clipboard } from "@valentinkolb/stdlib/browser";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
 type Props = {
   icalToken: string | null;
@@ -35,9 +36,8 @@ export default function CopyICalButton(props: Props) {
   }
 
   return (
-    <button type="button" onClick={handleCopy} class="sidebar-item w-full">
-      <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-sm`} />
-      <span>{copied() ? "Copied!" : "Copy iCal URL"}</span>
-    </button>
+    <AppWorkspace.SidebarItem onClick={handleCopy} icon={copied() ? "ti ti-check" : "ti ti-calendar-share"}>
+      {copied() ? "Copied!" : "Copy iCal URL"}
+    </AppWorkspace.SidebarItem>
   );
 }

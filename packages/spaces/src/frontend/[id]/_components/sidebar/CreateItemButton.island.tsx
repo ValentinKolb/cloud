@@ -1,5 +1,5 @@
 import { apiClient } from "@/api/client";
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
@@ -56,21 +56,14 @@ export default function CreateItemButton(props: Props) {
 
   if (props.variant === "sidebar") {
     return (
-      <button
-        type="button"
+      <AppWorkspace.SidebarItem
         onClick={() => mutation.mutate(undefined)}
         disabled={mutation.loading()}
-        class="sidebar-item w-full min-h-8 px-2 py-1.5 text-xs text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20"
+        tone="success"
+        icon={mutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
       >
-        {mutation.loading() ? (
-          <i class="ti ti-loader-2 animate-spin" />
-        ) : (
-          <>
-            <i class="ti ti-plus" />
-            <span>New Item</span>
-          </>
-        )}
-      </button>
+        New Item
+      </AppWorkspace.SidebarItem>
     );
   }
 
