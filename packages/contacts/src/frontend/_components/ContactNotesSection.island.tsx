@@ -2,7 +2,7 @@ import { createEffect, createSignal, For, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { dates } from "@valentinkolb/stdlib";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, TextInput, prompts } from "@valentinkolb/cloud/ui";
+import { MarkdownView, TextInput, prompts, toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";
 
@@ -80,6 +80,7 @@ export default function ContactNotesSection(props: Props) {
     },
     onSuccess: () => {
       setDraft("");
+      toast.success("Note added");
       void refresh();
     },
     onError: (err) => prompts.error(err.message),
@@ -97,19 +98,33 @@ export default function ContactNotesSection(props: Props) {
     onSuccess: () => {
       setEditingId(null);
       setEditingContent("");
+      toast.success("Note updated");
       void refresh();
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteMutation = mutations.create<void, string>({
-    mutation: async (noteId) => {
+  const deleteMutation = mutations.create<string | null, ContactNote>({
+    mutation: async (note) => {
+      const confirmed = await prompts.confirm("Delete this note? This cannot be undone.", {
+        title: "Delete note",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (!confirmed) return null;
+
       const res = await apiClient.books[":bookId"].contacts[":contactId"].notes[":noteId"].$delete({
-        param: { bookId: props.bookId, contactId: props.contactId, noteId },
+        param: { bookId: props.bookId, contactId: props.contactId, noteId: note.id },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to delete note"));
+      return note.id;
     },
-    onSuccess: () => void refresh(),
+    onSuccess: (deletedId) => {
+      if (!deletedId) return;
+      toast.success("Note deleted");
+      void refresh();
+    },
     onError: (err) => prompts.error(err.message),
   });
 
@@ -133,17 +148,6 @@ export default function ContactNotesSection(props: Props) {
   const cancelEdit = () => {
     setEditingId(null);
     setEditingContent("");
-  };
-
-  const handleDelete = async (note: ContactNote) => {
-    const confirmed = await prompts.confirm("Delete this note? This cannot be undone.", {
-      title: "Delete note",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Delete",
-    });
-    if (!confirmed) return;
-    deleteMutation.mutate(note.id);
   };
 
   return (
@@ -182,10 +186,7 @@ export default function ContactNotesSection(props: Props) {
         </form>
       </Show>
 
-      <Show
-        when={notes().length > 0}
-        fallback={<p class="text-xs text-dimmed">No notes yet.</p>}
-      >
+      <Show when={notes().length > 0} fallback={<p class="text-xs text-dimmed">No notes yet.</p>}>
         <ol class="flex flex-col gap-3">
           <For each={notes()}>
             {(note) => {
@@ -221,7 +222,7 @@ export default function ContactNotesSection(props: Props) {
                         </Show>
                         <button
                           type="button"
-                          onClick={() => handleDelete(note)}
+                          onClick={() => deleteMutation.mutate(note)}
                           disabled={deleteMutation.loading()}
                           class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
                           aria-label="Delete note"
@@ -233,10 +234,7 @@ export default function ContactNotesSection(props: Props) {
                     </Show>
                   </div>
 
-                  <Show
-                    when={isEditing()}
-                    fallback={<MarkdownView html={markdown.render(note.content)} smallHeadings class="text-sm" />}
-                  >
+                  <Show when={isEditing()} fallback={<MarkdownView html={markdown.render(note.content)} smallHeadings class="text-sm" />}>
                     <div class="flex flex-col gap-1.5">
                       <TextInput
                         value={editingContent}
@@ -255,11 +253,7 @@ export default function ContactNotesSection(props: Props) {
                           {updateMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-check" />}
                           Save
                         </button>
-                        <button
-                          type="button"
-                          onClick={cancelEdit}
-                          class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                        >
+                        <button type="button" onClick={cancelEdit} class="btn-simple btn-sm text-xs text-dimmed hover:text-primary">
                           Cancel
                         </button>
                       </div>

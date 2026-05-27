@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { ColorInput, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
 
@@ -131,7 +131,10 @@ export default function BookTagsManager(props: Props) {
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create tag"));
       return (await res.json()) as ContactTag;
     },
-    onSuccess: (created) => setTags([...tags(), created].sort((a, b) => a.name.localeCompare(b.name))),
+    onSuccess: (created) => {
+      setTags([...tags(), created].sort((a, b) => a.name.localeCompare(b.name)));
+      toast.success("Tag created");
+    },
     onError: (err) => prompts.error(err.message),
   });
 
@@ -145,44 +148,48 @@ export default function BookTagsManager(props: Props) {
       return (await res.json()) as ContactTag;
     },
     onSuccess: (updated) => {
-      setTags(tags().map((t) => (t.id === updated.id ? updated : t)).sort((a, b) => a.name.localeCompare(b.name)));
+      setTags(
+        tags()
+          .map((t) => (t.id === updated.id ? updated : t))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
       setEditingId(null);
+      toast.success("Tag updated");
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteMut = mutations.create<void, string>({
-    mutation: async (id) => {
+  const deleteMut = mutations.create<ContactTag | null, ContactTag>({
+    mutation: async (tag) => {
+      const confirmed = await prompts.confirm(`Delete "${tag.name}"? It will be removed from all contacts in this book.`, {
+        title: "Delete tag",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (!confirmed) return null;
+
       const res = await apiClient.books[":bookId"].tags[":tagId"].$delete({
-        param: { bookId: props.bookId, tagId: id },
+        param: { bookId: props.bookId, tagId: tag.id },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to delete tag"));
+      return tag;
+    },
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      setTags(tags().filter((t) => t.id !== deleted.id));
+      toast.success("Tag deleted");
     },
     onError: (err) => prompts.error(err.message),
   });
-
-  const handleDelete = async (tag: ContactTag) => {
-    const confirmed = await prompts.confirm(`Delete "${tag.name}"? It will be removed from all contacts in this book.`, {
-      title: "Delete tag",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Delete",
-    });
-    if (!confirmed) return;
-    deleteMut.mutate(tag.id);
-    setTags(tags().filter((t) => t.id !== tag.id));
-  };
 
   return (
     <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
-      <For
-        each={tags()}
-        fallback={<p class="py-2 pl-3 text-xs text-dimmed">No tags yet — add one below.</p>}
-      >
+      <For each={tags()} fallback={<p class="py-2 pl-3 text-xs text-dimmed">No tags yet — add one below.</p>}>
         {(tag) => (
           <Show
             when={editingId() === tag.id}
-            fallback={<TagRow tag={tag} onEdit={() => setEditingId(tag.id)} onDelete={() => handleDelete(tag)} />}
+            fallback={<TagRow tag={tag} onEdit={() => setEditingId(tag.id)} onDelete={() => deleteMut.mutate(tag)} />}
           >
             <TagForm
               tag={tag}
