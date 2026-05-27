@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceItem } from "@/contracts";
 import { dates } from "@valentinkolb/stdlib";
@@ -40,7 +40,7 @@ export default function ItemRow(props: ItemRowProps) {
     onCleanup(unsubscribe);
   });
 
-  const completeMutation = mutations.create({
+  const completeMutation = mutations.create<boolean, boolean>({
     mutation: async (completed: boolean) => {
       const res = await apiClient[":id"].items[":itemId"].completed.$post({
         param: { id: props.spaceId, itemId: props.item.id },
@@ -50,9 +50,13 @@ export default function ItemRow(props: ItemRowProps) {
         const data = await res.json();
         throw new Error("message" in data ? data.message : "Failed to update");
       }
-      return res.json();
+      await res.json();
+      return completed;
     },
-    onSuccess: () => requestCurrentSpacesRouteRefresh(),
+    onSuccess: (completed) => {
+      toast.success(completed ? "Item completed" : "Item reopened");
+      requestCurrentSpacesRouteRefresh();
+    },
     onError: (err) => prompts.error(err.message),
   });
 

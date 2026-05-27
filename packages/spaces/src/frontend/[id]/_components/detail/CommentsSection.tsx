@@ -41,6 +41,7 @@ export default function CommentsSection(props: Props) {
     },
     onSuccess: () => {
       setNewComment("");
+      toast.success("Comment added");
       props.onUpdate();
     },
     onError: (err) => prompts.error(err.message),
