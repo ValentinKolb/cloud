@@ -1,8 +1,8 @@
+import { Checkbox, CopyButton, navigateTo, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
+import { dates } from "@valentinkolb/stdlib";
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { dates } from "@valentinkolb/stdlib";
-import { CopyButton, Checkbox, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/cloud/ui";
 
 type CreateUserResult = {
   id: string;
@@ -44,6 +44,11 @@ type CreateUserPayload =
       autoSendNotification: boolean;
       requestId?: string;
     };
+
+type CreateFlowResult = {
+  payload: CreateUserPayload;
+  data: CreateUserResult;
+};
 
 type Props = {
   prefill?: PrefillData;
@@ -108,9 +113,7 @@ function ProviderSelectionDialog(props: { close: (provider?: ProviderChoice) => 
     <div class="flex flex-col gap-3">
       <div class="flex flex-col gap-1">
         <p class="text-sm font-medium text-primary">Where should this account be managed?</p>
-        <p class="text-xs text-dimmed">
-          Choose the provider first. Only local accounts expose a direct profile choice during creation.
-        </p>
+        <p class="text-xs text-dimmed">Choose the provider first. Only local accounts expose a direct profile choice during creation.</p>
       </div>
 
       <div class="grid gap-3 md:grid-cols-2">
@@ -131,9 +134,7 @@ function ProviderSelectionDialog(props: { close: (provider?: ProviderChoice) => 
             </div>
             <p class="text-sm leading-6 text-secondary">{provider.description}</p>
             <Show when={props.requestPrefill && provider.value === "ipa"}>
-              <div class="info-block-success mt-auto text-xs">
-                Recommended for this request.
-              </div>
+              <div class="info-block-success mt-auto text-xs">Recommended for this request.</div>
             </Show>
           </button>
         ))}
@@ -142,11 +143,7 @@ function ProviderSelectionDialog(props: { close: (provider?: ProviderChoice) => 
   );
 }
 
-function CreateUserDialog(props: {
-  provider: ProviderChoice;
-  prefill?: PrefillData;
-  close: (payload?: CreateUserPayload) => void;
-}) {
+function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillData; close: (payload?: CreateUserPayload) => void }) {
   const [profile, setProfile] = createSignal<LocalProfile>("user");
   const [admin, setAdmin] = createSignal(false);
   const [email, setEmail] = createSignal(props.prefill?.email ?? "");
@@ -234,7 +231,8 @@ function CreateUserDialog(props: {
             <div class="flex flex-col gap-1">
               <span class="font-medium">FreeIPA decides the effective access level.</span>
               <span class="text-xs text-blue-700/90 dark:text-blue-200/80">
-                The new account starts managed by FreeIPA. Whether it behaves like a full or guest account depends on the assigned directory groups.
+                The new account starts managed by FreeIPA. Whether it behaves like a full or guest account depends on the assigned directory
+                groups.
               </span>
             </div>
           </div>
@@ -418,7 +416,6 @@ const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResult) 
 };
 
 export default function CreateUserForm(props: Props) {
-  const [working, setWorking] = createSignal(false);
   let opened = false;
   const freeIpaEnabled = props.freeIpaEnabled ?? true;
 
@@ -439,44 +436,39 @@ export default function CreateUserForm(props: Props) {
       size: "large",
     });
 
-  const openFlow = async () => {
-    if (working()) return;
+  const createMutation = mutation.create<CreateFlowResult | undefined, void>({
+    mutation: async () => {
+      const provider = await openProviderDialog();
+      if (!provider) return undefined;
 
-    const provider = await openProviderDialog();
-    if (!provider) return;
+      const payload = await openCreateDialog(provider);
+      if (!payload) return undefined;
 
-    const payload = await openCreateDialog(provider);
-    if (!payload) return;
+      const confirmed = await prompts.confirm(
+        <div class="flex flex-col gap-4 text-sm">
+          <p>Please confirm the new account.</p>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+            {buildPayloadSummary(payload).map(([label, value]) => (
+              <>
+                <dt class="text-dimmed">{label}</dt>
+                <dd class={label === "Email" ? "font-mono" : ""}>{value}</dd>
+              </>
+            ))}
+          </dl>
+          <Show when={payload.provider === "ipa"}>
+            <div class="info-block-info text-xs">Effective FreeIPA access will still depend on the group assignments made afterwards.</div>
+          </Show>
+        </div>,
+        {
+          title: "Confirm account creation",
+          icon: "ti ti-user-check",
+          confirmText: "Create account",
+          size: "large",
+        },
+      );
 
-    const confirmed = await prompts.confirm(
-      <div class="flex flex-col gap-4 text-sm">
-        <p>Please confirm the new account.</p>
-        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-          {buildPayloadSummary(payload).map(([label, value]) => (
-            <>
-              <dt class="text-dimmed">{label}</dt>
-              <dd class={label === "Email" ? "font-mono" : ""}>{value}</dd>
-            </>
-          ))}
-        </dl>
-        <Show when={payload.provider === "ipa"}>
-          <div class="info-block-info text-xs">
-            Effective FreeIPA access will still depend on the group assignments made afterwards.
-          </div>
-        </Show>
-      </div>,
-      {
-        title: "Confirm account creation",
-        icon: "ti ti-user-check",
-        confirmText: "Create account",
-        size: "large",
-      },
-    );
+      if (!confirmed) return undefined;
 
-    if (!confirmed) return;
-
-    setWorking(true);
-    try {
       const res = await apiClient.users.$post({ json: payload });
       if (!res.ok) {
         const data = (await res.json()) as { message?: string };
@@ -484,25 +476,31 @@ export default function CreateUserForm(props: Props) {
       }
 
       const data = (await res.json()) as CreateUserResult;
-      await buildSuccessDialog(payload, data);
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Failed to create account.");
-    } finally {
-      setWorking(false);
-    }
-  };
+      return { payload, data };
+    },
+    onSuccess: async (result) => {
+      if (!result) return;
+      await buildSuccessDialog(result.payload, result.data);
+    },
+    onError: (error) => prompts.error(error instanceof Error ? error.message : "Failed to create account."),
+  });
 
   onMount(() => {
     if (!props.autoOpen || opened) return;
     opened = true;
-    void openFlow();
+    void createMutation.mutate(undefined);
   });
 
   return (
     <Show when={!props.hideButton}>
-      <button type="button" class={props.buttonClass ?? "btn-input btn-input-sm"} onClick={() => void openFlow()} disabled={working()}>
-        <i class={working() ? "ti ti-loader-2 animate-spin" : (props.buttonIcon ?? "ti ti-plus")} />
-        <span>{working() ? "Working..." : (props.buttonLabel ?? "New User")}</span>
+      <button
+        type="button"
+        class={props.buttonClass ?? "btn-input btn-input-sm"}
+        onClick={() => void createMutation.mutate(undefined)}
+        disabled={createMutation.loading()}
+      >
+        <i class={createMutation.loading() ? "ti ti-loader-2 animate-spin" : (props.buttonIcon ?? "ti ti-plus")} />
+        <span>{createMutation.loading() ? "Working..." : (props.buttonLabel ?? "New User")}</span>
       </button>
     </Show>
   );

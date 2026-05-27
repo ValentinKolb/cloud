@@ -1,8 +1,8 @@
+import { Checkbox, CopyButton, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { BaseGroup } from "@/contracts";
-import { CopyButton, Checkbox, prompts, TextInput } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type ProviderChoice = "ipa" | "local";
 
@@ -40,6 +40,11 @@ type CreateGroupPayload = {
   name: string;
   description?: string;
   posix?: boolean;
+};
+
+type CreateGroupResult = {
+  group: BaseGroup;
+  command?: string;
 };
 
 function ProviderSelectionDialog(props: { close: (provider?: ProviderChoice) => void }) {
@@ -163,57 +168,53 @@ function CreateGroupDialog(props: { provider: ProviderChoice; close: (payload?: 
 }
 
 export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
-  const [working, setWorking] = createSignal(false);
   const freeIpaEnabled = props.freeIpaEnabled ?? true;
 
-  const openFlow = async () => {
-    if (working()) return;
+  const createMutation = mutation.create<CreateGroupResult | undefined, void>({
+    mutation: async () => {
+      const provider = freeIpaEnabled
+        ? await prompts.dialog<ProviderChoice>((close) => <ProviderSelectionDialog close={close} />, {
+            title: "Choose group provider",
+            icon: "ti ti-users-group",
+            size: "medium",
+          })
+        : "local";
+      if (!provider) return undefined;
 
-    const provider = freeIpaEnabled
-      ? await prompts.dialog<ProviderChoice>((close) => <ProviderSelectionDialog close={close} />, {
-          title: "Choose group provider",
-          icon: "ti ti-users-group",
-          size: "medium",
-        })
-      : "local";
-    if (!provider) return;
-
-    const payload = await prompts.dialog<CreateGroupPayload>((close) => <CreateGroupDialog provider={provider} close={close} />, {
-      title: provider === "ipa" ? "Create FreeIPA group" : "Create local group",
-      icon: provider === "ipa" ? "ti ti-building-fortress" : "ti ti-home-spark",
-      size: "large",
-    });
-    if (!payload) return;
-
-    const confirmed = await prompts.confirm(
-      <div class="flex flex-col gap-4 text-sm">
-        <p>Please confirm the new group.</p>
-        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-          <dt class="text-dimmed">Managed by</dt>
-          <dd>{payload.provider === "ipa" ? "FreeIPA" : "Local"}</dd>
-          <dt class="text-dimmed">Name</dt>
-          <dd class="font-mono">{payload.name}</dd>
-          <Show when={payload.description}>
-            <dt class="text-dimmed">Description</dt>
-            <dd>{payload.description}</dd>
-          </Show>
-          <Show when={payload.provider === "ipa"}>
-            <dt class="text-dimmed">POSIX</dt>
-            <dd>{payload.posix ? "Yes" : "No"}</dd>
-          </Show>
-        </dl>
-      </div>,
-      {
-        title: "Confirm group creation",
-        icon: "ti ti-users-group",
-        confirmText: "Create group",
+      const payload = await prompts.dialog<CreateGroupPayload>((close) => <CreateGroupDialog provider={provider} close={close} />, {
+        title: provider === "ipa" ? "Create FreeIPA group" : "Create local group",
+        icon: provider === "ipa" ? "ti ti-building-fortress" : "ti ti-home-spark",
         size: "large",
-      },
-    );
-    if (!confirmed) return;
+      });
+      if (!payload) return undefined;
 
-    setWorking(true);
-    try {
+      const confirmed = await prompts.confirm(
+        <div class="flex flex-col gap-4 text-sm">
+          <p>Please confirm the new group.</p>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+            <dt class="text-dimmed">Managed by</dt>
+            <dd>{payload.provider === "ipa" ? "FreeIPA" : "Local"}</dd>
+            <dt class="text-dimmed">Name</dt>
+            <dd class="font-mono">{payload.name}</dd>
+            <Show when={payload.description}>
+              <dt class="text-dimmed">Description</dt>
+              <dd>{payload.description}</dd>
+            </Show>
+            <Show when={payload.provider === "ipa"}>
+              <dt class="text-dimmed">POSIX</dt>
+              <dd>{payload.posix ? "Yes" : "No"}</dd>
+            </Show>
+          </dl>
+        </div>,
+        {
+          title: "Confirm group creation",
+          icon: "ti ti-users-group",
+          confirmText: "Create group",
+          size: "large",
+        },
+      );
+      if (!confirmed) return undefined;
+
       const res = await apiClient.groups.$post({ json: payload });
       if (!res.ok) {
         const data = (await res.json()) as { message?: string };
@@ -221,8 +222,16 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
       }
 
       const data = (await res.json()) as BaseGroup;
-      if (!data.gidnumber) {
-        await prompts.success(`Group "${data.name}" created successfully.`, {
+      return {
+        group: data,
+        command: data.gidnumber ? `sudo nfsctl groupadd ${data.name}` : undefined,
+      };
+    },
+    onSuccess: async (result) => {
+      if (!result) return;
+
+      if (!result.command) {
+        await prompts.success(`Group "${result.group.name}" created successfully.`, {
           title: "Group created",
           icon: "ti ti-check",
         });
@@ -230,12 +239,12 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
         return;
       }
 
-      const command = `sudo nfsctl groupadd ${data.name}`;
+      const command = result.command;
       await prompts.dialog<void>(
         (close) => (
           <div class="flex flex-col gap-4">
             <div class="info-block-success text-sm">
-              FreeIPA group <code class="font-mono font-semibold">{data.name}</code> created successfully.
+              FreeIPA group <code class="font-mono font-semibold">{result.group.name}</code> created successfully.
             </div>
             <div class="info-block-info flex flex-col gap-3">
               <div class="flex items-center justify-between gap-3">
@@ -265,17 +274,19 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
         ),
         { title: "Group created", icon: "ti ti-check", size: "large" },
       );
-    } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Failed to create group.");
-    } finally {
-      setWorking(false);
-    }
-  };
+    },
+    onError: (error) => prompts.error(error instanceof Error ? error.message : "Failed to create group."),
+  });
 
   return (
-    <button type="button" class="btn-input btn-input-sm shrink-0 self-stretch px-3" onClick={() => void openFlow()} disabled={working()}>
-      <i class={working() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
-      <span class="hidden sm:inline">{working() ? "Creating..." : "New Group"}</span>
+    <button
+      type="button"
+      class="btn-input btn-input-sm shrink-0 self-stretch px-3"
+      onClick={() => void createMutation.mutate(undefined)}
+      disabled={createMutation.loading()}
+    >
+      <i class={createMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
+      <span class="hidden sm:inline">{createMutation.loading() ? "Creating..." : "New Group"}</span>
     </button>
   );
 }
