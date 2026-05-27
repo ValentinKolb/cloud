@@ -4,7 +4,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { buildNoteUrl, buildReadUrl } from "../../../params";
 import { Dropdown } from "@valentinkolb/cloud/ui";
-import SearchButton from "../search/SearchButton.island";
+import SearchButton from "../search/SearchButton";
 import { listAccessibleNotebooks } from "./notebooks";
 import type { NoteTreeNode, Notebook } from "./types";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";

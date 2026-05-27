@@ -2,7 +2,7 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
-import { openNotebookSettingsDialog } from "./NotebookSettingsPanel.island";
+import { openNotebookSettingsDialog } from "./NotebookSettingsPanel";
 
 type Props = {
   notebook: Notebook;

@@ -6,9 +6,9 @@ import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 import type { NoteTreeNode, Notebook, TagSummary } from "./types";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
-import NotebookSettingsButton from "../settings/NotebookSettingsButton.island";
-import SearchButton from "../search/SearchButton.island";
-import { useNoteActions } from "./NoteTree.island";
+import NotebookSettingsButton from "../settings/NotebookSettingsButton";
+import SearchButton from "../search/SearchButton";
+import { useNoteActions } from "./NoteTree";
 
 type SortMode = "updated" | "created" | "title";
 type TreeMode = "deep" | "level";

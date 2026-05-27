@@ -1,9 +1,9 @@
-import NoteTree from "./NoteTree.island";
-import SearchButton from "../search/SearchButton.island";
-import NotebookSettingsButton from "../settings/NotebookSettingsButton.island";
-import CreateNoteButton from "./CreateNoteButton.island";
-import TagsButton from "./TagsButton.island";
-import NotebookNavigator from "./NotebookNavigator.island";
+import NoteTree from "./NoteTree";
+import SearchButton from "../search/SearchButton";
+import NotebookSettingsButton from "../settings/NotebookSettingsButton";
+import CreateNoteButton from "./CreateNoteButton";
+import TagsButton from "./TagsButton";
+import NotebookNavigator from "./NotebookNavigator";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
 import type { NotebookContext, NoteTreeNode } from "./types";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
