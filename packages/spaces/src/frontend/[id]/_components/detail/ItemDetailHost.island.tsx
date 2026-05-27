@@ -1,6 +1,7 @@
 import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import ItemDetailPanel from "./ItemDetailPanel.island";
 import { subscribeToDetailSelection } from "../../../lib/detail";
@@ -30,6 +31,16 @@ const isSpaceComment = (value: unknown): value is SpaceComment =>
   typeof value["canDelete"] === "boolean";
 const isSpaceCommentArray = (value: unknown): value is SpaceComment[] => Array.isArray(value) && value.every(isSpaceComment);
 
+type DetailLoadInput = {
+  itemId: string;
+  prefetchedItem: SpaceItem | null;
+};
+
+type DetailLoadResult = {
+  item: SpaceItem | null;
+  comments: SpaceComment[];
+};
+
 /**
  * Client-side detail host for hybrid SSR/detail routing.
  * Keeps URL as source of truth and fetches details without full-page reload.
@@ -37,26 +48,14 @@ const isSpaceCommentArray = (value: unknown): value is SpaceComment[] => Array.i
 export default function ItemDetailHost(props: Props) {
   const [item, setItem] = createSignal<SpaceItem | null>(props.initialItem);
   const [comments, setComments] = createSignal<SpaceComment[]>(props.initialComments ?? []);
-  const [loading, setLoading] = createSignal(false);
-  let requestId = 0;
 
-  createEffect(() => {
-    setItem(props.initialItem);
-    setComments(props.initialComments ?? []);
-    setLoading(false);
-  });
-
-  const clearSelection = () => {
-    requestId += 1;
-    setLoading(false);
-    setItem(null);
-    setComments([]);
-  };
-
-  const loadComments = async (itemId: string) => {
-    const commentsRes = await apiClient[":id"].items[":itemId"].comments.$get({
-      param: { id: props.spaceId, itemId },
-    });
+  const loadComments = async (itemId: string, signal: AbortSignal) => {
+    const commentsRes = await apiClient[":id"].items[":itemId"].comments.$get(
+      {
+        param: { id: props.spaceId, itemId },
+      },
+      { init: { signal } },
+    );
     if (!commentsRes.ok) {
       const data = await commentsRes.json();
       throw new Error("message" in data ? data.message : "Failed to load comments");
@@ -66,10 +65,13 @@ export default function ItemDetailHost(props: Props) {
     return data;
   };
 
-  const loadItem = async (itemId: string) => {
-    const itemRes = await apiClient[":id"].items[":itemId"].$get({
-      param: { id: props.spaceId, itemId },
-    });
+  const loadItem = async (itemId: string, signal: AbortSignal) => {
+    const itemRes = await apiClient[":id"].items[":itemId"].$get(
+      {
+        param: { id: props.spaceId, itemId },
+      },
+      { init: { signal } },
+    );
     if (!itemRes.ok) {
       const data = await itemRes.json();
       throw new Error("message" in data ? data.message : "Failed to load item");
@@ -77,31 +79,46 @@ export default function ItemDetailHost(props: Props) {
     return (await itemRes.json()) as SpaceItem;
   };
 
-  const hydrateDetail = async (nextItemId: string, prefetchedItem: SpaceItem | null = null) => {
-    const current = ++requestId;
-    setLoading(true);
-    try {
+  const detailMutation = mutations.create<DetailLoadResult, DetailLoadInput>({
+    mutation: async ({ itemId, prefetchedItem }, ctx) => {
       const nextItem =
-        prefetchedItem && prefetchedItem.id === nextItemId
+        prefetchedItem && prefetchedItem.id === itemId
           ? prefetchedItem
-          : item()?.id === nextItemId
+          : item()?.id === itemId
             ? item()
-            : await loadItem(nextItemId);
-
-      if (current !== requestId) return;
-      setItem(nextItem ?? null);
-
-      const nextComments = await loadComments(nextItemId);
-      if (current !== requestId) return;
-      setComments(nextComments);
-    } catch (error) {
-      if (current !== requestId) return;
+            : await loadItem(itemId, ctx.abortSignal);
+      const nextComments = await loadComments(itemId, ctx.abortSignal);
+      return { item: nextItem ?? null, comments: nextComments };
+    },
+    onSuccess: (result) => {
+      setItem(result.item);
+      setComments(result.comments);
+    },
+    onError: (error) => {
+      if (error.name === "AbortError") return;
       const message = error instanceof Error ? error.message : "Failed to load item";
       clearSelection();
       prompts.error(message);
-    } finally {
-      if (current === requestId) setLoading(false);
-    }
+    },
+  });
+
+  createEffect(() => {
+    detailMutation.abort();
+    setItem(props.initialItem);
+    setComments(props.initialComments ?? []);
+  });
+
+  const clearSelection = () => {
+    detailMutation.abort();
+    setItem(null);
+    setComments([]);
+  };
+
+  const hydrateDetail = (nextItemId: string, prefetchedItem: SpaceItem | null = null) => {
+    detailMutation.abort();
+    if (prefetchedItem?.id === nextItemId) setItem(prefetchedItem);
+    if (item()?.id !== nextItemId) setComments([]);
+    void detailMutation.mutate({ itemId: nextItemId, prefetchedItem });
   };
 
   onMount(() => {
@@ -113,6 +130,7 @@ export default function ItemDetailHost(props: Props) {
       void hydrateDetail(itemId, prefetchedItem);
     });
     onCleanup(() => {
+      detailMutation.abort();
       unsubscribe();
     });
   });
@@ -123,7 +141,7 @@ export default function ItemDetailHost(props: Props) {
         when={item()}
         keyed
         fallback={
-          loading() ? (
+          detailMutation.loading() ? (
             <p class="flex items-center justify-center gap-1.5 py-8 text-xs text-dimmed">
               <i class="ti ti-loader-2 animate-spin text-sm" />
               Loading item details
