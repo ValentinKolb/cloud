@@ -1,5 +1,5 @@
 import { ssr } from "../../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { weatherService, type WeatherData } from "@valentinkolb/cloud/services";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
@@ -330,7 +330,7 @@ export default ssr<AuthContext>(async (c) => {
 
         <AppWorkspace.Main>
           {/* Scrollable content */}
-          <div class="flex-1 min-h-0 overflow-y-auto">
+          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`weather-main-${activeLocation.id}`}>
             {activeWeather ? (
               <WeatherDetail location={activeLocation} data={activeWeather} />
             ) : (
