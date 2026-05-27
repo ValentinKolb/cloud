@@ -305,26 +305,16 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
 }
 
 /** Assignees section with add/remove functionality */
-function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (ids: string[]) => void; loading?: boolean }) {
+function AssigneesSection(props: {
+  assignees: SpaceItemAssignee[];
+  onUpdate: (ids: string[]) => void;
+  onAdd: (currentIds: string[]) => void;
+  loading?: boolean;
+}) {
   const currentIds = () => props.assignees.map((a) => a.id);
 
   const handleRemove = (id: string) => {
     props.onUpdate(currentIds().filter((i) => i !== id));
-  };
-
-  const handleAdd = async () => {
-    const result = await prompts.dialog<EntitySearchPrincipal | null>(
-      (close) => (
-        <div class="min-h-70">
-          <EntitySearch includeUsers excludeUserIds={currentIds()} onSelect={(result) => close(result)} placeholder="Search users..." />
-        </div>
-      ),
-      { title: "Add Assignee", icon: "ti ti-user-plus" },
-    );
-
-    if (result?.type === "user") {
-      props.onUpdate([...currentIds(), result.userId]);
-    }
   };
 
   return (
@@ -358,7 +348,7 @@ function AssigneesSection(props: { assignees: SpaceItemAssignee[]; onUpdate: (id
 
       <button
         type="button"
-        onClick={handleAdd}
+        onClick={() => props.onAdd(currentIds())}
         disabled={props.loading}
         class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary disabled:opacity-50"
       >
@@ -593,6 +583,23 @@ export default function ItemDetailPanel(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
+  const addAssigneeMutation = mutations.create<SpaceItem | null, string[]>({
+    mutation: async (currentIds) => {
+      const result = await prompts.dialog<EntitySearchPrincipal | null>(
+        (close) => (
+          <div class="min-h-70">
+            <EntitySearch includeUsers excludeUserIds={currentIds} onSelect={(result) => close(result)} placeholder="Search users..." />
+          </div>
+        ),
+        { title: "Add Assignee", icon: "ti ti-user-plus" },
+      );
+      if (result?.type !== "user") return null;
+      return patchItem({ assigneeIds: [...currentIds, result.userId] });
+    },
+    onSuccess: handleItemUpdated,
+    onError: (err) => prompts.error(err.message),
+  });
+
   const isLoading = () =>
     updateMutation.loading() ||
     completeMutation.loading() ||
@@ -601,7 +608,8 @@ export default function ItemDetailPanel(props: Props) {
     editTitleMutation.loading() ||
     editDescriptionMutation.loading() ||
     editDeadlineMutation.loading() ||
-    editEventTimeMutation.loading();
+    editEventTimeMutation.loading() ||
+    addAssigneeMutation.loading();
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
@@ -762,6 +770,7 @@ export default function ItemDetailPanel(props: Props) {
         <AssigneesSection
           assignees={props.item.assignees ?? []}
           onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
+          onAdd={(currentIds) => addAssigneeMutation.mutate(currentIds)}
           loading={isLoading()}
         />
       </section>
