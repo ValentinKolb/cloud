@@ -77,7 +77,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
       {hourly.length > 0 && (
         <section class="paper p-4" aria-label="Hourly forecast">
           <h2 class="section-label mb-3">Hourly</h2>
-          <HourlyForecast hourly={hourly} />
+          <HourlyForecast hourly={hourly} scrollPreserveKey={`weather-hourly-${location.id}`} />
         </section>
       )}
 

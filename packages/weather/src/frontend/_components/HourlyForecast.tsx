@@ -13,6 +13,8 @@ type HourlyForecastProps = {
   size?: "sm" | "md" | "lg";
   /** Show "Now" for first item (default: true). */
   showNow?: boolean;
+  /** Stable key for enhanced navigation scroll restoration. */
+  scrollPreserveKey?: string;
 };
 
 const sizeClasses = {
@@ -45,14 +47,19 @@ const sizeClasses = {
   },
 };
 
-export default function HourlyForecast({ hourly, limit, size = "md", showNow = true }: HourlyForecastProps) {
+export default function HourlyForecast({ hourly, limit, size = "md", showNow = true, scrollPreserveKey }: HourlyForecastProps) {
   const items = limit ? hourly.slice(0, limit) : hourly;
   const s = sizeClasses[size];
 
   if (items.length === 0) return null;
 
   return (
-    <div class={`flex ${s.container} overflow-x-auto pb-1`} role="list" aria-label="Hourly temperature forecast">
+    <div
+      class={`flex ${s.container} overflow-x-auto pb-1`}
+      role="list"
+      aria-label="Hourly temperature forecast"
+      data-scroll-preserve={scrollPreserveKey}
+    >
       {items.map((h, idx) => (
         <div class={`flex flex-col items-center gap-1 ${s.minWidth} flex-1`} role="listitem">
           <span class={`${s.time} ${idx === 0 && showNow ? "text-secondary font-medium" : "text-dimmed"}`}>
