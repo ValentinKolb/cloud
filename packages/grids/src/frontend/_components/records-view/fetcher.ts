@@ -13,6 +13,7 @@
 
 import { apiClient } from "../../../api/client";
 import type { TableQueryBody, TableQueryResult, ViewQuery } from "../../../contracts";
+import { errorMessage } from "../utils/api-helpers";
 
 type FetchTableQueryArgs = {
   tableId: string;
@@ -48,14 +49,7 @@ export const fetchTableQuery = async (args: FetchTableQueryArgs, opts: { signal?
     { init: { signal: opts.signal } },
   );
   if (!res.ok) {
-    let message = "Could not load records.";
-    try {
-      const body = (await res.json()) as { message?: string };
-      if (body?.message) message = body.message;
-    } catch {
-      // body wasn't JSON — keep the generic message
-    }
-    throw new TableQueryError(res.status, message);
+    throw new TableQueryError(res.status, await errorMessage(res, "Could not load records."));
   }
-  return (await res.json()) as TableQueryResult;
+  return res.json();
 };

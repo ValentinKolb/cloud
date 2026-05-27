@@ -277,7 +277,7 @@ export default function RecordsView(props: Props) {
     if (selectedRecord()) return; // already resolved
     apiClient.records[":tableId"][":recordId"].$get({ param: { tableId: props.tableId, recordId: id } }).then(async (res) => {
       if (!res.ok) return;
-      const rec = (await res.json()) as GridRecord;
+      const rec = await res.json();
       setFetchedSelected(() => rec);
     });
   });
@@ -549,7 +549,7 @@ export default function RecordsView(props: Props) {
         prompts.error(await errorMessage(res, "Field created, but table display was not updated"));
         return;
       }
-      const table = (await res.json()) as Pick<Table, "columns">;
+      const table = await res.json();
       setTableColumns(table.columns);
     }
   };
@@ -589,13 +589,13 @@ export default function RecordsView(props: Props) {
       if (!view) throw new Error("No active view");
       const cur = await apiClient.views[":viewId"].$get({ param: { viewId: view.id } });
       if (!cur.ok) throw new Error(await errorMessage(cur, "Failed to load view"));
-      const current = (await cur.json()) as View;
+      const current = await cur.json();
       const res = await apiClient.views[":viewId"].$patch({
         param: { viewId: view.id },
         json: { query: { ...current.query, ...patch } },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view columns"));
-      return (await res.json()) as View;
+      return res.json();
     },
     onSuccess: (view) => {
       setViewColumns(view.query.columns);
@@ -617,7 +617,7 @@ export default function RecordsView(props: Props) {
         json: { columns: columns.map(cleanViewColumn) },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save table columns"));
-      return (await res.json()) as Table;
+      return res.json();
     },
     onSuccess: (table) => setTableColumns(table.columns),
     onError: (e) => prompts.error(e.message),

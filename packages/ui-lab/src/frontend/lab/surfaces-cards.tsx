@@ -4,10 +4,8 @@
  * UserView / GroupView), stat blocks (StatCell / StatGrid), and
  * dashboard widgets composed end-to-end.
  *
- * Widget demos are intentionally minimal — TWO composed examples
- * showing the building blocks together rather than one demo per
- * block. The intent: tell the reader "you mix these in a Widget",
- * not "here's each block in isolation".
+ * Widget demos show the dashboard endpoint contract: apps return
+ * WidgetResponse JSON, the dashboard owns rendering.
  */
 import {
   Avatar,
@@ -22,13 +20,179 @@ import {
   WidgetPills,
   WidgetHero,
 } from "@valentinkolb/cloud/ui";
+import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
+import type { JSX } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
 
+const stringifyWidget = (widget: WidgetResponse): string => JSON.stringify(widget, null, 2);
+
+const renderWidgetBlock = (block: WidgetBlock): JSX.Element => {
+  switch (block.kind) {
+    case "stat":
+      return (
+        <WidgetStat
+          value={block.value}
+          label={block.label}
+          sub={block.sub}
+          valueClass={block.valueClass}
+          accent={block.accent}
+          grow={block.grow}
+        />
+      );
+    case "list":
+      return <WidgetList items={block.items} emptyMessage={block.emptyMessage} grow={block.grow} />;
+    case "status":
+      return <WidgetStatus tone={block.tone} title={block.title} message={block.message} icon={block.icon} grow={block.grow} />;
+    case "pills":
+      return <WidgetPills pills={block.pills} grow={block.grow} />;
+    case "hero":
+      return <WidgetHero title={block.title} subtitle={block.subtitle} icon={block.icon} tone={block.tone} />;
+  }
+};
+
+const WidgetPreview = (props: { response: WidgetResponse }) => (
+  <Widget title={props.response.title} icon={props.response.icon} href={props.response.href} meta={props.response.meta}>
+    {props.response.blocks.map((block) => renderWidgetBlock(block))}
+  </Widget>
+);
+
+const adminQueueWidget: WidgetResponse = {
+  title: "Admin queue",
+  icon: "ti ti-users-group",
+  href: "/app/accounts",
+  meta: "admin",
+  blocks: [
+    {
+      kind: "stat",
+      grow: true,
+      value: 8,
+      label: "Pending requests",
+      sub: "needs review",
+      valueClass: "text-amber-600 dark:text-amber-400",
+      accent: { tone: "amber", icon: "ti ti-clock", text: "open" },
+    },
+    {
+      kind: "status",
+      tone: "warn",
+      grow: true,
+      title: "6 accounts expiring within 30 days",
+      message: "2 IPA · 3 local user · 1 guest",
+      icon: "ti ti-calendar-due",
+    },
+    {
+      kind: "pills",
+      pills: [
+        { label: "accts", value: 342, href: "/app/accounts" },
+        { label: "groups", value: 47 },
+        { label: "queue", value: 8, tone: "amber" },
+      ],
+    },
+  ],
+};
+
+const recentNotesWidget: WidgetResponse = {
+  title: "Recent notes",
+  icon: "ti ti-notebook",
+  href: "/app/notebooks",
+  meta: "last 24h",
+  blocks: [
+    {
+      kind: "list",
+      grow: true,
+      items: [
+        {
+          icon: "ti ti-file-text",
+          iconTone: "blue",
+          label: "Launch checklist",
+          sub: "Product",
+          meta: "2m",
+          href: "/app/notebooks/a1b2c3/notes/d4e5f6",
+        },
+        {
+          icon: "ti ti-file-text",
+          iconTone: "emerald",
+          label: "Hiring plan",
+          sub: "People",
+          meta: "18m",
+          href: "/app/notebooks/a1b2c3/notes/g7h8i9",
+        },
+        { icon: "ti ti-file-text", label: "Security review", sub: "Ops", meta: "1h", href: "/app/notebooks/a1b2c3/notes/j1k2l3" },
+      ],
+    },
+    {
+      kind: "list",
+      items: [],
+      emptyMessage: "No pinned notes yet.",
+    },
+  ],
+};
+
+const allClearWidget: WidgetResponse = {
+  title: "Admin queue",
+  icon: "ti ti-users-group",
+  href: "/app/accounts",
+  blocks: [
+    {
+      kind: "hero",
+      icon: "ti ti-circle-check",
+      tone: "emerald",
+      title: "All clear",
+      subtitle: "No pending requests and nothing expiring",
+    },
+    {
+      kind: "pills",
+      pills: [
+        { label: "accts", value: 342 },
+        { label: "groups", value: 47 },
+      ],
+    },
+  ],
+};
+
+const serviceStatesWidget: WidgetResponse = {
+  title: "Service states",
+  icon: "ti ti-heartbeat",
+  meta: "live",
+  blocks: [
+    {
+      kind: "status",
+      tone: "ok",
+      title: "API healthy",
+      message: "p95 84ms",
+    },
+    {
+      kind: "status",
+      tone: "info",
+      title: "Indexing notes",
+      message: "Background work is still running",
+      icon: "ti ti-loader-2",
+    },
+    {
+      kind: "status",
+      tone: "error",
+      title: "Mail queue paused",
+      message: "3 messages waiting for retry",
+      icon: "ti ti-alert-triangle",
+    },
+    {
+      kind: "pills",
+      grow: true,
+      pills: [
+        { label: "ok", value: 12, tone: "emerald" },
+        { label: "warn", value: 2, tone: "amber", href: "/app/logs?level=warn" },
+        { label: "error", value: 1, tone: "red", href: "/app/logs?level=error" },
+        { label: "info", value: 5, tone: "blue" },
+        { label: "muted", value: 0, tone: "zinc" },
+      ],
+    },
+  ],
+};
+
 /* ── Surface utilities ─────────────────────────────────── */
 
-const PaperUtility = () => (
+export const PaperUtility = () => (
   <DemoCard
     id="paper"
     chip={{ kind: "utility", name: "paper" }}
@@ -39,7 +203,7 @@ const PaperUtility = () => (
   </DemoCard>
 );
 
-const ThumbnailUtility = () => (
+export const ThumbnailUtility = () => (
   <DemoCard
     id="thumbnail"
     chip={{ kind: "utility", name: "thumbnail" }}
@@ -56,7 +220,7 @@ const ThumbnailUtility = () => (
 
 /* ── LinkCard / ProgressBar ───────────────────────────── */
 
-const LinkCardDemo = () => (
+export const LinkCardDemo = () => (
   <DemoCard
     id="linkcard"
     chip={{ kind: "component", name: "LinkCard", from: FROM_UI }}
@@ -78,7 +242,7 @@ const LinkCardDemo = () => (
   </DemoCard>
 );
 
-const ProgressBarDemo = () => (
+export const ProgressBarDemo = () => (
   <DemoCard
     id="progressbar"
     chip={{ kind: "component", name: "ProgressBar", from: FROM_UI }}
@@ -99,7 +263,7 @@ const ProgressBarDemo = () => (
 
 /* ── Identity ─────────────────────────────────────────── */
 
-const AvatarDemo = () => (
+export const AvatarDemo = () => (
   <DemoCard
     id="avatar"
     chip={{ kind: "component", name: "Avatar", from: FROM_UI }}
@@ -120,7 +284,7 @@ const AvatarDemo = () => (
 
 /* ── Stats ────────────────────────────────────────────── */
 
-const StatCellDemo = () => (
+export const StatCellDemo = () => (
   <DemoCard
     id="statcell"
     chip={{ kind: "component", name: "StatCell", from: FROM_UI }}
@@ -134,125 +298,193 @@ const StatCellDemo = () => (
   >
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <StatCell label="Active users" value={1284} sub="last 24h" />
-      <StatCell
-        label="Storage used"
-        value="847 GB"
-        accent={{ tone: "amber", icon: "ti ti-alert-triangle", text: "84% full" }}
-      />
+      <StatCell label="Storage used" value="847 GB" accent={{ tone: "amber", icon: "ti ti-alert-triangle", text: "84% full" }} />
       <StatCell label="Requests" value={42} accent={{ tone: "red", icon: "ti ti-flame" }} />
       <StatCell label="Uptime" value="99.98%" accent={{ tone: "emerald", icon: "ti ti-check" }} />
     </div>
   </DemoCard>
 );
 
-const StatGridDemo = () => (
+export const StatGridDemo = () => (
   <DemoCard
     id="statgrid"
     chip={{ kind: "component", name: "StatGrid", from: FROM_UI }}
-    description="Paper-wrapped grid of `StatCell` children with optional title + action link."
+    description="Paper-wrapped grid of `StatCell` children. Use explicit `columns` for known counts, optional title/action for admin summaries, and the default 6-column ladder for dense metric rows."
     code={`<StatGrid title="Account requests" columns={3}>
   <StatCell label="Open" value={7} accent={{ tone: "amber", icon: "ti ti-clock" }} />
   <StatCell label="Approved" value={142} />
   <StatCell label="Rejected" value={12} accent={{ tone: "red", icon: "ti ti-x" }} />
+</StatGrid>
+
+<StatGrid title="Storage" action={{ label: "Open files", href: "/app/files" }} columns={4}>
+  <StatCell label="Used" value="847 GB" sub="of 1 TB" />
+  <StatCell label="Large files" value={18} accent={{ tone: "amber", icon: "ti ti-alert-triangle" }} />
+  <StatCell label="Shared" value={64} sub="folders" />
+  <StatCell label="Health" value="OK" accent={{ tone: "emerald", icon: "ti ti-check" }} />
 </StatGrid>`}
   >
-    <StatGrid title="Account requests" columns={3}>
-      <StatCell label="Open" value={7} accent={{ tone: "amber", icon: "ti ti-clock" }} />
-      <StatCell label="Approved" value={142} />
-      <StatCell label="Rejected" value={12} accent={{ tone: "red", icon: "ti ti-x" }} />
-    </StatGrid>
+    <div class="flex flex-col gap-3">
+      <StatGrid title="Account requests" columns={3}>
+        <StatCell label="Open" value={7} accent={{ tone: "amber", icon: "ti ti-clock" }} />
+        <StatCell label="Approved" value={142} />
+        <StatCell label="Rejected" value={12} accent={{ tone: "red", icon: "ti ti-x" }} />
+      </StatGrid>
+
+      <StatGrid title="Storage" action={{ label: "Open files", href: "#statgrid" }} columns={4}>
+        <StatCell label="Used" value="847 GB" sub="of 1 TB" />
+        <StatCell label="Large files" value={18} accent={{ tone: "amber", icon: "ti ti-alert-triangle" }} />
+        <StatCell label="Shared" value={64} sub="folders" />
+        <StatCell label="Health" value="OK" accent={{ tone: "emerald", icon: "ti ti-check" }} />
+      </StatGrid>
+
+      <StatGrid title="Request pipeline">
+        <StatCell label="Open" value={7} />
+        <StatCell label="Waiting" value={3} accent={{ tone: "amber", icon: "ti ti-hourglass" }} />
+        <StatCell label="Approved" value={142} accent={{ tone: "emerald", icon: "ti ti-check" }} />
+        <StatCell label="Rejected" value={12} accent={{ tone: "red", icon: "ti ti-x" }} />
+        <StatCell label="Avg. review" value="4h" />
+        <StatCell label="SLA" value="98%" sub="met" />
+      </StatGrid>
+    </div>
   </DemoCard>
 );
 
-/* ── Widget composition ──────────────────────────────── */
-
-const WidgetsComposed = () => (
+export const StatHeroGridDemo = () => (
   <DemoCard
-    id="widgets-composed"
+    id="stat-hero-grid"
+    chip={[
+      { kind: "component", name: "StatCell", from: FROM_UI },
+      { kind: "component", name: "ProgressBar", from: FROM_UI },
+      { kind: "utility", name: "inline StatGrid hairlines" },
+    ]}
+    description="Accounts-dashboard style hero stats. This intentionally does not wrap the right side in `StatGrid`, because the whole hero is already one `paper`; use the same `gap-px bg-zinc-*` hairline pattern and place `StatCell` children inline."
+    code={`<div class="paper overflow-hidden">
+  <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1.8fr]">
+    <div class="px-5 py-5 flex flex-col gap-3 lg:border-r border-zinc-100 dark:border-zinc-800">
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-[10px] uppercase tracking-wider text-dimmed">Run health</span>
+        <span class="tag bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+          <i class="ti ti-check" />
+          Synced 2 mins ago
+        </span>
+      </div>
+      <div class="flex flex-col gap-2 flex-1 justify-center">
+        <ProgressBar value={100} size="xs" class="flex-1 min-w-0" />
+      </div>
+      <span class="text-[10px] text-dimmed">Based on last 10 runs</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-px bg-zinc-100 dark:bg-zinc-800">
+      <StatCell label="Accounts" value={273} sub="272 IPA · 1 local" />
+      <StatCell label="Groups" value={176} sub="176 IPA · 0 local" />
+      <StatCell label="Requests" value={0} sub="none pending" />
+      <StatCell label="Expiring 30d" value={0} sub="none soon" />
+    </div>
+  </div>
+</div>`}
+  >
+    <div class="paper overflow-hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-[1.2fr_1.8fr]">
+        <div class="flex flex-col gap-3 border-zinc-100 px-5 py-5 dark:border-zinc-800 lg:border-r">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-[10px] uppercase tracking-wider text-dimmed">Run health</span>
+            <span class="tag bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+              <i class="ti ti-check" />
+              Synced 2 mins ago
+            </span>
+          </div>
+          <div class="flex flex-1 flex-col justify-center gap-2">
+            {[
+              ["IPA sync", 100],
+              ["IPA demotion", 100],
+              ["Reminders", 100],
+            ].map(([label, rate]) => (
+              <div class="flex items-center gap-3">
+                <span class="w-28 shrink-0 truncate text-xs text-secondary">{label}</span>
+                <ProgressBar value={rate as number} size="xs" class="min-w-0 flex-1" />
+                <span class="shrink-0 text-[11px] tabular-nums text-dimmed">{rate}%</span>
+              </div>
+            ))}
+          </div>
+          <span class="text-[10px] text-dimmed">Based on last 10 runs</span>
+        </div>
+
+        <div class="grid grid-cols-2 gap-px bg-zinc-100 dark:bg-zinc-800">
+          <StatCell label="Accounts" value={273} sub="272 IPA · 1 local" accent={{ tone: "blue", icon: "ti ti-users" }} />
+          <StatCell label="Groups" value={176} sub="176 IPA · 0 local" />
+          <StatCell label="Requests" value={0} sub="none pending" />
+          <StatCell label="Expiring 30d" value={0} sub="none soon" />
+        </div>
+      </div>
+    </div>
+  </DemoCard>
+);
+
+/* ── Widget endpoint responses ───────────────────────── */
+
+const WidgetResponseExample = (props: { response: WidgetResponse }) => (
+  <div class="max-w-md">
+    <WidgetPreview response={props.response} />
+  </div>
+);
+
+export const WidgetAdminQueueDemo = () => (
+  <DemoCard
+    id="widget-admin-queue"
     chip={[
       { kind: "component", name: "Widget", from: FROM_UI },
       { kind: "component", name: "WidgetStat", from: FROM_UI },
       { kind: "component", name: "WidgetStatus", from: FROM_UI },
-      { kind: "component", name: "WidgetList", from: FROM_UI },
       { kind: "component", name: "WidgetPills", from: FROM_UI },
-      { kind: "component", name: "WidgetHero", from: FROM_UI },
     ]}
-    description="Dashboard widgets compose freely — stack any combination of `WidgetStat / WidgetStatus / WidgetList / WidgetPills / WidgetHero` inside one `Widget` to build a tile that fits the data. Two examples side-by-side."
-    code={`<Widget title="Account requests" icon="ti ti-id-badge" href="/admin/accounts">
-  <WidgetStat
-    value={150}
-    label="Total"
-    accent={{ tone: "emerald", icon: "ti ti-trending-up", text: "+12 this week" }}
-  />
-  <WidgetPills pills={[
-    { label: "Active", value: 142, tone: "emerald" },
-    { label: "Pending", value: 8, tone: "amber" },
-  ]} />
-  <WidgetStatus tone="warn" title="8 requests need review" message="oldest from 2 days ago" />
-</Widget>
-
-<Widget title="Recent activity" icon="ti ti-activity">
-  <WidgetStat value={48} label="Events today" sub="across all users" />
-  <WidgetList items={[
-    { icon: "ti ti-user-plus", iconTone: "emerald", label: "Alice joined", sub: "as admin", meta: "2m" },
-    { icon: "ti ti-file-text", label: "Spec.md edited", sub: "by Bob", meta: "5m" },
-  ]} />
-</Widget>`}
+    description="Admin summary endpoint response. Covers widget `href`/`meta`, stat `grow`, `valueClass`, accent pill text, status with custom icon, and pills with tones/hrefs."
+    code={`// packages/my-app/src/api/widgets.ts
+const body: WidgetResponse = ${stringifyWidget(adminQueueWidget)};
+return c.json(body);`}
   >
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <Widget title="Account requests" icon="ti ti-id-badge" href="#widgets-composed">
-        <WidgetStat
-          value={150}
-          label="Total"
-          accent={{ tone: "emerald", icon: "ti ti-trending-up", text: "+12 this week" }}
-        />
-        <WidgetPills
-          pills={[
-            { label: "Active", value: 142, tone: "emerald" },
-            { label: "Pending", value: 8, tone: "amber" },
-          ]}
-        />
-        <WidgetStatus tone="warn" title="8 requests need review" message="oldest from 2 days ago" />
-      </Widget>
-      <Widget title="Recent activity" icon="ti ti-activity" meta="last 24h">
-        <WidgetStat value={48} label="Events today" sub="across all users" />
-        <WidgetList
-          items={[
-            { icon: "ti ti-user-plus", iconTone: "emerald", label: "Alice joined", sub: "as admin", meta: "2m" },
-            { icon: "ti ti-file-text", label: "Spec.md edited", sub: "by Bob", meta: "5m" },
-            { icon: "ti ti-trash", iconTone: "red", label: "Note removed", meta: "12m" },
-            { icon: "ti ti-key", iconTone: "blue", label: "API key rotated", meta: "1h" },
-          ]}
-        />
-      </Widget>
-    </div>
+    <WidgetResponseExample response={adminQueueWidget} />
   </DemoCard>
 );
 
-const WidgetHeroDemo = () => (
+export const WidgetRecentNotesDemo = () => (
+  <DemoCard
+    id="widget-recent-notes"
+    chip={[
+      { kind: "component", name: "Widget", from: FROM_UI },
+      { kind: "component", name: "WidgetList", from: FROM_UI },
+    ]}
+    description="List-heavy endpoint response. Covers header meta, list `grow`, list item icon/iconTone/label/sub/meta/href, and list `emptyMessage` for an empty block."
+    code={`const body: WidgetResponse = ${stringifyWidget(recentNotesWidget)};
+return c.json(body);`}
+  >
+    <WidgetResponseExample response={recentNotesWidget} />
+  </DemoCard>
+);
+
+export const WidgetHeroDemo = () => (
   <DemoCard
     id="widget-hero"
     chip={{ kind: "component", name: "WidgetHero", from: FROM_UI }}
-    description="The empty-state / onboarding nudge block — usually fills an empty widget when there's nothing else to show."
-    code={`<Widget title="Onboarding" icon="ti ti-info-circle">
-  <WidgetHero
-    icon="ti ti-rocket"
-    title="Welcome to the cloud"
-    subtitle="Run your first deployment in under 5 minutes."
-    tone="blue"
-  />
-</Widget>`}
+    description="Hero blocks are the endpoint-driven empty-state / all-clear response. Return JSON with `kind: 'hero'`; the dashboard renders the visual block."
+    code={`const body: WidgetResponse = ${stringifyWidget(allClearWidget)};
+return c.json(body);`}
   >
-    <div class="max-w-md">
-      <Widget title="Onboarding" icon="ti ti-info-circle">
-        <WidgetHero
-          icon="ti ti-rocket"
-          title="Welcome to the cloud"
-          subtitle="Run your first deployment in under 5 minutes."
-          tone="blue"
-        />
-      </Widget>
-    </div>
+    <WidgetResponseExample response={allClearWidget} />
+  </DemoCard>
+);
+
+export const WidgetServiceStatesDemo = () => (
+  <DemoCard
+    id="widget-service-states"
+    chip={[
+      { kind: "component", name: "WidgetStatus", from: FROM_UI },
+      { kind: "component", name: "WidgetPills", from: FROM_UI },
+    ]}
+    description="Status and tone coverage. Shows `ok`, `info`, `error`, custom status icons, `grow` on pills, and all widget pill tones."
+    code={`const body: WidgetResponse = ${stringifyWidget(serviceStatesWidget)};
+return c.json(body);`}
+  >
+    <WidgetResponseExample response={serviceStatesWidget} />
   </DemoCard>
 );
 
@@ -267,7 +499,9 @@ export const SurfacesCardsTab = () => (
       <StatCellDemo />
     </div>
     <StatGridDemo />
-    <WidgetsComposed />
+    <WidgetAdminQueueDemo />
+    <WidgetRecentNotesDemo />
     <WidgetHeroDemo />
+    <WidgetServiceStatesDemo />
   </div>
 );

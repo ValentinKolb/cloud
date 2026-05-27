@@ -1,6 +1,7 @@
 import { ssr } from "../../../config";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { JSX } from "solid-js/jsx-runtime";
@@ -36,7 +37,7 @@ const formatAddress = (a: {
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const id = c.req.param("id");
+  const id = c.req.param("id")!;
   const recursive = c.req.query("recursive") === "true";
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
 
@@ -96,20 +97,18 @@ export default ssr<AuthContext>(async (c) => {
     }),
   ]);
 
-  const directGroupsPage = await (
-    directGroupIds.length > 0
-      ? accountsService.group.list({
-          pagination: { page: 1, perPage: 1000 },
-          scope: { ids: directGroupIds },
-        })
-      : {
-          items: [] as BaseGroup[],
-          page: 1,
-          perPage: 0,
-          total: 0,
-          hasNext: false,
-        }
-  );
+  const directGroupsPage = await (directGroupIds.length > 0
+    ? accountsService.group.list({
+        pagination: { page: 1, perPage: 1000 },
+        scope: { ids: directGroupIds },
+      })
+    : {
+        items: [] as BaseGroup[],
+        page: 1,
+        perPage: 0,
+        total: 0,
+        hasNext: false,
+      });
 
   const allGroups = recursiveGroupsPage.items;
   const directGroups = directGroupsPage.items;
@@ -207,6 +206,18 @@ export default ssr<AuthContext>(async (c) => {
 
   const detailHref = buildUserDetailUrl(id, listState);
   const toggleUrl = recursive ? detailHref : `${detailHref}${detailHref.includes("?") ? "&" : "?"}recursive=true`;
+  const memberGroupColumns: DataTableColumn<BaseGroup>[] = [
+    { id: "group", header: "Group", value: (group) => group.name },
+    { id: "description", header: "Description", value: (group) => group.description, cellClass: "max-w-[24rem]" },
+    { id: "provider", header: "Provider", value: (group) => group.provider },
+    { id: "membership", header: "Membership", value: (group) => (directGroupSet.has(group.id) ? "Direct" : "Inherited") },
+    { id: "actions", header: "Actions", headerClass: "text-right", cellClass: "text-right whitespace-nowrap max-w-none" },
+  ];
+  const managedGroupColumns: DataTableColumn<BaseGroup>[] = [
+    { id: "group", header: "Group", value: (group) => group.name },
+    { id: "description", header: "Description", value: (group) => group.description, cellClass: "max-w-[24rem]" },
+    { id: "provider", header: "Provider", value: (group) => group.provider },
+  ];
 
   return () => (
     <Layout
@@ -237,7 +248,9 @@ export default ssr<AuthContext>(async (c) => {
                   <div class="flex items-center gap-2 flex-wrap">
                     <h1 class="text-base font-semibold text-primary">{displayTitle}</h1>
                     <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>{primaryBadge.label}</span>
-                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>{managementBadge.label}</span>
+                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>
+                      {managementBadge.label}
+                    </span>
                     {supplementalRoles.map((role) => (
                       <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${getSupplementalRoleColor(role)}`}>
                         {getSupplementalRoleLabel(role)}
@@ -255,11 +268,7 @@ export default ssr<AuthContext>(async (c) => {
                     {user.givenname || user.sn ? ` · ${[user.givenname, user.sn].filter(Boolean).join(" ")}` : ""}
                   </p>
                 </div>
-                <UserActions
-                  user={user}
-                  listHref={buildUsersUrl(listState)}
-                  freeIpaEnabled={freeIpaEnabled}
-                />
+                <UserActions user={user} listHref={buildUsersUrl(listState)} freeIpaEnabled={freeIpaEnabled} />
               </div>
 
               <div class="paper overflow-hidden" style="view-transition-name: accounts-user-facts">
@@ -279,16 +288,14 @@ export default ssr<AuthContext>(async (c) => {
                     <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs text-dimmed">
                       <span class="flex items-center gap-2">
                         <i class="ti ti-key text-sm" />
-                        {(ipa?.sshPublicKeys.length ?? 0)} SSH {(ipa?.sshPublicKeys.length ?? 0) === 1 ? "key" : "keys"}
+                        {ipa?.sshPublicKeys.length ?? 0} SSH {(ipa?.sshPublicKeys.length ?? 0) === 1 ? "key" : "keys"}
                       </span>
                       <i class="ti ti-chevron-right text-xs transition-transform group-open:rotate-90" />
                     </summary>
                     <div class="border-t border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
                       <div class="flex flex-col gap-1">
                         {ipa?.sshFingerprints.map((fp) => (
-                          <code class="rounded bg-zinc-100 px-2 py-1 text-[11px] font-mono text-secondary dark:bg-zinc-800">
-                            {fp}
-                          </code>
+                          <code class="rounded bg-zinc-100 px-2 py-1 text-[11px] font-mono text-secondary dark:bg-zinc-800">{fp}</code>
                         ))}
                       </div>
                     </div>
@@ -320,54 +327,51 @@ export default ssr<AuthContext>(async (c) => {
 
                 {memberGroups.length > 0 ? (
                   <div class="paper overflow-hidden">
-                    <div class="overflow-x-auto">
-                      <table class="w-full text-xs">
-                        <thead>
-                          <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Group</th>
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Provider</th>
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Membership</th>
-                            <th class="px-3 py-2 text-right font-medium text-dimmed">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {memberGroups.map((group) => {
-                            const isDirect = directGroupSet.has(group.id);
-                            const providerBadge = getPrimaryAccountBadge({ ...user, provider: group.provider, profile: "user" });
-                            return (
-                              <tr class="border-b border-zinc-50 dark:border-zinc-800/50">
-                                <td class="p-0">
-                                  <a href={`/app/accounts/groups/${group.id}`} class="group block px-3 py-1.5 font-medium text-primary">
-                                    <span class="truncate group-hover:underline">{group.name}</span>
-                                  </a>
-                                </td>
-                                <td class="max-w-[24rem] p-0 text-dimmed">
-                                  <a href={`/app/accounts/groups/${group.id}`} class="block truncate px-3 py-1.5" tabindex={-1} title={group.description || "No description"}>
-                                    {group.description || <span class="italic">No description</span>}
-                                  </a>
-                                </td>
-                                <td class="p-0">
-                                  <a href={`/app/accounts/groups/${group.id}`} class="block px-3 py-1.5" tabindex={-1}>
-                                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{group.provider === "ipa" ? "FreeIPA" : "Local"}</span>
-                                  </a>
-                                </td>
-                                <td class="p-0">
-                                  <a href={`/app/accounts/groups/${group.id}`} class="block px-3 py-1.5" tabindex={-1}>
-                                    <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isDirect ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" : "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"}`}>
-                                      {isDirect ? "Direct" : "Inherited"}
-                                    </span>
-                                  </a>
-                                </td>
-                                <td class="px-3 py-1.5 text-right">
-                                  {isDirect ? <RemoveMember groupId={group.id} membershipRole="members" type="user" id={user.id} label={user.uid} /> : null}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      rows={memberGroups}
+                      columns={memberGroupColumns}
+                      getRowId={(group) => group.id}
+                      hoverRows
+                      class="overflow-x-auto"
+                      renderCell={({ row: group, col }) => {
+                        const href = `/app/accounts/groups/${group.id}`;
+                        const isDirect = directGroupSet.has(group.id);
+                        const providerBadge = getPrimaryAccountBadge({ ...user, provider: group.provider, profile: "user" });
+                        if (col.id === "group")
+                          return (
+                            <a href={href} class="block truncate font-medium text-primary hover:underline">
+                              {group.name}
+                            </a>
+                          );
+                        if (col.id === "description") {
+                          return (
+                            <a href={href} class="block truncate text-dimmed" tabindex={-1} title={group.description || "No description"}>
+                              {group.description || <span class="italic">No description</span>}
+                            </a>
+                          );
+                        }
+                        if (col.id === "provider")
+                          return (
+                            <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>
+                              {group.provider === "ipa" ? "FreeIPA" : "Local"}
+                            </span>
+                          );
+                        if (col.id === "membership") {
+                          return (
+                            <span
+                              class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isDirect ? "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200" : "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300"}`}
+                            >
+                              {isDirect ? "Direct" : "Inherited"}
+                            </span>
+                          );
+                        }
+                        if (col.id === "actions")
+                          return isDirect ? (
+                            <RemoveMember groupId={group.id} membershipRole="members" type="user" id={user.id} label={user.uid} />
+                          ) : null;
+                        return "";
+                      }}
+                    />
                   </div>
                 ) : (
                   <div class="paper p-6 text-center text-sm text-dimmed">Not a member of any groups.</div>
@@ -378,44 +382,45 @@ export default ssr<AuthContext>(async (c) => {
                 <div class="flex flex-col gap-2" style="view-transition-name: accounts-user-managed-groups">
                   <div class="min-w-0">
                     <h2 class="text-base font-semibold text-primary">Manages</h2>
-                    <p class="mt-1 text-xs text-dimmed">{managedGroups.length} manageable group{managedGroups.length === 1 ? "" : "s"}</p>
+                    <p class="mt-1 text-xs text-dimmed">
+                      {managedGroups.length} manageable group{managedGroups.length === 1 ? "" : "s"}
+                    </p>
                   </div>
 
                   <div class="paper overflow-hidden">
-                    <div class="overflow-x-auto">
-                      <table class="w-full text-xs">
-                        <thead>
-                          <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Group</th>
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                            <th class="px-3 py-2 text-left font-medium text-dimmed">Provider</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {managedGroups.map((group) => (
-                            <tr class="border-b border-zinc-50 dark:border-zinc-800/50">
-                              <td class="p-0">
-                                <a href={`/app/accounts/groups/${group.id}`} class="group block px-3 py-1.5 font-medium text-primary">
-                                  <span class="truncate group-hover:underline">{group.name}</span>
-                                </a>
-                              </td>
-                              <td class="max-w-[24rem] p-0 text-dimmed">
-                                <a href={`/app/accounts/groups/${group.id}`} class="block truncate px-3 py-1.5" tabindex={-1} title={group.description || "No description"}>
-                                  {group.description || <span class="italic">No description</span>}
-                                </a>
-                              </td>
-                              <td class="p-0">
-                                <a href={`/app/accounts/groups/${group.id}`} class="block px-3 py-1.5" tabindex={-1}>
-                                  <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${group.provider === "ipa" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"}`}>
-                                    {group.provider === "ipa" ? "FreeIPA" : "Local"}
-                                  </span>
-                                </a>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      rows={managedGroups}
+                      columns={managedGroupColumns}
+                      getRowId={(group) => group.id}
+                      hoverRows
+                      class="overflow-x-auto"
+                      renderCell={({ row: group, col }) => {
+                        const href = `/app/accounts/groups/${group.id}`;
+                        if (col.id === "group")
+                          return (
+                            <a href={href} class="block truncate font-medium text-primary hover:underline">
+                              {group.name}
+                            </a>
+                          );
+                        if (col.id === "description") {
+                          return (
+                            <a href={href} class="block truncate text-dimmed" tabindex={-1} title={group.description || "No description"}>
+                              {group.description || <span class="italic">No description</span>}
+                            </a>
+                          );
+                        }
+                        if (col.id === "provider") {
+                          return (
+                            <span
+                              class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${group.provider === "ipa" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"}`}
+                            >
+                              {group.provider === "ipa" ? "FreeIPA" : "Local"}
+                            </span>
+                          );
+                        }
+                        return "";
+                      }}
+                    />
                   </div>
                 </div>
               )}

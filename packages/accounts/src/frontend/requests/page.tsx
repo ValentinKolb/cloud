@@ -3,7 +3,7 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import AccountsNavSidebar from "../AccountsNavSidebar";
 import DenyRequest from "../users/DenyRequest.island";
 import CreateUserForm from "../users/new/CreateUserForm.island";
@@ -56,6 +56,15 @@ export default ssr<AuthContext>(async (c) => {
   const totalPages = Math.max(1, Math.ceil(requestsPage.total / perPage));
   const paginationBaseUrl = buildRequestsUrl(status, 1).replace(/(?:\?|&)page=\d+$/, "");
   const paginationUrl = paginationBaseUrl.includes("?") ? `${paginationBaseUrl}&page=` : `${paginationBaseUrl}?page=`;
+  type RequestRow = (typeof requestsPage.items)[number];
+  const columns: DataTableColumn<RequestRow>[] = [
+    { id: "request", header: "Request", value: (request) => request.displayName || `${request.firstName} ${request.lastName}` },
+    { id: "email", header: "Email", value: (request) => request.email },
+    { id: "status", header: "Status", value: (request) => request.status },
+    { id: "requested", header: "Requested", value: (request) => request.createdAt, cellClass: "whitespace-nowrap" },
+    { id: "comment", header: "Comment", value: (request) => request.comment, cellClass: "max-w-[20rem]" },
+    { id: "actions", header: "Actions", headerClass: "text-right", cellClass: "text-right whitespace-nowrap max-w-none" },
+  ];
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Requests" }]}>
@@ -66,15 +75,14 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-col gap-2">
             <div class="min-w-0" style="view-transition-name: accounts-requests-title">
               <h1 class="text-base font-semibold text-primary">Requests</h1>
-              <p class="mt-1 text-xs text-dimmed">{requestsPage.total} {status === "all" ? "requests" : `${status} requests`}</p>
+              <p class="mt-1 text-xs text-dimmed">
+                {requestsPage.total} {status === "all" ? "requests" : `${status} requests`}
+              </p>
             </div>
 
             <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-requests-filters">
               {(["pending", "completed", "denied", "all"] as const).map((value) => (
-                <a
-                  href={buildRequestsUrl(value, 1)}
-                  class={`btn-input btn-input-sm ${status === value ? "btn-input-active" : ""}`}
-                >
+                <a href={buildRequestsUrl(value, 1)} class={`btn-input btn-input-sm ${status === value ? "btn-input-active" : ""}`}>
                   {value === "all" ? "All" : value[0]!.toUpperCase() + value.slice(1)}
                 </a>
               ))}
@@ -88,61 +96,59 @@ export default ssr<AuthContext>(async (c) => {
             ) : (
               <>
                 <div class="paper overflow-hidden" style="view-transition-name: accounts-requests-table">
-                  <div class="overflow-x-auto">
-                    <table class="w-full text-xs">
-                      <thead>
-                        <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                          <th class="px-3 py-2 text-left font-medium text-dimmed">Request</th>
-                          <th class="px-3 py-2 text-left font-medium text-dimmed">Email</th>
-                          <th class="px-3 py-2 text-left font-medium text-dimmed">Status</th>
-                          <th class="px-3 py-2 text-left font-medium text-dimmed">Requested</th>
-                          <th class="px-3 py-2 text-left font-medium text-dimmed">Comment</th>
-                          <th class="px-3 py-2 text-right font-medium text-dimmed">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {requestsPage.items.map((request) => {
-                          const displayName = request.displayName || `${request.firstName} ${request.lastName}`;
-                          return (
-                            <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                              <td class="px-3 py-1.5 font-medium text-primary">{displayName}</td>
-                              <td class="px-3 py-1.5 text-dimmed">{request.email}</td>
-                              <td class="px-3 py-1.5">
-                                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_PILL[request.status]}`}>{request.status}</span>
-                              </td>
-                              <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{dates.formatDate(request.createdAt)}</td>
-                              <td class="max-w-[20rem] truncate px-3 py-1.5 text-dimmed" title={request.comment || "-"}>
-                                {request.comment || "-"}
-                              </td>
-                              <td class="px-3 py-1.5 text-right">
-                                {request.status === "pending" ? (
-                                  <div class="flex justify-end gap-1">
-                                    {freeIpaEnabled ? (
-                                      <CreateUserForm
-                                        buttonLabel="Create"
-                                        buttonIcon="ti ti-user-plus"
-                                        buttonClass="btn-input btn-input-sm"
-                                        freeIpaEnabled={freeIpaEnabled}
-                                        prefill={{
-                                          requestId: request.id,
-                                          email: request.email,
-                                          givenname: request.firstName,
-                                          sn: request.lastName,
-                                          displayName: request.displayName ?? undefined,
-                                          firstName: request.firstName,
-                                        }}
-                                      />
-                                    ) : null}
-                                    <DenyRequest requestId={request.id} email={request.email} firstName={request.firstName} />
-                                  </div>
-                                ) : <span class="text-dimmed">-</span>}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable
+                    rows={requestsPage.items}
+                    columns={columns}
+                    getRowId={(request) => request.id}
+                    hoverRows
+                    class="overflow-x-auto"
+                    renderCell={({ row: request, col }) => {
+                      if (col.id === "request")
+                        return (
+                          <span class="font-medium text-primary">{request.displayName || `${request.firstName} ${request.lastName}`}</span>
+                        );
+                      if (col.id === "email") return <span class="text-dimmed">{request.email}</span>;
+                      if (col.id === "status")
+                        return (
+                          <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${STATUS_PILL[request.status]}`}>
+                            {request.status}
+                          </span>
+                        );
+                      if (col.id === "requested") return <span class="text-dimmed">{dates.formatDate(request.createdAt)}</span>;
+                      if (col.id === "comment")
+                        return (
+                          <span class="truncate text-dimmed" title={request.comment || "-"}>
+                            {request.comment || "-"}
+                          </span>
+                        );
+                      if (col.id === "actions") {
+                        return request.status === "pending" ? (
+                          <div class="flex justify-end gap-1">
+                            {freeIpaEnabled ? (
+                              <CreateUserForm
+                                buttonLabel="Create"
+                                buttonIcon="ti ti-user-plus"
+                                buttonClass="btn-input btn-input-sm"
+                                freeIpaEnabled={freeIpaEnabled}
+                                prefill={{
+                                  requestId: request.id,
+                                  email: request.email,
+                                  givenname: request.firstName,
+                                  sn: request.lastName,
+                                  displayName: request.displayName ?? undefined,
+                                  firstName: request.firstName,
+                                }}
+                              />
+                            ) : null}
+                            <DenyRequest requestId={request.id} email={request.email} firstName={request.firstName} />
+                          </div>
+                        ) : (
+                          <span class="text-dimmed">-</span>
+                        );
+                      }
+                      return "";
+                    }}
+                  />
                 </div>
 
                 <div class="pt-1">

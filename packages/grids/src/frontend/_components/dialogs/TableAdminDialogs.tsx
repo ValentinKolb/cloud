@@ -65,7 +65,7 @@ export const createFieldFromPrompt = async (args: { table: TableHeader }): Promi
     prompts.error(await errorMessage(res, "Failed to create field"));
     return null;
   }
-  return (await res.json()) as Field;
+  return res.json();
 };
 
 const FIELD_TYPE_ICONS: Record<string, string> = {
@@ -198,10 +198,7 @@ export const openFormsDialog = (args: {
 export const deleteFieldWithChecks = async (field: Field): Promise<boolean> => {
   const depsRes = await apiClient.fields[":fieldId"].dependents.$get({ param: { fieldId: field.id } });
   if (depsRes.ok) {
-    const deps = (await depsRes.json()) as {
-      hasBlocking: boolean;
-      dependents: Array<{ type: string; resourceName: string; blocking: boolean }>;
-    };
+    const deps = await depsRes.json();
     if (deps.hasBlocking) {
       const blockers = deps.dependents
         .filter((d) => d.blocking)
@@ -260,7 +257,7 @@ function TableSettingsBody(props: {
         },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save table"));
-      return (await res.json()) as Table;
+      return res.json();
     },
     onSuccess: (next) => {
       setDirty(false);

@@ -19,7 +19,7 @@ export default function CreateDashboardButton(props: { baseId: string; baseShort
         json: { name: input.name, shared: input.shared },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create dashboard"));
-      return (await res.json()) as Dashboard;
+      return res.json();
     },
     // After creation: open edit mode. A fresh dashboard has no widgets,
     // so dropping the user on the viewer would just show the empty

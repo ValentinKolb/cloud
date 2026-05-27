@@ -1,5 +1,6 @@
 import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
@@ -47,11 +48,9 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
         if (Array.isArray(v) && v.length === 0) continue;
         payload[k] = v;
       }
-      const res = await fetch(`/api/grids/forms/${props.form.id}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        credentials: "same-origin",
+      const res = await apiClient.forms[":formId"].submit.$post({
+        param: { formId: props.form.id },
+        json: payload,
       });
       if (!res.ok) {
         setError(await errorMessage(res, "Submit failed"));

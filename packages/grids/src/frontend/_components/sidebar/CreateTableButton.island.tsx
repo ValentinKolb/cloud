@@ -12,9 +12,9 @@ export default function CreateTableButton(props: { baseId: string; baseShortId: 
         json: { name: input.name },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create table"));
-      return (await res.json()) as Table;
+      return res.json();
     },
-    onSuccess: (table) => navigateTo(`/app/grids/${props.baseShortId}?table=${table.shortId}`),
+    onSuccess: (table) => navigateTo(`/app/grids/${props.baseShortId}/table/${table.shortId}`),
     onError: (e) => prompts.error(e.message),
   });
 

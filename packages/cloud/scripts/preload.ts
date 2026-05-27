@@ -8,6 +8,7 @@
  * No @source directives needed in CSS files.
  */
 import tailwind from "bun-plugin-tailwind";
+import { existsSync } from "node:fs";
 import { cp, mkdir } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,19 +38,13 @@ if (appId === "core") {
   // public dir so serveBranding can fall back to it when no admin-uploaded
   // logo (data URI) is configured. User uploads are stored as base64 data
   // URIs in settings — no image processing (sharp etc.) needed.
-  await cp(
-    resolve(workspaceRoot, "packages/cloud/public/logo.svg"),
-    resolve(publicDir, "logo.svg"),
-  );
+  await cp(resolve(workspaceRoot, "packages/cloud/public/logo.svg"), resolve(publicDir, "logo.svg"));
 }
 
 // katex.css is only needed by notebooks (served by core via Traefik /public/katex.css)
 if (appId === "notebooks") {
   try {
-    await cp(
-      resolve(workspaceRoot, "node_modules/katex/dist/katex.min.css"),
-      resolve(publicDir, "katex.css"),
-    );
+    await cp(resolve(workspaceRoot, "node_modules/katex/dist/katex.min.css"), resolve(publicDir, "katex.css"));
   } catch {
     console.warn("[preload] katex.css not found, skipping");
   }
@@ -71,3 +66,13 @@ await Bun.build({
   root: workspaceRoot, // same: auto-detect from /app
   plugins: [tailwind],
 });
+
+// Optional app-owned dev assets. Production builds already have
+// scripts/build-extras.ts; this mirrors that hook for watch mode without
+// forcing app-specific asset logic into the framework preload.
+const devExtras = resolve(workspaceRoot, `packages/${appId}/scripts/dev-extras.ts`);
+if (existsSync(devExtras)) {
+  process.env.WORKSPACE_ROOT = workspaceRoot;
+  process.env.PUBLIC_DIR = publicDir;
+  await import(devExtras);
+}

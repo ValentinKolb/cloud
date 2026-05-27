@@ -128,7 +128,7 @@ export default function GridToolbar(props: Props) {
         json: payload,
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create record"));
-      return (await res.json()) as GridRecord;
+      return res.json();
     },
     onSuccess: (created) => {
       // Prefer the parent's hook (KISS, no full reload — RecordsView
@@ -212,7 +212,7 @@ export default function GridToolbar(props: Props) {
         json: { name: input.name, query, shared: input.shared },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save view"));
-      return (await res.json()) as View;
+      return res.json();
     },
     onSuccess: () => refreshCurrentPath(),
     onError: (e) => prompts.error(e.message),

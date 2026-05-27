@@ -363,6 +363,64 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Tasks", "table route renders");
   await expectVisibleText(page, "Review invoices", "record row renders");
   await expectVisibleText(page, "Open", "select badge renders");
+
+  const navigationCountBeforeEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
+  const sidebarScrollBeforeDashboard = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => {
+    const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = Math.min(32, maxScroll);
+    return el.scrollTop;
+  });
+  await page.locator('[data-scroll-preserve="grids-sidebar"] a', { hasText: "Operations dashboard" }).first().click();
+  await expectVisibleText(page, "Operations dashboard", "enhanced dashboard sidebar navigation renders");
+  const dashboardUrl = new URL(page.url());
+  if (!dashboardUrl.pathname.endsWith(`/dashboard/${fixture.dashboard.shortId}`)) {
+    fail(`enhanced dashboard navigation wrote wrong URL: ${dashboardUrl.pathname}`);
+  }
+  const sidebarScrollAfterDashboard = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => el.scrollTop);
+  if (sidebarScrollBeforeDashboard > 0 && sidebarScrollAfterDashboard !== sidebarScrollBeforeDashboard) {
+    fail(`sidebar scroll was not preserved after enhanced navigation: ${sidebarScrollAfterDashboard}`);
+  }
+  const navigationCountAfterEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
+  if (navigationCountAfterEnhanced !== navigationCountBeforeEnhanced) {
+    fail("enhanced sidebar navigation performed a document navigation");
+  }
+  ok("enhanced dashboard sidebar navigation preserves scroll");
+
+  await page
+    .locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}/view/${fixture.view.shortId}"]`)
+    .first()
+    .click();
+  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, { timeout: TIMEOUT });
+  await expectVisibleText(page, "Open task amounts", "enhanced view sidebar navigation renders");
+  const viewUrl = new URL(page.url());
+  if (!viewUrl.pathname.endsWith(`/table/${fixture.table.shortId}/view/${fixture.view.shortId}`)) {
+    fail(`enhanced view navigation wrote wrong URL: ${viewUrl.pathname}`);
+  }
+  ok("enhanced view sidebar navigation updates URL");
+
+  await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}"]`).first().click();
+  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { timeout: TIMEOUT });
+  await expectVisibleText(page, "Review invoices", "enhanced table sidebar navigation renders");
+  const tableUrl = new URL(page.url());
+  if (!tableUrl.pathname.endsWith(`/table/${fixture.table.shortId}`)) {
+    fail(`enhanced table navigation wrote wrong URL: ${tableUrl.pathname}`);
+  }
+  ok("enhanced table sidebar navigation updates URL");
+
+  await page.locator(`a[href$="/settings"]:visible`).first().click();
+  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/settings`, { timeout: TIMEOUT });
+  await expectVisibleText(page, "Default dashboard", "enhanced settings sidebar navigation renders");
+  ok("enhanced settings sidebar navigation updates URL");
+
+  await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}"]`).first().click();
+  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { timeout: TIMEOUT });
+  await page.getByRole("link", { name: "Edit mode" }).click();
+  await page.waitForURL(/edit=true/, { timeout: TIMEOUT });
+  await expectVisibleText(page, "Done editing", "enhanced edit-mode navigation renders");
+  await page.getByRole("link", { name: "Done editing" }).click();
+  await page.waitForURL((url) => !url.searchParams.has("edit"), { timeout: TIMEOUT });
+  ok("enhanced edit-mode navigation updates URL");
+
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?record=${fixture.records.first}`, {
     waitUntil: "domcontentloaded",
   });

@@ -223,13 +223,17 @@ The core app aggregates results from all registered app containers and displays 
 
 All components are imported from `@valentinkolb/cloud/ui`. There is no separate `@valentinkolb/cloud/ui/input` export path.
 
+Use the UI Lab as the live frontend reference while building: `/app/ui-lab` redirects to `/app/ui-lab/input/text`, and every documented component pattern has a routed page such as `/app/ui-lab/layout/workspace`, `/app/ui-lab/layout/overview`, `/app/ui-lab/layout/settings-modal`, `/app/ui-lab/layout/permissions`, `/app/ui-lab/surfaces/stats`, and `/app/ui-lab/surfaces/widgets`. The source of truth is the component implementation in `packages/cloud/src/ui/`; UI Lab is the visual/reference harness.
+
 ### Prompts System
 
 The prompts system is the primary way to show dialogs, collect input, and display errors.
 
 ```typescript
-import { prompts, DialogHeader } from "@valentinkolb/cloud/ui";
+import { DialogHeader, prompts, toast } from "@valentinkolb/cloud/ui";
 ```
+
+In islands, prompts that lead to API writes belong inside `mutation.create()` (see [Mutation Pattern](#mutation-pattern-detail)). Use `onSuccess` for `toast.success(...)`, local state updates, navigation, or `refreshCurrentPath()`. Use `onError` for `prompts.error(...)`. This keeps input collection, network state, success feedback, and error feedback in one lifecycle.
 
 #### prompts.form()
 
@@ -237,7 +241,7 @@ import { prompts, DialogHeader } from "@valentinkolb/cloud/ui";
 const result = await prompts.form({
   title: "Create Item",
   icon: "ti ti-plus",
-  size: "medium",            // "small" | "medium" | "large"
+  size: "medium",            // "small" | "medium" | "large" | "wide"
   fields: {
     title: { type: "text", label: "Title", required: true, placeholder: "Enter title..." },
     description: { type: "text", label: "Description", multiline: true, lines: 12 },  // `lines` sets approx visible rows
@@ -292,7 +296,24 @@ const result = await prompts.dialog(
 );
 ```
 
-When you need to drive the header explicitly (e.g. a fully custom dialog body that should suppress the standard header), import `DialogHeader` from `@valentinkolb/cloud/ui` and accept `{ close, title, icon }` as its only props.
+When you need to drive the whole dialog shell explicitly, use the bare surface. This is how Notebook settings render `SettingsModal`: the prompt supplies only the overlay/portal, while the body owns header, tabs, and close action. Source: `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`.
+
+```tsx
+await prompts.dialog<void>(
+  (close) => (
+    <SettingsModal title="Notebook settings" icon="ti ti-notebook" onClose={close}>
+      <SettingsModal.Tab id="general" title="General" icon="ti ti-settings">
+        ...
+      </SettingsModal.Tab>
+    </SettingsModal>
+  ),
+  { surface: "bare", header: false, size: "large" },
+);
+```
+
+For a custom dialog that still uses the standard header layout, import `DialogHeader` from `@valentinkolb/cloud/ui` and pass only `{ close, title, icon }`.
+
+**Rule:** put `prompts.form()` and `prompts.dialog()` inside the mutation when the prompt is part of a write flow. That keeps prompt failures, API failures, loading state, success handling, and cancellation in one controller.
 
 #### prompts.error() / prompts.alert()
 
@@ -300,6 +321,14 @@ When you need to drive the header explicitly (e.g. a fully custom dialog body th
 prompts.error("Something went wrong");
 prompts.error("Detailed message", { title: "Upload Failed" });
 await prompts.alert("Done", { title: "Success", icon: "ti ti-check" });
+```
+
+Use `toast.success(...)` for non-blocking success feedback after a write succeeds. Use `prompts.error(...)` for failures because it is blocking and readable for longer messages. Source: `packages/cloud/src/ui/toast.ts`.
+
+```typescript
+toast.success("Notebook created");
+toast("All changes synced", { title: "Saved" });
+toast.error("Network unreachable");
 ```
 
 #### prompts.search()
@@ -353,6 +382,55 @@ import { TextInput, NumberInput, Select, Switch, Checkbox, TagsInput } from "@va
   label="Enable feature"
 />
 ```
+
+#### TextInput
+
+`TextInput` supports plain text, password/search-like input types, textarea mode, markdown mode, prefix/suffix adornments, clear buttons, abbreviations, completions, and active icons. Source: `packages/cloud/src/ui/input/TextInput.tsx`.
+
+Key props: `name?`, `label?`, `description?`, `placeholder?`, `value?: () => string | undefined`, `onChange?`, `onInput?`, `error?: () => string | undefined`, `required?`, `disabled?`, `multiline?`, `lines?`, `type?`, `icon?`, `activeIcon?`, `prefix?`, `suffix?`, `clearable?`, `onClear?`, `markdown?`, `abbreviations?`, `completions?`, `ariaLabel?`, `inputMode?`, `maxLength?`, `autocomplete?`.
+
+#### NumberInput
+
+`NumberInput` is not just a styled text input. Source: `packages/cloud/src/ui/input/NumberInput.tsx`.
+
+```tsx
+<NumberInput
+  label="Budget"
+  value={() => budget()}
+  onInput={setBudget}
+  min={0}
+  step={50}
+  decimalPlaces={2}
+  prefix="EUR"
+  clearable
+/>
+```
+
+Key behavior:
+- `value` is `() => number | null | undefined`; `onInput`/`onChange` receive `number | null`.
+- Empty input emits `null`; `clearable` uses the same `null` state.
+- `decimalPlaces` defaults to `0`, so plain `NumberInput` is integer-only.
+- `allowNegative={false}` blocks negative typing and blur normalization.
+- `showSteppers` renders explicit plus/minus buttons; `disableSteppers` keeps native keyboard/input behavior but hides step controls.
+- `prefix`/`suffix` render inside the input shell.
+
+#### Select and Combobox
+
+`Select` owns option lists and optional async fetching. Source: `packages/cloud/src/ui/input/Select.tsx`.
+
+```tsx
+<Select
+  value={() => selectedId()}
+  selectedLabel={() => selectedLabel()}
+  onChange={setSelectedId}
+  options={[{ id: "work", label: "Work", icon: "ti ti-briefcase" }]}
+  fetchData={async (query) => searchCategories(query)}
+  fetchDebounceMs={250}
+  clearable
+/>
+```
+
+`Combobox` is for search-and-pick flows where the selected item is handled by `onSelect`; it fetches options via `fetchData(query)` and does not own a stable selected value. Source: `packages/cloud/src/ui/input/Combobox.tsx`.
 
 #### Markdown editing — two entry points
 
@@ -464,33 +542,80 @@ import { EntitySearch } from "@valentinkolb/cloud/ui";
 
 ### PermissionEditor
 
-Access control UI using the ResourceAccessAdapter pattern:
+Access control UI for user/group/authenticated/public grants. Source: `packages/cloud/src/ui/misc/PermissionEditor.tsx`. Real usages close over the resource id in the callback implementation, for example Notebook settings (`packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`) and Grids view settings (`packages/grids/src/frontend/_components/dialogs/ViewSettingsDialogs.tsx`).
 
 ```jsx
 import { PermissionEditor } from "@valentinkolb/cloud/ui";
 
 <PermissionEditor
-  resourceId={itemId}
   initialEntries={accessEntries()}
   canEdit={hasAdminPermission()}
-  grantAccess={async (resourceId, principal, permission) => {
+  allowPublic
+  allowedLevels={[
+    { level: "read", label: "View" },
+    { level: "write", label: "Edit" },
+    { level: "admin", label: "Admin" },
+  ]}
+  grantAccess={async (principal, permission) => {
     // Create access entry, return AccessEntry
   }}
-  updateAccess={async (resourceId, accessId, permission) => {
+  updateAccess={async (accessId, permission) => {
     // Update permission level
   }}
-  revokeAccess={async (resourceId, accessId) => {
+  revokeAccess={async (accessId) => {
     // Remove access entry
   }}
-  allowPublic={false}
 />
 ```
 
-**Props:** `resourceId`, `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess`, `updateAccess`, `revokeAccess`, `allowPublic?`
+**Props:** `initialEntries: AccessEntry[]`, `canEdit?`, `grantAccess(principal, permission): Promise<AccessEntry>`, `updateAccess(accessId, permission): Promise<void>`, `revokeAccess(accessId): Promise<void>`, `allowPublic?`, `allowedLevels?`.
 
-See `packages/contacts/src/frontend/_components/BookSettingsForm.island.tsx` for a real example.
+`allowedLevels` accepts `"read" | "write" | "admin"` or objects `{ level, label?, icon? }`. Use a single allowed level for view-only sharing flows, e.g. Grids passes `[{ level: "read", label: "View" }]`. The component does not accept a resource identifier prop; close over ids in the callback implementation instead.
+
+`PermissionEditor` owns its own internal grant/update/revoke mutations and calls `prompts.error(err.message)` on callback failure. The app callbacks should perform the API request, check `res.ok`, throw meaningful errors, and return the created `AccessEntry` from `grantAccess`.
+
+Do not import `GrantableLevel` from `@valentinkolb/cloud/contracts`; that barrel exports the platform contract types, not the UI helper type from `PermissionEditor.tsx`. In app code, prefer callback inference or derive the grantable union from the contract type:
+
+```ts
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+
+type GrantableLevel = Exclude<PermissionLevel, "none">;
+```
+
+Canonical callback shape:
+
+```tsx
+<PermissionEditor
+  initialEntries={accessEntries()}
+  canEdit={canAdmin()}
+  allowPublic
+  grantAccess={async (principal, permission) => {
+    const res = await apiClient[":id"].access.$post({
+      param: { id: notebook.shortId },
+      json: { principal, permission },
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to grant access."));
+    return (await res.json()) as AccessEntry;
+  }}
+  updateAccess={async (accessId, permission) => {
+    const res = await apiClient[":id"].access[":accessId"].$patch({
+      param: { id: notebook.shortId, accessId },
+      json: { permission },
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update access."));
+  }}
+  revokeAccess={async (accessId) => {
+    const res = await apiClient[":id"].access[":accessId"].$delete({
+      param: { id: notebook.shortId, accessId },
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to remove access."));
+  }}
+/>
+```
 
 ### AppWorkspace
+
+Compound layout for full-height app screens with left sidebar, main work area, and optional right detail panel. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
 
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
@@ -507,11 +632,304 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
   <AppWorkspace.Main>{children}</AppWorkspace.Main>
-  <AppWorkspace.Detail open={hasSelection}>{detail}</AppWorkspace.Detail>
+  <AppWorkspace.Detail open={Boolean(selectedId())} width="md">{detail}</AppWorkspace.Detail>
 </AppWorkspace>
 ```
 
 Use compound components instead of hand-written sidebar/detail classes. `SidebarItem` owns active, icon, mobile, tone, and meta styling.
+
+Compound pieces:
+- `AppWorkspace`, `AppWorkspace.Main`
+- `AppWorkspace.Detail` with `open`, `width?: "sm" | "md" | "lg" | "xl"`, `widthClass?`, `viewTransitionName?`
+- `AppWorkspace.Sidebar`, `SidebarHeader`, `SidebarMobile`, `SidebarMobileItems`, `SidebarDesktop`, `SidebarBody`, `SidebarFooter`, `SidebarSection`
+- `AppWorkspace.SidebarBody` and `SidebarMobileBody` accept `scrollPreserveKey?: string | false`; pass a stable app-specific key when the body is a scrollable navigation/list region.
+- `AppWorkspace.SidebarItem` with `href?`, `active?`, `activeClass?`, `icon?`, `meta?`, `tone?: "default" | "success" | "danger"`, `actionIcon?`, `actionLabel?`, `onActionClick?`, `onClick?`, and navigation props `navigation?: "enhanced" | "document"`, `onNavigate?`, `scroll?`, `replace?`.
+- `AppWorkspace.SidebarIconGrid` and `SidebarIconAction` for compact icon action groups. `SidebarIconAction` supports the same navigation props as `SidebarItem`.
+
+`SidebarItem`/`SidebarIconAction` default to enhanced navigation for same-origin `href`s. Without a custom `onNavigate`, enhanced navigation only updates history and scroll state; use `navigation="document"` when the target route must be loaded by SSR. Add `onNavigate` when the current island can safely update its own state for the target URL.
+
+```tsx
+// Full SSR route change: server must load new data.
+<AppWorkspace.SidebarItem href="/app/grids" icon="ti ti-layout-grid" navigation="document">
+  All grids
+</AppWorkspace.SidebarItem>
+
+// Client-side workspace transition: current island owns the next state.
+<AppWorkspace.SidebarItem
+  href="/app/ui-lab/layout/navigation"
+  icon="ti ti-route"
+  scroll="top"
+  onNavigate={(nav) => {
+    const next = resolveDocPage(nav.href);
+    if (!next) return nav.fallback();
+    setRoute(next);
+    nav.push();
+  }}
+>
+  Navigation
+</AppWorkspace.SidebarItem>
+```
+
+Prefer `scrollPreserveKey` on scrollable AppWorkspace sidebar bodies instead of
+manual scroll code:
+
+```tsx
+<AppWorkspace.SidebarBody scrollPreserveKey="my-app-sidebar">
+  ...
+</AppWorkspace.SidebarBody>
+```
+
+#### SSR list/detail workspace recipe
+
+For a list/detail app, make selection URL-driven so reloads, sharing, SSR data loading, and back/forward navigation all work. The SSR page reads `?item=...`, renders `Layout fullWidth fullPage`, and passes serializable initial data to an island. The island may optimistically update local signals, but the canonical selected item stays in the URL.
+
+```tsx
+// frontend/page.tsx
+return () => (
+  <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Notes" }]} fullWidth fullPage>
+    <NotesWorkspace notes={notes} selectedId={selectedId} selectedNote={selectedNote} />
+  </Layout>
+);
+```
+
+```tsx
+// frontend/_components/NotesWorkspace.island.tsx
+import { AppWorkspace, TextInput, navigateTo } from "@valentinkolb/cloud/ui";
+import { createSignal, For, Show } from "solid-js";
+
+export default function NotesWorkspace(props: {
+  notes: NoteSummary[];
+  selectedId: string | null;
+  selectedNote: NoteDetail | null;
+}) {
+  const [query, setQuery] = createSignal("");
+
+  return (
+    <AppWorkspace>
+      <AppWorkspace.Sidebar>
+        <AppWorkspace.SidebarHeader title="Notes" icon="ti ti-notebook" />
+        <AppWorkspace.SidebarDesktop>
+          <AppWorkspace.SidebarSection title="Views">
+            <AppWorkspace.SidebarItem href="/app/notes" icon="ti ti-notes" active>
+              All notes
+            </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarSection>
+        </AppWorkspace.SidebarDesktop>
+      </AppWorkspace.Sidebar>
+
+      <AppWorkspace.Main>
+        <div class="flex h-full min-h-0 flex-col">
+          <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
+            <TextInput value={query} onInput={setQuery} placeholder="Search notes..." clearable icon="ti ti-search" />
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto">
+            <For each={props.notes}>
+              {(note) => (
+                <button
+                  type="button"
+                  class="block w-full border-b border-zinc-100 p-3 text-left hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                  onClick={() => navigateTo(`/app/notes?item=${note.shortId}`)}
+                >
+                  <span class="block truncate text-sm font-medium text-primary">{note.title}</span>
+                  <span class="text-xs text-dimmed">{note.updatedAt}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
+      </AppWorkspace.Main>
+
+      <AppWorkspace.Detail open={Boolean(props.selectedId)} width="lg">
+        <Show when={props.selectedNote} fallback={<div class="p-4 text-sm text-dimmed">Select a note</div>}>
+          {(note) => <NoteDetailPanel note={note()} />}
+        </Show>
+      </AppWorkspace.Detail>
+    </AppWorkspace>
+  );
+}
+```
+
+For actions inside the detail panel, keep writes in `mutation.create()`. Use `navigateTo(...)` when the result selects a different URL, and `refreshCurrentPath()` when the current SSR page should reload with fresh server data. Source: `packages/cloud/src/ui/navigation.ts`.
+
+```typescript
+import { refreshCurrentPath, prompts, toast } from "@valentinkolb/cloud/ui";
+import { mutation } from "@valentinkolb/stdlib/solid";
+
+const archiveSelected = mutation.create<string | null, string | null>({
+  mutation: async (selectedId) => {
+    if (!selectedId) return null;
+    const res = await apiClient.items[":id"].archive.$post({ param: { id: selectedId } });
+    if (!res.ok) throw new Error("Failed to archive item");
+    return selectedId;
+  },
+  onSuccess: (id) => {
+    if (!id) return;
+    toast.success("Item archived");
+    refreshCurrentPath();
+  },
+  onError: (err) => prompts.error(err.message),
+});
+```
+
+### AppOverview
+
+Generic overview-page shell for app start pages. Source: `packages/cloud/src/ui/misc/AppOverview.tsx`; real usage: `packages/notebooks/src/frontend/NotebooksOverview.island.tsx`.
+
+```tsx
+<AppOverview title="Notebooks" subtitle="Collaborative notes and scripts." icon="ti ti-notebook">
+  <AppOverview.Main title="Your notebooks" description="3 notebooks" toolbar={<TextInput type="search" />}>
+    <NotebookCards />
+  </AppOverview.Main>
+
+  <AppOverview.Aside title="Create" description="Choose a starter, or start blank.">
+    <TemplateButtons />
+  </AppOverview.Aside>
+</AppOverview>
+```
+
+Props:
+- `AppOverview`: `title`, `subtitle?`, `icon`, `class?`, `children`
+- `AppOverview.Main` / `Aside`: `title`, `description?: JSX.Element`, `toolbar?: JSX.Element`, `class?`, `children`
+- `AppOverview.EmptyState`: `title`, `description?: JSX.Element`, `icon?`, `class?`, `children?`
+
+The component is visual structure only. Keep search state, URL params, API calls, mutations, and templates in the consuming app.
+
+### SettingsModal
+
+Tabbed settings shell for app configuration dialogs. Source: `packages/cloud/src/ui/misc/SettingsModal.tsx`; Notebook settings use it inside a bare prompt dialog at `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`.
+
+```tsx
+await prompts.dialog<void>(
+  (close) => (
+    <SettingsModal title="Notebook settings" subtitle={notebook.name} icon={notebook.icon} onClose={close}>
+      <SettingsModal.Tab id="general" icon="ti ti-id" title="General" description="Name, icon, and metadata.">
+        <GeneralSettings />
+      </SettingsModal.Tab>
+      <SettingsModal.Tab id="danger" icon="ti ti-alert-triangle" title="Danger" tone="danger">
+        <DangerSettings />
+      </SettingsModal.Tab>
+    </SettingsModal>
+  ),
+  { surface: "bare", header: false, size: "large" },
+);
+```
+
+`SettingsModal` props: `title`, `subtitle?`, `icon?`, `defaultTab?`, `activeTab?`, `onTabChange?`, `onClose?`, `closeLabel?`, `class?`, `children`.
+
+`SettingsModal.Tab` props: `id`, `title`, `description?`, `icon?`, `tone?: "default" | "danger"`, `children`.
+
+The component owns tab layout and optional internal active-tab state. Keep saving, dirty state, permissions, and mutations in the app.
+
+#### Settings dialog recipe
+
+When opening settings from an island, use a bare prompt dialog. `SettingsModal` supplies the header, tabs, and close button; the prompt supplies only the overlay/portal. For access callbacks, do not import `GrantableLevel` from contracts: it is local to `PermissionEditor.tsx`. Prefer inference, or type grantable permissions as `Exclude<PermissionLevel, "none">` with `PermissionLevel` from `@valentinkolb/cloud/contracts`.
+
+```tsx
+import { PermissionEditor, SettingsModal, prompts } from "@valentinkolb/cloud/ui";
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
+
+type GrantablePermission = Exclude<PermissionLevel, "none">;
+
+type SettingsProps = {
+  notebook: { shortId: string; name: string; icon?: string };
+  accessEntries: AccessEntry[];
+};
+
+export const openNotebookSettings = (props: SettingsProps) =>
+  prompts.dialog<void>((close) => <NotebookSettingsBody {...props} close={() => close()} />, {
+    surface: "bare",
+    header: false,
+    size: "large",
+  });
+
+function NotebookSettingsBody(props: SettingsProps & { close: () => void }) {
+  return (
+    <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+      <SettingsModal title="Notebook settings" subtitle={props.notebook.name} icon={props.notebook.icon ?? "ti ti-notebook"} onClose={props.close}>
+        <SettingsModal.Tab id="general" title="General" icon="ti ti-settings">
+          ...
+        </SettingsModal.Tab>
+        <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield">
+          <PermissionEditor
+            initialEntries={props.accessEntries}
+            allowPublic
+            grantAccess={async (principal: Principal, permission: GrantablePermission): Promise<AccessEntry> => {
+              const res = await apiClient[":id"].access.$post({
+                param: { id: props.notebook.shortId },
+                json: { principal, permission },
+              });
+              if (!res.ok) throw new Error("Failed to grant access.");
+              return (await res.json()) as AccessEntry;
+            }}
+            updateAccess={async (accessId, permission) => {
+              const res = await apiClient[":id"].access[":accessId"].$patch({
+                param: { id: props.notebook.shortId, accessId },
+                json: { permission },
+              });
+              if (!res.ok) throw new Error("Failed to update access.");
+            }}
+            revokeAccess={async (accessId) => {
+              const res = await apiClient[":id"].access[":accessId"].$delete({
+                param: { id: props.notebook.shortId, accessId },
+              });
+              if (!res.ok) throw new Error("Failed to revoke access.");
+            }}
+          />
+        </SettingsModal.Tab>
+        <SettingsModal.Tab id="danger" title="Danger" icon="ti ti-alert-triangle" tone="danger">
+          ...
+        </SettingsModal.Tab>
+      </SettingsModal>
+    </div>
+  );
+}
+```
+
+If a settings tab contains a submit button or a write action, wrap that write in `mutation.create()` inside the tab component. Use `onSuccess` for local state/refresh/toast and `onError` for `prompts.error`:
+
+```tsx
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+
+const saveSettings = mutations.create<Notebook, void>({
+  mutation: async () => {
+    if (!name().trim()) throw new Error("Name is required");
+    const res = await apiClient[":id"].$patch({
+      param: { id: props.notebook.shortId },
+      json: { name: name().trim(), icon: icon() || null },
+    });
+    if (!res.ok) throw new Error("Failed to save notebook settings.");
+    return (await res.json()) as Notebook;
+  },
+  onSuccess: (next) => {
+    setNotebook(next);
+    toast.success("Notebook settings saved");
+  },
+  onError: (err) => prompts.error(err.message),
+});
+```
+
+### CodeDisplay and CheckboxCard
+
+`CodeDisplay` is the shared read-only code block. Source: `packages/cloud/src/ui/misc/CodeDisplay.tsx`.
+
+```tsx
+<CodeDisplay title="Widget response" language="ts" code={source} copy lineNumbers />
+```
+
+Props: `code`, `language?`, `title?`, `copy?`, `lineNumbers?`, `class?`.
+
+`CheckboxCard` is for checkbox options that need a title, description, icon, or color dot. Source: `packages/cloud/src/ui/input/CheckboxCard.tsx`.
+
+```tsx
+<CheckboxCard
+  label="Notify assignee"
+  description="Send an email when this status is selected."
+  icon="ti ti-bell"
+  value={() => notifyAssignee()}
+  onChange={setNotifyAssignee}
+/>
+```
 
 ### CopyButton
 
@@ -544,6 +962,7 @@ import { MarkdownView } from "@valentinkolb/cloud/ui";
 <button class="btn-success">Success</button>
 <button class="btn-simple">Simple</button>
 <button class="btn-input">Input-styled</button>
+<button class="icon-btn" aria-label="Settings"><i class="ti ti-settings" /></button>
 
 <button class="btn-primary btn-sm">Small</button>
 <button class="btn-primary btn-md">Medium</button>
@@ -571,7 +990,17 @@ import { MarkdownView } from "@valentinkolb/cloud/ui";
 <div class="info-block-info"><i class="ti ti-info-circle" /> Info message</div>
 <div class="info-block-warning"><i class="ti ti-alert-triangle" /> Warning</div>
 <div class="info-block-danger"><i class="ti ti-alert-circle" /> Error</div>
+<span class="badge">Badge</span>
+<span class="chip">Chip</span>
+<span class="tag">Tag</span>
+<span class="thumbnail"><i class="ti ti-file" /></span>
 ```
+
+Button utilities come from `packages/cloud/src/styles/utilities-buttons.css`: `btn-base`, `btn-sm`, `btn-md`, `btn-simple`, `btn-primary`, `btn-secondary`, `btn-success`, `btn-danger`, `btn-input`, `btn-input-sm`, `btn-input-md`, `btn-input-active`, `btn-input-primary`, `btn-input-success`, `input`, and `icon-btn`.
+
+Surface/feedback utilities come from `packages/cloud/src/styles/utilities-layout.css` and `packages/cloud/src/styles/utilities-feedback.css`: `paper`, `dialog-panel`, `paper-highlighted`, `app-cols`, `app-rows`, `info-block`, `info-block-note`, `info-block-info`, `info-block-success`, `info-block-warning`, `info-block-danger`, `status-dot`, `badge`, `chip`, `thumbnail`, `popup`, and `tag`.
+
+Navigation utilities are owned by `packages/cloud/src/styles/utilities-navigation.css`. Prefer `AppWorkspace` for app shells, but if you need lower-level composition the available classes include `sidebar-shell`, `sidebar-header`, `sidebar-mobile`, `sidebar-desktop`, `sidebar-section`, `sidebar-item`, `sidebar-icon-grid`, `sidebar-icon-action`, `rail`, and `rail-item`.
 
 ### Detail panels (read view)
 
@@ -653,122 +1082,43 @@ a long description onto its own row.
 
 ### Stats
 
-Three patterns for numeric metrics. All raw Tailwind, no custom utilities. Live demos:
-`packages/ui-lab/src/frontend/UiLabShowcase.island.tsx` → section "Stat Cards".
+Use `StatGrid` and `StatCell` instead of hand-writing stat grids. Sources: `packages/cloud/src/ui/misc/StatGrid.tsx` and `packages/cloud/src/ui/misc/StatCell.tsx`. Live UI Lab route: `/app/ui-lab/surfaces/stats`.
 
-**Small-grid (the default — use this for almost every dashboard)** — 2–6 metrics
-side by side, divided cells, paper outer:
+```tsx
+import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
 
-```html
+<StatGrid title="Overview" columns={4} action={<button class="btn-simple btn-sm">Refresh</button>}>
+  <StatCell label="Accounts" value="273" sub="272 IPA · 1 local" accent={{ tone: "blue", icon: "ti ti-users" }} />
+  <StatCell label="Requests" value="0" sub="none pending" />
+  <StatCell label="Expiring 30d" value="8" sub="needs review" accent={{ tone: "amber", icon: "ti ti-alert-triangle", text: "soon" }} />
+  <StatCell label="Health" value="100%" sub="all checks" accent={{ tone: "emerald", icon: "ti ti-check", text: "ok" }} />
+</StatGrid>
+```
+
+`StatGrid` props: `children`, `title?`, `action?`, `columns?: 1 | 2 | 3 | 4 | 5 | 6`, `class?`. The implementation maps columns to literal Tailwind grid classes and owns the `paper`, `gap-px`, and divider-background layout.
+
+`StatCell` props: `label`, `value`, `sub?`, `valueClass?`, `accent?`, `href?`, `title?`, `trend?: number[]`. Accent tones are `emerald`, `amber`, `red`, `blue`, and `zinc`; an accent may be icon-only or `{ tone, icon, text, href? }`.
+
+For account-app style dashboards, compose a wide custom left panel beside a `StatGrid` rather than forcing progress rows into stat cells:
+
+```tsx
 <div class="paper overflow-hidden">
-  <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-    <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-      <span class="text-[10px] uppercase tracking-wider text-dimmed">Apps</span>
-      <span class="text-xl font-bold tabular-nums text-primary">17</span>
-      <span class="text-[10px] text-dimmed">9·12</span>
-    </div>
-    <!-- repeat per metric -->
+  <div class="grid lg:grid-cols-[1.35fr_2fr]">
+    <section class="p-6">
+      <h3 class="section-label">Run health</h3>
+      {/* progress rows or richer custom content */}
+    </section>
+    <StatGrid columns={2} class="rounded-none border-0">
+      <StatCell label="Accounts" value="273" sub="272 IPA · 1 local" />
+      <StatCell label="Groups" value="176" sub="176 IPA · 0 local" />
+      <StatCell label="Requests" value="0" sub="none pending" />
+      <StatCell label="Expiring 30d" value="0" sub="none soon" />
+    </StatGrid>
   </div>
 </div>
 ```
 
-**Border rules — get these wrong and the layout breaks. They are non-negotiable:**
-
-1. **Outer container = `paper overflow-hidden`** (`overflow-hidden` clips cell
-   corners against the rounded paper border).
-2. **Grid container = `grid ... gap-px p-px bg-zinc-100 dark:bg-zinc-800`**. The
-   `gap-px` draws lines BETWEEN cells; the `p-px` extends the same line around
-   the OUTSIDE of the grid. Without `p-px` the leftmost / topmost cells lose
-   their border.
-3. **Each cell = `bg-white dark:bg-zinc-900`** (must match `paper` bg). The
-   cell bg overlays the parent's zinc bg; only the 1px gap+padding shows
-   through. If a cell forgets its bg, the whole cell turns into divider color.
-4. **NEVER use `divide-x divide-y` for a 2D grid of stats** — it adds borders
-   only to `:not(:first-child)`, which produces double lines at corners and
-   missing lines on edges. Use the `gap-px p-px` trick above.
-5. **Don't put `border-b` / `border-r` on neighbour blocks** to "help" the grid —
-   the `p-px` already draws every outer edge. Adding extra borders doubles them.
-
-**Cell typography (also non-negotiable for visual consistency):**
-
-- Label: `text-[10px] uppercase tracking-wider text-dimmed`
-- Value: `text-xl font-bold tabular-nums text-primary` (or `text-2xl` / `text-3xl` if you have space)
-- Sub:   `text-[10px] text-dimmed`
-- Use `&nbsp;` as sub when no sub text exists, so all cells stay equal height.
-- Color a value (`text-amber-600`, `text-emerald-600`, `text-red-500`) for
-  warning / success signals. **Never** color the cell background.
-
-**Optional accent** — append after the sub when a metric has a state worth
-signalling. Two forms depending on whether you have text:
-
-**Icon-only accent** — drop the pill entirely, just use a colored icon. The
-`.tag` background looks squished around a single icon. Use `text-[11px]` so
-the icon reads as an accent, not chrome:
-
-```html
-<div class="flex items-center gap-1.5">
-  <span class="text-[10px] text-dimmed">visible to users</span>
-  <i class="ti ti-eye text-blue-600 dark:text-blue-400 text-[11px]" />
-</div>
-```
-
-**Icon + text pill** — use `.tag` with bg. The `.tag` utility already includes
-`gap-1` so the icon and text don't kiss:
-
-```html
-<div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-  <span class="text-[10px] uppercase tracking-wider text-dimmed">Errors</span>
-  <span class="text-xl font-bold tabular-nums text-red-500">12</span>
-  <div class="flex items-center gap-1.5">
-    <span class="text-[10px] text-dimmed">last 24h</span>
-    <span class="tag bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
-      <i class="ti ti-trending-up text-[9px]" />+3
-    </span>
-  </div>
-</div>
-```
-
-Color conventions (match the rest of the codebase — no rainbow):
-- emerald — ok / healthy
-- amber — warning / needs attention
-- red — error / critical
-- blue — informational accent / neutral category marker
-- zinc — neutral
-
-For pills with bg use the full pair:
-`bg-{color}-100 text-{color}-700 dark:bg-{color}-900/40 dark:text-{color}-300`
-
-For icon-only accents use just the text color:
-`text-{color}-600 dark:text-{color}-400`
-
-**Don't add an accent to every cell** — apply where there's a real signal:
-warning state, trend, status. Otherwise keep the sub plain. The accents are
-meant to break the rigid grid rhythm, not become the grid themselves.
-
-**Pill row** — single line of compact chips, header-bar territory:
-
-```html
-<div class="flex flex-wrap gap-1">
-  <span class="inline-flex items-baseline gap-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800/70 px-2 py-0.5">
-    <span class="text-[10px] uppercase tracking-wider text-dimmed">apps</span>
-    <span class="text-xs font-bold tabular-nums text-primary">17</span>
-  </span>
-  <!-- accent chip for status: -->
-  <span class="inline-flex items-baseline gap-1.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5">
-    <span class="text-[10px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300">healthy</span>
-    <span class="text-xs font-bold tabular-nums text-emerald-700 dark:text-emerald-300">17/17</span>
-  </span>
-</div>
-```
-
-**Hero (wide left widget + small grid)** — for dashboards where a richer
-content block needs to sit alongside the stats. The "hero" side can be a
-single big lead metric (`text-7xl` number + sub), a list of progress rows
-(e.g. run-health style), or any composed content with vertical depth. The
-right side is a 2x2 (or 3x2) small-grid following the same border rules as
-above. See UI Lab and `packages/accounts/src/frontend/page.tsx` for live
-examples. Only reach for this when the side-by-side composition is
-meaningfully better than stacking.
+Do not reintroduce the old raw-grid `p-px` stat pattern in app code. The shared components now own the cell backgrounds, dividers, optional header, and metric typography.
 
 **Anti-patterns — do not do**:
 
@@ -780,6 +1130,99 @@ meaningfully better than stacking.
 - Centered cell content (`items-center justify-center`). Stat cells are
   left-aligned; centering looks unbalanced when label / value / sub widths
   differ.
+
+### Dashboard Widgets
+
+Dashboard widgets are controlled by the app's widget API endpoint response, not by end-users editing the widget component directly. Sources: `packages/cloud/src/contracts/widgets.ts`, `packages/cloud/src/ui/widgets/Widget.tsx`, and the UI Lab route `/app/ui-lab/surfaces/widgets`.
+
+Register widget endpoints in `defineApp()`:
+
+```ts
+export const app = defineApp({
+  id: "my-app",
+  widgets: [{ id: "overview", path: "/api/my-app/widget/overview" }],
+  // ...
+});
+```
+
+Return a `WidgetResponse` from the endpoint. The dashboard forwards the user's
+cookie when fetching the endpoint; return `204` when the current user should not
+see the widget.
+
+```ts
+import { Hono } from "hono";
+import type { AppContext } from "@valentinkolb/cloud/server";
+import type { WidgetResponse } from "@valentinkolb/cloud/contracts";
+import { app } from "../config";
+
+export const recentNotesWidget = async (): Promise<WidgetResponse> => ({
+  title: "Recent notes",
+  icon: "ti ti-notebook",
+  href: "/app/notebooks",
+  meta: "last 24h",
+  blocks: [
+    {
+      kind: "stat",
+      label: "Open notes",
+      value: 8,
+      sub: "2 need review",
+      accent: { tone: "amber", icon: "ti ti-clock", text: "queue" },
+    },
+    {
+      kind: "list",
+      grow: true,
+      items: [
+        {
+          icon: "ti ti-file-text",
+          iconTone: "blue",
+          label: "Launch checklist",
+          sub: "Product",
+          meta: "2m",
+          href: "/app/notebooks/a1b2c3/notes/d4e5f6",
+        },
+      ],
+    },
+    {
+      kind: "hero",
+      title: "All caught up",
+      subtitle: "No blocked notes",
+      icon: "ti ti-circle-check",
+      tone: "emerald",
+    },
+    {
+      kind: "status",
+      tone: "info",
+      title: "Index healthy",
+      message: "Search synced 2 minutes ago",
+      icon: "ti ti-database-check",
+    },
+    {
+      kind: "pills",
+      pills: [
+        { label: "open", value: 8, tone: "amber", href: "/app/notebooks?status=open" },
+        { label: "done", value: 24, tone: "emerald" },
+      ],
+    },
+  ],
+});
+
+const widgets = new Hono<AppContext<typeof app>>().get("/overview", async (c) => {
+  if (!canReadWidget(c)) return c.body(null, 204);
+  const response = await recentNotesWidget();
+  return c.json(response);
+});
+
+export default widgets;
+```
+
+Supported block kinds:
+- `stat`: `label`, `value`, `sub?`, `valueClass?`, `accent?`, `grow?`
+- `list`: `items`, `emptyMessage?`, `grow?`
+- `status`: `tone: "ok" | "warn" | "error" | "info"`, `title`, `message?`, `icon?`, `grow?`
+- `pills`: `pills: { label, value, tone?, href? }[]`, `grow?`
+- `hero`: `title`, `subtitle?`, `icon?`, `tone?`
+
+Tone values are `blue`, `emerald`, `amber`, `red`, and `zinc`. Keep widget JSON compact; route users with `href` on the widget or individual list items.
 
 ### Layout
 
@@ -805,20 +1248,27 @@ All styles support dark mode via `.dark` class. Use Tailwind's `dark:` prefix:
 
 ## Mutation Pattern (Detail)
 
-The `mutation` module from `@valentinkolb/stdlib/solid`. **All network calls in islands must be inside `mutation.create()`** — never do manual fetch calls outside mutations. Never create manual loading/error signals — `mutation` handles this automatically.
+The `mutation` module from `@valentinkolb/stdlib/solid`. **All network calls in islands must be inside `mutation.create()`** — never do manual fetch calls outside mutations. Never create manual loading/error signals — `mutation` handles this automatically. Source examples: `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`, `packages/grids/src/frontend/_components/dashboard/DashboardWysiwygEditor.island.tsx`, and `packages/ipa-hosts/src/frontend/NewHostgroup.island.tsx`.
 
-**The Mutation + Prompts Pattern** — everything goes in the mutation, including the prompt:
+**The Mutation + Prompts Pattern** — everything goes in the mutation, including the prompt. This is the recommended default for create/update/delete flows: prompt for input, call the API, update local state in `onSuccess`, show a success `toast`, and show blocking failures with `prompts.error` in `onError`.
 
 ```typescript
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@/api/client";
 
-const saveThing = mutation.create({
+const readErrorMessage = async (res: Response, fallback: string) => {
+  const body = (await res.json().catch(() => null)) as { message?: string } | null;
+  return body?.message ?? fallback;
+};
+
+const createItem = mutation.create<Item | null, void>({
   mutation: async () => {
     // 1. Collect input (inside the mutation — prompts.form can fail too)
     const data = await prompts.form({
-      title: "Save Item",
-      icon: "ti ti-device-floppy",
+      title: "Create Item",
+      icon: "ti ti-plus",
+      confirmText: "Create",
       fields: {
         title: { type: "text", label: "Title", required: true },
         description: { type: "text", label: "Description", multiline: true },
@@ -828,48 +1278,127 @@ const saveThing = mutation.create({
 
     // 2. Make the API call
     const res = await apiClient.items.$post({ json: data });
-    if (!res.ok) throw new Error((await res.json()).message);
-    return res.json();
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create item"));
+    return (await res.json()) as Item;
   },
-  onSuccess: (result) => { if (result) { /* update local state */ } },
+  onSuccess: (created) => {
+    if (!created) return; // prompt was cancelled
+    setItems((prev) => [created, ...prev]);
+    toast.success(`Created "${created.title}"`);
+  },
   onError: (err) => prompts.error(err.message),
 });
 
 // 3. Wire to button with loading state
 <button
   class="btn-primary btn-sm"
-  disabled={saveThing.loading()}
-  onClick={() => saveThing.mutate()}
+  disabled={createItem.loading()}
+  onClick={() => createItem.mutate()}
 >
-  {saveThing.loading()
-    ? <><i class="ti ti-loader-2 animate-spin" /> Saving...</>
-    : <><i class="ti ti-device-floppy" /> Save</>}
+  {createItem.loading()
+    ? <><i class="ti ti-loader-2 animate-spin" /> Creating...</>
+    : <><i class="ti ti-plus" /> Create</>}
 </button>
 
-saveThing.abort();     // abort in-flight
-saveThing.error();     // Error | null signal
+createItem.abort();     // abort in-flight
+createItem.error();     // Error | null signal
 ```
 
-**Simple mutation without prompt** (e.g. delete):
+**Destructive action pattern** — the confirm prompt also belongs inside the mutation. Cancel returns a sentinel result; successful deletes use `onSuccess` for local state and toast, errors use `onError` with `prompts.error`.
 
 ```typescript
-const deleteItem = mutation.create({
-  mutation: async (id: string) => {
-    const res = await apiClient.items[":id"].$delete({ param: { id } });
-    if (!res.ok) throw new Error((await res.json()).message);
+import { mutation } from "@valentinkolb/stdlib/solid";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@/api/client";
+
+const deleteItem = mutation.create<{ deleted: boolean; id: string }, Item>({
+  mutation: async (item) => {
+    const confirmed = await prompts.confirm(`Delete "${item.title}"? This cannot be undone.`, {
+      title: "Delete Item",
+      icon: "ti ti-trash",
+      confirmText: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return { deleted: false, id: item.id };
+
+    const res = await apiClient.items[":id"].$delete({ param: { id: item.id } });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to delete item"));
+    return { deleted: true, id: item.id };
   },
-  onSuccess: (_, id) => setItems((prev) => prev.filter((i) => i.id !== id)),
+  onSuccess: (result, item) => {
+    if (!result?.deleted) return;
+    setItems((prev) => prev.filter((candidate) => candidate.id !== result.id));
+    toast.success(`Deleted "${item.title}"`);
+  },
   onError: (err) => prompts.error(err.message),
 });
 
 <button
   class="btn-danger btn-sm"
   disabled={deleteItem.loading()}
-  onClick={() => deleteItem.mutate(item.id)}
+  onClick={() => deleteItem.mutate(item)}
 >
   <i class="ti ti-trash" />
 </button>
 ```
+
+**Custom dialog input pattern** — `prompts.dialog()` also goes inside the mutation when the dialog collects input for a write. The dialog component closes with a typed payload; `onSuccess` applies the result and shows the toast.
+
+```tsx
+const renameItem = mutation.create<Item | null, Item>({
+  mutation: async (item) => {
+    const input = await prompts.dialog<{ title: string } | null>(
+      (close) => <RenameDialog initialTitle={item.title} close={close} />,
+      { title: "Rename item", icon: "ti ti-pencil", size: "medium" },
+    );
+    if (!input) return null;
+
+    const res = await apiClient.items[":id"].$patch({
+      param: { id: item.id },
+      json: { title: input.title },
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to rename item"));
+    return (await res.json()) as Item;
+  },
+  onSuccess: (updated) => {
+    if (!updated) return;
+    setItems((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    toast.success("Item renamed");
+  },
+  onError: (err) => prompts.error(err.message),
+});
+```
+
+**Inline save pattern** — when the input already lives on the screen, skip the
+prompt but keep the same success/error hooks.
+
+```typescript
+const saveSettings = mutation.create<Settings, void>({
+  mutation: async () => {
+    if (!name().trim()) throw new Error("Name is required");
+    const res = await apiClient.settings.$patch({
+      json: { name: name().trim(), enabled: enabled() },
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to save settings"));
+    return (await res.json()) as Settings;
+  },
+  onSuccess: (next) => {
+    setSettings(next);
+    toast.success("Settings saved");
+  },
+  onError: (err) => prompts.error(err.message),
+});
+```
+
+Do not open `prompts.form`, `prompts.confirm`, or `prompts.dialog` in a separate click handler and then call a mutation with the result unless the prompt belongs to a reusable non-mutating helper. For create/update/delete workflows, putting the prompt inside `mutation.create()` gives one loading state, one abort/error path, and consistent `onSuccess` / `onError` handling.
+
+| Problem | Recommendation |
+|---|---|
+| User enters data before a write | Call `prompts.form()` or `prompts.dialog()` inside `mutation.mutation`; return `null` or a sentinel on cancel. |
+| Write succeeds | Use `onSuccess` for signal updates, `refreshCurrentPath()`/navigation when needed, and `toast.success(...)` for lightweight feedback. |
+| Write fails | Throw inside `mutation`; use `onError: (err) => prompts.error(err.message)` for a blocking error modal. |
+| Button needs loading state | Use `disabled={mutation.loading()}` and render `ti-loader-2 animate-spin` from the same signal. |
+| Optimistic UI needs rollback | Use `onBefore` to store previous state and mutate optimistically; restore in `onError` from that context. See `DashboardWysiwygEditor.island.tsx`. |
 
 ## Typed Hono API Client
 
@@ -900,7 +1429,7 @@ const res = await apiClient.items[":id"].$get({ param: { id: "some-uuid" } });
 const res = await apiClient.items[":id"].$delete({ param: { id } });
 
 // Always check res.ok and throw on failure (mutation catches it)
-if (!res.ok) throw new Error((await res.json()).message);
+if (!res.ok) throw new Error(await readErrorMessage(res, "Request failed"));
 ```
 
 ## Common UI Patterns
@@ -959,17 +1488,26 @@ const showDetail = async (item: Item) => {
 
 ### Confirmation Before Delete
 
-For destructive yes/no prompts use `prompts.confirm` directly — it ships with the right styling without a custom dialog:
+For destructive yes/no prompts use `prompts.confirm`; when the confirmation leads to an API write, call it inside the mutation body as shown in [Mutation Pattern](#mutation-pattern-detail). That keeps cancel, loading, success toast, and error modal in one lifecycle.
 
 ```jsx
-const handleDelete = async (id: string) => {
-  const confirmed = await prompts.confirm(
-    "Are you sure? This cannot be undone.",
-    { title: "Delete Item", icon: "ti ti-trash", confirmText: "Delete", variant: "danger" },
-  );
-  if (confirmed) deleteMutation.mutate(id);
-};
-```
+const deleteItem = mutation.create<{ deleted: boolean; id: string }, Item>({
+  mutation: async (item) => {
+    const confirmed = await prompts.confirm(
+      "Are you sure? This cannot be undone.",
+      { title: "Delete Item", icon: "ti ti-trash", confirmText: "Delete", variant: "danger" },
+    );
+    if (!confirmed) return { deleted: false, id: item.id };
+
+    const res = await apiClient.items[":id"].$delete({ param: { id: item.id } });
+    if (!res.ok) throw new Error("Failed to delete item.");
+    return { deleted: true, id: item.id };
+  },
+  onSuccess: (result) => {
+    if (result.deleted) toast.success("Item deleted");
+  },
+  onError: (err) => prompts.error(err.message),
+});
 ```
 
 ### Sticky Action Bar
@@ -988,9 +1526,37 @@ const handleDelete = async (id: string) => {
 </Show>
 ```
 
-## URL State & Navigation Helpers
+## Frontend Interaction Patterns
 
-Filters and pagination live in URL params (SSR-friendly).
+These patterns are sourced from existing apps. Prefer them when building new
+cloud app frontends; do not invent local navigation/event helpers unless the
+app has a narrower, well-proven need.
+
+Decision guide:
+
+| Situation | Use |
+| --- | --- |
+| One island owns the state | Solid signals/store inside that island |
+| Parent coordinates a child | Props and callbacks |
+| Selection/filter must survive reload, sharing, or browser back/forward | URL params |
+| Independent mounted islands need client sync | Typed `CustomEvent`; pair with `popstate` when URL-backed |
+| Normal page, route, or query change | `navigateTo()` full document navigation |
+| Mutation where the server owns the refreshed view | `refreshCurrentPath()` |
+| AppWorkspace sidebar target needs SSR data | `navigation="document"` |
+| AppWorkspace sidebar target can be resolved by the current island | `onNavigate` + `nav.push()` / `nav.replaceWith()` |
+| Same mounted workspace can replace its main entity without SSR correctness loss | Soft navigation request with hard navigation fallback |
+
+### SSR Navigation & URL State
+
+Filters, pagination, selected detail items, and most app navigation live in URL
+params. This keeps pages SSR-friendly: the server can render the selected state,
+and islands only initiate browser navigation.
+
+Source:
+
+- `packages/cloud/src/ui/navigation.ts`
+- `packages/spaces/src/frontend/[id]/_components/filter/FilterBar.island.tsx`
+- `packages/cloud/src/ssr/islands/SearchBar.island.tsx`
 
 **In SSR pages** — read directly from the Hono request URL:
 
@@ -1003,20 +1569,23 @@ const page = Number(url.searchParams.get("page") ?? 1);
 **In islands** — import the shared navigation helpers from `@valentinkolb/cloud/ui`:
 
 ```typescript
-import { navigateTo, refreshCurrentPath, currentPathWithQuery } from "@valentinkolb/cloud/ui";
+import { currentPathWithQuery, navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
-navigateTo("/app/my-app/123");   // hard navigation, adds history entry
+navigateTo("/app/my-app/123");   // full document navigation, adds history entry
 refreshCurrentPath();             // window.location.assign(currentPathWithQuery()) — full SSR re-render
 ```
 
-`refreshCurrentPath` performs a full reload via `window.location.assign`. It does not patch the DOM in place or preserve scroll position; the SSR pass re-runs from scratch.
+`refreshCurrentPath` performs a full reload via `window.location.assign`. It
+does not patch the DOM in place or preserve scroll position; the SSR pass
+re-runs from scratch. Use it after mutations where the server owns the updated
+view. Use `navigateTo(href)` when the next page or query state is known.
 
 **For search/filter bars** — use `SearchBar` from `@valentinkolb/cloud/ssr/islands`:
 
 ```typescript
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 
-// Automatically syncs search input to URL param and triggers navigation
+// Reads the initial value from the URL; submit/clear updates the URL and navigates.
 <SearchBar action="/app/my-app" param="search" placeholder="Search items..." />
 ```
 
@@ -1032,9 +1601,396 @@ export const buildFilterUrl = (base: string, updates: Partial<Filter>, current: 
 };
 ```
 
+Recommended rule: filter controls update URL params and reset `page` to `1`;
+pagination changes only the page param; mutation success either updates local
+state or calls `refreshCurrentPath()`.
+
+### Enhanced Link Navigation
+
+`packages/cloud/src/ui/navigation.ts` exposes a small enhanced navigation layer:
+`navigate`, `documentNavigate`, `captureScroll`, `restoreScroll`, and
+`startViewTransition`. `packages/cloud/src/ui/NavigationLink.tsx` exposes
+`Link`. These helpers are browser-side only and are re-exported from
+`@valentinkolb/cloud/ui`.
+
+Enhanced navigation preserves real anchor behavior: modifier clicks, new tabs,
+downloads, and external links fall back to normal browser navigation. For normal
+SSR route changes, use `navigateTo(...)` or `navigation="document"` on
+`AppWorkspace.SidebarItem`.
+
+```tsx
+import { Link } from "@valentinkolb/cloud/ui";
+
+<Link
+  href="/app/my-app/items/beta"
+  scroll="top"
+  onNavigate={(nav) => {
+    const next = resolveItem(nav.href);
+    if (!next) return nav.fallback();
+
+    setSelectedItem(next);
+    nav.push();
+  }}
+>
+  Open beta
+</Link>
+```
+
+Scroll modes:
+
+- `scroll="top"` moves window scroll to top but restores keyed
+  `[data-scroll-preserve]` regions.
+- `scroll="preserve"` restores window scroll and keyed regions.
+- `scroll="manual"` leaves all scroll handling to the app; use
+  `nav.captureScroll()` and `nav.restoreScroll(...)` when needed.
+
+Preferred pattern: mark the actual scrollable region with a stable
+`data-scroll-preserve` key, then let `captureScroll()` collect and restore it
+automatically during enhanced navigation. In AppWorkspace sidebars, use
+`scrollPreserveKey` on `SidebarBody` or `SidebarMobileBody`; use the raw data
+attribute for lower-level custom containers.
+
+```tsx
+<AppWorkspace.SidebarBody scrollPreserveKey="notebook-sidebar">
+  ...
+</AppWorkspace.SidebarBody>
+
+<div data-scroll-preserve="records-list" class="overflow-y-auto">
+  ...
+</div>
+```
+
+Enhanced navigation runs inside `document.startViewTransition(...)` when the
+browser supports it. Use `view-transition-name` on stable elements and
+`viewTransitionName` props on `AppWorkspace` pieces to make transitions smooth.
+
+#### SSR-first AppWorkspace enhanced navigation
+
+For AppWorkspace routes where the sidebar and main area must change together,
+prefer a route-owning island with server-computed route data:
+
+1. Keep the SSR page as the canonical reload/share path. It reads the URL and
+   renders the initial workspace state.
+2. Extract the same server-side route-state loader into a shared function.
+   Reuse existing service, permission, query-merge, and data-loading helpers.
+3. Expose a small typed route-data endpoint for enhanced navigation. The
+   endpoint parses and validates the target href, then returns the same state
+   shape SSR would have rendered.
+4. Put the sidebar and main route switch in one mounted workspace island. The
+   island owns the current route state and can replace it after enhanced
+   navigation.
+5. In `onNavigate`, keep the real `href`, fetch route state, verify the target
+   is fully handleable, set the visible state, then call `nav.push()` or
+   `nav.replaceWith()`. Call `nav.fallback()` for anything outside that
+   workspace.
+
+```tsx
+<AppWorkspace.SidebarItem
+  href={`/app/my-app/${workspaceId}/items/${itemId}`}
+  scroll="top"
+  onNavigate={async (nav) => {
+    const target = parseWorkspaceHref(nav.url);
+    if (!target) return nav.fallback();
+
+    const res = await apiClient.workspace.route.$get({
+      query: { href: `${nav.url.pathname}${nav.url.search}` },
+    });
+    if (!res.ok) return nav.fallback();
+
+    const next = await res.json();
+    if (next.kind !== "ok") return nav.fallback();
+
+    setWorkspaceState(next);
+    nav.push();
+  }}
+>
+  Item
+</AppWorkspace.SidebarItem>
+```
+
+Do not duplicate permission checks, active-entity resolution, saved-view query
+merging, widget resolution, or other SSR data logic in the browser. The client
+may validate the URL shape, but the server remains the source of truth for the
+route state.
+
+Keep links outside the current workspace context on document navigation. For
+example, a base workspace can enhance table/view/dashboard/settings links inside
+that base, but an "All items" app overview route may need `navigation="document"`
+because the mounted workspace island cannot represent that page.
+
+Browser smoke checks for this pattern should prove:
+
+- the click changes the URL and the visible state;
+- a reload or shared URL still SSR-renders the same state;
+- enhanced clicks do not create a new document navigation;
+- keyed sidebar/list scroll survives via `scrollPreserveKey` or
+  `data-scroll-preserve`;
+- modifier clicks and new-tab behavior still use the normal anchor semantics.
+
+### URL-Backed Detail Panels
+
+For list/detail layouts, keep the selected entity in the URL and use a window
+event only to synchronize already-mounted islands. This pattern appears in
+contacts, files, and spaces. Spaces wraps the shared `detailPanel` helper from
+`@valentinkolb/stdlib/solid`.
+
+Source:
+
+- `packages/spaces/src/frontend/lib/detail.ts`
+- `packages/contacts/src/frontend/_components/context.ts`
+- `packages/spaces/src/frontend/[id]/_components/detail/SpaceDetailLayoutSync.island.tsx`
+- `packages/spaces/src/frontend/[id]/_components/kanban/KanbanBoard.island.tsx`
+
+```typescript
+import { detailPanel, type DetailSelectPayload } from "@valentinkolb/stdlib/solid";
+
+export const ITEM_DETAIL_PARAM = "item";
+export const ITEM_SELECT_EVENT = "my-app:item-select";
+
+export const getSelectedItemFromUrl = () => detailPanel.getUrlParam(ITEM_DETAIL_PARAM);
+
+export const selectItemInUrl = (itemId: string | null, item: Item | null = null) =>
+  detailPanel.select(ITEM_DETAIL_PARAM, ITEM_SELECT_EVENT, item, itemId);
+
+export const shouldHandleDetailClick = detailPanel.shouldHandleClick;
+
+export const subscribeToItemSelection = (onChange: (change: {
+  itemId: string | null;
+  item: Item | null;
+  source: "event" | "popstate";
+}) => void) => {
+  const onSelect = (event: Event) => {
+    const payload = (event as CustomEvent<DetailSelectPayload<Item>>).detail;
+    onChange({ itemId: payload.itemKey ?? null, item: payload.item ?? null, source: "event" });
+  };
+
+  const onPopState = () => {
+    onChange({ itemId: getSelectedItemFromUrl(), item: null, source: "popstate" });
+  };
+
+  window.addEventListener(ITEM_SELECT_EVENT, onSelect);
+  window.addEventListener("popstate", onPopState);
+
+  return () => {
+    window.removeEventListener(ITEM_SELECT_EVENT, onSelect);
+    window.removeEventListener("popstate", onPopState);
+  };
+};
+```
+
+Use this when the selected detail should survive reloads, be linkable, and work
+with browser back/forward. Do not use a purely local signal for canonical
+selection state in SSR list/detail pages. Event payloads are ephemeral: listeners
+must tolerate `item: null`, and reload/popstate flows must rehydrate from the
+URL, server render, or API instead of relying on an object previously dispatched
+through `CustomEvent`.
+
+Decision rule: use hard SSR navigation when selecting an item requires
+server-rendered detail data. Use `detailPanel.select(...)` when the list island
+already has enough detail data or an already-mounted detail island can resolve
+the URL-backed selection safely.
+
+Render detail entries as real anchors with `href`. Intercept only eligible plain
+left-clicks, then call `preventDefault()` and update the URL-backed detail state;
+modifier clicks, new-tab behavior, and browser link affordances must keep
+working.
+
+```tsx
+<a
+  href={buildItemUrl(item.id)}
+  onClick={(event) => {
+    if (!shouldHandleDetailClick(event)) return;
+    event.preventDefault();
+    selectItemInUrl(item.id, item);
+  }}
+>
+  {item.title}
+</a>
+```
+
+### Typed Window Events
+
+Use window `CustomEvent`s for loose coupling between islands that cannot share
+Solid state directly. Keep event names and payload types in a plain `.ts` module
+so server components and islands can import constants without pulling browser
+code into SSR.
+
+Source:
+
+- `packages/notebooks/src/frontend/[id]/_components/detail/events.ts`
+- `packages/notebooks/src/frontend/[id]/_components/detail/NotebookDetailPanel.island.tsx`
+- `packages/notebooks/src/frontend/[id]/_components/editor/NoteEditor.client.tsx`
+
+```typescript
+// frontend/lib/events.ts
+export const DETAIL_TOGGLE_EVENT = "my-app:detail-toggle";
+export const DETAIL_STATE_EVENT = "my-app:detail-state";
+
+export type DetailStateEvent = {
+  isOpen: boolean;
+};
+```
+
+```tsx
+import { onCleanup, onMount } from "solid-js";
+import { DETAIL_STATE_EVENT, DETAIL_TOGGLE_EVENT, type DetailStateEvent } from "../lib/events";
+
+onMount(() => {
+  const onState = (event: Event) => {
+    const detail = (event as CustomEvent<DetailStateEvent>).detail;
+    setOpen(Boolean(detail?.isOpen));
+  };
+
+  window.addEventListener(DETAIL_STATE_EVENT, onState);
+  onCleanup(() => window.removeEventListener(DETAIL_STATE_EVENT, onState));
+});
+
+const toggle = () => window.dispatchEvent(new CustomEvent(DETAIL_TOGGLE_EVENT));
+```
+
+Rules:
+
+- Define event constants once; do not inline string literals across components.
+- Type the `CustomEvent` payload at the listener boundary.
+- Register browser listeners in `onMount` and remove them in `onCleanup`.
+- Pair custom events with `popstate` when the URL is also part of the state.
+- Do not use window events for parent-child communication, single-island state,
+  form state, mutation lifecycle, or as a replacement for props/signals inside
+  one island.
+
+### Soft Navigation Request Pattern
+
+Use a soft-navigation request when a mounted island can handle an in-app route
+change without a full SSR reload, but the app still needs a safe fallback. The
+notebooks editor uses this for note-to-note navigation.
+
+Source:
+
+- `packages/notebooks/src/frontend/lib/soft-navigation.ts`
+- `packages/notebooks/src/frontend/[id]/_components/editor/NoteEditor.client.tsx`
+- `packages/notebooks/src/frontend/[id]/_components/sidebar/NoteTree.island.tsx`
+
+```typescript
+import { navigateTo } from "@valentinkolb/cloud/ui";
+
+export const SOFT_NAV_REQUEST_EVENT = "my-app:soft-nav-request";
+
+type SoftNavigationRequestDetail = {
+  href: string;
+  handled?: Promise<boolean>;
+};
+
+export const requestSoftNavigation = async (href: string): Promise<boolean> => {
+  const detail: SoftNavigationRequestDetail = { href };
+  window.dispatchEvent(new CustomEvent(SOFT_NAV_REQUEST_EVENT, { detail }));
+  return (await detail.handled) ?? false;
+};
+
+export const navigateToItem = async (href: string) => {
+  if (await requestSoftNavigation(href)) return;
+  navigateTo(href);
+};
+
+export const handleSoftNavigationRequests = (handler: (href: string) => Promise<boolean>) => {
+  const listener = (event: Event) => {
+    const detail = (event as CustomEvent<SoftNavigationRequestDetail>).detail;
+    if (!detail?.href) return;
+    detail.handled = handler(detail.href);
+  };
+
+  window.addEventListener(SOFT_NAV_REQUEST_EVENT, listener);
+  return () => window.removeEventListener(SOFT_NAV_REQUEST_EVENT, listener);
+};
+```
+
+Use this only for an already-mounted workspace that can replace its main entity
+without losing correctness. The handler must be able to fetch or already own all
+data needed for the target URL, update URL-dependent UI consistently, avoid
+leaking stale SSR data, and leave the hard navigation fallback correct. This is
+a request/claim protocol for one capable owner, not general pub/sub; handlers
+should return `false` when they cannot fully handle the href. For normal page
+changes, use `navigateTo()`.
+
+### Registry Bridge Pattern
+
+Use a registry bridge when multiple independently-rendered islands need to
+contribute UI to one shared shell location. `LayoutHelp` uses a global tab map
+plus a custom event; registering returns a cleanup function.
+
+Source:
+
+- `packages/cloud/src/ssr/LayoutHelp.tsx`
+
+```tsx
+import { Layout } from "@valentinkolb/cloud/ssr/islands";
+
+export function MyFeatureHelp() {
+  return (
+    <Layout.Help id="my-feature" title="My Feature" icon="ti ti-help">
+      <p class="text-sm text-dimmed">Feature-specific help.</p>
+    </Layout.Help>
+  );
+}
+```
+
+The pattern is useful for shell-level slots such as help, command menus, or
+global inspectors. Keep registry state private to the owning shell component;
+app code should use the shell's public component API.
+
+### Optimistic Mutation Context
+
+Use `mutation.create` `onBefore` context for optimistic updates, rollback data,
+loading keys, and stale-response tokens. The spaces Kanban board captures
+previous buckets before moving an item; the grids dashboard editor stores a save
+token so older saves cannot overwrite newer UI state.
+
+Source:
+
+- `packages/spaces/src/frontend/[id]/_components/kanban/KanbanBoard.island.tsx`
+- `packages/grids/src/frontend/_components/dashboard/DashboardWysiwygEditor.island.tsx`
+
+```typescript
+const saveMutation = mutation.create<SavedItem, Item, { previous: Item[]; token: number }>({
+  onBefore: (next) => {
+    const previous = items();
+    const token = ++saveToken;
+    setItems(applyOptimisticChange(previous, next));
+    return { previous, token };
+  },
+  mutation: async (next, ctx) => {
+    const res = await apiClient.items[":id"].$patch({
+      param: { id: next.id },
+      json: next,
+    });
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to save item."));
+    return await res.json();
+  },
+  onSuccess: (saved, ctx) => {
+    if (ctx?.token !== saveToken) return;
+    setItems(reconcileSavedItem(items(), saved));
+    toast.success("Saved");
+  },
+  onError: (err, ctx) => {
+    if (ctx?.previous) setItems(ctx.previous);
+    prompts.error(err.message);
+  },
+});
+```
+
+Use this for drag-and-drop, WYSIWYG configuration, inline edits, and other flows
+where waiting for SSR refresh would feel broken. For simple create/delete flows,
+prefer the plain mutation pattern above.
+
 ## View Transitions
 
 View transitions are enabled globally via `<meta name="view-transition" content="same-origin">` in the HTML template. **Always add `view-transition-name` to elements that should animate between pages.** This is not optional — use it on cards, headers, sidebars, tables, and any element that persists across page navigations.
+
+Source:
+
+- `packages/cloud/src/_internal/define-app.ts`
+- `packages/cloud/src/config/ssr.ts`
+- `packages/cloud/src/ui/misc/AppWorkspace.tsx`
+- `packages/notebooks/src/frontend/[id]/_components/sidebar/NotebookSidebar.island.tsx`
 
 This is especially important for the **multi-container architecture**: when a user navigates from `/app/spaces` to `/app/contacts`, the request hits a completely different Bun process — but because both use the same `Layout` shell and both set `view-transition-name` on the shared chrome (header, rail, footer), the browser animates smoothly as if it were a single-page app. The navigation rail, header, and profile section persist visually while only the content area transitions.
 

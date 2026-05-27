@@ -1,7 +1,7 @@
 import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import AdminSpaceActions from "./_components/AdminSpaceActions.island";
 import { spacesService } from "../service";
@@ -28,6 +28,23 @@ export default ssr<AuthContext>(async (c) => {
 
   const orphanedCount = summary.orphaned;
   const totalPermissions = summary.totalPermissions;
+  type SpaceRow = (typeof spaces.items)[number];
+  const columns: DataTableColumn<SpaceRow>[] = [
+    { id: "space", header: "Space", value: (space) => space.name },
+    { id: "description", header: "Description", value: (space) => space.description, cellClass: "max-w-xl" },
+    { id: "permissions", header: "Permissions", value: (space) => space.permissionCount, cellClass: "whitespace-nowrap" },
+    {
+      id: "actions",
+      header: (
+        <>
+          <span class="sr-only">Actions</span>
+          <i class="ti ti-settings text-sm" aria-hidden="true" />
+        </>
+      ),
+      headerClass: "w-px text-right",
+      cellClass: "text-right whitespace-nowrap",
+    },
+  ];
 
   return () => (
     <AdminLayout c={c} title="Spaces" stretch>
@@ -52,71 +69,62 @@ export default ssr<AuthContext>(async (c) => {
               valueClass={orphanedCount > 0 ? "text-red-500" : "text-primary"}
               accent={orphanedCount > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
             />
-            <StatCell
-              label="Access entries"
-              value={totalPermissions}
-              sub={search ? "in search" : "across all spaces"}
-            />
+            <StatCell label="Access entries" value={totalPermissions} sub={search ? "in search" : "across all spaces"} />
           </StatGrid>
 
           <SearchBar action="/admin/spaces" value={search} placeholder="Search spaces by name..." ariaLabel="Search spaces" />
 
           {spaces.items.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-spaces-table">
-              <div class="overflow-x-auto">
-                <table class="w-full text-xs">
-                  <thead>
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Space</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Permissions</th>
-                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
-                        <span class="sr-only">Actions</span>
-                        <i class="ti ti-settings text-sm" aria-hidden="true" />
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {spaces.items.map((space) => (
-                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                        <td class="px-3 py-1.5">
-                          <div class="flex min-w-52 items-center gap-2">
-                            <span
-                              class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-white"
-                              style={`background-color: ${space.color}`}
-                            >
-                              <i class="ti ti-layout-kanban" />
-                            </span>
-                            <span class="truncate font-medium text-primary">{space.name}</span>
-                          </div>
-                        </td>
-                        <td class="max-w-xl px-3 py-1.5 text-dimmed">
-                          <span class="block truncate" title={space.description ?? "No description"}>
-                            {space.description || <span class="italic">No description</span>}
-                          </span>
-                        </td>
-                        <td class="px-3 py-1.5 whitespace-nowrap">
-                          <span
-                            class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                              space.permissionCount === 0
-                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                            }`}
-                          >
-                            {space.permissionCount} access {space.permissionCount === 1 ? "entry" : "entries"}
-                          </span>
-                        </td>
-                        <td class="px-3 py-1.5 text-right">
-                          <AdminSpaceActions spaceId={space.id} spaceName={space.name} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                rows={spaces.items}
+                columns={columns}
+                getRowId={(space) => space.id}
+                hoverRows
+                class="overflow-x-auto"
+                renderCell={({ row: space, col }) => {
+                  if (col.id === "space") {
+                    return (
+                      <div class="flex min-w-52 items-center gap-2">
+                        <span
+                          class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] text-white"
+                          style={`background-color: ${space.color}`}
+                        >
+                          <i class="ti ti-layout-kanban" />
+                        </span>
+                        <span class="truncate font-medium text-primary">{space.name}</span>
+                      </div>
+                    );
+                  }
+                  if (col.id === "description") {
+                    return (
+                      <span class="block truncate" title={space.description ?? "No description"}>
+                        {space.description || <span class="italic">No description</span>}
+                      </span>
+                    );
+                  }
+                  if (col.id === "permissions") {
+                    return (
+                      <span
+                        class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          space.permissionCount === 0
+                            ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                            : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {space.permissionCount} access {space.permissionCount === 1 ? "entry" : "entries"}
+                      </span>
+                    );
+                  }
+                  if (col.id === "actions") return <AdminSpaceActions spaceId={space.id} spaceName={space.name} />;
+                  return "";
+                }}
+              />
             </section>
           ) : (
-            <section class="paper p-6 text-center text-sm text-dimmed">{search ? `No spaces matching "${search}".` : "No spaces found."}</section>
+            <section class="paper p-6 text-center text-sm text-dimmed">
+              {search ? `No spaces matching "${search}".` : "No spaces found."}
+            </section>
           )}
 
           <Pagination currentPage={spaces.page} totalPages={totalPages} baseUrl={baseUrl} />

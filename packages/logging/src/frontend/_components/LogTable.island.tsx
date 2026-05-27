@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { prompts, CopyButton, type LogTableEntry } from "@valentinkolb/cloud/ui";
+import { prompts, CopyButton, DataTable, type DataTableColumn, type LogTableEntry } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 
 type Props = { entries: LogTableEntry[] };
@@ -33,12 +33,17 @@ function MetadataDetail(props: { metadata: Record<string, unknown> | null }) {
 
   return (
     <div class="flex flex-col gap-2">
-      <Show when={!showRaw()} fallback={
-        <div class="relative bg-zinc-100 dark:bg-zinc-800 rounded-md px-3 py-2">
-          <pre class="text-[11px] text-secondary whitespace-pre-wrap break-all max-h-64 overflow-y-auto pr-16">{jsonRaw}</pre>
-          <div class="absolute top-2 right-2"><CopyButton text={jsonRaw} label="Copy" /></div>
-        </div>
-      }>
+      <Show
+        when={!showRaw()}
+        fallback={
+          <div class="relative bg-zinc-100 dark:bg-zinc-800 rounded-md px-3 py-2">
+            <pre class="text-[11px] text-secondary whitespace-pre-wrap break-all max-h-64 overflow-y-auto pr-16">{jsonRaw}</pre>
+            <div class="absolute top-2 right-2">
+              <CopyButton text={jsonRaw} label="Copy" />
+            </div>
+          </div>
+        }
+      >
         <div class="bg-zinc-100 dark:bg-zinc-800 rounded-md px-3 py-2">
           <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
             {entries.map(([key, value]) => {
@@ -54,7 +59,11 @@ function MetadataDetail(props: { metadata: Record<string, unknown> | null }) {
           </div>
         </div>
       </Show>
-      <button type="button" class="text-[10px] text-dimmed hover:text-secondary transition-colors self-start" onClick={() => setShowRaw(!showRaw())}>
+      <button
+        type="button"
+        class="text-[10px] text-dimmed hover:text-secondary transition-colors self-start"
+        onClick={() => setShowRaw(!showRaw())}
+      >
         {showRaw() ? "View formatted" : "View raw"}
       </button>
     </div>
@@ -76,7 +85,9 @@ function showDetail(entry: LogTableEntry) {
         </div>
         <div class="flex flex-col gap-1">
           <span class="text-[10px] uppercase tracking-wider text-dimmed">Message</span>
-          <p class="text-xs text-primary whitespace-pre-wrap break-all bg-zinc-100 dark:bg-zinc-800 rounded-md px-3 py-2">{entry.message}</p>
+          <p class="text-xs text-primary whitespace-pre-wrap break-all bg-zinc-100 dark:bg-zinc-800 rounded-md px-3 py-2">
+            {entry.message}
+          </p>
         </div>
         <Show when={entry.metadata}>
           <div class="flex flex-col gap-1">
@@ -85,7 +96,9 @@ function showDetail(entry: LogTableEntry) {
           </div>
         </Show>
         <div class="flex justify-end">
-          <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>Close</button>
+          <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+            Close
+          </button>
         </div>
       </div>
     ),
@@ -98,44 +111,40 @@ function showDetail(entry: LogTableEntry) {
 }
 
 export default function LogTable(props: Props) {
+  const columns: DataTableColumn<LogTableEntry>[] = [
+    { id: "level", header: "Level", value: (entry) => entry.level },
+    { id: "source", header: "Source", value: (entry) => entry.source, cellClass: "whitespace-nowrap" },
+    { id: "message", header: "Message", value: (entry) => entry.message },
+    { id: "detail", header: "Detail", value: (entry) => formatMetaInline(entry.metadata), class: "hidden xl:table-cell" },
+    { id: "time", header: "Time", value: (entry) => entry.createdAt, cellClass: "whitespace-nowrap" },
+  ];
+
   return (
     <div class="paper overflow-hidden">
       <Show when={props.entries.length > 0} fallback={<div class="py-8 text-center text-xs text-dimmed">No log entries found.</div>}>
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs">
-            <thead>
-              <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                <th class="px-3 py-2 text-left font-medium text-dimmed">Level</th>
-                <th class="px-3 py-2 text-left font-medium text-dimmed">Source</th>
-                <th class="px-3 py-2 text-left font-medium text-dimmed">Message</th>
-                <th class="px-3 py-2 text-left font-medium text-dimmed hidden xl:table-cell">Detail</th>
-                <th class="px-3 py-2 text-left font-medium text-dimmed">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={props.entries}>
-                {(entry) => {
-                  const level = LEVEL[entry.level] ?? LEVEL.debug!;
-                  const meta = formatMetaInline(entry.metadata);
-                  return (
-                    <tr class="border-b border-zinc-50 last:border-0 hover:bg-zinc-50 cursor-pointer dark:border-zinc-800/50 dark:hover:bg-zinc-800/30" onClick={() => showDetail(entry)}>
-                      <td class="px-3 py-1.5 whitespace-nowrap">
-                        <span class={`inline-flex items-center gap-1.5 ${level.color}`}>
-                          <i class={`${level.icon} text-sm`} />
-                          <span>{level.label}</span>
-                        </span>
-                      </td>
-                      <td class="px-3 py-1.5 whitespace-nowrap text-secondary">{entry.source}</td>
-                      <td class="px-3 py-1.5 text-primary truncate max-w-[30rem]" title={entry.message}>{entry.message}</td>
-                      <td class="px-3 py-1.5 text-dimmed truncate max-w-[20rem] hidden xl:table-cell">{meta || "—"}</td>
-                      <td class="whitespace-nowrap px-3 py-1.5 text-dimmed">{dates.formatDateTime(entry.createdAt)}</td>
-                    </tr>
-                  );
-                }}
-              </For>
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          rows={props.entries}
+          columns={columns}
+          getRowId={(entry) => String(entry.id)}
+          onRowClick={showDetail}
+          class="overflow-x-auto"
+          renderCell={({ row, col }) => {
+            const level = LEVEL[row.level] ?? LEVEL.debug!;
+            if (col.id === "level") {
+              return (
+                <span class={`inline-flex items-center gap-1.5 whitespace-nowrap ${level.color}`}>
+                  <i class={`${level.icon} text-sm`} />
+                  <span>{level.label}</span>
+                </span>
+              );
+            }
+            if (col.id === "source") return <span class="text-secondary">{row.source}</span>;
+            if (col.id === "message") return <span title={row.message}>{row.message}</span>;
+            if (col.id === "detail") return <span class="text-dimmed">{formatMetaInline(row.metadata) || "—"}</span>;
+            if (col.id === "time") return <span class="text-dimmed">{dates.formatDateTime(row.createdAt)}</span>;
+            return "";
+          }}
+        />
       </Show>
     </div>
   );

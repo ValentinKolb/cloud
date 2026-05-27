@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-fields";
@@ -45,10 +46,9 @@ export default function PublicFormSubmit(props: Props) {
         if (Array.isArray(v) && v.length === 0) continue;
         payload[k] = v;
       }
-      const res = await fetch(`/api/grids/forms/public/${props.publicToken}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const res = await apiClient.forms.public[":token"].submit.$post({
+        param: { token: props.publicToken },
+        json: payload,
       });
       if (!res.ok) {
         setError(await errorMessage(res, "Submit failed"));

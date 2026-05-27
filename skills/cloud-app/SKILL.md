@@ -11,7 +11,7 @@ description: >
 
 This skill covers everything you need to build a complete app. For platform overview and auth concepts, see the `cloud` skill. For deployment, see `cloud-ops`.
 
-> **Detailed references:** Backend patterns → `references/backend.md` | Frontend patterns → `references/frontend.md` | New frontend addenda → `references/add-frontend.md`
+> **Detailed references:** Backend patterns → `references/backend.md` | Frontend patterns → `references/frontend.md`
 
 ## What Belongs In An App — And What Does NOT
 
@@ -503,19 +503,35 @@ Islands are interactive components that hydrate on the client:
 // frontend/_components/ItemList.island.tsx
 import { createSignal, For } from "solid-js";
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "../../api/client";
+
+const readErrorMessage = async (res: Response, fallback: string) => {
+  const body = (await res.json().catch(() => null)) as { message?: string } | null;
+  return body?.message ?? fallback;
+};
 
 export default function ItemList(props: { items: Item[] }) {
   const [items, setItems] = createSignal(props.items);
 
-  const deleteItem = mutation.create({
-    mutation: async (id: string) => {
-      const res = await apiClient.items[":id"].$delete({ param: { id } });
-      if (!res.ok) throw new Error((await res.json()).message);
+  const deleteItem = mutation.create<{ deleted: boolean; id: string }, Item>({
+    mutation: async (item) => {
+      const confirmed = await prompts.confirm(`Delete "${item.title}"? This cannot be undone.`, {
+        title: "Delete Item",
+        icon: "ti ti-trash",
+        confirmText: "Delete",
+        variant: "danger",
+      });
+      if (!confirmed) return { deleted: false, id: item.id };
+
+      const res = await apiClient.items[":id"].$delete({ param: { id: item.id } });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to delete item"));
+      return { deleted: true, id: item.id };
     },
-    onSuccess: (_, id) => {
-      setItems((prev) => prev.filter((i) => i.id !== id));
+    onSuccess: (result, item) => {
+      if (!result.deleted) return;
+      setItems((prev) => prev.filter((i) => i.id !== result.id));
+      toast.success(`Deleted "${item.title}"`);
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -533,11 +549,13 @@ export default function ItemList(props: { items: Item[] }) {
       if (!result) return null; // user cancelled
 
       const res = await apiClient.items.$post({ json: result });
-      if (!res.ok) throw new Error((await res.json()).message);
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create item"));
       return res.json();
     },
     onSuccess: (created) => {
-      if (created) setItems((prev) => [created, ...prev]);
+      if (!created) return;
+      setItems((prev) => [created, ...prev]);
+      toast.success("Item created");
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -562,7 +580,7 @@ export default function ItemList(props: { items: Item[] }) {
             <button
               class="btn-danger btn-sm"
               disabled={deleteItem.loading()}
-              onClick={() => deleteItem.mutate(item.id)}
+              onClick={() => deleteItem.mutate(item)}
             >
               <i class="ti ti-trash" />
             </button>
@@ -589,30 +607,40 @@ This is the central UX pattern for all user actions. **Everything goes in the mu
 
 ```typescript
 import { mutation } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { apiClient } from "@/api/client";
 
-const saveThing = mutation.create({
+const readErrorMessage = async (res: Response, fallback: string) => {
+  const body = (await res.json().catch(() => null)) as { message?: string } | null;
+  return body?.message ?? fallback;
+};
+
+const createThing = mutation.create<Thing | null, void>({
   mutation: async () => {
     // 1. Collect input (inside the mutation — prompts.form can fail too)
-    const data = await prompts.form({ title: "Save", fields: { ... } });
+    const data = await prompts.form({ title: "Create", fields: { ... } });
     if (!data) return null; // user cancelled
 
     // 2. Make the API call
     const res = await apiClient.things.$post({ json: data });
-    if (!res.ok) throw new Error((await res.json()).message);
-    return res.json();
+    if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create thing"));
+    return (await res.json()) as Thing;
   },
-  onSuccess: (result) => { if (result) { /* update local state */ } },
+  onSuccess: (created) => {
+    if (!created) return;
+    setThings((prev) => [created, ...prev]);
+    toast.success("Created");
+  },
   onError: (err) => prompts.error(err.message),
 });
 
 // 3. Wire to button with loading state
 <button
   class="btn-primary btn-sm"
-  disabled={saveThing.loading()}
-  onClick={() => saveThing.mutate()}
+  disabled={createThing.loading()}
+  onClick={() => createThing.mutate()}
 >
-  {saveThing.loading() ? "Saving..." : "Save"}
+  {createThing.loading() ? "Creating..." : "Create"}
 </button>
 ```
 

@@ -74,13 +74,15 @@ export default function RecordDetailPanel(props: Props) {
   // ---- Mutations ---------------------------------------------------------
   const updateMut = mutations.create<GridRecord, { rec: GridRecord; payload: Record<string, unknown> }>({
     mutation: async ({ rec, payload }) => {
-      const res = await fetch(`/api/grids/records/${props.tableId}/${rec.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "If-Match": String(rec.version) },
-        body: JSON.stringify(payload),
-      });
+      const res = await apiClient.records[":tableId"][":recordId"].$patch(
+        {
+          param: { tableId: props.tableId, recordId: rec.id },
+          json: payload,
+        },
+        { headers: { "If-Match": String(rec.version) } },
+      );
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to update record"));
-      return (await res.json()) as GridRecord;
+      return res.json();
     },
     onSuccess: (updated) => props.onUpdated(updated),
     onError: (e) => prompts.error(e.message),
@@ -392,9 +394,11 @@ function FileFieldCell(props: { tableId: string; recordId: string; field: Field;
   const [files, { refetch }] = createResource(
     () => `${props.tableId}:${props.recordId}:${props.field.id}`,
     async () => {
-      const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}`);
+      const res = await apiClient.records[":tableId"][":recordId"].files[":fieldId"].$get({
+        param: { tableId: props.tableId, recordId: props.recordId, fieldId: props.field.id },
+      });
       if (!res.ok) return { items: [] as GridFile[] };
-      return (await res.json()) as { items: GridFile[] };
+      return res.json();
     },
   );
 
@@ -412,6 +416,7 @@ function FileFieldCell(props: { tableId: string; recordId: string; field: Field;
     try {
       const form = new FormData();
       form.set("file", file);
+      // FormData upload exception: the Hono client route is JSON-typed, native fetch keeps multipart exact.
       const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}`, {
         method: "POST",
         body: form,
@@ -432,8 +437,8 @@ function FileFieldCell(props: { tableId: string; recordId: string; field: Field;
       confirmText: "Delete",
     });
     if (!confirmed) return;
-    const res = await fetch(`/api/grids/records/${props.tableId}/${props.recordId}/files/${props.field.id}/${file.id}`, {
-      method: "DELETE",
+    const res = await apiClient.records[":tableId"][":recordId"].files[":fieldId"][":fileId"].$delete({
+      param: { tableId: props.tableId, recordId: props.recordId, fieldId: props.field.id, fileId: file.id },
     });
     if (!res.ok) {
       prompts.error(await errorMessage(res, "Failed to delete file"));
@@ -524,8 +529,7 @@ function RecordHistorySection(props: { tableId: string; recordId: string }) {
         param: { tableId: props.tableId, recordId: props.recordId },
       });
       if (!res.ok) return { items: [] as AuditEntryWithUser[] };
-      const data = (await res.json()) as { items: AuditEntryWithUser[] };
-      return data;
+      return res.json();
     },
   );
 

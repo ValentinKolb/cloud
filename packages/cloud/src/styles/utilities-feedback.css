@@ -48,18 +48,8 @@
   @apply rounded inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium;
 }
 
-/* Stat cards — markup-only convention, see
+/* Stat cards are component-owned by StatGrid/StatCell. See
    `skills/cloud-app/references/frontend.md` § Stats and the live demos in
-   `packages/ui-lab/src/frontend/UiLabShowcase.island.tsx`. Pattern:
-     <div class="paper overflow-hidden">
-       <div class="grid grid-cols-N gap-px p-px bg-zinc-100 dark:bg-zinc-800">
-         <div class="bg-white dark:bg-zinc-900 px-4 py-4 flex flex-col gap-0.5">
-           <span class="text-[10px] uppercase tracking-wider text-dimmed">Label</span>
-           <span class="text-xl font-bold tabular-nums text-primary">Value</span>
-           <span class="text-[10px] text-dimmed">Sub</span>
-         </div>
-       </div>
-     </div>
-   The earlier `.stat-grid / .stat-cell / .stat-value / .stat-label / .stat-sub`
-   utilities used `divide-x` + centered cells — DO NOT reintroduce. They
-   produced double borders at corners and missing borders on edges. */
+   `packages/ui-lab/src/frontend/lab/surfaces-cards.tsx`. Do not reintroduce
+   the earlier `.stat-grid / .stat-cell / .stat-value / .stat-label / .stat-sub`
+   utilities; app code should import the shared components instead. */

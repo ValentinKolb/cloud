@@ -29,7 +29,7 @@ const FROM_UI = "@valentinkolb/cloud/ui";
 
 /* ── TextInput ───────────────────────────────────────────────── */
 
-const TextInputBasic = () => {
+export const TextInputBasic = () => {
   const [v, setV] = createSignal("Sample value");
   return (
     <DemoCard
@@ -43,7 +43,7 @@ const TextInputBasic = () => {
   );
 };
 
-const TextInputWithIcon = () => {
+export const TextInputWithIcon = () => {
   const [v, setV] = createSignal("");
   return (
     <DemoCard
@@ -57,7 +57,7 @@ const TextInputWithIcon = () => {
   );
 };
 
-const TextInputClearable = () => {
+export const TextInputClearable = () => {
   const [v, setV] = createSignal("Click the X");
   return (
     <DemoCard
@@ -71,7 +71,7 @@ const TextInputClearable = () => {
   );
 };
 
-const TextInputError = () => {
+export const TextInputError = () => {
   const [v, setV] = createSignal("ab");
   return (
     <DemoCard
@@ -91,7 +91,7 @@ const TextInputError = () => {
   );
 };
 
-const TextInputPassword = () => {
+export const TextInputPassword = () => {
   const [v, setV] = createSignal("secret");
   return (
     <DemoCard
@@ -105,7 +105,7 @@ const TextInputPassword = () => {
   );
 };
 
-const TextInputMarkdown = () => {
+export const TextInputMarkdown = () => {
   const [v, setV] = createSignal(
     [
       "## Welcome",
@@ -166,7 +166,7 @@ const TextInputMarkdown = () => {
  * obvious. Type `@a` and the preview shows `@alice` in dim text + a
  * `→` arrow; Tab accepts.
  */
-const TextInputMarkdownCompletions = () => {
+export const TextInputMarkdownCompletions = () => {
   const USERS = ["alice", "bob", "charlie", "dani", "eli", "frank", "grace"];
   const TAGS = ["backend", "frontend", "infra", "bug", "feature", "docs", "urgent"];
   const [v, setV] = createSignal(
@@ -241,7 +241,7 @@ const TextInputMarkdownCompletions = () => {
   );
 };
 
-const MarkdownEditorStandalone = () => {
+export const MarkdownEditorStandalone = () => {
   const [v, setV] = createSignal(
     "Standalone editor without the InputWrapper chrome.\n\nUse for email composers, full-page notes, doc bodies.",
   );
@@ -268,7 +268,7 @@ const MarkdownEditorStandalone = () => {
  *   - single-line mode (Enter submits)
  */
 
-const AutocompleteEditorMentions = () => {
+export const AutocompleteEditorMentions = () => {
   const USERS = ["alice", "bob", "charlie", "dani", "eli", "frank", "grace"];
   const [v, setV] = createSignal("Hey @alice and @bob, please check this — cc @c");
   return (
@@ -308,7 +308,7 @@ const AutocompleteEditorMentions = () => {
   );
 };
 
-const AutocompleteEditorFormula = () => {
+export const AutocompleteEditorFormula = () => {
   // Closure-captured "schema" — would be a reactive signal in a real
   // database app. Mock data here to demonstrate context-aware completions.
   const COLUMNS = [
@@ -486,7 +486,7 @@ const AutocompleteEditorFormula = () => {
   );
 };
 
-const AutocompleteEditorAsync = () => {
+export const AutocompleteEditorAsync = () => {
   // Mock async lookup: pretends to hit an API, sometimes errors out
   // randomly so the Retry button is exercisable.
   const MOCK_PACKAGES = [
@@ -561,7 +561,7 @@ const AutocompleteEditorAsync = () => {
   );
 };
 
-const AutocompleteEditorSingleLine = () => {
+export const AutocompleteEditorSingleLine = () => {
   const [v, setV] = createSignal("");
   const [submitted, setSubmitted] = createSignal<string | null>(null);
   return (
@@ -596,7 +596,7 @@ const AutocompleteEditorSingleLine = () => {
 
 /* ── NumberInput ────────────────────────────────────────────── */
 
-const NumberInputBasic = () => {
+export const NumberInputBasic = () => {
   const [v, setV] = createSignal<number | null>(42);
   return (
     <DemoCard
@@ -611,7 +611,7 @@ const NumberInputBasic = () => {
   );
 };
 
-const NumberInputPercent = () => {
+export const NumberInputPercent = () => {
   const [v, setV] = createSignal<number | null>(25);
   return (
     <DemoCard
@@ -641,7 +641,7 @@ const NumberInputPercent = () => {
   );
 };
 
-const NumberInputCurrency = () => {
+export const NumberInputCurrency = () => {
   const [v, setV] = createSignal<number | null>(12.34);
   return (
     <DemoCard
@@ -676,7 +676,7 @@ const NumberInputCurrency = () => {
 
 /* ── Date/Time ───────────────────────────────────────────────── */
 
-const DateTimeInputDemo = () => {
+export const DateTimeInputDemo = () => {
   const [v, setV] = createSignal("2026-02-18T10:30");
   return (
     <DemoCard
@@ -690,7 +690,7 @@ const DateTimeInputDemo = () => {
   );
 };
 
-const DateInputDemo = () => {
+export const DateInputDemo = () => {
   const [v, setV] = createSignal("2026-02-18");
   return (
     <DemoCard
@@ -706,7 +706,7 @@ const DateInputDemo = () => {
 
 /* ── Select / SelectChip / Combobox ─────────────────────────── */
 
-const SelectBasic = () => {
+export const SelectBasic = () => {
   const [v, setV] = createSignal<string | undefined>("refined");
   return (
     <DemoCard
@@ -740,7 +740,7 @@ const SelectBasic = () => {
   );
 };
 
-const SelectFetchData = () => {
+export const SelectFetchData = () => {
   const [v, setV] = createSignal<string | undefined>(undefined);
   const cities = ["Berlin", "Munich", "Hamburg", "Cologne", "Frankfurt", "Stuttgart", "Düsseldorf", "Leipzig"];
   return (
@@ -774,7 +774,7 @@ const SelectFetchData = () => {
   );
 };
 
-const SelectChipDemo = () => {
+export const SelectChipDemo = () => {
   const [v, setV] = createSignal<"day" | "week" | "month">("week");
   return (
     <DemoCard
@@ -806,7 +806,7 @@ const SelectChipDemo = () => {
   );
 };
 
-const ComboboxDemo = () => {
+export const ComboboxDemo = () => {
   const [picked, setPicked] = createSignal<string | null>(null);
   const countries = [
     { id: "de", label: "Germany", icon: "ti-flag" },
@@ -842,7 +842,7 @@ const ComboboxDemo = () => {
 
 /* ── Color / Tags / Pin / Image / Icon ──────────────────────── */
 
-const ColorInputDemo = () => {
+export const ColorInputDemo = () => {
   const [v, setV] = createSignal("#06b6d4");
   const [isTransparent, setTransparent] = createSignal(false);
   return (
@@ -865,7 +865,7 @@ const ColorInputDemo = () => {
   );
 };
 
-const TagsInputDemo = () => {
+export const TagsInputDemo = () => {
   const [v, setV] = createSignal(["backend", "ui", "core"]);
   return (
     <DemoCard
@@ -878,7 +878,7 @@ const TagsInputDemo = () => {
   );
 };
 
-const PinInputDemo = () => {
+export const PinInputDemo = () => {
   const [v, setV] = createSignal("426913");
   return (
     <DemoCard
@@ -891,7 +891,7 @@ const PinInputDemo = () => {
   );
 };
 
-const ImageInputDemo = () => {
+export const ImageInputDemo = () => {
   const [v, setV] = createSignal<string | null>(null);
   return (
     <DemoCard
@@ -905,7 +905,7 @@ const ImageInputDemo = () => {
   );
 };
 
-const IconInputDemo = () => {
+export const IconInputDemo = () => {
   const [v, setV] = createSignal("ti-star");
   return (
     <DemoCard
@@ -921,7 +921,7 @@ const IconInputDemo = () => {
 
 /* ── Slider / Switch / Checkbox / Segmented ─────────────────── */
 
-const SliderDemo = () => {
+export const SliderDemo = () => {
   const [v, setV] = createSignal(64);
   return (
     <DemoCard
@@ -934,7 +934,7 @@ const SliderDemo = () => {
   );
 };
 
-const SwitchDemo = () => {
+export const SwitchDemo = () => {
   const [v, setV] = createSignal(true);
   return (
     <DemoCard
@@ -947,7 +947,7 @@ const SwitchDemo = () => {
   );
 };
 
-const CheckboxDemo = () => {
+export const CheckboxDemo = () => {
   const [v, setV] = createSignal(true);
   return (
     <DemoCard
@@ -960,7 +960,7 @@ const CheckboxDemo = () => {
   );
 };
 
-const CheckboxCardDemo = () => {
+export const CheckboxCardDemo = () => {
   const [paid, setPaid] = createSignal(true);
   const [review, setReview] = createSignal(false);
   return (

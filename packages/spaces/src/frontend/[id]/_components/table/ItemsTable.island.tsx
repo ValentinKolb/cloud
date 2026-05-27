@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import type { SpaceColumn, SpaceItem } from "@/contracts";
+import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { dates } from "@valentinkolb/stdlib";
 import { setDetailItemInUrl, shouldHandleDetailClick } from "../../../lib/detail";
 
@@ -26,14 +27,7 @@ const PRIORITY_CLASS: Record<string, string> = {
 
 const buildItemHref = (baseUrl: string, itemId: string) => `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}item=${itemId}`;
 
-function CellLink(props: {
-  href: string;
-  item: SpaceItem;
-  class?: string;
-  title?: string;
-  tabIndex?: number;
-  children: JSX.Element;
-}) {
+function CellLink(props: { href: string; item: SpaceItem; class?: string; title?: string; tabIndex?: number; children: JSX.Element }) {
   return (
     <a
       href={props.href}
@@ -61,121 +55,145 @@ const formatSchedule = (item: SpaceItem) => {
 
 export default function ItemsTable(props: Props) {
   const columnsById = new Map(props.columns.map((column) => [column.id, column]));
+  const tableColumns: DataTableColumn<SpaceItem>[] = [
+    { id: "title", header: "Title", value: (item) => item.title, cellClass: "max-w-[24rem]" },
+    { id: "kanban", header: "Kanban", value: (item) => columnsById.get(item.columnId)?.name },
+    {
+      id: "kind",
+      header: "Kind",
+      value: (item) => (Boolean(item.startsAt && item.endsAt) ? "Event" : "Task"),
+      cellClass: "whitespace-nowrap",
+    },
+    { id: "priority", header: "Priority", value: (item) => item.priority, cellClass: "whitespace-nowrap" },
+    { id: "schedule", header: "Schedule", value: formatSchedule, cellClass: "max-w-[18rem]" },
+    {
+      id: "assignees",
+      header: "Assignees",
+      value: (item) => item.assignees?.map((assignee) => assignee.displayName).join(", "),
+      class: "hidden xl:table-cell",
+      cellClass: "max-w-[14rem]",
+    },
+    {
+      id: "tags",
+      header: "Tags",
+      value: (item) => item.tags?.map((tag) => tag.name).join(", "),
+      class: "hidden xl:table-cell",
+      cellClass: "max-w-[12rem]",
+    },
+    { id: "updated", header: "Updated", value: (item) => item.updatedAt, cellClass: "whitespace-nowrap" },
+    { id: "created", header: "Created", value: (item) => item.createdAt, class: "hidden 2xl:table-cell", cellClass: "whitespace-nowrap" },
+  ];
 
   return (
     <div class="paper overflow-hidden" style="view-transition-name: spaces-items-table">
-      <div class="overflow-x-auto">
-        <table class="w-full text-xs">
-          <thead>
-            <tr class="border-b border-zinc-100 dark:border-zinc-800">
-              <th class="px-3 py-2 text-left font-medium text-dimmed">Title</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed">Kanban</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed">Kind</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed">Priority</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed">Schedule</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed hidden xl:table-cell">Assignees</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed hidden xl:table-cell">Tags</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed whitespace-nowrap">Updated</th>
-              <th class="px-3 py-2 text-left font-medium text-dimmed whitespace-nowrap hidden 2xl:table-cell">Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.items.map((item) => {
-              const column = columnsById.get(item.columnId) ?? null;
-              const isEvent = Boolean(item.startsAt && item.endsAt);
-              const href = buildItemHref(props.baseUrl, item.id);
-              return (
-                <tr
-                  class={`group border-b border-zinc-50 last:border-0 dark:border-zinc-800/50 ${
-                    props.selectedItemId === item.id
-                      ? "bg-blue-50/70 dark:bg-blue-950/20"
-                      : "hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
-                  }`}
-                >
-                  <td class="p-0">
-                    <CellLink
-                      href={href}
-                      item={item}
-                      class={`block max-w-[24rem] truncate px-3 py-1.5 font-medium text-primary group-hover:underline ${
-                        item.completedAt ? "line-through text-dimmed" : ""
-                      }`}
-                      title={item.title}
-                    >
-                      {item.title}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 whitespace-nowrap text-secondary">
-                    <CellLink href={href} item={item} class="block px-3 py-1.5" tabIndex={-1}>
-                      {column ? (
-                        <span class="inline-flex items-center gap-1.5">
-                          {column.color && <span class="h-2 w-2 rounded-full" style={`background-color:${column.color}`} />}
-                          <span>{column.name}</span>
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 whitespace-nowrap text-secondary">
-                    <CellLink href={href} item={item} class="block px-3 py-1.5" tabIndex={-1}>
-                      {isEvent ? "Event" : "Task"}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 whitespace-nowrap">
-                    <CellLink href={href} item={item} class="block px-3 py-1.5" tabIndex={-1}>
-                      {item.priority ? (
-                        <span class={`inline-flex items-center gap-1 ${PRIORITY_CLASS[item.priority] ?? "text-dimmed"}`}>
-                          <i class="ti ti-flag text-sm" />
-                          <span>{PRIORITY_LABEL[item.priority]}</span>
-                        </span>
-                      ) : (
-                        <span class="text-dimmed">—</span>
-                      )}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 text-secondary max-w-[18rem]">
-                    <CellLink href={href} item={item} class="block truncate px-3 py-1.5" title={formatSchedule(item)} tabIndex={-1}>
-                      {formatSchedule(item)}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 hidden xl:table-cell">
-                    <CellLink
-                      href={href}
-                      item={item}
-                      class="block max-w-[14rem] truncate px-3 py-1.5 text-secondary"
-                      title={item.assignees?.map((assignee) => assignee.displayName).join(", ") || "—"}
-                      tabIndex={-1}
-                    >
-                      {item.assignees && item.assignees.length > 0 ? item.assignees.map((assignee) => assignee.displayName).join(", ") : "—"}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 hidden xl:table-cell">
-                    <CellLink
-                      href={href}
-                      item={item}
-                      class="block max-w-[12rem] truncate px-3 py-1.5 text-secondary"
-                      title={item.tags?.map((tag) => tag.name).join(", ") || "—"}
-                      tabIndex={-1}
-                    >
-                      {item.tags && item.tags.length > 0 ? item.tags.map((tag) => tag.name).join(", ") : "—"}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 whitespace-nowrap text-dimmed">
-                    <CellLink href={href} item={item} class="block px-3 py-1.5" tabIndex={-1}>
-                      {dates.formatDateTime(item.updatedAt)}
-                    </CellLink>
-                  </td>
-                  <td class="p-0 whitespace-nowrap text-dimmed hidden 2xl:table-cell">
-                    <CellLink href={href} item={item} class="block px-3 py-1.5" tabIndex={-1}>
-                      {dates.formatDateTime(item.createdAt)}
-                    </CellLink>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        rows={props.items}
+        columns={tableColumns}
+        getRowId={(item) => item.id}
+        selectedRowId={props.selectedItemId}
+        hoverRows
+        class="overflow-x-auto"
+        renderCell={({ row: item, col }) => {
+          const column = columnsById.get(item.columnId) ?? null;
+          const isEvent = Boolean(item.startsAt && item.endsAt);
+          const href = buildItemHref(props.baseUrl, item.id);
+          if (col.id === "title") {
+            return (
+              <CellLink
+                href={href}
+                item={item}
+                class={`block truncate font-medium text-primary hover:underline ${item.completedAt ? "line-through text-dimmed" : ""}`}
+                title={item.title}
+              >
+                {item.title}
+              </CellLink>
+            );
+          }
+          if (col.id === "kanban") {
+            return (
+              <CellLink href={href} item={item} class="block text-secondary" tabIndex={-1}>
+                {column ? (
+                  <span class="inline-flex items-center gap-1.5">
+                    {column.color && <span class="h-2 w-2 rounded-full" style={`background-color:${column.color}`} />}
+                    <span>{column.name}</span>
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </CellLink>
+            );
+          }
+          if (col.id === "kind") {
+            return (
+              <CellLink href={href} item={item} class="block text-secondary" tabIndex={-1}>
+                {isEvent ? "Event" : "Task"}
+              </CellLink>
+            );
+          }
+          if (col.id === "priority") {
+            return (
+              <CellLink href={href} item={item} class="block" tabIndex={-1}>
+                {item.priority ? (
+                  <span class={`inline-flex items-center gap-1 ${PRIORITY_CLASS[item.priority] ?? "text-dimmed"}`}>
+                    <i class="ti ti-flag text-sm" />
+                    <span>{PRIORITY_LABEL[item.priority]}</span>
+                  </span>
+                ) : (
+                  <span class="text-dimmed">—</span>
+                )}
+              </CellLink>
+            );
+          }
+          if (col.id === "schedule") {
+            return (
+              <CellLink href={href} item={item} class="block truncate text-secondary" title={formatSchedule(item)} tabIndex={-1}>
+                {formatSchedule(item)}
+              </CellLink>
+            );
+          }
+          if (col.id === "assignees") {
+            return (
+              <CellLink
+                href={href}
+                item={item}
+                class="block truncate text-secondary"
+                title={item.assignees?.map((assignee) => assignee.displayName).join(", ") || "—"}
+                tabIndex={-1}
+              >
+                {item.assignees && item.assignees.length > 0 ? item.assignees.map((assignee) => assignee.displayName).join(", ") : "—"}
+              </CellLink>
+            );
+          }
+          if (col.id === "tags") {
+            return (
+              <CellLink
+                href={href}
+                item={item}
+                class="block truncate text-secondary"
+                title={item.tags?.map((tag) => tag.name).join(", ") || "—"}
+                tabIndex={-1}
+              >
+                {item.tags && item.tags.length > 0 ? item.tags.map((tag) => tag.name).join(", ") : "—"}
+              </CellLink>
+            );
+          }
+          if (col.id === "updated") {
+            return (
+              <CellLink href={href} item={item} class="block text-dimmed" tabIndex={-1}>
+                {dates.formatDateTime(item.updatedAt)}
+              </CellLink>
+            );
+          }
+          if (col.id === "created") {
+            return (
+              <CellLink href={href} item={item} class="block text-dimmed" tabIndex={-1}>
+                {dates.formatDateTime(item.createdAt)}
+              </CellLink>
+            );
+          }
+          return "";
+        }}
+      />
     </div>
   );
 }

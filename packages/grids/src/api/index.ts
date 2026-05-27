@@ -8,6 +8,7 @@ import accessRoutes from "./access";
 import viewsRoutes from "./views";
 import dashboardsRoutes from "./dashboards";
 import formsRoutes from "./forms";
+import workspaceRoutes from "./workspace";
 import automationsRoutes from "./automations";
 import adminSettingsRoutes from "./admin-settings";
 import templatesRoutes from "./templates";
@@ -24,6 +25,7 @@ const app = new Hono()
   .route("/views", viewsRoutes)
   .route("/dashboards", dashboardsRoutes)
   .route("/automations", automationsRoutes)
+  .route("/workspace", workspaceRoutes)
   .route("/forms", formsRoutes);
 
 export default app;

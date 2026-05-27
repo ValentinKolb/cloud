@@ -21,13 +21,6 @@ type Props = {
   initialQuery: string;
 };
 
-type BaseListResponse = {
-  items: Base[];
-  total: number;
-  limit: number;
-  offset: number;
-};
-
 const setQueryParam = (value: string, page: number) => {
   const url = new URL(window.location.href);
   const trimmed = value.trim();
@@ -55,14 +48,19 @@ export default function BasesOverview(props: Props) {
   const loadBases = async (value: string, page = 1) => {
     abortCtl?.abort();
     abortCtl = new AbortController();
-    const url = new URL("/api/grids/bases", window.location.origin);
     const q = value.trim();
-    if (q) url.searchParams.set("q", q);
-    url.searchParams.set("limit", String(props.limit));
-    url.searchParams.set("offset", String((page - 1) * props.limit));
-    const res = await fetch(url.toString(), { credentials: "same-origin", signal: abortCtl.signal });
+    const res = await apiClient.bases.$get(
+      {
+        query: {
+          q,
+          limit: String(props.limit),
+          offset: String((page - 1) * props.limit),
+        },
+      },
+      { init: { signal: abortCtl.signal } },
+    );
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load bases"));
-    const body = (await res.json()) as BaseListResponse;
+    const body = await res.json();
     setBases(body.items);
     setTotal(body.total);
     setOffset(body.offset);
@@ -80,7 +78,7 @@ export default function BasesOverview(props: Props) {
         json: { name: input.name, description: input.description || null },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create base"));
-      return (await res.json()) as Base;
+      return res.json();
     },
     onSuccess: (base) => navigateTo(`/app/grids/${base.shortId}`),
     onError: (e) => prompts.error(e.message),
@@ -96,7 +94,7 @@ export default function BasesOverview(props: Props) {
         },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create base from template"));
-      return (await res.json()) as Base;
+      return res.json();
     },
     onSuccess: (base) => navigateTo(`/app/grids/${base.shortId}`),
     onError: (e) => prompts.error(e.message),

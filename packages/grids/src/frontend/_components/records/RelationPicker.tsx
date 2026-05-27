@@ -1,6 +1,8 @@
 import { SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import type { RelationLookupItem } from "../../../contracts";
 
 /**
  * Relation picker — search-driven dropdown over a target table.
@@ -18,7 +20,7 @@ import { createSignal, For, onCleanup, Show } from "solid-js";
  *   have multi-mode yet). Selected records render as chips with an ×;
  *   the search field stays visible to allow appending more.
  */
-type LookupItem = { id: string; label: string };
+type LookupItem = RelationLookupItem;
 
 type Props = {
   /** Target table to search records of. */
@@ -45,19 +47,25 @@ type Props = {
  * single- and multi-mode can both use it.
  */
 const fetchLookup = async (targetTableId: string, q: string, excludeIds: string[], signal: AbortSignal): Promise<LookupItem[]> => {
-  const url = new URL(`/api/grids/tables/${targetTableId}/lookup`, window.location.origin);
-  if (q) url.searchParams.set("q", q);
-  if (excludeIds.length > 0) url.searchParams.set("excludeIds", excludeIds.join(","));
-  url.searchParams.set("limit", "10");
-  const res = await fetch(url.toString(), { credentials: "same-origin", signal });
+  const res = await apiClient.tables[":tableId"].lookup.$get(
+    {
+      param: { tableId: targetTableId },
+      query: {
+        q,
+        excludeIds: excludeIds.join(","),
+        limit: "10",
+      },
+    },
+    { init: { signal } },
+  );
   if (!res.ok) {
     if (res.status === 403) {
       throw new Error("You do not have permission to choose records from this table.");
     }
     throw new Error("Could not load linked records.");
   }
-  const data = (await res.json()) as { items: LookupItem[] };
-  return data.items ?? [];
+  const data = await res.json();
+  return data.items;
 };
 
 export default function RelationPicker(props: Props) {

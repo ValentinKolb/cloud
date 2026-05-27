@@ -2,7 +2,7 @@ import { ssr } from "../../config";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import AccountsNavSidebar from "../AccountsNavSidebar";
@@ -51,9 +51,22 @@ export default ssr<AuthContext>(async (c) => {
     const query = params.toString();
     return query ? `/app/accounts/reminders?${query}&page=` : "/app/accounts/reminders?page=";
   })();
+  type ReminderRow = (typeof remindersPage.items)[number];
+  const columns: DataTableColumn<ReminderRow>[] = [
+    { id: "user", header: "User", value: (entry) => entry.displayName || entry.uid || "(deleted user)" },
+    { id: "kind", header: "Kind", value: () => "Account expiry" },
+    { id: "target", header: "Target expiry", value: (entry) => entry.targetExpiryAt, cellClass: "whitespace-nowrap" },
+    { id: "status", header: "Status", value: (entry) => entry.status },
+    { id: "attempts", header: "Attempts", value: (entry) => entry.attemptCount },
+    { id: "lastAttempt", header: "Last attempt", value: (entry) => entry.lastAttemptAt, cellClass: "whitespace-nowrap" },
+  ];
 
   return () => (
-    <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Reminder History" }]}>
+    <Layout
+      c={c}
+      fullWidth
+      title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Reminder History" }]}
+    >
       <div class="app-cols h-full">
         <AccountsNavSidebar active="reminders" isAdmin pendingRequests={pendingRequestsPage.total} />
 
@@ -61,7 +74,9 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-col gap-2">
             <div class="min-w-0" style="view-transition-name: accounts-reminders-title">
               <h1 class="text-base font-semibold text-primary">Reminder History</h1>
-              <p class="mt-1 text-xs text-dimmed">{remindersPage.total} {remindersPage.total === 1 ? "entry" : "entries"}</p>
+              <p class="mt-1 text-xs text-dimmed">
+                {remindersPage.total} {remindersPage.total === 1 ? "entry" : "entries"}
+              </p>
             </div>
 
             <div style="view-transition-name: accounts-reminders-search">
@@ -81,35 +96,39 @@ export default ssr<AuthContext>(async (c) => {
               <div class="paper p-6 text-center text-sm text-dimmed">No reminder history entries found.</div>
             ) : (
               <div class="paper overflow-hidden" style="view-transition-name: accounts-reminders-table">
-                <div class="overflow-x-auto">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">User</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Kind</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Target expiry</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Status</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Attempts</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Last attempt</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {remindersPage.items.map((entry) => (
-                        <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                          <td class="px-3 py-1.5">
-                            <div class="truncate font-medium text-primary">{entry.displayName || entry.uid || "(deleted user)"}</div>
-                            {entry.lastError ? <div class="truncate text-[11px] text-red-500" title={entry.lastError}>{entry.lastError}</div> : null}
-                          </td>
-                          <td class="px-3 py-1.5 text-dimmed">Account expiry</td>
-                          <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{dates.formatDateTime(entry.targetExpiryAt)} · {entry.thresholdDays}d</td>
-                          <td class="px-3 py-1.5 text-dimmed">{entry.status}</td>
-                          <td class="px-3 py-1.5 text-dimmed">{entry.attemptCount}</td>
-                          <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{entry.lastAttemptAt ? dates.formatDateTime(entry.lastAttemptAt) : "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  rows={remindersPage.items}
+                  columns={columns}
+                  getRowId={(entry) => entry.id}
+                  hoverRows
+                  class="overflow-x-auto"
+                  renderCell={({ row: entry, col }) => {
+                    if (col.id === "user") {
+                      return (
+                        <div>
+                          <div class="truncate font-medium text-primary">{entry.displayName || entry.uid || "(deleted user)"}</div>
+                          {entry.lastError ? (
+                            <div class="truncate text-[11px] text-red-500" title={entry.lastError}>
+                              {entry.lastError}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    }
+                    if (col.id === "kind") return <span class="text-dimmed">Account expiry</span>;
+                    if (col.id === "target")
+                      return (
+                        <span class="text-dimmed">
+                          {dates.formatDateTime(entry.targetExpiryAt)} · {entry.thresholdDays}d
+                        </span>
+                      );
+                    if (col.id === "status") return <span class="text-dimmed">{entry.status}</span>;
+                    if (col.id === "attempts") return <span class="text-dimmed">{entry.attemptCount}</span>;
+                    if (col.id === "lastAttempt")
+                      return <span class="text-dimmed">{entry.lastAttemptAt ? dates.formatDateTime(entry.lastAttemptAt) : "-"}</span>;
+                    return "";
+                  }}
+                />
               </div>
             )}
 

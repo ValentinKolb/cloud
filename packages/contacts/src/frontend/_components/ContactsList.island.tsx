@@ -1,4 +1,5 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { resolveContactName } from "../../shared";
 import type { Contact } from "../../service";
 import { CONTACT_DETAIL_EVENT, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
@@ -18,7 +19,15 @@ const stopRowSelection = (event: MouseEvent) => {
 };
 
 export default function ContactsList(props: Props) {
-  const [selectedKey, setSelectedKey] = createSignal<string | null>(contactKey(props.initialSelectedContactId, props.initialSelectedBookId));
+  const [selectedKey, setSelectedKey] = createSignal<string | null>(
+    contactKey(props.initialSelectedContactId, props.initialSelectedBookId),
+  );
+  const columns: DataTableColumn<Contact>[] = [
+    { id: "name", header: "Name", value: resolveContactName },
+    { id: "company", header: "Company", value: (contact) => contact.companyName, class: "hidden md:table-cell" },
+    { id: "phone", header: "Phone", value: primaryPhone, class: "hidden lg:table-cell", cellClass: "whitespace-nowrap" },
+    { id: "email", header: "Email", value: primaryEmail, class: "hidden xl:table-cell" },
+  ];
 
   const selectContact = (contact: Contact) => {
     setSelectedKey(contactKey(contact.id, contact.bookId));
@@ -27,12 +36,6 @@ export default function ContactsList(props: Props) {
       bookId: contact.bookId,
       contact,
     });
-  };
-
-  const handleRowKeyDown = (event: KeyboardEvent, contact: Contact) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    selectContact(contact);
   };
 
   onMount(() => {
@@ -66,88 +69,76 @@ export default function ContactsList(props: Props) {
           </p>
         }
       >
-        <div class="overflow-x-auto">
-          <table class="w-full text-xs">
-            <thead>
-              <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                <th class="px-3 py-1.5 text-left font-medium text-dimmed">Name</th>
-                <th class="hidden md:table-cell px-3 py-1.5 text-left font-medium text-dimmed">Company</th>
-                <th class="hidden lg:table-cell px-3 py-1.5 text-left font-medium text-dimmed">Phone</th>
-                <th class="hidden xl:table-cell px-3 py-1.5 text-left font-medium text-dimmed">Email</th>
-              </tr>
-            </thead>
-            <tbody>
-              {props.contacts.map((contact) => {
-                const key = contactKey(contact.id, contact.bookId);
-                const active = () => selectedKey() === key;
-                const email = primaryEmail(contact);
-                const phone = primaryPhone(contact);
-
-                return (
-                  <tr
-                    class={`group cursor-pointer border-b border-zinc-50 dark:border-zinc-800/50 last:border-0 ${
-                      active() ? "bg-blue-50 dark:bg-blue-900/20" : "hover:bg-zinc-50 dark:hover:bg-zinc-800/30"
-                    }`}
-                    role="button"
-                    tabIndex={0}
-                    aria-current={active() ? "true" : undefined}
-                    onClick={() => selectContact(contact)}
-                    onKeyDown={(event) => handleRowKeyDown(event, contact)}
-                  >
-                    <td class="px-3 py-1.5 font-medium text-primary">
-                      <div class="flex flex-col gap-0.5">
-                        <span class="truncate group-hover:underline">{resolveContactName(contact)}</span>
-                        <div class="flex flex-wrap items-center gap-1">
-                          <Show when={contact.parent}>
-                            {(parent) => (
-                              <span
-                                class="inline-flex w-fit items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                                title={`Belongs to ${resolveContactName(parent())}`}
-                              >
-                                <i class="ti ti-corner-down-right text-[9px]" />
-                                {resolveContactName(parent())}
-                              </span>
-                            )}
-                          </Show>
-                          <For each={contact.tags}>
-                            {(tag) => (
-                              <span
-                                class="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-normal"
-                                style={`background-color: ${tag.color}1f; color: ${tag.color}`}
-                              >
-                                <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
-                                {tag.name}
-                              </span>
-                            )}
-                          </For>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="hidden md:table-cell px-3 py-1.5 text-dimmed">
-                      <Show when={contact.companyName} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
-                        <span class="truncate">{contact.companyName}</span>
-                      </Show>
-                    </td>
-                    <td class="hidden lg:table-cell px-3 py-1.5 text-dimmed whitespace-nowrap">
-                      <Show when={phone} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
-                        <a href={`tel:${phone!}`} class="hover:text-blue-500" onClick={stopRowSelection}>
-                          {phone}
-                        </a>
-                      </Show>
-                    </td>
-                    <td class="hidden xl:table-cell px-3 py-1.5 text-dimmed">
-                      <Show when={email} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
-                        <a href={`mailto:${email!}`} class="truncate hover:text-blue-500" onClick={stopRowSelection}>
-                          {email}
-                        </a>
-                      </Show>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          rows={props.contacts}
+          columns={columns}
+          getRowId={(contact) => contactKey(contact.id, contact.bookId) ?? contact.id}
+          selectedRowId={selectedKey()}
+          onRowClick={selectContact}
+          density="compact"
+          class="overflow-x-auto"
+          renderCell={({ row: contact, col }) => {
+            if (col.id === "name") {
+              return (
+                <div class="flex flex-col gap-0.5">
+                  <span class="truncate font-medium text-primary hover:underline">{resolveContactName(contact)}</span>
+                  <div class="flex flex-wrap items-center gap-1">
+                    <Show when={contact.parent}>
+                      {(parent) => (
+                        <span
+                          class="inline-flex w-fit items-center gap-1 rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-normal text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                          title={`Belongs to ${resolveContactName(parent())}`}
+                        >
+                          <i class="ti ti-corner-down-right text-[9px]" />
+                          {resolveContactName(parent())}
+                        </span>
+                      )}
+                    </Show>
+                    <For each={contact.tags}>
+                      {(tag) => (
+                        <span
+                          class="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-normal"
+                          style={`background-color: ${tag.color}1f; color: ${tag.color}`}
+                        >
+                          <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+                          {tag.name}
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              );
+            }
+            if (col.id === "company") {
+              return (
+                <Show when={contact.companyName} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
+                  <span class="truncate text-dimmed">{contact.companyName}</span>
+                </Show>
+              );
+            }
+            if (col.id === "phone") {
+              const phone = primaryPhone(contact);
+              return (
+                <Show when={phone} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
+                  <a href={`tel:${phone!}`} class="text-dimmed hover:text-blue-500" onClick={stopRowSelection}>
+                    {phone}
+                  </a>
+                </Show>
+              );
+            }
+            if (col.id === "email") {
+              const email = primaryEmail(contact);
+              return (
+                <Show when={email} fallback={<span class="text-zinc-400 dark:text-zinc-500">-</span>}>
+                  <a href={`mailto:${email!}`} class="truncate text-dimmed hover:text-blue-500" onClick={stopRowSelection}>
+                    {email}
+                  </a>
+                </Show>
+              );
+            }
+            return "";
+          }}
+        />
       </Show>
     </div>
   );

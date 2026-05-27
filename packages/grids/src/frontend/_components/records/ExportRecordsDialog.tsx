@@ -1,6 +1,8 @@
 import { prompts } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { ExportBody, Field, ViewQuery } from "../../../contracts";
+import { errorMessage } from "../utils/api-helpers";
 
 type RowState = {
   fieldId: string;
@@ -68,9 +70,10 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
     const targetIds = [...new Set(props.fields.map(relationTargetTableId).filter((id): id is string => !!id))];
     void Promise.all(
       targetIds.map(async (tableId) => {
-        const res = await fetch(`/api/grids/fields/by-table/${tableId}`);
+        const res = await apiClient.fields["by-table"][":tableId"].$get({ param: { tableId } });
         if (!res.ok) return [tableId, []] as const;
-        return [tableId, ((await res.json()) as Field[]).filter((f) => !f.deletedAt)] as const;
+        const fields = await res.json();
+        return [tableId, fields.filter((f) => !f.deletedAt)] as const;
       }),
     ).then((entries) => setTargetFields(Object.fromEntries(entries)));
   });
@@ -117,15 +120,13 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
     setBusy(true);
     setError(null);
     try {
+      // Blob download exception: native fetch keeps access to body + download headers.
       const res = await fetch(`/api/grids/records/by-table/${props.tableId}/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(data?.message ?? "Export failed");
-      }
+      if (!res.ok) throw new Error(await errorMessage(res, "Export failed"));
       const blob = await res.blob();
       downloadBlob(blob, filenameFromDisposition(res.headers.get("Content-Disposition"), `grids-export.${format()}`));
       props.close();

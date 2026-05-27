@@ -153,7 +153,7 @@ export default function FormsManager(props: Props) {
       prompts.error(await errorMessage(res, "Failed to create form"));
       return;
     }
-    const created = (await res.json()) as Form;
+    const created = await res.json();
     updateForms([...forms(), created]);
     // Open the editor modal immediately so the user can configure the
     // newly created form. Mirrors the pre-modal auto-expand behaviour.
@@ -326,7 +326,7 @@ function FormEditor(props: {
         },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save form"));
-      return (await res.json()) as Form;
+      return res.json();
     },
     onSuccess: (next) => {
       setDirty(false);
@@ -819,11 +819,11 @@ function FormPermissions(props: { formId: string; initialEntries: AccessEntry[];
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = (await res.json()) as { accessId: string };
+        const created = await res.json();
         const listRes = await apiClient.access["by-form"][":formId"].$get({
           param: { formId: props.formId },
         });
-        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        const list = listRes.ok ? await listRes.json() : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}

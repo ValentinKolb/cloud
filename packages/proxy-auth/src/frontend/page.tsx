@@ -4,7 +4,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import CreateProxyClient from "./_components/CreateProxyClient.island";
 import ProxyClientActions from "./_components/ProxyClientActions.island";
-import { StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { DataTable, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { proxyAuthService } from "../service";
 
 export default ssr<AuthContext>(async (c) => {
@@ -22,6 +22,14 @@ export default ssr<AuthContext>(async (c) => {
 
   const totalAllowedGroups = clients.reduce((sum, c) => sum + c.allowedGroups.length, 0);
   const clientsWithoutGroups = clients.filter((c) => c.allowedGroups.length === 0).length;
+  type ClientRow = (typeof clients)[number];
+  const columns: DataTableColumn<ClientRow>[] = [
+    { id: "client", header: "Client", value: (client) => client.name },
+    { id: "description", header: "Description", value: (client) => client.description, cellClass: "max-w-[18rem]" },
+    { id: "groups", header: "Allowed groups", value: (client) => client.allowedGroups.length },
+    { id: "created", header: "Created", value: (client) => client.createdAt, cellClass: "whitespace-nowrap" },
+    { id: "actions", header: <span class="sr-only">Actions</span>, headerClass: "w-px text-right", cellClass: "text-right whitespace-nowrap" },
+  ];
 
   return () => (
     <AdminLayout c={c} title="Proxy Auth" stretch>
@@ -52,27 +60,19 @@ export default ssr<AuthContext>(async (c) => {
 
           {clients.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-proxy-auth-table">
-              <div class="overflow-x-auto">
-                <table class="w-full text-xs">
-                  <thead>
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Client</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Allowed groups</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Created</th>
-                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
-                        <span class="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {clients.map((client) => (
-                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                        <td class="px-3 py-1.5 font-medium text-primary">{client.name}</td>
-                        <td class="max-w-[18rem] truncate px-3 py-1.5 text-dimmed" title={client.description || "No description"}>
-                          {client.description || <span class="italic">No description</span>}
-                        </td>
-                        <td class="px-3 py-1.5">
+              <DataTable
+                rows={clients}
+                columns={columns}
+                getRowId={(client) => client.id}
+                hoverRows
+                class="overflow-x-auto"
+                renderCell={({ row: client, col }) => {
+                  if (col.id === "client") return <span class="font-medium text-primary">{client.name}</span>;
+                  if (col.id === "description") {
+                    return <span class="text-dimmed" title={client.description || "No description"}>{client.description || <span class="italic">No description</span>}</span>;
+                  }
+                  if (col.id === "groups") {
+                    return (
                           <div class="flex flex-wrap gap-1">
                             {client.allowedGroups.map((group) => (
                               <span class="rounded bg-cyan-100 px-1.5 py-0.5 text-[10px] text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400">
@@ -80,16 +80,13 @@ export default ssr<AuthContext>(async (c) => {
                               </span>
                             ))}
                           </div>
-                        </td>
-                        <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{formatDate(client.createdAt)}</td>
-                        <td class="px-3 py-1.5 text-right">
-                          <ProxyClientActions client={client} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    );
+                  }
+                  if (col.id === "created") return <span class="text-dimmed">{formatDate(client.createdAt)}</span>;
+                  if (col.id === "actions") return <ProxyClientActions client={client} />;
+                  return "";
+                }}
+              />
             </section>
           ) : (
             <section class="paper p-6 text-center text-sm text-dimmed">

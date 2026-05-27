@@ -3,16 +3,11 @@ import { accountsAppService as accountsService, coreSettings } from "@valentinko
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import NewGroup from "./NewGroup.island";
 import GroupsScopeFilter from "./GroupsScopeFilter.island";
-import {
-  buildGroupDetailUrl,
-  buildGroupsUrl,
-  buildGroupsPageBaseUrl,
-  parseGroupsListState,
-} from "../lib/url-state";
+import { buildGroupDetailUrl, buildGroupsUrl, buildGroupsPageBaseUrl, parseGroupsListState } from "../lib/url-state";
 import AccountsNavSidebar from "../AccountsNavSidebar";
 import { getProviderBadge } from "../lib/account-badges";
 
@@ -52,6 +47,13 @@ export default ssr<AuthContext>(async (c) => {
     { search: listState.search, provider: listState.provider, scope: listState.scope },
     { defaultScope },
   );
+  type GroupRow = (typeof groupsPage.items)[number];
+  const columns: DataTableColumn<GroupRow>[] = [
+    { id: "group", header: "Group", value: (group) => group.name },
+    { id: "description", header: "Description", value: (group) => group.description, cellClass: "max-w-[22rem]" },
+    { id: "managedBy", header: "Managed by", value: (group) => getProviderBadge(group.provider).label },
+    { id: "flags", header: "Flags", value: (group) => group.gidnumber },
+  ];
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Groups" }]}>
@@ -62,7 +64,9 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-col gap-2">
             <div class="min-w-0" style="view-transition-name: accounts-groups-title">
               <h1 class="text-base font-semibold text-primary">Groups</h1>
-              <p class="mt-1 text-xs text-dimmed">{groupsPage.total} {listState.search ? "results" : "groups"}</p>
+              <p class="mt-1 text-xs text-dimmed">
+                {groupsPage.total} {listState.search ? "results" : "groups"}
+              </p>
             </div>
 
             <div style="view-transition-name: accounts-groups-search">
@@ -84,58 +88,66 @@ export default ssr<AuthContext>(async (c) => {
                   ? "You do not manage any groups yet."
                   : listState.search
                     ? "No groups found."
-                  : "No groups available in this view."}
+                    : "No groups available in this view."}
               </div>
             ) : (
               <div class="paper overflow-hidden" style="view-transition-name: accounts-groups-table">
-                <div class="overflow-x-auto">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Group</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Description</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Managed by</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Flags</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupsPage.items.map((group) => {
-                        const isManaged = sessionUser.managesGroupIds.includes(group.id);
-                        const providerBadge = getProviderBadge(group.provider);
-                        const href = buildGroupDetailUrl(group.id, listState, { defaultScope });
-                        return (
-                          <tr class="group border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                            <td class="p-0">
-                              <a href={href} class="flex items-center gap-2 truncate px-3 py-1.5 font-medium text-primary group-hover:underline">
-                                <i class={`ti shrink-0 text-sm ${isManaged ? "ti-user-edit text-blue-500" : "ti-users-group text-dimmed"}`} />
-                                <span class="truncate">{group.name}</span>
-                              </a>
-                            </td>
-                            <td class="max-w-[22rem] p-0 text-dimmed">
-                              <a href={href} class="block truncate px-3 py-1.5" title={group.description || "No description"} tabindex={-1}>
-                                {group.description || <span class="italic">No description</span>}
-                              </a>
-                            </td>
-                            <td class="p-0">
-                              <a href={href} class="block px-3 py-1.5" tabindex={-1}>
-                                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{providerBadge.label}</span>
-                              </a>
-                            </td>
-                            <td class="p-0">
-                              <a href={href} class="block px-3 py-1.5" tabindex={-1}>
-                                <div class="flex flex-wrap gap-1">
-                                  {isManaged ? <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">Managed</span> : null}
-                                  {group.gidnumber ? <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">POSIX</span> : null}
-                                  {!isManaged && !group.gidnumber ? <span class="text-dimmed">-</span> : null}
-                                </div>
-                              </a>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  rows={groupsPage.items}
+                  columns={columns}
+                  getRowId={(group) => group.id}
+                  hoverRows
+                  class="overflow-x-auto"
+                  renderCell={({ row: group, col }) => {
+                    const isManaged = sessionUser.managesGroupIds.includes(group.id);
+                    const href = buildGroupDetailUrl(group.id, listState, { defaultScope });
+                    if (col.id === "group") {
+                      return (
+                        <a href={href} class="flex items-center gap-2 truncate font-medium text-primary hover:underline">
+                          <i class={`ti shrink-0 text-sm ${isManaged ? "ti-user-edit text-blue-500" : "ti-users-group text-dimmed"}`} />
+                          <span class="truncate">{group.name}</span>
+                        </a>
+                      );
+                    }
+                    if (col.id === "description") {
+                      return (
+                        <a href={href} class="block truncate text-dimmed" title={group.description || "No description"} tabindex={-1}>
+                          {group.description || <span class="italic">No description</span>}
+                        </a>
+                      );
+                    }
+                    if (col.id === "managedBy") {
+                      const providerBadge = getProviderBadge(group.provider);
+                      return (
+                        <a href={href} class="block" tabindex={-1}>
+                          <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>
+                            {providerBadge.label}
+                          </span>
+                        </a>
+                      );
+                    }
+                    if (col.id === "flags") {
+                      return (
+                        <a href={href} class="block" tabindex={-1}>
+                          <div class="flex flex-wrap gap-1">
+                            {isManaged ? (
+                              <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                Managed
+                              </span>
+                            ) : null}
+                            {group.gidnumber ? (
+                              <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                                POSIX
+                              </span>
+                            ) : null}
+                            {!isManaged && !group.gidnumber ? <span class="text-dimmed">-</span> : null}
+                          </div>
+                        </a>
+                      );
+                    }
+                    return "";
+                  }}
+                />
               </div>
             )}
 

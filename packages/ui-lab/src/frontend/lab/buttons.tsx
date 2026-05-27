@@ -16,7 +16,7 @@ import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
 
-const ButtonSizes = () => (
+export const ButtonSizes = () => (
   <DemoCard
     id="btn-sizes"
     chip={[
@@ -38,7 +38,7 @@ const ButtonSizes = () => (
   </DemoCard>
 );
 
-const ButtonVariants = () => (
+export const ButtonVariants = () => (
   <DemoCard
     id="btn-variants"
     chip={[
@@ -75,7 +75,7 @@ const ButtonVariants = () => (
   </DemoCard>
 );
 
-const ButtonInputs = () => (
+export const ButtonInputs = () => (
   <DemoCard
     id="btn-input"
     chip={[
@@ -105,7 +105,7 @@ const ButtonInputs = () => (
   </DemoCard>
 );
 
-const IconButtons = () => (
+export const IconButtons = () => (
   <DemoCard
     id="icon-btn"
     chip={{ kind: "utility", name: "icon-btn" }}
@@ -128,7 +128,7 @@ const IconButtons = () => (
   </DemoCard>
 );
 
-const IconButtonsActive = () => {
+export const IconButtonsActive = () => {
   const [view, setView] = createSignal<"grid" | "list">("grid");
   return (
     <DemoCard
@@ -168,7 +168,7 @@ const IconButtonsActive = () => {
   );
 };
 
-const ButtonsWithIcons = () => (
+export const ButtonsWithIcons = () => (
   <DemoCard
     id="btn-icons"
     chip={{ kind: "utility", name: "btn-primary" }}
@@ -195,7 +195,7 @@ const ButtonsWithIcons = () => (
   </DemoCard>
 );
 
-const CopyButtonDemo = () => (
+export const CopyButtonDemo = () => (
   <DemoCard
     id="copybutton"
     chip={{ kind: "component", name: "CopyButton", from: FROM_UI }}
@@ -210,7 +210,7 @@ const CopyButtonDemo = () => (
   </DemoCard>
 );
 
-const RemoveBtnDemo = () => {
+export const RemoveBtnDemo = () => {
   const [count, setCount] = createSignal(0);
   return (
     <DemoCard
@@ -227,7 +227,7 @@ const RemoveBtnDemo = () => {
   );
 };
 
-const DropdownDemo = () => {
+export const DropdownDemo = () => {
   const [last, setLast] = createSignal<string | null>(null);
   const items: DropdownItem[] = [
     { label: "Edit", icon: "ti ti-pencil", action: () => setLast("edit") },
@@ -264,7 +264,7 @@ const DropdownDemo = () => {
   );
 };
 
-const ContextMenuDemo = () => {
+export const ContextMenuDemo = () => {
   const [last, setLast] = createSignal<string | null>(null);
   return (
     <DemoCard
@@ -296,7 +296,7 @@ const ContextMenuDemo = () => {
   );
 };
 
-const SegmentedControlDemo = () => {
+export const SegmentedControlDemo = () => {
   const [v, setV] = createSignal<"list" | "board" | "calendar">("board");
   return (
     <DemoCard

@@ -1,16 +1,28 @@
-export * from "./misc";
-export * from "./input";
-export * from "./filter";
-export * from "./widgets";
-export { currentPathWithQuery, refreshCurrentPath, navigateTo } from "./navigation";
-export { SettingsField, SettingsSaveBar, sameSettingValue, readSettingsError } from "./admin-settings";
 export type { SettingsFieldProps, SettingsSaveBarProps } from "./admin-settings";
-export { prompts, DialogHeader, createFormState } from "./prompts";
-export type { PromptSearchItem, PromptSearchInput, PromptSearchOptions } from "./prompts";
-export { toast } from "./toast";
+export { readSettingsError, SettingsField, SettingsSaveBar, sameSettingValue } from "./admin-settings";
+export type { DialogClose, DialogCore, DialogRender, OpenDialogOptions } from "./dialog-core";
+export { createDialogCore, dialogCore } from "./dialog-core";
+export * from "./filter";
+export * from "./input";
+export * from "./misc";
+export type { LinkNavigateEvent, LinkProps } from "./NavigationLink";
+export { Link } from "./NavigationLink";
+export type { EnhancedNavigateOptions, NavigationScrollMode, ScrollSnapshot } from "./navigation";
+export {
+  captureScroll,
+  currentPathWithQuery,
+  documentNavigate,
+  navigate,
+  navigateTo,
+  refreshCurrentPath,
+  restoreScroll,
+  startViewTransition,
+} from "./navigation";
+export type { PromptSearchInput, PromptSearchItem, PromptSearchOptions } from "./prompts";
+export { createFormState, DialogHeader, prompts } from "./prompts";
 export type { ToastFn, ToastHandle, ToastOptions, ToastVariant } from "./toast";
-export { dialogCore, createDialogCore } from "./dialog-core";
-export type { DialogClose, OpenDialogOptions, DialogRender, DialogCore } from "./dialog-core";
+export { toast } from "./toast";
+export * from "./widgets";
 // NOTE: islands (*.island.tsx) belong inside the consuming app's package, not
 // in cloud-lib. The SSR plugin discovers islands by import-path suffix; barrel
 // re-exports strip the `.island` segment and silently break hydration. Apps

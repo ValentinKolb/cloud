@@ -15,7 +15,7 @@ const FROM_UI = "@valentinkolb/cloud/ui";
 
 /* ── Chart variants ───────────────────────────────────────── */
 
-const ChartLine = () => {
+export const ChartLine = () => {
   const lineSeries = [
     {
       label: "Revenue",
@@ -66,7 +66,7 @@ const ChartLine = () => {
   );
 };
 
-const ChartBar = () => {
+export const ChartBar = () => {
   const data = [
     { label: "Mon", value: 42 },
     { label: "Tue", value: 51 },
@@ -88,7 +88,7 @@ const ChartBar = () => {
   );
 };
 
-const ChartDonut = () => {
+export const ChartDonut = () => {
   const data = [
     { label: "Direct", value: 412 },
     { label: "Search", value: 287 },
@@ -108,7 +108,7 @@ const ChartDonut = () => {
   );
 };
 
-const ChartSparkline = () => (
+export const ChartSparkline = () => (
   <DemoCard
     id="chart-sparkline"
     variant="sparklines (inline trends)"
@@ -145,7 +145,7 @@ const ChartSparkline = () => (
   </DemoCard>
 );
 
-const ChartLive = () => {
+export const ChartLive = () => {
   const [data, setData] = createSignal<{ x: number; y: number }[]>(
     Array.from({ length: 20 }, (_, i) => ({ x: i, y: 50 + Math.sin(i / 2) * 15 })),
   );
@@ -175,7 +175,7 @@ setInterval(() => setData(prev => [...prev.slice(1), nextPoint]), 1000);
   );
 };
 
-const ChartEmpty = () => (
+export const ChartEmpty = () => (
   <DemoCard
     id="chart-empty"
     variant="empty-state fallback"
@@ -216,7 +216,7 @@ const statusClass = (status: TableDemoRow["status"]) =>
     delivered: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   })[status];
 
-const DataTableFullDemo = () => {
+export const DataTableFullDemo = () => {
   const columns: DataTableColumn<TableDemoRow>[] = [
     { id: "customer", header: "Customer", subtitle: "text", value: "customer" },
     { id: "status", header: "Status", subtitle: "select", value: "status" },
@@ -283,7 +283,7 @@ const DataTableFullDemo = () => {
   );
 };
 
-const DataTableMinimalDemo = () => {
+export const DataTableMinimalDemo = () => {
   const rows = [
     { name: "Alpha", value: 12, active: true },
     { name: "Beta", value: 8, active: false },
@@ -311,7 +311,7 @@ const DataTableMinimalDemo = () => {
 
 /* ── Markdown rendering ───────────────────────────────────── */
 
-const MarkdownViewDemo = (props: { html: string }) => (
+export const MarkdownViewDemo = (props: { html: string }) => (
   <DemoCard
     id="markdownview"
     chip={{ kind: "component", name: "MarkdownView", from: FROM_UI }}
@@ -326,7 +326,7 @@ const html = markdown.render("# Hello\\n\\nA paragraph.");
   </DemoCard>
 );
 
-const MarkdownEditorFullDemo = () => {
+export const MarkdownEditorFullDemo = () => {
   const [v, setV] = createSignal(
     [
       "# Email composer",

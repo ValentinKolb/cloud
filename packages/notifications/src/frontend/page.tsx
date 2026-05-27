@@ -3,7 +3,7 @@ import { type AuthContext } from "@valentinkolb/cloud/server";
 import { createPagination } from "@valentinkolb/cloud/contracts";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import NotificationActions from "./_components/NotificationActions.island";
 import SendAllPending from "./_components/SendAllPending.island";
@@ -64,6 +64,20 @@ export default ssr<AuthContext>(async (c) => {
         );
     }
   };
+  type NotificationRow = (typeof notifs)[number];
+  const columns: DataTableColumn<NotificationRow>[] = [
+    { id: "status", header: "Status", value: (notification) => notification.status },
+    { id: "recipient", header: "Recipient", value: (notification) => notification.recipient, cellClass: "font-mono text-[11px]" },
+    { id: "subject", header: "Subject", value: (notification) => notification.subject, cellClass: "max-w-[28rem]" },
+    { id: "sentBy", header: "Sent by", value: (notification) => notification.sentByName },
+    { id: "created", header: "Created", value: (notification) => notification.createdAt, cellClass: "whitespace-nowrap" },
+    {
+      id: "actions",
+      header: <span class="sr-only">Actions</span>,
+      headerClass: "w-px text-right",
+      cellClass: "text-right whitespace-nowrap",
+    },
+  ];
 
   return () => (
     <AdminLayout c={c} title="Notifications" stretch>
@@ -84,45 +98,40 @@ export default ssr<AuthContext>(async (c) => {
 
           {notifs.length > 0 ? (
             <section class="paper overflow-hidden" style="view-transition-name: admin-notifications-table">
-              <div class="overflow-x-auto">
-                <table class="w-full text-xs">
-                  <thead>
-                    <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Status</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Recipient</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Subject</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Sent by</th>
-                      <th class="px-3 py-2 text-left font-medium text-dimmed">Created</th>
-                      <th class="w-px px-3 py-2 text-right font-medium text-dimmed">
-                        <span class="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {notifs.map((notification) => (
-                      <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                        <td class="px-3 py-1.5">{getStatusBadge(notification.status)}</td>
-                        <td class="px-3 py-1.5 font-mono text-[11px]">{notification.recipient}</td>
-                        <td class="max-w-[28rem] truncate px-3 py-1.5 text-primary" title={notification.error ? `${notification.subject} · ${notification.error}` : notification.subject}>
-                          {notification.subject}
-                        </td>
-                        <td class="px-3 py-1.5 text-dimmed">{notification.sentByName ?? <span class="italic">System</span>}</td>
-                        <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{formatDate(notification.createdAt)}</td>
-                        <td class="px-3 py-1.5 text-right">
-                          <NotificationActions
-                            id={notification.id}
-                            status={notification.status}
-                            subject={notification.subject}
-                            content={notification.content}
-                            recipient={notification.recipient}
-                            isAdmin={hasRole(user, "admin")}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                rows={notifs}
+                columns={columns}
+                getRowId={(notification) => String(notification.id)}
+                hoverRows
+                class="overflow-x-auto"
+                renderCell={({ row: notification, col }) => {
+                  if (col.id === "status") return getStatusBadge(notification.status);
+                  if (col.id === "recipient") return notification.recipient;
+                  if (col.id === "subject") {
+                    return (
+                      <span title={notification.error ? `${notification.subject} · ${notification.error}` : notification.subject}>
+                        {notification.subject}
+                      </span>
+                    );
+                  }
+                  if (col.id === "sentBy")
+                    return <span class="text-dimmed">{notification.sentByName ?? <span class="italic">System</span>}</span>;
+                  if (col.id === "created") return <span class="text-dimmed">{formatDate(notification.createdAt)}</span>;
+                  if (col.id === "actions") {
+                    return (
+                      <NotificationActions
+                        id={notification.id}
+                        status={notification.status}
+                        subject={notification.subject}
+                        content={notification.content}
+                        recipient={notification.recipient}
+                        isAdmin={hasRole(user, "admin")}
+                      />
+                    );
+                  }
+                  return "";
+                }}
+              />
             </section>
           ) : (
             <section class="paper p-6 text-center text-sm text-dimmed">

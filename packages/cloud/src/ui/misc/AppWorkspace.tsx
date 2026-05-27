@@ -1,4 +1,6 @@
-import { children, createContext, createMemo, Show, useContext, type JSX } from "solid-js";
+import { children, createContext, createMemo, type JSX, Show, useContext } from "solid-js";
+import { Link, type LinkNavigateEvent, type LinkProps } from "../NavigationLink";
+import type { NavigationScrollMode } from "../navigation";
 
 const SIDEBAR_HEADER = Symbol("AppWorkspace.SidebarHeader");
 const SIDEBAR_MOBILE = Symbol("AppWorkspace.SidebarMobile");
@@ -71,6 +73,12 @@ export type AppWorkspaceSidebarMobileProps = {
   children: JSX.Element;
 };
 
+export type AppWorkspaceSidebarBodyProps = {
+  class?: string;
+  scrollPreserveKey?: string | false;
+  children: JSX.Element;
+};
+
 export type AppWorkspaceSidebarSectionProps = {
   title?: string;
   class?: string;
@@ -82,6 +90,10 @@ export type AppWorkspaceSidebarIconActionTone = "default" | "success" | "danger"
 
 export type AppWorkspaceSidebarItemProps = {
   href?: string;
+  navigation?: "enhanced" | "document";
+  replace?: boolean;
+  scroll?: NavigationScrollMode;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
   active?: boolean;
   activeClass?: string;
   icon?: string;
@@ -107,6 +119,10 @@ export type AppWorkspaceSidebarIconGridProps = {
 
 export type AppWorkspaceSidebarIconActionProps = {
   href?: string | null;
+  navigation?: "enhanced" | "document";
+  replace?: boolean;
+  scroll?: NavigationScrollMode;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
   icon: string;
   label: string;
   active?: boolean;
@@ -123,10 +139,10 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   SidebarHeader: (props: AppWorkspaceSidebarHeaderProps) => JSX.Element;
   SidebarMobile: (props: AppWorkspaceSidebarMobileProps) => JSX.Element;
   SidebarMobileItems: (props: { children: JSX.Element }) => JSX.Element;
-  SidebarMobileBody: (props: { class?: string; children: JSX.Element }) => JSX.Element;
+  SidebarMobileBody: (props: AppWorkspaceSidebarBodyProps) => JSX.Element;
   SidebarDesktop: (props: { children: JSX.Element }) => JSX.Element;
   SidebarSection: (props: AppWorkspaceSidebarSectionProps) => JSX.Element;
-  SidebarBody: (props: { class?: string; children: JSX.Element }) => JSX.Element;
+  SidebarBody: (props: AppWorkspaceSidebarBodyProps) => JSX.Element;
   SidebarFooter: (props: { class?: string; children: JSX.Element }) => JSX.Element;
   SidebarItem: (props: AppWorkspaceSidebarItemProps) => JSX.Element;
   SidebarIconGrid: (props: AppWorkspaceSidebarIconGridProps) => JSX.Element;
@@ -143,6 +159,32 @@ const collectSidebarSlots = (value: unknown): SidebarSlot[] => {
 const tablerIconClass = (icon: string | null | undefined, fallback: string): string => {
   const value = icon?.trim() || fallback;
   return value.startsWith("ti ") ? value : `ti ${value}`;
+};
+
+const shouldEnhanceNavigation = (href: string | null | undefined, mode: "enhanced" | "document" | undefined): href is string => {
+  if (!href || mode === "document") return false;
+  if (/^(https?:)?\/\//.test(href)) return false;
+  if (/^(mailto|tel|sms):/.test(href)) return false;
+  return true;
+};
+
+const linkEnhancementProps = (props: {
+  href: string;
+  navigation?: "enhanced" | "document";
+  replace?: boolean;
+  scroll?: NavigationScrollMode;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
+}): Pick<LinkProps, "replace" | "scroll" | "onNavigate"> | undefined => {
+  if (!shouldEnhanceNavigation(props.href, props.navigation)) return undefined;
+  return {
+    replace: props.replace,
+    scroll: props.scroll,
+    onNavigate:
+      props.onNavigate ??
+      ((nav) => {
+        nav.push();
+      }),
+  };
 };
 
 const detailWidthClass = (props: AppWorkspaceDetailProps): string => {
@@ -252,8 +294,12 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
 
 const AppWorkspaceSidebarMobileItems = (props: { children: JSX.Element }) => <div class="sidebar-mobile-actions">{props.children}</div>;
 
-const AppWorkspaceSidebarMobileBody = (props: { class?: string; children: JSX.Element }) => (
-  <div class={`mt-2 max-h-64 overflow-y-auto p-2 ${props.class ?? ""}`}>{props.children}</div>
+const scrollPreserveAttr = (key: string | false | undefined) => (key ? { "data-scroll-preserve": key } : {});
+
+const AppWorkspaceSidebarMobileBody = (props: AppWorkspaceSidebarBodyProps) => (
+  <div class={`mt-2 max-h-64 overflow-y-auto p-2 ${props.class ?? ""}`} {...scrollPreserveAttr(props.scrollPreserveKey)}>
+    {props.children}
+  </div>
 );
 
 const AppWorkspaceSidebarSection = (props: AppWorkspaceSidebarSectionProps) => (
@@ -265,8 +311,10 @@ const AppWorkspaceSidebarSection = (props: AppWorkspaceSidebarSectionProps) => (
   </section>
 );
 
-const AppWorkspaceSidebarBody = (props: { class?: string; children: JSX.Element }) => (
-  <div class={`sidebar-body ${props.class ?? ""}`}>{props.children}</div>
+const AppWorkspaceSidebarBody = (props: AppWorkspaceSidebarBodyProps) => (
+  <div class={`sidebar-body ${props.class ?? ""}`} {...scrollPreserveAttr(props.scrollPreserveKey)}>
+    {props.children}
+  </div>
 );
 
 const AppWorkspaceSidebarFooter = (props: { class?: string; children: JSX.Element }) => (
@@ -318,6 +366,14 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
         .filter(([, value]) => value !== null && value !== undefined)
         .map(([key, value]) => [`data-${key}`, String(value)]),
     );
+  const enhanced = (href: string) =>
+    linkEnhancementProps({
+      href,
+      navigation: props.navigation,
+      replace: props.replace,
+      scroll: props.scroll,
+      onNavigate: props.onNavigate,
+    });
 
   const content = (
     <>
@@ -355,9 +411,28 @@ const AppWorkspaceSidebarItem = (props: AppWorkspaceSidebarItemProps) => {
       }
     >
       {(href) => (
-        <a href={href()} class={className()} title={props.title} style={style()} onClick={props.onClick} {...dataAttrs()}>
-          {content}
-        </a>
+        <Show
+          when={enhanced(href())}
+          fallback={
+            <a href={href()} class={className()} title={props.title} style={style()} onClick={props.onClick} {...dataAttrs()}>
+              {content}
+            </a>
+          }
+        >
+          {(linkProps) => (
+            <Link
+              href={href()}
+              {...linkProps()}
+              class={className()}
+              title={props.title}
+              style={style()}
+              onClick={props.onClick}
+              {...dataAttrs()}
+            >
+              {content}
+            </Link>
+          )}
+        </Show>
       )}
     </Show>
   );
@@ -369,6 +444,14 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
   const style = () => (props.viewTransitionName ? `view-transition-name:${props.viewTransitionName}` : undefined);
   const content = <i class={`${tablerIconClass(props.icon, "ti-circle")} text-base`} />;
   const href = () => (props.href && !props.disabled ? props.href : null);
+  const enhanced = (href: string) =>
+    linkEnhancementProps({
+      href,
+      navigation: props.navigation,
+      replace: props.replace,
+      scroll: props.scroll,
+      onNavigate: props.onNavigate,
+    });
 
   return (
     <Show
@@ -388,9 +471,28 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
       }
     >
       {(href) => (
-        <a href={href()} class={className()} title={props.label} aria-label={props.label} style={style()} onClick={props.onClick}>
-          {content}
-        </a>
+        <Show
+          when={enhanced(href())}
+          fallback={
+            <a href={href()} class={className()} title={props.label} aria-label={props.label} style={style()} onClick={props.onClick}>
+              {content}
+            </a>
+          }
+        >
+          {(linkProps) => (
+            <Link
+              href={href()}
+              {...linkProps()}
+              class={className()}
+              title={props.label}
+              aria-label={props.label}
+              style={style()}
+              onClick={props.onClick}
+            >
+              {content}
+            </Link>
+          )}
+        </Show>
       )}
     </Show>
   );

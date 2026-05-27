@@ -5,8 +5,11 @@
  */
 export const errorMessage = async (res: Response, fallback: string): Promise<string> => {
   try {
-    const data = (await res.json()) as { message?: string };
-    if (typeof data.message === "string" && data.message.length > 0) return data.message;
+    const data: unknown = await res.json();
+    if (data && typeof data === "object") {
+      const message = Object.getOwnPropertyDescriptor(data, "message")?.value;
+      if (typeof message === "string" && message.length > 0) return message;
+    }
   } catch {}
   return fallback;
 };

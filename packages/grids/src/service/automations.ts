@@ -624,6 +624,7 @@ export const execute = async (params: {
     const timeoutMs = Math.min(automation.action.timeoutMs ?? DEFAULT_WEBHOOK_TIMEOUT_MS, MAX_WEBHOOK_TIMEOUT_MS);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      // External webhook target; typed Hono client only covers Grids API calls.
       const response = await fetch(automation.action.url, {
         method: "POST",
         headers,

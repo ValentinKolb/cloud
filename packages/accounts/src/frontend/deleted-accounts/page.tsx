@@ -2,7 +2,7 @@ import { ssr } from "../../config";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { dates } from "@valentinkolb/stdlib";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import AccountsNavSidebar from "../AccountsNavSidebar";
@@ -71,9 +71,23 @@ export default ssr<AuthContext>(async (c) => {
     const query = params.toString();
     return query ? `/app/accounts/deleted-accounts?${query}&page=` : "/app/accounts/deleted-accounts?page=";
   })();
+  type DeletedAccountRow = (typeof deletedAccountsPage.items)[number];
+  const columns: DataTableColumn<DeletedAccountRow>[] = [
+    { id: "account", header: "Account", value: (entry) => entry.displayName || entry.uid },
+    { id: "email", header: "Email", value: (entry) => entry.mail, cellClass: "max-w-[18rem]" },
+    { id: "provider", header: "Provider", value: (entry) => entry.previousProvider },
+    { id: "profile", header: "Profile", value: (entry) => entry.previousProfile },
+    { id: "reason", header: "Reason", value: (entry) => formatReason(entry.reason) },
+    { id: "deleted", header: "Deleted", value: (entry) => entry.deletedAt, cellClass: "whitespace-nowrap" },
+    { id: "details", header: "Details", headerClass: "text-right", cellClass: "text-right whitespace-nowrap max-w-none" },
+  ];
 
   return () => (
-    <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Deleted Accounts" }]}>
+    <Layout
+      c={c}
+      fullWidth
+      title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Deleted Accounts" }]}
+    >
       <div class="app-cols h-full">
         <AccountsNavSidebar active="deleted-accounts" isAdmin pendingRequests={pendingRequestsPage.total} />
 
@@ -81,7 +95,9 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-col gap-2">
             <div class="min-w-0" style="view-transition-name: accounts-deleted-title">
               <h1 class="text-base font-semibold text-primary">Deleted Accounts</h1>
-              <p class="mt-1 text-xs text-dimmed">{deletedAccountsPage.total} {deletedAccountsPage.total === 1 ? "deleted account" : "deleted accounts"}</p>
+              <p class="mt-1 text-xs text-dimmed">
+                {deletedAccountsPage.total} {deletedAccountsPage.total === 1 ? "deleted account" : "deleted accounts"}
+              </p>
             </div>
 
             <div style="view-transition-name: accounts-deleted-search">
@@ -101,47 +117,41 @@ export default ssr<AuthContext>(async (c) => {
               <div class="paper p-6 text-center text-sm text-dimmed">No deleted accounts found.</div>
             ) : (
               <div class="paper overflow-hidden" style="view-transition-name: accounts-deleted-table">
-                <div class="overflow-x-auto">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Account</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Email</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Provider</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Profile</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Reason</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Deleted</th>
-                        <th class="px-3 py-2 text-right font-medium text-dimmed">Details</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deletedAccountsPage.items.map((entry) => (
-                        <tr class="border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                          <td class="px-3 py-1.5 font-medium text-primary">{entry.displayName || entry.uid}</td>
-                          <td class="max-w-[18rem] truncate px-3 py-1.5 text-dimmed" title={entry.mail || "-"}>
-                            {entry.mail || "-"}
-                          </td>
-                          <td class="px-3 py-1.5 text-dimmed">{entry.previousProvider || "-"}</td>
-                          <td class="px-3 py-1.5 text-dimmed">{entry.previousProfile || "-"}</td>
-                          <td class="px-3 py-1.5 text-dimmed">{formatReason(entry.reason)}</td>
-                          <td class="px-3 py-1.5 whitespace-nowrap text-dimmed">{dates.formatDateTime(entry.deletedAt)}</td>
-                          <td class="px-3 py-1.5 text-right">
-                            <DeletedAccountDetails
-                              displayName={entry.displayName || entry.uid}
-                              uid={entry.uid}
-                              mail={entry.mail}
-                              previousProvider={entry.previousProvider}
-                              previousProfile={entry.previousProfile}
-                              reason={formatReason(entry.reason)}
-                              deletedAt={dates.formatDateTime(entry.deletedAt)}
-                              metadata={entry.meta}
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  rows={deletedAccountsPage.items}
+                  columns={columns}
+                  getRowId={(entry) => entry.id}
+                  hoverRows
+                  class="overflow-x-auto"
+                  renderCell={({ row: entry, col }) => {
+                    if (col.id === "account") return <span class="font-medium text-primary">{entry.displayName || entry.uid}</span>;
+                    if (col.id === "email")
+                      return (
+                        <span class="truncate text-dimmed" title={entry.mail || "-"}>
+                          {entry.mail || "-"}
+                        </span>
+                      );
+                    if (col.id === "provider") return <span class="text-dimmed">{entry.previousProvider || "-"}</span>;
+                    if (col.id === "profile") return <span class="text-dimmed">{entry.previousProfile || "-"}</span>;
+                    if (col.id === "reason") return <span class="text-dimmed">{formatReason(entry.reason)}</span>;
+                    if (col.id === "deleted") return <span class="text-dimmed">{dates.formatDateTime(entry.deletedAt)}</span>;
+                    if (col.id === "details") {
+                      return (
+                        <DeletedAccountDetails
+                          displayName={entry.displayName || entry.uid}
+                          uid={entry.uid}
+                          mail={entry.mail}
+                          previousProvider={entry.previousProvider}
+                          previousProfile={entry.previousProfile}
+                          reason={formatReason(entry.reason)}
+                          deletedAt={dates.formatDateTime(entry.deletedAt)}
+                          metadata={entry.meta}
+                        />
+                      );
+                    }
+                    return "";
+                  }}
+                />
               </div>
             )}
 

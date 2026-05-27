@@ -2,7 +2,7 @@ import { ssr } from "../../config";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { buildUserDetailUrl, buildUsersPageBaseUrl, buildUsersUrl, parseUsersListState } from "../lib/url-state";
 import AccountsNavSidebar from "../AccountsNavSidebar";
@@ -38,6 +38,13 @@ export default ssr<AuthContext>(async (c) => {
     provider: listState.provider,
     profile: listState.profile,
   });
+  type UserRow = (typeof usersPage.items)[number];
+  const columns: DataTableColumn<UserRow>[] = [
+    { id: "user", header: "User", value: (entry) => entry.displayName || entry.mail || entry.uid },
+    { id: "email", header: "Email", value: (entry) => entry.mail, cellClass: "max-w-[18rem]" },
+    { id: "managedBy", header: "Managed by", value: (entry) => getManagementBadge(entry).label },
+    { id: "access", header: "Access", value: (entry) => getPrimaryAccountBadge(entry).label },
+  ];
 
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Users" }]}>
@@ -48,7 +55,9 @@ export default ssr<AuthContext>(async (c) => {
           <div class="flex flex-col gap-2">
             <div class="min-w-0" style="view-transition-name: accounts-users-title">
               <h1 class="text-base font-semibold text-primary">Users</h1>
-              <p class="mt-1 text-xs text-dimmed">{usersPage.total} {listState.search ? "results" : "users"}</p>
+              <p class="mt-1 text-xs text-dimmed">
+                {usersPage.total} {listState.search ? "results" : "users"}
+              </p>
             </div>
 
             <div style="view-transition-name: accounts-users-search">
@@ -73,49 +82,51 @@ export default ssr<AuthContext>(async (c) => {
               <div class="paper p-6 text-center text-sm text-dimmed">No users found.</div>
             ) : (
               <div class="paper overflow-hidden" style="view-transition-name: accounts-users-table">
-                <div class="overflow-x-auto">
-                  <table class="w-full text-xs">
-                    <thead>
-                      <tr class="border-b border-zinc-100 dark:border-zinc-800">
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">User</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Email</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Managed by</th>
-                        <th class="px-3 py-2 text-left font-medium text-dimmed">Access</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usersPage.items.map((entry) => {
-                        const primaryBadge = getPrimaryAccountBadge(entry);
-                        const managementBadge = getManagementBadge(entry);
-                        const href = buildUserDetailUrl(entry.id, listState);
-                        return (
-                          <tr class="group border-b border-zinc-50 transition-colors hover:bg-zinc-50 dark:border-zinc-800/50 dark:hover:bg-zinc-800/30">
-                            <td class="p-0">
-                              <a href={href} class="block truncate px-3 py-1.5 font-medium text-primary group-hover:underline">
-                                {(entry.displayName || entry.mail || entry.uid) + ` (${entry.uid})`}
-                              </a>
-                            </td>
-                            <td class="max-w-[18rem] p-0 text-dimmed">
-                              <a href={href} class="block truncate px-3 py-1.5" title={entry.mail || "-"} tabindex={-1}>
-                                {entry.mail || "-"}
-                              </a>
-                            </td>
-                            <td class="p-0">
-                              <a href={href} class="block px-3 py-1.5" tabindex={-1}>
-                                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>{managementBadge.label}</span>
-                              </a>
-                            </td>
-                            <td class="p-0">
-                              <a href={href} class="block px-3 py-1.5" tabindex={-1}>
-                                <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>{primaryBadge.label}</span>
-                              </a>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  rows={usersPage.items}
+                  columns={columns}
+                  getRowId={(entry) => entry.id}
+                  hoverRows
+                  class="overflow-x-auto"
+                  renderCell={({ row: entry, col }) => {
+                    const href = buildUserDetailUrl(entry.id, listState);
+                    if (col.id === "user") {
+                      return (
+                        <a href={href} class="block truncate font-medium text-primary hover:underline">
+                          {(entry.displayName || entry.mail || entry.uid) + ` (${entry.uid})`}
+                        </a>
+                      );
+                    }
+                    if (col.id === "email") {
+                      return (
+                        <a href={href} class="block truncate text-dimmed" title={entry.mail || "-"} tabindex={-1}>
+                          {entry.mail || "-"}
+                        </a>
+                      );
+                    }
+                    if (col.id === "managedBy") {
+                      const managementBadge = getManagementBadge(entry);
+                      return (
+                        <a href={href} class="block" tabindex={-1}>
+                          <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${managementBadge.className}`}>
+                            {managementBadge.label}
+                          </span>
+                        </a>
+                      );
+                    }
+                    if (col.id === "access") {
+                      const primaryBadge = getPrimaryAccountBadge(entry);
+                      return (
+                        <a href={href} class="block" tabindex={-1}>
+                          <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${primaryBadge.className}`}>
+                            {primaryBadge.label}
+                          </span>
+                        </a>
+                      );
+                    }
+                    return "";
+                  }}
+                />
               </div>
             )}
 

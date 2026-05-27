@@ -99,7 +99,7 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
         json: { name: name().trim(), icon: icon() || null, shared: shared() },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
-      return (await res.json()) as View;
+      return res.json();
     },
     onSuccess: () => {
       setDirty(false);
@@ -324,12 +324,12 @@ function ViewPermissions(props: { viewId: string; initialEntries: AccessEntry[];
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = (await res.json()) as { accessId: string };
+        const created = await res.json();
         // Refetch the canonical list so the new entry has displayName etc.
         const listRes = await apiClient.access["by-view"][":viewId"].$get({
           param: { viewId: props.viewId },
         });
-        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        const list = listRes.ok ? await listRes.json() : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}

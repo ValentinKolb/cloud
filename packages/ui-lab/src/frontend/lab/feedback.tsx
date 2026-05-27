@@ -9,7 +9,14 @@ import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
 
-const InfoBlocks = () => (
+const promptPeople = [
+  { id: "vk", name: "Valentin Kolb", email: "valentin@example.test", team: "Platform" },
+  { id: "mr", name: "Mira Roth", email: "mira@example.test", team: "Design Systems" },
+  { id: "js", name: "Jonas Stein", email: "jonas@example.test", team: "Operations" },
+  { id: "al", name: "Aylin Lee", email: "aylin@example.test", team: "Security" },
+];
+
+export const InfoBlocks = () => (
   <DemoCard
     id="info-blocks"
     chip={[
@@ -36,7 +43,7 @@ const InfoBlocks = () => (
   </DemoCard>
 );
 
-const BadgesDemo = () => (
+export const BadgesDemo = () => (
   <DemoCard
     id="badge"
     chip={{ kind: "utility", name: "badge" }}
@@ -54,7 +61,7 @@ const BadgesDemo = () => (
   </DemoCard>
 );
 
-const ChipsDemo = () => (
+export const ChipsDemo = () => (
   <DemoCard
     id="chip"
     chip={{ kind: "utility", name: "chip" }}
@@ -83,7 +90,7 @@ const ChipsDemo = () => (
   </DemoCard>
 );
 
-const TagsDemo = () => (
+export const TagsDemo = () => (
   <DemoCard
     id="tag"
     chip={{ kind: "utility", name: "tag" }}
@@ -101,7 +108,7 @@ const TagsDemo = () => (
   </DemoCard>
 );
 
-const StatusDotsDemo = () => (
+export const StatusDotsDemo = () => (
   <DemoCard
     id="status-dot"
     chip={{ kind: "utility", name: "status-dot" }}
@@ -132,7 +139,7 @@ const StatusDotsDemo = () => (
   </DemoCard>
 );
 
-const ToastDemo = () => (
+export const ToastDemo = () => (
   <DemoCard
     id="toast"
     chip={{ kind: "component", name: "toast", from: FROM_UI }}
@@ -155,7 +162,7 @@ toast("Plain message");`}
   </DemoCard>
 );
 
-const PromptAlertDemo = () => (
+export const PromptAlertDemo = () => (
   <DemoCard
     id="prompts-alert"
     chip={{ kind: "component", name: "prompts", from: FROM_UI }}
@@ -172,7 +179,35 @@ const PromptAlertDemo = () => (
   </DemoCard>
 );
 
-const PromptConfirmDemo = () => {
+export const PromptErrorDemo = () => (
+  <DemoCard
+    id="prompts-error"
+    chip={{ kind: "component", name: "prompts.error", from: FROM_UI }}
+    variant="error — blocking failure details"
+    description="Use for errors that need a deliberate acknowledgement instead of a transient toast."
+    code={`await prompts.error("CSV import failed in row 42: invalid email address.", {
+  title: "Import failed",
+  icon: "ti ti-file-alert",
+  confirmText: "Review CSV",
+});`}
+  >
+    <button
+      type="button"
+      class="btn-danger btn-sm"
+      onClick={() =>
+        void prompts.error("CSV import failed in row 42: invalid email address.", {
+          title: "Import failed",
+          icon: "ti ti-file-alert",
+          confirmText: "Review CSV",
+        })
+      }
+    >
+      Open error
+    </button>
+  </DemoCard>
+);
+
+export const PromptConfirmDemo = () => {
   const [last, setLast] = createSignal<string | null>(null);
   return (
     <DemoCard
@@ -198,7 +233,74 @@ const PromptConfirmDemo = () => {
   );
 };
 
-const PromptFormDemo = () => {
+export const PromptSearchDemo = () => {
+  const [selected, setSelected] = createSignal<string | null>(null);
+  return (
+    <DemoCard
+      id="prompts-search"
+      chip={{ kind: "component", name: "prompts.search", from: FROM_UI }}
+      variant="search — async picker dialog"
+      description="Command-palette style picker. The resolver receives the current query and an AbortSignal, then returns labelled items."
+      code={`const selected = await prompts.search(
+  async ({ query, abortSignal }) => {
+    const response = await api.users.search.$get({ query: { q: query } }, { init: { signal: abortSignal } });
+    const users = await response.json();
+
+    return users.map((user) => ({
+      value: user,
+      label: user.name,
+      desc: user.email,
+      icon: "ti ti-user",
+    }));
+  },
+  {
+    title: "Assign owner",
+    icon: "ti ti-user-search",
+    placeholder: "Search people...",
+    minQueryLength: 1,
+  },
+);`}
+    >
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          class="btn-primary btn-sm"
+          onClick={async () => {
+            const item = await prompts.search<(typeof promptPeople)[number]>(
+              async ({ query }) => {
+                const needle = query.trim().toLowerCase();
+                if (needle.length === 0) return [];
+                await new Promise((resolve) => setTimeout(resolve, 120));
+                return promptPeople
+                  .filter((person) => `${person.name} ${person.email} ${person.team}`.toLowerCase().includes(needle))
+                  .map((person) => ({
+                    value: person,
+                    label: person.name,
+                    desc: `${person.team} · ${person.email}`,
+                    icon: "ti ti-user",
+                  }));
+              },
+              {
+                title: "Assign owner",
+                icon: "ti ti-user-search",
+                placeholder: "Search people...",
+                minQueryLength: 1,
+                size: "small",
+                noResultsText: "No matching people.",
+              },
+            );
+            setSelected(item?.value ? `${item.value.name} (${item.value.team})` : "cancelled");
+          }}
+        >
+          Open picker
+        </button>
+        <span class="text-xs text-dimmed">{selected() ?? "—"}</span>
+      </div>
+    </DemoCard>
+  );
+};
+
+export const PromptFormDemo = () => {
   const [result, setResult] = createSignal<string | null>(null);
   return (
     <DemoCard
@@ -251,7 +353,134 @@ const PromptFormDemo = () => {
   );
 };
 
-const PromptSizesDemo = () => (
+export const PromptWorkflowFormDemo = () => {
+  const [result, setResult] = createSignal<string | null>(null);
+  return (
+    <DemoCard
+      id="prompts-workflow-form"
+      chip={{ kind: "component", name: "prompts.form", from: FROM_UI }}
+      variant="workflow form — validation, tags, date, boolean"
+      description="A fuller form example for operational workflows: info text, multiline details, select options, due date, tags, and confirmation checkbox."
+      code={`const request = await prompts.form({
+  title: "Create review task",
+  icon: "ti ti-clipboard-check",
+  confirmText: "Create task",
+  fields: {
+    intro: { type: "info", content: "Create a task for the next admin review queue." },
+    title: { type: "text", required: true, label: "Title", icon: "ti ti-heading" },
+    details: { type: "text", multiline: true, lines: 4, label: "Details" },
+    priority: {
+      type: "select",
+      label: "Priority",
+      default: "normal",
+      options: [
+        { id: "low", label: "Low", icon: "ti ti-arrow-down" },
+        { id: "normal", label: "Normal", icon: "ti ti-minus" },
+        { id: "high", label: "High", icon: "ti ti-arrow-up" },
+      ],
+    },
+    due: { type: "datetime", dateOnly: true, label: "Due date" },
+    labels: { type: "tags", label: "Labels", default: ["ops"], maxTags: 4 },
+    notify: { type: "boolean", label: "Notify reviewers", default: true },
+  },
+});`}
+    >
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          class="btn-primary btn-sm"
+          onClick={async () => {
+            const request = await prompts.form({
+              title: "Create review task",
+              icon: "ti ti-clipboard-check",
+              confirmText: "Create task",
+              fields: {
+                intro: { type: "info", content: "Create a task for the next admin review queue." },
+                title: { type: "text", required: true, label: "Title", icon: "ti ti-heading", default: "Review pending account requests" },
+                details: { type: "text", multiline: true, lines: 4, label: "Details", placeholder: "What should reviewers check?" },
+                priority: {
+                  type: "select",
+                  label: "Priority",
+                  default: "normal",
+                  options: [
+                    { id: "low", label: "Low", icon: "ti ti-arrow-down" },
+                    { id: "normal", label: "Normal", icon: "ti ti-minus" },
+                    { id: "high", label: "High", icon: "ti ti-arrow-up" },
+                  ],
+                },
+                due: { type: "datetime", dateOnly: true, label: "Due date" },
+                labels: { type: "tags", label: "Labels", default: ["ops"], maxTags: 4 },
+                notify: { type: "boolean", label: "Notify reviewers", default: true },
+              },
+            });
+            setResult(request ? JSON.stringify(request) : "cancelled");
+          }}
+        >
+          Open workflow form
+        </button>
+        <span class="min-w-0 truncate font-mono text-xs text-dimmed">{result() ?? "—"}</span>
+      </div>
+    </DemoCard>
+  );
+};
+
+export const PromptCustomDialogDemo = () => {
+  const [result, setResult] = createSignal<string | null>(null);
+  return (
+    <DemoCard
+      id="prompts-custom-dialog"
+      chip={{ kind: "component", name: "prompts.dialog", from: FROM_UI }}
+      variant="custom dialog — caller-owned actions"
+      description="Use `prompts.dialog` when the default form/confirm APIs are too narrow but you still want shared overlay, focus, ESC, and stacking behavior."
+      code={`const action = await prompts.dialog<"publish" | "draft">(
+  (close) => (
+    <div class="flex flex-col gap-3">
+      <div class="info-block-warning">Publishing notifies all subscribers.</div>
+      <div class="flex justify-end gap-2">
+        <button class="btn-secondary btn-sm" onClick={() => close("draft")}>Save draft</button>
+        <button class="btn-primary btn-sm" onClick={() => close("publish")}>Publish</button>
+      </div>
+    </div>
+  ),
+  { title: "Publish changes", icon: "ti ti-rocket" },
+);`}
+    >
+      <div class="flex items-center gap-3">
+        <button
+          type="button"
+          class="btn-secondary btn-sm"
+          onClick={async () => {
+            const action = await prompts.dialog<"publish" | "draft">(
+              (close) => (
+                <div class="flex flex-col gap-3">
+                  <div class="info-block-warning">Publishing notifies all subscribers and updates the dashboard widget immediately.</div>
+                  <div class="rounded-lg bg-zinc-100 p-3 text-sm text-secondary dark:bg-zinc-900">
+                    3 changes · 1 new section · 2 updated links
+                  </div>
+                  <div class="flex justify-end gap-2">
+                    <button type="button" class="btn-secondary btn-sm" onClick={() => close("draft")}>
+                      Save draft
+                    </button>
+                    <button type="button" class="btn-primary btn-sm" onClick={() => close("publish")}>
+                      Publish
+                    </button>
+                  </div>
+                </div>
+              ),
+              { title: "Publish changes", icon: "ti ti-rocket" },
+            );
+            setResult(action ?? "closed");
+          }}
+        >
+          Open custom dialog
+        </button>
+        <span class="text-xs text-dimmed">{result() ?? "—"}</span>
+      </div>
+    </DemoCard>
+  );
+};
+
+export const PromptSizesDemo = () => (
   <DemoCard
     id="prompts-sizes"
     chip={{ kind: "component", name: "prompts", from: FROM_UI }}
@@ -278,7 +507,7 @@ await prompts.alert("Large payload", { size: "large" });`}
   </DemoCard>
 );
 
-const PromptBareModalDemo = () => (
+export const PromptBareModalDemo = () => (
   <DemoCard
     id="prompts-bare"
     chip={{ kind: "component", name: "prompts.dialog", from: FROM_UI }}
@@ -345,8 +574,12 @@ export const FeedbackTab = () => (
     <StatusDotsDemo />
     <ToastDemo />
     <PromptAlertDemo />
+    <PromptErrorDemo />
     <PromptConfirmDemo />
+    <PromptSearchDemo />
     <PromptFormDemo />
+    <PromptWorkflowFormDemo />
+    <PromptCustomDialogDemo />
     <PromptBareModalDemo />
     <PromptSizesDemo />
   </div>

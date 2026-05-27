@@ -156,7 +156,7 @@ export default function DashboardWysiwygEditor(props: Props) {
         json: { config: next },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save dashboard"));
-      return (await res.json()) as Dashboard;
+      return res.json();
     },
     onSuccess: (dashboard, ctx) => {
       if (ctx?.token !== saveToken) return;
@@ -184,7 +184,7 @@ export default function DashboardWysiwygEditor(props: Props) {
           setWidgetData((current) => ({ ...current, [widget.id]: { kind: "error", reason } }));
           return;
         }
-        const data = (await res.json()) as WidgetData;
+        const data = await res.json();
         if (token !== saveToken) return;
         setWidgetData((current) => ({ ...current, [widget.id]: data }));
       }),
@@ -476,7 +476,7 @@ function DashboardGeneralBody(props: {
         json: { name: name().trim(), description: description().trim() || null, icon: icon() || null, shared: shared() },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save dashboard"));
-      return (await res.json()) as Dashboard;
+      return res.json();
     },
     onSuccess: () => {
       setDirty(false);
@@ -549,7 +549,7 @@ function DashboardPermissions(props: { dashboardId: string; initialEntries: Acce
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
         const listRes = await apiClient.access["by-dashboard"][":dashboardId"].$get({ param: { dashboardId: props.dashboardId } });
-        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        const list = listRes.ok ? await listRes.json() : entries();
         setEntries(list);
         return list[list.length - 1]!;
       }}

@@ -101,7 +101,7 @@ function TrashSection(props: { baseId: string }) {
   const [trash, { refetch }] = createResource<TrashResponse>(async () => {
     const res = await apiClient.bases[":baseId"].trash.$get({ param: { baseId: props.baseId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load trash"));
-    return (await res.json()) as TrashResponse;
+    return res.json();
   });
 
   const restoreTable = async (id: string) => {
@@ -246,7 +246,7 @@ function GeneralForm(props: { base: { id: string; name: string; description: str
         json: { name: name().trim(), description: description().trim() || null },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
-      return (await res.json()) as Base;
+      return res.json();
     },
     onSuccess: () => {
       setHasChanges(false);
@@ -344,11 +344,11 @@ function PermissionsSection(props: { baseId: string; initialEntries: AccessEntry
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = (await res.json()) as { accessId: string };
+        const created = await res.json();
         const listRes = await apiClient.access["by-base"][":baseId"].$get({
           param: { baseId: props.baseId },
         });
-        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        const list = listRes.ok ? await listRes.json() : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}

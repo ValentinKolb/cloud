@@ -176,7 +176,7 @@ function FieldEditor(props: {
         },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save field"));
-      const field = (await res.json()) as Field;
+      const field = await res.json();
       const nextTableColumns = buildNextTableColumns();
       if (!nextTableColumns) return { field };
       if (JSON.stringify(nextTableColumns) === JSON.stringify(props.tableColumns)) return { field };
@@ -185,7 +185,7 @@ function FieldEditor(props: {
         json: { columns: nextTableColumns },
       });
       if (!tableRes.ok) throw new Error(await errorMessage(tableRes, "Failed to save table display"));
-      const table = (await tableRes.json()) as { columns: ColumnSpec[] };
+      const table = await tableRes.json();
       return { field, tableColumns: table.columns };
     },
     onSuccess: (next) => {
@@ -468,12 +468,12 @@ export function TablePermissions(props: { tableId: string; initialEntries: Acces
           json: { principal, permission },
         });
         if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = (await res.json()) as { accessId: string };
+        const created = await res.json();
         // Re-fetch the canonical list so the new entry has its displayName etc.
         const listRes = await apiClient.access["by-table"][":tableId"].$get({
           param: { tableId: props.tableId },
         });
-        const list = listRes.ok ? ((await listRes.json()) as AccessEntry[]) : entries();
+        const list = listRes.ok ? await listRes.json() : entries();
         setEntries(list);
         return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
       }}
