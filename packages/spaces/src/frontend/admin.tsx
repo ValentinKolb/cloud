@@ -48,7 +48,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Spaces" stretch>
-      <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="spaces-admin">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-spaces-title">
             <h1 class="text-base font-semibold text-primary">Spaces</h1>
@@ -82,6 +82,7 @@ export default ssr<AuthContext>(async (c) => {
                 getRowId={(space) => space.id}
                 hoverRows
                 class="overflow-x-auto"
+                scrollPreserveKey="spaces-admin-table"
                 renderCell={({ row: space, col }) => {
                   if (col.id === "space") {
                     return (
