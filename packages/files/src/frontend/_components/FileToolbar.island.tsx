@@ -4,7 +4,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { Dropdown, ProgressBar } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { createUploadManager, type FileUploadState } from "./upload";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
 import {
   buildItemPath,
   buildSelectionKey,
@@ -90,34 +90,47 @@ export default function FileToolbar({
     setSelectedInUrl(new Set(allKeys));
   };
 
-  const handleBulkDelete = async () => {
-    const keys = selected();
-    if (keys.length === 0) return;
-    const confirmed = await prompts.confirm(`Move ${keys.length} item${keys.length > 1 ? "s" : ""} to Trash?`, {
-      title: "Move to Trash",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Move to Trash",
-      cancelText: "Cancel",
-    });
-    if (!confirmed) return;
-    let errors = 0;
-    for (const key of keys) {
-      const parsed = parseSelectionKey(key);
-      if (!parsed) continue;
-      const res = await apiClient[":baseType"][":baseId"].$delete({
-        param: {
-          baseType: parsed.baseType,
-          baseId: parsed.baseId,
-        },
-        query: { path: parsed.path },
+  const bulkDeleteMutation = mutations.create<{ total: number; errors: number } | null, void>({
+    mutation: async () => {
+      const keys = selected();
+      if (keys.length === 0) return null;
+
+      const confirmed = await prompts.confirm(`Move ${keys.length} item${keys.length > 1 ? "s" : ""} to Trash?`, {
+        title: "Move to Trash",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Move to Trash",
+        cancelText: "Cancel",
       });
-      if (!res.ok) errors++;
-    }
-    if (errors > 0) await prompts.error(`Failed to delete ${errors} item${errors > 1 ? "s" : ""}`);
-    clearSelection();
-    refreshCurrentPath();
-  };
+      if (!confirmed) return null;
+
+      let errors = 0;
+      for (const key of keys) {
+        const parsed = parseSelectionKey(key);
+        if (!parsed) continue;
+        const res = await apiClient[":baseType"][":baseId"].$delete({
+          param: {
+            baseType: parsed.baseType,
+            baseId: parsed.baseId,
+          },
+          query: { path: parsed.path },
+        });
+        if (!res.ok) errors++;
+      }
+      return { total: keys.length, errors };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
+      clearSelection();
+      refreshCurrentPath();
+      if (result.errors > 0) {
+        void prompts.error(`Failed to delete ${result.errors} item${result.errors > 1 ? "s" : ""}`);
+        return;
+      }
+      toast.success(`Moved ${result.total} item${result.total > 1 ? "s" : ""} to Trash`);
+    },
+    onError: (err) => prompts.error(err.message),
+  });
 
   const handleBulkDownload = () => {
     for (const key of selected()) {
@@ -159,44 +172,43 @@ export default function FileToolbar({
     );
   };
 
-  // Mutation helper
-  const fileMutation = <T,>(mutation: (vars: T) => Promise<T>) =>
-    mutations.create<T, T>({
-      mutation,
-      onSuccess: () => refreshCurrentPath(),
-      onError: (err) => prompts.error(err.message),
-    });
-
-  const mkdirMutation = fileMutation(async ({ name }: { name: string }) => {
-    const newPath = buildItemPath(currentPath, name);
-    const res = await apiClient[":baseType"][":baseId"].$post({
-      param: { baseType, baseId },
-      query: { action: "mkdir", path: newPath },
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error("message" in data ? data.message : "Failed to create folder");
-    }
-    return { name };
-  });
-
-  const handleNewFolder = async () => {
-    const result = await prompts.form({
-      title: "New Folder",
-      icon: "ti ti-folder-plus",
-      confirmText: "Create",
-      fields: {
-        name: {
-          type: "text",
-          label: "Folder name",
-          placeholder: "My Folder",
-          required: true,
-          validate: validateName,
+  const mkdirMutation = mutations.create<{ name: string } | null, void>({
+    mutation: async () => {
+      const result = await prompts.form({
+        title: "New Folder",
+        icon: "ti ti-folder-plus",
+        confirmText: "Create",
+        fields: {
+          name: {
+            type: "text",
+            label: "Folder name",
+            placeholder: "My Folder",
+            required: true,
+            validate: validateName,
+          },
         },
-      },
-    });
-    if (result) await mkdirMutation.mutate({ name: result.name.trim() });
-  };
+      });
+      if (!result) return null;
+
+      const name = result.name.trim();
+      const newPath = buildItemPath(currentPath, name);
+      const res = await apiClient[":baseType"][":baseId"].$post({
+        param: { baseType, baseId },
+        query: { action: "mkdir", path: newPath },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error("message" in data ? data.message : "Failed to create folder");
+      }
+      return { name };
+    },
+    onSuccess: (folder) => {
+      if (!folder) return;
+      toast.success("Folder created");
+      refreshCurrentPath();
+    },
+    onError: (err) => prompts.error(err.message),
+  });
 
   const uploadOptions = {
     onComplete: () => setTimeout(() => refreshCurrentPath(), 500),
@@ -211,7 +223,7 @@ export default function FileToolbar({
     navigateWithParam("filter", filterQuery().trim() || undefined);
   };
 
-  const isLoading = mkdirMutation.loading();
+  const isLoading = () => mkdirMutation.loading() || bulkDeleteMutation.loading();
   const visibleUploads = () => uploadManager.state.files.filter((f) => f.status !== "complete");
 
   const totalFiles = () => uploadManager.state.files.length;
@@ -240,7 +252,7 @@ export default function FileToolbar({
             <span
               class="btn-input btn-sm"
               classList={{
-                "opacity-50 pointer-events-none": isLoading || uploadManager.state.isUploading,
+                "opacity-50 pointer-events-none": isLoading() || uploadManager.state.isUploading,
               }}
             >
               <i class={`ti text-sm ${uploadManager.state.isUploading ? "ti-loader-2 animate-spin" : "ti-plus"}`} />
@@ -269,7 +281,7 @@ export default function FileToolbar({
                 {
                   icon: "ti ti-folder-plus",
                   label: "New Folder",
-                  action: handleNewFolder,
+                  action: () => mkdirMutation.mutate(undefined),
                 },
               ],
             },
@@ -306,7 +318,7 @@ export default function FileToolbar({
                 icon: "ti ti-trash",
                 label: "Delete",
                 variant: "danger" as const,
-                action: handleBulkDelete,
+                action: () => bulkDeleteMutation.mutate(undefined),
               },
               ...(!allSelected() && allKeys.length > 1
                 ? [
