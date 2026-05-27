@@ -1,14 +1,20 @@
 import { weatherService, type HourlyForecast as HourlyForecastType } from "@valentinkolb/cloud/services";
+
 const formatHour = (timestamp: string, isFirst: boolean): string => {
   if (isFirst) return "Now";
   return new Date(timestamp).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 };
+
 type HourlyForecastProps = {
-  hourly: HourlyForecastType[] /** Number of hours to show (default: all) */;
-  limit?: number /** Size variant */;
-  size?: "sm" | "md" | "lg" /** Show"Now" for first item (default: true) */;
+  hourly: HourlyForecastType[];
+  /** Number of hours to show (default: all). */
+  limit?: number;
+  /** Size variant. */
+  size?: "sm" | "md" | "lg";
+  /** Show "Now" for first item (default: true). */
   showNow?: boolean;
 };
+
 const sizeClasses = {
   sm: {
     container: "gap-4",
@@ -38,44 +44,40 @@ const sizeClasses = {
     minWidth: "min-w-20",
   },
 };
+
 export default function HourlyForecast({ hourly, limit, size = "md", showNow = true }: HourlyForecastProps) {
   const items = limit ? hourly.slice(0, limit) : hourly;
   const s = sizeClasses[size];
+
   if (items.length === 0) return null;
+
   return (
-    <div class={`flex ${s.container} overflow-x-auto pb-1 `} role="list" aria-label="Hourly temperature forecast">
-      {" "}
+    <div class={`flex ${s.container} overflow-x-auto pb-1`} role="list" aria-label="Hourly temperature forecast">
       {items.map((h, idx) => (
         <div class={`flex flex-col items-center gap-1 ${s.minWidth} flex-1`} role="listitem">
-          {" "}
           <span class={`${s.time} ${idx === 0 && showNow ? "text-secondary font-medium" : "text-dimmed"}`}>
-            {" "}
-            {formatHour(h.timestamp, idx === 0 && showNow)}{" "}
-          </span>{" "}
+            {formatHour(h.timestamp, idx === 0 && showNow)}
+          </span>
           <div class="flex items-center gap-1">
-            {" "}
             <i
               class={`ti ti-${weatherService.ui.getTablerIcon(h.icon)} ${s.icon} ${weatherService.ui.getTempColorClass(h.temperature)}`}
               aria-hidden="true"
-            />{" "}
+            />
             <span class={`${s.temp} font-medium ${weatherService.ui.getTempColorClass(h.temperature)}`}>
-              {" "}
-              {weatherService.ui.formatTemp(h.temperature)}{" "}
-            </span>{" "}
-          </div>{" "}
+              {weatherService.ui.formatTemp(h.temperature)}
+            </span>
+          </div>
           {h.precipitationProbability != null && h.precipitationProbability > 0 ? (
             <span class={`${s.rain} text-blue-500`}>
-              {" "}
-              <i class={`ti ti-droplet ${s.rainIcon}`} aria-hidden="true" /> {h.precipitationProbability}%{" "}
+              <i class={`ti ti-droplet ${s.rainIcon}`} aria-hidden="true" /> {h.precipitationProbability}%
             </span>
           ) : (
             <span class={`${s.rain} text-transparent`} aria-hidden="true">
-              {" "}
-              -{" "}
+              -
             </span>
-          )}{" "}
+          )}
         </div>
-      ))}{" "}
+      ))}
     </div>
   );
 }
