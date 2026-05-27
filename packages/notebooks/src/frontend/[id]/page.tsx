@@ -4,15 +4,11 @@ import { get } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { hasRole } from "@valentinkolb/cloud/contracts";
-import { markdown } from "@valentinkolb/cloud/shared";
 import { notebooksService } from "@/service";
-import { transformAttachments } from "@/service/attachments";
-import { transformNoteLinks } from "@/service/links";
-import { transformTags } from "@/service/tags";
-import { extractNamedBlockSummaries, renderNamedBlockHandlesMarkdown } from "@/lib/named-blocks";
+import { loadSelectedNoteRouteState, type SelectedNoteRouteState } from "@/service/route-state";
+import { extractNamedBlockSummaries } from "@/lib/named-blocks";
 import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island";
-import { extractTaskProgress } from "./_components/detail/tasks";
-import { extractTocFromMarkdown, injectHeadingIds } from "./_components/detail/toc";
+import { extractTocFromMarkdown } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
 import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
@@ -119,6 +115,7 @@ export default ssr<AuthContext>(async (c) => {
     updatedAt: string;
     createdBy: string | null;
   } | null = null;
+  let selectedRouteState: SelectedNoteRouteState | null = null;
 
   // TOC items shared by detail panel + readonly anchor injection.
   // Extracted from `content_md` once and reused.
@@ -147,72 +144,18 @@ export default ssr<AuthContext>(async (c) => {
         namedBlocks = extractNamedBlockSummaries(noteMeta.contentMd);
       }
     } else {
-      const noteWithContent = await notebooksService.note.getWithContent({
-        id: selectedNoteId,
+      selectedRouteState = await loadSelectedNoteRouteState({
+        notebookId,
+        noteIdOrShortId: selectedNoteId,
+        canWrite,
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+        bypassAccess: hasRole(user, "admin"),
       });
-      if (noteWithContent?.notebookId === notebookId) {
-        // Force readonly rendering for locked notes and readers without write
-        // permission. This is not a user-facing view mode.
-        const isNoteLocked = !!noteWithContent.lockedAt;
-        const shouldRenderHtml = isNoteLocked || !canWrite;
-
-        tocItems = extractTocFromMarkdown(noteWithContent.contentMd);
-        namedBlocks = extractNamedBlockSummaries(noteWithContent.contentMd);
-
-        // Hydrate referenced attachments + note links in parallel.
-        // Both transformers are sync regex-replacers, so we resolve the
-        // short-id → metadata maps upfront (one batched query each)
-        // and feed them in. Avoids any per-link N+1.
-        const attachmentShortIds = notebooksService.attachment.extractIds(noteWithContent.contentMd);
-        const noteLinkShortIds = notebooksService.note.extractLinks(noteWithContent.contentMd);
-        const [referencedAttachments, noteLinkResolutions] = await Promise.all([
-          attachmentShortIds.length > 0
-            ? notebooksService.attachment.listByShortIds({ shortIds: attachmentShortIds, notebookId })
-            : Promise.resolve([]),
-          noteLinkShortIds.length > 0
-            ? notebooksService.note.resolveShortIdsToNotebookShortIds({
-                shortIds: noteLinkShortIds,
-                userId: user.id,
-                userGroups: user.memberofGroupIds,
-                bypassAccess: hasRole(user, "admin"),
-              })
-            : Promise.resolve(new Map<string, { notebookShortId: string; noteShortId: string }>()),
-        ]);
-        const shortIdToFilename = new Map(referencedAttachments.map((a) => [a.shortId, a.filename]));
-        const noteShortIdToHref = new Map<string, string>();
-        for (const [shortId, resolved] of noteLinkResolutions) {
-          noteShortIdToHref.set(shortId, `/app/notebooks/${resolved.notebookShortId}/notes/${resolved.noteShortId}`);
-        }
-
-        // For readonly rendering: pipe markdown.render through link transforms +
-        // tag pills + attachment URL rewrite + heading id injection so
-        // the rendered HTML mirrors the editor's pill widgets.
-        const renderedHtml = shouldRenderHtml
-          ? injectHeadingIds(
-              transformTags(
-                transformAttachments(
-                  transformNoteLinks(markdown.render(renderNamedBlockHandlesMarkdown(noteWithContent.contentMd)), { noteShortIdToHref }),
-                  { notebookId, shortIdToFilename },
-                ),
-                { notebookId },
-              ),
-              tocItems,
-            )
-          : null;
-
-        selectedNote = {
-          id: noteWithContent.id,
-          shortId: noteWithContent.shortId,
-          title: noteWithContent.title,
-          yjsSnapshot: noteWithContent.yjsSnapshot, // already base64
-          contentMd: noteWithContent.contentMd,
-          renderedHtml,
-          lockedAt: noteWithContent.lockedAt,
-          parentId: noteWithContent.parentId,
-          createdAt: noteWithContent.createdAt,
-          updatedAt: noteWithContent.updatedAt,
-          createdBy: noteWithContent.createdBy,
-        };
+      if (selectedRouteState) {
+        selectedNote = selectedRouteState.note;
+        tocItems = selectedRouteState.tocItems;
+        namedBlocks = selectedRouteState.namedBlocks;
       }
     }
   }
@@ -230,19 +173,7 @@ export default ssr<AuthContext>(async (c) => {
 
   // Determine actual readonly rendering. Users without write permission must
   // not mount the edit-mode Y.Doc/kit surface.
-  const readonlyMode = !canWrite || !!selectedNote?.lockedAt;
-
-  // Backlinks: only loaded for actual note views (skip settings + versions
-  // modes). Cheap query; rendered server-side via SSR — no client fetch.
-  const backlinks =
-    selectedNote && !isSettingsMode && !isVersionsMode && !isGraphMode
-      ? await notebooksService.note.backlinks.list({
-          noteId: selectedNote.id,
-          userId: user.id,
-          userGroups: user.memberofGroupIds,
-          bypassAccess: hasRole(user, "admin"),
-        })
-      : [];
+  const readonlyMode = selectedRouteState?.readonlyMode ?? (!canWrite || !!selectedNote?.lockedAt);
 
   // Graph data: only fetched in graph mode. The whole-notebook payload
   // (nodes + internal edges) is small enough to inline into the SSR
@@ -282,11 +213,8 @@ export default ssr<AuthContext>(async (c) => {
   // markdown — feeds the detail panel's "Attachments" section. Live updates
   // flow through `ATTACHMENTS_UPDATE_EVENT` once the editor is mounted.
   // `extractIds` returns short-ids (the form carried in `attach://`).
-  const panelAttachmentShortIds = showDetailPanel ? notebooksService.attachment.extractIds(selectedNote!.contentMd) : [];
-  const panelAttachments =
-    panelAttachmentShortIds.length > 0
-      ? await notebooksService.attachment.listByShortIds({ shortIds: panelAttachmentShortIds, notebookId })
-      : [];
+  const panelAttachments = selectedRouteState?.panelAttachments ?? [];
+  const backlinks = selectedRouteState?.backlinks ?? [];
 
   return () => (
     <Layout
@@ -384,7 +312,7 @@ export default ssr<AuthContext>(async (c) => {
             // the panel open so readers can still copy/download/open history.
             initiallyOpen={readonlyMode ? true : detailPanelOpen}
             tocItems={tocItems}
-            taskProgress={extractTaskProgress(selectedNote.contentMd)}
+            taskProgress={selectedRouteState?.taskProgress ?? { done: 0, total: 0 }}
             attachments={panelAttachments}
             backlinks={backlinks}
             namedBlocks={namedBlocks}

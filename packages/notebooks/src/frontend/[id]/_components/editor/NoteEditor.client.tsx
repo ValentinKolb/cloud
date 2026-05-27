@@ -75,18 +75,6 @@ type Props = {
 
 const CURSOR_IDLE_TIMEOUT_MS = 8_000;
 
-type NoteContentPayload = {
-  id: string;
-  shortId: string;
-  title: string;
-  yjsSnapshot: string | null;
-  contentMd: string | null;
-  createdAt: string;
-  updatedAt: string;
-  lockedAt: string | null;
-  parentId: string | null;
-};
-
 type SoftNavigatedDetail = {
   canonicalNoteId: string;
   noteId: string;
@@ -104,6 +92,7 @@ type SoftNavigatedDetail = {
 };
 
 type LoadedNote = {
+  href: string;
   props: Props;
   eventDetail: SoftNavigatedDetail;
 };
@@ -152,30 +141,17 @@ export default function NoteEditor(props: Props) {
   };
 
   const loadNote = async (noteShortId: string): Promise<LoadedNote | null> => {
-    const noteRes = await apiClient[":id"].notes[":noteId"].content.$get({
-      param: { id: props.notebookId, noteId: noteShortId },
+    const res = await apiClient[":id"]["route-state"].$get({
+      param: { id: props.notebookId },
+      query: { href: `/app/notebooks/${encodeURIComponent(props.notebookId)}/notes/${encodeURIComponent(noteShortId)}` },
     });
-    if (!noteRes.ok) throw new Error(`Request failed: ${noteRes.status}`);
-    const note = await noteRes.json();
-    if (note.lockedAt) return null;
-
-    const [backlinksRes, attachmentsRes] = await Promise.all([
-      apiClient[":id"].notes[":noteId"].backlinks.$get({
-        param: { id: props.notebookId, noteId: noteShortId },
-      }),
-      apiClient[":id"].attachments.$get({ param: { id: props.notebookId } }),
-    ]);
-    if (!backlinksRes.ok) throw new Error(`Request failed: ${backlinksRes.status}`);
-    if (!attachmentsRes.ok) throw new Error(`Request failed: ${attachmentsRes.status}`);
-    const backlinksPayload = await backlinksRes.json();
-    const allAttachments = await attachmentsRes.json();
-    const attachmentIds = new Set(extractAttachmentIds(note.contentMd ?? ""));
-    const attachments = allAttachments.filter((attachment) => attachmentIds.has(attachment.shortId));
-    const tocItems = extractTocFromMarkdown(note.contentMd);
-    const taskProgress = extractTaskProgress(note.contentMd);
-    const namedBlocks = extractNamedBlockSummaries(note.contentMd);
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+    const payload = await res.json();
+    if (payload.kind !== "ok") return null;
+    const { note, detail, href } = payload.state;
 
     return {
+      href,
       props: {
         ...current(),
         noteId: note.id,
@@ -187,21 +163,7 @@ export default function NoteEditor(props: Props) {
         noteParentId: note.parentId,
         initialSnapshot: note.yjsSnapshot,
       },
-      eventDetail: {
-        canonicalNoteId: note.id,
-        noteId: note.shortId,
-        noteTitle: note.title,
-        contentMd: note.contentMd,
-        createdAt: note.createdAt,
-        updatedAt: note.updatedAt,
-        lockedAt: note.lockedAt,
-        isLocked: false,
-        tocItems,
-        taskProgress,
-        attachments,
-        backlinks: backlinksPayload.data,
-        namedBlocks,
-      },
+      eventDetail: detail,
     };
   };
 
@@ -218,7 +180,7 @@ export default function NoteEditor(props: Props) {
       if (!loaded) return false;
       setCurrent(loaded.props);
       window.dispatchEvent(new CustomEvent(NOTE_SOFT_NAVIGATED_EVENT, { detail: loaded.eventDetail }));
-      if (push) window.history.pushState({}, "", target.canonicalHref);
+      if (push) window.history.pushState({}, "", loaded.href);
       return true;
     } catch {
       return false;

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { notebooksService, reindexRuntime } from "../service";
+import { loadEditableNoteRouteData } from "../service/route-state";
 import { settings, settingsService } from "@valentinkolb/cloud/services";
 import type { MutationResult, PermissionLevel } from "@valentinkolb/cloud/contracts";
 import {
@@ -159,6 +160,68 @@ const AttachmentSchema = z.object({
 });
 
 const AttachmentUsageSchema = z.object({ count: z.number().int() });
+
+const TocItemSchema = z.object({
+  level: z.number().int(),
+  text: z.string(),
+  id: z.string(),
+});
+
+const TaskProgressSchema = z.object({
+  done: z.number().int(),
+  total: z.number().int(),
+});
+
+const NamedBlockSummarySchema = z.object({
+  name: z.string(),
+  type: z.enum(["table", "list", "data", "section", "script", "unknown"]),
+  line: z.number().int(),
+});
+
+const EditableNoteRouteStateSchema = z.object({
+  href: z.string(),
+  note: z.object({
+    id: z.uuid(),
+    shortId: z.string(),
+    title: z.string(),
+    yjsSnapshot: z.string().nullable(),
+    contentMd: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    lockedAt: z.string().nullable(),
+    parentId: z.uuid().nullable(),
+  }),
+  detail: z.object({
+    canonicalNoteId: z.uuid(),
+    noteId: z.string(),
+    noteTitle: z.string(),
+    contentMd: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    lockedAt: z.string().nullable(),
+    isLocked: z.boolean(),
+    tocItems: z.array(TocItemSchema),
+    taskProgress: TaskProgressSchema,
+    attachments: z.array(AttachmentSchema),
+    backlinks: z.array(BacklinkSchema),
+    namedBlocks: z.array(NamedBlockSummarySchema),
+  }),
+});
+
+const RouteStateQuerySchema = z.object({
+  href: z.string().min(1).max(500),
+});
+
+const RouteStateResponseSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("ok"),
+    state: EditableNoteRouteStateSchema,
+  }),
+  z.object({
+    kind: z.literal("fallback"),
+    reason: z.enum(["invalid-target", "not-found", "readonly"]),
+  }),
+]);
 
 /** Per-file upload cap. Default 10 MB, configurable at runtime via
  *  `notebooks.max_attachment_size_mb` (admin settings modal). The
@@ -477,6 +540,42 @@ const app = new Hono<AuthContext>()
 
       const tree = await notebooksService.note.getTree({ notebookId });
       return respond(c, ok(tree));
+    },
+  )
+
+  // Server-computed route state for enhanced note navigation
+  .get(
+    "/:id/route-state",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Resolve notebook route state",
+      description:
+        "Returns server-computed route state for enhanced navigation inside a mounted notebook workspace. Non-handleable targets return kind=fallback.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(RouteStateResponseSchema, "Route state"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    v("query", RouteStateQuerySchema),
+    async (c) => {
+      const user = c.get("user");
+      const { notebook, permission, error } = await checkNotebookAccess(c, c.req.param("id")!);
+      if (error) return error;
+
+      const data = await loadEditableNoteRouteData({
+        notebookId: notebook!.id,
+        notebookShortId: notebook!.shortId,
+        href: c.req.valid("query").href,
+        origin: new URL(c.req.url).origin,
+        canWrite: permission === "write" || permission === "admin",
+        userId: user.id,
+        userGroups: user.memberofGroupIds,
+        bypassAccess: hasRole(user, "admin"),
+      });
+
+      return respond(c, ok(data));
     },
   )
 
