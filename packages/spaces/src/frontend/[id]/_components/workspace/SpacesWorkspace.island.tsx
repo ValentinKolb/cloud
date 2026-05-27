@@ -136,6 +136,8 @@ export default function SpacesWorkspace(props: Props) {
   });
 
   const selectedItemId = () => state().selectedItem?.id ?? new URLSearchParams(state().query).get("item") ?? "";
+  const detailScrollPreserveKey = () =>
+    state().isSettingsMode ? `spaces-detail-${spaceId()}-settings` : `spaces-detail-${spaceId()}-${selectedItemId() || "empty"}`;
   const spaceContext = () => ({
     space: state().space,
     columns: state().space.columns,
@@ -249,7 +251,7 @@ export default function SpacesWorkspace(props: Props) {
         viewTransitionName={state().isSettingsMode ? "space-settings-panel" : "space-detail-panel-shell"}
         class={state().isSettingsMode ? "paper p-4" : ""}
       >
-        <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={detailScrollPreserveKey()}>
           {state().isSettingsMode ? (
             <SpaceEditPanel
               space={state().space}
