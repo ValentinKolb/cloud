@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import type { ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
-import { buildFilterUrl, parseFilterFromUrl } from "../filter/types";
+import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
 import type { DetailPanelWidth, SpaceUserSettings, ViewType } from "../settings/SpaceSettingsStore";
 import type { CalendarItem } from "@/contracts";
 import type { CalendarView, DayWeather } from "../calendar/types";
@@ -59,6 +59,13 @@ const withViewOverrides = (params: {
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
 
+const withoutSelectedItem = (href: string) => {
+  const url = new URL(href, "http://localhost");
+  url.searchParams.delete(QueryParams.ITEM);
+  const query = url.searchParams.toString();
+  return query ? `${url.pathname}?${query}` : url.pathname;
+};
+
 export const buildSpacesPaginationBaseUrl = (params: {
   baseSpaceUrl: string;
   filter: FilterState;
@@ -83,16 +90,18 @@ export const buildSpacesItemLinkBaseUrl = (params: {
   hasPanelWidthOverride: boolean;
   currentPanelWidth: string;
 }) =>
-  withViewOverrides({
-    baseUrl:
-      params.currentView === "list" || params.currentView === "table"
-        ? buildFilterUrl(params.baseSpaceUrl, {}, params.filter)
-        : params.baseSpaceUrl,
-    hasViewOverride: params.hasViewOverride,
-    currentView: params.currentView,
-    hasPanelWidthOverride: params.hasPanelWidthOverride,
-    currentPanelWidth: params.currentPanelWidth,
-  });
+  withoutSelectedItem(
+    withViewOverrides({
+      baseUrl:
+        params.currentView === "list" || params.currentView === "table"
+          ? buildFilterUrl(params.baseSpaceUrl, {}, params.filter)
+          : params.baseSpaceUrl,
+      hasViewOverride: params.hasViewOverride,
+      currentView: params.currentView,
+      hasPanelWidthOverride: params.hasPanelWidthOverride,
+      currentPanelWidth: params.currentPanelWidth,
+    }),
+  );
 
 export const spacesDetailPanelWidthClass = (width: DetailPanelWidth) =>
   width === "narrow"
