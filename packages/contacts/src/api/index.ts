@@ -150,7 +150,10 @@ const ContactTagCreateInputSchema = z.object({
 
 const ContactTagUpdateInputSchema = z.object({
   name: z.string().min(1).max(50).optional(),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
 });
 
 const ContactEmailInputSchema = z.object({
@@ -348,7 +351,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { book, error } = await requireBookAccess(c, bookId, "read");
       if (error || !book) return error!;
       return respond(c, ok(book));
@@ -390,7 +393,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateBookSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const data = c.req.valid("json");
 
       const { book, error } = await requireBookAccess(c, bookId, "admin");
@@ -418,7 +421,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
 
       const { book, error } = await requireBookAccess(c, bookId, "admin");
       if (error || !book) return error!;
@@ -448,7 +451,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
 
       if (contactsService.system.isBookId(bookId)) {
         return respond(c, fail(err.forbidden("System book is read-only")));
@@ -478,7 +481,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { principal, permission } = c.req.valid("json");
 
       if (contactsService.system.isBookId(bookId)) {
@@ -508,8 +511,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const accessId = c.req.param("accessId");
+      const bookId = c.req.param("bookId") ?? "";
+      const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
 
       if (contactsService.system.isBookId(bookId)) {
@@ -547,8 +550,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const accessId = c.req.param("accessId");
+      const bookId = c.req.param("bookId") ?? "";
+      const accessId = c.req.param("accessId") ?? "";
 
       if (contactsService.system.isBookId(bookId)) {
         return respond(c, fail(err.forbidden("System book is read-only")));
@@ -592,18 +595,14 @@ const app = new Hono<AuthContext>()
     }),
     v("query", ListContactsQuerySchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const query = c.req.valid("query");
       const pagination = parsePagination(query);
 
       const { error } = await requireBookAccess(c, bookId, "read");
       if (error) return error;
 
-      const tagIds = Array.isArray(query.tag_id)
-        ? query.tag_id
-        : query.tag_id
-          ? [query.tag_id]
-          : undefined;
+      const tagIds = Array.isArray(query.tag_id) ? query.tag_id : query.tag_id ? [query.tag_id] : undefined;
 
       const result = await contactsService.contact.list({
         bookId,
@@ -635,8 +634,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
 
       const { error } = await requireBookAccess(c, bookId, "read");
       if (error) return error;
@@ -666,7 +665,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateContactSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await requireBookAccess(c, bookId, "write");
@@ -692,8 +691,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateContactSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
       const data = c.req.valid("json");
 
       const { error } = await requireBookAccess(c, bookId, "write");
@@ -719,8 +718,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", MoveContactSchema),
     async (c) => {
-      const sourceBookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
+      const sourceBookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
       const { targetBookId } = c.req.valid("json");
 
       const { error: sourceError } = await requireBookAccess(c, sourceBookId, "write");
@@ -751,8 +750,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
 
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
@@ -776,8 +775,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
 
       const { error } = await requireBookAccess(c, bookId, "read");
       if (error) return error;
@@ -799,8 +798,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ContactNoteInputSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
       const data = c.req.valid("json");
       const user = c.get("user");
 
@@ -833,9 +832,9 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ContactNoteInputSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
-      const noteId = c.req.param("noteId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+      const noteId = c.req.param("noteId") ?? "";
       const data = c.req.valid("json");
       const user = c.get("user");
 
@@ -867,9 +866,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const contactId = c.req.param("contactId");
-      const noteId = c.req.param("noteId");
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+      const noteId = c.req.param("noteId") ?? "";
       const user = c.get("user");
 
       const { error } = await requireBookAccess(c, bookId, "write");
@@ -909,7 +908,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { error } = await requireBookAccess(c, bookId, "read");
       if (error) return error;
       const items = await contactsService.tag.list({ bookId });
@@ -929,7 +928,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ContactTagCreateInputSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const data = c.req.valid("json");
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
@@ -948,8 +947,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ContactTagUpdateInputSchema),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const tagId = c.req.param("tagId");
+      const bookId = c.req.param("bookId") ?? "";
+      const tagId = c.req.param("tagId") ?? "";
       const data = c.req.valid("json");
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
@@ -967,8 +966,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
-      const tagId = c.req.param("tagId");
+      const bookId = c.req.param("bookId") ?? "";
+      const tagId = c.req.param("tagId") ?? "";
       const { error } = await requireBookAccess(c, bookId, "write");
       if (error) return error;
       return respondMessage(c, contactsService.tag.remove({ bookId, id: tagId }), "Tag deleted");
@@ -989,7 +988,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { book, error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       // Pull all manual contacts in one go. The current list endpoint paginates,
@@ -1013,7 +1012,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { book, error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const result = await contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
@@ -1044,7 +1043,7 @@ const app = new Hono<AuthContext>()
       }),
     ),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const body = c.req.valid("json");
@@ -1053,7 +1052,9 @@ const app = new Hono<AuthContext>()
       // Match heuristic — one DB hop, then in-memory set lookups. Returns
       // existingId + display name when a candidate likely duplicates an
       // existing contact (by any of its emails OR exact first+last name).
-      const matchRows = await sql<{ id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]>`
+      const matchRows = await sql<
+        { id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]
+      >`
         SELECT
           c.id,
           c.first_name,
@@ -1069,8 +1070,7 @@ const app = new Hono<AuthContext>()
       const emailIndex = new Map<string, { id: string; name: string }>();
       const nameIndex = new Map<string, { id: string; name: string }>();
       for (const row of matchRows) {
-        const display =
-          [row.first_name, row.last_name].filter(Boolean).join(" ") || row.label || row.id;
+        const display = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.label || row.id;
         for (const email of row.emails) {
           if (email) emailIndex.set(email, { id: row.id, name: display });
         }
@@ -1105,7 +1105,8 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Contacts"],
       summary: "Bulk create contacts from a previously previewed candidate list",
-      description: "Caller passes back the candidates that should be created. The server creates them in order and returns the created ids.",
+      description:
+        "Caller passes back the candidates that should be created. The server creates them in order and returns the created ids.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(z.object({ created: z.number() }), "Created count"),
@@ -1118,7 +1119,7 @@ const app = new Hono<AuthContext>()
       }),
     ),
     async (c) => {
-      const bookId = c.req.param("bookId");
+      const bookId = c.req.param("bookId") ?? "";
       const { error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const body = c.req.valid("json");

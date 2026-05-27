@@ -39,15 +39,25 @@ export const dispatchContactDetailSelect = (contact: Contact | null, contactId: 
   );
 };
 
+const pushSelectedContactUrl = (contactId: string | null, bookId: string | null) => {
+  const url = new URL(window.location.href);
+  if (contactId) {
+    url.searchParams.set("contact", contactId);
+  } else {
+    url.searchParams.delete("contact");
+  }
+  if (bookId) {
+    url.searchParams.set("contactBook", bookId);
+  } else {
+    url.searchParams.delete("contactBook");
+  }
+  if (url.toString() !== window.location.href) history.pushState({}, "", url.toString());
+};
+
 /** Updates detail params without navigation and notifies detail/list islands. */
-export const setSelectedContactInUrl = (config: {
-  contactId: string | null;
-  bookId: string | null;
-  contact?: Contact | null;
-}) => {
+export const setSelectedContactInUrl = (config: { contactId: string | null; bookId: string | null; contact?: Contact | null }) => {
   withViewTransition(() => {
-    detailPanel.setUrlParam("contact", config.contactId);
-    detailPanel.setUrlParam("contactBook", config.bookId);
+    pushSelectedContactUrl(config.contactId, config.bookId);
     dispatchContactDetailSelect(config.contact ?? null, config.contactId, config.bookId);
   });
 };

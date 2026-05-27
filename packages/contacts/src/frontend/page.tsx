@@ -1,6 +1,6 @@
 import { ssr } from "../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { contactsService } from "../service";
@@ -75,7 +75,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
-      <div class="app-cols h-full">
+      <AppWorkspace>
         <ContactsSidebar
           books={books}
           active="all"
@@ -84,11 +84,11 @@ export default ssr<AuthContext>(async (c) => {
           defaultCreateBookId={writableBooks[0]?.id ?? null}
         />
 
-        <div class="order-3 lg:order-2 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <AppWorkspace.Main>
           <div style="view-transition-name: contacts-page-header">
             <SearchBar value={search} />
           </div>
-          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2" data-scroll-preserve="contacts-main-all">
             <div class="pt-2" style="view-transition-name: contacts-list-container">
               <ContactsList
                 contacts={contacts}
@@ -100,12 +100,13 @@ export default ssr<AuthContext>(async (c) => {
               <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
             </div>
           </div>
-        </div>
+        </AppWorkspace.Main>
 
-        <div
+        <AppWorkspace.Detail
           id="contacts-detail-panel"
-          class={`${hasDesktopDetailSelection ? "flex" : "hidden"} order-2 lg:order-3 flex-col min-h-0 overflow-hidden w-full shrink-0 lg:h-full lg:w-[30rem] xl:w-[34rem]`}
-          style="view-transition-name: contacts-detail-panel-shell"
+          open={hasDesktopDetailSelection}
+          width="lg"
+          viewTransitionName="contacts-detail-panel-shell"
         >
           <ContactDetailPanel
             initialContact={selectedContact}
@@ -119,9 +120,9 @@ export default ssr<AuthContext>(async (c) => {
             currentUserId={user.id}
             showEmpty={false}
           />
-        </div>
+        </AppWorkspace.Detail>
         <DesktopDetailLayoutSync detailContainerId="contacts-detail-panel" />
-      </div>
+      </AppWorkspace>
     </Layout>
   );
 });

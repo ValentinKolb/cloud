@@ -6,7 +6,7 @@ import BookSettingsForm from "../../_components/BookSettingsForm.island";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const bookId = c.req.param("bookId");
+  const bookId = c.req.param("bookId") ?? "";
 
   const book = await contactsService.book.get({ id: bookId });
   if (!book) {

@@ -4,8 +4,8 @@ import { contactsService } from "../../../../service";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const bookId = c.req.param("bookId");
-  const contactId = c.req.param("contactId");
+  const bookId = c.req.param("bookId") ?? "";
+  const contactId = c.req.param("contactId") ?? "";
 
   const book = await contactsService.book.get({ id: bookId });
   if (!book) return c.redirect("/app/contacts", 302);

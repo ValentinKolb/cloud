@@ -1,6 +1,6 @@
 import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { Pagination } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { contactsService } from "../../service";
@@ -21,7 +21,7 @@ const buildPaginationBaseUrl = (basePath: string, search: string) => {
 };
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
-  const bookId = c.req.param("bookId");
+  const bookId = c.req.param("bookId") ?? "";
   const search = c.req.query("search") ?? "";
   const page = parsePage(c.req.query("page"));
   const perPage = 100;
@@ -98,9 +98,7 @@ export default ssr<AuthContext>(async (c) => {
   if (!selectedContact && selectedContactIdFromUrl) {
     selectedContact = await contactsService.contact.get({ bookId, id: selectedContactIdFromUrl });
   }
-  const initialNotes = selectedContact
-    ? await contactsService.contact.notes.list({ bookId, contactId: selectedContact.id })
-    : [];
+  const initialNotes = selectedContact ? await contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : [];
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const paginationBaseUrl = buildPaginationBaseUrl(`/app/contacts/${bookId}`, search);
@@ -109,7 +107,7 @@ export default ssr<AuthContext>(async (c) => {
   const hasDesktopDetailSelection = Boolean(selectedContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
-      <div class="app-cols h-full">
+      <AppWorkspace>
         <ContactsSidebar
           books={books}
           active={book.id}
@@ -118,18 +116,14 @@ export default ssr<AuthContext>(async (c) => {
           defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
         />
 
-        <div class="order-3 lg:order-2 flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
+        <AppWorkspace.Main>
           <div style="view-transition-name: contacts-page-header">
             <SearchBar value={search} />
           </div>
           {bookTags.length > 0 && (
             <div class="flex flex-wrap items-center gap-1.5 pt-2">
               <a
-                href={
-                  search.trim()
-                    ? `/app/contacts/${bookId}?search=${encodeURIComponent(search.trim())}`
-                    : `/app/contacts/${bookId}`
-                }
+                href={search.trim() ? `/app/contacts/${bookId}?search=${encodeURIComponent(search.trim())}` : `/app/contacts/${bookId}`}
                 class={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
                   activeTagId
                     ? "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-primary dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
@@ -157,7 +151,7 @@ export default ssr<AuthContext>(async (c) => {
               })}
             </div>
           )}
-          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
+          <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2" data-scroll-preserve={`contacts-main-${book.id}`}>
             <div class="pt-2" style="view-transition-name: contacts-list-container">
               <ContactsList
                 contacts={contacts}
@@ -169,12 +163,13 @@ export default ssr<AuthContext>(async (c) => {
               <Pagination currentPage={contactsResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
             </div>
           </div>
-        </div>
+        </AppWorkspace.Main>
 
-        <div
+        <AppWorkspace.Detail
           id="contacts-detail-panel"
-          class={`${hasDesktopDetailSelection ? "flex" : "hidden"} order-2 lg:order-3 flex-col min-h-0 overflow-hidden w-full shrink-0 lg:h-full lg:w-[30rem] xl:w-[34rem]`}
-          style="view-transition-name: contacts-detail-panel-shell"
+          open={hasDesktopDetailSelection}
+          width="lg"
+          viewTransitionName="contacts-detail-panel-shell"
         >
           <ContactDetailPanel
             initialContact={selectedContact}
@@ -188,9 +183,9 @@ export default ssr<AuthContext>(async (c) => {
             currentUserId={user.id}
             showEmpty={false}
           />
-        </div>
+        </AppWorkspace.Detail>
         <DesktopDetailLayoutSync detailContainerId="contacts-detail-panel" />
-      </div>
+      </AppWorkspace>
     </Layout>
   );
 });
