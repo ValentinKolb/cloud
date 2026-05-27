@@ -3,12 +3,10 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { weatherService, type WeatherData } from "@valentinkolb/cloud/services";
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { DailyForecast, HourlyForecast, RadarCard } from "../_components";
 import LocationSidebar from "../_components/LocationSidebar";
 import DeleteLocationButton from "../DeleteLocation.island";
 import DisplaySettingsButton from "../DisplaySettings.island";
-
-// DWD Germany-wide radar GIF (always available, no state needed)
-const DWD_RADAR_URL = "https://www.dwd.de/DWD/wetter/radar/radfilm_brd_akt.gif";
 
 type Location = {
   id: string;
@@ -16,31 +14,6 @@ type Location = {
   state: string | null;
   lat: number;
   lon: number;
-};
-
-const formatHour = (timestamp: string, isFirst: boolean): string => {
-  const date = new Date(timestamp);
-
-  // Show "Now" for the first entry
-  if (isFirst) return "Now";
-
-  // 24h format
-  return date.toLocaleTimeString("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const formatDay = (dateStr: string): string => {
-  const date = new Date(dateStr);
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  if (date.toDateString() === today.toDateString()) return "Today";
-  if (date.toDateString() === tomorrow.toDateString()) return "Tomorrow";
-
-  return date.toLocaleDateString("en-US", { weekday: "short", day: "numeric" });
 };
 
 function WeatherDetail({ location, data }: { location: Location; data: WeatherData }) {
@@ -104,42 +77,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
       {hourly.length > 0 && (
         <section class="paper p-4" aria-label="Hourly forecast">
           <h2 class="section-label mb-3">Hourly</h2>
-          <div class="flex gap-6 overflow-x-auto pb-1" role="list" aria-label="Hourly temperature forecast">
-            {hourly.map((h, idx) => (
-              <div
-                class="flex flex-col items-center gap-1 min-w-14 flex-1"
-                role="listitem"
-                aria-label={`${formatHour(h.timestamp, idx === 0)}: ${weatherService.ui.formatTemp(h.temperature)}`}
-              >
-                {/* Time */}
-                <span class={`text-xs ${idx === 0 ? "text-secondary font-medium" : "text-dimmed"}`}>
-                  {formatHour(h.timestamp, idx === 0)}
-                </span>
-                {/* Icon + Temp */}
-                <div class="flex items-center gap-1">
-                  <i
-                    class={`ti ti-${weatherService.ui.getTablerIcon(
-                      h.icon,
-                    )} text-base ${weatherService.ui.getTempColorClass(h.temperature)}`}
-                    aria-hidden="true"
-                  />
-                  <span class={`text-sm font-medium ${weatherService.ui.getTempColorClass(h.temperature)}`}>
-                    {weatherService.ui.formatTemp(h.temperature)}
-                  </span>
-                </div>
-                {/* Rain probability */}
-                {h.precipitationProbability != null && h.precipitationProbability > 0 ? (
-                  <span class="text-[10px] text-blue-500" title={`${h.precipitationProbability}% chance of rain`}>
-                    <i class="ti ti-droplet text-[8px]" aria-hidden="true" /> {h.precipitationProbability}%
-                  </span>
-                ) : (
-                  <span class="text-[10px] text-transparent" aria-hidden="true">
-                    -
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
+          <HourlyForecast hourly={hourly} />
         </section>
       )}
 
@@ -151,60 +89,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
           {daily.length > 0 && (
             <section class="paper p-4" aria-label="7-day forecast">
               <h2 class="section-label mb-3">7-Day Forecast</h2>
-              <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800" role="list">
-                {daily.map((d, idx) => (
-                  <div
-                    class={`flex items-center gap-4 py-3 ${idx === 0 ? "pt-0" : ""}`}
-                    role="listitem"
-                    aria-label={`${formatDay(d.date)}: ${weatherService.ui.formatTemp(
-                      d.tempMin,
-                    )} to ${weatherService.ui.formatTemp(d.tempMax)}`}
-                  >
-                    <span class="text-sm font-medium w-20">{formatDay(d.date)}</span>
-                    <i
-                      class={`ti ti-${weatherService.ui.getTablerIcon(d.icon)} text-xl ${weatherService.ui.getAvgTempColorClass(
-                        d.tempMin,
-                        d.tempMax,
-                      )}`}
-                      aria-hidden="true"
-                    />
-                    <div class="flex-1 flex items-center gap-2">
-                      {/* Temperature bar visualization */}
-                      <span class="text-sm text-dimmed w-8 text-right">{weatherService.ui.formatTemp(d.tempMin)}</span>
-                      <div
-                        class="flex-1 h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden"
-                        role="img"
-                        aria-label={`Temperature range from ${weatherService.ui.formatTemp(
-                          d.tempMin,
-                        )} to ${weatherService.ui.formatTemp(d.tempMax)}`}
-                      >
-                        <div
-                          class="h-full bg-linear-to-r from-blue-400 via-emerald-400 to-amber-400 rounded-full"
-                          style={`width: ${Math.min(100, Math.max(20, ((d.tempMax - d.tempMin) / 30) * 100))}%; margin-left: ${Math.max(
-                            0,
-                            ((d.tempMin + 10) / 50) * 100,
-                          )}%`}
-                        />
-                      </div>
-                      <span class={`text-sm font-medium w-8 ${weatherService.ui.getTempColorClass(d.tempMax)}`}>
-                        {weatherService.ui.formatTemp(d.tempMax)}
-                      </span>
-                    </div>
-                    <div class="flex items-center gap-3 w-24 justify-end">
-                      {d.precipitationProbability != null && d.precipitationProbability > 0 && (
-                        <span class="text-xs text-blue-500" title={`${d.precipitationProbability}% chance of rain`}>
-                          <i class="ti ti-droplet text-[10px]" aria-hidden="true" /> {d.precipitationProbability}%
-                        </span>
-                      )}
-                      {d.sunshine > 0 && (
-                        <span class="text-xs text-amber-500" title={`${Math.round(d.sunshine / 60)} hours of sunshine`}>
-                          <i class="ti ti-sun text-[10px]" aria-hidden="true" /> {Math.round(d.sunshine / 60)}h
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <DailyForecast daily={daily} />
             </section>
           )}
 
@@ -241,36 +126,7 @@ function WeatherDetail({ location, data }: { location: Location; data: WeatherDa
         {/* Radar */}
         <section class="paper p-4" aria-label="Rain radar">
           <h2 class="section-label mb-3">Rain Radar</h2>
-          <div class="bg-zinc-100 dark:bg-zinc-800 thumbnail" style="aspect-ratio: 540/500;">
-            <img
-              src={DWD_RADAR_URL}
-              alt="Rain radar animation for Germany showing precipitation"
-              class="w-full h-full object-contain"
-              loading="lazy"
-            />
-          </div>
-
-          {/* Legend */}
-          <div class="mt-3">
-            <div class="flex h-2 rounded overflow-hidden">
-              <div class="flex-1 bg-cyan-400" />
-              <div class="flex-1 bg-green-600" />
-              <div class="flex-1 bg-green-400" />
-              <div class="flex-1 bg-yellow-400" />
-              <div class="flex-1 bg-orange-500" />
-              <div class="flex-1 bg-red-500" />
-              <div class="flex-1 bg-purple-600" />
-              <div class="flex-1 bg-blue-900" />
-            </div>
-            <div class="flex justify-between text-[10px] text-dimmed mt-1">
-              <span>Light</span>
-              <span>Moderate</span>
-              <span>Heavy</span>
-              <span>Extreme</span>
-            </div>
-          </div>
-
-          <p class="text-[10px] text-dimmed mt-2 text-center">Germany • DWD</p>
+          <RadarCard showLegend />
         </section>
       </div>
     </article>
