@@ -1,9 +1,9 @@
-import { For, Show } from "solid-js";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
-type ActiveKey = "dashboard" | "users" | "groups" | "requests" | "deleted-accounts" | "reminders" | null;
+export type AccountsNavActiveKey = "dashboard" | "users" | "groups" | "requests" | "deleted-accounts" | "reminders" | null;
 
 type Props = {
-  active: ActiveKey;
+  active: AccountsNavActiveKey;
   isAdmin: boolean;
   pendingRequests: number;
 };
@@ -16,8 +16,17 @@ type NavItem = {
   badge?: string;
 };
 
-const navItemClass = (isActive: boolean) => `sidebar-item text-xs ${isActive ? "sidebar-item-active" : ""}`;
-const mobileItemClass = (isActive: boolean) => `sidebar-item-mobile ${isActive ? "sidebar-item-active" : ""}`;
+const renderItem = (item: NavItem) => (
+  <AppWorkspace.SidebarItem
+    href={item.href}
+    icon={item.icon}
+    active={item.active}
+    navigation="document"
+    meta={item.badge ? <span class="text-[10px] text-dimmed">{item.badge}</span> : undefined}
+  >
+    {item.label}
+  </AppWorkspace.SidebarItem>
+);
 
 export default function AccountsNavSidebar(props: Props) {
   const generalItems = (): NavItem[] => [
@@ -49,91 +58,20 @@ export default function AccountsNavSidebar(props: Props) {
   ];
 
   return (
-    <>
-      <nav class="sidebar-container-mobile">
-        <details class="group">
-          <summary class="sidebar-mobile-toggle">
-            <div class="sidebar-header-icon bg-blue-500">
-              <i class="ti ti-users-group text-xs" />
-            </div>
-            <span class="sidebar-header-title">Accounts</span>
-            <span class="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed transition-transform group-open:rotate-180">
-              <i class="ti ti-chevron-down text-sm" />
-            </span>
-          </summary>
-          <div class="sidebar-mobile-actions">
-            <For each={generalItems()}>
-              {(item) => (
-                <a href={item.href} class={mobileItemClass(item.active)}>
-                  <i class={item.icon} />
-                  {item.label}
-                  <Show when={item.badge}>
-                    <span class="ml-auto text-[10px] text-dimmed">{item.badge}</span>
-                  </Show>
-                </a>
-              )}
-            </For>
-            <Show when={props.isAdmin}>
-              <For each={adminItems()}>
-                {(item) => (
-                  <a href={item.href} class={mobileItemClass(item.active)}>
-                    <i class={item.icon} />
-                    {item.label}
-                    <Show when={item.badge}>
-                      <span class="ml-auto text-[10px] text-dimmed">{item.badge}</span>
-                    </Show>
-                  </a>
-                )}
-              </For>
-            </Show>
-          </div>
-        </details>
-      </nav>
-
-      <aside class="sidebar-container">
-        <div class="paper flex h-full min-h-0 flex-col gap-4 p-3">
-          <div class="flex items-center gap-3">
-            <div class="sidebar-header-icon bg-blue-500">
-              <i class="ti ti-users-group text-xs" />
-            </div>
-            <p class="sidebar-header-title">Accounts</p>
-          </div>
-
-          <div class="sidebar-body">
-            <section class="sidebar-group">
-              <p class="sidebar-section-title">General</p>
-              <For each={generalItems()}>
-                {(item) => (
-                  <a href={item.href} class={navItemClass(item.active)}>
-                    <i class={`${item.icon} text-sm`} />
-                    <span class="flex-1">{item.label}</span>
-                    <Show when={item.badge}>
-                      <span class="text-[10px] text-dimmed">{item.badge}</span>
-                    </Show>
-                  </a>
-                )}
-              </For>
-            </section>
-
-            <Show when={props.isAdmin}>
-              <section class="sidebar-group">
-                <p class="sidebar-section-title">Admin</p>
-                <For each={adminItems()}>
-                  {(item) => (
-                    <a href={item.href} class={navItemClass(item.active)}>
-                      <i class={`${item.icon} text-sm`} />
-                      <span class="flex-1">{item.label}</span>
-                      <Show when={item.badge}>
-                        <span class="text-[10px] text-dimmed">{item.badge}</span>
-                      </Show>
-                    </a>
-                  )}
-                </For>
-              </section>
-            </Show>
-          </div>
-        </div>
-      </aside>
-    </>
+    <AppWorkspace.Sidebar>
+      <AppWorkspace.SidebarHeader title="Accounts" icon="ti ti-users-group" iconStyle="background-color:#3b82f6" />
+      <AppWorkspace.SidebarMobile>
+        <AppWorkspace.SidebarMobileItems scrollPreserveKey="accounts-sidebar-mobile">
+          {generalItems().map(renderItem)}
+          {props.isAdmin ? adminItems().map(renderItem) : null}
+        </AppWorkspace.SidebarMobileItems>
+      </AppWorkspace.SidebarMobile>
+      <AppWorkspace.SidebarDesktop>
+        <AppWorkspace.SidebarBody scrollPreserveKey="accounts-sidebar">
+          <AppWorkspace.SidebarSection title="General">{generalItems().map(renderItem)}</AppWorkspace.SidebarSection>
+          {props.isAdmin ? <AppWorkspace.SidebarSection title="Admin">{adminItems().map(renderItem)}</AppWorkspace.SidebarSection> : null}
+        </AppWorkspace.SidebarBody>
+      </AppWorkspace.SidebarDesktop>
+    </AppWorkspace.Sidebar>
   );
 }

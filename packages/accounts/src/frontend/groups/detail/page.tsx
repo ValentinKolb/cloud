@@ -1,17 +1,17 @@
-import { ssr } from "../../../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService, coreSettings } from "@valentinkolb/cloud/services";
-import { Layout } from "@valentinkolb/cloud/ssr";
-import { createPagination } from "@/contracts";
 import { canManageGroup, getDefaultGroupScope, isAdminUser } from "@valentinkolb/cloud/shared";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js/jsx-runtime";
-import AccountsNavSidebar from "../../AccountsNavSidebar";
-import { GROUPS_CONTEXT_QUERY_KEYS, buildGroupDetailUrl, buildGroupsUrl, parseGroupsListState } from "../../lib/url-state";
+import { createPagination } from "@/contracts";
+import { ssr } from "../../../config";
+import AccountsWorkspace from "../../AccountsWorkspace";
+import { getProviderBadge } from "../../lib/account-badges";
+import { buildGroupDetailUrl, buildGroupsUrl, GROUPS_CONTEXT_QUERY_KEYS, parseGroupsListState } from "../../lib/url-state";
 import GroupActions from "./GroupActions.island";
 import ManagersTab from "./ManagersTab";
 import MemberOfTab from "./MemberOfTab";
 import MembersTab from "./MembersTab";
-import { getProviderBadge } from "../../lib/account-badges";
 
 const TABS = ["members", "managers", "member-of"] as const;
 const TAB_META: Record<(typeof TABS)[number], { label: string; icon: string }> = {
@@ -42,8 +42,7 @@ export default ssr<AuthContext>(async (c) => {
   const groupsListHref = buildGroupsUrl(listState, {
     defaultScope,
   });
-  const groupsBackLabel =
-    listState.scope === "managed" ? "Managed Groups" : listState.scope === "member" ? "My Groups" : "All Groups";
+  const groupsBackLabel = listState.scope === "managed" ? "Managed Groups" : listState.scope === "member" ? "My Groups" : "All Groups";
 
   const group = await accountsService.group.get({ id: groupId });
 
@@ -249,138 +248,141 @@ export default ssr<AuthContext>(async (c) => {
         { title: group.name },
       ]}
     >
-      <div class="app-cols h-full">
-        <AccountsNavSidebar active="groups" isAdmin={isAdmin} pendingRequests={pendingRequestsPage.total} />
+      <AccountsWorkspace
+        active="groups"
+        isAdmin={isAdmin}
+        pendingRequests={pendingRequestsPage.total}
+        scrollPreserveKey="accounts-group-detail"
+      >
+        <div class="flex flex-col gap-3">
+          <div>
+            <a href={groupsListHref} class="btn-secondary btn-sm">
+              <i class="ti ti-arrow-left" />
+              {groupsBackLabel}
+            </a>
+          </div>
 
-        <div class="flex-1 min-w-0 flex flex-col">
-          <div class="flex-1 min-h-0 overflow-y-auto">
-            <div class="flex flex-col gap-3">
-              <div>
-                <a href={groupsListHref} class="btn-secondary btn-sm">
-                  <i class="ti ti-arrow-left" />
-                  {groupsBackLabel}
-                </a>
-              </div>
-
-              <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-group-title">
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <h1 class="text-base font-semibold text-primary">{group.name}</h1>
-                    {providerBadge && <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{providerBadge.label}</span>}
-                    {group.gidnumber && (
-                      <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
-                        POSIX
-                      </span>
-                    )}
-                  </div>
-                  <p class="mt-1 truncate text-xs text-dimmed">
-                    {group.description || "No description"}
-                    {group.gidnumber ? ` · GID ${group.gidnumber}` : ""}
-                  </p>
-                </div>
-                {isAdmin && canMutateGroup && (
-                  <GroupActions
-                    id={group.id}
-                    name={group.name}
-                    provider={group.provider}
-                    isPosix={!!group.gidnumber}
-                    description={group.description}
-                    listHref={groupsListHref}
-                  />
+          <div class="flex flex-wrap items-start justify-between gap-3" style="view-transition-name: accounts-group-title">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h1 class="text-base font-semibold text-primary">{group.name}</h1>
+                {providerBadge && (
+                  <span class={`rounded px-1.5 py-0.5 text-[10px] font-medium ${providerBadge.className}`}>{providerBadge.label}</span>
+                )}
+                {group.gidnumber && (
+                  <span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                    POSIX
+                  </span>
                 )}
               </div>
-
-              <div class="paper overflow-hidden" style="view-transition-name: accounts-group-facts">
-                <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2 xl:grid-cols-4">
-                  {facts.map((fact) => (
-                    <div class="min-w-0 bg-white px-3 py-2.5 dark:bg-zinc-900">
-                      <dt class="text-[11px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
-                      <dd class="mt-1 min-w-0 truncate text-xs text-primary">{fact.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-
-              {canManageMutations && !isAdmin && <p class="text-xs text-dimmed">You can manage members and managers here.</p>}
-              {!canMutateGroup && (
-                <p class="text-xs text-amber-700 dark:text-amber-300">FreeIPA is currently disabled. This group stays visible, but directory-backed mutations are unavailable.</p>
-              )}
-
-              <div class="flex flex-wrap items-start justify-between gap-2" style="view-transition-name: accounts-group-tabs">
-                <nav class="flex flex-wrap items-center gap-1" aria-label="Group detail sections">
-                  {TABS.filter((entryTab) => entryTab !== "member-of" || isAdmin).map((entryTab) => (
-                    <a
-                      href={buildDetailHref(groupId, {
-                        tab: entryTab,
-                        search: null,
-                        page: null,
-                        indirect: null,
-                      })}
-                      class={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-colors ${
-                        tab === entryTab
-                          ? "border-blue-500/35 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
-                          : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-800"
-                      }`}
-                      role="tab"
-                      aria-selected={tab === entryTab}
-                    >
-                      <i class={`${TAB_META[entryTab].icon} text-sm`} />
-                      <span>{TAB_META[entryTab].label}</span>
-                    </a>
-                  ))}
-                </nav>
-                <p class="px-1 py-2 text-xs text-dimmed">{activeCountText}</p>
-              </div>
-
-              {tab === "members" && (
-                <MembersTab
-                  items={memberItems}
-                  pagination={membersPagination}
-                  search={search}
-                  groupId={groupId}
-                  groupProvider={group.provider}
-                  allMemberIds={directMemberUserIds}
-                  allMemberGroupIds={directMemberGroupIds}
-                  isAdmin={isAdmin}
-                  canManage={canManageMutations}
-                  indirect={indirect}
-                  groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
-                  pageBaseUrl={membersPageBaseUrl}
-                  toggleIndirectUrl={toggleIndirectUrl}
-                />
-              )}
-
-              {tab === "managers" && (
-                <ManagersTab
-                  items={managerItems}
-                  pagination={managersPagination}
-                  groupId={groupId}
-                  groupProvider={group.provider}
-                  allManagerIds={directManagerUserIds}
-                  allManagerGroupIds={directManagerGroupIds}
-                  canManage={canManageMutations}
-                  isAdmin={isAdmin}
-                  groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
-                  pageBaseUrl={managersPageBaseUrl}
-                />
-              )}
-
-              {tab === "member-of" && (
-                <MemberOfTab
-                  groupId={groupId}
-                  groupProvider={group.provider}
-                  items={parentItems}
-                  allParentGroupIds={parentGroupIds}
-                  isAdmin={isAdmin && canMutateGroup}
-                  groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
-                  pagination={memberOfPagination}
-                  pageBaseUrl={memberOfPageBaseUrl}
-                />
-              )}
+              <p class="mt-1 truncate text-xs text-dimmed">
+                {group.description || "No description"}
+                {group.gidnumber ? ` · GID ${group.gidnumber}` : ""}
+              </p>
             </div>
+            {isAdmin && canMutateGroup && (
+              <GroupActions
+                id={group.id}
+                name={group.name}
+                provider={group.provider}
+                isPosix={!!group.gidnumber}
+                description={group.description}
+                listHref={groupsListHref}
+              />
+            )}
           </div>
+
+          <div class="paper overflow-hidden" style="view-transition-name: accounts-group-facts">
+            <dl class="grid gap-px bg-zinc-100 dark:bg-zinc-800 sm:grid-cols-2 xl:grid-cols-4">
+              {facts.map((fact) => (
+                <div class="min-w-0 bg-white px-3 py-2.5 dark:bg-zinc-900">
+                  <dt class="text-[11px] uppercase tracking-[0.22em] text-dimmed">{fact.label}</dt>
+                  <dd class="mt-1 min-w-0 truncate text-xs text-primary">{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          {canManageMutations && !isAdmin && <p class="text-xs text-dimmed">You can manage members and managers here.</p>}
+          {!canMutateGroup && (
+            <p class="text-xs text-amber-700 dark:text-amber-300">
+              FreeIPA is currently disabled. This group stays visible, but directory-backed mutations are unavailable.
+            </p>
+          )}
+
+          <div class="flex flex-wrap items-start justify-between gap-2" style="view-transition-name: accounts-group-tabs">
+            <nav class="flex flex-wrap items-center gap-1" aria-label="Group detail sections">
+              {TABS.filter((entryTab) => entryTab !== "member-of" || isAdmin).map((entryTab) => (
+                <a
+                  href={buildDetailHref(groupId, {
+                    tab: entryTab,
+                    search: null,
+                    page: null,
+                    indirect: null,
+                  })}
+                  class={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs transition-colors ${
+                    tab === entryTab
+                      ? "border-blue-500/35 bg-blue-50 text-blue-700 dark:border-blue-400/40 dark:bg-blue-950/40 dark:text-blue-200"
+                      : "text-dimmed hover:bg-zinc-100 hover:text-primary dark:hover:bg-zinc-800"
+                  }`}
+                  role="tab"
+                  aria-selected={tab === entryTab}
+                >
+                  <i class={`${TAB_META[entryTab].icon} text-sm`} />
+                  <span>{TAB_META[entryTab].label}</span>
+                </a>
+              ))}
+            </nav>
+            <p class="px-1 py-2 text-xs text-dimmed">{activeCountText}</p>
+          </div>
+
+          {tab === "members" && (
+            <MembersTab
+              items={memberItems}
+              pagination={membersPagination}
+              search={search}
+              groupId={groupId}
+              groupProvider={group.provider}
+              allMemberIds={directMemberUserIds}
+              allMemberGroupIds={directMemberGroupIds}
+              isAdmin={isAdmin}
+              canManage={canManageMutations}
+              indirect={indirect}
+              groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
+              pageBaseUrl={membersPageBaseUrl}
+              toggleIndirectUrl={toggleIndirectUrl}
+            />
+          )}
+
+          {tab === "managers" && (
+            <ManagersTab
+              items={managerItems}
+              pagination={managersPagination}
+              groupId={groupId}
+              groupProvider={group.provider}
+              allManagerIds={directManagerUserIds}
+              allManagerGroupIds={directManagerGroupIds}
+              canManage={canManageMutations}
+              isAdmin={isAdmin}
+              groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
+              pageBaseUrl={managersPageBaseUrl}
+            />
+          )}
+
+          {tab === "member-of" && (
+            <MemberOfTab
+              groupId={groupId}
+              groupProvider={group.provider}
+              items={parentItems}
+              allParentGroupIds={parentGroupIds}
+              isAdmin={isAdmin && canMutateGroup}
+              groupHref={(targetGroupId) => buildDetailHref(targetGroupId)}
+              pagination={memberOfPagination}
+              pageBaseUrl={memberOfPageBaseUrl}
+            />
+          )}
         </div>
-      </div>
+      </AccountsWorkspace>
     </Layout>
   );
 });

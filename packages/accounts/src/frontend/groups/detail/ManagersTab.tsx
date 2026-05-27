@@ -1,9 +1,9 @@
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import TabToolbar from "./TabToolbar";
+import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
 import AddMember from "./AddMember.island";
 import RemoveMember from "./RemoveMember.island";
-import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
+import TabToolbar from "./TabToolbar";
 
 type ManagersTabProps = {
   items: EntityListItem[];
@@ -72,6 +72,7 @@ export default function ManagersTab(props: ManagersTabProps) {
             hoverRows
             density="compact"
             class="overflow-x-auto"
+            scrollPreserveKey="accounts-group-managers-table"
             renderCell={({ row: item, col }) => {
               if (item.kind === "user") {
                 const user = item.user;

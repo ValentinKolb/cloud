@@ -1,9 +1,9 @@
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import TabToolbar from "./TabToolbar";
+import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
 import AddMember from "./AddMember.island";
 import RemoveMember from "./RemoveMember.island";
-import { getPrimaryAccountBadge, getProviderBadge } from "../../lib/account-badges";
+import TabToolbar from "./TabToolbar";
 
 type MembersTabProps = {
   items: EntityListItem[];
@@ -82,6 +82,7 @@ export default function MembersTab(props: MembersTabProps) {
             hoverRows
             density="compact"
             class="overflow-x-auto"
+            scrollPreserveKey="accounts-group-members-table"
             renderCell={({ row: item, col }) => {
               const isIndirect = item.relation?.direct === false;
               const membershipClass = isIndirect

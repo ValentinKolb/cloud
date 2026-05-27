@@ -1,11 +1,11 @@
-import { ssr } from "../../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@valentinkolb/stdlib";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import type { AuthContext } from "@valentinkolb/cloud/server";
-import AccountsNavSidebar from "../AccountsNavSidebar";
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { dates } from "@valentinkolb/stdlib";
+import { ssr } from "../../config";
+import AccountsWorkspace from "../AccountsWorkspace";
 import ReminderFilters from "./ReminderFilters.island";
 
 const parsePage = (value: string | undefined): number => {
@@ -67,77 +67,74 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Reminder History" }]}
     >
-      <div class="app-cols h-full">
-        <AccountsNavSidebar active="reminders" isAdmin pendingRequests={pendingRequestsPage.total} />
+      <AccountsWorkspace active="reminders" isAdmin pendingRequests={pendingRequestsPage.total} scrollPreserveKey="accounts-reminders">
+        <div class="flex flex-col gap-2">
+          <div class="min-w-0" style="view-transition-name: accounts-reminders-title">
+            <h1 class="text-base font-semibold text-primary">Reminder History</h1>
+            <p class="mt-1 text-xs text-dimmed">
+              {remindersPage.total} {remindersPage.total === 1 ? "entry" : "entries"}
+            </p>
+          </div>
 
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
-          <div class="flex flex-col gap-2">
-            <div class="min-w-0" style="view-transition-name: accounts-reminders-title">
-              <h1 class="text-base font-semibold text-primary">Reminder History</h1>
-              <p class="mt-1 text-xs text-dimmed">
-                {remindersPage.total} {remindersPage.total === 1 ? "entry" : "entries"}
-              </p>
-            </div>
+          <div style="view-transition-name: accounts-reminders-search">
+            <SearchBar
+              action={buildUrl({ status, kind, page: 1 })}
+              value={search}
+              placeholder="Search reminder history..."
+              ariaLabel="Search reminder history"
+            />
+          </div>
 
-            <div style="view-transition-name: accounts-reminders-search">
-              <SearchBar
-                action={buildUrl({ status, kind, page: 1 })}
-                value={search}
-                placeholder="Search reminder history..."
-                ariaLabel="Search reminder history"
+          <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-reminders-filters">
+            <ReminderFilters search={search} status={status} kind={kind} />
+          </div>
+
+          {remindersPage.items.length === 0 ? (
+            <div class="paper p-6 text-center text-sm text-dimmed">No reminder history entries found.</div>
+          ) : (
+            <div class="paper overflow-hidden" style="view-transition-name: accounts-reminders-table">
+              <DataTable
+                rows={remindersPage.items}
+                columns={columns}
+                getRowId={(entry) => entry.id}
+                hoverRows
+                class="overflow-x-auto"
+                scrollPreserveKey="accounts-reminders-table"
+                renderCell={({ row: entry, col }) => {
+                  if (col.id === "user") {
+                    return (
+                      <div>
+                        <div class="truncate font-medium text-primary">{entry.displayName || entry.uid || "(deleted user)"}</div>
+                        {entry.lastError ? (
+                          <div class="truncate text-[11px] text-red-500" title={entry.lastError}>
+                            {entry.lastError}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }
+                  if (col.id === "kind") return <span class="text-dimmed">Account expiry</span>;
+                  if (col.id === "target")
+                    return (
+                      <span class="text-dimmed">
+                        {dates.formatDateTime(entry.targetExpiryAt)} · {entry.thresholdDays}d
+                      </span>
+                    );
+                  if (col.id === "status") return <span class="text-dimmed">{entry.status}</span>;
+                  if (col.id === "attempts") return <span class="text-dimmed">{entry.attemptCount}</span>;
+                  if (col.id === "lastAttempt")
+                    return <span class="text-dimmed">{entry.lastAttemptAt ? dates.formatDateTime(entry.lastAttemptAt) : "-"}</span>;
+                  return "";
+                }}
               />
             </div>
+          )}
 
-            <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-reminders-filters">
-              <ReminderFilters search={search} status={status} kind={kind} />
-            </div>
-
-            {remindersPage.items.length === 0 ? (
-              <div class="paper p-6 text-center text-sm text-dimmed">No reminder history entries found.</div>
-            ) : (
-              <div class="paper overflow-hidden" style="view-transition-name: accounts-reminders-table">
-                <DataTable
-                  rows={remindersPage.items}
-                  columns={columns}
-                  getRowId={(entry) => entry.id}
-                  hoverRows
-                  class="overflow-x-auto"
-                  renderCell={({ row: entry, col }) => {
-                    if (col.id === "user") {
-                      return (
-                        <div>
-                          <div class="truncate font-medium text-primary">{entry.displayName || entry.uid || "(deleted user)"}</div>
-                          {entry.lastError ? (
-                            <div class="truncate text-[11px] text-red-500" title={entry.lastError}>
-                              {entry.lastError}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    }
-                    if (col.id === "kind") return <span class="text-dimmed">Account expiry</span>;
-                    if (col.id === "target")
-                      return (
-                        <span class="text-dimmed">
-                          {dates.formatDateTime(entry.targetExpiryAt)} · {entry.thresholdDays}d
-                        </span>
-                      );
-                    if (col.id === "status") return <span class="text-dimmed">{entry.status}</span>;
-                    if (col.id === "attempts") return <span class="text-dimmed">{entry.attemptCount}</span>;
-                    if (col.id === "lastAttempt")
-                      return <span class="text-dimmed">{entry.lastAttemptAt ? dates.formatDateTime(entry.lastAttemptAt) : "-"}</span>;
-                    return "";
-                  }}
-                />
-              </div>
-            )}
-
-            <div class="pt-1">
-              <Pagination currentPage={page} totalPages={totalPages} baseUrl={baseUrl} />
-            </div>
+          <div class="pt-1">
+            <Pagination currentPage={page} totalPages={totalPages} baseUrl={baseUrl} />
           </div>
         </div>
-      </div>
+      </AccountsWorkspace>
     </Layout>
   );
 });

@@ -1,13 +1,13 @@
-import { ssr } from "../../config";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { dates } from "@valentinkolb/stdlib";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import type { AuthContext } from "@valentinkolb/cloud/server";
-import AccountsNavSidebar from "../AccountsNavSidebar";
-import DeletedAccountsFilters from "./DeletedAccountsFilters.island";
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+import { dates } from "@valentinkolb/stdlib";
+import { ssr } from "../../config";
+import AccountsWorkspace from "../AccountsWorkspace";
 import DeletedAccountDetails from "./DeletedAccountDetails.island";
+import DeletedAccountsFilters from "./DeletedAccountsFilters.island";
 
 const formatReason = (reason: string): string => {
   switch (reason) {
@@ -88,79 +88,76 @@ export default ssr<AuthContext>(async (c) => {
       fullWidth
       title={[{ title: "Start", href: "/" }, { title: "Accounts", href: "/app/accounts" }, { title: "Deleted Accounts" }]}
     >
-      <div class="app-cols h-full">
-        <AccountsNavSidebar active="deleted-accounts" isAdmin pendingRequests={pendingRequestsPage.total} />
+      <AccountsWorkspace active="deleted-accounts" isAdmin pendingRequests={pendingRequestsPage.total} scrollPreserveKey="accounts-deleted">
+        <div class="flex flex-col gap-2">
+          <div class="min-w-0" style="view-transition-name: accounts-deleted-title">
+            <h1 class="text-base font-semibold text-primary">Deleted Accounts</h1>
+            <p class="mt-1 text-xs text-dimmed">
+              {deletedAccountsPage.total} {deletedAccountsPage.total === 1 ? "deleted account" : "deleted accounts"}
+            </p>
+          </div>
 
-        <div class="flex-1 min-w-0 min-h-0 overflow-y-auto">
-          <div class="flex flex-col gap-2">
-            <div class="min-w-0" style="view-transition-name: accounts-deleted-title">
-              <h1 class="text-base font-semibold text-primary">Deleted Accounts</h1>
-              <p class="mt-1 text-xs text-dimmed">
-                {deletedAccountsPage.total} {deletedAccountsPage.total === 1 ? "deleted account" : "deleted accounts"}
-              </p>
-            </div>
+          <div style="view-transition-name: accounts-deleted-search">
+            <SearchBar
+              action={buildUrl({ reason, page: 1 })}
+              value={search}
+              placeholder="Search deleted accounts..."
+              ariaLabel="Search deleted accounts"
+            />
+          </div>
 
-            <div style="view-transition-name: accounts-deleted-search">
-              <SearchBar
-                action={buildUrl({ reason, page: 1 })}
-                value={search}
-                placeholder="Search deleted accounts..."
-                ariaLabel="Search deleted accounts"
+          <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-deleted-filters">
+            <DeletedAccountsFilters search={search} reason={reason} />
+          </div>
+
+          {deletedAccountsPage.items.length === 0 ? (
+            <div class="paper p-6 text-center text-sm text-dimmed">No deleted accounts found.</div>
+          ) : (
+            <div class="paper overflow-hidden" style="view-transition-name: accounts-deleted-table">
+              <DataTable
+                rows={deletedAccountsPage.items}
+                columns={columns}
+                getRowId={(entry) => entry.id}
+                hoverRows
+                class="overflow-x-auto"
+                scrollPreserveKey="accounts-deleted-table"
+                renderCell={({ row: entry, col }) => {
+                  if (col.id === "account") return <span class="font-medium text-primary">{entry.displayName || entry.uid}</span>;
+                  if (col.id === "email")
+                    return (
+                      <span class="truncate text-dimmed" title={entry.mail || "-"}>
+                        {entry.mail || "-"}
+                      </span>
+                    );
+                  if (col.id === "provider") return <span class="text-dimmed">{entry.previousProvider || "-"}</span>;
+                  if (col.id === "profile") return <span class="text-dimmed">{entry.previousProfile || "-"}</span>;
+                  if (col.id === "reason") return <span class="text-dimmed">{formatReason(entry.reason)}</span>;
+                  if (col.id === "deleted") return <span class="text-dimmed">{dates.formatDateTime(entry.deletedAt)}</span>;
+                  if (col.id === "details") {
+                    return (
+                      <DeletedAccountDetails
+                        displayName={entry.displayName || entry.uid}
+                        uid={entry.uid}
+                        mail={entry.mail}
+                        previousProvider={entry.previousProvider}
+                        previousProfile={entry.previousProfile}
+                        reason={formatReason(entry.reason)}
+                        deletedAt={dates.formatDateTime(entry.deletedAt)}
+                        metadata={entry.meta}
+                      />
+                    );
+                  }
+                  return "";
+                }}
               />
             </div>
+          )}
 
-            <div class="flex flex-wrap items-center gap-2" style="view-transition-name: accounts-deleted-filters">
-              <DeletedAccountsFilters search={search} reason={reason} />
-            </div>
-
-            {deletedAccountsPage.items.length === 0 ? (
-              <div class="paper p-6 text-center text-sm text-dimmed">No deleted accounts found.</div>
-            ) : (
-              <div class="paper overflow-hidden" style="view-transition-name: accounts-deleted-table">
-                <DataTable
-                  rows={deletedAccountsPage.items}
-                  columns={columns}
-                  getRowId={(entry) => entry.id}
-                  hoverRows
-                  class="overflow-x-auto"
-                  renderCell={({ row: entry, col }) => {
-                    if (col.id === "account") return <span class="font-medium text-primary">{entry.displayName || entry.uid}</span>;
-                    if (col.id === "email")
-                      return (
-                        <span class="truncate text-dimmed" title={entry.mail || "-"}>
-                          {entry.mail || "-"}
-                        </span>
-                      );
-                    if (col.id === "provider") return <span class="text-dimmed">{entry.previousProvider || "-"}</span>;
-                    if (col.id === "profile") return <span class="text-dimmed">{entry.previousProfile || "-"}</span>;
-                    if (col.id === "reason") return <span class="text-dimmed">{formatReason(entry.reason)}</span>;
-                    if (col.id === "deleted") return <span class="text-dimmed">{dates.formatDateTime(entry.deletedAt)}</span>;
-                    if (col.id === "details") {
-                      return (
-                        <DeletedAccountDetails
-                          displayName={entry.displayName || entry.uid}
-                          uid={entry.uid}
-                          mail={entry.mail}
-                          previousProvider={entry.previousProvider}
-                          previousProfile={entry.previousProfile}
-                          reason={formatReason(entry.reason)}
-                          deletedAt={dates.formatDateTime(entry.deletedAt)}
-                          metadata={entry.meta}
-                        />
-                      );
-                    }
-                    return "";
-                  }}
-                />
-              </div>
-            )}
-
-            <div class="pt-1">
-              <Pagination currentPage={page} totalPages={totalPages} baseUrl={baseUrl} />
-            </div>
+          <div class="pt-1">
+            <Pagination currentPage={page} totalPages={totalPages} baseUrl={baseUrl} />
           </div>
         </div>
-      </div>
+      </AccountsWorkspace>
     </Layout>
   );
 });

@@ -1,9 +1,9 @@
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
 import type { EntityListItem, PaginationResponse } from "@/contracts";
-import { DataTable, Pagination, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import TabToolbar from "./TabToolbar";
+import { getProviderBadge } from "../../lib/account-badges";
 import AddGroupToGroup from "./AddGroupToGroup.island";
 import RemoveFromGroup from "./RemoveFromGroup.island";
-import { getProviderBadge } from "../../lib/account-badges";
+import TabToolbar from "./TabToolbar";
 
 type MemberOfTabProps = {
   groupId: string;
@@ -56,6 +56,7 @@ export default function MemberOfTab(props: MemberOfTabProps) {
             hoverRows
             density="compact"
             class="overflow-x-auto"
+            scrollPreserveKey="accounts-group-member-of-table"
             renderCell={({ row: item, col }) => {
               if (item.kind !== "group") return "";
               const group = item.group;
