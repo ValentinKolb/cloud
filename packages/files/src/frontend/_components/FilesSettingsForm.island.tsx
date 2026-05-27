@@ -17,8 +17,7 @@ import {
   readSettingsError,
   toast,
 } from "@valentinkolb/cloud/ui";
-
-const ENDPOINT = "/api/files/admin/settings";
+import { apiClient } from "@/api/client";
 
 type Initial = {
   "files.filegate_url": string;
@@ -60,11 +59,7 @@ export default function FilesSettingsForm(props: Props) {
     mutation: async () => {
       const updates: Record<string, string> = {};
       for (const k of changedKeys()) updates[k as string] = draft()[k];
-      const response = await fetch(ENDPOINT, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
+      const response = await apiClient.admin.settings.$put({ json: updates });
       if (!response.ok) {
         const { message, fields } = await readSettingsError(response, `Save failed (HTTP ${response.status})`);
         setFieldErrors(fields);
