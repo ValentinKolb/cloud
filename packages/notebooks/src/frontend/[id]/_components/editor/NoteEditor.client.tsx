@@ -249,7 +249,7 @@ export default function NoteEditor(props: Props) {
 
     document.addEventListener("click", onClick);
     window.addEventListener("popstate", onPopState);
-    const offSoftRequests = handleSoftNoteNavigationRequests((href) => navigateSoft(href, true));
+    const offSoftRequests = handleSoftNoteNavigationRequests((href, options) => navigateSoft(href, options.push));
     onCleanup(() => {
       document.removeEventListener("click", onClick);
       window.removeEventListener("popstate", onPopState);

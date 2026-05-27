@@ -25,6 +25,7 @@ type Props = {
   showSearch?: boolean;
   showHeaderActions?: boolean;
   favoriteNoteIds?: string[];
+  scrollPreserveKey?: string;
 };
 
 // =============================================================================
@@ -593,7 +594,7 @@ export default function NoteTree(props: Props) {
         </div>
       </Show>
 
-      <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={props.scrollPreserveKey}>
         <For each={props.tree}>
           {(node) => (
             <TreeNode

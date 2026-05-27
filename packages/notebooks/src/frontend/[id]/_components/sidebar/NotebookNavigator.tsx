@@ -285,7 +285,7 @@ export default function NotebookNavigator(props: Props) {
   return (
     <div class="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)] gap-2.5">
       <div class="flex min-h-0 flex-col pr-1">
-        <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`notebooks-navigator-roots-${props.notebook.shortId}`}>
           <div class="relative mb-4 flex items-center gap-3 pr-7">
             <div class="sidebar-header-icon flex shrink-0 items-center justify-center bg-blue-500 text-white">
               <i class={`ti ${props.notebook.icon || "ti-notebook"} text-xs`} />
@@ -423,7 +423,7 @@ export default function NotebookNavigator(props: Props) {
           </Show>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div class="min-h-0 flex-1 overflow-y-auto pr-1" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.shortId}`}>
           <Show
             when={visibleNotes().length > 0 || pinnedNote()}
             fallback={<p class="rounded-lg bg-zinc-50 px-3 py-3 text-xs text-dimmed dark:bg-zinc-900/60">No notes here yet.</p>}

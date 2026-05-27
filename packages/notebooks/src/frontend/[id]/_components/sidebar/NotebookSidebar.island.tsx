@@ -1,13 +1,15 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts, type LinkNavigateEvent } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";
+import { requestSoftNoteNavigation } from "../../../lib/soft-navigation";
 import SearchButton from "../search/SearchButton";
 import NotebookSettingsButton from "../settings/NotebookSettingsButton";
 import CreateNoteButton from "./CreateNoteButton";
 import NotebookNavigator from "./NotebookNavigator";
 import NoteTree from "./NoteTree";
 import TagsButton from "./TagsButton";
+import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import type { NotebookContext, NoteTreeNode } from "./types";
 import { WORKSPACE_EVENT, type WorkspaceEventDetail } from "./workspace-events";
 
@@ -61,10 +63,18 @@ const insertNoteIntoTree = (nodes: NoteTreeNode[], note: NoteTreeNode) => {
   }
 };
 
+const resolveSameNotebookNoteHref = (url: URL, notebookShortId: string): string | null => {
+  if (url.origin !== window.location.origin || url.search || url.hash) return null;
+  const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
+  if (!match || decodeURIComponent(match[1]!) !== notebookShortId) return null;
+  return `/app/notebooks/${encodeURIComponent(notebookShortId)}/notes/${encodeURIComponent(decodeURIComponent(match[2]!))}`;
+};
+
 export default function NotebookSidebar(props: Props) {
   const [notebook, setNotebook] = createSignal(props.ctx.notebook);
   const [noteTree, setNoteTree] = createSignal(props.ctx.tree);
   const [favoriteNoteIds, setFavoriteNoteIds] = createSignal(new Set(props.ctx.favoriteNoteIds));
+  const [selectedNoteId, setSelectedNoteId] = createSignal(props.ctx.selectedNoteId);
   const canWrite = props.ctx.permission === "write" || props.ctx.permission === "admin";
   const navigatorMode = () => props.ctx.settings.sidebarMode === "navigator";
   const attachmentsHref = () => buildAttachmentsUrl(notebook().shortId);
@@ -72,7 +82,7 @@ export default function NotebookSidebar(props: Props) {
   const allNotebooksHref = "/app/notebooks";
   const homepageNote = createMemo(() => findNoteByShortId(noteTree(), notebook().homepageNoteShortId));
   const homepageHref = () => (homepageNote() ? buildNoteUrl(notebook().shortId, homepageNote()!.shortId) : null);
-  const homepageIsActive = () => homepageNote()?.id === props.ctx.selectedNoteId;
+  const homepageIsActive = () => homepageNote()?.id === selectedNoteId();
   const vt = (key: string) => `notebook-sidebar-${notebook().shortId}-${key}`;
 
   const explainMissingHomepage = () =>
@@ -85,6 +95,26 @@ export default function NotebookSidebar(props: Props) {
     const response = await apiClient[":id"].tree.$get({ param: { id: notebook().shortId } });
     if (!response.ok) return;
     setNoteTree((await response.json()) as NoteTreeNode[]);
+  };
+
+  const handleSameNotebookNoteNavigate = async (nav: LinkNavigateEvent) => {
+    const target = resolveSameNotebookNoteHref(nav.url, notebook().shortId);
+    if (!target) {
+      nav.fallback();
+      return;
+    }
+
+    if (`${window.location.pathname}${window.location.search}` === target) {
+      nav.replaceWith(target);
+      return;
+    }
+
+    const handled = await requestSoftNoteNavigation(target, { push: false });
+    if (!handled) {
+      nav.fallback(target);
+      return;
+    }
+    nav.push(target);
   };
 
   const applyWorkspaceEvent = (detail: WorkspaceEventDetail) => {
@@ -132,20 +162,29 @@ export default function NotebookSidebar(props: Props) {
 
   onMount(() => {
     const handler = (raw: Event) => applyWorkspaceEvent((raw as CustomEvent<WorkspaceEventDetail>).detail);
+    const onSoftNavigated = (raw: Event) => {
+      const detail = (raw as CustomEvent<{ canonicalNoteId?: string }>).detail;
+      if (detail?.canonicalNoteId) setSelectedNoteId(detail.canonicalNoteId);
+    };
     window.addEventListener(WORKSPACE_EVENT, handler);
-    onCleanup(() => window.removeEventListener(WORKSPACE_EVENT, handler));
+    window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+    onCleanup(() => {
+      window.removeEventListener(WORKSPACE_EVENT, handler);
+      window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
+    });
   });
 
-  const renderTreeView = () => (
+  const renderTreeView = (scrollPreserveKey: string) => (
     <NoteTree
       tree={noteTree()}
       notebookId={notebook().shortId}
       notebookName={notebook().name}
-      selectedNoteId={props.ctx.selectedNoteId}
+      selectedNoteId={selectedNoteId()}
       canWrite={canWrite}
       showSearch={false}
       showHeaderActions={false}
       favoriteNoteIds={[...favoriteNoteIds()]}
+      scrollPreserveKey={scrollPreserveKey}
     />
   );
 
@@ -184,7 +223,8 @@ export default function NotebookSidebar(props: Props) {
               href={homepageHref()!}
               icon="ti ti-home"
               active={homepageIsActive()}
-              navigation="document"
+              scroll="top"
+              onNavigate={handleSameNotebookNoteNavigate}
               data={{ "notebooks-homepage-note-id": homepageNote()?.id }}
               viewTransitionName={vt("homepage-mobile")}
             >
@@ -217,7 +257,9 @@ export default function NotebookSidebar(props: Props) {
             </div>
           )}
         </AppWorkspace.SidebarMobileItems>
-        <AppWorkspace.SidebarMobileBody>{renderTreeView()}</AppWorkspace.SidebarMobileBody>
+        <AppWorkspace.SidebarMobileBody scrollPreserveKey={`notebooks-mobile-sidebar-${notebook().shortId}`}>
+          {renderTreeView(`notebooks-mobile-tree-${notebook().shortId}`)}
+        </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
 
       <AppWorkspace.SidebarDesktop>
@@ -240,7 +282,8 @@ export default function NotebookSidebar(props: Props) {
                     icon="ti ti-home"
                     label={homepageHref() ? "Homepage" : "Set homepage in notebook settings"}
                     active={homepageIsActive()}
-                    navigation="document"
+                    scroll="top"
+                    onNavigate={handleSameNotebookNoteNavigate}
                     viewTransitionName={vt("homepage-desktop")}
                     onClick={homepageHref() ? undefined : explainMissingHomepage}
                   />
@@ -266,9 +309,9 @@ export default function NotebookSidebar(props: Props) {
                 </AppWorkspace.SidebarIconGrid>
               </div>
 
-              <AppWorkspace.SidebarBody>
+              <AppWorkspace.SidebarBody scrollPreserveKey={`notebooks-simple-sidebar-${notebook().shortId}`}>
                 <AppWorkspace.SidebarSection title="Notes" class="min-h-0 flex-1">
-                  {renderTreeView()}
+                  {renderTreeView(`notebooks-simple-tree-${notebook().shortId}`)}
                 </AppWorkspace.SidebarSection>
               </AppWorkspace.SidebarBody>
             </>
@@ -277,7 +320,7 @@ export default function NotebookSidebar(props: Props) {
           <NotebookNavigator
             notebook={notebook()}
             tree={noteTree()}
-            selectedNoteId={props.ctx.selectedNoteId}
+            selectedNoteId={selectedNoteId()}
             permission={props.ctx.permission}
             canWrite={canWrite}
             favoriteNoteIds={[...favoriteNoteIds()]}
