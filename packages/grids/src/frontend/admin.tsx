@@ -54,7 +54,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Grids" stretch>
-      <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="grids-admin">
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-3" style="view-transition-name: admin-grids-title">
             <div class="min-w-0">
@@ -105,6 +105,7 @@ export default ssr<AuthContext>(async (c) => {
                 getRowId={(base) => base.id}
                 hoverRows
                 class="overflow-x-auto"
+                scrollPreserveKey="grids-admin-table"
                 renderCell={({ row: base, col }) => {
                   if (col.id === "base") {
                     return (

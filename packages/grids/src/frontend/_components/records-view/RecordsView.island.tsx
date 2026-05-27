@@ -1060,6 +1060,7 @@ export default function RecordsView(props: Props) {
                 hasMore={!props.trashMode && !!flatNextCursor()}
                 loadingMore={data.loading && !!cursor()}
                 onLoadMore={loadNextFlatPage}
+                scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
                 adminMode={adminMode()}
                 onFieldSettings={adminMode() && !isSavedView() && props.canManageTable ? openFieldSettings : undefined}
                 onFieldMove={undefined}
@@ -1084,6 +1085,7 @@ export default function RecordsView(props: Props) {
               adminMode={adminMode() && isSavedView() && !!props.canEditActiveView}
               columnOrder={visibleGroupedColumnOrder()}
               hiddenColumnIds={query().hiddenGroupedColumns}
+              scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewShortId ?? "default"}`}
               onColumnSettings={openGroupedViewColumnSettings}
               onColumnMove={moveGroupedViewColumnInline}
             />

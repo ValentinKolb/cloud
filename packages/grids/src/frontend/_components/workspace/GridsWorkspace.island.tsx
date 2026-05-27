@@ -1,5 +1,5 @@
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
-import { createSignal, Match, Show, Switch } from "solid-js";
+import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { apiClient } from "../../../api/client";
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor.island";
@@ -39,22 +39,47 @@ const sidebarStateClass = (active: boolean, adminMode: boolean) =>
 
 export default function GridsWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
+  let routeRequest = 0;
+
+  const loadWorkspaceState = async (href: string) => {
+    const res = await apiClient.workspace.route.$get({ query: { href } });
+    if (!res.ok) throw new Error("Could not load route");
+    const next = await res.json();
+    if (next.kind !== "ok") throw new Error("Could not load route");
+    return next;
+  };
+
+  const applyWorkspaceHref = async (href: string) => {
+    const requestId = ++routeRequest;
+    const next = await loadWorkspaceState(href);
+    if (requestId === routeRequest) setState(next);
+  };
+
+  const canHandleUrl = (url: URL) => url.origin === window.location.origin && url.pathname.startsWith("/app/grids/");
 
   const handleNavigate = async (nav: Parameters<NonNullable<Parameters<typeof AppWorkspace.SidebarItem>[0]["onNavigate"]>>[0]) => {
-    const url = nav.url;
-    if (url.origin !== window.location.origin || !url.pathname.startsWith("/app/grids/")) return nav.fallback();
+    if (!canHandleUrl(nav.url)) return nav.fallback();
     try {
-      const res = await apiClient.workspace.route.$get({ query: { href: `${url.pathname}${url.search}` } });
-      if (!res.ok) return nav.fallback();
-      const next = await res.json();
-      if (next.kind !== "ok") return nav.fallback();
-      setState(next);
+      await applyWorkspaceHref(`${nav.url.pathname}${nav.url.search}`);
       nav.push(undefined, { scroll: "top" });
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Could not open route");
       nav.fallback();
     }
   };
+
+  onMount(() => {
+    const onPopState = () => {
+      const url = new URL(window.location.href);
+      if (!canHandleUrl(url)) {
+        window.location.assign(`${url.pathname}${url.search}`);
+        return;
+      }
+      void applyWorkspaceHref(`${url.pathname}${url.search}`).catch(() => window.location.assign(`${url.pathname}${url.search}`));
+    };
+    window.addEventListener("popstate", onPopState);
+    onCleanup(() => window.removeEventListener("popstate", onPopState));
+  });
 
   const routeKey = () => {
     const s = state();
@@ -105,7 +130,7 @@ export default function GridsWorkspace(props: Props) {
   );
 
   const renderDashboard = (route: WorkspaceDashboardRoute) => (
-    <div class="flex-1 min-h-0 overflow-y-auto" data-route-key={routeKey()}>
+    <div class="flex-1 min-h-0 overflow-y-auto" data-route-key={routeKey()} data-scroll-preserve={`grids-main-${routeKey()}`}>
       {state().adminModeRequested && route.canEditActiveDashboard ? (
         <DashboardWysiwygEditor
           baseShortId={state().base.shortId}
@@ -127,7 +152,7 @@ export default function GridsWorkspace(props: Props) {
   );
 
   const renderSettings = (route: WorkspaceSettingsRoute) => (
-    <div class="flex-1 min-h-0 overflow-y-auto" data-route-key={routeKey()}>
+    <div class="flex-1 min-h-0 overflow-y-auto" data-route-key={routeKey()} data-scroll-preserve={`grids-main-${routeKey()}`}>
       <div class="max-w-xl mx-auto w-full py-6 px-4">
         <BaseSettingsPanel base={state().base} accessEntries={route.accessEntries} dashboards={route.dashboards} />
       </div>
@@ -155,7 +180,7 @@ export default function GridsWorkspace(props: Props) {
             }
           />
           <AppWorkspace.SidebarMobile>
-            <AppWorkspace.SidebarMobileItems>
+            <AppWorkspace.SidebarMobileItems scrollPreserveKey={`grids-sidebar-mobile-${state().base.id}`}>
               {state().canUseEditMode && (
                 <AppWorkspace.SidebarItem
                   href={state().editModeToggleHref}
@@ -225,7 +250,11 @@ export default function GridsWorkspace(props: Props) {
                           active={active}
                           activeClass={state().adminModeRequested ? sidebarStateClass(true, true) : undefined}
                           class={!active ? sidebarStateClass(false, state().adminModeRequested) : undefined}
-                          meta={state().base.defaultDashboardId === d.id ? <span class="text-[9px] uppercase tracking-wider">default</span> : undefined}
+                          meta={
+                            state().base.defaultDashboardId === d.id ? (
+                              <span class="text-[9px] uppercase tracking-wider">default</span>
+                            ) : undefined
+                          }
                         >
                           {d.name}
                         </AppWorkspace.SidebarItem>
@@ -282,7 +311,10 @@ export default function GridsWorkspace(props: Props) {
                     const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView?.id === view.id;
                     return (
                       <AppWorkspace.SidebarItem
-                        href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}/view/${view.shortId}`, state().adminModeRequested)}
+                        href={keepEdit(
+                          `/app/grids/${state().base.shortId}/table/${t.shortId}/view/${view.shortId}`,
+                          state().adminModeRequested,
+                        )}
                         icon={view.icon ?? "ti ti-table-spark"}
                         onNavigate={handleNavigate}
                         active={active}

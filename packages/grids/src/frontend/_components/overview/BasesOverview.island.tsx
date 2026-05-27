@@ -72,76 +72,72 @@ export default function BasesOverview(props: Props) {
   }, 250);
   onCleanup(() => abortCtl?.abort());
 
-  const createBaseMutation = mutations.create<Base, { name: string; description: string }>({
-    mutation: async (input) => {
+  const createBaseMutation = mutations.create<Base | null, void>({
+    mutation: async () => {
+      const result = await prompts.form({
+        title: "New base",
+        icon: "ti ti-database-plus",
+        fields: {
+          name: { type: "text", label: "Name", required: true, placeholder: "e.g. CRM, Inventory" },
+          description: { type: "text", label: "Description", multiline: true, placeholder: "Optional" },
+        },
+        confirmText: "Create",
+      });
+      if (!result) return null;
       const res = await apiClient.bases.$post({
-        json: { name: input.name, description: input.description || null },
+        json: {
+          name: String(result.name).trim(),
+          description: String(result.description ?? "").trim() || null,
+        },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create base"));
       return res.json();
     },
-    onSuccess: (base) => navigateTo(`/app/grids/${base.shortId}`),
+    onSuccess: (base) => {
+      if (base) navigateTo(`/app/grids/${base.shortId}`);
+    },
     onError: (e) => prompts.error(e.message),
   });
 
-  const createFromTemplateMutation = mutations.create<Base, { templateId: string; name?: string; withSampleData: boolean }>({
-    mutation: async (input) => {
+  const createFromTemplateMutation = mutations.create<Base | null, TemplateSummary>({
+    mutation: async (template) => {
+      const result = await prompts.form({
+        title: template.name,
+        icon: template.icon,
+        fields: {
+          name: {
+            type: "text",
+            label: "Name",
+            placeholder: template.name,
+          },
+          withSampleData: {
+            type: "boolean",
+            label: "Include sample data",
+            default: true,
+          },
+        },
+        confirmText: "Create",
+      });
+      if (!result) return null;
       const res = await apiClient.templates[":templateId"].$post({
-        param: { templateId: input.templateId },
+        param: { templateId: template.id },
         json: {
-          name: input.name?.trim() || undefined,
-          withSampleData: input.withSampleData,
+          name: String(result.name ?? "").trim() || undefined,
+          withSampleData: Boolean(result.withSampleData),
         },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create base from template"));
       return res.json();
     },
-    onSuccess: (base) => navigateTo(`/app/grids/${base.shortId}`),
+    onSuccess: (base) => {
+      if (base) navigateTo(`/app/grids/${base.shortId}`);
+    },
     onError: (e) => prompts.error(e.message),
   });
 
-  const createBlank = async () => {
-    const result = await prompts.form({
-      title: "New base",
-      icon: "ti ti-database-plus",
-      fields: {
-        name: { type: "text", label: "Name", required: true, placeholder: "e.g. CRM, Inventory" },
-        description: { type: "text", label: "Description", multiline: true, placeholder: "Optional" },
-      },
-      confirmText: "Create",
-    });
-    if (!result) return;
-    createBaseMutation.mutate({
-      name: String(result.name).trim(),
-      description: String(result.description ?? "").trim(),
-    });
-  };
+  const createBlank = () => createBaseMutation.mutate(undefined);
 
-  const createFromTemplate = async (template: TemplateSummary) => {
-    const result = await prompts.form({
-      title: template.name,
-      icon: template.icon,
-      fields: {
-        name: {
-          type: "text",
-          label: "Name",
-          placeholder: template.name,
-        },
-        withSampleData: {
-          type: "boolean",
-          label: "Include sample data",
-          default: true,
-        },
-      },
-      confirmText: "Create",
-    });
-    if (!result) return;
-    createFromTemplateMutation.mutate({
-      templateId: template.id,
-      name: String(result.name ?? "").trim() || undefined,
-      withSampleData: Boolean(result.withSampleData),
-    });
-  };
+  const createFromTemplate = (template: TemplateSummary) => createFromTemplateMutation.mutate(template);
 
   const onSearchInput = (value: string) => {
     setQuery(value);

@@ -59,6 +59,7 @@ type Props = {
   adminMode?: boolean;
   columnOrder?: string[];
   hiddenColumnIds?: string[];
+  scrollPreserveKey?: string;
   onColumnSettings?: (columnId: string) => void;
   onColumnMove?: (columnId: string, direction: -1 | 1) => void;
 };
@@ -170,6 +171,7 @@ export default function GroupedTable(props: Props) {
       <DataTable
         rows={props.buckets}
         columns={columns()}
+        scrollPreserveKey={props.scrollPreserveKey}
         selectedRowId={props.selectedBucketKey}
         getRowId={bucketKey}
         onRowClick={props.onBucketClick}

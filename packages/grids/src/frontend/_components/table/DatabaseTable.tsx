@@ -85,6 +85,7 @@ type Props = {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  scrollPreserveKey?: string;
   adminMode?: boolean;
   onFieldSettings?: (field: Field) => void;
   onFieldMove?: (field: Field, direction: -1 | 1) => void;
@@ -283,6 +284,7 @@ export default function DatabaseTable(props: Props) {
         rows={props.result.items}
         columns={columns()}
         class={shellClass()}
+        scrollPreserveKey={props.scrollPreserveKey}
         getRowId={(record) => record.id}
         selectedRowId={props.selectedId}
         onRowClick={props.onRecordClick}
