@@ -1,4 +1,5 @@
-import { Dropdown, PermissionEditor, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { AccessEntry } from "@/contracts";
 
@@ -74,27 +75,33 @@ const openPermissionDialog = async (props: AdminSpaceActionsProps) => {
   );
 };
 
-const deleteSpace = async (props: AdminSpaceActionsProps) => {
-  const confirmed = await prompts.confirm(`Delete "${props.spaceName}" and all its items? This cannot be undone.`, {
-    title: "Delete Space",
-    icon: "ti ti-trash",
-    confirmText: "Delete",
-    variant: "danger",
-  });
-  if (!confirmed) return;
-
-  const response = await apiClient[":id"].$delete({
-    param: { id: props.spaceId },
-  });
-  if (!response.ok) {
-    await prompts.error(await readErrorMessage(response, "Failed to delete space."));
-    return;
-  }
-
-  refreshCurrentPath();
-};
-
 const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
+  const deleteMutation = mutations.create<boolean, void>({
+    mutation: async () => {
+      const confirmed = await prompts.confirm(`Delete "${props.spaceName}" and all its items? This cannot be undone.`, {
+        title: "Delete Space",
+        icon: "ti ti-trash",
+        confirmText: "Delete",
+        variant: "danger",
+      });
+      if (!confirmed) return false;
+
+      const response = await apiClient[":id"].$delete({
+        param: { id: props.spaceId },
+      });
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, "Failed to delete space."));
+      }
+      return true;
+    },
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      toast.success("Space deleted");
+      refreshCurrentPath();
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+
   return (
     <Dropdown
       trigger={
@@ -119,7 +126,7 @@ const AdminSpaceActions = (props: AdminSpaceActionsProps) => {
             {
               icon: "ti ti-trash",
               label: "Delete",
-              action: () => void deleteSpace(props),
+              action: () => void deleteMutation.mutate(undefined),
               variant: "danger",
             },
           ],

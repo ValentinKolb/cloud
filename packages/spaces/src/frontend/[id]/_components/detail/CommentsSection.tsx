@@ -2,7 +2,7 @@ import { Show, For, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, TextInput, prompts } from "@valentinkolb/cloud/ui";
+import { MarkdownView, TextInput, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { SpaceComment } from "@/contracts";
 
 type Props = {
@@ -46,17 +46,30 @@ export default function CommentsSection(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteCommentMutation = mutations.create({
+  const deleteCommentMutation = mutations.create<boolean, string>({
     mutation: async (id: string) => {
+      const confirmed = await prompts.confirm("Are you sure? This cannot be undone.", {
+        title: "Delete Comment",
+        icon: "ti ti-trash",
+        variant: "danger",
+        confirmText: "Delete",
+      });
+      if (!confirmed) return false;
+
       const res = await apiClient[":id"].items[":itemId"].comments[":commentId"].$delete({
         param: { id: props.spaceId, itemId: props.itemId, commentId: id },
       });
       if (!res.ok) {
         throw new Error(await getResponseErrorMessage(res, "Failed to delete comment"));
       }
-      return res.json();
+      await res.json();
+      return true;
     },
-    onSuccess: () => props.onUpdate(),
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      toast.success("Comment deleted");
+      props.onUpdate();
+    },
     onError: (err) => prompts.error(err.message),
   });
 
@@ -69,17 +82,6 @@ export default function CommentsSection(props: Props) {
   const handleSubmit = (event: Event) => {
     event.preventDefault();
     submitNewComment();
-  };
-
-  const handleDelete = async (id: string) => {
-    const confirmed = await prompts.confirm("Are you sure? This cannot be undone.", {
-      title: "Delete Comment",
-      icon: "ti ti-trash",
-      variant: "danger",
-      confirmText: "Delete",
-    });
-    if (!confirmed) return;
-    deleteCommentMutation.mutate(id);
   };
 
   const formatDate = (dateStr: string) => {
@@ -129,7 +131,7 @@ export default function CommentsSection(props: Props) {
                         <Show when={comment.canDelete}>
                           <button
                             type="button"
-                            onClick={() => handleDelete(comment.id)}
+                            onClick={() => deleteCommentMutation.mutate(comment.id)}
                             disabled={deleteCommentMutation.loading()}
                             class="btn-simple ml-auto text-xs text-dimmed hover:text-red-500 disabled:opacity-50"
                           >

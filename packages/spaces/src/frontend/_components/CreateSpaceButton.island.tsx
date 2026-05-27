@@ -1,16 +1,23 @@
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { prompts } from "@valentinkolb/cloud/ui";
+import type { Space } from "@/contracts";
+import { ColorInput, navigateTo, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { setLastSpaceId } from "../[id]/_components/settings/SpaceSettingsStore";
-import { navigateTo } from "@valentinkolb/cloud/ui";
-import { TextInput } from "@valentinkolb/cloud/ui";
-import { ColorInput } from "@valentinkolb/cloud/ui";
 
 export default function CreateSpaceButton() {
-  const mutation = mutations.create({
-    mutation: async (data: { name: string; color: string }) => {
-      const res = await apiClient.index.$post({ json: data });
+  const mutation = mutations.create<Space | null, void>({
+    mutation: async () => {
+      const result = await prompts.dialog<{
+        name: string;
+        color: string;
+      } | null>((close) => <CreateSpaceForm close={close} />, {
+        title: "New Space",
+        icon: "ti ti-layout-kanban",
+      });
+      if (!result) return null;
+
+      const res = await apiClient.index.$post({ json: result });
       if (!res.ok) {
         const data = await res.json();
         throw new Error("message" in data ? data.message : "Failed to create space");
@@ -18,28 +25,16 @@ export default function CreateSpaceButton() {
       return res.json();
     },
     onSuccess: (space) => {
+      if (!space) return;
+      toast.success("Space created");
       setLastSpaceId(space.id);
       navigateTo(`/app/spaces/${space.id}`);
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleCreate = async () => {
-    const result = await prompts.dialog<{
-      name: string;
-      color: string;
-    } | null>((close) => <CreateSpaceForm close={close} />, {
-      title: "New Space",
-      icon: "ti ti-layout-kanban",
-    });
-
-    if (result) {
-      mutation.mutate(result);
-    }
-  };
-
   return (
-    <button type="button" onClick={handleCreate} disabled={mutation.loading()} class={"btn-secondary btn-sm"}>
+    <button type="button" onClick={() => mutation.mutate(undefined)} disabled={mutation.loading()} class={"btn-secondary btn-sm"}>
       {mutation.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (

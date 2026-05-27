@@ -1,4 +1,4 @@
-import { ColorInput, CopyButton, navigateTo, PermissionEditor, prompts, SegmentedControl, TextInput } from "@valentinkolb/cloud/ui";
+import { ColorInput, CopyButton, navigateTo, PermissionEditor, prompts, SegmentedControl, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -386,29 +386,30 @@ function TagsManager(props: { spaceId: string; tags: SpaceTag[] }) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteMut = mutations.create<void, string>({
-    mutation: async (id: string) => {
+  const deleteMut = mutations.create<SpaceTag | null, SpaceTag>({
+    mutation: async (tag: SpaceTag) => {
+      const confirmed = await prompts.confirm("Delete this tag?", {
+        title: "Delete Tag",
+        variant: "danger",
+      });
+      if (!confirmed) return null;
+
       const res = await apiClient[":id"].tags[":tagId"].$delete({
-        param: { id: props.spaceId, tagId: id },
+        param: { id: props.spaceId, tagId: tag.id },
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error("message" in data ? data.message : "Failed to delete tag");
       }
+      return tag;
+    },
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      setTags(tags().filter((t) => t.id !== deleted.id));
+      toast.success("Tag deleted");
     },
     onError: (err) => prompts.error(err.message),
   });
-
-  const handleDelete = async (id: string) => {
-    const confirmed = await prompts.confirm("Delete this tag?", {
-      title: "Delete Tag",
-      variant: "danger",
-    });
-    if (confirmed) {
-      deleteMut.mutate(id);
-      setTags(tags().filter((t) => t.id !== id));
-    }
-  };
 
   return (
     <div class="flex flex-col border-l-2 border-zinc-200 dark:border-zinc-700">
@@ -416,7 +417,7 @@ function TagsManager(props: { spaceId: string; tags: SpaceTag[] }) {
         {(tag) => (
           <Show
             when={editingId() === tag.id}
-            fallback={<TagRow tag={tag} onEdit={() => setEditingId(tag.id)} onDelete={() => handleDelete(tag.id)} />}
+            fallback={<TagRow tag={tag} onEdit={() => setEditingId(tag.id)} onDelete={() => deleteMut.mutate(tag)} />}
           >
             <TagForm
               tag={tag}
@@ -560,29 +561,30 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const deleteMut = mutations.create<void, string>({
-    mutation: async (id: string) => {
+  const deleteMut = mutations.create<SpaceColumn | null, SpaceColumn>({
+    mutation: async (column: SpaceColumn) => {
+      const confirmed = await prompts.confirm(`Delete status "${column.name}"?`, {
+        title: "Delete Status",
+        variant: "danger",
+      });
+      if (!confirmed) return null;
+
       const res = await apiClient[":id"].columns[":columnId"].$delete({
-        param: { id: props.spaceId, columnId: id },
+        param: { id: props.spaceId, columnId: column.id },
       });
       if (!res.ok) {
         const data = await res.json();
         throw new Error("message" in data ? data.message : "Failed to delete status");
       }
+      return column;
+    },
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      setColumns(columns().filter((c) => c.id !== deleted.id));
+      toast.success("Status deleted");
     },
     onError: (err) => prompts.error(err.message),
   });
-
-  const handleDeleteColumn = async (id: string, name: string) => {
-    const confirmed = await prompts.confirm(`Delete status "${name}"?`, {
-      title: "Delete Status",
-      variant: "danger",
-    });
-    if (confirmed) {
-      deleteMut.mutate(id);
-      setColumns(columns().filter((c) => c.id !== id));
-    }
-  };
 
   const reorderMut = mutations.create({
     mutation: async (columnIds: string[]) => {
@@ -622,7 +624,7 @@ function StatusManager(props: { spaceId: string; columns: SpaceColumn[] }) {
                 index={index()}
                 total={columns().length}
                 onEdit={() => setEditingId(column.id)}
-                onDelete={() => handleDeleteColumn(column.id, column.name)}
+                onDelete={() => deleteMut.mutate(column)}
                 onMoveUp={() => moveColumn(index(), -1)}
                 onMoveDown={() => moveColumn(index(), 1)}
               />
@@ -764,6 +766,12 @@ function ICalSection(props: { spaceId: string; icalToken: string | null; baseUrl
 
   const regenerateMut = mutations.create({
     mutation: async () => {
+      const confirmed = await prompts.confirm("Regenerating the token will invalidate the current URL. Continue?", {
+        title: "Regenerate Token",
+        variant: "danger",
+      });
+      if (!confirmed) return null;
+
       const res = await apiClient[":id"]["regenerate-ical-token"].$post({
         param: { id: props.spaceId },
       });
@@ -774,7 +782,9 @@ function ICalSection(props: { spaceId: string; icalToken: string | null; baseUrl
       return res.json();
     },
     onSuccess: (data) => {
+      if (!data) return;
       setToken((data as { icalToken: string }).icalToken);
+      toast.success("iCal token regenerated");
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -809,15 +819,7 @@ function ICalSection(props: { spaceId: string; icalToken: string | null; baseUrl
         </div>
         <button
           type="button"
-          onClick={async () => {
-            const confirmed = await prompts.confirm("Regenerating the token will invalidate the current URL. Continue?", {
-              title: "Regenerate Token",
-              variant: "danger",
-            });
-            if (confirmed) {
-              regenerateMut.mutate({});
-            }
-          }}
+          onClick={() => regenerateMut.mutate(undefined)}
           disabled={regenerateMut.loading()}
           class="text-xs text-red-500 hover:text-red-600 self-start"
         >
@@ -835,6 +837,12 @@ function ICalSection(props: { spaceId: string; icalToken: string | null; baseUrl
 function DangerZone(props: { spaceId: string; spaceName: string }) {
   const deleteMut = mutations.create({
     mutation: async () => {
+      const confirmed = await prompts.confirm(
+        `Are you sure you want to delete "${props.spaceName}"? This will permanently delete all items, tags, and comments. This action cannot be undone.`,
+        { title: "Delete Space", variant: "danger" },
+      );
+      if (!confirmed) return false;
+
       const res = await apiClient[":id"].$delete({
         param: { id: props.spaceId },
       });
@@ -842,27 +850,20 @@ function DangerZone(props: { spaceId: string; spaceName: string }) {
         const data = await res.json();
         throw new Error("message" in data ? data.message : "Failed to delete space");
       }
+      return true;
     },
-    onSuccess: () => {
+    onSuccess: (deleted) => {
+      if (!deleted) return;
+      toast.success("Space deleted");
       navigateTo("/app/spaces");
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleDelete = async () => {
-    const confirmed = await prompts.confirm(
-      `Are you sure you want to delete "${props.spaceName}"? This will permanently delete all items, tags, and comments. This action cannot be undone.`,
-      { title: "Delete Space", variant: "danger" },
-    );
-    if (confirmed) {
-      deleteMut.mutate({});
-    }
-  };
-
   return (
     <div class="flex flex-col gap-2">
       <p class="text-sm text-secondary">Permanently delete this space and all its contents.</p>
-      <button type="button" onClick={handleDelete} disabled={deleteMut.loading()} class="btn-danger btn-md self-start">
+      <button type="button" onClick={() => deleteMut.mutate(undefined)} disabled={deleteMut.loading()} class="btn-danger btn-md self-start">
         {deleteMut.loading() ? (
           <i class="ti ti-loader-2 animate-spin" />
         ) : (
