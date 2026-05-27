@@ -404,7 +404,7 @@ export default function ItemDetailPanel(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const completeMutation = mutations.create({
+  const completeMutation = mutations.create<boolean, boolean>({
     mutation: async (completed: boolean) => {
       const res = await apiClient[":id"].items[":itemId"].completed.$post({
         param: { id: props.spaceId, itemId: props.item.id },
@@ -413,13 +413,17 @@ export default function ItemDetailPanel(props: Props) {
       if (!res.ok) {
         throw new Error(await getResponseErrorMessage(res, "Failed to update"));
       }
-      return res.json();
+      await res.json();
+      return completed;
     },
-    onSuccess: () => requestCurrentSpacesRouteRefresh(),
+    onSuccess: (completed) => {
+      toast.success(completed ? "Item completed" : "Item reopened");
+      requestCurrentSpacesRouteRefresh();
+    },
     onError: (err) => prompts.error(err.message),
   });
 
-  const duplicateMutation = mutations.create({
+  const duplicateMutation = mutations.create<SpaceItem, void>({
     mutation: async () => {
       const res = await apiClient[":id"].items.$post({
         param: { id: props.spaceId },
@@ -438,7 +442,10 @@ export default function ItemDetailPanel(props: Props) {
       if (!res.ok) throw new Error(await getResponseErrorMessage(res, "Failed to duplicate item"));
       return res.json();
     },
-    onSuccess: () => requestCurrentSpacesRouteRefresh(),
+    onSuccess: () => {
+      toast.success("Item duplicated");
+      requestCurrentSpacesRouteRefresh();
+    },
     onError: (err) => prompts.error(err.message),
   });
 
@@ -459,12 +466,14 @@ export default function ItemDetailPanel(props: Props) {
       return true;
     },
     onSuccess: (deleted) => {
-      if (deleted) requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
+      if (!deleted) return;
+      toast.success("Item deleted");
+      requestSpacesRouteNavigation(props.baseUrl, { scroll: "preserve" });
     },
     onError: (err) => prompts.error(err.message),
   });
 
-  const handleDuplicate = () => duplicateMutation.mutate({});
+  const handleDuplicate = () => duplicateMutation.mutate(undefined);
   const handleDelete = () => deleteMutation.mutate({});
 
   const editTitleMutation = mutations.create<SpaceItem | null, void>({
