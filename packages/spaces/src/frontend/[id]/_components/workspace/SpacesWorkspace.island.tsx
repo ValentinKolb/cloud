@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount } from "solid-js";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import {
   AppWorkspace,
   documentNavigate,
@@ -62,13 +63,26 @@ export default function SpacesWorkspace(props: Props) {
       currentPanelWidth: state().currentPanelWidth,
     });
 
+  const routeStateMutation = mutations.create<Extract<SpacesWorkspaceState, { kind: "ok" }> | null, string>({
+    mutation: async (href, ctx) => {
+      const target = parseSpacesWorkspaceHref(href);
+      if (!target || target.spaceId !== spaceId()) return null;
+      const res = await apiClient.workspace.route.$get({ query: { href } }, { init: { signal: ctx.abortSignal } });
+      if (!res.ok) return null;
+      const next = (await res.json()) as SpacesWorkspaceState;
+      return next.kind === "ok" ? next : null;
+    },
+    onError: (error) => {
+      if (error.name === "AbortError") return;
+      prompts.error(error.message || "Could not open route");
+    },
+  });
+
   const fetchRouteState = async (href: string) => {
     const target = parseSpacesWorkspaceHref(href);
     if (!target || target.spaceId !== spaceId()) return null;
-    const res = await apiClient.workspace.route.$get({ query: { href } });
-    if (!res.ok) return null;
-    const next = (await res.json()) as SpacesWorkspaceState;
-    return next.kind === "ok" ? next : null;
+    routeStateMutation.abort();
+    return (await routeStateMutation.mutate(href)) ?? null;
   };
 
   const openRoute = async (href: string, options: { replace?: boolean; scroll?: NavigationScrollMode } = {}) => {
@@ -115,6 +129,7 @@ export default function SpacesWorkspace(props: Props) {
     window.addEventListener(SPACES_ROUTE_NAVIGATION_EVENT, handleRouteNavigation);
     window.addEventListener("popstate", handlePopState);
     onCleanup(() => {
+      routeStateMutation.abort();
       window.removeEventListener(SPACES_ROUTE_NAVIGATION_EVENT, handleRouteNavigation);
       window.removeEventListener("popstate", handlePopState);
     });
