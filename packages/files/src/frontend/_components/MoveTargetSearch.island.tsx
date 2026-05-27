@@ -1,4 +1,4 @@
-import { createSignal, Show, For, createMemo, onMount } from "solid-js";
+import { createSignal, Show, For, createMemo, onCleanup, onMount } from "solid-js";
 import { timed as timing, mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import { prompts, toast } from "@valentinkolb/cloud/ui";
@@ -45,7 +45,6 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
   );
   const [searchQuery, setSearchQuery] = createSignal("");
   const [directories, setDirectories] = createSignal<DirectoryResult[]>([]);
-  const [loading, setLoading] = createSignal(false);
   const [transferringPath, setTransferringPath] = createSignal<string | null>(null);
   const isSameBase = createMemo(() => {
     if (props.isMultiBaseCopy) return false;
@@ -53,26 +52,30 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
     return base.type === props.sourceBaseType && base.id === props.sourceBaseId;
   });
   const actionLabel = createMemo(() => (props.isMultiBaseCopy ? "Copy" : isSameBase() ? "Move" : "Copy"));
-  const doSearch = async (query: string, base: FileBaseInfo) => {
-    setLoading(true);
-    try {
-      const res = await apiClient[":baseType"][":baseId"].directories.$get({
-        param: { baseType: props.sourceBaseType, baseId: props.sourceBaseId },
-        query: { query, targetBaseType: base.type, targetBaseId: base.id, limit: "20" },
-      });
-      if (!res.ok) {
-        setDirectories([]);
-        return;
-      }
+  const searchMutation = mutations.create<DirectoryResult[], { query: string; base: FileBaseInfo }>({
+    mutation: async ({ query, base }, ctx) => {
+      const res = await apiClient[":baseType"][":baseId"].directories.$get(
+        {
+          param: { baseType: props.sourceBaseType, baseId: props.sourceBaseId },
+          query: { query, targetBaseType: base.type, targetBaseId: base.id, limit: "20" },
+        },
+        { init: { signal: ctx.abortSignal } },
+      );
+      if (!res.ok) return [];
       const data = await res.json();
-      setDirectories(isDirectorySearchResponse(data) ? data.directories : []);
-    } catch {
+      return isDirectorySearchResponse(data) ? data.directories : [];
+    },
+    onSuccess: (items) => setDirectories(items),
+    onError: (err) => {
+      if (err.name === "AbortError") return;
       setDirectories([]);
-    } finally {
-      setLoading(false);
-    }
+    },
+  });
+  const runSearch = (query: string, base: FileBaseInfo) => {
+    searchMutation.abort();
+    void searchMutation.mutate({ query, base });
   };
-  const { debouncedFn: debouncedSearch } = timing.debounce(doSearch, 300);
+  const { debouncedFn: debouncedSearch, cancel: cancelSearch } = timing.debounce(runSearch, 300);
   const handleSearchInput = (value: string) => {
     setSearchQuery(value);
     debouncedSearch(value, selectedBase());
@@ -80,7 +83,7 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
   const handleBaseChange = (base: FileBaseInfo) => {
     setSelectedBase(base);
     setDirectories([]);
-    doSearch(searchQuery(), base);
+    runSearch(searchQuery(), base);
   };
   const transferMutation = mutations.create<
     { moved: boolean; transferred: number; errors: { path: string; error: string }[]; targetPath: string },
@@ -162,7 +165,11 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
     setTransferringPath(targetPath);
     await transferMutation.mutate({ targetPath });
   };
-  onMount(() => doSearch("", selectedBase()));
+  onMount(() => runSearch("", selectedBase()));
+  onCleanup(() => {
+    cancelSearch();
+    searchMutation.abort();
+  });
   return (
     <div class="flex flex-col gap-5">
       <Show
@@ -239,17 +246,17 @@ export default function MoveTargetSearch(props: MoveTargetSearchProps) {
           <span>{directories().length} results</span>
         </div>
         <div class="max-h-[22rem] overflow-y-auto">
-          <Show when={loading()}>
+          <Show when={searchMutation.loading()}>
             <div class="flex items-center justify-center py-10 text-dimmed">
               <i class="ti ti-loader-2 animate-spin text-xl" />
             </div>
           </Show>
-          <Show when={!loading() && directories().length === 0}>
+          <Show when={!searchMutation.loading() && directories().length === 0}>
             <div class="flex items-center gap-2 px-4 py-6 text-sm text-dimmed">
               <i class="ti ti-folder-off" /> <span>No folders found</span>
             </div>
           </Show>
-          <Show when={!loading() && directories().length > 0}>
+          <Show when={!searchMutation.loading() && directories().length > 0}>
             <div class="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
               <For each={directories()}>
                 {(dir) => (
