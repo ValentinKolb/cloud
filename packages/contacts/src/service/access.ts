@@ -1,16 +1,16 @@
-import { sql } from "bun";
 import {
   type AccessEntry,
   createAccess,
   deleteAccess,
   getEffectivePermission,
   hasPermission,
-  resolveDisplayNames,
   type PermissionLevel,
   type Principal,
+  resolveDisplayNames,
 } from "@valentinkolb/cloud/server";
-import { err, fail, ok, paginate, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
-import { isUuid, toPgUuidArray } from "./shared";
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import { isUuid } from "./shared";
 
 type DbBookAccess = {
   access_id: string;
@@ -327,4 +327,3 @@ export const canAccessBook = async (config: {
 
   return hasPermission(permission, config.requiredLevel ?? "read");
 };
-

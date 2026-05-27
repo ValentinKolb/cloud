@@ -7,6 +7,11 @@ export type ContactBook = {
   updatedAt: string | null;
 };
 
+export type ContactBookAdminListItem = ContactBook & {
+  permissionCount: number;
+  contactCount: number;
+};
+
 export type ContactEmail = {
   id: string;
   contactId: string;
@@ -32,6 +37,20 @@ export type ContactWebsite = {
   contactId: string;
   label: string | null;
   url: string;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ContactBankAccount = {
+  id: string;
+  contactId: string;
+  label: string | null;
+  accountHolderName: string;
+  iban: string;
+  bic: string | null;
+  bankName: string | null;
+  note: string | null;
   position: number;
   createdAt: string;
   updatedAt: string;
@@ -79,6 +98,9 @@ export type Contact = {
   jobTitle: string | null;
   vatId: string | null;
   birthday: string | null;
+  salutation: string | null;
+  pronouns: string | null;
+  preferredLanguage: string | null;
   source: string | null;
   createdAt: string;
   updatedAt: string;
@@ -86,6 +108,7 @@ export type Contact = {
   phones: ContactPhone[];
   addresses: ContactAddress[];
   websites: ContactWebsite[];
+  bankAccounts: ContactBankAccount[];
   /** Direct parent in the hierarchy, null if this contact is at the root. */
   parentContactId: string | null;
   parent: ContactRef | null;
@@ -163,6 +186,15 @@ export type ContactWebsiteInput = {
   url: string;
 };
 
+export type ContactBankAccountInput = {
+  label?: string | null;
+  accountHolderName: string;
+  iban: string;
+  bic?: string | null;
+  bankName?: string | null;
+  note?: string | null;
+};
+
 export type ContactAddressInput = {
   label?: string | null;
   recipientName?: string | null;
@@ -184,6 +216,9 @@ export type CreateContactInput = {
   jobTitle?: string | null;
   vatId?: string | null;
   birthday?: string | null;
+  salutation?: string | null;
+  pronouns?: string | null;
+  preferredLanguage?: string | null;
   source?: string | null;
   parentContactId?: string | null;
   /** Replace all tag assignments. Pass undefined to leave unchanged, [] to clear all. */
@@ -192,6 +227,7 @@ export type CreateContactInput = {
   phones?: ContactPhoneInput[];
   addresses?: ContactAddressInput[];
   websites?: ContactWebsiteInput[];
+  bankAccounts?: ContactBankAccountInput[];
 };
 
 export type UpdateContactInput = {
@@ -203,6 +239,9 @@ export type UpdateContactInput = {
   jobTitle?: string | null;
   vatId?: string | null;
   birthday?: string | null;
+  salutation?: string | null;
+  pronouns?: string | null;
+  preferredLanguage?: string | null;
   source?: string | null;
   parentContactId?: string | null;
   /** Replace all tag assignments. Pass undefined to leave unchanged, [] to clear all. */
@@ -211,4 +250,5 @@ export type UpdateContactInput = {
   phones?: ContactPhoneInput[];
   addresses?: ContactAddressInput[];
   websites?: ContactWebsiteInput[];
+  bankAccounts?: ContactBankAccountInput[];
 };

@@ -1,5 +1,5 @@
-import { ssr } from "../../../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
+import { ssr } from "../../../../config";
 import { contactsService } from "../../../../service";
 
 export default ssr<AuthContext>(async (c) => {

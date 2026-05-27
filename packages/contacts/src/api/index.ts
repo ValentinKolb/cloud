@@ -1,21 +1,24 @@
-import { Hono, type Context } from "hono";
-import { describeRoute } from "hono-openapi";
-import { z } from "zod";
-import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import {
+  AccessEntrySchema,
+  createPagination,
+  ErrorResponseSchema,
+  GrantAccessSchema,
+  hasRole,
+  MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  ErrorResponseSchema,
-  MessageResponseSchema,
-  AccessEntrySchema,
-  GrantAccessSchema,
+  type PermissionLevel,
+  parsePagination,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { createPagination, parsePagination, type PermissionLevel } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, updateAccess, v } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
 import { contactsService } from "../service";
 import * as vcard from "../service/vcard";
-import { sql } from "bun";
 
 const ContactBookSchema = z.object({
   id: z.string(),
@@ -56,9 +59,32 @@ const ContactWebsiteSchema = z.object({
   updatedAt: z.string(),
 });
 
+const ContactBankAccountSchema = z.object({
+  id: z.string(),
+  contactId: z.string(),
+  label: z.string().nullable(),
+  accountHolderName: z.string(),
+  iban: z.string(),
+  bic: z.string().nullable(),
+  bankName: z.string().nullable(),
+  note: z.string().nullable(),
+  position: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 const ContactWebsiteInputSchema = z.object({
   label: z.string().max(100).nullable().optional(),
   url: z.string().min(1).max(500),
+});
+
+const ContactBankAccountInputSchema = z.object({
+  label: z.string().max(100).nullable().optional(),
+  accountHolderName: z.string().min(1).max(200),
+  iban: z.string().min(1).max(64),
+  bic: z.string().max(32).nullable().optional(),
+  bankName: z.string().max(200).nullable().optional(),
+  note: z.string().max(500).nullable().optional(),
 });
 
 const ContactAddressSchema = z.object({
@@ -98,6 +124,9 @@ const ContactSchema = z.object({
   jobTitle: z.string().nullable(),
   vatId: z.string().nullable(),
   birthday: z.string().nullable(),
+  salutation: z.string().nullable(),
+  pronouns: z.string().nullable(),
+  preferredLanguage: z.string().nullable(),
   source: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -105,6 +134,7 @@ const ContactSchema = z.object({
   phones: z.array(ContactPhoneSchema),
   addresses: z.array(ContactAddressSchema),
   websites: z.array(ContactWebsiteSchema),
+  bankAccounts: z.array(ContactBankAccountSchema),
   parentContactId: z.string().nullable(),
   parent: ContactRefSchema.nullable(),
   members: z.array(ContactRefSchema),
@@ -212,6 +242,9 @@ const CreateContactSchema = z.object({
   jobTitle: z.string().max(200).nullable().optional(),
   vatId: z.string().max(64).nullable().optional(),
   birthday: z.iso.date().nullable().optional(),
+  salutation: z.string().max(120).nullable().optional(),
+  pronouns: z.string().max(120).nullable().optional(),
+  preferredLanguage: z.string().max(35).nullable().optional(),
   source: z.string().max(50).nullable().optional(),
   parentContactId: z.uuid().nullable().optional(),
   tagIds: z.array(z.uuid()).optional(),
@@ -219,6 +252,7 @@ const CreateContactSchema = z.object({
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),
   websites: z.array(ContactWebsiteInputSchema).optional(),
+  bankAccounts: z.array(ContactBankAccountInputSchema).optional(),
 });
 
 const UpdateContactSchema = z.object({
@@ -230,6 +264,9 @@ const UpdateContactSchema = z.object({
   jobTitle: z.string().max(200).nullable().optional(),
   vatId: z.string().max(64).nullable().optional(),
   birthday: z.iso.date().nullable().optional(),
+  salutation: z.string().max(120).nullable().optional(),
+  pronouns: z.string().max(120).nullable().optional(),
+  preferredLanguage: z.string().max(35).nullable().optional(),
   source: z.string().max(50).nullable().optional(),
   parentContactId: z.uuid().nullable().optional(),
   tagIds: z.array(z.uuid()).optional(),
@@ -237,6 +274,7 @@ const UpdateContactSchema = z.object({
   phones: z.array(ContactPhoneInputSchema).optional(),
   addresses: z.array(ContactAddressInputSchema).optional(),
   websites: z.array(ContactWebsiteInputSchema).optional(),
+  bankAccounts: z.array(ContactBankAccountInputSchema).optional(),
 });
 
 const MoveContactSchema = z.object({
@@ -295,9 +333,74 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
   return { book, error: null as Response | null };
 };
 
+const requireBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: string) => {
+  const user = c.get("user");
+  const book = await contactsService.book.get({ id: bookId });
+
+  if (!book) {
+    return {
+      book: null,
+      error: await respond(c, fail(err.notFound("Book"))),
+    };
+  }
+
+  if (hasRole(user, "admin")) return { book, error: null as Response | null };
+  return requireBookAccess(c, bookId, "admin");
+};
+
+const adminApi = new Hono<AuthContext>()
+  .use(auth.requireRole("admin"))
+  .get("/books/:bookId/access", async (c) => {
+    const bookId = c.req.param("bookId") ?? "";
+    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
+    const book = await contactsService.book.get({ id: bookId });
+    if (!book) return respond(c, fail(err.notFound("Book")));
+    const entries = await contactsService.book.access.list({ bookId });
+    return respond(c, ok(entries.items));
+  })
+  .post("/books/:bookId/access", v("json", GrantAccessSchema), async (c) => {
+    const bookId = c.req.param("bookId") ?? "";
+    const { principal, permission } = c.req.valid("json");
+    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
+    const book = await contactsService.book.get({ id: bookId });
+    if (!book) return respond(c, fail(err.notFound("Book")));
+    return respond(c, contactsService.book.access.grant({ bookId, principal, permission }));
+  })
+  .patch("/books/:bookId/access/:accessId", v("json", UpdateAccessSchema), async (c) => {
+    const bookId = c.req.param("bookId") ?? "";
+    const accessId = c.req.param("accessId") ?? "";
+    const { permission } = c.req.valid("json");
+    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
+    const book = await contactsService.book.get({ id: bookId });
+    if (!book) return respond(c, fail(err.notFound("Book")));
+
+    const guard = await contactsService.book.access.guard({ bookId, accessId });
+    if (!guard.currentPermission) return respond(c, fail(err.notFound("Access entry")));
+    if (guard.currentPermission === "admin" && permission !== "admin" && guard.otherAdmins <= 0) {
+      return respond(c, fail(err.badInput("Cannot remove the last admin")));
+    }
+    return respondMessage(c, updateAccess({ id: accessId, permission }), "Access updated");
+  })
+  .delete("/books/:bookId/access/:accessId", async (c) => {
+    const bookId = c.req.param("bookId") ?? "";
+    const accessId = c.req.param("accessId") ?? "";
+    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
+    const book = await contactsService.book.get({ id: bookId });
+    if (!book) return respond(c, fail(err.notFound("Book")));
+
+    const guard = await contactsService.book.access.guard({ bookId, accessId });
+    if (!guard.currentPermission) return respond(c, fail(err.notFound("Access entry")));
+    if (guard.total <= 1) return respond(c, fail(err.badInput("Cannot remove the last access entry")));
+    if (guard.currentPermission === "admin" && guard.otherAdmins <= 0) {
+      return respond(c, fail(err.badInput("Cannot remove the last admin")));
+    }
+    return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
+  });
+
 /** Contacts API routes (IPA users only). */
 const app = new Hono<AuthContext>()
   .use(rateLimit())
+  .route("/admin", adminApi)
   .use(auth.requireRole("user"))
 
   // ----------------------------------------------------------------
@@ -457,7 +560,7 @@ const app = new Hono<AuthContext>()
         return respond(c, fail(err.forbidden("System book is read-only")));
       }
 
-      const { error } = await requireBookAccess(c, bookId, "admin");
+      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       const entries = await contactsService.book.access.list({ bookId });
@@ -488,7 +591,7 @@ const app = new Hono<AuthContext>()
         return respond(c, fail(err.forbidden("System book is read-only")));
       }
 
-      const { error } = await requireBookAccess(c, bookId, "admin");
+      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       return respond(c, contactsService.book.access.grant({ bookId, principal, permission }));
@@ -519,7 +622,7 @@ const app = new Hono<AuthContext>()
         return respond(c, fail(err.forbidden("System book is read-only")));
       }
 
-      const { error } = await requireBookAccess(c, bookId, "admin");
+      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       const guard = await contactsService.book.access.guard({ bookId, accessId });
@@ -557,7 +660,7 @@ const app = new Hono<AuthContext>()
         return respond(c, fail(err.forbidden("System book is read-only")));
       }
 
-      const { error } = await requireBookAccess(c, bookId, "admin");
+      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       const guard = await contactsService.book.access.guard({ bookId, accessId });

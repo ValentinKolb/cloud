@@ -1,6 +1,6 @@
-import { createSignal, Show } from "solid-js";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import ContactSearchPicker from "./ContactSearchPicker.island";
@@ -82,11 +82,7 @@ export default function AddMemberDialog(props: Props) {
           }}
         />
         <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <button
-            type="button"
-            class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary"
-            onClick={() => setMode("create")}
-          >
+          <button type="button" class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary" onClick={() => setMode("create")}>
             <i class="ti ti-plus" /> Create new contact as member
           </button>
         </div>

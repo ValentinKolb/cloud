@@ -135,12 +135,15 @@ export const migrate = async (): Promise<void> => {
     ADD COLUMN IF NOT EXISTS parent_contact_id UUID NULL
     REFERENCES contacts.contacts(id) ON DELETE SET NULL
   `.simple();
+  await sql`ALTER TABLE contacts.contacts ADD COLUMN IF NOT EXISTS salutation TEXT`.simple();
+  await sql`ALTER TABLE contacts.contacts ADD COLUMN IF NOT EXISTS pronouns TEXT`.simple();
+  await sql`ALTER TABLE contacts.contacts ADD COLUMN IF NOT EXISTS preferred_language TEXT`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_contacts_contacts_parent
     ON contacts.contacts(parent_contact_id)
     WHERE parent_contact_id IS NOT NULL
   `.simple();
-  console.log("  ✓ contacts.contacts.parent_contact_id column + index");
+  console.log("  ✓ contacts.contacts personal columns + parent_contact_id index");
 
   // Notes timeline replaces the legacy single `note` column. The column is
   // dropped here — no data migration since the feature was unused in production.
@@ -213,4 +216,26 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`ALTER TABLE contacts.contacts DROP COLUMN IF EXISTS website`.simple();
   console.log("  ✓ contacts.contact_websites table");
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS contacts.contact_bank_accounts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      contact_id UUID NOT NULL REFERENCES contacts.contacts(id) ON DELETE CASCADE,
+      label TEXT,
+      account_holder_name TEXT NOT NULL,
+      iban TEXT NOT NULL,
+      bic TEXT,
+      bank_name TEXT,
+      note TEXT,
+      position INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (contact_id, position)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_contacts_contact_bank_accounts_contact
+    ON contacts.contact_bank_accounts(contact_id)
+  `.simple();
+  console.log("  ✓ contacts.contact_bank_accounts table");
 };

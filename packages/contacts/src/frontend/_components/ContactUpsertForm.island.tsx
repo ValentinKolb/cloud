@@ -1,12 +1,9 @@
-import { createSignal, Index, Show } from "solid-js";
+import { navigateTo, prompts, RemoveBtn, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, toast } from "@valentinkolb/cloud/ui";
-import { TextInput } from "@valentinkolb/cloud/ui";
-import { RemoveBtn } from "@valentinkolb/cloud/ui";
+import { createSignal, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { resolveContactName } from "../../shared";
 import type { Contact, ContactRef } from "../../service";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { resolveContactName } from "../../shared";
 import ContactSearchPicker from "./ContactSearchPicker.island";
 import ContactTagsPicker from "./ContactTagsPicker.island";
 
@@ -30,6 +27,14 @@ type Props = {
 type EditableEmail = { label: string; email: string };
 type EditablePhone = { label: string; phone: string };
 type EditableWebsite = { label: string; url: string };
+type EditableBankAccount = {
+  label: string;
+  accountHolderName: string;
+  iban: string;
+  bic: string;
+  bankName: string;
+  note: string;
+};
 type EditableAddress = {
   label: string;
   recipientName: string;
@@ -45,6 +50,7 @@ type EditableAddress = {
 const DEFAULT_EMAIL_LABEL = "Email";
 const DEFAULT_PHONE_LABEL = "Telephone";
 const DEFAULT_WEBSITE_LABEL = "Website";
+const DEFAULT_BANK_ACCOUNT_LABEL = "Bank";
 const DEFAULT_ADDRESS_LABEL = "Address";
 
 const EMPTY_EMAIL: EditableEmail = {
@@ -60,6 +66,15 @@ const EMPTY_PHONE: EditablePhone = {
 const EMPTY_WEBSITE: EditableWebsite = {
   label: DEFAULT_WEBSITE_LABEL,
   url: "",
+};
+
+const EMPTY_BANK_ACCOUNT: EditableBankAccount = {
+  label: DEFAULT_BANK_ACCOUNT_LABEL,
+  accountHolderName: "",
+  iban: "",
+  bic: "",
+  bankName: "",
+  note: "",
 };
 
 const EMPTY_ADDRESS: EditableAddress = {
@@ -121,6 +136,18 @@ const initialAddressRows = (contact: Contact | null): EditableAddress[] => {
     : [{ ...EMPTY_ADDRESS }];
 };
 
+const initialBankAccountRows = (contact: Contact | null): EditableBankAccount[] => {
+  if (!contact) return [];
+  return contact.bankAccounts.map((account) => ({
+    label: account.label?.trim() || DEFAULT_BANK_ACCOUNT_LABEL,
+    accountHolderName: account.accountHolderName,
+    iban: account.iban,
+    bic: account.bic ?? "",
+    bankName: account.bankName ?? "",
+    note: account.note ?? "",
+  }));
+};
+
 const detailHref = (bookId: string, contactId: string) => `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`;
 
 /**
@@ -137,7 +164,11 @@ export default function ContactUpsertForm(props: Props) {
   const [jobTitle, setJobTitle] = createSignal(initialContact?.jobTitle ?? "");
   const [vatId, setVatId] = createSignal(initialContact?.vatId ?? "");
   const [websites, setWebsites] = createSignal<EditableWebsite[]>(initialWebsiteRows(initialContact));
+  const [bankAccounts, setBankAccounts] = createSignal<EditableBankAccount[]>(initialBankAccountRows(initialContact));
   const [birthday, setBirthday] = createSignal(initialContact?.birthday ?? "");
+  const [salutation, setSalutation] = createSignal(initialContact?.salutation ?? "");
+  const [pronouns, setPronouns] = createSignal(initialContact?.pronouns ?? "");
+  const [preferredLanguage, setPreferredLanguage] = createSignal(initialContact?.preferredLanguage ?? "");
   // Parent ref drives both the UI chip and the parentContactId payload field.
   // Edit mode seeds it from the loaded contact's parent; create flows can
   // pre-seed via `defaultParent` (used by the "Add member" dialog).
@@ -196,6 +227,23 @@ export default function ContactUpsertForm(props: Props) {
           );
         });
 
+      const normalizedBankAccounts = bankAccounts()
+        .map((account) => ({
+          label: account.label.trim() || null,
+          accountHolderName: account.accountHolderName.trim(),
+          iban: account.iban.replace(/\s+/g, "").toUpperCase(),
+          bic: account.bic.replace(/\s+/g, "").toUpperCase() || null,
+          bankName: account.bankName.trim() || null,
+          note: account.note.trim() || null,
+        }))
+        .filter((account) => account.accountHolderName.length > 0 || account.iban.length > 0 || account.bic || account.bankName);
+
+      for (const account of normalizedBankAccounts) {
+        if (!account.accountHolderName || !account.iban) {
+          throw new Error("Bank details need account holder name and IBAN");
+        }
+      }
+
       for (const address of normalizedAddresses) {
         if (!address.line1 || !address.postalCode || !address.city) {
           throw new Error("Addresses need line1, postal code, and city");
@@ -219,12 +267,16 @@ export default function ContactUpsertForm(props: Props) {
         jobTitle: jobTitle().trim() || null,
         vatId: vatId().trim() || null,
         birthday: birthdayValue || null,
+        salutation: salutation().trim() || null,
+        pronouns: pronouns().trim() || null,
+        preferredLanguage: preferredLanguage().trim() || null,
         parentContactId: parentRef()?.id ?? null,
         tagIds: tagIds(),
         emails: normalizedEmails,
         phones: normalizedPhones,
         addresses: normalizedAddresses,
         websites: normalizedWebsites,
+        bankAccounts: normalizedBankAccounts,
       };
 
       if (props.mode === "create") {
@@ -413,6 +465,34 @@ export default function ContactUpsertForm(props: Props) {
               compact
             />
           </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="detail-section-label">Personal</h3>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
+          <TextInput
+            label="Salutation / Title"
+            placeholder="Dr., Prof., Ms., Mr."
+            icon="ti ti-id-badge-2"
+            value={salutation}
+            onInput={setSalutation}
+          />
+          <TextInput
+            label="Pronouns"
+            placeholder="she/her, he/him, they/them"
+            icon="ti ti-user-heart"
+            value={pronouns}
+            onInput={setPronouns}
+          />
+          <TextInput
+            label="Preferred Language"
+            placeholder="de, en, fr"
+            icon="ti ti-language"
+            value={preferredLanguage}
+            onInput={setPreferredLanguage}
+          />
         </div>
       </section>
 
@@ -655,8 +735,87 @@ export default function ContactUpsertForm(props: Props) {
       </section>
 
       <section>
-        <h3 class="detail-section-label">Personal</h3>
-        <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
+        <h3 class="detail-section-label">Bank Details</h3>
+        <div class="space-y-3">
+          <Index each={bankAccounts()}>
+            {(account, index) => (
+              <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <TextInput
+                    label="Label"
+                    placeholder="e.g. billing, refunds"
+                    icon="ti ti-tag"
+                    value={() => account().label}
+                    onInput={(value) =>
+                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
+                    }
+                  />
+                  <TextInput
+                    label="Account Holder"
+                    placeholder="Max Mustermann"
+                    icon="ti ti-user"
+                    required
+                    value={() => account().accountHolderName}
+                    onInput={(value) =>
+                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, accountHolderName: value } : row)))
+                    }
+                  />
+                  <TextInput
+                    label="IBAN"
+                    placeholder="DE02120300000000202051"
+                    icon="ti ti-credit-card"
+                    required
+                    value={() => account().iban}
+                    onInput={(value) =>
+                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, iban: value } : row)))
+                    }
+                  />
+                  <TextInput
+                    label="BIC"
+                    placeholder="BYLADEM1001"
+                    icon="ti ti-building-bank"
+                    value={() => account().bic}
+                    onInput={(value) => setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bic: value } : row)))}
+                  />
+                  <TextInput
+                    label="Bank Name"
+                    placeholder="Example Bank"
+                    icon="ti ti-building-bank"
+                    value={() => account().bankName}
+                    onInput={(value) =>
+                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bankName: value } : row)))
+                    }
+                  />
+                  <TextInput
+                    label="Note"
+                    placeholder="Optional"
+                    icon="ti ti-notes"
+                    value={() => account().note}
+                    onInput={(value) =>
+                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, note: value } : row)))
+                    }
+                  />
+                </div>
+                <div class="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
+                    onClick={() => setBankAccounts((current) => current.filter((_, i) => i !== index))}
+                  >
+                    <i class="ti ti-trash" /> Remove bank details
+                  </button>
+                </div>
+              </div>
+            )}
+          </Index>
+          <button
+            type="button"
+            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+            onClick={() => setBankAccounts([...bankAccounts(), { ...EMPTY_BANK_ACCOUNT }])}
+          >
+            <i class="ti ti-plus" /> Add bank details
+          </button>
+        </div>
       </section>
 
       <div class="flex flex-wrap items-center justify-between gap-2 pt-1">

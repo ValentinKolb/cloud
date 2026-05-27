@@ -1,6 +1,6 @@
-import { createSignal, For, Show } from "solid-js";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CreateContactInput } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -115,7 +115,8 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
     <div class="flex flex-col gap-3">
       <Show when={stage() === "upload"}>
         <p class="text-xs text-dimmed">
-          Upload a vCard file (.vcf). Multiple contacts in one file are supported. After upload you'll see a preview where you can pick which contacts to import.
+          Upload a vCard file (.vcf). Multiple contacts in one file are supported. After upload you'll see a preview where you can pick
+          which contacts to import.
         </p>
         <label class="paper flex cursor-pointer flex-col items-center gap-2 px-6 py-8 text-sm text-dimmed transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
           <i class="ti ti-upload text-2xl" />
@@ -142,46 +143,22 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
           <For each={candidates()}>
             {(item, index) => (
               <li>
-                <label class="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-200 p-3 transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/50">
-                  <input
-                    type="checkbox"
-                    checked={selected().has(index())}
-                    onChange={() => toggleIndex(index())}
-                    class="sr-only peer"
-                  />
-                  <div
-                    aria-hidden="true"
-                    class="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 border-zinc-300 transition-colors peer-checked:border-blue-500 peer-checked:bg-blue-500 peer-checked:text-white dark:border-zinc-600"
-                  >
-                    <Show when={selected().has(index())}>
-                      <i class="ti ti-check text-[10px]" />
-                    </Show>
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm text-primary">
-                      {resolveContactName(item.candidate as Parameters<typeof resolveContactName>[0]) || "Unnamed"}
-                    </div>
-                    <div class="mt-0.5 flex flex-wrap gap-1.5 text-[11px] text-dimmed">
-                      <Show when={item.candidate.companyName}>
-                        <span>{item.candidate.companyName}</span>
-                      </Show>
-                      <Show when={(item.candidate.emails ?? []).length > 0}>
-                        <span>{item.candidate.emails?.[0]?.email}</span>
-                      </Show>
-                      <Show when={(item.candidate.phones ?? []).length > 0}>
-                        <span>{item.candidate.phones?.[0]?.phone}</span>
-                      </Show>
-                    </div>
-                    <Show when={item.match}>
-                      {(match) => (
-                        <div class="mt-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                          <i class="ti ti-alert-circle text-[10px]" />
-                          Already exists as „{match().existingName}"
-                        </div>
-                      )}
-                    </Show>
-                  </div>
-                </label>
+                <CheckboxCard
+                  label={resolveContactName(item.candidate as Parameters<typeof resolveContactName>[0]) || "Unnamed"}
+                  description={
+                    [
+                      item.candidate.companyName,
+                      item.candidate.emails?.[0]?.email,
+                      item.candidate.phones?.[0]?.phone,
+                      item.match ? `exists as ${item.match.existingName}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "New contact"
+                  }
+                  icon={item.match ? "ti ti-alert-circle" : "ti ti-user-plus"}
+                  value={() => selected().has(index())}
+                  onChange={() => toggleIndex(index())}
+                />
               </li>
             )}
           </For>
@@ -198,12 +175,7 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
           >
             Back
           </button>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            onClick={submit}
-            disabled={selected().size === 0 || commitMutation.loading()}
-          >
+          <button type="button" class="btn-primary btn-sm" onClick={submit} disabled={selected().size === 0 || commitMutation.loading()}>
             <Show when={commitMutation.loading()} fallback={<i class="ti ti-check" />}>
               <i class="ti ti-loader-2 animate-spin" />
             </Show>
@@ -223,10 +195,11 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
 
 export default function BookActions(props: Props) {
   const openImport = async () => {
-    const created = await prompts.dialog<number>(
-      (close) => <ImportDialog bookId={props.bookId} close={close} />,
-      { title: "Import contacts", icon: "ti ti-upload", size: "large" },
-    );
+    const created = await prompts.dialog<number>((close) => <ImportDialog bookId={props.bookId} close={close} />, {
+      title: "Import contacts",
+      icon: "ti ti-upload",
+      size: "large",
+    });
     if (created && created > 0) {
       refreshCurrentPath();
     }
@@ -235,27 +208,14 @@ export default function BookActions(props: Props) {
   return (
     <div class="flex flex-wrap items-center gap-2">
       <Show when={props.canWrite}>
-        <button
-          type="button"
-          class="btn-secondary btn-sm"
-          onClick={openImport}
-          title="Import contacts from a vCard file"
-        >
+        <button type="button" class="btn-secondary btn-sm" onClick={openImport} title="Import contacts from a vCard file">
           <i class="ti ti-upload" /> Import vCard
         </button>
       </Show>
-      <a
-        href={`/api/contacts/books/${props.bookId}/export.vcf`}
-        class="btn-secondary btn-sm"
-        title="Export as vCard"
-      >
+      <a href={`/api/contacts/books/${props.bookId}/export.vcf`} class="btn-secondary btn-sm" title="Export as vCard">
         <i class="ti ti-address-book" /> Export vCard
       </a>
-      <a
-        href={`/api/contacts/books/${props.bookId}/export.csv`}
-        class="btn-secondary btn-sm"
-        title="Export as CSV"
-      >
+      <a href={`/api/contacts/books/${props.bookId}/export.csv`} class="btn-secondary btn-sm" title="Export as CSV">
         <i class="ti ti-file-type-csv" /> Export CSV
       </a>
     </div>

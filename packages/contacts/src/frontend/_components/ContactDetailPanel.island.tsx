@@ -1,20 +1,19 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { navigateTo, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import { resolveContactName } from "../../shared";
 import type { Contact, ContactNote, ContactRef } from "../../service";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { resolveContactName } from "../../shared";
+import AddMemberDialog from "./AddMemberDialog.island";
+import ContactNotesSection from "./ContactNotesSection.island";
+import ContactUpsertForm from "./ContactUpsertForm.island";
 import {
   CONTACT_DETAIL_EVENT,
+  type ContactDetailPayload,
   clearSelectedContactInUrl,
   getSelectedContactFromUrl,
   setSelectedContactInUrl,
-  type ContactDetailPayload,
 } from "./context";
-import ContactUpsertForm from "./ContactUpsertForm.island";
-import AddMemberDialog from "./AddMemberDialog.island";
-import ContactNotesSection from "./ContactNotesSection.island";
 
 type Props = {
   initialContact: Contact | null;
@@ -246,7 +245,7 @@ export default function ContactDetailPanel(props: Props) {
         const hasReach = () => c().emails.length > 0 || c().phones.length > 0 || c().websites.length > 0;
         const hasWork = () => !!(c().companyName || c().department || c().jobTitle || c().vatId);
         const hasFormalName = () => !!(c().label && (c().firstName || c().lastName));
-        const hasPersonal = () => hasFormalName() || !!c().birthday;
+        const hasPersonal = () => hasFormalName() || !!(c().birthday || c().salutation || c().pronouns || c().preferredLanguage);
 
         return (
           <div class="flex h-full min-h-0 flex-col">
@@ -384,6 +383,64 @@ export default function ContactDetailPanel(props: Props) {
                 </section>
               </Show>
 
+              <Show when={c().bankAccounts.length > 0}>
+                <section class="detail-section">
+                  <h3 class="detail-section-label">Bank Details</h3>
+                  <For each={c().bankAccounts}>
+                    {(account) => (
+                      <div class="mb-3 last:mb-0 flex gap-1.5 text-xs text-primary">
+                        <i class="ti ti-building-bank detail-row-icon mt-0.5 self-start text-emerald-600 dark:text-emerald-400" />
+                        <div class="min-w-0 flex-1">
+                          <Show when={account.label}>
+                            <p class="text-dimmed">{account.label}</p>
+                          </Show>
+                          <p class="leading-snug">{account.accountHolderName}</p>
+                          <p class="break-all font-mono leading-snug">{account.iban}</p>
+                          <Show when={account.bic || account.bankName}>
+                            <p class="leading-snug text-dimmed">{[account.bankName, account.bic].filter(Boolean).join(" · ")}</p>
+                          </Show>
+                          <Show when={account.note}>
+                            <p class="leading-snug text-dimmed">{account.note}</p>
+                          </Show>
+                        </div>
+                      </div>
+                    )}
+                  </For>
+                </section>
+              </Show>
+
+              <Show when={hasPersonal()}>
+                <section class="detail-section">
+                  <h3 class="detail-section-label">Personal</h3>
+                  <dl class="detail-facts">
+                    <Show when={hasFormalName() && c().firstName}>
+                      <dt class="detail-fact-key">First name</dt>
+                      <dd>{c().firstName}</dd>
+                    </Show>
+                    <Show when={hasFormalName() && c().lastName}>
+                      <dt class="detail-fact-key">Last name</dt>
+                      <dd>{c().lastName}</dd>
+                    </Show>
+                    <Show when={c().birthday}>
+                      <dt class="detail-fact-key">Birthday</dt>
+                      <dd>{formatBirthday(c().birthday) ?? c().birthday}</dd>
+                    </Show>
+                    <Show when={c().salutation}>
+                      <dt class="detail-fact-key">Salutation</dt>
+                      <dd>{c().salutation}</dd>
+                    </Show>
+                    <Show when={c().pronouns}>
+                      <dt class="detail-fact-key">Pronouns</dt>
+                      <dd>{c().pronouns}</dd>
+                    </Show>
+                    <Show when={c().preferredLanguage}>
+                      <dt class="detail-fact-key">Language</dt>
+                      <dd>{c().preferredLanguage}</dd>
+                    </Show>
+                  </dl>
+                </section>
+              </Show>
+
               <Show when={hasWork()}>
                 <section class="detail-section">
                   <h3 class="detail-section-label">Work</h3>
@@ -460,26 +517,6 @@ export default function ContactDetailPanel(props: Props) {
                       </button>
                     </Show>
                   </div>
-                </section>
-              </Show>
-
-              <Show when={hasPersonal()}>
-                <section class="detail-section">
-                  <h3 class="detail-section-label">Personal</h3>
-                  <dl class="detail-facts">
-                    <Show when={hasFormalName() && c().firstName}>
-                      <dt class="detail-fact-key">First name</dt>
-                      <dd>{c().firstName}</dd>
-                    </Show>
-                    <Show when={hasFormalName() && c().lastName}>
-                      <dt class="detail-fact-key">Last name</dt>
-                      <dd>{c().lastName}</dd>
-                    </Show>
-                    <Show when={c().birthday}>
-                      <dt class="detail-fact-key">Birthday</dt>
-                      <dd>{formatBirthday(c().birthday) ?? c().birthday}</dd>
-                    </Show>
-                  </dl>
                 </section>
               </Show>
 

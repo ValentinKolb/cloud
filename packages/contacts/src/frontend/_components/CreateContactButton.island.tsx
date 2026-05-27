@@ -1,7 +1,6 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { navigateTo, prompts } from "@valentinkolb/cloud/ui";
 import type { Contact } from "../../service";
 import ContactUpsertForm from "./ContactUpsertForm.island";
-import { navigateTo } from "@valentinkolb/cloud/ui";
 
 type ContactBookOption = {
   id: string;
@@ -54,12 +53,7 @@ export default function CreateContactButton(props: Props) {
     const selectedBook = props.writableBooks.find((book) => book.id === result.bookId);
     const created = await prompts.dialog<Contact | undefined>(
       (close) => (
-        <ContactUpsertForm
-          mode="create"
-          bookId={result.bookId}
-          onCancel={() => close(undefined)}
-          onSaved={(contact) => close(contact)}
-        />
+        <ContactUpsertForm mode="create" bookId={result.bookId} onCancel={() => close(undefined)} onSaved={(contact) => close(contact)} />
       ),
       {
         title: selectedBook ? `New Contact in ${selectedBook.name}` : "New Contact",

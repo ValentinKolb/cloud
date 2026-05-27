@@ -1,8 +1,8 @@
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
-import { resolveContactName } from "../../shared";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
-import { CONTACT_DETAIL_EVENT, getSelectedContactFromUrl, setSelectedContactInUrl, type ContactDetailPayload } from "./context";
+import { resolveContactName } from "../../shared";
+import { CONTACT_DETAIL_EVENT, type ContactDetailPayload, getSelectedContactFromUrl, setSelectedContactInUrl } from "./context";
 
 type Props = {
   contacts: Contact[];

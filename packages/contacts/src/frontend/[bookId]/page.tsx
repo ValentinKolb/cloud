@@ -1,13 +1,14 @@
-import { ssr } from "../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
+import { ssr } from "../../config";
 import { contactsService } from "../../service";
-import ContactsSidebar from "../_components/ContactsSidebar";
-import ContactsList from "../_components/ContactsList.island";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
+import ContactsList from "../_components/ContactsList.island";
+import ContactsSidebar from "../_components/ContactsSidebar";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
+
 const parsePage = (value: string | undefined): number => {
   const parsed = Number(value ?? "1");
   if (!Number.isInteger(parsed) || parsed < 1) return 1;

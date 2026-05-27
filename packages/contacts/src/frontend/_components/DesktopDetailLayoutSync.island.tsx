@@ -1,5 +1,5 @@
 import { onCleanup, onMount } from "solid-js";
-import { CONTACT_DETAIL_EVENT, getSelectedContactFromUrl, type ContactDetailPayload } from "./context";
+import { CONTACT_DETAIL_EVENT, type ContactDetailPayload, getSelectedContactFromUrl } from "./context";
 
 type Props = {
   detailContainerId: string;

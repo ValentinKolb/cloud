@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import { isUuid, toPgUuidArray } from "./shared";
 import type { ContactTag, CreateContactTagInput, UpdateContactTagInput } from "./types";
 

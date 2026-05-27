@@ -1,6 +1,6 @@
 import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contracts";
-import { resolveContactName } from "./shared";
 import { contactsService } from "./service";
+import { resolveContactName } from "./shared";
 
 const SEARCH_TAGS = ["contact", "addressbook", "phone", "email"] as const;
 const SEARCH_HELP = "Find people and contact data from your address books.";
@@ -37,9 +37,7 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
   const requireEmail = tags.has("email");
   const facetFilterActive = requirePhone || requireEmail;
 
-  const fetchLimit = facetFilterActive
-    ? Math.min(FACET_OVERFETCH_CAP, input.limit * FACET_OVERFETCH_MULTIPLIER)
-    : input.limit;
+  const fetchLimit = facetFilterActive ? Math.min(FACET_OVERFETCH_CAP, input.limit * FACET_OVERFETCH_MULTIPLIER) : input.limit;
 
   const page = await contactsService.contact.search({
     userId: user.id,

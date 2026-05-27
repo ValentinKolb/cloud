@@ -1,5 +1,5 @@
-import { createSignal, For, onMount, Show } from "solid-js";
 import { Dropdown, type DropdownItem } from "@valentinkolb/cloud/ui";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
 
@@ -132,13 +132,7 @@ export default function ContactTagsPicker(props: Props) {
         <h3 class="section-label mb-1">Tags</h3>
       </Show>
       <div class="flex flex-wrap items-center gap-1.5">
-        <Dropdown
-          trigger={trigger}
-          elements={dropdownItems()}
-          position="bottom-right"
-          width="w-64"
-          onClose={handleClose}
-        />
+        <Dropdown trigger={trigger} elements={dropdownItems()} position="bottom-right" width="w-64" onClose={handleClose} />
         <For each={selected()}>
           {(tag) => (
             <span

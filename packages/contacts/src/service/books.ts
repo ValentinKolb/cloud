@@ -1,6 +1,6 @@
-import { sql } from "bun";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import {
   addBookAccess,
   canAccessBook,
@@ -12,7 +12,7 @@ import {
   removeBookAccess,
 } from "./access";
 import { isUuid, toPgUuidArray } from "./shared";
-import type { ContactBook, CreateBookInput, UpdateBookInput } from "./types";
+import type { ContactBook, ContactBookAdminListItem, CreateBookInput, UpdateBookInput } from "./types";
 
 type DbBook = {
   id: string;
@@ -20,6 +20,11 @@ type DbBook = {
   description: string | null;
   created_at: Date;
   updated_at: Date;
+};
+
+type DbAdminBook = DbBook & {
+  permission_count: number;
+  contact_count: number;
 };
 
 /**
@@ -32,6 +37,12 @@ const mapBook = (row: DbBook): ContactBook => ({
   isSystem: false,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
+});
+
+const mapAdminBook = (row: DbAdminBook): ContactBookAdminListItem => ({
+  ...mapBook(row),
+  permissionCount: row.permission_count,
+  contactCount: row.contact_count,
 });
 
 /**
@@ -52,6 +63,101 @@ export const list = async (config: { userId: string | null; groups: string[] }):
   `;
 
   return rows.map(mapBook);
+};
+
+/**
+ * Lists all manual books for admin pages with permission and contact counts.
+ */
+export const listAdmin = async (params: {
+  search?: string;
+  pagination: { limit: number; offset: number };
+}): Promise<{ items: ContactBookAdminListItem[]; total: number }> => {
+  const query = params.search?.trim().toLowerCase();
+  const pattern = query && query.length > 0 ? `%${query}%` : null;
+
+  const rows = await sql<DbAdminBook[]>`
+    SELECT
+      b.id,
+      b.name,
+      b.description,
+      b.created_at,
+      b.updated_at,
+      COUNT(DISTINCT ba.access_id)::int AS permission_count,
+      COUNT(DISTINCT c.id)::int AS contact_count
+    FROM contacts.books b
+    LEFT JOIN contacts.book_access ba ON ba.book_id = b.id
+    LEFT JOIN contacts.contacts c ON c.book_id = b.id
+    WHERE (
+      ${pattern}::text IS NULL
+      OR LOWER(b.name) LIKE ${pattern}
+      OR LOWER(COALESCE(b.description, '')) LIKE ${pattern}
+    )
+    GROUP BY b.id, b.name, b.description, b.created_at, b.updated_at
+    ORDER BY LOWER(b.name) ASC, b.created_at ASC
+    LIMIT ${params.pagination.limit}
+    OFFSET ${params.pagination.offset}
+  `;
+
+  const [countRow] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM contacts.books b
+    WHERE (
+      ${pattern}::text IS NULL
+      OR LOWER(b.name) LIKE ${pattern}
+      OR LOWER(COALESCE(b.description, '')) LIKE ${pattern}
+    )
+  `;
+
+  return {
+    items: rows.map(mapAdminBook),
+    total: countRow?.count ?? 0,
+  };
+};
+
+/**
+ * Aggregated admin stats for manual contact books.
+ */
+export const adminSummary = async (params: {
+  search?: string;
+}): Promise<{
+  total: number;
+  orphaned: number;
+  totalPermissions: number;
+  totalContacts: number;
+}> => {
+  const query = params.search?.trim().toLowerCase();
+  const pattern = query && query.length > 0 ? `%${query}%` : null;
+
+  const [row] = await sql<{ total: number; orphaned: number; total_permissions: number; total_contacts: number }[]>`
+    WITH filtered AS (
+      SELECT
+        b.id,
+        COUNT(DISTINCT ba.access_id)::int AS permission_count,
+        COUNT(DISTINCT c.id)::int AS contact_count
+      FROM contacts.books b
+      LEFT JOIN contacts.book_access ba ON ba.book_id = b.id
+      LEFT JOIN contacts.contacts c ON c.book_id = b.id
+      WHERE (
+        ${pattern}::text IS NULL
+        OR LOWER(b.name) LIKE ${pattern}
+        OR LOWER(COALESCE(b.description, '')) LIKE ${pattern}
+      )
+      GROUP BY b.id
+    )
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE permission_count = 0)::int AS orphaned,
+      COALESCE(SUM(permission_count), 0)::int AS total_permissions,
+      COALESCE(SUM(contact_count), 0)::int AS total_contacts
+    FROM filtered
+  `;
+
+  return {
+    total: row?.total ?? 0,
+    orphaned: row?.orphaned ?? 0,
+    totalPermissions: row?.total_permissions ?? 0,
+    totalContacts: row?.total_contacts ?? 0,
+  };
 };
 
 /**

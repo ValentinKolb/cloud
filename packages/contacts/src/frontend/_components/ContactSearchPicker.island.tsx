@@ -1,6 +1,6 @@
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
+import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";
 import { resolveContactName } from "../../shared";
@@ -77,11 +77,7 @@ export default function ContactSearchPicker(props: Props) {
       <div class="-mx-1 flex max-h-72 flex-col overflow-y-auto px-1">
         <Show
           when={results().length > 0}
-          fallback={
-            <p class="px-2 py-6 text-center text-xs text-dimmed">
-              {loading() ? "Searching…" : "No matches"}
-            </p>
-          }
+          fallback={<p class="px-2 py-6 text-center text-xs text-dimmed">{loading() ? "Searching…" : "No matches"}</p>}
         >
           <For each={results()}>
             {(contact) => (

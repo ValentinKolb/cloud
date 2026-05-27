@@ -1,14 +1,14 @@
-import { paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
-import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import type { PermissionLevel } from "@valentinkolb/cloud/server";
+import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import * as books from "./books";
 import * as contacts from "./contacts";
 import * as notes from "./notes";
-import * as tags from "./tags";
 import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
+import * as tags from "./tags";
 import type {
-  Contact,
   ContactBook,
+  ContactBookAdminListItem,
   CreateBookInput,
   CreateContactInput,
   CreateContactNoteInput,
@@ -80,6 +80,23 @@ export const contactsService = {
     create: (config: { data: CreateBookInput; creatorId: string }) => books.create(config),
     update: (config: { id: string; data: UpdateBookInput }) => books.update(config),
     remove: (config: { id: string }) => books.remove(config),
+    admin: {
+      list: async (config: { pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<ContactBookAdminListItem>> => {
+        const { page, perPage, offset } = paginate(config.pagination);
+        const result = await books.listAdmin({
+          search: config.filter?.query,
+          pagination: { limit: perPage, offset },
+        });
+        return {
+          items: result.items,
+          page,
+          perPage,
+          total: result.total,
+          hasNext: page * perPage < result.total,
+        };
+      },
+      summary: async (config: { filter?: { query?: string } }) => books.adminSummary({ search: config.filter?.query }),
+    },
     permission: {
       get: async (config: { bookId: string; userId: string; userGroups: string[] }): Promise<PermissionLevel> => {
         if (isSystemBookId(config.bookId)) return "read";
@@ -138,20 +155,10 @@ export const contactsService = {
         authorDisplayName: string;
         data: CreateContactNoteInput;
       }) => notes.create(config),
-      update: (config: {
-        bookId: string;
-        contactId: string;
-        noteId: string;
-        authorUserId: string;
-        data: UpdateContactNoteInput;
-      }) => notes.update(config),
-      remove: (config: {
-        bookId: string;
-        contactId: string;
-        noteId: string;
-        authorUserId: string;
-        isBookAdmin: boolean;
-      }) => notes.remove(config),
+      update: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; data: UpdateContactNoteInput }) =>
+        notes.update(config),
+      remove: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; isBookAdmin: boolean }) =>
+        notes.remove(config),
     },
   },
   system: {
@@ -161,18 +168,21 @@ export const contactsService = {
 };
 
 export type {
-  ContactBook,
   Contact,
-  ContactRef,
+  ContactBankAccount,
+  ContactBankAccountInput,
+  ContactBook,
+  ContactBookAdminListItem,
   ContactNote,
+  ContactRef,
   ContactTag,
   ContactWebsite,
   CreateBookInput,
-  UpdateBookInput,
   CreateContactInput,
-  UpdateContactInput,
   CreateContactNoteInput,
-  UpdateContactNoteInput,
   CreateContactTagInput,
+  UpdateBookInput,
+  UpdateContactInput,
+  UpdateContactNoteInput,
   UpdateContactTagInput,
 } from "./types";

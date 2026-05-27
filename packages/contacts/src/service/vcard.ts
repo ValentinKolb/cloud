@@ -1,11 +1,4 @@
-import type {
-  Contact,
-  ContactAddressInput,
-  ContactEmailInput,
-  ContactPhoneInput,
-  ContactWebsiteInput,
-  CreateContactInput,
-} from "./types";
+import type { Contact, ContactAddressInput, ContactEmailInput, ContactPhoneInput, ContactWebsiteInput, CreateContactInput } from "./types";
 
 /**
  * Minimal vCard 3.0 (de)serializer.
@@ -25,11 +18,9 @@ const CRLF = "\r\n";
 const VCARD_LINE_LENGTH = 75;
 
 /** vCard escaping per RFC 2426 §4. Order matters: backslash first. */
-const escapeValue = (v: string): string =>
-  v.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+const escapeValue = (v: string): string => v.replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
 
-const unescapeValue = (v: string): string =>
-  v.replace(/\\n/g, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
+const unescapeValue = (v: string): string => v.replace(/\\n/g, "\n").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\");
 
 /**
  * Folds long lines per RFC 2426 §2.6: lines longer than 75 octets get split,
@@ -77,11 +68,7 @@ const formatAdr = (a: ContactAddressInput): string => {
 export const serializeContact = (contact: Contact): string => {
   const lines: string[] = ["BEGIN:VCARD", "VERSION:3.0"];
 
-  const fullName =
-    [contact.firstName, contact.lastName].filter(Boolean).join(" ") ||
-    contact.label ||
-    contact.companyName ||
-    "Unnamed";
+  const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.label || contact.companyName || "Unnamed";
   lines.push(`FN:${escapeValue(fullName)}`);
   // N: family;given;additional;prefix;suffix
   lines.push(`N:${escapeValue(contact.lastName ?? "")};${escapeValue(contact.firstName ?? "")};;;`);
@@ -127,8 +114,7 @@ export const serializeContact = (contact: Contact): string => {
 };
 
 /** Joins multiple VCARDs with the standard CRLF separator. */
-export const serializeBook = (contacts: Contact[]): string =>
-  contacts.map(serializeContact).join(CRLF) + CRLF;
+export const serializeBook = (contacts: Contact[]): string => contacts.map(serializeContact).join(CRLF) + CRLF;
 
 // --- Parser ----------------------------------------------------------------
 

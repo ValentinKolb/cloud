@@ -1,4 +1,4 @@
-import { detailPanel, type DetailSelectPayload } from "@valentinkolb/stdlib/solid";
+import { type DetailSelectPayload, detailPanel } from "@valentinkolb/stdlib/solid";
 import type { Contact } from "../../service";
 
 export const CONTACT_DETAIL_EVENT = "contacts-detail-select";

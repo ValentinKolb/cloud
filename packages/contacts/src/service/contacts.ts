@@ -1,13 +1,15 @@
+import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { err, fail, ok, paginate, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
 import { resolveStoredContactLabel } from "../shared";
+import { emptyToNull, isUuid, toDateOnly, toPgUuidArray } from "./shared";
 import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
-import { emptyToNull, isUuid, toDateOnly, toPgTextArray, toPgUuidArray } from "./shared";
 import * as tags from "./tags";
 import type {
   Contact,
   ContactAddress,
   ContactAddressInput,
+  ContactBankAccount,
+  ContactBankAccountInput,
   ContactEmail,
   ContactEmailInput,
   ContactPhone,
@@ -31,6 +33,9 @@ type DbContact = {
   job_title: string | null;
   vat_id: string | null;
   birthday: Date | string | null;
+  salutation: string | null;
+  pronouns: string | null;
+  preferred_language: string | null;
   source: string | null;
   parent_contact_id: string | null;
   created_at: Date;
@@ -95,6 +100,20 @@ type DbWebsite = {
   updated_at: Date;
 };
 
+type DbBankAccount = {
+  id: string;
+  contact_id: string;
+  label: string | null;
+  account_holder_name: string;
+  iban: string;
+  bic: string | null;
+  bank_name: string | null;
+  note: string | null;
+  position: number;
+  created_at: Date;
+  updated_at: Date;
+};
+
 type SearchRow = {
   contact_id: string;
   book_id: string;
@@ -111,6 +130,7 @@ const mapContact = (config: {
   phones: ContactPhone[];
   addresses: ContactAddress[];
   websites: ContactWebsite[];
+  bankAccounts: ContactBankAccount[];
 }): Contact => ({
   id: config.row.id,
   bookId: config.row.book_id,
@@ -122,6 +142,9 @@ const mapContact = (config: {
   jobTitle: config.row.job_title,
   vatId: config.row.vat_id,
   birthday: toDateOnly(config.row.birthday),
+  salutation: config.row.salutation,
+  pronouns: config.row.pronouns,
+  preferredLanguage: config.row.preferred_language,
   source: config.row.source,
   createdAt: config.row.created_at.toISOString(),
   updatedAt: config.row.updated_at.toISOString(),
@@ -129,6 +152,7 @@ const mapContact = (config: {
   phones: config.phones,
   addresses: config.addresses,
   websites: config.websites,
+  bankAccounts: config.bankAccounts,
   parentContactId: config.row.parent_contact_id,
   parent: config.row.parent_data,
   members: config.row.members_data,
@@ -177,6 +201,20 @@ const mapWebsite = (row: DbWebsite): ContactWebsite => ({
   contactId: row.contact_id,
   label: row.label,
   url: row.url,
+  position: row.position,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+});
+
+const mapBankAccount = (row: DbBankAccount): ContactBankAccount => ({
+  id: row.id,
+  contactId: row.contact_id,
+  label: row.label,
+  accountHolderName: row.account_holder_name,
+  iban: row.iban,
+  bic: row.bic,
+  bankName: row.bank_name,
+  note: row.note,
   position: row.position,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
@@ -274,6 +312,24 @@ const loadWebsites = async (contactIds: string[]): Promise<Map<string, ContactWe
   return grouped;
 };
 
+const loadBankAccounts = async (contactIds: string[]): Promise<Map<string, ContactBankAccount[]>> => {
+  const validIds = contactIds.filter(isUuid);
+  if (validIds.length === 0) return new Map();
+
+  const rows = await sql<DbBankAccount[]>`
+    SELECT id, contact_id, label, account_holder_name, iban, bic, bank_name, note, position, created_at, updated_at
+    FROM contacts.contact_bank_accounts
+    WHERE contact_id = ANY(${toPgUuidArray(validIds)}::uuid[])
+    ORDER BY position ASC, created_at ASC
+  `;
+
+  const grouped = new Map<string, ContactBankAccount[]>();
+  for (const row of rows) {
+    grouped.set(row.contact_id, [...(grouped.get(row.contact_id) ?? []), mapBankAccount(row)]);
+  }
+  return grouped;
+};
+
 /**
  * Loads manual contacts by IDs and hydrates all child subtables.
  */
@@ -304,6 +360,9 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
       c.job_title,
       c.vat_id,
       c.birthday,
+      c.salutation,
+      c.pronouns,
+      c.preferred_language,
       c.source,
       c.parent_contact_id,
       c.created_at,
@@ -364,11 +423,12 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
   `;
 
   const contactIds = rows.map((row) => row.id);
-  const [emailsByContact, phonesByContact, addressesByContact, websitesByContact] = await Promise.all([
+  const [emailsByContact, phonesByContact, addressesByContact, websitesByContact, bankAccountsByContact] = await Promise.all([
     loadEmails(contactIds),
     loadPhones(contactIds),
     loadAddresses(contactIds),
     loadWebsites(contactIds),
+    loadBankAccounts(contactIds),
   ]);
 
   const mapped = new Map<string, Contact>();
@@ -381,6 +441,7 @@ export const getManualContactsByIds = async (ids: string[]): Promise<Map<string,
         phones: phonesByContact.get(row.id) ?? [],
         addresses: addressesByContact.get(row.id) ?? [],
         websites: websitesByContact.get(row.id) ?? [],
+        bankAccounts: bankAccountsByContact.get(row.id) ?? [],
       }),
     );
   }
@@ -490,6 +551,37 @@ const replaceWebsites = async (contactId: string, websites: ContactWebsiteInput[
   }
 };
 
+const replaceBankAccounts = async (contactId: string, bankAccounts: ContactBankAccountInput[]): Promise<void> => {
+  await sql`
+    DELETE FROM contacts.contact_bank_accounts
+    WHERE contact_id = ${contactId}::uuid
+  `;
+
+  for (const [index, account] of bankAccounts.entries()) {
+    await sql`
+      INSERT INTO contacts.contact_bank_accounts (
+        contact_id,
+        label,
+        account_holder_name,
+        iban,
+        bic,
+        bank_name,
+        note,
+        position
+      ) VALUES (
+        ${contactId}::uuid,
+        ${emptyToNull(account.label) ?? null},
+        ${account.accountHolderName.trim()},
+        ${account.iban.trim().replaceAll(" ", "").toUpperCase()},
+        ${emptyToNull(account.bic)?.replaceAll(" ", "").toUpperCase() ?? null},
+        ${emptyToNull(account.bankName) ?? null},
+        ${emptyToNull(account.note) ?? null},
+        ${index}
+      )
+    `;
+  }
+};
+
 const mapManualSearchCondition = (searchPattern: string | null) => sql`
   (
     ${searchPattern}::text IS NULL
@@ -500,11 +592,18 @@ const mapManualSearchCondition = (searchPattern: string | null) => sql`
     OR LOWER(COALESCE(c.department, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(c.job_title, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(c.vat_id, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(c.salutation, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(c.pronouns, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(c.preferred_language, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(ce.email, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(cp.phone, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(ca.line1, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(ca.postal_code, '')) LIKE ${searchPattern}
     OR LOWER(COALESCE(ca.city, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(cba.account_holder_name, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(cba.iban, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(cba.bic, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(cba.bank_name, '')) LIKE ${searchPattern}
   )
 `;
 
@@ -599,6 +698,7 @@ export const list = async (config: {
     LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
     LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
     LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
+    LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
     WHERE c.book_id = ${config.bookId}::uuid
       AND ${mapManualSearchCondition(searchPattern)}
       AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
@@ -626,6 +726,7 @@ export const list = async (config: {
     LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
     LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
     LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
+    LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
     WHERE c.book_id = ${config.bookId}::uuid
       AND ${mapManualSearchCondition(searchPattern)}
       AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
@@ -715,6 +816,9 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       vat_id,
       birthday,
       source,
+      salutation,
+      pronouns,
+      preferred_language,
       parent_contact_id
     ) VALUES (
       ${config.bookId}::uuid,
@@ -727,6 +831,9 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       ${emptyToNull(config.data.vatId) ?? null},
       ${config.data.birthday ?? null},
       ${emptyToNull(config.data.source) ?? "manual"},
+      ${emptyToNull(config.data.salutation) ?? null},
+      ${emptyToNull(config.data.pronouns) ?? null},
+      ${emptyToNull(config.data.preferredLanguage) ?? null},
       ${parentContactId}
     )
     RETURNING id
@@ -738,6 +845,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
   await replacePhones(row.id, config.data.phones ?? []);
   await replaceAddresses(row.id, config.data.addresses ?? []);
   await replaceWebsites(row.id, config.data.websites ?? []);
+  await replaceBankAccounts(row.id, config.data.bankAccounts ?? []);
   if (validatedTagIds !== null) {
     await tags.replaceAssignments({ contactId: row.id, tagIds: validatedTagIds });
   }
@@ -772,6 +880,9 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
       job_title,
       vat_id,
       birthday,
+      salutation,
+      pronouns,
+      preferred_language,
       source,
       parent_contact_id,
       created_at,
@@ -823,6 +934,11 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
       job_title = ${config.data.jobTitle === undefined ? existing.job_title : emptyToNull(config.data.jobTitle)},
       vat_id = ${config.data.vatId === undefined ? existing.vat_id : emptyToNull(config.data.vatId)},
       birthday = ${config.data.birthday === undefined ? toDateOnly(existing.birthday) : config.data.birthday},
+      salutation = ${config.data.salutation === undefined ? existing.salutation : emptyToNull(config.data.salutation)},
+      pronouns = ${config.data.pronouns === undefined ? existing.pronouns : emptyToNull(config.data.pronouns)},
+      preferred_language = ${
+        config.data.preferredLanguage === undefined ? existing.preferred_language : emptyToNull(config.data.preferredLanguage)
+      },
       source = ${config.data.source === undefined ? existing.source : emptyToNull(config.data.source)},
       parent_contact_id = ${nextParentContactId},
       updated_at = now()
@@ -844,6 +960,9 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
   }
   if (config.data.websites !== undefined) {
     await replaceWebsites(row.id, config.data.websites);
+  }
+  if (config.data.bankAccounts !== undefined) {
+    await replaceBankAccounts(row.id, config.data.bankAccounts);
   }
   if (validatedTagIds !== null) {
     await tags.replaceAssignments({ contactId: row.id, tagIds: validatedTagIds });
@@ -950,6 +1069,7 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
+      LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
       WHERE (
         a.user_id = ${config.userId}::uuid
         OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
@@ -1008,6 +1128,7 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
+      LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
       WHERE (
         a.user_id = ${config.userId}::uuid
         OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])

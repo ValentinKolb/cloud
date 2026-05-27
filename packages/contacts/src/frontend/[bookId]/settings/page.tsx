@@ -1,8 +1,10 @@
-import { ssr } from "../../../config";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { ssr } from "../../../config";
 import { contactsService } from "../../../service";
 import BookSettingsForm from "../../_components/BookSettingsForm.island";
+import ContactsSidebar from "../../_components/ContactsSidebar";
 
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
@@ -56,10 +58,23 @@ export default ssr<AuthContext>(async (c) => {
     return c.redirect(`/app/contacts/${bookId}`, 302);
   }
 
-  const [accessEntriesResult, bookTags] = await Promise.all([
+  const [booksResult, accessEntriesResult, bookTags] = await Promise.all([
+    contactsService.book.list({ userId: user.id, groups: user.memberofGroupIds }),
     contactsService.book.access.list({ bookId }),
     contactsService.tag.list({ bookId }),
   ]);
+  const books = booksResult.items;
+  const manualBooks = books.filter((entry) => !entry.isSystem);
+  const permissionEntries = await Promise.all(
+    manualBooks.map(async (entry) => ({
+      book: entry,
+      permission: await contactsService.book.permission.get({ bookId: entry.id, userId: user.id, userGroups: user.memberofGroupIds }),
+    })),
+  );
+  const writableBooks = permissionEntries
+    .filter((entry) => entry.permission === "write" || entry.permission === "admin")
+    .map((entry) => ({ id: entry.book.id, name: entry.book.name }));
+  const adminBookIds = permissionEntries.filter((entry) => entry.permission === "admin").map((entry) => entry.book.id);
   const accessEntries = accessEntriesResult.items;
 
   return () => (
@@ -71,23 +86,42 @@ export default ssr<AuthContext>(async (c) => {
         { title: book.name, href: `/app/contacts/${book.id}` },
         { title: "Settings" },
       ]}
+      fullWidth
     >
-      <div class="max-w-xl mx-auto w-full py-6 px-4 flex flex-col gap-8">
-        <div class="flex items-center gap-3">
-          <a href={`/app/contacts/${book.id}`} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to contact book">
-            <i class="ti ti-arrow-left" />
-          </a>
-          <h1 class="text-lg font-semibold text-primary">Contact Book Settings</h1>
-        </div>
-
-        <BookSettingsForm
-          bookId={book.id}
-          initialName={book.name}
-          initialDescription={book.description}
-          accessEntries={accessEntries}
-          initialTags={bookTags}
+      <AppWorkspace>
+        <ContactsSidebar
+          books={books}
+          active={book.id}
+          adminBookIds={adminBookIds}
+          writableBooks={writableBooks}
+          defaultCreateBookId={writableBooks.some((entry) => entry.id === book.id) ? book.id : (writableBooks[0]?.id ?? null)}
         />
-      </div>
+
+        <AppWorkspace.Main>
+          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`contacts-settings-${book.id}`}>
+            <div class="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-6">
+              <div class="flex items-center gap-3" style="view-transition-name: contacts-settings-header">
+                <a
+                  href={`/app/contacts/${book.id}`}
+                  class="p-1.5 text-dimmed transition-colors hover:text-primary"
+                  title="Back to contact book"
+                >
+                  <i class="ti ti-arrow-left" />
+                </a>
+                <h1 class="text-lg font-semibold text-primary">Contact Book Settings</h1>
+              </div>
+
+              <BookSettingsForm
+                bookId={book.id}
+                initialName={book.name}
+                initialDescription={book.description}
+                accessEntries={accessEntries}
+                initialTags={bookTags}
+              />
+            </div>
+          </div>
+        </AppWorkspace.Main>
+      </AppWorkspace>
     </Layout>
   );
 });

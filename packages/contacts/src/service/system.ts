@@ -1,5 +1,5 @@
+import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
 import { emptyToNull, isUuid, toPgUuidArray } from "./shared";
 import type { Contact, ContactAddress, ContactBook, ContactEmail, ContactPhone, ContactWebsite } from "./types";
 
@@ -112,6 +112,9 @@ const mapSystemContact = (row: DbSystemUser): Contact => ({
   jobTitle: null,
   vatId: null,
   birthday: null,
+  salutation: null,
+  pronouns: null,
+  preferredLanguage: null,
   source: "ipa",
   createdAt: row.created_at.toISOString(),
   updatedAt: (row.synced_at ?? row.created_at).toISOString(),
@@ -119,6 +122,7 @@ const mapSystemContact = (row: DbSystemUser): Contact => ({
   phones: mapSystemPhones(row),
   addresses: mapSystemAddresses(row),
   websites: [] as ContactWebsite[],
+  bankAccounts: [],
   parentContactId: null,
   parent: null,
   members: [],

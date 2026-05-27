@@ -7,6 +7,7 @@ export const app = defineApp({
   description: "Business contact books with structured emails, phones, postal addresses, and IPA system directory projection.",
   basePath: "/app/contacts",
   baseUrl: "http://app-contacts:3000",
+  adminHref: "/admin/contacts",
   nav: {
     href: "/app/contacts",
     match: "/app/contacts",
@@ -15,7 +16,7 @@ export const app = defineApp({
     requiresRoles: ["user"],
   },
   openapi: "/api/contacts/openapi.json",
-  routes: ["/api/contacts", "/app/contacts", "/public/contacts"],
+  routes: ["/api/contacts", "/app/contacts", "/admin/contacts", "/public/contacts"],
 });
 
 export const { ssr, plugin } = app;
