@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from "solid-js";
 import { timed as timing, mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 
@@ -126,7 +126,16 @@ const LocationSearch = (props: { onSelect: (result: GeoResult) => void; adding: 
 
 const AddLocationButton = () => {
   const addMutation = mutations.create({
-    mutation: async (location: GeoResult) => {
+    mutation: async () => {
+      const location = await prompts.dialog<GeoResult | null>(
+        (close) => <LocationSearch onSelect={(result) => close(result)} adding={false} />,
+        {
+          title: "Add Location",
+          icon: "ti ti-map-pin",
+        },
+      );
+      if (!location) return null;
+
       const res = await apiClient.locations.$post({
         json: {
           name: location.name,
@@ -142,33 +151,17 @@ const AddLocationButton = () => {
       return (await res.json()) as { id: string };
     },
     onSuccess: (result) => {
-      window.location.href = `/app/weather/${result.id}`;
+      if (!result) return;
+      toast.success("Location added");
+      navigateTo(`/app/weather/${result.id}`);
     },
     onError: (err) => {
       prompts.error(err.message);
     },
   });
 
-  const handleClick = () => {
-    prompts.dialog(
-      (close) => (
-        <LocationSearch
-          onSelect={(result) => {
-            addMutation.mutate(result);
-            close(null);
-          }}
-          adding={addMutation.loading()}
-        />
-      ),
-      {
-        title: "Add Location",
-        icon: "ti ti-map-pin",
-      },
-    );
-  };
-
   return (
-    <button type="button" onClick={handleClick} disabled={addMutation.loading()} class="btn-secondary btn-sm w-full">
+    <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-secondary btn-sm w-full">
       {addMutation.loading() ? (
         <i class="ti ti-loader-2 animate-spin" />
       ) : (

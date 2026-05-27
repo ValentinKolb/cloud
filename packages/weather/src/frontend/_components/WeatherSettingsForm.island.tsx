@@ -6,11 +6,12 @@ import {
   prompts,
   SettingsField,
   SettingsSaveBar,
+  refreshCurrentPath,
   sameSettingValue,
   readSettingsError,
+  toast,
 } from "@valentinkolb/cloud/ui";
-
-const ENDPOINT = "/api/weather/admin/settings";
+import { apiClient } from "@/api/client";
 
 type Initial = {
   "weather.default_lat": string;
@@ -46,11 +47,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
     mutation: async () => {
       const updates: Record<string, unknown> = {};
       for (const k of changedKeys()) updates[k as string] = draft()[k];
-      const response = await fetch(ENDPOINT, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
+      const response = await apiClient.admin.settings.$put({ json: updates });
       if (!response.ok) {
         const { message, fields } = await readSettingsError(response, `Save failed (HTTP ${response.status})`);
         setFieldErrors(fields);
@@ -59,7 +56,8 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
     },
     onSuccess: () => {
       window.onbeforeunload = null;
-      window.location.reload();
+      toast.success("Weather settings saved");
+      refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
   });
