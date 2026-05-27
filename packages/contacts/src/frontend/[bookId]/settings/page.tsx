@@ -98,19 +98,8 @@ export default ssr<AuthContext>(async (c) => {
         />
 
         <AppWorkspace.Main>
-          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`contacts-settings-${book.id}`}>
-            <div class="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-6">
-              <div class="flex items-center gap-3" style="view-transition-name: contacts-settings-header">
-                <a
-                  href={`/app/contacts/${book.id}`}
-                  class="p-1.5 text-dimmed transition-colors hover:text-primary"
-                  title="Back to contact book"
-                >
-                  <i class="ti ti-arrow-left" />
-                </a>
-                <h1 class="text-lg font-semibold text-primary">Contact Book Settings</h1>
-              </div>
-
+          <div class="flex-1 min-h-0 p-2" data-scroll-preserve={`contacts-settings-${book.id}`}>
+            <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col" style="view-transition-name: contacts-settings-modal">
               <BookSettingsForm
                 bookId={book.id}
                 initialName={book.name}

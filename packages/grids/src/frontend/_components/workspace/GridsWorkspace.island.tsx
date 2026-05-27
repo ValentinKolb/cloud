@@ -152,8 +152,8 @@ export default function GridsWorkspace(props: Props) {
   );
 
   const renderSettings = (route: WorkspaceSettingsRoute) => (
-    <div class="flex-1 min-h-0 overflow-y-auto" data-route-key={routeKey()} data-scroll-preserve={`grids-main-${routeKey()}`}>
-      <div class="max-w-xl mx-auto w-full py-6 px-4">
+    <div class="flex-1 min-h-0 p-2" data-route-key={routeKey()} data-scroll-preserve={`grids-main-${routeKey()}`}>
+      <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col" style="view-transition-name: grids-settings-modal">
         <BaseSettingsPanel base={state().base} accessEntries={route.accessEntries} dashboards={route.dashboards} />
       </div>
     </div>

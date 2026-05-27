@@ -1,11 +1,10 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Base, Dashboard, Field, Form, Table } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
-import { SectionCard } from "../utils/SectionCard";
 
 type TrashResponse = {
   tables: Table[];
@@ -29,68 +28,77 @@ type Props = {
 };
 
 /**
- * Settings page body. Each section is its own paper card; the page
- * header sits on the page background. Mirrors the table-edit page so
- * the two settings surfaces feel like one product.
+ * Settings page body. The shared SettingsModal shell owns the tabs and
+ * section framing; each tab keeps the existing base settings behavior.
  */
 export default function BaseSettingsPanel(props: Props) {
   return (
-    <div class="flex flex-col gap-4">
-      <header class="flex items-center gap-3">
-        <a href={`/app/grids/${props.base.shortId}`} class="p-1.5 text-dimmed hover:text-primary transition-colors" title="Back to base">
-          <i class="ti ti-arrow-left" />
-        </a>
-        <h1 class="text-xl font-semibold text-primary">Base settings</h1>
-      </header>
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
+      <SettingsModal
+        title="Base settings"
+        subtitle={props.base.name}
+        icon="ti ti-table"
+        onClose={() => navigateTo(`/app/grids/${props.base.shortId}`)}
+        closeLabel="Close settings"
+      >
+        <SettingsModal.Tab
+          id="general"
+          title="General"
+          icon="ti ti-id"
+          description="Base name and description shown on the grids overview."
+        >
+          <GeneralForm base={props.base} />
+        </SettingsModal.Tab>
 
-      <SectionCard title="General" subtitle="Base name and description shown on the grids overview.">
-        <GeneralForm base={props.base} />
-      </SectionCard>
-
-      <SectionCard title="Default dashboard" subtitle="Shown when opening this base directly. Tables remain accessible from the sidebar.">
-        <DefaultDashboardSelect baseId={props.base.id} initial={props.base.defaultDashboardId} dashboards={props.dashboards} />
-        {/* Source-permission caveat — dashboards have their own ACL,
+        <SettingsModal.Tab
+          id="dashboard"
+          title="Dashboard"
+          icon="ti ti-layout-dashboard"
+          description="The dashboard shown when opening this base directly."
+        >
+          <DefaultDashboardSelect baseId={props.base.id} initial={props.base.defaultDashboardId} dashboards={props.dashboards} />
+          {/* Source-permission caveat — dashboards have their own ACL,
             but the data they pull from views/tables is checked at
             render time without an extra cascade. A shared dashboard
             built on a view the grantee can't read directly will still
             show that view's data inline. Surfaced here once so the
             base-admin sees it in context with permission-related
             settings. */}
-        <div class="info-block-warning text-xs flex items-start gap-2 mt-3">
-          <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
-          <span>
-            Shared dashboards can surface data from views/tables a viewer can't read directly. Make sure the source views match the
-            dashboard's audience.
-          </span>
-        </div>
-      </SectionCard>
+          <div class="info-block-warning text-xs flex items-start gap-2 mt-3">
+            <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
+            <span>
+              Shared dashboards can surface data from views/tables a viewer can't read directly. Make sure the source views match the
+              dashboard's audience.
+            </span>
+          </div>
+        </SettingsModal.Tab>
 
-      <SectionCard title="Permissions" subtitle="Base-level grants apply to every table by default.">
-        <div class="info-block-info text-xs flex items-start gap-2">
-          <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
-          <span>
-            Override per table from that table's editor: a group with <code class="font-mono">read</code> on the base and{" "}
-            <code class="font-mono">write</code> on a single table can edit that table but only read others. Within the same tier, "no
-            access" wins; user grants override group grants.
-          </span>
-        </div>
-        <PermissionsSection baseId={props.base.id} initialEntries={props.accessEntries} />
-      </SectionCard>
+        <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Base-level grants apply to every table by default.">
+          <div class="info-block-info text-xs flex items-start gap-2">
+            <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
+            <span>
+              Override per table from that table's editor: a group with <code class="font-mono">read</code> on the base and{" "}
+              <code class="font-mono">write</code> on a single table can edit that table but only read others. Within the same tier, "no
+              access" wins; user grants override group grants.
+            </span>
+          </div>
+          <PermissionsSection baseId={props.base.id} initialEntries={props.accessEntries} />
+        </SettingsModal.Tab>
 
-      <SectionCard
-        title="Trash"
-        subtitle="Soft-deleted tables, fields, dashboards, and forms. Restorable for 30 days, then purged automatically."
-      >
-        <TrashSection baseId={props.base.id} />
-      </SectionCard>
+        <SettingsModal.Tab id="trash" title="Trash" icon="ti ti-trash" description="Soft-deleted tables, fields, dashboards, and forms.">
+          <TrashSection baseId={props.base.id} />
+        </SettingsModal.Tab>
 
-      <SectionCard
-        title="Danger zone"
-        subtitle="Permanently delete this base and all of its contents. This cannot be undone."
-        variant="danger"
-      >
-        <DangerZone baseId={props.base.id} baseName={props.base.name} />
-      </SectionCard>
+        <SettingsModal.Tab
+          id="danger"
+          title="Danger zone"
+          icon="ti ti-alert-triangle"
+          description="Permanently delete this base and all of its contents."
+          tone="danger"
+        >
+          <DangerZone baseId={props.base.id} baseName={props.base.name} />
+        </SettingsModal.Tab>
+      </SettingsModal>
     </div>
   );
 }

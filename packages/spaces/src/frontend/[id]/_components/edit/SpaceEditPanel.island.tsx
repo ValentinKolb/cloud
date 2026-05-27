@@ -1,4 +1,14 @@
-import { ColorInput, CopyButton, navigateTo, PermissionEditor, prompts, SegmentedControl, TextInput, toast } from "@valentinkolb/cloud/ui";
+import {
+  ColorInput,
+  CopyButton,
+  navigateTo,
+  PermissionEditor,
+  prompts,
+  SegmentedControl,
+  SettingsModal,
+  TextInput,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -32,120 +42,93 @@ type Props = {
  */
 export default function SpaceEditPanel(props: Props) {
   return (
-    <div class="flex flex-col gap-8">
-      {/* Header */}
-      <div class="flex items-center gap-3">
-        <a
-          href={`/app/spaces/${props.space.id}`}
-          class="p-1.5 text-dimmed hover:text-primary transition-colors"
-          title="Back to space"
-          onClick={(event) => {
-            if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault();
-            requestSpacesRouteNavigation(`/app/spaces/${props.space.id}`, { scroll: "preserve" });
-          }}
+    <div class="flex h-full min-h-0 flex-col overflow-hidden">
+      <SettingsModal
+        title="Space settings"
+        subtitle={props.space.name}
+        icon="ti ti-layout-kanban"
+        onClose={() => requestSpacesRouteNavigation(`/app/spaces/${props.space.id}`, { scroll: "preserve" })}
+        closeLabel="Close settings"
+      >
+        <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and color.">
+          <SpaceSettingsForm space={props.space} />
+        </SettingsModal.Tab>
+
+        <SettingsModal.Tab
+          id="defaults"
+          title="Defaults"
+          icon="ti ti-layout-sidebar"
+          description="Personal defaults for this space and home widgets."
         >
-          <i class="ti ti-arrow-left" />
-        </a>
-        <h2 class="text-lg font-semibold">Space Settings</h2>
-      </div>
+          <div class="flex flex-col gap-6">
+            <LocalSettingsForm spaceId={props.space.id} initialSettings={props.initialSettings} />
+            <div class="border-t border-zinc-200 pt-6 dark:border-zinc-700">
+              <WidgetSettingsForm />
+            </div>
+          </div>
+        </SettingsModal.Tab>
 
-      {/* Space Settings Form */}
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">General</h3>
-        <SpaceSettingsForm space={props.space} />
-      </section>
+        <SettingsModal.Tab id="tags" title="Tags" icon="ti ti-tags" description="Vocabulary used to categorize space items.">
+          <TagsManager spaceId={props.space.id} tags={props.space.tags} />
+        </SettingsModal.Tab>
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
+        <SettingsModal.Tab id="statuses" title="Statuses" icon="ti ti-columns-3" description="Kanban columns and item workflow states.">
+          <StatusManager spaceId={props.space.id} columns={props.space.columns} />
+        </SettingsModal.Tab>
 
-      {/* Local Settings */}
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">Your Defaults</h3>
-        <LocalSettingsForm spaceId={props.space.id} initialSettings={props.initialSettings} />
-      </section>
+        {props.accessEntries && props.accessEntries.length > 0 && (
+          <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
+            <PermissionEditor
+              initialEntries={props.accessEntries}
+              canEdit={props.isAdmin}
+              grantAccess={async (principal, permission) => {
+                const res = await apiClient[":id"].access.$post({
+                  param: { id: props.space.id },
+                  json: { principal, permission },
+                });
+                if (!res.ok) {
+                  const errData = await res.json();
+                  throw new Error("message" in errData ? errData.message : "Failed to grant access");
+                }
+                return res.json();
+              }}
+              updateAccess={async (accessId, permission) => {
+                const res = await apiClient[":id"].access[":accessId"].$patch({
+                  param: { id: props.space.id, accessId },
+                  json: { permission },
+                });
+                if (!res.ok) {
+                  const errData = await res.json();
+                  throw new Error("message" in errData ? errData.message : "Failed to update permission");
+                }
+              }}
+              revokeAccess={async (accessId) => {
+                const res = await apiClient[":id"].access[":accessId"].$delete({
+                  param: { id: props.space.id, accessId },
+                });
+                if (!res.ok) {
+                  const errData = await res.json();
+                  throw new Error("message" in errData ? errData.message : "Failed to revoke access");
+                }
+              }}
+            />
+          </SettingsModal.Tab>
+        )}
 
-      <hr class="border-zinc-200 dark:border-zinc-700" />
+        <SettingsModal.Tab id="calendar" title="Calendar" icon="ti ti-calendar-share" description="iCal export and subscription URL.">
+          <ICalSection spaceId={props.space.id} icalToken={props.space.icalToken} baseUrl={props.baseUrl} />
+        </SettingsModal.Tab>
 
-      {/* Widget Settings (Global) */}
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">Home Widgets</h3>
-        <WidgetSettingsForm />
-      </section>
-
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Tags */}
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">Tags</h3>
-        <TagsManager spaceId={props.space.id} tags={props.space.tags} />
-      </section>
-
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Statuses (Columns) */}
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">Kanban Columns</h3>
-        <StatusManager spaceId={props.space.id} columns={props.space.columns} />
-      </section>
-
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Access Control (Admin only) */}
-      <Show when={props.accessEntries && props.accessEntries.length > 0}>
-        <section class="flex flex-col gap-2">
-          <h3 class="section-label">Permissions</h3>
-          <PermissionEditor
-            initialEntries={props.accessEntries!}
-            canEdit={props.isAdmin}
-            grantAccess={async (principal, permission) => {
-              const res = await apiClient[":id"].access.$post({
-                param: { id: props.space.id },
-                json: { principal, permission },
-              });
-              if (!res.ok) {
-                const errData = await res.json();
-                throw new Error("message" in errData ? errData.message : "Failed to grant access");
-              }
-              return res.json();
-            }}
-            updateAccess={async (accessId, permission) => {
-              const res = await apiClient[":id"].access[":accessId"].$patch({
-                param: { id: props.space.id, accessId },
-                json: { permission },
-              });
-              if (!res.ok) {
-                const errData = await res.json();
-                throw new Error("message" in errData ? errData.message : "Failed to update permission");
-              }
-            }}
-            revokeAccess={async (accessId) => {
-              const res = await apiClient[":id"].access[":accessId"].$delete({
-                param: { id: props.space.id, accessId },
-              });
-              if (!res.ok) {
-                const errData = await res.json();
-                throw new Error("message" in errData ? errData.message : "Failed to revoke access");
-              }
-            }}
-          />
-        </section>
-
-        <hr class="border-zinc-200 dark:border-zinc-700" />
-      </Show>
-
-      {/* iCal Export */}
-      <section class="flex flex-col gap-2">
-        <h3 class="section-label">Calendar Export</h3>
-        <ICalSection spaceId={props.space.id} icalToken={props.space.icalToken} baseUrl={props.baseUrl} />
-      </section>
-
-      <hr class="border-zinc-200 dark:border-zinc-700" />
-
-      {/* Danger Zone */}
-      <section class="flex flex-col gap-2">
-        <h3 class="text-sm font-medium text-red-500">Danger Zone</h3>
-        <DangerZone spaceId={props.space.id} spaceName={props.space.name} />
-      </section>
+        <SettingsModal.Tab
+          id="danger"
+          title="Danger zone"
+          icon="ti ti-alert-triangle"
+          description="Permanently delete this space and all of its items."
+          tone="danger"
+        >
+          <DangerZone spaceId={props.space.id} spaceName={props.space.name} />
+        </SettingsModal.Tab>
+      </SettingsModal>
     </div>
   );
 }

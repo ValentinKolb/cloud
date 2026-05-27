@@ -250,7 +250,7 @@ export default function SpacesWorkspace(props: Props) {
         open={state().isSettingsMode || Boolean(selectedItemId())}
         widthClass={spacesDetailPanelWidthClass(state().currentPanelWidth)}
         viewTransitionName={state().isSettingsMode ? "space-settings-panel" : "space-detail-panel-shell"}
-        class={state().isSettingsMode ? "paper p-4" : ""}
+        class={state().isSettingsMode ? "p-2" : ""}
       >
         <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={detailScrollPreserveKey()}>
           {state().isSettingsMode ? (
