@@ -1,7 +1,7 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { coreSettings } from "@valentinkolb/cloud/services";
+import { AdminLayout } from "@valentinkolb/cloud/ssr";
+import { ssr } from "../config";
 import FilesSettingsForm from "./_components/FilesSettingsForm.island";
 
 export default ssr<AuthContext>(async (c) => {
@@ -10,15 +10,7 @@ export default ssr<AuthContext>(async (c) => {
   // `files.filegate_token` is `kind:"secret"` — never serialized into the
   // SSR'd HTML data-props. The form initializes empty; admin types a new
   // value to change, leaves empty to keep the current stored secret.
-  const [
-    filegateUrl,
-    baseHomes,
-    baseGroups,
-    homeDirMode,
-    homeFileMode,
-    groupDirMode,
-    groupFileMode,
-  ] = await Promise.all([
+  const [filegateUrl, baseHomes, baseGroups, homeDirMode, homeFileMode, groupDirMode, groupFileMode] = await Promise.all([
     coreSettings.get<string>("files.filegate_url"),
     coreSettings.get<string>("files.base_homes"),
     coreSettings.get<string>("files.base_groups"),
@@ -30,7 +22,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <AdminLayout c={c} title="Files" stretch>
-      <div class="flex-1 min-h-0 overflow-y-auto">
+      <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve="files-admin">
         <div class="flex flex-col gap-2">
           <div class="min-w-0" style="view-transition-name: admin-files-title">
             <h1 class="text-base font-semibold text-primary">Files</h1>
@@ -40,8 +32,9 @@ export default ssr<AuthContext>(async (c) => {
           <div class="info-block-info p-4 text-xs flex items-start gap-2" style="view-transition-name: admin-files-info">
             <i class="ti ti-info-circle shrink-0 mt-0.5" />
             <p>
-              The file manager uses <strong>Filegate</strong> as its storage backend. Base paths define where user home directories and group
-              shared directories are stored on the filesystem. Permissions use Unix octal notation such as <code>700</code> or <code>2770</code>.
+              The file manager uses <strong>Filegate</strong> as its storage backend. Base paths define where user home directories and
+              group shared directories are stored on the filesystem. Permissions use Unix octal notation such as <code>700</code> or{" "}
+              <code>2770</code>.
             </p>
           </div>
 

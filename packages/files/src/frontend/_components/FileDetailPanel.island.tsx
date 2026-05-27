@@ -1,8 +1,7 @@
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import type { FileInfo, FileBaseInfo } from "@/contracts";
-import { dates, fileIcons } from "@valentinkolb/stdlib";
-import { text } from "@valentinkolb/stdlib";
-import { fileApiUrl, setDetailFileInUrl, DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload } from "./context";
+import { dates, fileIcons, text } from "@valentinkolb/stdlib";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import type { FileBaseInfo, FileInfo } from "@/contracts";
+import { DETAIL_FILE_SELECT_EVENT, type DetailFileSelectPayload, fileApiUrl, setDetailFileInUrl } from "./context";
 import { type buildFileMenuElements, canOpenFileInline, createFileActionMutations, type FileActionContext } from "./FileActions";
 
 type FileDetailPanelProps = {
@@ -113,6 +112,9 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
     return currentPath;
   };
 
+  const detailScrollPreserveKey = () =>
+    `files-detail-${baseType() || "none"}-${encodeURIComponent(baseId() || "none")}-${encodeURIComponent(itemPath() || "empty")}`;
+
   const contentUrl = () => `${fileApiUrl(baseType(), baseId())}/content?path=${encodeURIComponent(itemPath())}`;
   const actionContext = createMemo<FileActionContext>(() => ({
     baseType: asFileBaseType(baseType()),
@@ -160,7 +162,7 @@ export default function FileDetailPanel(props: FileDetailPanelProps) {
       }
     >
       {(currentFile) => (
-        <div class="flex h-full min-h-0 flex-col overflow-y-auto">
+        <div class="flex h-full min-h-0 flex-col overflow-y-auto" data-scroll-preserve={detailScrollPreserveKey()}>
           <section class="detail-section" style="view-transition-name: files-detail-panel">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0 flex-1 flex flex-col items-center gap-3">
