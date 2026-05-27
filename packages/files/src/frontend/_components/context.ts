@@ -1,7 +1,7 @@
-import { createContext, useContext } from "solid-js";
+import { createContext } from "solid-js";
 import type { FileBaseInfo } from "@/contracts";
 import type { FileSettings } from "./FileSettings.island";
-import { filePageBaseUrl, filePageUrl } from "../url";
+import { filePageUrl } from "../url";
 
 // =============================================================================
 // File Context - shared state for all file components
@@ -111,27 +111,52 @@ export type DetailFileSelectPayload = DetailSelectPayload<FileInfo> & {
   baseId: string;
 };
 
+type TransitionDocument = Document & {
+  startViewTransition?: (callback: () => void) => void;
+};
+
+const withViewTransition = (callback: () => void) => {
+  const doc = document as TransitionDocument;
+  if (doc.startViewTransition) {
+    doc.startViewTransition(callback);
+    return;
+  }
+  callback();
+};
+
 /** Get the selected file path for detail panel from URL */
 export const getDetailFileFromUrl = (): string | null => detailPanel.getUrlParam("file");
 
+const pushDetailFileUrl = (fileKey: string | null) => {
+  const url = new URL(window.location.href);
+  if (fileKey) {
+    url.searchParams.set("file", fileKey);
+  } else {
+    url.searchParams.delete("file");
+  }
+  if (url.toString() !== window.location.href) window.history.pushState({}, "", url.toString());
+};
+
 /**
  * Set the selected file for detail panel in URL (without page reload).
- * Updates URL via history.replaceState and dispatches event for other islands.
+ * Updates URL via history.pushState and dispatches event for other islands.
  */
 export const setDetailFileInUrl = (fileKey: string | null, file: FileInfo | null = null, baseType: string = "", baseId: string = "") => {
-  detailPanel.setUrlParam("file", fileKey);
+  withViewTransition(() => {
+    pushDetailFileUrl(fileKey);
 
-  // Dispatch file-specific event with baseType/baseId
-  window.dispatchEvent(
-    new CustomEvent(DETAIL_FILE_SELECT_EVENT, {
-      detail: {
-        item: file,
-        itemKey: fileKey,
-        baseType,
-        baseId,
-      } as DetailFileSelectPayload,
-    }),
-  );
+    // Dispatch file-specific event with baseType/baseId
+    window.dispatchEvent(
+      new CustomEvent(DETAIL_FILE_SELECT_EVENT, {
+        detail: {
+          item: file,
+          itemKey: fileKey,
+          baseType,
+          baseId,
+        } as DetailFileSelectPayload,
+      }),
+    );
+  });
 };
 
 /** Event name for opening the file lightbox from external components (e.g. detail panel). */

@@ -1,8 +1,9 @@
 import { ssr } from "../../../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { filesService } from "@/service";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
 import BaseSidebar from "../../_components/BaseSidebar";
 import FileList from "../../_components/FileList.island";
 import FileToolbar from "../../_components/FileToolbar.island";
@@ -162,20 +163,20 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   if (!infoResult.ok) {
     return () => (
       <Layout c={c} title={buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path)} fullWidth>
-        <div class="app-cols h-full">
+        <AppWorkspace>
           <BaseSidebar
             bases={basesInfo}
             currentBaseType={baseType}
             currentBaseId={baseId}
             settingsPanel={() => <FileSettings initialSettings={fileSettings} />}
           />
-          <div class="flex-1 flex flex-col">
+          <AppWorkspace.Main>
             <div class="flex-1 flex items-center justify-center gap-2 text-xs text-dimmed">
               <i class="ti ti-folder-off" />
               <span>{infoResult.error}</span>
             </div>
-          </div>
-        </div>
+          </AppWorkspace.Main>
+        </AppWorkspace>
       </Layout>
     );
   }
@@ -231,10 +232,11 @@ export const renderFilesBasePage = async <E extends AuthContext>(
   const parentPath = pathSegments.length > 0 ? "/" + pathSegments.slice(0, -1).join("/") : null;
 
   const breadcrumbs = buildBreadcrumbs(baseType, baseId, currentBaseInfo.name, path);
+  const listScrollKey = `files-list-${baseType}-${encodeURIComponent(baseId)}-${encodeURIComponent(path || "/")}`;
 
   return () => (
     <Layout c={c} title={breadcrumbs} fullWidth>
-      <div class="app-cols h-full">
+      <AppWorkspace>
         <BaseSidebar
           bases={basesInfo}
           currentBaseType={baseType}
@@ -243,7 +245,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
         />
 
         {/* Main content */}
-        <div class="order-3 lg:order-2 flex-1 min-w-0 min-h-0 flex flex-col gap-2 overflow-hidden">
+        <AppWorkspace.Main class="gap-2">
           <div class="flex flex-col gap-2">
             <FileToolbar
               baseType={baseType}
@@ -260,7 +262,7 @@ export const renderFilesBasePage = async <E extends AuthContext>(
           </div>
 
           {/* File list */}
-          <div class="flex-1 min-h-0 overflow-y-auto">
+          <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={listScrollKey}>
             <FileList
               items={sortedItems}
               baseType={baseType}
@@ -274,12 +276,13 @@ export const renderFilesBasePage = async <E extends AuthContext>(
               selectedFilePath={detailFilePath}
             />
           </div>
-        </div>
+        </AppWorkspace.Main>
 
-        <div
+        <AppWorkspace.Detail
           id="files-detail-panel"
-          class={`${detailFilePath ? "flex" : "hidden"} order-2 lg:order-3 min-h-0 w-full shrink-0 flex-col overflow-hidden lg:h-full lg:w-80 xl:w-72`}
-          style="view-transition-name: files-detail-panel-shell"
+          open={Boolean(detailFilePath)}
+          width="sm"
+          viewTransitionName="files-detail-panel-shell"
         >
           <FileDetailPanel
             initialFile={detailFile}
@@ -290,9 +293,9 @@ export const renderFilesBasePage = async <E extends AuthContext>(
             bases={basesInfo}
             showEmpty={false}
           />
-        </div>
+        </AppWorkspace.Detail>
         <FileDetailLayoutSync detailContainerId="files-detail-panel" />
-      </div>
+      </AppWorkspace>
     </Layout>
   );
 };

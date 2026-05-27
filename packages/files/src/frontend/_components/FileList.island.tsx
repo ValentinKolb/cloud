@@ -21,6 +21,7 @@ import {
   consumeHighlightedFiles,
   fileApiUrl,
   fileAppUrlForPath,
+  getDetailFileFromUrl,
   parseSelectionKey,
   setDetailFileInUrl,
   setHighlightedFiles,
@@ -81,8 +82,7 @@ const getParentPathFromItemPath = (itemPath: string) => itemPath.substring(0, it
 const isPointerOnInteractiveTarget = (target: EventTarget | null) =>
   target instanceof HTMLElement && !!target.closest("button, a, input, textarea, select, [data-dnd-ignore]");
 
-const intersects = (a: DOMRect, b: DOMRect) =>
-  !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+const intersects = (a: DOMRect, b: DOMRect) => !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
 
 const createRowTemplate = (columns: FileListColumn[]) => {
   const segments = ["minmax(0, 1fr)"];
@@ -212,10 +212,11 @@ export default function FileList(props: FileListProps) {
     onDrop: ({ active, over }) => {
       if (!over || dragMutation.loading()) return;
       const activePath = active.meta.itemPath;
-      const selectedPaths = [...selected()]
-        .map((key) => parseSelectionKey(key)?.path ?? null)
-        .filter((path): path is string => !!path);
-      const sourcePaths = selected().has(buildSelectionKey(props.baseType, props.baseId, activePath)) && selectedPaths.length > 0 ? selectedPaths : [activePath];
+      const selectedPaths = [...selected()].map((key) => parseSelectionKey(key)?.path ?? null).filter((path): path is string => !!path);
+      const sourcePaths =
+        selected().has(buildSelectionKey(props.baseType, props.baseId, activePath)) && selectedPaths.length > 0
+          ? selectedPaths
+          : [activePath];
       if (sourcePaths.some((path) => path === over.meta.targetPath || getParentPathFromItemPath(path) === over.meta.targetPath)) {
         return;
       }
@@ -242,6 +243,19 @@ export default function FileList(props: FileListProps) {
       }
       setDetailSelectedPath(payload.itemKey);
     };
+    const syncDetailFromUrl = () => {
+      const key = getDetailFileFromUrl();
+      if (!key) {
+        setDetailSelectedPath(null);
+        return;
+      }
+      if (!props.useFullDetailKey) {
+        setDetailSelectedPath(key);
+        return;
+      }
+      const parsed = parseSelectionKey(key);
+      setDetailSelectedPath(parsed?.baseType === props.baseType && parsed.baseId === props.baseId ? parsed.path : null);
+    };
     const lightboxHandler = (event: Event) => {
       const payload = (event as CustomEvent<FileLightboxPayload>).detail;
       if (payload.baseType === props.baseType && payload.baseId === props.baseId) openLightbox(payload.path);
@@ -257,6 +271,7 @@ export default function FileList(props: FileListProps) {
 
     window.addEventListener(FILE_SELECTION_EVENT, selectionHandler);
     window.addEventListener(DETAIL_FILE_SELECT_EVENT, detailHandler);
+    window.addEventListener("popstate", syncDetailFromUrl);
     window.addEventListener(FILE_LIGHTBOX_EVENT, lightboxHandler);
     document.addEventListener("mousedown", handleGlobalPointer);
     document.addEventListener("keydown", handleEscape);
@@ -308,6 +323,7 @@ export default function FileList(props: FileListProps) {
       document.body.style.userSelect = previousUserSelect;
       window.removeEventListener(FILE_SELECTION_EVENT, selectionHandler);
       window.removeEventListener(DETAIL_FILE_SELECT_EVENT, detailHandler);
+      window.removeEventListener("popstate", syncDetailFromUrl);
       window.removeEventListener(FILE_LIGHTBOX_EVENT, lightboxHandler);
       document.removeEventListener("mousedown", handleGlobalPointer);
       document.removeEventListener("keydown", handleEscape);
@@ -341,9 +357,7 @@ export default function FileList(props: FileListProps) {
                   <div>Name</div>
                   <For each={listColumns()}>
                     {(column) => (
-                      <div classList={{ "text-left": column === "mime", "text-right": column !== "mime" }}>
-                        {headerLabel(column)}
-                      </div>
+                      <div classList={{ "text-left": column === "mime", "text-right": column !== "mime" }}>{headerLabel(column)}</div>
                     )}
                   </For>
                 </div>
@@ -407,7 +421,9 @@ export default function FileList(props: FileListProps) {
                 </For>
 
                 <Show when={sortedItems().length === 0 && props.parentPath === null}>
-                  <div class="col-span-full px-4 py-8 text-center text-xs text-dimmed">{props.isFiltered ? "No files match the search" : "This folder is empty"}</div>
+                  <div class="col-span-full px-4 py-8 text-center text-xs text-dimmed">
+                    {props.isFiltered ? "No files match the search" : "This folder is empty"}
+                  </div>
                 </Show>
               </div>
             </div>
@@ -427,7 +443,7 @@ export default function FileList(props: FileListProps) {
                     id: `folder:${props.parentPath!}`,
                     disabled: dragMutation.loading(),
                     meta: { targetPath: props.parentPath!, label: ".." },
-                    }));
+                  }));
                 }}
                 class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 text-left transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/45"
                 onClick={() => navigateToFolder(props.parentPath!)}
@@ -475,7 +491,9 @@ export default function FileList(props: FileListProps) {
             </For>
 
             <Show when={sortedItems().length === 0 && props.parentPath === null}>
-              <div class="col-span-full py-8 text-center text-xs text-dimmed">{props.isFiltered ? "No files match the search" : "This folder is empty"}</div>
+              <div class="col-span-full py-8 text-center text-xs text-dimmed">
+                {props.isFiltered ? "No files match the search" : "This folder is empty"}
+              </div>
             </Show>
           </div>
         </Show>
@@ -572,82 +590,82 @@ function GridTile(props: {
 
   return (
     <div
-        ref={(element) => {
-          props.ref?.(element);
-          props.dnd.draggable(element, () => ({
-            id: dragId,
+      ref={(element) => {
+        props.ref?.(element);
+        props.dnd.draggable(element, () => ({
+          id: dragId,
+          disabled: props.dragDisabled,
+          focusable: false,
+          keyboard: false,
+          meta: { item: props.item, itemPath: props.itemPath },
+        }));
+        if (isDroppable) {
+          props.dnd.droppable(element, () => ({
+            id: `folder:${props.itemPath}`,
             disabled: props.dragDisabled,
-            focusable: false,
-            keyboard: false,
-            meta: { item: props.item, itemPath: props.itemPath },
+            meta: {
+              targetPath: props.itemPath,
+              label: props.item.name,
+            },
           }));
-          if (isDroppable) {
-            props.dnd.droppable(element, () => ({
-              id: `folder:${props.itemPath}`,
-              disabled: props.dragDisabled,
-              meta: {
-                targetPath: props.itemPath,
-                label: props.item.name,
-              },
-            }));
-          }
-        }}
-        data-file-item
-        class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 transition-colors"
-        classList={{
-          "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
-          "bg-blue-50 dark:bg-blue-950/25": props.isHighlighted && !props.isDetailSelected,
-          "hover:bg-zinc-100 dark:hover:bg-zinc-800/45": !props.isHighlighted && !props.isDetailSelected,
-        }}
-        onClick={(event) => {
-          if (isPointerOnInteractiveTarget(event.target)) return;
+        }
+      }}
+      data-file-item
+      class="group flex min-w-0 flex-col items-center gap-2 rounded-2xl p-2 transition-colors"
+      classList={{
+        "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
+        "bg-blue-50 dark:bg-blue-950/25": props.isHighlighted && !props.isDetailSelected,
+        "hover:bg-zinc-100 dark:hover:bg-zinc-800/45": !props.isHighlighted && !props.isDetailSelected,
+      }}
+      onClick={(event) => {
+        if (isPointerOnInteractiveTarget(event.target)) return;
+        props.onPrimaryAction();
+      }}
+      onDblClick={(event) => {
+        if (isPointerOnInteractiveTarget(event.target)) return;
+        props.onSecondaryAction();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
           props.onPrimaryAction();
-        }}
-        onDblClick={(event) => {
-          if (isPointerOnInteractiveTarget(event.target)) return;
-          props.onSecondaryAction();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            props.onPrimaryAction();
-          }
-        }}
-        onContextMenu={props.onContextMenu}
-        role="button"
-        tabIndex={0}
-      >
-        <div class="relative flex w-full justify-center">
-          <Show when={!props.hideCheckbox}>
-            <input
-              type="checkbox"
-              checked={props.isSelected}
-              class="absolute left-1 top-1 z-10 opacity-0 transition-opacity group-hover:opacity-100"
-              classList={{ "opacity-100": props.isSelected }}
-              data-dnd-ignore
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onToggleSelect();
-              }}
-            />
-          </Show>
+        }
+      }}
+      onContextMenu={props.onContextMenu}
+      role="button"
+      tabIndex={0}
+    >
+      <div class="relative flex w-full justify-center">
+        <Show when={!props.hideCheckbox}>
+          <input
+            type="checkbox"
+            checked={props.isSelected}
+            class="absolute left-1 top-1 z-10 opacity-0 transition-opacity group-hover:opacity-100"
+            classList={{ "opacity-100": props.isSelected }}
+            data-dnd-ignore
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onToggleSelect();
+            }}
+          />
+        </Show>
 
-          <div
-            data-dnd-preview
-            data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
-            class="relative flex items-center justify-center overflow-hidden rounded-lg text-zinc-500"
-            style={{ width: `${size}px`, height: `${size}px` }}
-          >
-            <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={size} />
-          </div>
-        </div>
-
-        <div class="flex w-full items-start gap-1">
-          <span class="min-w-0 flex-1 truncate text-center text-xs leading-tight text-primary" title={props.item.name}>
-            {props.item.name}
-          </span>
+        <div
+          data-dnd-preview
+          data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
+          class="relative flex items-center justify-center overflow-hidden rounded-lg text-zinc-500"
+          style={{ width: `${size}px`, height: `${size}px` }}
+        >
+          <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={size} />
         </div>
       </div>
+
+      <div class="flex w-full items-start gap-1">
+        <span class="min-w-0 flex-1 truncate text-center text-xs leading-tight text-primary" title={props.item.name}>
+          {props.item.name}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -676,110 +694,103 @@ function FileRow(props: {
 
   return (
     <div
-        ref={(element) => {
-          props.ref?.(element);
-          props.dnd.draggable(element, () => ({
-            id: dragId,
+      ref={(element) => {
+        props.ref?.(element);
+        props.dnd.draggable(element, () => ({
+          id: dragId,
+          disabled: props.dragDisabled,
+          focusable: false,
+          keyboard: false,
+          meta: { item: props.item, itemPath: props.itemPath },
+        }));
+        if (props.item.type === "directory") {
+          props.dnd.droppable(element, () => ({
+            id: `folder:${props.itemPath}`,
             disabled: props.dragDisabled,
-            focusable: false,
-            keyboard: false,
-            meta: { item: props.item, itemPath: props.itemPath },
+            meta: {
+              targetPath: props.itemPath,
+              label: props.item.name,
+            },
           }));
-          if (props.item.type === "directory") {
-            props.dnd.droppable(element, () => ({
-              id: `folder:${props.itemPath}`,
-              disabled: props.dragDisabled,
-              meta: {
-                targetPath: props.itemPath,
-                label: props.item.name,
-              },
-            }));
-          }
-        }}
-        data-file-item
-        class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-50 px-3 py-0 text-sm transition-colors last:border-b-0 dark:border-zinc-800/60"
-        classList={{
-          "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
-          "bg-blue-50 dark:bg-blue-950/20": props.isHighlighted && !props.isDetailSelected,
-          "hover:bg-zinc-50 dark:hover:bg-zinc-900/40": !props.isHighlighted && !props.isDetailSelected,
-        }}
-        onClick={(event) => {
-          if (isPointerOnInteractiveTarget(event.target)) return;
+        }
+      }}
+      data-file-item
+      class="col-span-full grid grid-cols-subgrid items-center gap-4 border-b border-zinc-50 px-3 py-0 text-sm transition-colors last:border-b-0 dark:border-zinc-800/60"
+      classList={{
+        "bg-blue-100 dark:bg-blue-900/35": props.isDetailSelected,
+        "bg-blue-50 dark:bg-blue-950/20": props.isHighlighted && !props.isDetailSelected,
+        "hover:bg-zinc-50 dark:hover:bg-zinc-900/40": !props.isHighlighted && !props.isDetailSelected,
+      }}
+      onClick={(event) => {
+        if (isPointerOnInteractiveTarget(event.target)) return;
+        props.onPrimaryAction();
+      }}
+      onDblClick={(event) => {
+        if (isPointerOnInteractiveTarget(event.target)) return;
+        props.onSecondaryAction();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
           props.onPrimaryAction();
-        }}
-        onDblClick={(event) => {
-          if (isPointerOnInteractiveTarget(event.target)) return;
-          props.onSecondaryAction();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            props.onPrimaryAction();
-          }
-        }}
-        onContextMenu={props.onContextMenu}
-        role="button"
-        tabIndex={0}
-      >
-        <div class="flex min-w-0 items-center gap-3" classList={{ "py-1.5": props.compact, "py-2.5": !props.compact }}>
-          <Show when={!props.hideCheckbox}>
-            <input
-              type="checkbox"
-              checked={props.isSelected}
-              data-dnd-ignore
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onToggleSelect();
-              }}
-            />
-          </Show>
-          <div
-            data-dnd-preview
-            data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
-            class="relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl text-zinc-500"
-            style={{ width: `${previewSize()}px`, height: `${previewSize()}px` }}
-          >
-            <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={previewSize()} mode="list" />
-          </div>
-          <div class="min-w-0">
-            <p class="truncate text-primary" classList={{ "text-[13px]": props.compact, "text-sm": !props.compact }}>
-              {props.item.name}
-            </p>
-            <Show when={!props.compact}>
-              <p class="truncate text-xs text-dimmed">{props.item.type === "directory" ? "Folder" : fileIcons.getFileCategory(props.item)}</p>
-            </Show>
-          </div>
+        }
+      }}
+      onContextMenu={props.onContextMenu}
+      role="button"
+      tabIndex={0}
+    >
+      <div class="flex min-w-0 items-center gap-3" classList={{ "py-1.5": props.compact, "py-2.5": !props.compact }}>
+        <Show when={!props.hideCheckbox}>
+          <input
+            type="checkbox"
+            checked={props.isSelected}
+            data-dnd-ignore
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onToggleSelect();
+            }}
+          />
+        </Show>
+        <div
+          data-dnd-preview
+          data-dnd-count={props.isSelected && props.selectedCount > 1 ? String(props.selectedCount) : undefined}
+          class="relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl text-zinc-500"
+          style={{ width: `${previewSize()}px`, height: `${previewSize()}px` }}
+        >
+          <FilePreview item={props.item} itemPath={props.itemPath} ctx={props.ctx} size={previewSize()} mode="list" />
         </div>
-
-        <For each={props.columns}>
-          {(column) => (
-            <div
-              class="truncate text-xs text-dimmed"
-              classList={{
-                "py-1.5": props.compact,
-                "py-2.5": !props.compact,
-                "justify-self-start text-left": column === "mime",
-                "justify-self-end text-right": column !== "mime",
-              }}
-            >
-              {column === "size" && (props.item.type === "directory" ? "—" : text.pprintBytes(props.item.size))}
-              {column === "mime" && getMimeLabel(props.item)}
-              {column === "modified" && dates.formatDateTime(props.item.mtime)}
-            </div>
-          )}
-        </For>
-
+        <div class="min-w-0">
+          <p class="truncate text-primary" classList={{ "text-[13px]": props.compact, "text-sm": !props.compact }}>
+            {props.item.name}
+          </p>
+          <Show when={!props.compact}>
+            <p class="truncate text-xs text-dimmed">{props.item.type === "directory" ? "Folder" : fileIcons.getFileCategory(props.item)}</p>
+          </Show>
+        </div>
       </div>
+
+      <For each={props.columns}>
+        {(column) => (
+          <div
+            class="truncate text-xs text-dimmed"
+            classList={{
+              "py-1.5": props.compact,
+              "py-2.5": !props.compact,
+              "justify-self-start text-left": column === "mime",
+              "justify-self-end text-right": column !== "mime",
+            }}
+          >
+            {column === "size" && (props.item.type === "directory" ? "—" : text.pprintBytes(props.item.size))}
+            {column === "mime" && getMimeLabel(props.item)}
+            {column === "modified" && dates.formatDateTime(props.item.mtime)}
+          </div>
+        )}
+      </For>
+    </div>
   );
 }
 
-function FilePreview(props: {
-  item: FileInfo;
-  itemPath: string;
-  ctx: FileContextValue;
-  size: number;
-  mode?: "grid" | "list";
-}) {
+function FilePreview(props: { item: FileInfo; itemPath: string; ctx: FileContextValue; size: number; mode?: "grid" | "list" }) {
   const isImage = () => props.item.type === "file" && fileIcons.getFileCategory(props.item) === "image";
   const icon = () => fileIcons.getFileIcon(props.item);
 
