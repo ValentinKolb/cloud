@@ -1,10 +1,13 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import { listAppsDetailed } from "@valentinkolb/cloud";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { listAppsDetailed, type AppRegistryDetail } from "@valentinkolb/cloud";
-import { getGatewayStats, getRouteTable } from "../stats";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import { DataTable, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import { DataTable, type DataTableColumn, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
+import { listRegisteredAppStatus, type RegisteredAppStatus } from "../registered-apps";
+import { getGatewayStats, getRouteTable } from "../stats";
+import HealthWebhooksButton from "./HealthWebhooksButton.island";
+import RemoveRegisteredAppButton from "./RemoveRegisteredAppButton.island";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,9 +38,8 @@ const fmtCount = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : Strin
 const Check = () => <i class="ti ti-check text-emerald-500 text-xs" />;
 const Dash = () => <i class="ti ti-minus text-zinc-300 dark:text-zinc-600 text-xs" />;
 
-type GatewayAppRow = AppRegistryDetail & {
+type GatewayAppRow = RegisteredAppStatus & {
   traffic: ReturnType<typeof getGatewayStats>["byApp"] extends Map<string, infer T> ? T | undefined : never;
-  ttlRemaining: number;
   isHealthy: boolean;
   upSince: number;
 };
@@ -52,26 +54,27 @@ type GatewayRouteRow = {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default ssr<AuthContext>(async (c) => {
-  const apps = await listAppsDetailed();
+  const liveApps = await listAppsDetailed();
   const stats = getGatewayStats();
   const table = getRouteTable();
+  const registeredApps = await listRegisteredAppStatus(liveApps);
+  const visibleApps = registeredApps.filter((a) => a.id !== "gateway");
 
-  const withNav = apps.filter((a) => a.nav?.href);
-  const withAdmin = apps.filter((a) => a.nav?.adminHref);
-  const withSearch = apps.filter((a) => a.search);
-  const healthy = apps.filter((a) => a.id !== "gateway" && a.expiresAt - Date.now() > 30_000);
-  const appCount = apps.length - 1; // exclude gateway itself
+  const withNav = visibleApps.filter((a) => a.nav?.href);
+  const withAdmin = visibleApps.filter((a) => a.nav?.adminHref);
+  const withSearch = visibleApps.filter((a) => a.search);
+  const healthy = visibleApps.filter((a) => a.live && a.live.expiresAt - Date.now() > 30_000);
+  const appCount = visibleApps.length;
+  const offlineCount = visibleApps.filter((a) => !a.isOnline).length;
 
-  const appRows = apps
-    .filter((a) => a.id !== "gateway")
+  const appRows = visibleApps
     .map((app) => {
       const traffic = stats.byApp.get(app.id);
-      const ttlRemaining = Math.max(0, app.expiresAt - Date.now());
-      const isHealthy = ttlRemaining > 30_000;
-      const upSince = Math.max(0, Date.now() - app.createdAt);
-      return { ...app, traffic, ttlRemaining, isHealthy, upSince };
+      const isHealthy = Boolean(app.live && app.live.expiresAt - Date.now() > 30_000);
+      const upSince = app.live ? Math.max(0, Date.now() - app.live.createdAt) : app.offlineForMs;
+      return { ...app, traffic, isHealthy, upSince };
     })
-    .sort((a, b) => (b.traffic?.count ?? 0) - (a.traffic?.count ?? 0));
+    .sort((a, b) => Number(b.isOnline) - Number(a.isOnline) || (b.traffic?.count ?? 0) - (a.traffic?.count ?? 0));
 
   // Route data with hit counts, server-side filtered
   const searchQuery = new URL(c.req.url).searchParams.get("search")?.toLowerCase().trim() ?? "";
@@ -84,6 +87,7 @@ export default ssr<AuthContext>(async (c) => {
   const filteredRoutes = searchQuery ? allRoutes.filter((r) => r.prefix.includes(searchQuery) || r.appId.includes(searchQuery)) : allRoutes;
   const appColumns: DataTableColumn<GatewayAppRow>[] = [
     { id: "app", header: "App", value: (app) => app.name },
+    { id: "status", header: "Status", value: (app) => app.isOnline, headerClass: "text-center", cellClass: "text-center" },
     { id: "baseUrl", header: "Base URL", value: (app) => app.baseUrl },
     { id: "nav", header: "Nav", value: (app) => app.nav?.href, headerClass: "text-center", cellClass: "text-center" },
     { id: "admin", header: "Admin", value: (app) => app.nav?.adminHref, headerClass: "text-center", cellClass: "text-center" },
@@ -123,6 +127,12 @@ export default ssr<AuthContext>(async (c) => {
       headerClass: "text-right",
       cellClass: "text-right tabular-nums",
     },
+    {
+      id: "actions",
+      header: <span class="sr-only">Actions</span>,
+      headerClass: "text-right",
+      cellClass: "text-right whitespace-nowrap max-w-none",
+    },
   ];
   const routeColumns: DataTableColumn<GatewayRouteRow>[] = [
     { id: "prefix", header: "Prefix", value: (route) => route.prefix },
@@ -135,8 +145,9 @@ export default ssr<AuthContext>(async (c) => {
     <AdminLayout c={c} title="Apps & Gateway" stretch>
       <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
         <div class="flex flex-col gap-2">
-          <div class="min-w-0" style="view-transition-name: admin-gateway-title">
-            <h1 class="text-base font-semibold text-primary">Apps & Gateway</h1>
+          <div class="flex items-center justify-between gap-3" style="view-transition-name: admin-gateway-title">
+            <h1 class="min-w-0 text-base font-semibold text-primary">Apps & Gateway</h1>
+            <HealthWebhooksButton />
           </div>
 
           {/* ── Stats — see skills/cloud-app/references/frontend.md § Stats ── */}
@@ -158,7 +169,11 @@ export default ssr<AuthContext>(async (c) => {
             <StatCell
               value={`${healthy.length}/${appCount}`}
               label="Healthy"
-              sub={healthy.length === appCount ? "all systems" : `${appCount - healthy.length} degraded`}
+              sub={
+                healthy.length === appCount
+                  ? "all systems"
+                  : `${offlineCount} offline · ${appCount - healthy.length - offlineCount} degraded`
+              }
               accent={healthy.length === appCount ? { tone: "emerald", icon: "ti ti-check" } : { tone: "red", icon: "ti ti-alert-circle" }}
             />
           </StatGrid>
@@ -185,6 +200,17 @@ export default ssr<AuthContext>(async (c) => {
                 );
               }
               if (col.id === "baseUrl") return <code class="text-[10px] text-dimmed">{app.baseUrl}</code>;
+              if (col.id === "status") {
+                return app.isOnline ? (
+                  <span class="inline-flex items-center justify-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <i class="ti ti-heartbeat text-[9px]" /> live
+                  </span>
+                ) : (
+                  <span class="inline-flex items-center justify-center gap-1 rounded bg-red-500/10 px-1.5 py-0.5 text-[10px] font-medium text-red-500">
+                    <i class="ti ti-plug-off text-[9px]" /> offline
+                  </span>
+                );
+              }
               if (col.id === "nav") return app.nav?.href ? <Check /> : <Dash />;
               if (col.id === "admin") {
                 return app.nav?.adminHref ? (
@@ -199,7 +225,8 @@ export default ssr<AuthContext>(async (c) => {
               if (col.id === "heartbeat") {
                 return (
                   <span class={`text-[10px] ${app.isHealthy ? "text-emerald-600 dark:text-emerald-400" : "text-red-500"}`}>
-                    <i class={`ti ${app.isHealthy ? "ti-heartbeat" : "ti-alert-triangle"} text-[9px]`} /> {timeAgo(app.updatedAt)}
+                    <i class={`ti ${app.isHealthy ? "ti-heartbeat" : "ti-alert-triangle"} text-[9px]`} />{" "}
+                    {app.isOnline ? timeAgo(app.live!.updatedAt) : `last ${timeAgo(app.lastSeenAt)}`}
                   </span>
                 );
               }
@@ -207,7 +234,7 @@ export default ssr<AuthContext>(async (c) => {
                 return (
                   <span
                     class={`text-[10px] tabular-nums ${app.isHealthy ? "text-dimmed" : "text-red-500"}`}
-                    title={new Date(app.createdAt).toLocaleString()}
+                    title={new Date(app.live?.createdAt ?? app.lastSeenAt).toLocaleString()}
                   >
                     {fmtUptime(app.upSince)}
                   </span>
@@ -229,6 +256,9 @@ export default ssr<AuthContext>(async (c) => {
                 ) : (
                   <span class="text-xs text-dimmed">—</span>
                 );
+              }
+              if (col.id === "actions") {
+                return <RemoveRegisteredAppButton id={app.id} name={app.name} disabled={app.isOnline} />;
               }
               return "";
             }}
