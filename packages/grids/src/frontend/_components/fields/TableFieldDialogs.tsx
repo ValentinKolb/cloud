@@ -43,6 +43,8 @@ export type TableHeader = {
 
 type OpenFieldEditArgs = {
   field: Field;
+  baseShortId?: string;
+  tableShortId?: string;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
   tableColumns?: ColumnSpec[];
@@ -63,6 +65,8 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
     <GridsBareDialog title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean}>
       <FieldEditor
         field={props.args.field}
+        baseShortId={props.args.baseShortId}
+        tableShortId={props.args.tableShortId}
         otherTables={props.args.otherTables}
         fieldsByTable={props.args.fieldsByTable}
         tableColumns={props.args.tableColumns}
@@ -89,6 +93,8 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
 
 function FieldEditor(props: {
   field: Field;
+  baseShortId?: string;
+  tableShortId?: string;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
   tableColumns?: ColumnSpec[];
@@ -393,8 +399,11 @@ function FieldEditor(props: {
 
         <FieldEditorSection title="Type settings" subtitle="Constraints and options specific to this datatype." icon="ti ti-adjustments">
           <FieldConfigEditor
+            currentFieldId={props.field.id}
             type={props.field.type}
             currentTableId={props.field.tableId}
+            baseShortId={props.baseShortId}
+            tableShortId={props.tableShortId}
             config={config}
             onChange={(next) => {
               setConfig(next);

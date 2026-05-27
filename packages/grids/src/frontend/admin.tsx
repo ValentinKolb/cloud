@@ -49,7 +49,7 @@ export default ssr<AuthContext>(async (c) => {
       headerClass: "text-right",
       cellClass: "text-right whitespace-nowrap",
     },
-    { id: "open", header: <span class="sr-only">Open</span>, headerClass: "w-px text-right", cellClass: "text-right whitespace-nowrap" },
+    { id: "open", header: "Open", headerClass: "w-px text-right", cellClass: "text-right whitespace-nowrap" },
   ];
 
   return () => (

@@ -12,6 +12,7 @@ import workspaceRoutes from "./workspace";
 import automationsRoutes from "./automations";
 import adminSettingsRoutes from "./admin-settings";
 import templatesRoutes from "./templates";
+import formulasRoutes from "./formulas";
 
 const app = new Hono()
   .use(rateLimit())
@@ -24,6 +25,7 @@ const app = new Hono()
   .route("/access", accessRoutes)
   .route("/views", viewsRoutes)
   .route("/dashboards", dashboardsRoutes)
+  .route("/formulas", formulasRoutes)
   .route("/automations", automationsRoutes)
   .route("/workspace", workspaceRoutes)
   .route("/forms", formsRoutes);

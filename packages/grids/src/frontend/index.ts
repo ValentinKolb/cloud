@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import dashboardRenderPage from "./[baseId]/dashboard/[dashboardId]/page";
 import baseDetailPage from "./[baseId]/page";
 import baseSettingsPage from "./[baseId]/settings/page";
+import formulaReferencePage from "./[baseId]/table/[tableId]/formula-reference/page";
 import tableRecordsPage from "./[baseId]/table/[tableId]/page";
 import viewRecordsPage from "./[baseId]/table/[tableId]/view/[viewId]/page";
 import adminPage from "./admin";
@@ -46,6 +47,7 @@ export default new Hono<AuthContext>()
   )
   // View paths.
   .get("/:baseId/table/:tableId/view/:viewId", auth.requireRole("user", auth.redirectToLogin), ...viewRecordsPage)
+  .get("/:baseId/table/:tableId/formula-reference", auth.requireRole("user", auth.redirectToLogin), ...formulaReferencePage)
   // Table paths.
   .get("/:baseId/table/:tableId", auth.requireRole("user", auth.redirectToLogin), ...tableRecordsPage)
   // Dashboard paths.

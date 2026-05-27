@@ -510,6 +510,8 @@ export default function RecordsView(props: Props) {
   const openFieldSettings = (field: Field) => {
     openFieldEditDialog({
       field,
+      baseShortId: props.baseShortId,
+      tableShortId: props.tableShortId,
       otherTables: props.otherTables,
       fieldsByTable: { ...props.fieldsByTable, [props.tableId]: fields() },
       tableColumns: effectiveViewColumns(),

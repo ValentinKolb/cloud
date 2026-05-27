@@ -1,0 +1,323 @@
+import { fuzzy } from "@valentinkolb/stdlib";
+import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@valentinkolb/cloud/ui";
+import { createMemo, createSignal } from "solid-js";
+import type { Field } from "../../../service";
+import { formulaFieldRefs, formulaFieldToken, GRID_FORMULA_FUNCTIONS } from "./formula-authoring";
+
+type RefField = ReturnType<typeof formulaFieldRefs>[number];
+type FunctionCategory = "number" | "text" | "date" | "logic";
+type FunctionRow = {
+  kind: "function";
+  fn: (typeof GRID_FORMULA_FUNCTIONS)[number];
+  category: FunctionCategory;
+  search: string;
+};
+type ReferenceItem = { kind: "field"; field: RefField; search: string } | FunctionRow;
+
+const FIELD_TYPE_ICONS: Record<string, string> = {
+  text: "ti ti-typography",
+  longtext: "ti ti-align-left",
+  number: "ti ti-123",
+  percent: "ti ti-percentage",
+  duration: "ti ti-clock",
+  boolean: "ti ti-checkbox",
+  date: "ti ti-calendar",
+  select: "ti ti-list-check",
+  autonumber: "ti ti-sort-ascending-numbers",
+  relation: "ti ti-link",
+  lookup: "ti ti-corner-down-right",
+  rollup: "ti ti-sum",
+  formula: "ti ti-function",
+  json: "ti ti-braces",
+  file: "ti ti-paperclip",
+};
+
+const FIELD_TYPE_LABELS: Record<string, string> = {
+  text: "Text",
+  longtext: "Long text",
+  number: "Number",
+  percent: "Percent",
+  duration: "Duration",
+  boolean: "Boolean",
+  date: "Date",
+  select: "Select",
+  autonumber: "Auto-number",
+  relation: "Relation",
+  lookup: "Lookup",
+  rollup: "Rollup",
+  formula: "Formula",
+  json: "JSON",
+  file: "File",
+  created_at: "Created at",
+  updated_at: "Updated at",
+  created_by: "Created by",
+  updated_by: "Updated by",
+};
+
+const fieldIcon = (type: string) => FIELD_TYPE_ICONS[type] ?? "ti ti-columns";
+
+const FUNCTION_CATEGORY_META: Record<
+  FunctionCategory,
+  {
+    label: string;
+    icon: string;
+    class: string;
+  }
+> = {
+  number: {
+    label: "Number",
+    icon: "ti ti-123",
+    class: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
+  },
+  text: {
+    label: "Text",
+    icon: "ti ti-typography",
+    class: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200",
+  },
+  date: {
+    label: "Date",
+    icon: "ti ti-calendar",
+    class: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200",
+  },
+  logic: {
+    label: "Logic",
+    icon: "ti ti-git-branch",
+    class: "bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200",
+  },
+};
+
+const FUNCTION_CATEGORY_ORDER: FunctionCategory[] = ["number", "text", "date", "logic"];
+
+const functionCategory = (name: string): FunctionCategory => {
+  if (
+    ["SUM", "AVG", "MEAN", "COUNT", "MIN", "MAX", "MEDIAN", "ABS", "ROUND", "FLOOR", "CEIL", "SQRT", "POW", "MOD", "PERCENT"].includes(name)
+  ) {
+    return "number";
+  }
+  if (["TODAY", "NOW", "YEAR", "MONTH", "DAY", "DATEADD", "DATEDIFF"].includes(name)) {
+    return "date";
+  }
+  if (["CONTAINS", "CONCAT", "LEN", "LOWER", "UPPER", "TRIM", "LEFT", "RIGHT", "SUBSTRING", "REPLACE"].includes(name)) {
+    return "text";
+  }
+  return "logic";
+};
+
+const functionExample = (name: string): string => {
+  const examples: Record<string, string> = {
+    SUM: "SUM(#Price, #Tax)",
+    AVG: "AVG(#Score, #Bonus)",
+    MEAN: "MEAN(#Score, #Bonus)",
+    COUNT: 'COUNT(#Name, "", #Status)',
+    MIN: "MIN(#Price, #Cost)",
+    MAX: "MAX(#Price, #Cost)",
+    MEDIAN: "MEDIAN(#Score, #Bonus)",
+    ABS: "ABS(#Balance)",
+    ROUND: "ROUND(#Total, 2)",
+    FLOOR: "FLOOR(#Total)",
+    CEIL: "CEIL(#Total)",
+    SQRT: "SQRT(#Area)",
+    POW: "POW(#Units, 2)",
+    MOD: "MOD(#Units, 2)",
+    PERCENT: "PERCENT(#Done, #Total)",
+    IF: 'IF(#Active, "Available", "Out")',
+    IFEMPTY: 'IFEMPTY(#Notes, "No notes")',
+    IFERROR: "IFERROR(#Total / #Units, 0)",
+    AND: "AND(#Active, #Units > 0)",
+    OR: "OR(#Active, #Units > 0)",
+    NOT: "NOT(#Active)",
+    ISBLANK: "ISBLANK(#Notes)",
+    CONTAINS: 'CONTAINS(#Name, "Pro")',
+    CONCAT: 'CONCAT(#Name, " - ", #Price)',
+    LEN: "LEN(#Name)",
+    LOWER: "LOWER(#Name)",
+    UPPER: "UPPER(#Name)",
+    TRIM: "TRIM(#Name)",
+    LEFT: "LEFT(#Name, 3)",
+    RIGHT: "RIGHT(#Name, 3)",
+    SUBSTRING: "SUBSTRING(#Name, 1, 3)",
+    REPLACE: 'REPLACE(#Name, "old", "new")',
+    TODAY: "TODAY()",
+    NOW: "NOW()",
+    YEAR: "YEAR(#Date)",
+    MONTH: "MONTH(#Date)",
+    DAY: "DAY(#Date)",
+    DATEADD: 'DATEADD(#Date, 7, "days")',
+    DATEDIFF: 'DATEDIFF(#Date, TODAY(), "days")',
+  };
+  return examples[name] ?? `${name}()`;
+};
+
+const functionCopyText = (fn: (typeof GRID_FORMULA_FUNCTIONS)[number]) => functionExample(fn.name);
+
+export default function FormulaReferenceWindow(props: { tableName: string; fields: Field[]; currentFieldId?: string | null }) {
+  const [query, setQuery] = createSignal("");
+  const fields = createMemo(() => formulaFieldRefs(props.fields, props.currentFieldId ?? undefined));
+  const fieldRows = createMemo(() => {
+    const rows = fields().map((field) => ({
+      kind: "field" as const,
+      field,
+      search: `${field.name} ${field.type} ${formulaFieldToken(field)} ${FIELD_TYPE_LABELS[field.type] ?? field.type}`,
+    }));
+    const q = query().trim();
+    if (!q) return rows;
+    return fuzzy.filter(q, rows, { key: (item) => item.search, limit: 80 }).map((hit) => hit.item);
+  });
+  const functionRows = createMemo(() => {
+    const rows = GRID_FORMULA_FUNCTIONS.map((fn) => {
+      const category = functionCategory(fn.name);
+      const meta = FUNCTION_CATEGORY_META[category];
+      return {
+        kind: "function" as const,
+        fn,
+        category,
+        search: `${meta.label} ${category} ${fn.name} ${fn.signature} ${fn.description} ${functionExample(fn.name)}`,
+      };
+    }).sort(
+      (a, b) =>
+        FUNCTION_CATEGORY_ORDER.indexOf(a.category) - FUNCTION_CATEGORY_ORDER.indexOf(b.category) || a.fn.name.localeCompare(b.fn.name),
+    );
+    const q = query().trim();
+    if (!q) return rows;
+    return fuzzy.filter(q, rows, { key: (item) => item.search, limit: 80 }).map((hit) => hit.item);
+  });
+  const fieldsCount = () => fieldRows().length;
+  const functionsCount = () => functionRows().length;
+
+  const fieldColumns: DataTableColumn<Extract<ReferenceItem, { kind: "field" }>>[] = [
+    {
+      id: "field",
+      header: "Field",
+      value: (row) => row.field.name,
+    },
+    {
+      id: "type",
+      header: "Type",
+      value: (row) => row.field.type,
+    },
+    {
+      id: "ref",
+      header: "Ref",
+      value: (row) => formulaFieldToken(row.field),
+    },
+    {
+      id: "copy",
+      header: "",
+      value: (row) => formulaFieldToken(row.field),
+      headerClass: "w-12",
+      cellClass: "w-12",
+    },
+  ];
+  const functionColumns: DataTableColumn<Extract<ReferenceItem, { kind: "function" }>>[] = [
+    {
+      id: "category",
+      header: "Type",
+      value: (row) => row.category,
+      headerClass: "w-28",
+      cellClass: "w-28",
+    },
+    {
+      id: "function",
+      header: "Function",
+      value: (row) => row.fn.name,
+    },
+    {
+      id: "example",
+      header: "Example",
+      value: (row) => functionExample(row.fn.name),
+    },
+    {
+      id: "copy",
+      header: "",
+      value: (row) => functionCopyText(row.fn),
+      headerClass: "w-12",
+      cellClass: "w-12",
+    },
+  ];
+
+  return (
+    <main class="flex h-screen overflow-hidden bg-zinc-50 p-4 dark:bg-zinc-950 md:p-6">
+      <div class="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-4">
+        <header class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-normal">Formula reference</h1>
+            <p class="text-sm text-dimmed">{props.tableName}</p>
+          </div>
+          <div class="w-full max-w-md">
+            <TextInput value={query} onInput={setQuery} icon="ti ti-search" placeholder="Search fields and functions..." clearable />
+          </div>
+        </header>
+
+        <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+          <section class="flex min-h-0 flex-col gap-2">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-secondary">
+              <i class="ti ti-columns" /> Fields <span class="text-dimmed">{fieldsCount()}</span>
+            </h2>
+            <DataTable
+              rows={fieldRows()}
+              columns={fieldColumns}
+              getRowId={(row) => row.field.id}
+              class="paper min-h-0 flex-1 overflow-auto"
+              empty="No matching fields"
+              renderCell={({ row, col, value }) => {
+                if (col.id === "field") {
+                  return (
+                    <span class="flex min-w-0 items-center gap-2">
+                      <i class={`${fieldIcon(row.field.type)} text-sm text-dimmed`} />
+                      <span class="truncate text-secondary">{row.field.name}</span>
+                    </span>
+                  );
+                }
+                if (col.id === "type") {
+                  return <span class="text-dimmed">{FIELD_TYPE_LABELS[row.field.type] ?? row.field.type}</span>;
+                }
+                if (col.id === "ref") return <code class="font-mono text-primary">{String(value)}</code>;
+                return <CopyButton text={String(value)} class="icon-btn h-8 w-8 text-dimmed hover:text-primary" />;
+              }}
+            />
+          </section>
+
+          <section class="flex min-h-0 flex-col gap-2">
+            <h2 class="flex items-center gap-2 text-sm font-semibold text-secondary">
+              <i class="ti ti-function" /> Functions <span class="text-dimmed">{functionsCount()}</span>
+            </h2>
+            <DataTable
+              rows={functionRows()}
+              columns={functionColumns}
+              getRowId={(row) => row.fn.name}
+              class="paper min-h-0 flex-1 overflow-auto"
+              empty="No matching functions"
+              renderCell={({ row, col, value }) => {
+                if (col.id === "category") {
+                  const meta = FUNCTION_CATEGORY_META[row.category];
+                  return (
+                    <span class={`chip ${meta.class}`}>
+                      <i class={`${meta.icon} text-xs`} />
+                      <span>{meta.label}</span>
+                    </span>
+                  );
+                }
+                if (col.id === "function") {
+                  return (
+                    <span class="flex min-w-0 flex-col gap-0.5">
+                      <code class="truncate font-mono text-[12px] font-semibold text-primary">{row.fn.signature}</code>
+                      <span class="truncate text-[11px] text-dimmed">{row.fn.description}</span>
+                    </span>
+                  );
+                }
+                if (col.id === "example") {
+                  return (
+                    <code class="block max-w-full truncate rounded bg-zinc-50 px-2 py-1 font-mono text-[11px] text-dimmed dark:bg-zinc-900">
+                      {String(value)}
+                    </code>
+                  );
+                }
+                return <CopyButton text={String(value)} class="icon-btn h-8 w-8 text-dimmed hover:text-primary" />;
+              }}
+            />
+          </section>
+        </div>
+      </div>
+    </main>
+  );
+}

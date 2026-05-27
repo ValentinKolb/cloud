@@ -363,6 +363,14 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Tasks", "table route renders");
   await expectVisibleText(page, "Review invoices", "record row renders");
   await expectVisibleText(page, "Open", "select badge renders");
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/formula-reference`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectVisibleText(page, "Formula reference", "formula reference route renders");
+  await expectVisibleText(page, "Fields", "formula reference fields section renders");
+  await expectVisibleText(page, "Functions", "formula reference functions section renders");
+  await expectVisibleText(page, "Amount", "formula reference lists fields");
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
 
   const navigationCountBeforeEnhanced = await page.evaluate(() => performance.getEntriesByType("navigation").length);
   const sidebarScrollBeforeDashboard = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => {
@@ -526,11 +534,32 @@ const cleanup = async (fixture: Fixture | null) => {
   });
 };
 
+const runFormulaPreviewSmoke = async (fixture: Fixture) => {
+  const preview = await api<{
+    ok: boolean;
+    diagnostics: { message: string }[];
+    fields: { id: string; name: string }[];
+    rows: { values: Record<string, unknown>; result: unknown }[];
+  }>(
+    "POST",
+    `/api/grids/formulas/by-table/${fixture.table.id}/check`,
+    { expression: `{${fixture.fields.amount}} + {${fixture.fields.amount}}` },
+    fixture.sessionToken,
+    200,
+  );
+  if (!preview.ok) fail(`formula preview returned diagnostics: ${preview.diagnostics.map((d) => d.message).join(", ")}`);
+  if (preview.fields.length !== 1 || preview.fields[0]?.id !== fixture.fields.amount) fail("formula preview referenced fields mismatch");
+  if (preview.rows.length !== 2) fail(`formula preview row count mismatch: ${preview.rows.length}`);
+  if (!preview.rows.some((row) => row.result === "199.98")) fail("formula preview did not preserve decimal precision");
+  ok("formula preview endpoint preserves decimal values");
+};
+
 let fixture: Fixture | null = null;
 let browser: Browser | null = null;
 
 try {
   fixture = await createFixture();
+  await runFormulaPreviewSmoke(fixture);
   browser = await chromium.launch({ headless: HEADLESS });
   await runAuthedDesktop(browser, fixture);
   await runPublicForm(browser, fixture);

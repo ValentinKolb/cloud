@@ -77,6 +77,8 @@ export type AutocompleteEditorProps = {
 
   /** Completion definitions. Each defines a trigger + suggest fn. */
   completions?: Completion[];
+  /** Keep abbreviation-style Backspace restore after accepting an expansion. Default true. */
+  restoreExpansionOnBackspace?: boolean;
 
   /**
    * Optional syntax-highlighter: plain text → safe HTML. When
@@ -390,7 +392,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
       clearCompletion();
       return false;
     }
-    applySuggestion(textareaEl, state.ctx, active);
+    applySuggestion(textareaEl, state.ctx, active, { trackExpansion: props.restoreExpansionOnBackspace ?? true });
     clearCompletion();
     return true;
   };
@@ -434,7 +436,7 @@ const AutocompleteEditor = (props: AutocompleteEditorProps) => {
     if (!textareaEl) return;
     if (e.isComposing) return;
 
-    if (e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    if ((props.restoreExpansionOnBackspace ?? true) && e.key === "Backspace" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
       if (tryRestore(textareaEl)) {
         e.preventDefault();
         return;

@@ -21,7 +21,7 @@ const hasAtLeast = (level: keyof typeof permissionRank, required: keyof typeof p
   permissionRank[level] >= permissionRank[required];
 
 const urlWithParam = (href: string, key: string, value: string) => {
-  const url = new URL(href, window.location.origin);
+  const url = new URL(href, "http://grids.local");
   url.searchParams.set(key, value);
   return `${url.pathname}${url.search}`;
 };
@@ -257,7 +257,7 @@ export default function GridsWorkspace(props: Props) {
                 ) : (
                   state().catalog.tables.map((t) => {
                     const route = state().route;
-                    const active = route.kind === "records" && route.activeTable.id === t.id;
+                    const active = route.kind === "records" && route.activeTable.id === t.id && route.activeView === null;
                     return (
                       <AppWorkspace.SidebarItem
                         href={keepEdit(`/app/grids/${state().base.shortId}/table/${t.shortId}`, state().adminModeRequested)}

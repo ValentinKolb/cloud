@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { parseFormula } from "../../../formula/parser";
 import type { Field } from "../../../service";
 import {
   buildFormulaCompletions,
   expectedFormulaValueType,
   formulaFieldRefs,
+  formulaFieldToken,
   formulaHighlight,
   formulaValueSuggestions,
 } from "./formula-authoring";
@@ -31,12 +33,24 @@ const fields = formulaFieldRefs([
   field({ id: "qty", shortId: "Qty01", name: "Quantity", type: "number" }),
   field({ id: "name", shortId: "Nm001", name: "Product name", type: "text" }),
   field({ id: "date", shortId: "Date1", name: "Invoice date", type: "date" }),
+  field({ id: "discount", shortId: "Dc99X", name: "Discount % / special", type: "percent" }),
   field({ id: "files", shortId: "File1", name: "Files", type: "file" }),
 ]);
 
 describe("formula authoring helpers", () => {
   test("field reference list excludes unsuitable fields", () => {
-    expect(fields.map((f) => f.name)).toEqual(["Unit price", "Quantity", "Product name", "Invoice date"]);
+    expect(fields.map((f) => f.name)).toEqual(["Unit price", "Quantity", "Product name", "Invoice date", "Discount % / special"]);
+  });
+
+  test("field reference list excludes the formula field being edited", () => {
+    const refs = formulaFieldRefs(
+      [
+        field({ id: "price", shortId: "Pr1cE", name: "Unit price", type: "number" }),
+        field({ id: "total", shortId: "Tot01", name: "Total", type: "formula" }),
+      ],
+      "total",
+    );
+    expect(refs.map((f) => f.id)).toEqual(["price"]);
   });
 
   test("expected type follows nested function argument context despite whitespace", () => {
@@ -57,6 +71,7 @@ describe("formula authoring helpers", () => {
       label: "Unit price",
       hint: "number · #Pr1cE",
     });
+    expect(parseFormula(suggestions[0]!.expansion ?? "")).toMatchObject({ ok: true });
   });
 
   test("numeric contexts filter out text fields and still offer numeric functions", () => {
@@ -68,7 +83,15 @@ describe("formula authoring helpers", () => {
     expect(labels).toContain("Unit price");
     expect(labels).toContain("Quantity");
     expect(labels).toContain("SUM");
-    expect(labels).not.toContain("Product name");
+    expect(labels.indexOf("Unit price")).toBeLessThan(labels.indexOf("Product name"));
+  });
+
+  test("numeric operator contexts still show matching non-numeric fields", () => {
+    const suggestions = formulaValueSuggestions(fields, "prod", {
+      fullText: "#Qty01 * prod",
+      tokenStart: "#Qty01 * ".length,
+    });
+    expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: "#Nm001" });
   });
 
   test("completions support # trigger by field name", () => {
@@ -77,7 +100,49 @@ describe("formula authoring helpers", () => {
     expect(Array.isArray(suggestions)).toBe(true);
     if (Array.isArray(suggestions)) {
       expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: "#Nm001" });
+      expect(parseFormula(suggestions[0]!.expansion ?? "")).toMatchObject({ ok: true });
     }
+  });
+
+  test("space completion ignores whitespace after value-position operators", () => {
+    const spaceCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === " ")!;
+    const suggestions = spaceCompletion.suggest(
+      "prod",
+      { fullText: "#Qty01 +    prod", caret: "#Qty01 +    prod".length, tokenStart: "#Qty01 +   ".length },
+      new AbortController().signal,
+    );
+    expect(Array.isArray(suggestions)).toBe(true);
+    if (Array.isArray(suggestions)) {
+      expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: "#Nm001" });
+    }
+  });
+
+  test("space completion does not fire after a completed value", () => {
+    const spaceCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === " ")!;
+    const suggestions = spaceCompletion.suggest(
+      "prod",
+      { fullText: "#Qty01 prod", caret: "#Qty01 prod".length, tokenStart: "#Qty01".length },
+      new AbortController().signal,
+    );
+    expect(suggestions).toEqual([]);
+  });
+
+  test("field names with spaces or symbols still insert parseable stable refs", () => {
+    const suggestions = formulaValueSuggestions(fields, "special", {
+      fullText: "ROUND(special",
+      tokenStart: "ROUND(".length,
+    });
+    expect(suggestions[0]).toMatchObject({
+      text: "Discount % / special",
+      expansion: "#Dc99X",
+      label: "Discount % / special",
+      hint: "percent · #Dc99X",
+    });
+    expect(parseFormula(`ROUND(${suggestions[0]!.expansion}, 2)`)).toMatchObject({ ok: true });
+  });
+
+  test("formulaFieldToken keeps field references canonical", () => {
+    expect(formulaFieldToken({ shortId: "Ab12Z" })).toBe("#Ab12Z");
   });
 
   test("equals completion only fires at the start of an expression", () => {

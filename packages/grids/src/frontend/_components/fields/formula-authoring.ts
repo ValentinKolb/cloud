@@ -23,6 +23,8 @@ type FormulaFieldRef = {
   type: string;
 };
 
+export const formulaFieldToken = (field: Pick<FormulaFieldRef, "shortId">): string => `#${field.shortId}`;
+
 export const GRID_FORMULA_FUNCTIONS: FormulaFunction[] = [
   {
     name: "SUM",
@@ -319,9 +321,9 @@ const suggestionNeedle = (field: FormulaFieldRef): string => `${field.name} ${fi
 
 const fieldSuggestion = (field: FormulaFieldRef, textPrefix = ""): Suggestion => ({
   text: `${textPrefix}${field.name}`,
-  expansion: `${textPrefix}#${field.shortId}`,
+  expansion: `${textPrefix}${formulaFieldToken(field)}`,
   label: field.name,
-  hint: `${field.type} · #${field.shortId}`,
+  hint: `${field.type} · ${formulaFieldToken(field)}`,
 });
 
 const functionSuggestion = (fn: FormulaFunction, textPrefix = ""): Suggestion => ({
@@ -395,7 +397,7 @@ const currentCallFrame = (text: string): CallFrame | null => {
 export const expectedFormulaValueType = (text: string, tokenStart: number): FormulaValueType => {
   const before = text.slice(0, tokenStart);
   const prev = previousSignificantChar(before);
-  if (prev === "+" || prev === "-" || prev === "*" || prev === "/" || prev === "%") return "number";
+  if (prev === "-" || prev === "*" || prev === "/" || prev === "%") return "number";
 
   const frame = currentCallFrame(before);
   if (!frame) return "any";
@@ -419,8 +421,8 @@ export const formulaValueSuggestions = (
   const expected = expectedFormulaValueType(ctx.fullText, ctx.tokenStart);
   const q = query.trim().toLowerCase();
   const fieldSuggestions = fields
-    .filter((field) => isFieldCompatible(field, expected))
     .filter((field) => matchesQuery(field, query))
+    .sort((a, b) => Number(isFieldCompatible(b, expected)) - Number(isFieldCompatible(a, expected)))
     .map((field) => fieldSuggestion(field, textPrefix));
 
   const fnSuggestions = GRID_FORMULA_FUNCTIONS.filter((fn) => expected === "any" || fn.returnType === expected || fn.returnType === "any")
@@ -428,6 +430,11 @@ export const formulaValueSuggestions = (
     .map((fn) => functionSuggestion(fn, textPrefix));
 
   return [...fieldSuggestions, ...fnSuggestions].slice(0, 40);
+};
+
+const isWhitespaceValuePosition = (text: string, tokenStart: number): boolean => {
+  const prev = previousSignificantChar(text.slice(0, tokenStart));
+  return prev === "(" || prev === "," || prev === "+" || prev === "-" || prev === "*" || prev === "/" || prev === "%";
 };
 
 export const buildFormulaCompletions = (fields: FormulaFieldRef[]): Completion[] => [
@@ -448,12 +455,19 @@ export const buildFormulaCompletions = (fields: FormulaFieldRef[]): Completion[]
         .map((field) => ({
           ...fieldSuggestion(field, "#"),
           text: `#${field.name}`,
-          expansion: `#${field.shortId}`,
+          expansion: formulaFieldToken(field),
         })),
   },
   {
     dropdown: true,
     suggest: (query, ctx) => formulaValueSuggestions(fields, query, ctx),
+  },
+  {
+    trigger: " ",
+    dropdown: true,
+    allowAfterWord: true,
+    suggest: (query: string, ctx: SuggestContext) =>
+      isWhitespaceValuePosition(ctx.fullText, ctx.tokenStart) ? formulaValueSuggestions(fields, query, ctx) : [],
   },
   ...["(", ",", "+", "-", "*", "/", "%"].map((trigger) => ({
     trigger,

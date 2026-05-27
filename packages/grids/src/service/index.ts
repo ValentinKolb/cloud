@@ -13,6 +13,7 @@ import * as automations from "./automations";
 import * as templates from "./templates";
 import * as exporter from "./export";
 import * as maintenance from "./maintenance";
+import * as formulaPreview from "./formula-preview";
 import * as relationsModule from "./relations";
 import { automationRuntime } from "./automations-runtime";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
@@ -156,6 +157,9 @@ export const gridsService = {
   maintenance: {
     purgeSoftDeleted: maintenance.purgeSoftDeleted,
   },
+  formulaPreview: {
+    check: formulaPreview.checkFormula,
+  },
   relations: {
     buildLabelCache: relationsModule.buildRelationLabelCache,
     buildLabelCacheForGroupedKeys: relationsModule.buildLabelCacheForGroupedKeys,
@@ -164,7 +168,7 @@ export const gridsService = {
   },
 };
 
-export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, automations, templates, automationRuntime, exporter, maintenance };
+export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, automations, templates, automationRuntime, exporter, maintenance, formulaPreview };
 export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
 export type {
   Dashboard,

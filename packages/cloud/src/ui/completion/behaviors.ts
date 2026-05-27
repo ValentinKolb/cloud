@@ -168,6 +168,7 @@ export const applySuggestion = (
   textarea: HTMLTextAreaElement,
   ctx: QueryContext,
   suggestion: Suggestion,
+  options: { trackExpansion?: boolean } = {},
 ): boolean => {
   const baseText = suggestion.expansion ?? suggestion.text;
   if (baseText === ctx.text) return false;
@@ -186,7 +187,7 @@ export const applySuggestion = (
   textarea.setSelectionRange(ctx.start, ctx.end);
   document.execCommand("insertText", false, insertText);
 
-  if (suggestion.expansion !== undefined && suggestion.expansion !== suggestion.text) {
+  if ((options.trackExpansion ?? true) && suggestion.expansion !== undefined && suggestion.expansion !== suggestion.text) {
     lastExpansion = {
       textarea,
       startOffset: ctx.start,
