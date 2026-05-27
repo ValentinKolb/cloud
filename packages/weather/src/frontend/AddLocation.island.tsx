@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 
 type GeoResult = {
@@ -32,7 +32,7 @@ const searchLocations = async ({ query, abortSignal }: { query: string; abortSig
   }));
 };
 
-const AddLocationButton = () => {
+const AddLocationButton = (props: { variant?: "button" | "sidebar" }) => {
   const addMutation = mutations.create({
     mutation: async () => {
       const selected = await prompts.search<GeoResult>(searchLocations, {
@@ -70,6 +70,18 @@ const AddLocationButton = () => {
       prompts.error(err.message);
     },
   });
+
+  if (props.variant === "sidebar") {
+    return (
+      <AppWorkspace.SidebarItem
+        icon={addMutation.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
+        disabled={addMutation.loading()}
+        onClick={() => addMutation.mutate({})}
+      >
+        Add Location
+      </AppWorkspace.SidebarItem>
+    );
+  }
 
   return (
     <button type="button" onClick={() => addMutation.mutate({})} disabled={addMutation.loading()} class="btn-secondary btn-sm w-full">
