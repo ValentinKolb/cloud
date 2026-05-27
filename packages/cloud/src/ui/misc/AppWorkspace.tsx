@@ -77,6 +77,11 @@ export type AppWorkspaceSidebarMobileProps = {
   children: JSX.Element;
 };
 
+export type AppWorkspaceSidebarMobileItemsProps = {
+  scrollPreserveKey?: string | false;
+  children: JSX.Element;
+};
+
 export type AppWorkspaceSidebarBodyProps = {
   class?: string;
   scrollPreserveKey?: string | false;
@@ -143,7 +148,7 @@ type AppWorkspaceComponent = ((props: AppWorkspaceProps) => JSX.Element) & {
   Sidebar: (props: AppWorkspaceSidebarProps) => JSX.Element;
   SidebarHeader: (props: AppWorkspaceSidebarHeaderProps) => JSX.Element;
   SidebarMobile: (props: AppWorkspaceSidebarMobileProps) => JSX.Element;
-  SidebarMobileItems: (props: { children: JSX.Element }) => JSX.Element;
+  SidebarMobileItems: (props: AppWorkspaceSidebarMobileItemsProps) => JSX.Element;
   SidebarMobileBody: (props: AppWorkspaceSidebarBodyProps) => JSX.Element;
   SidebarDesktop: (props: { children: JSX.Element }) => JSX.Element;
   SidebarSection: (props: AppWorkspaceSidebarSectionProps) => JSX.Element;
@@ -302,9 +307,13 @@ const AppWorkspaceSidebar = (props: AppWorkspaceSidebarProps) => {
   );
 };
 
-const AppWorkspaceSidebarMobileItems = (props: { children: JSX.Element }) => <div class="sidebar-mobile-actions">{props.children}</div>;
-
 const scrollPreserveAttr = (key: string | false | undefined) => (key ? { "data-scroll-preserve": key } : {});
+
+const AppWorkspaceSidebarMobileItems = (props: AppWorkspaceSidebarMobileItemsProps) => (
+  <div class="sidebar-mobile-actions" {...scrollPreserveAttr(props.scrollPreserveKey)}>
+    {props.children}
+  </div>
+);
 
 const AppWorkspaceSidebarMobileBody = (props: AppWorkspaceSidebarBodyProps) => (
   <div class={`mt-2 max-h-64 overflow-y-auto p-2 ${props.class ?? ""}`} {...scrollPreserveAttr(props.scrollPreserveKey)}>

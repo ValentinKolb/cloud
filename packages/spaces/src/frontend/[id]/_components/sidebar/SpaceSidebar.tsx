@@ -63,7 +63,7 @@ export default function SpaceSidebar(props: Props) {
       />
 
       <AppWorkspace.SidebarMobile>
-        <AppWorkspace.SidebarMobileItems>
+        <AppWorkspace.SidebarMobileItems scrollPreserveKey={`spaces-sidebar-mobile-${props.ctx.space.id}`}>
           <AppWorkspace.SidebarItem
             href={settingsHref}
             navigation={props.onNavigate ? "enhanced" : "document"}
