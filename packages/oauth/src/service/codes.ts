@@ -11,6 +11,7 @@ type DbCode = {
   client_id: string;
   user_id: string;
   redirect_uri: string;
+  nonce: string | null;
   code_challenge: string | null;
   code_challenge_method: string | null;
   expires_at: Date;
@@ -24,14 +25,15 @@ export const create = async (params: {
   clientId: string;
   userId: string;
   redirectUri: string;
+  nonce?: string;
   codeChallenge?: string;
   codeChallengeMethod?: "S256" | "plain";
 }): Promise<string> => {
-  const { clientId, userId, redirectUri, codeChallenge, codeChallengeMethod } = params;
+  const { clientId, userId, redirectUri, nonce, codeChallenge, codeChallengeMethod } = params;
 
   const [row] = await sql<{ code: string }[]>`
-    INSERT INTO oauth.codes (client_id, user_id, redirect_uri, code_challenge, code_challenge_method)
-    VALUES (${clientId}, ${userId}, ${redirectUri}, ${codeChallenge ?? null}, ${codeChallengeMethod ?? null})
+    INSERT INTO oauth.codes (client_id, user_id, redirect_uri, nonce, code_challenge, code_challenge_method)
+    VALUES (${clientId}, ${userId}, ${redirectUri}, ${nonce ?? null}, ${codeChallenge ?? null}, ${codeChallengeMethod ?? null})
     RETURNING code
   `;
 
@@ -47,12 +49,12 @@ export const consume = async (params: {
   clientId: string;
   redirectUri: string;
   codeVerifier?: string;
-}): Promise<{ userId: string; client: OAuthClient } | null> => {
+}): Promise<{ userId: string; client: OAuthClient; nonce: string | null } | null> => {
   const { code, clientId, redirectUri, codeVerifier } = params;
 
   // Get and validate code
   const [row] = await sql<DbCode[]>`
-    SELECT code, client_id, user_id, redirect_uri, code_challenge, code_challenge_method, expires_at, used
+    SELECT code, client_id, user_id, redirect_uri, nonce, code_challenge, code_challenge_method, expires_at, used
     FROM oauth.codes
     WHERE code = ${code}
   `;
@@ -101,7 +103,7 @@ export const consume = async (params: {
   const client = await clients.getByClientId({ clientId });
   if (!client) return null;
 
-  return { userId: row.user_id, client };
+  return { userId: row.user_id, client, nonce: row.nonce };
 };
 
 /**

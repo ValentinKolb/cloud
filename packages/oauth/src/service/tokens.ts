@@ -114,6 +114,7 @@ export const getOpenIdConfiguration = (issuer: string) => ({
     "given_name",
     "family_name",
     "email",
+    "nonce",
     "groups",
   ],
   code_challenge_methods_supported: ["S256", "plain"],
@@ -127,8 +128,9 @@ export const createTokens = async (params: {
   userId: string;
   client: OAuthClient;
   issuer: string;
+  nonce?: string | null;
 }): Promise<{ accessToken: string; idToken: string | null; expiresIn: number }> => {
-  const { userId, client, issuer } = params;
+  const { userId, client, issuer, nonce } = params;
   const { privateKey, kid } = await getOrCreateKeyPair();
 
   // Load user to get uid for sub claim
@@ -163,6 +165,10 @@ export const createTokens = async (params: {
       uid: user.uid,
       id: user.id,
     };
+
+    if (nonce !== undefined && nonce !== null) {
+      idTokenClaims.nonce = nonce;
+    }
 
     if (client.scopes.includes("profile")) {
       idTokenClaims.name = user.displayName;

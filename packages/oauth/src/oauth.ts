@@ -47,6 +47,7 @@ const AuthorizeQuerySchema = z.object({
   response_type: z.literal("code"),
   scope: z.string().optional().default("openid"),
   state: z.string().optional(),
+  nonce: z.string().optional(),
   code_challenge: z.string().optional(),
   code_challenge_method: z.enum(["S256", "plain"]).optional(),
 });
@@ -107,7 +108,7 @@ const app = new Hono<AuthContext>()
     v("query", AuthorizeQuerySchema),
     async (c) => {
       const query = c.req.valid("query");
-      const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = query;
+      const { client_id, redirect_uri, state, nonce, code_challenge, code_challenge_method } = query;
 
       const client = await oauth.clients.getByClientId({ clientId: client_id });
       if (!client) {
@@ -158,6 +159,7 @@ const app = new Hono<AuthContext>()
         clientId: client.clientId,
         userId: user.id,
         redirectUri: redirect_uri,
+        nonce,
         codeChallenge: code_challenge,
         codeChallengeMethod: code_challenge_method,
       });
@@ -220,6 +222,7 @@ const app = new Hono<AuthContext>()
           userId: result.userId,
           client: result.client,
           issuer,
+          nonce: result.nonce,
         });
 
         return c.json({
