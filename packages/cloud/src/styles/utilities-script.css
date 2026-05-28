@@ -25,8 +25,6 @@
    code-fence edges; no border (the rendered widget supplies its
    own affordances). */
 .md-script-output {
-  margin-top: 0.25rem;
-  margin-bottom: 0.5rem;
   padding: 0.25rem 0;
   /* Empty output (e.g. a script that only does background work)
      should collapse to zero height — no minimum height here. */

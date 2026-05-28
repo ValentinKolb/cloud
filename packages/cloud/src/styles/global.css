@@ -112,6 +112,17 @@
   height: 100%;
 }
 
+:root .stdlib-chart {
+  --stdlib-chart-c1: #14b8a6;
+  --stdlib-chart-c2: #f97316;
+  --stdlib-chart-c3: #8b5cf6;
+  --stdlib-chart-c4: #ec4899;
+  --stdlib-chart-c5: #22c55e;
+  --stdlib-chart-c6: #eab308;
+  --stdlib-chart-c7: #06b6d4;
+  --stdlib-chart-c8: #ef4444;
+}
+
 /* stdlib charts — dark-mode overrides.
 
    stdlib's embedded <style> hardcodes a light-mode `color: #1f2937`

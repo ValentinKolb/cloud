@@ -36,6 +36,7 @@ import type {
   KitFormField,
   KitFormSpec,
   KitHeadingLevel,
+  KitMetricOptions,
   KitNote,
   KitTableView,
   KitTodoItem,
@@ -190,10 +191,7 @@ const normalizeTableValue = (value: unknown, column?: string): string => {
 };
 
 const isTableView = (value: unknown): value is KitTableView =>
-  !!value &&
-  typeof value === "object" &&
-  Array.isArray((value as KitTableView).columns) &&
-  Array.isArray((value as KitTableView).rows);
+  !!value && typeof value === "object" && Array.isArray((value as KitTableView).columns) && Array.isArray((value as KitTableView).rows);
 
 const makeTable = (
   input: unknown[][] | Record<string, unknown>[] | KitTableView,
@@ -330,6 +328,39 @@ const makeCard = (children: KitChild[], ctx: KitContext): KitElement => {
   return brand(el, ctx);
 };
 
+const makeMetric = (label: string, value: string | number, options: KitMetricOptions | undefined, ctx: KitContext): KitElement => {
+  const el = document.createElement("div");
+  el.className = `md-script-ui-metric md-script-ui-metric-${options?.tone ?? "default"}`;
+
+  const header = document.createElement("div");
+  header.className = "md-script-ui-metric-header";
+
+  if (options?.icon) {
+    const icon = document.createElement("i");
+    icon.className = options.icon;
+    header.appendChild(icon);
+  }
+
+  const labelEl = document.createElement("span");
+  labelEl.textContent = label;
+  header.appendChild(labelEl);
+
+  const valueEl = document.createElement("div");
+  valueEl.className = "md-script-ui-metric-value";
+  valueEl.textContent = String(value);
+
+  el.append(header, valueEl);
+
+  if (options?.hint) {
+    const hint = document.createElement("div");
+    hint.className = "md-script-ui-metric-hint";
+    hint.textContent = options.hint;
+    el.appendChild(hint);
+  }
+
+  return brand(el, ctx);
+};
+
 const makeDivider = (ctx: KitContext): KitElement => {
   const el = document.createElement("hr");
   el.className = "md-script-ui-divider";
@@ -417,10 +448,7 @@ const makeLive = (renderFn: () => KitChild | KitChild[], ctx: KitContext): KitEl
       scheduledFrame = null;
       render();
     };
-    scheduledFrame =
-      typeof requestAnimationFrame === "function"
-        ? requestAnimationFrame(run)
-        : window.setTimeout(run, 0);
+    scheduledFrame = typeof requestAnimationFrame === "function" ? requestAnimationFrame(run) : window.setTimeout(run, 0);
   };
 
   render();
@@ -453,6 +481,7 @@ export const createKitUI = (ctx: KitContext): KitUI => ({
   row: (...children) => makeRow(children, ctx),
   col: (...children) => makeCol(children, ctx),
   card: (...children) => makeCard(children, ctx),
+  metric: (label, value, options) => makeMetric(label, value, options, ctx),
   divider: () => makeDivider(ctx),
 
   // Content

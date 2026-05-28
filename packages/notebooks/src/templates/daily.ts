@@ -25,10 +25,13 @@ const shiftDays = (date: Date, days: number) => {
   return next;
 };
 
-const dailyYearScript = `const year = Number(current.data("year")?.value.year ?? current.title);
+const dailyYearScript = `// This page is an index. It reads #month and #daily notes.
+const year = Number(current.data("year")?.value.year ?? current.title);
+
 const monthNotes = (await nb.search("#month"))
   .filter((note) => Number(note.data("month")?.value.year) === year)
   .sort((a, b) => Number(a.data("month")?.value.month ?? 0) - Number(b.data("month")?.value.month ?? 0));
+
 const dailyNotes = (await nb.search("#daily")).filter((note) => String(note.data("mood")?.value.date ?? "").startsWith(String(year) + "-"));
 
 ui.render(
@@ -42,11 +45,13 @@ ui.render(
   }), { emptyText: "No month notes yet." }),
 );`;
 
-const dailyMonthScript = `const pad2 = (value) => String(value).padStart(2, "0");
+const dailyMonthScript = `// This page is an index. It reads daily notes for this month.
+const pad2 = (value) => String(value).padStart(2, "0");
 const meta = current.data("month")?.value ?? {};
 const year = Number(meta.year ?? new Date().getFullYear());
 const month = Number(meta.month ?? new Date().getMonth() + 1);
 const prefix = String(year) + "-" + pad2(month) + "-";
+
 const days = (await nb.search("#daily"))
   .filter((note) => String(note.data("mood")?.value.date ?? note.title).startsWith(prefix))
   .sort((a, b) => a.title.localeCompare(b.title));
@@ -65,12 +70,28 @@ ui.render(
   }), { emptyText: "No daily notes in this month yet." }),
 );`;
 
-const dailyDashboardScript = `const pad2 = (value) => String(value).padStart(2, "0");
+const dailyDashboardScript = `// Daily Journal dashboard
+// Reads #daily and #inbox notes, then creates missing year/month/day pages on demand.
+
+// ── Date helpers ────────────────────────────────────────────────
+const pad2 = (value) => String(value).padStart(2, "0");
 const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const localDate = (date) => date.getFullYear() + "-" + pad2(date.getMonth() + 1) + "-" + pad2(date.getDate());
 const monthTitle = (date) => pad2(date.getMonth() + 1) + " " + monthNames[date.getMonth()];
-const yearScript = ${JSON.stringify(dailyYearScript)};
-const monthScript = ${JSON.stringify(dailyMonthScript)};
+
+// ── Scripts copied into generated year/month pages ──────────────
+const yearScript = String.raw\`
+${dailyYearScript}
+\`.trim();
+
+const monthScript = String.raw\`
+${dailyMonthScript}
+\`.trim();
+
+// ── Markdown builders for generated pages ───────────────────────
+const lines = (...items) => items.flat().join("\\n");
+const scriptBlock = (source) => ["\`\`\`script", source.trim(), "\`\`\`"];
+
 const yearStarter = (date) => [
   "# " + date.getFullYear(),
   "",
@@ -81,10 +102,9 @@ const yearStarter = (date) => [
   "year: " + date.getFullYear(),
   ":::",
   "",
-  "\`\`\`script",
-  yearScript,
-  "\`\`\`",
+  ...scriptBlock(yearScript),
 ].join("\\n");
+
 const monthStarter = (date) => [
   "# " + monthTitle(date),
   "",
@@ -102,10 +122,9 @@ const monthStarter = (date) => [
   "- Lessons:",
   "- Carry forward:",
   "",
-  "\`\`\`script",
-  monthScript,
-  "\`\`\`",
+  ...scriptBlock(monthScript),
 ].join("\\n");
+
 const dayStarter = (date) => [
   "# " + localDate(date),
   "",
@@ -135,12 +154,16 @@ const dayStarter = (date) => [
   "- Add short notes here",
 ].join("\\n");
 
+// ── Note creation helpers ───────────────────────────────────────
 let allNotes = await nb.list();
+
 const remember = (note) => {
   allNotes = allNotes.filter((item) => item.id !== note.id).concat(note);
   return note;
 };
+
 const findNote = (title, parentId) => allNotes.find((note) => note.title === title && note.parentId === parentId);
+
 const ensureNote = async (title, parent, content) => {
   const parentId = parent?.id ?? null;
   const existing = findNote(title, parentId);
@@ -148,10 +171,13 @@ const ensureNote = async (title, parent, content) => {
   return remember(await nb.create({ title, parentId: parent?.id, content }));
 };
 
+// ── Read notebook data ──────────────────────────────────────────
 const dailyNotes = (await nb.search("#daily")).sort((a, b) => a.title.localeCompare(b.title));
 const latest = dailyNotes.slice(-7);
 const inboxNote = (await nb.search("#inbox"))[0];
 const inboxItems = inboxNote?.todo("inbox")?.items ?? [];
+const openInbox = inboxItems.filter((item) => !item.done);
+
 const rows = latest.map((note) => {
   const mood = note.data("mood")?.value ?? {};
   return {
@@ -164,8 +190,14 @@ const rows = latest.map((note) => {
   };
 });
 
+// ── Render dashboard ────────────────────────────────────────────
 ui.render(
   ui.heading("Daily dashboard", 2),
+  ui.row(
+    ui.metric("Daily notes", dailyNotes.length, { icon: "ti ti-notebook", tone: "info" }),
+    ui.metric("Open inbox", openInbox.length, { icon: "ti ti-inbox", tone: "warning" }),
+    ui.metric("Latest days", latest.length, { icon: "ti ti-calendar-stats", tone: "success" }),
+  ),
   ui.table(rows, { emptyText: "No daily notes yet." }),
   ui.chart("bar", {
     data: latest.map((note) => {
@@ -179,6 +211,7 @@ ui.render(
   ui.table(inboxItems.map((item) => ({ Capture: item.content, Done: item.done ? "yes" : "open" })), {
     emptyText: "Inbox is clear.",
   }),
+
   ui.button("Open today's note", async () => {
     const now = new Date();
     const year = await ensureNote(String(now.getFullYear()), null, yearStarter(now));
@@ -186,21 +219,26 @@ ui.render(
     const day = await ensureNote(localDate(now), month, dayStarter(now));
     window.location.href = "/app/notebooks/" + current.notebook.id + "/notes/" + day.id;
   }, { variant: "primary", icon: "ti ti-calendar-plus" }),
+
   ui.button("Make weekly review", async () => {
-    const doneTasks = latest.flatMap((note) => note.todo("tasks")?.items ?? []).filter((item) => item.done).length;
-    const openTasks = latest.flatMap((note) => note.todo("tasks")?.items ?? []).filter((item) => !item.done).length;
+    const tasks = latest.flatMap((note) => note.todo("tasks")?.items ?? []);
+    const doneTasks = tasks.filter((item) => item.done).length;
+    const openTasks = tasks.filter((item) => !item.done).length;
     const avgEnergy = latest.length
       ? Math.round(latest.reduce((sum, note) => sum + Number(note.data("mood")?.value.energy ?? 0), 0) / latest.length)
       : 0;
-    await current.section("review")?.append(
-      "\\n## Review " + new Date().toISOString().slice(0, 10) +
-        "\\n\\n- Notes reviewed: " + latest.length +
-        "\\n- Done tasks: " + doneTasks +
-        "\\n- Open tasks: " + openTasks +
-        "\\n- Average energy: " + avgEnergy +
-        "\\n- Carry forward: " + inboxItems.filter((item) => !item.done).slice(0, 3).map((item) => item.content).join("; ") +
-        "\\n",
+    const reviewText = lines(
+      "",
+      "## Review " + new Date().toISOString().slice(0, 10),
+      "",
+      "- Notes reviewed: " + latest.length,
+      "- Done tasks: " + doneTasks,
+      "- Open tasks: " + openTasks,
+      "- Average energy: " + avgEnergy,
+      "- Carry forward: " + openInbox.slice(0, 3).map((item) => item.content).join("; "),
+      "",
     );
+    await current.section("review")?.append(reviewText);
     ui.toast("Review added below", { variant: "success" });
   }, { icon: "ti ti-clipboard-check" }),
 );`;
@@ -255,7 +293,18 @@ export const dailyNotesTemplate: NotebookTemplate = {
         content: (c) => `# Daily Journal
 
 :::success
-Start here. The dashboard reads your daily notes and the button creates the right year, month, and day note when needed.
+Start here. Write one small daily note, mark habits and tasks, and let the dashboard summarize the last days.
+:::
+
+## How to use this notebook
+
+1. Click **Open today's note**. The script creates the year, month, and day notes if they are missing.
+2. Fill the mood data and check off habits or tasks in the day note.
+3. Put loose thoughts in ${c.link("inbox", "Inbox")}. Review them when they become useful.
+4. Use **Make weekly review** after a few days. It appends a short summary below.
+
+:::info
+You do not maintain month or year indexes by hand. Those pages generate their tables from daily note data.
 :::
 
 \`\`\`script
@@ -266,10 +315,6 @@ ${dailyDashboardScript}
 ## Review
 
 - Use the weekly review button after a few daily notes.
-
-## Maintenance rule
-
-Do not maintain day or month indexes by hand. The month and year notes generate their tables from the daily note data.
 `,
       },
       {

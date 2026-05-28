@@ -1,6 +1,10 @@
 import type { NotebookTemplate, TemplateContext } from "./types";
 
-const gardenDashboardScript = `const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const gardenDashboardScript = `// Garden dashboard
+// Reads simple tables from all #garden notes and shows what matters this month.
+
+// ── Month window helpers ────────────────────────────────────────
+const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const currentMonth = new Date().getMonth() + 1;
 const monthLabel = monthNames[currentMonth - 1];
 const monthNumber = (name) => monthNames.findIndex((item) => item.toLowerCase() === String(name).slice(0, 3).toLowerCase()) + 1;
@@ -12,6 +16,7 @@ const inRange = (value, range) => {
   return start <= end ? value >= start && value <= end : value >= start || value <= end;
 };
 
+// ── Read source notes ───────────────────────────────────────────
 const notes = await nb.search("#garden");
 const plants = notes.flatMap((note) => note.table("plants")?.rows ?? []);
 const beds = notes.flatMap((note) => note.table("beds")?.rows ?? []);
@@ -19,6 +24,7 @@ const harvest = notes.flatMap((note) => note.table("harvest")?.rows ?? []);
 const pages = notes.filter((note) => note.id !== current.id).sort((a, b) => a.title.localeCompare(b.title));
 const openTasks = current.todo("tasks")?.items.filter((item) => !item.done) ?? [];
 
+// ── Derive this month's actions from month ranges ───────────────
 const actions = plants.flatMap((plant) => {
   const rows = [];
   if (inRange(currentMonth, plant.Sow)) rows.push({ Plant: plant.Name, Action: "Sow", Window: plant.Sow, Bed: plant.Bed, Notes: plant.Notes });
@@ -26,18 +32,20 @@ const actions = plants.flatMap((plant) => {
   if (inRange(currentMonth, plant.Harvest)) rows.push({ Plant: plant.Name, Action: "Harvest", Window: plant.Harvest, Bed: plant.Bed, Notes: plant.Notes });
   return rows;
 });
+
 const harvestByPlant = harvest.reduce((acc, row) => {
   const key = row.Plant || "Other";
   acc[key] = (acc[key] ?? 0) + Number(String(row.Amount ?? "0").replace(",", "."));
   return acc;
 }, {});
 
+// ── Render dashboard ────────────────────────────────────────────
 ui.render(
   ui.heading(monthLabel + " garden dashboard", 2),
   ui.row(
-    ui.text(plants.length + " plants"),
-    ui.text(beds.length + " beds"),
-    ui.text(openTasks.length + " open tasks"),
+    ui.metric("Plants", plants.length, { icon: "ti ti-plant-2", tone: "success" }),
+    ui.metric("Beds", beds.length, { icon: "ti ti-seedling", tone: "info" }),
+    ui.metric("Open tasks", openTasks.length, { icon: "ti ti-checkbox", tone: "warning" }),
   ),
   ui.table(actions, { emptyText: "No plant actions for this month." }),
   ui.table(openTasks.map((item) => ({ Task: item.content })), { emptyText: "No open dashboard tasks." }),
@@ -70,12 +78,23 @@ export const gardenPlannerTemplate: NotebookTemplate = {
     {
       key: "dashboard",
       title: "Garden Dashboard",
-      content: `# Garden Dashboard
+      content: (c) => `# Garden Dashboard
 
 #garden
 
 :::success
-Update the plant, bed, and harvest tables. The dashboard derives current actions from the month ranges.
+Start here. Keep the source tables simple; the dashboard derives the current work from the month ranges.
+:::
+
+## How to use this garden log
+
+1. Add or edit plants in ${c.link("plants", "Plants")}. Use simple month ranges like \`Mar-Apr\`.
+2. Keep bed notes and the native hedge plan in ${c.link("beds", "Beds & Native Hedge")}.
+3. Record real harvests in ${c.link("harvest", "Harvest")}. The chart reads that table.
+4. Add short dashboard tasks below when something needs attention this week.
+
+:::info
+The starter data is tuned for Central Europe and Franconia: robust vegetables, kitchen herbs, and native shrubs with wildlife value.
 :::
 
 \`\`\`script

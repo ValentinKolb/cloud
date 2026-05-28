@@ -488,6 +488,17 @@ export type KitButtonOptions = {
   disabled?: boolean;
 };
 
+export type KitMetricTone = "default" | "info" | "success" | "warning" | "danger";
+
+export type KitMetricOptions = {
+  /** Optional Tabler-icon class — e.g. `"ti ti-calendar"`. */
+  icon?: string;
+  /** Small supporting text below the value. */
+  hint?: string;
+  /** Accent color. Default `default`. */
+  tone?: KitMetricTone;
+};
+
 export type KitHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type KitChartKind = keyof typeof stdCharts;
@@ -507,6 +518,9 @@ export type KitUI = {
   /** Container with padding — visual grouping for related content.
    *  Lays out children vertically (same as `col`) by default. */
   card: (...children: KitChild[]) => KitElement;
+  /** Compact dashboard metric card. Prefer this over
+   *  `card(heading(...), text(...))` for KPI-style numbers. */
+  metric: (label: string, value: string | number, options?: KitMetricOptions) => KitElement;
   /** Horizontal rule. */
   divider: () => KitElement;
 

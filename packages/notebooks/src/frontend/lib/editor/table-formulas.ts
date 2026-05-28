@@ -59,6 +59,7 @@ const FORMULAS: Formula[] = [
   // Column aggregates ────────────────────────────────────────────
   { name: "SUM", detail: "(column) — sum of column", args: "${1:Column}", icon: "ti-sum" },
   { name: "AVG", detail: "(column) — average of column", args: "${1:Column}", icon: "ti-math-avg" },
+  { name: "MEAN", detail: "(column) — alias for AVG", args: "${1:Column}", icon: "ti-math-avg" },
   { name: "MIN", detail: "(column) — minimum of column", args: "${1:Column}", icon: "ti-math-min" },
   { name: "MAX", detail: "(column) — maximum of column", args: "${1:Column}", icon: "ti-math-max" },
   { name: "COUNT", detail: "(column) — non-empty count", args: "${1:Column}", icon: "ti-tallymark-4" },
@@ -73,6 +74,7 @@ const FORMULAS: Formula[] = [
   // Row aggregates ───────────────────────────────────────────────
   { name: "ROWSUM", detail: "() — sum of other cells in row", args: "", icon: "ti-sum" },
   { name: "ROWAVG", detail: "() — average of other cells in row", args: "", icon: "ti-math-avg" },
+  { name: "ROWMEAN", detail: "() — alias for ROWAVG", args: "", icon: "ti-math-avg" },
   // Conditional ──────────────────────────────────────────────────
   { name: "IF", detail: "(cond, then, else)", args: "${1:condition}, ${2:then}, ${3:else}", icon: "ti-git-branch" },
   { name: "IFEMPTY", detail: "(value, fallback)", args: "${1:value}, ${2:fallback}", icon: "ti-git-branch" },
@@ -90,7 +92,7 @@ const FORMULAS: Formula[] = [
   { name: "LEFT", detail: "(text, n) — first n chars", args: "${1:text}, ${2:n}", icon: "ti-cut" },
   { name: "RIGHT", detail: "(text, n) — last n chars", args: "${1:text}, ${2:n}", icon: "ti-cut" },
   { name: "LEN", detail: "(text) — character count", args: "${1:text}", icon: "ti-ruler-measure" },
-  { name: "SUBSTRING", detail: "(text, start, end?)", args: "${1:text}, ${2:start}, ${3:end}", icon: "ti-cut" },
+  { name: "SUBSTRING", detail: "(text, start, length)", args: "${1:text}, ${2:start}, ${3:length}", icon: "ti-cut" },
   { name: "REPLACE", detail: "(text, search, replacement)", args: "${1:text}, ${2:'search'}, ${3:'replacement'}", icon: "ti-replace" },
   // Date / time ──────────────────────────────────────────────────
   { name: "NOW", detail: "() — current YYYY-MM-DD HH:MM:SS", args: "", icon: "ti-clock" },

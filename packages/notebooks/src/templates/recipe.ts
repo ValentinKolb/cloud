@@ -1,13 +1,18 @@
 import type { NotebookTemplate } from "./types";
 
-const recipeDashboardScript = `const normalize = (value) => String(value ?? "").trim().toLowerCase();
+const recipeDashboardScript = `// Kitchen dashboard
+// Compares every #recipe ingredient table with the pantry table.
+
+const normalize = (value) => String(value ?? "").trim().toLowerCase();
 const numberValue = (value) => Number(String(value ?? "0").replace(",", ".")) || 0;
 
+// ── Read source notes ───────────────────────────────────────────
 const recipeNotes = await nb.search("#recipe");
 const pantryNote = (await nb.search("#pantry"))[0];
 const pantryRows = pantryNote?.table("pantry")?.rows ?? [];
 const pantry = new Map(pantryRows.map((row) => [normalize(row.Item), numberValue(row.Amount)]));
 
+// ── Derive recipe readiness ─────────────────────────────────────
 const recipeRows = recipeNotes
   .filter((note) => note.table("ingredients"))
   .map((note) => {
@@ -25,9 +30,17 @@ const recipeRows = recipeNotes
   })
   .sort((a, b) => a.missingItems.length - b.missingItems.length);
 const pages = [pantryNote, ...recipeNotes].filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
+const shoppingItems = current.todo("shopping")?.items ?? [];
+const openShopping = shoppingItems.filter((item) => !item.done);
 
+// ── Render dashboard ────────────────────────────────────────────
 ui.render(
   ui.heading("Kitchen dashboard", 2),
+  ui.row(
+    ui.metric("Recipes", recipeRows.length, { icon: "ti ti-chef-hat", tone: "success" }),
+    ui.metric("Pantry items", pantryRows.length, { icon: "ti ti-basket", tone: "info" }),
+    ui.metric("Shopping", openShopping.length, { icon: "ti ti-shopping-cart", tone: "warning" }),
+  ),
   ui.table(recipeRows.map(({ missingItems, ...row }) => row), { emptyText: "No recipe notes yet." }),
   ui.chart("bar", {
     data: recipeRows.map((row) => ({ label: row.Recipe.title, value: row.missingItems.length })),
@@ -48,7 +61,8 @@ ui.render(
   }, { icon: "ti ti-shopping-cart-plus" }),
 );`;
 
-const recipesIndexScript = `const recipeNotes = (await nb.search("#recipe"))
+const recipesIndexScript = `// Recipe index
+const recipeNotes = (await nb.search("#recipe"))
   .filter((note) => note.table("ingredients"))
   .sort((a, b) => a.title.localeCompare(b.title));
 
@@ -65,11 +79,14 @@ ui.render(
   }), { emptyText: "No recipe notes yet." }),
 );`;
 
-const recipeReadinessScript = `const normalize = (value) => String(value ?? "").trim().toLowerCase();
+const recipeReadinessScript = `// Pantry match for this recipe.
+const normalize = (value) => String(value ?? "").trim().toLowerCase();
 const numberValue = (value) => Number(String(value ?? "0").replace(",", ".")) || 0;
+
 const pantryNote = (await nb.search("#pantry"))[0];
 const pantryRows = pantryNote?.table("pantry")?.rows ?? [];
 const pantry = new Map(pantryRows.map((row) => [normalize(row.Item), numberValue(row.Amount)]));
+
 const ingredients = current.table("ingredients")?.rows ?? [];
 const rows = ingredients.map((row) => {
   const onHand = pantry.get(normalize(row.Item)) ?? 0;
@@ -100,14 +117,7 @@ ui.render(
   }, { icon: "ti ti-shopping-cart-plus" }),
 );`;
 
-const recipeContent = (
-  title: string,
-  type: string,
-  time: string,
-  servings: number,
-  rows: string,
-  method: string,
-) => `# ${title}
+const recipeContent = (title: string, type: string, time: string, servings: number, rows: string, method: string) => `# ${title}
 
 #recipe #bavarian
 
@@ -149,12 +159,23 @@ export const recipeCollectorTemplate: NotebookTemplate = {
     {
       key: "dashboard",
       title: "Kitchen Dashboard",
-      content: `# Kitchen Dashboard
+      content: (c) => `# Kitchen Dashboard
 
 #kitchen
 
 :::success
-The dashboard reads recipe ingredient tables and compares them with the pantry. Keep ingredient names consistent.
+Start here. The dashboard compares recipe ingredient tables with your pantry and shows what you can cook soon.
+:::
+
+## How to use this kitchen notebook
+
+1. Update ${c.link("pantry", "Pantry")} with what you have at home.
+2. Open a recipe and keep its \`@ingredients\` table simple and consistent.
+3. Use **Add best missing items** to create a small shopping list from the closest recipe.
+4. Add new recipe pages only when you want notes, steps, or pantry matching for that dish.
+
+:::info
+Ingredient names are lookup keys. Use the same name in recipes and pantry, for example \`Mountain cheese\` in both places.
 :::
 
 \`\`\`script

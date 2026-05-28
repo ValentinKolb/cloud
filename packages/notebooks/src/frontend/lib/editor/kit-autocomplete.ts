@@ -381,6 +381,12 @@ const uiCompletions: Completion[] = [
     detail: "(...children) → KitElement",
     info: "Container with padding — visual grouping.",
   }),
+  snippetCompletion("metric(${1:'Daily notes'}, ${2:notes.length}, { icon: '${3:ti ti-notebook}', tone: '${4:info}' })", {
+    label: "metric",
+    type: "method",
+    detail: "(label, value, options?) → KitElement",
+    info: "Compact dashboard metric. Prefer this over card(heading(...), text(...)) for KPI-style numbers.",
+  }),
   { label: "divider", type: "method", detail: "() → KitElement", info: "Horizontal rule." },
   // Content
   snippetCompletion("text(${1:'content'})", {

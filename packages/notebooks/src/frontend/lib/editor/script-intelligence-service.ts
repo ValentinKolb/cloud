@@ -150,6 +150,7 @@ interface KitUI {
   row(...children: KitChild[]): KitElement;
   col(...children: KitChild[]): KitElement;
   card(...children: KitChild[]): KitElement;
+  metric(label: string, value: string | number, options?: { icon?: string; hint?: string; tone?: "default" | "info" | "success" | "warning" | "danger" }): KitElement;
   divider(): KitElement;
   text(content: string): KitElement;
   heading(content: string, level?: 1 | 2 | 3 | 4 | 5 | 6): KitElement;

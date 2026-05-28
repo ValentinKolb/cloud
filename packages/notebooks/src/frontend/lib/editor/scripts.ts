@@ -656,14 +656,16 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
   const outputFrameTheme = EditorView.theme({
     ".cm-script-output-frame": {
       boxSizing: "border-box",
-      border: "0",
+      border: "1px solid transparent",
       borderRadius: "6px",
-      background: "linear-gradient(135deg, rgb(59 130 246 / 0.115) 0%, rgb(20 184 166 / 0.095) 100%)",
+      background:
+        "linear-gradient(rgb(255 255 255 / 0.92), rgb(255 255 255 / 0.92)) padding-box, linear-gradient(135deg, rgb(59 130 246 / 0.5), rgb(20 184 166 / 0.42), rgb(168 85 247 / 0.38)) border-box",
       padding: "0.375rem",
     },
     ".cm-script-output-frame.cm-script-output-frame-editing": {
-      backgroundColor: "transparent",
-      boxShadow: "0 0 0 1px rgb(37 99 235 / 0.22) inset",
+      background:
+        "linear-gradient(rgb(255 255 255 / 0.96), rgb(255 255 255 / 0.96)) padding-box, linear-gradient(135deg, rgb(37 99 235 / 0.42), rgb(20 184 166 / 0.34)) border-box",
+      boxShadow: "0 0 0 1px rgb(37 99 235 / 0.12) inset",
     },
     ".cm-script-output-header": {
       display: "flex",
@@ -696,10 +698,12 @@ export const scriptsExtension = (config: ScriptsConfig): Extension => {
       marginTop: "0.5rem",
     },
     ".dark .cm-script-output-frame": {
-      background: "linear-gradient(135deg, rgb(30 64 175 / 0.24) 0%, rgb(23 37 84 / 0.22) 100%)",
+      background:
+        "linear-gradient(rgb(9 9 11 / 0.92), rgb(9 9 11 / 0.92)) padding-box, linear-gradient(135deg, rgb(59 130 246 / 0.52), rgb(20 184 166 / 0.38), rgb(168 85 247 / 0.34)) border-box",
     },
     ".dark .cm-script-output-frame.cm-script-output-frame-editing": {
-      backgroundColor: "transparent",
+      background:
+        "linear-gradient(rgb(9 9 11 / 0.94), rgb(9 9 11 / 0.94)) padding-box, linear-gradient(135deg, rgb(147 197 253 / 0.44), rgb(45 212 191 / 0.32)) border-box",
       boxShadow: "0 0 0 1px rgb(147 197 253 / 0.28) inset",
     },
     ".dark .cm-script-output-header": {

@@ -1,11 +1,18 @@
 import type { NotebookTemplate, TemplateContext } from "./types";
 
-const readingDashboardScript = `const currentYear = String(new Date().getFullYear());
+const readingDashboardScript = `// Reading dashboard
+// Keeps the system light: one table, optional book notes, one reading queue.
+
+const currentYear = String(new Date().getFullYear());
+
+// ── Read source notes ───────────────────────────────────────────
 const booksNote = (await nb.search("#books"))[0];
 const books = booksNote?.table("books")?.rows ?? [];
 const bookNotes = await nb.search("#book");
 const pages = [booksNote, ...bookNotes].filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
 const queue = current.todo("reading")?.items ?? [];
+
+// ── Derive dashboard rows ───────────────────────────────────────
 const byStatus = books.reduce((acc, row) => {
   const key = row.Status || "Unknown";
   acc[key] = (acc[key] ?? 0) + 1;
@@ -25,12 +32,13 @@ const topRated = books
   .slice(0, 5)
   .map((row) => ({ Book: linkedBook(row), Rating: row.Rating, Status: row.Status }));
 
+// ── Render dashboard ────────────────────────────────────────────
 ui.render(
   ui.heading("Reading dashboard", 2),
   ui.row(
-    ui.text(books.length + " books"),
-    ui.text(finishedThisYear.length + " finished this year"),
-    ui.text(queue.filter((item) => !item.done).length + " queued"),
+    ui.metric("Books", books.length, { icon: "ti ti-books", tone: "info" }),
+    ui.metric("Finished this year", finishedThisYear.length, { icon: "ti ti-check", tone: "success" }),
+    ui.metric("Queued", queue.filter((item) => !item.done).length, { icon: "ti ti-list-check", tone: "warning" }),
   ),
   ui.table(reading, { emptyText: "No current reads." }),
   ui.chart("donut", {
@@ -53,7 +61,8 @@ ui.render(
   }, { icon: "ti ti-book-2" }),
 );`;
 
-const readingLibraryScript = `const bookNotes = (await nb.search("#book")).sort((a, b) => a.title.localeCompare(b.title));
+const readingLibraryScript = `// Book note index
+const bookNotes = (await nb.search("#book")).sort((a, b) => a.title.localeCompare(b.title));
 
 ui.render(
   ui.heading("Book notes", 2),
@@ -69,14 +78,7 @@ ui.render(
   }), { emptyText: "No book notes yet." }),
 );`;
 
-const bookContent = (
-  title: string,
-  author: string,
-  status: string,
-  rating: string,
-  quotes: string[],
-  notes: string[],
-) => `# ${title}
+const bookContent = (title: string, author: string, status: string, rating: string, quotes: string[], notes: string[]) => `# ${title}
 
 #book
 
@@ -110,12 +112,23 @@ export const readingListTemplate: NotebookTemplate = {
     {
       key: "dashboard",
       title: "Reading Dashboard",
-      content: `# Reading Dashboard
+      content: (c) => `# Reading Dashboard
 
 #reading
 
 :::success
-Use the books table for structured tracking and book notes for quotes and thoughts. The dashboard reads both.
+Start here. Keep the reading system light: one table for tracking, separate notes only for books that earn them.
+:::
+
+## How to use this reading list
+
+1. Track status, dates, and ratings in ${c.link("books", "Books")}.
+2. Use book notes for quotes and thoughts that are worth keeping.
+3. Add quick ideas to the reading queue below, then decide later what to read.
+4. Do not over-manage reading. The dashboard is for direction, not pressure.
+
+:::info
+The books table is the source of truth. Book notes add depth, quotes, and personal observations.
 :::
 
 \`\`\`script
@@ -180,10 +193,7 @@ Keep this table small. If a book needs real notes, create a page and link it fro
         "Robin Wall Kimmerer",
         "Want",
         "",
-        [
-          "Read with the garden log open.",
-          "Track plant names and practices that connect to local ecology.",
-        ],
+        ["Read with the garden log open.", "Track plant names and practices that connect to local ecology."],
         [
           "Potential bridge between reading notes and the native hedge plan.",
           "Look for practical observations, not only beautiful passages.",
