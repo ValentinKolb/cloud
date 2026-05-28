@@ -43,6 +43,8 @@ import { sql } from "bun";
 import { gridsService } from "../service";
 
 const LOL_UID = "lol";
+const WEBHOOK_BROWSER_URL = "http://localhost:3000/tools/api/webhooks/receive/8aab0bdb06dee7572f8aa2cbca7114a575b45f01fb58f86d";
+const WEBHOOK_RUNTIME_URL = "http://app-tools:3000/tools/api/webhooks/receive/8aab0bdb06dee7572f8aa2cbca7114a575b45f01fb58f86d";
 
 const log = (msg: string) => console.log(`  ${msg}`);
 const pgTextArray = (values: string[]) => `{${values.map((value) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(",")}}`;
@@ -650,10 +652,57 @@ const main = async () => {
   }
   log(`set as base default`);
 
+  // ──────────────────────────────────────────────────────────────────
+  // AUTOMATIONS — webhook demos against the Tools webhook tester
+  // ──────────────────────────────────────────────────────────────────
+  // `localhost` is correct in the browser, but Grids runs inside Docker.
+  // Use the app-tools service name so actual automation delivery works.
+  const mkAutomation = async (
+    name: string,
+    description: string,
+    trigger: Parameters<typeof gridsService.automation.create>[1]["trigger"],
+    position: number,
+  ) => {
+    const r = await gridsService.automation.create(
+      baseId,
+      {
+        name,
+        description,
+        trigger,
+        action: { kind: "webhook", url: WEBHOOK_RUNTIME_URL, timeoutMs: 15_000 },
+        payload: { includeRecord: trigger.kind === "record" },
+        enabled: true,
+        position,
+      },
+      actor,
+    );
+    if (!r.ok) throw new Error(`automation.create ${name}: ${r.error.message}`);
+    return r.data;
+  };
+
+  const customerCreatedAutomation = await mkAutomation(
+    "Webhook · new customer",
+    `Sends new customer records to the Tools webhook tester. Browser URL: ${WEBHOOK_BROWSER_URL}`,
+    { kind: "record", event: "created", tableId: customersTable },
+    0,
+  );
+  log(`automation: ${customerCreatedAutomation.name} (slug=${customerCreatedAutomation.shortId})`);
+
+  const orderCreatedAutomation = await mkAutomation(
+    "Webhook · new order",
+    `Sends new order records to the Tools webhook tester. Browser URL: ${WEBHOOK_BROWSER_URL}`,
+    { kind: "record", event: "created", tableId: ordersTable },
+    1,
+  );
+  log(`automation: ${orderCreatedAutomation.name} (slug=${orderCreatedAutomation.shortId})`);
+
   console.log("");
   console.log("✓ Demo seeded.");
   console.log(`  open:      /app/grids/${baseRes.data.shortId}`);
   console.log(`  dashboard: /app/grids/${baseRes.data.shortId}/dashboard/${dashboard.shortId}`);
+  console.log(`  automations: /app/grids/${baseRes.data.shortId}/automations`);
+  console.log(`  webhook browser URL: ${WEBHOOK_BROWSER_URL}`);
+  console.log(`  webhook runtime URL: ${WEBHOOK_RUNTIME_URL}`);
   console.log(`  public form: /share/grids/forms/${formToken}`);
 
   await sql.end();

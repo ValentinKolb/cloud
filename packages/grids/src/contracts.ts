@@ -909,6 +909,12 @@ export const AutomationTriggerSchema = z.discriminatedUnion("kind", [
     cron: z.string().trim().min(1).max(120),
     timezone: z.string().trim().min(1).max(80).optional(),
   }),
+  z.object({
+    kind: z.literal("record"),
+    event: z.enum(["created", "updated", "deleted"]),
+    tableId: z.string().uuid().optional(),
+    filter: FilterTreeSchema.optional(),
+  }),
 ]);
 export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
 

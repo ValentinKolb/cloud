@@ -9,6 +9,9 @@ const parseWorkspaceHref = (href: string) => {
   if (parts[0] !== "app" || parts[1] !== "grids" || !parts[2]) return null;
   const baseShortId = parts[2];
   if (parts.length === 3) return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
+  if (parts.length === 4 && parts[3] === "automations") {
+    return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: null };
+  }
   if (parts.length === 5 && parts[3] === "dashboard") {
     return { baseShortId, activeTableSlug: null, activeViewSlug: null, activeDashboardSlug: parts[4] };
   }

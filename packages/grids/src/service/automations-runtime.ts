@@ -1,6 +1,7 @@
 import { job, scheduler } from "@valentinkolb/sync";
 import { logger, get as settingsGet } from "@valentinkolb/cloud/services";
 import * as automations from "./automations";
+import type { GridsRecordEvent } from "./record-events";
 import type { Automation, AutomationSubject } from "./types";
 
 const log = logger("grids:automations");
@@ -9,11 +10,13 @@ const RUN_RETENTION_SCHEDULE_ID = "maintenance:automation-runs";
 
 type AutomationJobInput = {
   automationId: string;
-  triggerKind: "schedule";
+  triggerKind: "schedule" | "event";
+  eventName?: string;
+  triggerDetails?: Record<string, unknown>;
   reason: string;
   input: null;
   subject: AutomationSubject;
-  slotTs: number;
+  slotTs?: number;
 };
 
 const automationJob = job<AutomationJobInput, { runId: string | null; status: string }>({
@@ -22,7 +25,7 @@ const automationJob = job<AutomationJobInput, { runId: string | null; status: st
   process: async ({ ctx }) => {
     const result = await automations.execute(ctx.input);
     if (!result.ok) {
-      log.warn("Scheduled automation execution failed before run creation", {
+      log.warn("Automation execution failed before run creation", {
         automationId: ctx.input.automationId,
         error: result.error.message,
       });
@@ -36,6 +39,8 @@ let started = false;
 let registerPromise: Promise<void> | null = null;
 
 const scheduleId = (automationId: string): string => `automation:${automationId}`;
+const eventJobKey = (automationId: string, event: GridsRecordEvent): string =>
+  `${automationId}:${event.type}:${event.recordId}:${event.version ?? "deleted"}:${event.occurredAt}`;
 
 const getTimezone = async (automation: Automation): Promise<string> => {
   if (automation.trigger.kind === "schedule" && automation.trigger.timezone) {
@@ -145,5 +150,38 @@ export const automationRuntime = {
 
   delete: async (automationId: string): Promise<void> => {
     await automationScheduler.delete({ id: scheduleId(automationId) });
+  },
+
+  dispatchRecordEvent: async (event: GridsRecordEvent): Promise<void> => {
+    const candidates = await automations.listRecordEventEnabled(event);
+    for (const automation of candidates) {
+      const matched = await automations.recordMatchesAutomationFilter(automation, event);
+      if (!matched.ok) {
+        log.warn("Record automation filter failed", {
+          automationId: automation.id,
+          tableId: event.tableId,
+          recordId: event.recordId,
+          error: matched.error.message,
+        });
+        continue;
+      }
+      if (!matched.data) continue;
+      await automationJob.submit({
+        key: eventJobKey(automation.id, event),
+        input: {
+          automationId: automation.id,
+          triggerKind: "event",
+          eventName: event.type,
+          triggerDetails: {
+            recordEvent: event.type,
+            changedFieldIds: event.changedFieldIds,
+            occurredAt: event.occurredAt,
+          },
+          reason: event.type,
+          input: null,
+          subject: { type: "record", tableId: event.tableId, recordId: event.recordId },
+        },
+      });
+    }
   },
 };

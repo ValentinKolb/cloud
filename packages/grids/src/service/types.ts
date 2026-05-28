@@ -1,4 +1,4 @@
-import type { ColumnSpec } from "../contracts";
+import type { ColumnSpec, FilterTree } from "../contracts";
 
 export type Base = {
   id: string;
@@ -181,7 +181,8 @@ export type GridFileContent = GridFile & {
 
 export type AutomationTrigger =
   | { kind: "manual" }
-  | { kind: "schedule"; cron: string; timezone?: string };
+  | { kind: "schedule"; cron: string; timezone?: string }
+  | { kind: "record"; event: "created" | "updated" | "deleted"; tableId?: string; filter?: FilterTree };
 
 export type AutomationAction = {
   kind: "webhook";
@@ -212,9 +213,7 @@ export type Automation = {
   updatedAt: string;
 };
 
-export type AutomationSubject =
-  | { type: "base" }
-  | { type: "record"; tableId: string; recordId: string };
+export type AutomationSubject = { type: "base" } | { type: "record"; tableId: string; recordId: string };
 
 export type AutomationRun = {
   id: string;

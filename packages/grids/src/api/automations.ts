@@ -31,7 +31,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const baseId = c.req.param("baseId")!;
-      const gate = await gateAt(c, { baseId }, "read");
+      const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(await gridsService.automation.listForBase(baseId));
     },
@@ -74,9 +74,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const automationId = c.req.param("automationId")!;
-      const automation = await gridsService.automation.get(automationId) as Automation | null;
+      const automation = (await gridsService.automation.get(automationId)) as Automation | null;
       if (!automation) return c.json({ message: "Automation not found" }, 404);
-      const gate = await gateAt(c, { baseId: automation.baseId }, "read");
+      const gate = await gateAt(c, { baseId: automation.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(automation);
     },
@@ -97,7 +97,7 @@ const app = new Hono<AuthContext>()
     v("json", UpdateAutomationSchema),
     async (c) => {
       const automationId = c.req.param("automationId")!;
-      const existing = await gridsService.automation.get(automationId) as Automation | null;
+      const existing = (await gridsService.automation.get(automationId)) as Automation | null;
       if (!existing) return c.json({ message: "Automation not found" }, 404);
       const gate = await gateAt(c, { baseId: existing.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
@@ -122,7 +122,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const automationId = c.req.param("automationId")!;
-      const existing = await gridsService.automation.get(automationId) as Automation | null;
+      const existing = (await gridsService.automation.get(automationId)) as Automation | null;
       if (!existing) return c.json({ message: "Automation not found" }, 404);
       const gate = await gateAt(c, { baseId: existing.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
@@ -149,20 +149,22 @@ const app = new Hono<AuthContext>()
     v("json", RunAutomationSchema),
     async (c) => {
       const automationId = c.req.param("automationId")!;
-      const automation = await gridsService.automation.get(automationId) as Automation | null;
+      const automation = (await gridsService.automation.get(automationId)) as Automation | null;
       if (!automation) return c.json({ message: "Automation not found" }, 404);
       const gate = await gateAt(c, { baseId: automation.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       const body = c.req.valid("json");
-      return respond(c, () => gridsService.automation.execute({
-        automationId,
-        triggerKind: "manual",
-        reason: body.reason ?? "manual",
-        actorId: user.id,
-        input: body.input ?? null,
-        subject: body.subject ?? { type: "base" },
-      }));
+      return respond(c, () =>
+        gridsService.automation.execute({
+          automationId,
+          triggerKind: "manual",
+          reason: body.reason ?? "manual",
+          actorId: user.id,
+          input: body.input ?? null,
+          subject: body.subject ?? { type: "base" },
+        }),
+      );
     },
   )
 
@@ -179,9 +181,9 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const automationId = c.req.param("automationId")!;
-      const automation = await gridsService.automation.get(automationId) as Automation | null;
+      const automation = (await gridsService.automation.get(automationId)) as Automation | null;
       if (!automation) return c.json({ message: "Automation not found" }, 404);
-      const gate = await gateAt(c, { baseId: automation.baseId }, "read");
+      const gate = await gateAt(c, { baseId: automation.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const parsedLimit = z.coerce.number().int().min(1).max(200).safeParse(c.req.query("limit"));
       const limit = parsedLimit.success ? parsedLimit.data : 50;

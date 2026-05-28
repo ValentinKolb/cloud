@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { crypto } from "@valentinkolb/stdlib";
+import { AutomationTriggerSchema } from "./contracts";
 
 /**
  * Schema for the Grids app: bases → tables → (fields, records, views, forms).
@@ -690,6 +691,27 @@ export const migrate = async (): Promise<void> => {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_automations_short_id
     ON grids.automations(base_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
   `.simple();
+  {
+    const rows = await sql<{ id: string; trigger: string }[]>`
+      SELECT id::text AS id, trigger #>> '{}' AS trigger
+      FROM grids.automations
+      WHERE jsonb_typeof(trigger) = 'string'
+    `;
+    for (const row of rows) {
+      try {
+        const parsed = AutomationTriggerSchema.safeParse(JSON.parse(row.trigger));
+        if (!parsed.success) continue;
+        await sql`
+          UPDATE grids.automations
+          SET trigger = (${JSON.stringify(parsed.data)}::text)::jsonb
+          WHERE id = ${row.id}::uuid
+        `;
+      } catch {
+        // Leave invalid legacy strings untouched; service reads them as manual
+        // and future saves rewrite through the contract parser.
+      }
+    }
+  }
   console.log("  ✓ grids.automations");
 
   await sql`

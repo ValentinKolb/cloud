@@ -1,6 +1,7 @@
 import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
 import { createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { apiClient } from "../../../api/client";
+import AutomationsPage from "../automations/AutomationsPage.island";
 import DashboardLayout from "../dashboard/DashboardLayout";
 import DashboardWysiwygEditor from "../dashboard/DashboardWysiwygEditor.island";
 import RecordsView from "../records-view/RecordsView.island";
@@ -113,6 +114,7 @@ export default function GridsWorkspace(props: Props) {
     const route = s.route;
     if (route.kind === "records") return `records:${route.activeTable.id}:${route.activeView?.id ?? ""}:${s.adminModeRequested}`;
     if (route.kind === "dashboard") return `dashboard:${route.dashboard.id}:${s.adminModeRequested}`;
+    if (route.kind === "automations") return `automations:${s.base.id}`;
     return `${route.kind}:${s.adminModeRequested}`;
   };
 
@@ -176,6 +178,15 @@ export default function GridsWorkspace(props: Props) {
         <DashboardLayout dashboard={route.dashboard} widgetData={route.widgetData} baseShortId={state().base.shortId} />
       )}
     </div>
+  );
+
+  const renderAutomations = () => (
+    <AutomationsPage
+      baseId={state().base.id}
+      baseShortId={state().base.shortId}
+      tables={state().catalog.tables}
+      fieldsByTable={state().catalog.fieldsByTable}
+    />
   );
 
   return (
@@ -315,6 +326,19 @@ export default function GridsWorkspace(props: Props) {
                   }),
                 )}
               </AppWorkspace.SidebarSection>
+
+              <Show when={state().canManageBase}>
+                <AppWorkspace.SidebarSection title="Admin">
+                  <AppWorkspace.SidebarItem
+                    href={`/app/grids/${state().base.shortId}/automations`}
+                    icon="ti ti-bolt"
+                    onNavigate={handleNavigate}
+                    active={state().route.kind === "automations"}
+                  >
+                    Automations
+                  </AppWorkspace.SidebarItem>
+                </AppWorkspace.SidebarSection>
+              </Show>
             </AppWorkspace.SidebarMobileBody>
           </AppWorkspace.SidebarMobile>
 
@@ -420,6 +444,19 @@ export default function GridsWorkspace(props: Props) {
                   }),
                 )}
               </AppWorkspace.SidebarSection>
+
+              <Show when={state().canManageBase}>
+                <AppWorkspace.SidebarSection title="Admin">
+                  <AppWorkspace.SidebarItem
+                    href={`/app/grids/${state().base.shortId}/automations`}
+                    icon="ti ti-bolt"
+                    onNavigate={handleNavigate}
+                    active={state().route.kind === "automations"}
+                  >
+                    Automations
+                  </AppWorkspace.SidebarItem>
+                </AppWorkspace.SidebarSection>
+              </Show>
             </AppWorkspace.SidebarBody>
 
             {state().canUseEditMode && (
@@ -446,6 +483,7 @@ export default function GridsWorkspace(props: Props) {
             {(route) => (
               <Switch>
                 <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
+                <Match when={route.kind === "automations"}>{renderAutomations()}</Match>
                 <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
                 <Match when={route.kind === "empty"}>
                   <div class="paper p-8 text-center text-sm text-dimmed">

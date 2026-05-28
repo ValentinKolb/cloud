@@ -84,7 +84,11 @@ export type WorkspaceEmptyRoute = {
   kind: "empty";
 };
 
-export type GridsWorkspaceRoute = WorkspaceRecordsRoute | WorkspaceDashboardRoute | WorkspaceEmptyRoute;
+export type WorkspaceAutomationsRoute = {
+  kind: "automations";
+};
+
+export type GridsWorkspaceRoute = WorkspaceRecordsRoute | WorkspaceDashboardRoute | WorkspaceAutomationsRoute | WorkspaceEmptyRoute;
 
 export type GridsWorkspaceState =
   | { kind: "notFound"; title: string; message: string }
@@ -226,6 +230,24 @@ export const loadGridsWorkspaceState = async (params: {
   }
   const renderDashboard = activeDashboard ? (dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
   const activeTableFromSlug = params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
+  if (url.pathname.endsWith("/automations")) {
+    if (!canManageBase) return { kind: "accessDenied", title: "Access denied", message: "Only base admins can manage automations" };
+    return {
+      kind: "ok",
+      base,
+      baseShortId: base.shortId,
+      title: [...titleBase, { title: "Automations" }],
+      rememberPath,
+      adminModeRequested,
+      editModeToggleHref,
+      canManageBase,
+      canCreateTables,
+      canUseEditMode,
+      catalog,
+      route: { kind: "automations" },
+    };
+  }
+
   const activeTableId = activeTableFromSlug?.id ?? null;
   const activeTable = activeTableId ? (tables.find((t) => t.id === activeTableId) ?? null) : activeDashboard ? null : (tables[0] ?? null);
 

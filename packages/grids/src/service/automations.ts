@@ -17,7 +17,9 @@ import { logAudit } from "./audit";
 import { insertWithShortId } from "./short-id";
 import { get as getTable } from "./tables";
 import { listByTable as listFields } from "./fields";
+import { compileFilter, renderClause } from "./filter-compiler";
 import { get as getRecord } from "./records";
+import type { GridsRecordEvent } from "./record-events";
 import type {
   Automation,
   AutomationAction,
@@ -56,18 +58,18 @@ const RUN_RETENTION_SETTING = "grids.automation_run_retention_days";
 type AutomationWithSecret = Automation & { webhookSecret: string | null };
 
 const normalizeAction = (value: unknown): AutomationAction => {
-  const parsed = AutomationActionSchema.safeParse(value);
+  const parsed = AutomationActionSchema.safeParse(parseJsonbRow(value, value));
   if (parsed.success) return parsed.data;
   return { kind: "webhook", url: "http://invalid.local" };
 };
 
 const normalizeTrigger = (value: unknown): AutomationTrigger => {
-  const parsed = AutomationTriggerSchema.safeParse(value);
+  const parsed = AutomationTriggerSchema.safeParse(parseJsonbRow(value, value));
   return parsed.success ? parsed.data : { kind: "manual" };
 };
 
 const normalizePayload = (value: unknown): AutomationPayloadConfig => {
-  const parsed = AutomationPayloadConfigSchema.safeParse(value);
+  const parsed = AutomationPayloadConfigSchema.safeParse(parseJsonbRow(value, value));
   return parsed.success ? parsed.data : {};
 };
 
@@ -120,6 +122,21 @@ const mapRunRow = (row: DbRow): AutomationRun => ({
   finishedAt: row.finished_at ? (row.finished_at as Date).toISOString() : null,
 });
 
+export const parseAutomationTriggerInput = (value: unknown): Result<AutomationTrigger> => {
+  const parsed = AutomationTriggerSchema.safeParse(parseJsonbRow(value, value));
+  return parsed.success ? ok(parsed.data) : fail(err.badInput("automation trigger is invalid"));
+};
+
+const parseActionInput = (value: unknown): Result<AutomationAction> => {
+  const parsed = AutomationActionSchema.safeParse(parseJsonbRow(value, value));
+  return parsed.success ? ok(parsed.data) : fail(err.badInput("automation action is invalid"));
+};
+
+const parsePayloadInput = (value: unknown): Result<AutomationPayloadConfig> => {
+  const parsed = AutomationPayloadConfigSchema.safeParse(parseJsonbRow(value, value));
+  return parsed.success ? ok(parsed.data) : fail(err.badInput("automation payload is invalid"));
+};
+
 export const validateSchedule = (trigger: AutomationTrigger): Result<void> => {
   if (trigger.kind !== "schedule") return ok();
   const parts = trigger.cron.trim().split(/\s+/);
@@ -146,6 +163,20 @@ export const validateSchedule = (trigger: AutomationTrigger): Result<void> => {
   return ok();
 };
 
+const validateRecordTrigger = async (baseId: string, trigger: AutomationTrigger): Promise<Result<void>> => {
+  if (trigger.kind !== "record") return ok();
+  if (trigger.filter && !trigger.tableId) return fail(err.badInput("record trigger filters require a table"));
+  if (!trigger.tableId) return ok();
+  const table = await getTable(trigger.tableId);
+  if (!table || table.baseId !== baseId) return fail(err.badInput("record trigger table must belong to the automation base"));
+  if (trigger.filter) {
+    const fields = await listFields(trigger.tableId);
+    const compiled = compileFilter(trigger.filter, fields);
+    if (!compiled.ok) return fail(err.badInput(`automation filter is invalid: ${compiled.error}`));
+  }
+  return ok();
+};
+
 export const isValidCronPart = (part: string, min: number, max: number): boolean => {
   if (!part || !/^[0-9*/,\-]+$/.test(part)) return false;
   const atoms = part.split(",");
@@ -167,17 +198,23 @@ export const isValidCronPart = (part: string, min: number, max: number): boolean
   });
 };
 
-const validateInput = (input: {
-  trigger: AutomationTrigger;
-  action: AutomationAction;
-}): Result<void> => {
+const validateInput = async (
+  baseId: string,
+  input: {
+    trigger: AutomationTrigger;
+    action: AutomationAction;
+  },
+): Promise<Result<void>> => {
   const schedule = validateSchedule(input.trigger);
   if (!schedule.ok) return schedule;
+  const recordTrigger = await validateRecordTrigger(baseId, input.trigger);
+  if (!recordTrigger.ok) return recordTrigger;
   if (input.action.kind !== "webhook") return fail(err.badInput("unsupported automation action"));
   return ok();
 };
 
-export const eventFor = (triggerKind: "manual" | "schedule", subject: AutomationSubject): string => {
+export const eventFor = (triggerKind: "manual" | "schedule" | "event", subject: AutomationSubject, eventName?: string): string => {
+  if (triggerKind === "event") return eventName ?? (subject.type === "record" ? "record.event" : "automation.event");
   if (subject.type === "record") return triggerKind === "schedule" ? "record.scheduled" : "record.manual";
   return triggerKind === "schedule" ? "automation.scheduled" : "automation.manual";
 };
@@ -185,8 +222,7 @@ export const eventFor = (triggerKind: "manual" | "schedule", subject: Automation
 export const buildWebhookSignature = (secret: string, timestamp: string, body: string): string =>
   `sha256=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`;
 
-const ipv4ToNumber = (ip: string): number =>
-  ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
+const ipv4ToNumber = (ip: string): number => ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
 
 const ipv4InRange = (ip: string, base: string, bits: number): boolean => {
   const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
@@ -206,13 +242,7 @@ export const isUnsafeWebhookAddress = (address: string): boolean => {
   }
   const lower = address.toLowerCase();
   if (lower.startsWith("::ffff:")) return isUnsafeWebhookAddress(lower.slice("::ffff:".length));
-  return (
-    lower === "::" ||
-    lower === "::1" ||
-    lower.startsWith("fe80:") ||
-    lower.startsWith("fc") ||
-    lower.startsWith("fd")
-  );
+  return lower === "::" || lower === "::1" || lower.startsWith("fe80:") || lower.startsWith("fc") || lower.startsWith("fd");
 };
 
 export const isUnsafeWebhookHost = (hostname: string): boolean => {
@@ -226,6 +256,12 @@ export const isUnsafeWebhookHost = (hostname: string): boolean => {
   );
 };
 
+export const isTrustedInternalWebhookTarget = (url: URL): boolean =>
+  url.protocol === "http:" &&
+  url.hostname.toLowerCase() === "app-tools" &&
+  (url.port === "" || url.port === "3000") &&
+  url.pathname.startsWith("/tools/api/webhooks/receive/");
+
 const validateWebhookTarget = async (rawUrl: string): Promise<Result<URL>> => {
   let url: URL;
   try {
@@ -236,6 +272,8 @@ const validateWebhookTarget = async (rawUrl: string): Promise<Result<URL>> => {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     return fail(err.badInput("webhook URL must use http or https"));
   }
+
+  if (isTrustedInternalWebhookTarget(url)) return ok(url);
 
   const allowPrivate = Boolean(await settingsGet<boolean>(PRIVATE_WEBHOOKS_SETTING));
   if (allowPrivate) return ok(url);
@@ -254,20 +292,14 @@ const validateWebhookTarget = async (rawUrl: string): Promise<Result<URL>> => {
   return ok(url);
 };
 
-export const filterRecordData = (
-  record: GridRecord,
-  payload: AutomationPayloadConfig,
-): GridRecord => {
+export const filterRecordData = (record: GridRecord, payload: AutomationPayloadConfig): GridRecord => {
   if (!payload.fieldIds) return record;
   const allowed = new Set(payload.fieldIds);
   const data = Object.fromEntries(Object.entries(record.data).filter(([fieldId]) => allowed.has(fieldId)));
   return { ...record, data };
 };
 
-const resolveRecord = async (
-  automation: AutomationWithSecret,
-  subject: AutomationSubject,
-): Promise<Result<GridRecord | null>> => {
+const resolveRecord = async (automation: AutomationWithSecret, subject: AutomationSubject): Promise<Result<GridRecord | null>> => {
   if (subject.type !== "record") return ok(null);
   const table = await getTable(subject.tableId);
   if (!table || table.baseId !== automation.baseId) {
@@ -347,6 +379,46 @@ export const listScheduledEnabled = async (): Promise<Automation[]> => {
   return rows.map((row) => publicAutomation(mapRow(row)));
 };
 
+export const listRecordEventEnabled = async (event: GridsRecordEvent): Promise<Automation[]> => {
+  const eventName = event.type.replace("record.", "");
+  const rows = await sql<DbRow[]>`
+    SELECT ${AUTOMATION_COLS_PREFIXED}
+    FROM grids.automations a
+    JOIN grids.bases b ON b.id = a.base_id AND b.deleted_at IS NULL
+    WHERE a.deleted_at IS NULL
+      AND a.enabled = TRUE
+      AND a.base_id = ${event.baseId}::uuid
+      AND a.trigger->>'kind' = 'record'
+      AND a.trigger->>'event' = ${eventName}
+      AND (
+        a.trigger->>'tableId' IS NULL
+        OR a.trigger->>'tableId' = ${event.tableId}
+      )
+    ORDER BY a.created_at, a.id
+  `;
+  return rows.map((row) => publicAutomation(mapRow(row)));
+};
+
+export const recordMatchesAutomationFilter = async (automation: Automation, event: GridsRecordEvent): Promise<Result<boolean>> => {
+  if (automation.trigger.kind !== "record" || !automation.trigger.filter) return ok(true);
+  const tableId = automation.trigger.tableId ?? event.tableId;
+  const fields = await listFields(tableId);
+  const compiled = compileFilter(automation.trigger.filter, fields);
+  if (!compiled.ok) return fail(err.badInput(`automation filter is invalid: ${compiled.error}`));
+  const clause = renderClause(compiled.clause);
+  const [row] = await sql<{ matched: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1
+      FROM grids.records r
+      WHERE r.id = ${event.recordId}::uuid
+        AND r.table_id = ${tableId}::uuid
+        AND ${event.type === "record.deleted" ? sql`TRUE` : sql`r.deleted_at IS NULL`}
+        AND ${clause}
+    ) AS matched
+  `;
+  return ok(Boolean(row?.matched));
+};
+
 export const get = async (
   id: string,
   opts: { includeDeleted?: boolean; includeSecret?: boolean } = {},
@@ -372,16 +444,19 @@ const getWithSecret = async (id: string): Promise<AutomationWithSecret | null> =
   return automation as AutomationWithSecret | null;
 };
 
-export const create = async (
-  baseId: string,
-  input: CreateAutomationInput,
-  actorId: string | null,
-): Promise<Result<Automation>> => {
+export const create = async (baseId: string, input: CreateAutomationInput, actorId: string | null): Promise<Result<Automation>> => {
   const name = input.name.trim();
   if (!name) return fail(err.badInput("name required"));
-  const trigger = input.trigger;
-  const action = input.action;
-  const checked = validateInput({ trigger, action });
+  const triggerResult = parseAutomationTriggerInput(input.trigger);
+  if (!triggerResult.ok) return triggerResult;
+  const actionResult = parseActionInput(input.action);
+  if (!actionResult.ok) return actionResult;
+  const payloadResult = parsePayloadInput(input.payload ?? {});
+  if (!payloadResult.ok) return payloadResult;
+  const trigger = triggerResult.data;
+  const action = actionResult.data;
+  const payload = payloadResult.data;
+  const checked = await validateInput(baseId, { trigger, action });
   if (!checked.ok) return checked;
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
@@ -395,9 +470,9 @@ export const create = async (
         ${baseId}::uuid,
         ${name},
         ${input.description ?? null},
-        ${JSON.stringify(trigger)}::jsonb,
-        ${JSON.stringify(action)}::jsonb,
-        ${JSON.stringify(input.payload ?? {})}::jsonb,
+        (${JSON.stringify(trigger)}::text)::jsonb,
+        (${JSON.stringify(action)}::text)::jsonb,
+        (${JSON.stringify(payload)}::text)::jsonb,
         ${input.webhookSecret ?? null},
         ${input.enabled ?? true},
         ${input.position ?? 0},
@@ -419,38 +494,38 @@ export const create = async (
   return ok(automation);
 };
 
-export const update = async (
-  id: string,
-  input: UpdateAutomationInput,
-  actorId: string | null,
-): Promise<Result<Automation>> => {
+export const update = async (id: string, input: UpdateAutomationInput, actorId: string | null): Promise<Result<Automation>> => {
   const existing = await getWithSecret(id);
   if (!existing) return fail(err.notFound("automation"));
+
+  const triggerResult = input.trigger === undefined ? ok(existing.trigger) : parseAutomationTriggerInput(input.trigger);
+  if (!triggerResult.ok) return triggerResult;
+  const actionResult = input.action === undefined ? ok(existing.action) : parseActionInput(input.action);
+  if (!actionResult.ok) return actionResult;
+  const payloadResult = input.payload === undefined ? ok(existing.payload) : parsePayloadInput(input.payload);
+  if (!payloadResult.ok) return payloadResult;
 
   const next = {
     name: input.name?.trim() ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
-    trigger: input.trigger ?? existing.trigger,
-    action: input.action ?? existing.action,
-    payload: input.payload ?? existing.payload,
+    trigger: triggerResult.data,
+    action: actionResult.data,
+    payload: payloadResult.data,
     enabled: input.enabled ?? existing.enabled,
     position: input.position ?? existing.position,
-    webhookSecret:
-      input.webhookSecret === undefined
-        ? existing.webhookSecret
-        : input.webhookSecret,
+    webhookSecret: input.webhookSecret === undefined ? existing.webhookSecret : input.webhookSecret,
   };
   if (!next.name) return fail(err.badInput("name cannot be empty"));
-  const checked = validateInput({ trigger: next.trigger, action: next.action });
+  const checked = await validateInput(existing.baseId, { trigger: next.trigger, action: next.action });
   if (!checked.ok) return checked;
 
   const [row] = await sql<DbRow[]>`
     UPDATE grids.automations
     SET name = ${next.name},
         description = ${next.description},
-        trigger = ${JSON.stringify(next.trigger)}::jsonb,
-        action = ${JSON.stringify(next.action)}::jsonb,
-        payload = ${JSON.stringify(next.payload)}::jsonb,
+        trigger = (${JSON.stringify(next.trigger)}::text)::jsonb,
+        action = (${JSON.stringify(next.action)}::text)::jsonb,
+        payload = (${JSON.stringify(next.payload)}::text)::jsonb,
         enabled = ${next.enabled},
         position = ${next.position},
         webhook_secret = ${next.webhookSecret ?? null},
@@ -483,11 +558,7 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   return ok();
 };
 
-export const listRuns = async (
-  automationId: string,
-  limit = 50,
-  opts: { redactErrors?: boolean } = {},
-): Promise<AutomationRun[]> => {
+export const listRuns = async (automationId: string, limit = 50, opts: { redactErrors?: boolean } = {}): Promise<AutomationRun[]> => {
   const cap = Math.min(Math.max(limit, 1), 200);
   const rows = await sql<DbRow[]>`
     SELECT ${RUN_COLS}
@@ -502,9 +573,7 @@ export const listRuns = async (
   });
 };
 
-export const markStaleRunningRunsFailed = async (
-  maxAgeSeconds = DEFAULT_STALE_RUNNING_SECONDS,
-): Promise<number> => {
+export const markStaleRunningRunsFailed = async (maxAgeSeconds = DEFAULT_STALE_RUNNING_SECONDS): Promise<number> => {
   const result = await sql`
     UPDATE grids.automation_runs
     SET status = 'failed',
@@ -518,10 +587,9 @@ export const markStaleRunningRunsFailed = async (
 };
 
 export const purgeOldRuns = async (retentionDays?: number): Promise<number> => {
-  const configured = retentionDays ?? await settingsGet<number>(RUN_RETENTION_SETTING);
-  const days = typeof configured === "number" && Number.isFinite(configured) && configured > 0
-    ? Math.floor(configured)
-    : DEFAULT_RUN_RETENTION_DAYS;
+  const configured = retentionDays ?? (await settingsGet<number>(RUN_RETENTION_SETTING));
+  const days =
+    typeof configured === "number" && Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : DEFAULT_RUN_RETENTION_DAYS;
   const result = await sql`
     DELETE FROM grids.automation_runs
     WHERE created_at < now() - (${days} || ' days')::interval
@@ -531,7 +599,9 @@ export const purgeOldRuns = async (retentionDays?: number): Promise<number> => {
 
 export const execute = async (params: {
   automationId: string;
-  triggerKind: "manual" | "schedule";
+  triggerKind: "manual" | "schedule" | "event";
+  eventName?: string;
+  triggerDetails?: Record<string, unknown>;
   reason?: string;
   actorId?: string | null;
   input?: unknown | null;
@@ -542,7 +612,7 @@ export const execute = async (params: {
   if (!automation) return fail(err.notFound("automation"));
   // Manual runs intentionally bypass `enabled`: admins can test a paused
   // automation without re-enabling scheduled/event triggers.
-  if (!automation.enabled && params.triggerKind === "schedule") {
+  if (!automation.enabled && params.triggerKind !== "manual") {
     return fail(err.badInput("automation is disabled"));
   }
   if (automation.action.kind !== "webhook") return fail(err.badInput("unsupported automation action"));
@@ -554,17 +624,25 @@ export const execute = async (params: {
     return fail(err.badInput("automation input exceeds 64 KB"));
   }
   const recordResult = await resolveRecord(automation, subject);
-  if (!recordResult.ok) return recordResult;
+  let recordForPayload: GridRecord | null;
+  if (recordResult.ok) {
+    recordForPayload = recordResult.data;
+  } else if (params.eventName === "record.deleted" && subject.type === "record") {
+    recordForPayload = null;
+  } else {
+    return fail(recordResult.error);
+  }
 
   const target = await validateWebhookTarget(automation.action.url);
   if (!target.ok) return target;
 
-  const event = eventFor(params.triggerKind, subject);
+  const event = eventFor(params.triggerKind, subject, params.eventName);
   const trigger = {
     kind: params.triggerKind,
     reason: params.reason ?? params.triggerKind,
     actorId: params.actorId ?? null,
     ...(params.slotTs ? { slotTs: params.slotTs } : {}),
+    ...(params.triggerDetails ?? {}),
   };
   const targetHost = target.data.host;
   const [runRow] = await sql<DbRow[]>`
@@ -578,9 +656,9 @@ export const execute = async (params: {
       ${subject.type === "record" ? subject.tableId : null}::uuid,
       ${subject.type === "record" ? subject.recordId : null}::uuid,
       ${event},
-      ${JSON.stringify(trigger)}::jsonb,
-      ${JSON.stringify(subject)}::jsonb,
-      ${inputJson}::jsonb,
+      (${JSON.stringify(trigger)}::text)::jsonb,
+      (${JSON.stringify(subject)}::text)::jsonb,
+      (${inputJson}::text)::jsonb,
       'running',
       ${targetHost},
       now()
@@ -590,15 +668,17 @@ export const execute = async (params: {
   if (!runRow) return fail(err.internal("automation run insert failed"));
 
   const runId = runRow.id as string;
-  const body = JSON.stringify(buildPayload({
-    automation,
-    runId,
-    event,
-    trigger,
-    subject,
-    input,
-    record: recordResult.data,
-  }));
+  const body = JSON.stringify(
+    buildPayload({
+      automation,
+      runId,
+      event,
+      trigger,
+      subject,
+      input,
+      record: recordForPayload,
+    }),
+  );
   const timestamp = new Date().toISOString();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -606,9 +686,7 @@ export const execute = async (params: {
     "X-Grids-Run-Id": runId,
     "X-Grids-Automation-Id": automation.id,
     "X-Grids-Event": event,
-    "X-Grids-Idempotency-Key": params.triggerKind === "schedule" && params.slotTs
-      ? `${automation.id}:${params.slotTs}`
-      : runId,
+    "X-Grids-Idempotency-Key": params.triggerKind === "schedule" && params.slotTs ? `${automation.id}:${params.slotTs}` : runId,
     "X-Grids-Timestamp": timestamp,
   };
   if (automation.webhookSecret) {
@@ -656,28 +734,31 @@ export const execute = async (params: {
       WHERE id = ${runId}::uuid
       RETURNING ${RUN_COLS}
     `;
-    await logAudit({
-      baseId: automation.baseId,
-      tableId: subject.type === "record" ? subject.tableId : null,
-      recordId: subject.type === "record" ? subject.recordId : null,
-      userId: params.actorId ?? null,
-      action: status === "succeeded" ? "automation.webhook.sent" : "automation.webhook.failed",
-      diff: {
-        automation: {
-          old: null,
-          new: {
-            automationId: automation.id,
-            runId,
-            event,
-            triggerKind: params.triggerKind,
-            targetHost,
-            httpStatus,
-            durationMs,
-            status,
+    await logAudit(
+      {
+        baseId: automation.baseId,
+        tableId: subject.type === "record" ? subject.tableId : null,
+        recordId: subject.type === "record" ? subject.recordId : null,
+        userId: params.actorId ?? null,
+        action: status === "succeeded" ? "automation.webhook.sent" : "automation.webhook.failed",
+        diff: {
+          automation: {
+            old: null,
+            new: {
+              automationId: automation.id,
+              runId,
+              event,
+              triggerKind: params.triggerKind,
+              targetHost,
+              httpStatus,
+              durationMs,
+              status,
+            },
           },
         },
       },
-    }, tx);
+      tx,
+    );
     return mapRunRow(updatedRow ?? runRow);
   });
 

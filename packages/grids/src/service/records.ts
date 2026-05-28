@@ -1,4 +1,5 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { getHandler } from "../field-types";
 import { defaultTableAggregations } from "../table-defaults";
@@ -11,6 +12,7 @@ import { compileFilter, type FilterTree, renderClause } from "./filter-compiler"
 import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
 import { requireTableAlive } from "./parent-checks";
+import { publishRecordEvent, type GridsRecordEvent } from "./record-events";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
@@ -24,6 +26,7 @@ import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
+const log = logger("grids:records");
 
 const defaultListAggregates = (fields: Field[]): AggregateRequest[] =>
   defaultTableAggregations(fields).map((a) => ({ fieldId: a.fieldId, agg: a.agg }));
@@ -42,6 +45,24 @@ const mapRow = (row: DbRow): GridRecord => ({
   createdAt: (row.created_at as Date).toISOString(),
   updatedAt: (row.updated_at as Date).toISOString(),
 });
+
+const baseIdForTable = async (tableId: string): Promise<string | null> => {
+  const [row] = await sql<{ base_id: string }[]>`
+    SELECT base_id FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
+  `;
+  return row?.base_id ?? null;
+};
+
+const emitRecordEvent = async (event: Omit<GridsRecordEvent, "v" | "occurredAt">): Promise<void> => {
+  const payload: GridsRecordEvent = { v: 1, occurredAt: new Date().toISOString(), ...event };
+  await publishRecordEvent(payload);
+  try {
+    const { automationRuntime } = await import("./automations-runtime");
+    await automationRuntime.dispatchRecordEvent(payload);
+  } catch (error) {
+    log.warn("Failed to dispatch Grids record event", { error: error instanceof Error ? error.message : String(error) });
+  }
+};
 
 /**
  * Splits a validated payload into (a) JSONB-storable scalar/array data
@@ -595,6 +616,18 @@ export const create = async (
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fields, opts.viewer);
   }
+  const baseId = await baseIdForTable(tableId);
+  if (baseId) {
+    await emitRecordEvent({
+      type: "record.created",
+      baseId,
+      tableId,
+      recordId: record.id,
+      version: record.version,
+      changedFieldIds: Object.keys(validated.data),
+      actorId,
+    });
+  }
   return ok(record);
 };
 
@@ -696,10 +729,23 @@ export const update = async (
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fields, opts.viewer);
   }
+  const baseId = await baseIdForTable(tableId);
+  if (baseId) {
+    await emitRecordEvent({
+      type: "record.updated",
+      baseId,
+      tableId,
+      recordId: record.id,
+      version: record.version,
+      changedFieldIds: Object.keys(diff),
+      actorId,
+    });
+  }
   return ok(record);
 };
 
 export const softDelete = async (tableId: string, recordId: string, actorId: string | null): Promise<Result<void>> => {
+  const existing = await get(tableId, recordId);
   const deleted = await sql.begin(async (tx) => {
     const result = await tx`
       UPDATE grids.records
@@ -711,6 +757,18 @@ export const softDelete = async (tableId: string, recordId: string, actorId: str
     return true;
   });
   if (!deleted) return fail(err.notFound("Record"));
+  const baseId = await baseIdForTable(tableId);
+  if (baseId) {
+    await emitRecordEvent({
+      type: "record.deleted",
+      baseId,
+      tableId,
+      recordId,
+      version: existing?.version ?? null,
+      changedFieldIds: existing ? Object.keys(existing.data) : [],
+      actorId,
+    });
+  }
   return ok();
 };
 

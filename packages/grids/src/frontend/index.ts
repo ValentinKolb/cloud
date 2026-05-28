@@ -50,4 +50,5 @@ export default new Hono<AuthContext>()
   .get("/:baseId/table/:tableId", auth.requireRole("user", auth.redirectToLogin), ...tableRecordsPage)
   // Dashboard paths.
   .get("/:baseId/dashboard/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...dashboardRenderPage)
+  .get("/:baseId/automations", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage)
   .get("/:baseId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage);
