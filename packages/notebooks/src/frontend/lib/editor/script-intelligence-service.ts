@@ -157,7 +157,8 @@ interface KitUI {
   md(markdown: string): KitElement;
   noteLink(note: KitNote | string, label?: string): KitElement;
   noteList(notes: KitNote[], options?: { emptyText?: string }): KitElement;
-	  table(rows: unknown[][] | Record<string, unknown>[] | KitTableView, options?: { columns?: string[]; emptyText?: string }): KitElement;
+  /** Cells may contain plain values or direct ui.* elements, such as row action buttons. */
+  table(rows: unknown[][] | Record<string, unknown>[] | KitTableView, options?: { columns?: string[]; emptyText?: string }): KitElement;
   chart<K extends KitChartKind>(kind: K, options: KitChartOptions<K>): KitElement;
   button(label: string, onClick: () => void | Promise<void>, options?: KitButtonOptions): KitElement;
   html(rawHtml: string): KitElement;

@@ -539,7 +539,8 @@ export type KitUI = {
   noteList: (notes: KitNote[], options?: { emptyText?: string }) => KitElement;
   /** Render rows with the same tile-style table surface as Markdown
    *  tables. Notes become note links, tag arrays become tag pills,
-   *  and task arrays / progress-like objects render as compact text. */
+   *  task arrays / progress-like objects render as compact progress,
+   *  and direct `ui.*` elements render as interactive cell content. */
   table: (rows: unknown[][] | Record<string, unknown>[] | KitTableView, options?: { columns?: string[]; emptyText?: string }) => KitElement;
   /** Render an SVG chart using the same stdlib chart options as
    *  `std.charts.*`. Width is measured from the container; pass

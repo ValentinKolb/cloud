@@ -177,6 +177,9 @@ const latest = dailyNotes.slice(-7);
 const inboxNote = (await nb.search("#inbox"))[0];
 const inboxItems = inboxNote?.todo("inbox")?.items ?? [];
 const openInbox = inboxItems.filter((item) => !item.done);
+const openNote = (note) => {
+  window.location.href = "/app/notebooks/" + current.notebook.id + "/notes/" + note.id;
+};
 
 const rows = latest.map((note) => {
   const mood = note.data("mood")?.value ?? {};
@@ -187,6 +190,7 @@ const rows = latest.map((note) => {
     Sleep: mood.sleep ?? "",
     Habits: note.todo("habits")?.items ?? [],
     Tasks: note.todo("tasks")?.items ?? [],
+    Action: ui.button("Open", () => openNote(note), { variant: "secondary", icon: "ti ti-arrow-right" }),
   };
 });
 
@@ -217,7 +221,7 @@ ui.render(
     const year = await ensureNote(String(now.getFullYear()), null, yearStarter(now));
     const month = await ensureNote(monthTitle(now), year, monthStarter(now));
     const day = await ensureNote(localDate(now), month, dayStarter(now));
-    window.location.href = "/app/notebooks/" + current.notebook.id + "/notes/" + day.id;
+    openNote(day);
   }, { variant: "primary", icon: "ti ti-calendar-plus" }),
 
   ui.button("Make weekly review", async () => {

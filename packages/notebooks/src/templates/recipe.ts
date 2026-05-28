@@ -33,6 +33,33 @@ const pages = [pantryNote, ...recipeNotes].filter(Boolean).sort((a, b) => a.titl
 const shoppingItems = current.todo("shopping")?.items ?? [];
 const openShopping = shoppingItems.filter((item) => !item.done);
 
+const addShoppingItems = async (items) => {
+  await current.todo("shopping")?.add(...items);
+  ui.toast("Shopping items added", { variant: "success" });
+};
+
+const recipeTableRows = recipeRows.map((row) => ({
+  Recipe: row.Recipe,
+  Type: row.Type,
+  Time: row.Time,
+  "Pantry match": row["Pantry match"],
+  Missing: row.Missing,
+  Action: row.missingItems.length
+    ? ui.button("Shop", () => addShoppingItems(row.missingItems.map((item) => item + " for " + row.Recipe.title)), {
+        variant: "secondary",
+        icon: "ti ti-shopping-cart-plus",
+      })
+    : "",
+}));
+
+const shoppingRows = shoppingItems.map((item) => ({
+  Item: item.content,
+  Done: item.done ? "yes" : "open",
+  Action: item.done ? "" : ui.button("Done", async () => {
+    await current.replaceLine(item.line, "- [x] " + item.content);
+  }, { variant: "secondary", icon: "ti ti-check" }),
+}));
+
 // ── Render dashboard ────────────────────────────────────────────
 ui.render(
   ui.heading("Kitchen dashboard", 2),
@@ -41,13 +68,14 @@ ui.render(
     ui.metric("Pantry items", pantryRows.length, { icon: "ti ti-basket", tone: "info" }),
     ui.metric("Shopping", openShopping.length, { icon: "ti ti-shopping-cart", tone: "warning" }),
   ),
-  ui.table(recipeRows.map(({ missingItems, ...row }) => row), { emptyText: "No recipe notes yet." }),
+  ui.table(recipeTableRows, { emptyText: "No recipe notes yet." }),
   ui.chart("bar", {
     data: recipeRows.map((row) => ({ label: row.Recipe.title, value: row.missingItems.length })),
     title: "Missing pantry items",
     showValues: true,
     height: 180,
   }),
+  ui.table(shoppingRows, { emptyText: "Shopping list is empty." }),
   ui.heading("Kitchen pages", 3),
   ui.noteList(pages, { emptyText: "No kitchen pages yet." }),
   ui.button("Add best missing items", async () => {
@@ -56,8 +84,7 @@ ui.render(
       ui.toast("All starter recipes match the pantry", { variant: "success" });
       return;
     }
-    await current.todo("shopping")?.add(...best.missingItems.map((item) => item + " for " + best.Recipe.title));
-    ui.toast("Shopping items added", { variant: "success" });
+    await addShoppingItems(best.missingItems.map((item) => item + " for " + best.Recipe.title));
   }, { icon: "ti ti-shopping-cart-plus" }),
 );`;
 
@@ -90,11 +117,16 @@ const pantry = new Map(pantryRows.map((row) => [normalize(row.Item), numberValue
 const ingredients = current.table("ingredients")?.rows ?? [];
 const rows = ingredients.map((row) => {
   const onHand = pantry.get(normalize(row.Item)) ?? 0;
+  const missing = onHand <= 0;
   return {
     Ingredient: row.Item,
     Need: row.Amount + " " + row.Unit,
-    Pantry: onHand > 0 ? "yes" : "missing",
+    Pantry: missing ? "missing" : "yes",
     Notes: row.Notes,
+    Action: missing ? ui.button("Add", async () => {
+      await current.todo("shopping")?.add(row.Item + " for " + current.title);
+      ui.toast("Added to shopping", { variant: "success" });
+    }, { variant: "secondary", icon: "ti ti-shopping-cart-plus" }) : "",
   };
 });
 const missing = rows.filter((row) => row.Pantry !== "yes").map((row) => row.Ingredient);

@@ -193,6 +193,8 @@ const normalizeTableValue = (value: unknown, column?: string): string => {
 const isTableView = (value: unknown): value is KitTableView =>
   !!value && typeof value === "object" && Array.isArray((value as KitTableView).columns) && Array.isArray((value as KitTableView).rows);
 
+const isTableCellElement = (value: unknown): value is HTMLElement => typeof HTMLElement !== "undefined" && value instanceof HTMLElement;
+
 const makeTable = (
   input: unknown[][] | Record<string, unknown>[] | KitTableView,
   options: { columns?: string[]; emptyText?: string } | undefined,
@@ -207,15 +209,34 @@ const makeTable = (
       : Array.isArray(rows[0])
         ? (rows[0] as unknown[]).map((_, index) => `Column ${index + 1}`)
         : Object.keys(rows[0] as Record<string, unknown>));
-  const normalizedRows = rows.map((row) =>
+  const elementCells: Array<{ row: number; col: number; element: HTMLElement }> = [];
+  const normalizedRows = rows.map((row, rowIndex) =>
     columns.map((column, index) => {
       const value = Array.isArray(row) ? row[index] : (row as Record<string, unknown>)[column];
+      if (isTableCellElement(value)) {
+        elementCells.push({ row: rowIndex, col: index, element: value });
+        return "";
+      }
       return normalizeTableValue(value, column);
     }),
   );
   const el = document.createElement("div");
   el.className = "md-script-ui-table";
   el.innerHTML = renderPrettyTableHtml({ headers: columns, rows: normalizedRows }, { notebookId: ctx.notebookId });
+
+  if (elementCells.length > 0) {
+    const bodyRows = Array.from(el.querySelectorAll("tbody tr"));
+    for (const { row, col, element } of elementCells) {
+      const tableCell = bodyRows[row]?.querySelectorAll("td")[col];
+      if (!tableCell) continue;
+      if (!element.hasAttribute("contenteditable")) element.setAttribute("contenteditable", "false");
+      const wrapper = document.createElement("span");
+      wrapper.className = "md-table-cell md-table-cell-ui";
+      wrapper.appendChild(element);
+      tableCell.replaceChildren(wrapper);
+    }
+  }
+
   return brand(el, ctx);
 };
 

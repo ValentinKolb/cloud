@@ -526,6 +526,22 @@ const liveTableExample = code(
   ");",
 );
 
+const tableActionExample = code(
+  "ui.render(",
+  "  ui.live(() => {",
+  '    const tasks = current.todo("tasks")?.items ?? [];',
+  "",
+  "    return ui.table(tasks.map((task) => ({",
+  "      Task: task.content,",
+  '      Done: task.done ? "yes" : "open",',
+  '      Action: task.done ? "" : ui.button("Done", async () => {',
+  '        await current.replaceLine(task.line, "- [x] " + task.content);',
+  "      }),",
+  '    })), { emptyText: "No @tasks list found." });',
+  "  }),",
+  ");",
+);
+
 const searchExample = code(
   'const notes = await nb.search("#garden");',
   "",
@@ -890,7 +906,10 @@ const ApiTab = () => (
           </p>
         </ApiMethod>
         <ApiMethod name="Data views" signature="ui.table / ui.chart / ui.noteLink / ui.noteList" returns="UI element">
-          <p>Tables understand note objects, tags, ISO dates, arrays, formulas, progress values, and plain objects.</p>
+          <p>
+            Tables understand note objects, tags, ISO dates, arrays, formulas, progress values, plain objects, and direct{" "}
+            <InlineCode>ui.*</InlineCode> elements for action cells.
+          </p>
         </ApiMethod>
         <ApiMethod name="Actions" signature="ui.button / ui.toast / ui.live / ui.render" returns="UI element or void">
           <p>
@@ -898,6 +917,7 @@ const ApiTab = () => (
           </p>
         </ApiMethod>
       </ApiCardGrid>
+      <Snippet title="Table with row actions" code={tableActionExample} language="script" />
     </Section>
 
     <Section title="ui.prompt" icon="ti-forms">

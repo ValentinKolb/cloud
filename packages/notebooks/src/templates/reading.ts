@@ -31,6 +31,13 @@ const topRated = books
   .sort((a, b) => Number(b.Rating) - Number(a.Rating))
   .slice(0, 5)
   .map((row) => ({ Book: linkedBook(row), Rating: row.Rating, Status: row.Status }));
+const queueRows = queue.map((item) => ({
+  Queue: item.content,
+  Done: item.done ? "yes" : "open",
+  Action: item.done ? "" : ui.button("Done", async () => {
+    await current.replaceLine(item.line, "- [x] " + item.content);
+  }, { variant: "secondary", icon: "ti ti-check" }),
+}));
 
 // ── Render dashboard ────────────────────────────────────────────
 ui.render(
@@ -48,9 +55,7 @@ ui.render(
     height: 180,
   }),
   ui.table(topRated, { emptyText: "No ratings yet." }),
-  ui.table(queue.map((item) => ({ Queue: item.content, Done: item.done ? "yes" : "open" })), {
-    emptyText: "Queue is empty.",
-  }),
+  ui.table(queueRows, { emptyText: "Queue is empty." }),
   ui.heading("Reading pages", 3),
   ui.noteList(pages, { emptyText: "No reading pages yet." }),
   ui.button("Add queue item", async () => {

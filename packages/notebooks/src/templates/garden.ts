@@ -39,6 +39,11 @@ const harvestByPlant = harvest.reduce((acc, row) => {
   return acc;
 }, {});
 
+const addGardenTask = async (text) => {
+  await current.todo("tasks")?.add(text);
+  ui.toast("Task added", { variant: "success" });
+};
+
 // ── Render dashboard ────────────────────────────────────────────
 ui.render(
   ui.heading(monthLabel + " garden dashboard", 2),
@@ -47,8 +52,19 @@ ui.render(
     ui.metric("Beds", beds.length, { icon: "ti ti-seedling", tone: "info" }),
     ui.metric("Open tasks", openTasks.length, { icon: "ti ti-checkbox", tone: "warning" }),
   ),
-  ui.table(actions, { emptyText: "No plant actions for this month." }),
-  ui.table(openTasks.map((item) => ({ Task: item.content })), { emptyText: "No open dashboard tasks." }),
+  ui.table(actions.map((row) => ({
+    ...row,
+    Action: ui.button("Add task", () => addGardenTask(row.Action + " " + row.Plant + " in " + row.Bed), {
+      variant: "secondary",
+      icon: "ti ti-list-plus",
+    }),
+  })), { emptyText: "No plant actions for this month." }),
+  ui.table(openTasks.map((item) => ({
+    Task: item.content,
+    Action: ui.button("Done", async () => {
+      await current.replaceLine(item.line, "- [x] " + item.content);
+    }, { variant: "secondary", icon: "ti ti-check" }),
+  })), { emptyText: "No open dashboard tasks." }),
   ui.chart("bar", {
     data: Object.entries(harvestByPlant).map(([label, value]) => ({ label, value })),
     title: "Harvest amount by plant",
@@ -60,8 +76,7 @@ ui.render(
   ui.button("Add garden task", async () => {
     const text = await ui.prompt.text("Task", "", { title: "Garden task", placeholder: "Mulch Bed B" });
     if (!text) return;
-    await current.todo("tasks")?.add(text);
-    ui.toast("Task added", { variant: "success" });
+    await addGardenTask(text);
   }, { icon: "ti ti-list-check" }),
 );`;
 
