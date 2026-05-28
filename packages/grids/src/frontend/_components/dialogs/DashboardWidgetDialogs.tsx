@@ -1,4 +1,4 @@
-import { dialogCore, IconInput, MarkdownEditor, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { dialogCore, IconInput, MarkdownEditor, panelDialogOptions, PanelDialog, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type { AggregationSpec } from "../../../contracts";
 import type {
@@ -16,7 +16,6 @@ import type {
   Widget,
 } from "../../../service";
 import { formatWidgetValue } from "../dashboard/widget-format";
-import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 const DEFAULT_AGG: AggregationSpec = { fieldId: "*", agg: "count" };
 
@@ -122,8 +121,9 @@ export const openCellEditDialog = (
   return dialogCore.open<CellEditDialogResult>((close) => {
     const [draft, setDraft] = createSignal<Widget>(widget);
     return (
-      <GridsBareDialog title={title[widget.kind]} icon={icon[widget.kind]} close={() => close()}>
-        <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+      <PanelDialog>
+        <PanelDialog.Header title={title[widget.kind]} icon={icon[widget.kind]} close={() => close()} />
+        <PanelDialog.Body>
           <Show when={draft().kind === "chart" ? (draft() as ChartWidget) : null}>
             {(chart) => <ChartWidgetInfoBlock chartType={chart().chartType} />}
           </Show>
@@ -149,36 +149,36 @@ export const openCellEditDialog = (
               ]}
             />
           </WidgetEditorSection>
-          <footer class="paper flex items-center gap-2 p-4">
-            <Show when={options.allowDelete}>
-              <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
-                <i class="ti ti-trash" /> Delete widget
-              </button>
-            </Show>
-            <div class="ml-auto flex items-center gap-2">
-              <button type="button" class="btn-input btn-sm" onClick={() => close()}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                class="btn-primary btn-sm"
-                onClick={() => {
-                  const error = validateWidgetDraft(draft(), ctx.viewsByTable);
-                  if (error) {
-                    prompts.error(error);
-                    return;
-                  }
-                  close({ action: "save", widget: draft() });
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </footer>
-        </div>
-      </GridsBareDialog>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <Show when={options.allowDelete} fallback={<span />}>
+            <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
+              <i class="ti ti-trash" /> Delete widget
+            </button>
+          </Show>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-input btn-sm" onClick={() => close()}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              onClick={() => {
+                const error = validateWidgetDraft(draft(), ctx.viewsByTable);
+                if (error) {
+                  prompts.error(error);
+                  return;
+                }
+                close({ action: "save", widget: draft() });
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </PanelDialog.Footer>
+      </PanelDialog>
     );
-  }, gridsBareDialogOptions);
+  }, panelDialogOptions);
 };
 
 function CellEditorBody(props: {
@@ -1011,20 +1011,9 @@ function MarkdownCellBody(props: { widget: MarkdownWidget; onUpdate: (w: Markdow
 
 function WidgetEditorSection(props: { title: string; subtitle?: string; icon: string; children: JSX.Element }) {
   return (
-    <section class="paper p-4">
-      <header class="mb-2 flex items-start gap-2">
-        <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-          <i class={`${props.icon} text-sm`} />
-        </span>
-        <div class="min-w-0">
-          <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">{props.title}</h3>
-          <Show when={props.subtitle}>
-            <p class="mt-0.5 text-[11px] leading-snug text-dimmed">{props.subtitle}</p>
-          </Show>
-        </div>
-      </header>
-      <div class="flex flex-col gap-3">{props.children}</div>
-    </section>
+    <PanelDialog.Section title={props.title} subtitle={props.subtitle} icon={props.icon}>
+      {props.children}
+    </PanelDialog.Section>
   );
 }
 

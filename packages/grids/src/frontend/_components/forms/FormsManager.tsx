@@ -1,9 +1,12 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
+  confirmDiscardIfDirty,
   CopyButton,
   dialogCore,
   ImageInput,
+  panelDialogOptions,
+  PanelDialog,
   PermissionEditor,
   prompts,
   SegmentedControl,
@@ -16,7 +19,6 @@ import { createMemo, createSignal, For, Index, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import type { FormConfig, FormFieldEntry } from "../../../service/forms";
-import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { TYPE_LABELS } from "../fields/field-config-editor";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
@@ -48,7 +50,7 @@ export const openFormEditorDialog = (args: {
   canManageAccess: boolean;
   onSaved?: (next: Form) => void;
   onDelete?: () => Promise<void> | void;
-}) => dialogCore.open<void>((close) => <FormEditorDialog args={args} close={close} />, gridsBareDialogOptions);
+}) => dialogCore.open<void>((close) => <FormEditorDialog args={args} close={close} />, panelDialogOptions);
 
 function FormEditorDialog(props: {
   args: {
@@ -66,7 +68,8 @@ function FormEditorDialog(props: {
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   return (
-    <GridsBareDialog title={`Edit form — ${props.args.form.name}`} icon="ti ti-forms" close={closeIfClean}>
+    <PanelDialog>
+      <PanelDialog.Header title={`Edit form — ${props.args.form.name}`} icon="ti ti-forms" close={closeIfClean} />
       <FormEditor
         form={props.args.form}
         tableFields={props.args.tableFields}
@@ -84,7 +87,7 @@ function FormEditorDialog(props: {
         }}
         onCancel={closeIfClean}
       />
-    </GridsBareDialog>
+    </PanelDialog>
   );
 }
 
@@ -442,8 +445,8 @@ function FormEditor(props: {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-2">
-      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+    <>
+      <PanelDialog.Body>
         {/* General */}
         <FormEditorSection title="Identity" subtitle="Name, public page copy, and visual header." icon="ti ti-id">
           <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
@@ -758,10 +761,10 @@ function FormEditor(props: {
           </p>
           <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
         </FormEditorSection>
-      </div>
+      </PanelDialog.Body>
 
       {/* Footer */}
-      <div class="paper flex shrink-0 items-center justify-between gap-2 p-4">
+      <PanelDialog.Footer>
         <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDelete}>
           <i class="ti ti-trash" /> Delete form
         </button>
@@ -775,27 +778,16 @@ function FormEditor(props: {
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
         </div>
-      </div>
-    </div>
+      </PanelDialog.Footer>
+    </>
   );
 }
 
 function FormEditorSection(props: { title: string; subtitle?: string; icon: string; children: JSX.Element }) {
   return (
-    <section class="paper p-4">
-      <header class="mb-2 flex items-start gap-2">
-        <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-          <i class={`${props.icon} text-sm`} />
-        </span>
-        <div class="min-w-0">
-          <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">{props.title}</h3>
-          <Show when={props.subtitle}>
-            <p class="mt-0.5 text-[11px] leading-snug text-dimmed">{props.subtitle}</p>
-          </Show>
-        </div>
-      </header>
-      <div class="flex flex-col gap-3">{props.children}</div>
-    </section>
+    <PanelDialog.Section title={props.title} subtitle={props.subtitle} icon={props.icon}>
+      {props.children}
+    </PanelDialog.Section>
   );
 }
 

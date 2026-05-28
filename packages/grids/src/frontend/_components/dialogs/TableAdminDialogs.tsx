@@ -1,5 +1,15 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Checkbox, dialogCore, IconInput, navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  Checkbox,
+  confirmDiscardIfDirty,
+  dialogCore,
+  IconInput,
+  navigateTo,
+  panelDialogOptions,
+  PanelDialog,
+  prompts,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -8,14 +18,14 @@ import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
-import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
+import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
   initialAccessEntries: AccessEntry[];
   onSaved: (table: Table) => void;
   onDeleted?: () => void;
-}) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, gridsBareDialogOptions);
+}) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, panelDialogOptions);
 
 function TableSettingsDialog(props: {
   args: { table: TableHeader; initialAccessEntries: AccessEntry[]; onSaved: (table: Table) => void; onDeleted?: () => void };
@@ -26,7 +36,8 @@ function TableSettingsDialog(props: {
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   return (
-    <GridsBareDialog title={`Table settings — ${props.args.table.name}`} icon="ti ti-settings" close={closeIfClean}>
+    <PanelDialog>
+      <PanelDialog.Header title={`Table settings — ${props.args.table.name}`} icon="ti ti-settings" close={closeIfClean} />
       <TableSettingsBody
         table={props.args.table}
         initialAccessEntries={props.args.initialAccessEntries}
@@ -38,7 +49,7 @@ function TableSettingsDialog(props: {
         onDeleted={props.args.onDeleted}
         onCancel={closeIfClean}
       />
-    </GridsBareDialog>
+    </PanelDialog>
   );
 }
 
@@ -291,76 +302,55 @@ function TableSettingsBody(props: {
   };
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-2">
-      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-        <section class="paper p-4">
-          <header class="mb-2 flex items-start gap-2">
-            <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-              <i class="ti ti-id text-sm" />
-            </span>
-            <div>
-              <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Identity</h3>
-              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">Name and description shown around this table.</p>
-            </div>
-          </header>
-          <div class="flex flex-col gap-3">
-            <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
-            <IconInput label="Icon" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
-            <TextInput
-              label="Description"
-              value={description}
-              onInput={wrap(setDescription)}
-              icon="ti ti-align-left"
-              multiline
-              lines={2}
-              placeholder="Optional"
-            />
-            <Checkbox
-              label="Add records through forms"
-              description="New records use forms by default. Admins can still edit the table directly."
-              value={disableDirectInsert}
-              onChange={wrap(setDisableDirectInsert)}
-            />
-          </div>
-        </section>
+    <>
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Identity" subtitle="Name and description shown around this table." icon="ti ti-id">
+          <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
+          <IconInput label="Icon" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
+          <TextInput
+            label="Description"
+            value={description}
+            onInput={wrap(setDescription)}
+            icon="ti ti-align-left"
+            multiline
+            lines={2}
+            placeholder="Optional"
+          />
+          <Checkbox
+            label="Add records through forms"
+            description="New records use forms by default. Admins can still edit the table directly."
+            value={disableDirectInsert}
+            onChange={wrap(setDisableDirectInsert)}
+          />
+        </PanelDialog.Section>
 
-        <section class="paper p-4">
-          <header class="mb-2 flex items-start gap-2">
-            <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-              <i class="ti ti-lock text-sm" />
-            </span>
-            <div>
-              <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">Permissions</h3>
-              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">These permissions apply only to this table.</p>
-            </div>
-          </header>
+        <PanelDialog.Section title="Permissions" subtitle="These permissions apply only to this table." icon="ti ti-lock">
           <TablePermissions tableId={props.table.id} initialEntries={props.initialAccessEntries} />
-        </section>
+        </PanelDialog.Section>
 
-        <section class="paper p-4 border-red-200/70 dark:border-red-900/60">
-          <header class="mb-2 flex items-start gap-2">
-            <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-500 dark:bg-red-950/40">
-              <i class="ti ti-trash text-sm" />
-            </span>
-            <div>
-              <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-red-500">Danger zone</h3>
-              <p class="mt-0.5 text-[11px] leading-snug text-dimmed">Remove this table from the active app.</p>
-            </div>
-          </header>
+        <PanelDialog.Section title="Danger zone" subtitle="Remove this table from the active app." icon="ti ti-trash">
           <button type="button" class="btn-danger btn-sm" onClick={deleteTable} disabled={deleteMut.loading()}>
             <i class="ti ti-trash" /> Delete table
           </button>
-        </section>
-      </div>
+        </PanelDialog.Section>
+      </PanelDialog.Body>
 
-      <div class="paper flex shrink-0 items-center justify-end gap-2 p-4">
-        <button type="button" class="btn-input btn-sm" onClick={props.onCancel}>
-          Cancel
-        </button>
-        <button type="button" class="btn-primary btn-sm" onClick={() => saveMut.mutate(undefined)} disabled={!dirty() || saveMut.loading()}>
-          {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
-        </button>
-      </div>
-    </div>
+      <PanelDialog.Footer>
+        <span />
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" class="btn-input btn-sm" onClick={props.onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn-primary btn-sm"
+            onClick={() => saveMut.mutate(undefined)}
+            disabled={!dirty() || saveMut.loading()}
+          >
+            {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </>
   );
 }

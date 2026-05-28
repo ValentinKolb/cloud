@@ -1,15 +1,19 @@
-import { CheckboxCard, DataTable, type DataTableColumn, Select, TextInput, dialogCore, prompts, toast } from "@valentinkolb/cloud/ui";
+import {
+  CheckboxCard,
+  DataTable,
+  type DataTableColumn,
+  Select,
+  TextInput,
+  dialogCore,
+  panelDialogOptions,
+  PanelDialog,
+  prompts,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import type { Automation, AutomationRun, Field, Table } from "../../../service";
 import type { FilterTree } from "../../../contracts";
 import { apiClient } from "../../../api/client";
-import {
-  GridsPanelDialog,
-  GridsPanelDialogBody,
-  GridsPanelDialogFooter,
-  GridsPanelDialogHeader,
-  gridsBareDialogOptions,
-} from "../dialogs/dialog-layout";
 import FilterPanel, { blankLeaf, isFilterLeafComplete, type FilterLeaf } from "../toolbar/FilterPanel";
 import { errorMessage } from "../utils/api-helpers";
 
@@ -144,7 +148,7 @@ export default function AutomationsPage(props: Props) {
   const openEditor = async (automation?: Automation) => {
     await dialogCore.open<void>(
       (close) => <AutomationEditor automation={automation} {...props} onSaved={() => void refetch()} onClose={close} />,
-      gridsBareDialogOptions,
+      panelDialogOptions,
     );
   };
 
@@ -266,37 +270,22 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
   };
 
   return (
-    <GridsPanelDialog>
-      <GridsPanelDialogHeader
+    <PanelDialog>
+      <PanelDialog.Header
         title={props.automation ? `Edit automation — ${props.automation.name}` : "New automation"}
         icon="ti ti-bolt"
         close={props.onClose}
       />
 
-      <GridsPanelDialogBody>
-        <section class="paper p-4">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">Identity</h3>
-          <div class="mt-3 flex flex-col gap-3">
-            <TextInput label="Name" value={name} onInput={setName} required placeholder="e.g. Send paid invoices" />
-            <TextInput
-              label="Description"
-              value={description}
-              onInput={setDescription}
-              placeholder="Optional context for admins"
-              lines={3}
-            />
-            <CheckboxCard
-              label="Enabled"
-              description="Run this automation when the trigger matches."
-              value={enabled}
-              onChange={setEnabled}
-            />
-          </div>
-        </section>
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Identity" icon="ti ti-id">
+          <TextInput label="Name" value={name} onInput={setName} required placeholder="e.g. Send paid invoices" />
+          <TextInput label="Description" value={description} onInput={setDescription} placeholder="Optional context for admins" lines={3} />
+          <CheckboxCard label="Enabled" description="Run this automation when the trigger matches." value={enabled} onChange={setEnabled} />
+        </PanelDialog.Section>
 
-        <section class="paper p-4">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">Trigger</h3>
-          <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        <PanelDialog.Section title="Trigger" icon="ti ti-bolt">
+          <div class="grid gap-3 sm:grid-cols-2">
             <Select
               label="Type"
               value={triggerKind}
@@ -327,15 +316,12 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
               <TextInput label="Timezone" value={timezone} onInput={setTimezone} placeholder="Europe/Berlin" />
             </Show>
           </div>
-        </section>
+        </PanelDialog.Section>
 
         <Show when={isRecordTrigger() && tableId()}>
-          <section class="paper p-4">
+          <PanelDialog.Section title="Filter" subtitle="Run only when the saved record matches." icon="ti ti-filter">
             <div class="flex items-center justify-between gap-2">
-              <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">Filter</h3>
-                <p class="text-xs text-dimmed">Run only when the saved record matches.</p>
-              </div>
+              <span class="text-xs font-medium text-secondary">Conditions</span>
               <button
                 type="button"
                 class="btn-simple btn-sm"
@@ -349,12 +335,11 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
                 <FilterPanel fields={fields()} rows={filterRows} onRowsChange={setFilterRows} />
               </div>
             </Show>
-          </section>
+          </PanelDialog.Section>
         </Show>
 
-        <section class="paper p-4">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">Action</h3>
-          <div class="mt-3 grid gap-3 sm:grid-cols-2">
+        <PanelDialog.Section title="Action" icon="ti ti-webhook">
+          <div class="grid gap-3 sm:grid-cols-2">
             <TextInput label="Webhook URL" value={url} onInput={setUrl} placeholder="https://api.example.com/grids" required />
             <TextInput label="Timeout ms" value={timeoutMs} onInput={setTimeoutMs} placeholder="15000" />
             <div class="sm:col-span-2">
@@ -366,12 +351,11 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
               />
             </div>
           </div>
-        </section>
+        </PanelDialog.Section>
 
         <Show when={isRecordTrigger()}>
-          <section class="paper p-4">
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">Payload</h3>
-            <div class="mt-3 flex flex-col gap-3">
+          <PanelDialog.Section title="Payload" icon="ti ti-package">
+            <div class="flex flex-col gap-3">
               <CheckboxCard
                 label="Include record data"
                 description="Send record values with the event metadata."
@@ -406,13 +390,13 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
                 </Show>
               </Show>
             </div>
-          </section>
+          </PanelDialog.Section>
         </Show>
 
         <Show when={props.automation}>
-          <section class="paper p-4">
+          <PanelDialog.Section title="Recent runs" icon="ti ti-history">
             <div class="flex items-center justify-between">
-              <h3 class="text-xs font-semibold uppercase tracking-wider text-secondary">Recent runs</h3>
+              <span class="text-xs font-medium text-secondary">Last executions</span>
               <button type="button" class="btn-simple btn-sm" onClick={() => void refetchRuns()}>
                 <i class="ti ti-refresh" /> Refresh
               </button>
@@ -429,11 +413,11 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
                 )}
               </For>
             </div>
-          </section>
+          </PanelDialog.Section>
         </Show>
-      </GridsPanelDialogBody>
+      </PanelDialog.Body>
 
-      <GridsPanelDialogFooter>
+      <PanelDialog.Footer>
         <div>
           {props.automation && (
             <button type="button" class="btn-danger btn-sm" onClick={() => void remove()}>
@@ -449,7 +433,7 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
             Save
           </button>
         </div>
-      </GridsPanelDialogFooter>
-    </GridsPanelDialog>
+      </PanelDialog.Footer>
+    </PanelDialog>
   );
 }

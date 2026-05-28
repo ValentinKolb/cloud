@@ -1,18 +1,21 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { CheckboxCard, dialogCore, IconInput, PermissionEditor, prompts, Select, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  CheckboxCard,
+  confirmDiscardIfDirty,
+  dialogCore,
+  IconInput,
+  panelDialogOptions,
+  PanelDialog,
+  PermissionEditor,
+  prompts,
+  Select,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, type JSX, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
-import {
-  confirmDiscardIfDirty,
-  GridsPanelDialog,
-  GridsPanelDialogBody,
-  GridsPanelDialogFooter,
-  GridsPanelDialogHeader,
-  gridsPanelDialogOptions,
-} from "../dialogs/dialog-layout";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
@@ -66,7 +69,7 @@ type OpenFieldEditArgs = {
 };
 
 export const openFieldEditDialog = (args: OpenFieldEditArgs): Promise<void> =>
-  dialogCore.open<void>((close) => <FieldEditDialog args={args} close={close} />, gridsPanelDialogOptions);
+  dialogCore.open<void>((close) => <FieldEditDialog args={args} close={close} />, panelDialogOptions);
 
 function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) {
   const [dirty, setDirty] = createSignal(false);
@@ -74,8 +77,8 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   return (
-    <GridsPanelDialog>
-      <GridsPanelDialogHeader title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean} />
+    <PanelDialog>
+      <PanelDialog.Header title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean} />
       <FieldEditor
         field={props.args.field}
         baseShortId={props.args.baseShortId}
@@ -96,7 +99,7 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
         }}
         onCancel={closeIfClean}
       />
-    </GridsPanelDialog>
+    </PanelDialog>
   );
 }
 
@@ -233,7 +236,7 @@ function FieldEditor(props: {
 
   return (
     <>
-      <GridsPanelDialogBody>
+      <PanelDialog.Body>
         {/* Type primer — short, type-specific blurb so the constraint
           inputs further down ("precision", "decimal places", "regex" etc.) make
           immediate sense to non-power users. */}
@@ -244,7 +247,7 @@ function FieldEditor(props: {
           </div>
         </Show>
 
-        <FieldEditorSection title="Identity" subtitle="How this field appears in tables, forms, and detail panels." icon="ti ti-id">
+        <PanelDialog.Section title="Identity" subtitle="How this field appears in tables, forms, and detail panels." icon="ti ti-id">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <TextInput
               label="Name"
@@ -275,9 +278,9 @@ function FieldEditor(props: {
           />
 
           <IconInput label="Icon (optional)" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
-        </FieldEditorSection>
+        </PanelDialog.Section>
 
-        <FieldEditorSection
+        <PanelDialog.Section
           title="Record behavior"
           subtitle="Rules that affect how users create, read, and reference records."
           icon="ti ti-toggle-right"
@@ -318,10 +321,14 @@ function FieldEditor(props: {
               />
             </Show>
           </div>
-        </FieldEditorSection>
+        </PanelDialog.Section>
 
         <Show when={supportsIndexed()}>
-          <FieldEditorSection title="Query performance" subtitle="Use only for fields that are filtered or sorted often." icon="ti ti-bolt">
+          <PanelDialog.Section
+            title="Query performance"
+            subtitle="Use only for fields that are filtered or sorted often."
+            icon="ti ti-bolt"
+          >
             <CheckboxCard
               label="Indexed"
               description="Faster filters and sorts on this field. Costs disk and write work."
@@ -329,11 +336,11 @@ function FieldEditor(props: {
               value={indexed}
               onChange={wrap(setIndexed)}
             />
-          </FieldEditorSection>
+          </PanelDialog.Section>
         </Show>
 
         <Show when={props.tableColumns}>
-          <FieldEditorSection
+          <PanelDialog.Section
             title="Table display"
             subtitle="Default label and cell format in this table. Saved views can override this."
             icon="ti ti-table"
@@ -360,7 +367,7 @@ function FieldEditor(props: {
                 props.onDirtyChange?.(true);
               }}
             />
-          </FieldEditorSection>
+          </PanelDialog.Section>
         </Show>
 
         <Show when={supportsDefaultValue()}>
@@ -369,7 +376,11 @@ function FieldEditor(props: {
             matches the field type (NumberInput for number, SelectInput
             for select, etc). Saved as `defaultValue` on the field
             row; null/undefined = no default. */}
-          <FieldEditorSection title="Default" subtitle="Optional value used when a create request omits this field." icon="ti ti-file-plus">
+          <PanelDialog.Section
+            title="Default"
+            subtitle="Optional value used when a create request omits this field."
+            icon="ti ti-file-plus"
+          >
             <Show
               when={props.field.type === "date"}
               fallback={
@@ -419,10 +430,10 @@ function FieldEditor(props: {
               </Show>
             </Show>
             <p class="text-[11px] text-dimmed leading-snug">Leave empty when users should choose the value themselves.</p>
-          </FieldEditorSection>
+          </PanelDialog.Section>
         </Show>
 
-        <FieldEditorSection title="Type settings" subtitle="Constraints and options specific to this datatype." icon="ti ti-adjustments">
+        <PanelDialog.Section title="Type settings" subtitle="Constraints and options specific to this datatype." icon="ti ti-adjustments">
           <FieldConfigEditor
             currentFieldId={props.field.id}
             type={props.field.type}
@@ -438,10 +449,10 @@ function FieldEditor(props: {
             otherTables={props.otherTables}
             fieldsByTable={props.fieldsByTable}
           />
-        </FieldEditorSection>
-      </GridsPanelDialogBody>
+        </PanelDialog.Section>
+      </PanelDialog.Body>
 
-      <GridsPanelDialogFooter>
+      <PanelDialog.Footer>
         <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDeleted}>
           <i class="ti ti-trash" /> Delete field
         </button>
@@ -455,27 +466,8 @@ function FieldEditor(props: {
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
         </div>
-      </GridsPanelDialogFooter>
+      </PanelDialog.Footer>
     </>
-  );
-}
-
-function FieldEditorSection(props: { title: string; subtitle?: string; icon: string; children: JSX.Element }) {
-  return (
-    <section class="paper border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
-      <header class="mb-2 flex items-start gap-2">
-        <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-          <i class={`${props.icon} text-sm`} />
-        </span>
-        <div class="min-w-0">
-          <h3 class="text-xs font-semibold uppercase tracking-[0.12em] text-secondary">{props.title}</h3>
-          <Show when={props.subtitle}>
-            <p class="mt-0.5 text-[11px] leading-snug text-dimmed">{props.subtitle}</p>
-          </Show>
-        </div>
-      </header>
-      <div class="flex flex-col gap-3">{props.children}</div>
-    </section>
   );
 }
 

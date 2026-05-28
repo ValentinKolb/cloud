@@ -1,5 +1,16 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { Checkbox, dialogCore, IconInput, navigateTo, PermissionEditor, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import {
+  Checkbox,
+  confirmDiscardIfDirty,
+  dialogCore,
+  IconInput,
+  navigateTo,
+  panelDialogOptions,
+  PanelDialog,
+  PermissionEditor,
+  prompts,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -7,7 +18,6 @@ import type { Field, View } from "../../../service";
 import type { ViewQuery } from "../../../service/views";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
-import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 type Props = {
   baseShortId: string;
@@ -31,7 +41,7 @@ type Props = {
 };
 
 export const openViewSettingsDialog = (props: Props) =>
-  dialogCore.open<void>((close) => <ViewSettingsDialog props={props} close={close} />, gridsBareDialogOptions);
+  dialogCore.open<void>((close) => <ViewSettingsDialog props={props} close={close} />, panelDialogOptions);
 
 function ViewSettingsDialog(props: { props: Props; close: () => void }) {
   const [dirty, setDirty] = createSignal(false);
@@ -39,16 +49,17 @@ function ViewSettingsDialog(props: { props: Props; close: () => void }) {
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   return (
-    <GridsBareDialog title={`View settings — ${props.props.initialView.name}`} icon="ti ti-table-spark" close={closeIfClean}>
+    <PanelDialog>
+      <PanelDialog.Header title={`View settings — ${props.props.initialView.name}`} icon="ti ti-table-spark" close={closeIfClean} />
       <ViewSettingsBody {...props.props} onDirtyChange={setDirty} />
-    </GridsBareDialog>
+    </PanelDialog>
   );
 }
 
 function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => void }) {
   const isGrouped = (props.initialView.query.groupBy ?? []).length > 0;
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+    <PanelDialog.Body>
       <GeneralSection
         viewId={props.initialView.id}
         initial={props.initialView}
@@ -70,7 +81,7 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
           name={props.initialView.name}
         />
       </SectionCard>
-    </div>
+    </PanelDialog.Body>
   );
 }
 

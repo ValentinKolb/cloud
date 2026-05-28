@@ -1,8 +1,11 @@
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
+  confirmDiscardIfDirty,
   dialogCore,
   IconInput,
+  panelDialogOptions,
+  PanelDialog,
   PermissionEditor,
   prompts,
   refreshCurrentPath,
@@ -25,7 +28,7 @@ import {
   isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
-import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
 import DashboardLayout from "./DashboardLayout";
@@ -424,7 +427,7 @@ function openDashboardGeneralDialog(props: {
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
 }) {
-  return dialogCore.open<void>((close) => <DashboardGeneralDialog {...props} close={close} />, gridsBareDialogOptions);
+  return dialogCore.open<void>((close) => <DashboardGeneralDialog {...props} close={close} />, panelDialogOptions);
 }
 
 function DashboardGeneralDialog(props: {
@@ -440,9 +443,10 @@ function DashboardGeneralDialog(props: {
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   return (
-    <GridsBareDialog title={`Dashboard settings — ${props.dashboard.name}`} icon="ti ti-layout-dashboard" close={closeIfClean}>
+    <PanelDialog>
+      <PanelDialog.Header title={`Dashboard settings — ${props.dashboard.name}`} icon="ti ti-layout-dashboard" close={closeIfClean} />
       <DashboardGeneralBody {...props} onDirtyChange={setDirty} close={closeIfClean} />
-    </GridsBareDialog>
+    </PanelDialog>
   );
 }
 
@@ -488,8 +492,8 @@ function DashboardGeneralBody(props: {
   });
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-4">
-      <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
+    <>
+      <PanelDialog.Body>
         <SectionCard title="General" subtitle="Name, description, and sharing.">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <TextInput label="Name" value={name} onInput={wrap(setName)} required />
@@ -514,10 +518,10 @@ function DashboardGeneralBody(props: {
             canEdit={props.canEditAccess}
           />
         </SectionCard>
-      </div>
-      <footer class="flex shrink-0 items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
         <DeleteDashboardButton dashboardId={props.dashboard.id} baseShortId={props.baseShortId} name={props.dashboard.name} />
-        <div class="ml-auto flex items-center gap-2">
+        <div class="flex items-center gap-2">
           <button type="button" class="btn-input btn-sm" onClick={props.close}>
             Cancel
           </button>
@@ -530,8 +534,8 @@ function DashboardGeneralBody(props: {
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
         </div>
-      </footer>
-    </div>
+      </PanelDialog.Footer>
+    </>
   );
 }
 
