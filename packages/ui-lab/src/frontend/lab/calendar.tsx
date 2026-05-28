@@ -270,6 +270,8 @@ export const CalendarAllDayStressDemo = () => (
 export const CalendarOverlapDemo = () => {
   const [demoEvents, setDemoEvents] = createSignal<CalendarEvent[]>(overlapEvents);
   const [selectedEventTitle, setSelectedEventTitle] = createSignal("None");
+  const [editorEventTitle, setEditorEventTitle] = createSignal("None");
+  const [selectedSlotLabel, setSelectedSlotLabel] = createSignal("None");
   const updateEventTime = (event: CalendarEvent, next: { start: Date; end: Date; allDay?: boolean }) => {
     setDemoEvents((current) =>
       current.map((candidate) =>
@@ -299,6 +301,9 @@ export const CalendarOverlapDemo = () => {
   events={events()}
   visibleStartHour={6}
   visibleEndHour={22}
+  onEventClick={(event) => selectEvent(event)}
+  onEventDoubleClick={(event) => openEditor(event)}
+  onSlotClick={(slot) => selectSlot(slot)}
   onEventDrop={(event, next) => updateEvent(event, next)}
   onEventResize={(event, next) => updateEvent(event, next)}
 />`}
@@ -312,12 +317,22 @@ export const CalendarOverlapDemo = () => {
         startHour={8}
         endHour={18}
         getDateHref={hrefForDate}
+        onEventClick={(event) => setSelectedEventTitle(event.title)}
+        onEventDoubleClick={(event) => setEditorEventTitle(event.title)}
+        onSlotClick={(slot) => setSelectedSlotLabel(`${slot.start.toLocaleDateString("en")} ${slot.start.toLocaleTimeString("en")}`)}
         onEventDrop={updateEventTime}
         onEventResize={updateEventTime}
-        onEventDoubleClick={(event) => setSelectedEventTitle(event.title)}
       />
-      <div class="border-t border-zinc-100 px-3 py-2 text-xs text-dimmed dark:border-zinc-800/70">
-        Double-click target: <span class="font-semibold text-primary">{selectedEventTitle()}</span>
+      <div class="grid gap-1 border-t border-zinc-100 px-3 py-2 text-xs text-dimmed dark:border-zinc-800/70 sm:grid-cols-3">
+        <div>
+          Click event: <span class="font-semibold text-primary">{selectedEventTitle()}</span>
+        </div>
+        <div>
+          Double-click event: <span class="font-semibold text-primary">{editorEventTitle()}</span>
+        </div>
+        <div>
+          Click slot: <span class="font-semibold text-primary">{selectedSlotLabel()}</span>
+        </div>
       </div>
     </DemoCard>
   );

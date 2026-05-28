@@ -74,9 +74,11 @@ export type CalendarProps = {
   getEventHref?: (event: CalendarEvent) => string | undefined;
   onViewChange?: (view: CalendarView) => void;
   onDateChange?: (date: Date, view: CalendarView) => void;
+  onEventClick?: (event: CalendarEvent) => void;
   onEventDrop?: (event: CalendarEvent, next: CalendarEventTimeChange) => void;
   onEventResize?: (event: CalendarEvent, next: CalendarEventTimeChange) => void;
   onEventDoubleClick?: (event: CalendarEvent) => void;
+  onSlotClick?: (slot: CalendarEventTimeChange) => void;
   onSlotDoubleClick?: (slot: CalendarEventTimeChange) => void;
   class?: string;
 };
@@ -123,13 +125,16 @@ const labels: Required<CalendarLabels> = {
 };
 
 const colorClass: Record<CalendarEventColor, string> = {
-  blue: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-200 dark:border-blue-500/30",
-  emerald: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-emerald-500/30",
-  amber: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:border-amber-500/30",
-  red: "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-200 dark:border-red-500/30",
-  violet: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-500/15 dark:text-violet-200 dark:border-violet-500/30",
-  cyan: "bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-cyan-500/30",
-  zinc: "bg-zinc-100 text-zinc-700 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700",
+  blue: "bg-blue-50 text-blue-700 border-zinc-200 border-l-blue-500 dark:bg-blue-500/15 dark:text-blue-200 dark:border-zinc-700 dark:border-l-blue-400",
+  emerald:
+    "bg-emerald-50 text-emerald-700 border-zinc-200 border-l-emerald-500 dark:bg-emerald-500/15 dark:text-emerald-200 dark:border-zinc-700 dark:border-l-emerald-400",
+  amber:
+    "bg-amber-50 text-amber-700 border-zinc-200 border-l-amber-500 dark:bg-amber-500/15 dark:text-amber-200 dark:border-zinc-700 dark:border-l-amber-400",
+  red: "bg-red-50 text-red-700 border-zinc-200 border-l-red-500 dark:bg-red-500/15 dark:text-red-200 dark:border-zinc-700 dark:border-l-red-400",
+  violet:
+    "bg-violet-50 text-violet-700 border-zinc-200 border-l-violet-500 dark:bg-violet-500/15 dark:text-violet-200 dark:border-zinc-700 dark:border-l-violet-400",
+  cyan: "bg-cyan-50 text-cyan-700 border-zinc-200 border-l-cyan-500 dark:bg-cyan-500/15 dark:text-cyan-200 dark:border-zinc-700 dark:border-l-cyan-400",
+  zinc: "bg-zinc-50 text-zinc-700 border-zinc-200 border-l-zinc-400 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700 dark:border-l-zinc-500",
 };
 
 const dotClass: Record<CalendarEventColor, string> = {
@@ -274,12 +279,13 @@ const EventChip = (props: {
   fill?: boolean;
 }): JSX.Element => {
   const color = () => props.event.color ?? "blue";
-  const style = () => (props.event.colorHex ? { "border-color": props.event.colorHex } : undefined);
+  const style = () => (props.event.colorHex ? { "border-left-color": props.event.colorHex } : undefined);
   const className = () =>
-    `block min-w-0 rounded border px-1.5 py-1 text-left leading-tight ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "border-l-2 bg-zinc-50 text-primary dark:bg-zinc-900" : colorClass[color()]}`;
+    `block min-w-0 rounded border border-l-2 px-1.5 py-1 text-left leading-tight ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "border-zinc-200 bg-zinc-50 text-primary dark:border-zinc-700 dark:bg-zinc-900" : colorClass[color()]}`;
   const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
+  const isInteractive = () => Boolean(props.owner.onEventClick || props.owner.onEventDoubleClick);
   const dragProps = () =>
     props.owner.onEventDrop
       ? {
@@ -307,6 +313,12 @@ const EventChip = (props: {
       </Show>
     </>
   );
+  const onClick = (event: MouseEvent) => {
+    if (!props.owner.onEventClick) return;
+    event.preventDefault();
+    event.stopPropagation();
+    props.owner.onEventClick(props.event);
+  };
   const onDoubleClick = (event: MouseEvent) => {
     if (!props.owner.onEventDoubleClick) return;
     event.preventDefault();
@@ -314,17 +326,19 @@ const EventChip = (props: {
     props.owner.onEventDoubleClick(props.event);
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!props.owner.onEventDoubleClick || (event.key !== "Enter" && event.key !== " ")) return;
+    if (!isInteractive() || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault();
-    props.owner.onEventDoubleClick(props.event);
+    (props.owner.onEventClick ?? props.owner.onEventDoubleClick)?.(props.event);
   };
 
   return props.href ? (
     <a
       href={props.href}
       class={className()}
+      data-calendar-event=""
       data-space-item-id={props.event.dataSpaceItemId}
       style={style()}
+      onClick={onClick}
       onDblClick={onDoubleClick}
       onKeyDown={onKeyDown}
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate)} to ${formatTime(props.event.endDate)}`}`}
@@ -335,9 +349,11 @@ const EventChip = (props: {
   ) : (
     <div
       class={className()}
+      data-calendar-event=""
       style={style()}
-      role={props.owner.onEventDoubleClick ? "button" : undefined}
-      tabIndex={props.owner.onEventDoubleClick ? 0 : undefined}
+      role={isInteractive() ? "button" : undefined}
+      tabIndex={isInteractive() ? 0 : undefined}
+      onClick={onClick}
       onDblClick={onDoubleClick}
       onKeyDown={onKeyDown}
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate)} to ${formatTime(props.event.endDate)}`}`}
@@ -346,6 +362,21 @@ const EventChip = (props: {
       {content}
     </div>
   );
+};
+
+const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTimeChange) => {
+  const isSlotChild = (event: MouseEvent) =>
+    event.target instanceof Element && Boolean(event.target.closest("a,button,[data-calendar-event]"));
+  return {
+    onClick: (event: MouseEvent) => {
+      if (!owner.onSlotClick || isSlotChild(event)) return;
+      owner.onSlotClick(slot());
+    },
+    onDblClick: (event: MouseEvent) => {
+      if (!owner.onSlotDoubleClick || isSlotChild(event)) return;
+      owner.onSlotDoubleClick(slot());
+    },
+  };
 };
 
 const dropTargetProps = (owner: CalendarProps, events: NormalizedEvent[], target: () => Date, allDay = false) => {
@@ -513,10 +544,10 @@ const MonthView = (props: {
                     <div
                       class={`relative min-w-0 p-1.5 ${calendar.isSameMonth(day, props.date) ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
                       classList={{ "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === calendar.formatDateKey(day) }}
-                      onDblClick={() => {
+                      {...slotInteractionProps(props.owner, () => {
                         const start = startOfDay(day);
-                        props.owner.onSlotDoubleClick?.({ start, end: calendar.addDays(start, 1), allDay: true });
-                      }}
+                        return { start, end: calendar.addDays(start, 1), allDay: true };
+                      })}
                       {...dropPreviewProps(
                         props.owner,
                         props.events,
@@ -694,10 +725,10 @@ const TimeGridView = (props: {
               <div
                 class="min-h-10 border-r border-zinc-100 p-1 dark:border-zinc-800/70"
                 classList={{ "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day) }}
-                onDblClick={() => {
+                {...slotInteractionProps(props.owner, () => {
                   const start = startOfDay(day);
-                  props.owner.onSlotDoubleClick?.({ start, end: calendar.addDays(start, 1), allDay: true });
-                }}
+                  return { start, end: calendar.addDays(start, 1), allDay: true };
+                })}
                 {...dropPreviewProps(props.owner, props.events, dropPreview, setDropPreview, allDayKey(day), () => startOfDay(day), true)}
               >
                 <div class="flex flex-col gap-1">
@@ -748,10 +779,10 @@ const TimeGridView = (props: {
                           "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === `${calendar.formatDateKey(day)}-${hour}`,
                           "bg-zinc-50/70 dark:bg-zinc-900/30": hour < businessStartHour() || hour > businessEndHour(),
                         }}
-                        onDblClick={() => {
+                        {...slotInteractionProps(props.owner, () => {
                           const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0);
-                          props.owner.onSlotDoubleClick?.({ start, end: slotEnd(start), allDay: false });
-                        }}
+                          return { start, end: slotEnd(start), allDay: false };
+                        })}
                         {...timeDropProps(
                           `${calendar.formatDateKey(day)}-${hour}`,
                           () => new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0),
@@ -842,7 +873,7 @@ const TimeGridView = (props: {
                                 type="button"
                                 aria-label="Resize event"
                                 draggable={false}
-                                class="absolute inset-x-2 bottom-0 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-md bg-white/75 text-current opacity-0 backdrop-blur transition-opacity group-hover:opacity-85 focus:opacity-100 hover:opacity-100 dark:bg-zinc-950/75"
+                                class="absolute inset-x-2 bottom-0.5 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-md bg-blue-50/90 text-blue-600 opacity-0 backdrop-blur transition-opacity group-hover:opacity-90 focus:opacity-100 hover:opacity-100 dark:bg-blue-500/20 dark:text-blue-200"
                                 onPointerDown={resizeStart}
                                 onDragStart={(event) => event.preventDefault()}
                               >
