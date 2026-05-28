@@ -11,6 +11,8 @@ export type ToolDef = {
   featured?: boolean;
 };
 
+export const categoryOrder: ToolCategory[] = ["generators", "encoders", "security", "media", "network"];
+
 export const categories: Record<ToolCategory, { label: string; icon: string }> = {
   generators: { label: "Generators", icon: "ti ti-sparkles" },
   encoders: { label: "Encoders", icon: "ti ti-arrows-exchange" },
@@ -117,6 +119,15 @@ export const tools: ToolDef[] = [
     description: "Measure download, upload, ping & jitter against the cloud server",
     category: "network",
     color: "emerald",
+    featured: true,
+  },
+  {
+    id: "webhooks",
+    name: "Webhook Tester",
+    icon: "ti ti-webhook",
+    description: "Create demo webhook endpoints and send test requests",
+    category: "network",
+    color: "blue",
     featured: true,
   },
 ];

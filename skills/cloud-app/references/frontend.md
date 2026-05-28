@@ -186,7 +186,7 @@ The `title` prop on `AdminLayout` ONLY feeds the breadcrumbs — it does NOT ren
 
 ```tsx
 <AdminLayout c={c} title="Logs" stretch>
-  <div class="flex-1 min-h-0 overflow-y-auto">
+  <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
     <div class="flex flex-col gap-2">
       <div class="min-w-0" style="view-transition-name: admin-logs-title">
         <h1 class="text-base font-semibold text-primary">Logs</h1>
@@ -621,6 +621,31 @@ Canonical callback shape:
 
 Compound layout for full-height app screens with left sidebar, main work area, and optional right detail panel. Source: `packages/cloud/src/ui/misc/AppWorkspace.tsx`. UI Lab uses it at `/app/ui-lab/layout/workspace`.
 
+For full-height `AppWorkspace.Main` screens, use the same content spacing as admin stretch pages:
+
+```tsx
+<AppWorkspace.Main>
+  <div class="flex-1 min-h-0 overflow-y-auto" style="scrollbar-gutter: stable">
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center justify-between gap-3" style="view-transition-name: my-app-title">
+        <h1 class="min-w-0 text-base font-semibold text-primary">Items</h1>
+        <button type="button" class="btn-input btn-input-sm">Action</button>
+      </div>
+
+      <DataTable class="paper overflow-x-auto" />
+    </div>
+  </div>
+</AppWorkspace.Main>
+```
+
+Do not add a generic `p-3` / `p-4` wrapper inside `AppWorkspace.Main`. Padding is already owned by the surrounding shell; extra page padding makes AppWorkspace screens drift from admin pages and other full-height apps. Keep vertical rhythm at `gap-2` unless a specific component needs internal padding.
+
+Only put `scrollbar-gutter: stable` on the element that actually owns page scrolling. If the screen is composed of independently scrollable regions (for example an endpoints table and a requests table), keep `AppWorkspace.Main` as `flex min-h-0 flex-1 flex-col gap-2` without `overflow-y-auto` and put `overflow-auto` / `scrollPreserveKey` on each `DataTable`. Otherwise the reserved gutter appears as false spacing between main and detail.
+
+Keep `AppWorkspace` column gaps at `gap-2`. Do not add margins between `AppWorkspace.Main` and `AppWorkspace.Detail`; let `app-cols` own that spacing.
+
+Detail panels should read like Grids record details: compose multiple small `paper` sections inside a `flex h-full min-h-0 flex-col gap-2` wrapper. Avoid wrapping the whole detail panel in one large `paper`; it makes the panel feel like a modal inside the workspace and breaks the shared app rhythm.
+
 ```jsx
 import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
@@ -636,7 +661,16 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
     </AppWorkspace.SidebarDesktop>
   </AppWorkspace.Sidebar>
   <AppWorkspace.Main>{children}</AppWorkspace.Main>
-  <AppWorkspace.Detail open={Boolean(selectedId())} width="md">{detail}</AppWorkspace.Detail>
+  <AppWorkspace.Detail open={Boolean(selectedId())} width="md">
+    <div class="flex h-full min-h-0 flex-col gap-2">
+      <section class="paper p-4">{detailHeader}</section>
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="flex flex-col gap-2">
+          <section class="paper p-4">{detailBody}</section>
+        </div>
+      </div>
+    </div>
+  </AppWorkspace.Detail>
 </AppWorkspace>
 ```
 

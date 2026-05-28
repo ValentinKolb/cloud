@@ -4,6 +4,8 @@ import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import pageRoutes from "./frontend";
 import speedtestRoutes from "./api/speedtest";
 import speedtestCliRoutes from "./api/speedtest-cli";
+import webhookRoutes from "./api/webhooks";
+import { migrate } from "./migrate";
 
 const router = new Hono<AuthContext>()
   // Raw measurement endpoints (ping/download/upload) mount before runtime
@@ -17,6 +19,14 @@ const router = new Hono<AuthContext>()
   // CLI script endpoints sit behind settings — they template the public
   // app URL (`settings.app.url`) into the served script.
   .route("/tools/api/speedtest", speedtestCliRoutes)
+  .route("/tools/api/webhooks", webhookRoutes)
   .route("/tools", pageRoutes);
 
-export default await app.start({ fetch: router.fetch });
+export default await app.start({
+  fetch: router.fetch,
+  lifecycle: {
+    setup: async () => {
+      await migrate();
+    },
+  },
+});

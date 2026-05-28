@@ -2,54 +2,52 @@ import { ssr } from "../config";
 import { type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { LinkCard } from "@valentinkolb/cloud/ui";
-import { tools } from "./tools/registry";
-
-const featured = tools.filter((t) => t.featured);
-const more = tools.filter((t) => !t.featured);
+import { ToolsWorkspace } from "./ToolsWorkspace";
+import { categoryOrder, categories, tools } from "./tools/registry";
 
 export default ssr<AuthContext>(async (c) => {
   return () => (
-    <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Tools" }]}>
-      <div class="max-w-4xl mx-auto">
-        {/* Hero */}
-        <div class="p-6 mb-4 text-center">
-          <div class="flex items-center justify-center gap-3 mb-2">
-            <div class="w-12 h-12 thumbnail bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
-              <i class="ti ti-tools text-2xl text-zinc-600 dark:text-zinc-400" />
-            </div>
+    <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Tools" }]}>
+      <ToolsWorkspace>
+        <div class="mx-auto flex w-full max-w-5xl flex-col gap-4">
+          <header class="flex flex-col gap-1">
+            <h1 class="text-xl font-semibold">Tools</h1>
+            <p class="text-sm text-dimmed">Small utilities for testing, encoding, generating, and inspecting data.</p>
+          </header>
+
+          <div class="info-block-info flex items-start gap-2">
+            <i class="ti ti-info-circle mt-0.5 shrink-0" />
+            <span>
+              Most tools run locally in your browser. Network tools may call the server when they need a stable endpoint or CORS-free
+              requests.
+            </span>
           </div>
-          <h1 class="text-xl font-semibold mb-1">Tools</h1>
-          <p class="text-sm text-dimmed">IT utilities &mdash; everything runs locally in your browser</p>
-        </div>
 
-        {/* Privacy notice */}
-        <div class="info-block-info mb-6 flex items-center gap-2">
-          <i class="ti ti-shield-check shrink-0" />
-          <span>All data stays on your device. Nothing is sent to a server.</span>
+          {categoryOrder.map((category) => {
+            const items = tools.filter((tool) => tool.category === category);
+            if (items.length === 0) return null;
+            return (
+              <section class="flex flex-col gap-2">
+                <div class="flex items-center gap-2">
+                  <i class={`${categories[category].icon} text-dimmed`} />
+                  <h2 class="text-sm font-semibold">{categories[category].label}</h2>
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {items.map((tool) => (
+                    <LinkCard
+                      href={`/tools/${tool.id}`}
+                      title={tool.name}
+                      description={tool.description}
+                      icon={tool.icon}
+                      color={tool.color}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
-
-        {/* Featured tools */}
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-          {featured.map((tool) => (
-            <LinkCard href={`/tools/${tool.id}`} title={tool.name} description={tool.description} icon={tool.icon} color={tool.color} />
-          ))}
-        </div>
-
-        {/* More tools (collapsible) */}
-        {more.length > 0 && (
-          <details class="group">
-            <summary class="flex items-center gap-2 cursor-pointer select-none px-1 py-2 text-dimmed hover:text-secondary transition-colors">
-              <i class="ti ti-chevron-right text-sm transition-transform group-open:rotate-90" />
-              <span class="text-xs font-semibold uppercase tracking-wider">More Tools ({more.length})</span>
-            </summary>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-              {more.map((tool) => (
-                <LinkCard href={`/tools/${tool.id}`} title={tool.name} description={tool.description} icon={tool.icon} color={tool.color} />
-              ))}
-            </div>
-          </details>
-        )}
-      </div>
+      </ToolsWorkspace>
     </Layout>
   );
 });
