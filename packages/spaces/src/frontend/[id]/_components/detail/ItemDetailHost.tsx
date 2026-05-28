@@ -2,7 +2,7 @@ import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type { SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
+import type { SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import ItemDetailPanel from "./ItemDetailPanel";
 import { subscribeToDetailSelection } from "../../../lib/detail";
 
@@ -10,6 +10,7 @@ type Props = {
   spaceId: string;
   baseUrl: string;
   currentUserId: string;
+  columns: SpaceColumn[];
   tags: SpaceTag[];
   initialItem: SpaceItem | null;
   initialComments: SpaceComment[];
@@ -157,6 +158,7 @@ export default function ItemDetailHost(props: Props) {
         {(current) => (
           <ItemDetailPanel
             item={current}
+            columns={props.columns}
             tags={props.tags}
             spaceId={props.spaceId}
             baseUrl={props.baseUrl}

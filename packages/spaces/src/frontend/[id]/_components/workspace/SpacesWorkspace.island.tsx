@@ -374,6 +374,7 @@ export default function SpacesWorkspace(props: Props) {
             spaceId={spaceId()}
             baseUrl={itemLinkBaseUrl()}
             currentUserId={state().currentUserId}
+            columns={state().space.columns}
             tags={state().space.tags}
             initialItem={state().selectedItem}
             initialComments={state().selectedItemComments}

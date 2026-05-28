@@ -7,7 +7,6 @@ import {
   Dropdown,
   EntitySearch,
   MarkdownView,
-  TextInput,
   prompts,
   toast,
   type DropdownItem,
@@ -16,10 +15,12 @@ import {
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CommentsSection from "./CommentsSection";
-import type { SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/contracts";
+import type { SpaceColumn, SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/contracts";
+import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 
 type Props = {
   item: SpaceItem;
+  columns: SpaceColumn[];
   tags: SpaceTag[];
   spaceId: string;
   /** Base URL for close link */
@@ -495,118 +496,9 @@ export default function ItemDetailPanel(props: Props) {
   const handleDuplicate = () => duplicateMutation.mutate(undefined);
   const handleDelete = () => deleteMutation.mutate({});
 
-  const editTitleMutation = mutations.create<SpaceItem | null, void>({
-    mutation: async () => {
-      const result = await prompts.form({
-        title: "Edit Title",
-        icon: "ti ti-edit",
-        size: "small",
-        fields: {
-          title: {
-            type: "text",
-            label: false,
-            default: props.item.title,
-            required: true,
-            maxLength: 200,
-          },
-        },
-      });
-      if (!result || result.title === props.item.title) return null;
-      return patchItem({ title: result.title });
-    },
-    onSuccess: handleItemUpdated,
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const editDescriptionMutation = mutations.create<SpaceItem | null, void>({
-    mutation: async () => {
-      const result = await prompts.dialog<string | null>(
-        (close) => {
-          const [description, setDescription] = createSignal(props.item.description || "");
-          return (
-            <form
-              class="flex flex-col gap-4"
-              onSubmit={(event) => {
-                event.preventDefault();
-                close(description());
-              }}
-            >
-              <TextInput
-                ariaLabel="Description"
-                markdown
-                lines={12}
-                maxLength={5000}
-                value={description}
-                onInput={setDescription}
-                placeholder="Write a description..."
-              />
-              <div class="flex justify-end gap-2">
-                <button type="button" onClick={() => close(null)} class="btn-secondary btn-sm">
-                  Cancel
-                </button>
-                <button type="submit" class="btn-primary btn-sm">
-                  Save
-                </button>
-              </div>
-            </form>
-          );
-        },
-        { title: "Edit Description", icon: "ti ti-file-text", size: "large" },
-      );
-      if (result === null || result === undefined || result === (props.item.description || "")) return null;
-      return patchItem({ description: result || null });
-    },
-    onSuccess: handleItemUpdated,
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const editDeadlineMutation = mutations.create<SpaceItem | null, void>({
-    mutation: async () => {
-      const result = await prompts.form({
-        title: "Edit Deadline",
-        icon: "ti ti-calendar-due",
-        fields: {
-          deadline: {
-            type: "datetime",
-            label: "Deadline",
-            default: props.item.deadline ?? "",
-          },
-        },
-      });
-      if (!result) return null;
-      const deadline = result.deadline ? new Date(result.deadline).toISOString() : null;
-      return patchItem({ deadline });
-    },
-    onSuccess: handleItemUpdated,
-    onError: (err) => prompts.error(err.message),
-  });
-
-  const editEventTimeMutation = mutations.create<SpaceItem | null, void>({
-    mutation: async () => {
-      const result = await prompts.form({
-        title: "Edit Event Time",
-        icon: "ti ti-calendar-event",
-        fields: {
-          startsAt: {
-            type: "datetime",
-            label: "Start",
-            default: props.item.startsAt ?? "",
-            required: true,
-          },
-          endsAt: {
-            type: "datetime",
-            label: "End",
-            default: props.item.endsAt ?? "",
-            required: true,
-          },
-        },
-      });
-      if (!result) return null;
-      const startsAt = result.startsAt ? new Date(result.startsAt).toISOString() : null;
-      const endsAt = result.endsAt ? new Date(result.endsAt).toISOString() : null;
-      return patchItem({ startsAt, endsAt });
-    },
-    onSuccess: handleItemUpdated,
+  const editItemMutation = mutations.create<boolean, void>({
+    mutation: () => editItemWithDialog({ spaceId: props.spaceId, item: props.item, columns: props.columns, tags: props.tags }),
+    onSuccess: handleEditItemSuccess,
     onError: (err) => prompts.error(err.message),
   });
 
@@ -632,10 +524,7 @@ export default function ItemDetailPanel(props: Props) {
     completeMutation.loading() ||
     duplicateMutation.loading() ||
     deleteMutation.loading() ||
-    editTitleMutation.loading() ||
-    editDescriptionMutation.loading() ||
-    editDeadlineMutation.loading() ||
-    editEventTimeMutation.loading() ||
+    editItemMutation.loading() ||
     addAssigneeMutation.loading();
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
@@ -652,8 +541,8 @@ export default function ItemDetailPanel(props: Props) {
               <h2 class="min-w-0 flex-1 break-words text-lg font-semibold leading-tight text-primary">{props.item.title}</h2>
               <IconActionButton
                 icon="ti ti-pencil"
-                title="Edit title"
-                onClick={() => editTitleMutation.mutate(undefined)}
+                title="Edit item"
+                onClick={() => editItemMutation.mutate(undefined)}
                 disabled={isLoading()}
               />
             </div>
@@ -720,7 +609,7 @@ export default function ItemDetailPanel(props: Props) {
       <section class="detail-section">
         <SectionHeader
           title={scheduleTitle()}
-          onEdit={isEvent() ? () => editEventTimeMutation.mutate(undefined) : () => editDeadlineMutation.mutate(undefined)}
+          onEdit={() => editItemMutation.mutate(undefined)}
           editLabel={isEvent() ? "Edit event time" : "Edit deadline"}
           disabled={isLoading()}
         />
@@ -762,7 +651,7 @@ export default function ItemDetailPanel(props: Props) {
       </section>
 
       <section class="detail-section" style="view-transition-name: space-item-detail-description">
-        <SectionHeader title="Description" onEdit={() => editDescriptionMutation.mutate(undefined)} disabled={isLoading()} />
+        <SectionHeader title="Description" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
         <Show when={props.item.description} fallback={<p class="text-xs text-dimmed">No description</p>}>
           <MarkdownView html={markdown.render(props.item.description!)} smallHeadings class="text-sm" />
         </Show>
