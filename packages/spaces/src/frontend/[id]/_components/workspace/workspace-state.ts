@@ -30,6 +30,7 @@ export const loadSpacesWorkspaceState = async (params: {
   const selectedItemId = isSettingsMode ? "" : (url.searchParams.get("item") ?? "");
   const calendarViewParam = url.searchParams.get("cv") as CalendarView | null;
   const calendarDateParam = url.searchParams.get("cd") ?? undefined;
+  let calendarTagIds = url.searchParams.get("ctags")?.split(",").filter(Boolean) ?? [];
 
   const hasViewOverride = isValidView(viewParam);
   const hasPanelWidthOverride = isValidPanelWidth(panelWidthParam);
@@ -40,6 +41,8 @@ export const loadSpacesWorkspaceState = async (params: {
 
   const space = await spacesService.space.getDetail({ id: spaceId });
   if (!space) return { kind: "notFound", title: "Not found", message: "Space not found" };
+  const spaceTagIds = new Set(space.tags.map((tag) => tag.id));
+  calendarTagIds = calendarTagIds.filter((tagId) => spaceTagIds.has(tagId));
 
   const hasAccess = await spacesService.space.permission.canAccess({
     spaceId,
@@ -150,7 +153,7 @@ export const loadSpacesWorkspaceState = async (params: {
         : calendarView === "year"
           ? { from: new Date(calendarDate.getFullYear(), 0, 1), to: new Date(calendarDate.getFullYear() + 1, 0, 1) }
           : calendar.getDateRange(calendarView, calendarDate);
-    calendarItems = (
+    const accessibleItems = (
       await spacesService.item.calendar.list({
         userId: params.user.id,
         groups: params.user.memberofGroupIds,
@@ -158,6 +161,10 @@ export const loadSpacesWorkspaceState = async (params: {
         to: to.toISOString(),
       })
     ).filter((item) => item.spaceId === spaceId);
+    calendarItems =
+      calendarTagIds.length > 0
+        ? accessibleItems.filter((item) => item.tags?.some((tag) => calendarTagIds.includes(tag.id)))
+        : accessibleItems;
 
     const locationCookie = params.cookieHeader
       ?.split(";")
@@ -220,6 +227,7 @@ export const loadSpacesWorkspaceState = async (params: {
     completedColumnId,
     calendarView,
     calendarDate: calendarDate.toISOString(),
+    calendarTagIds,
     calendarItems,
     calendarWeather,
     selectedItem,

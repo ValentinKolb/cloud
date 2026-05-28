@@ -14,6 +14,7 @@ export type CalendarProps = {
   items: CalendarItem[];
   columns: SpaceColumn[];
   tags: SpaceTag[];
+  selectedTagIds: string[];
   view: CalendarView;
   date: Date;
   baseUrl: string;

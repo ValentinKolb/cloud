@@ -60,6 +60,9 @@ export default function SpacesWorkspace(props: Props) {
       hasViewOverride: state().hasOverride && new URLSearchParams(state().query).has("view"),
       hasPanelWidthOverride: state().hasOverride && new URLSearchParams(state().query).has("panelWidth"),
       currentPanelWidth: state().currentPanelWidth,
+      calendarView: state().calendarView,
+      calendarDate: state().calendarDate,
+      calendarTagIds: state().calendarTagIds,
     });
   const paginationBaseUrl = () =>
     buildSpacesPaginationBaseUrl({
@@ -345,6 +348,7 @@ export default function SpacesWorkspace(props: Props) {
               items={state().calendarItems}
               columns={state().space.columns}
               tags={state().space.tags}
+              selectedTagIds={state().calendarTagIds}
               view={state().calendarView}
               date={new Date(state().calendarDate)}
               baseUrl={itemLinkBaseUrl()}

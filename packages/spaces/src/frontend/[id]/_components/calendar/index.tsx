@@ -10,7 +10,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { dates as calendar } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CalendarItem } from "@/contracts";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
@@ -21,11 +21,15 @@ import type { CalendarProps, CalendarView } from "./types";
 const eventStart = (item: CalendarItem) => item.startsAt ?? item.deadline ?? calendar.today().toISOString();
 const eventEnd = (item: CalendarItem) => item.endsAt ?? item.deadline ?? eventStart(item);
 
-const buildCalendarHref = (baseUrl: string, view: CalendarView, date: Date, item?: string) => {
+const CALENDAR_TAGS_PARAM = "ctags";
+
+const buildCalendarHref = (baseUrl: string, view: CalendarView, date: Date, tagIds: string[], item?: string) => {
   const url = new URL(baseUrl, "http://spaces.local");
   url.searchParams.set("view", "calendar");
   url.searchParams.set("cv", view);
   url.searchParams.set("cd", calendar.formatDateKey(date));
+  if (tagIds.length > 0) url.searchParams.set(CALENDAR_TAGS_PARAM, tagIds.join(","));
+  else url.searchParams.delete(CALENDAR_TAGS_PARAM);
   if (item) url.searchParams.set("item", item);
   else url.searchParams.delete("item");
   return `${url.pathname}?${url.searchParams.toString()}`;
@@ -37,17 +41,17 @@ const priorityColor = (item: CalendarItem) => {
   return "amber";
 };
 
-const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView, date: Date): CalendarEvent => {
+const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView, date: Date, tagIds: string[]): CalendarEvent => {
   const isDeadline = Boolean(item.deadline && !item.startsAt);
   return {
     id: item.id,
     title: item.title,
     start: eventStart(item),
     end: eventEnd(item),
-    allDay: item.allDay || Boolean(item.deadline && !item.startsAt),
+    allDay: item.allDay || !item.startsAt,
     color: priorityColor(item),
     colorHex: isDeadline ? undefined : item.spaceColor,
-    href: buildCalendarHref(baseUrl, view, date, item.id),
+    href: buildCalendarHref(baseUrl, view, date, tagIds, item.id),
     dataSpaceItemId: item.id,
     calendarName: item.spaceName,
     meta: isDeadline ? "Deadline" : item.spaceName,
@@ -56,13 +60,7 @@ const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView
 
 export default function Calendar(props: CalendarProps) {
   const rootId = `space-calendar-${props.spaceId}`;
-  const [tagFilter, setTagFilter] = createSignal<string[]>([]);
-  const visibleItems = () => {
-    const selected = tagFilter();
-    if (selected.length === 0) return props.items;
-    return props.items.filter((item) => item.tags?.some((tag) => selected.includes(tag.id)));
-  };
-  const events = () => visibleItems().map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date));
+  const events = () => props.items.map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date, props.selectedTagIds));
   const dayBadges = () =>
     Object.fromEntries(
       Object.entries(props.weather ?? {}).map(([date, weather]) => [
@@ -74,10 +72,16 @@ export default function Calendar(props: CalendarProps) {
       ]),
     );
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date), { replace, scroll: "preserve" });
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.selectedTagIds), { replace, scroll: "preserve" });
   };
   const toggleTag = (tagId: string) => {
-    setTagFilter((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
+    const selected = props.selectedTagIds.includes(tagId)
+      ? props.selectedTagIds.filter((id) => id !== tagId)
+      : [...props.selectedTagIds, tagId];
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, selected), { replace: true, scroll: "preserve" });
+  };
+  const clearTags = () => {
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, []), { replace: true, scroll: "preserve" });
   };
   const updateEventTime = mutations.create<void, { event: CalendarEvent; next: CalendarEventTimeChange }>({
     mutation: async ({ event, next }) => {
@@ -201,8 +205,8 @@ export default function Calendar(props: CalendarProps) {
         <div class="flex flex-wrap items-center gap-1.5 px-1">
           <button
             type="button"
-            class={`btn-segment ${tagFilter().length === 0 ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""}`}
-            onClick={() => setTagFilter([])}
+            class={`btn-segment ${props.selectedTagIds.length === 0 ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""}`}
+            onClick={clearTags}
           >
             All tags
           </button>
@@ -210,7 +214,7 @@ export default function Calendar(props: CalendarProps) {
             {(tag) => (
               <button
                 type="button"
-                class={`btn-segment gap-1.5 ${tagFilter().includes(tag.id) ? "ring-1 ring-blue-400" : ""}`}
+                class={`btn-segment gap-1.5 ${props.selectedTagIds.includes(tag.id) ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""}`}
                 onClick={() => toggleTag(tag.id)}
               >
                 <span class="h-2 w-2 rounded-full" style={{ "background-color": tag.color }} />
@@ -229,8 +233,8 @@ export default function Calendar(props: CalendarProps) {
         endHour={20}
         withWeekNumbers
         dayBadges={dayBadges()}
-        getViewHref={(view) => buildCalendarHref(props.baseUrl, view as CalendarView, props.date)}
-        getDateHref={(date, view) => buildCalendarHref(props.baseUrl, view as CalendarView, date)}
+        getViewHref={(view) => buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.selectedTagIds)}
+        getDateHref={(date, view) => buildCalendarHref(props.baseUrl, view as CalendarView, date, props.selectedTagIds)}
         getEventHref={(event) => event.href}
         onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}
         onDateChange={(date, view) => routeTo(view as CalendarView, date)}

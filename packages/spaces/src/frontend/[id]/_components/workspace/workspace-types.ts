@@ -29,6 +29,7 @@ export type SpacesWorkspaceState =
       completedColumnId: string | null;
       calendarView: CalendarView;
       calendarDate: string;
+      calendarTagIds: string[];
       calendarItems: CalendarItem[];
       calendarWeather: Record<string, DayWeather>;
       selectedItem: SpaceItem | null;
@@ -66,6 +67,8 @@ const withoutSelectedItem = (href: string) => {
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
 
+const calendarDateKey = (value: string) => value.slice(0, 10);
+
 export const buildSpacesPaginationBaseUrl = (params: {
   baseSpaceUrl: string;
   filter: FilterState;
@@ -89,19 +92,40 @@ export const buildSpacesItemLinkBaseUrl = (params: {
   hasViewOverride: boolean;
   hasPanelWidthOverride: boolean;
   currentPanelWidth: string;
+  calendarView?: string;
+  calendarDate?: string;
+  calendarTagIds?: string[];
 }) =>
   withoutSelectedItem(
     withViewOverrides({
       baseUrl:
         params.currentView === "list" || params.currentView === "table"
           ? buildFilterUrl(params.baseSpaceUrl, {}, params.filter)
-          : params.baseSpaceUrl,
+          : buildCalendarUrl(params.baseSpaceUrl, params),
       hasViewOverride: params.hasViewOverride,
       currentView: params.currentView,
       hasPanelWidthOverride: params.hasPanelWidthOverride,
       currentPanelWidth: params.currentPanelWidth,
     }),
   );
+
+const buildCalendarUrl = (
+  baseSpaceUrl: string,
+  params: {
+    currentView: string;
+    calendarView?: string;
+    calendarDate?: string;
+    calendarTagIds?: string[];
+  },
+) => {
+  if (params.currentView !== "calendar") return baseSpaceUrl;
+  const url = new URL(baseSpaceUrl, "http://localhost");
+  if (params.calendarView) url.searchParams.set("cv", params.calendarView);
+  if (params.calendarDate) url.searchParams.set("cd", calendarDateKey(params.calendarDate));
+  if (params.calendarTagIds && params.calendarTagIds.length > 0) url.searchParams.set("ctags", params.calendarTagIds.join(","));
+  const query = url.searchParams.toString();
+  return query ? `${url.pathname}?${query}` : url.pathname;
+};
 
 export const spacesDetailPanelWidthClass = (width: DetailPanelWidth) =>
   width === "narrow"

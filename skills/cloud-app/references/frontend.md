@@ -1687,6 +1687,11 @@ multi-select filters, sort chips, and group chips aligned with the immediately
 visible URL state. Use `replace` for these filter updates so typing and chip
 toggling do not flood browser history.
 
+Calendar filters that should survive reload/share/back-forward, such as Spaces
+calendar tags, also belong in route state. Keep ephemeral modal state local, but
+put visible calendar scope filters in query params and resolve the filtered
+calendar item set in the route-state loader.
+
 Recommended rule: filter/search/sort/group changes use `replace`, reset `page`
 to `1`, usually clear selected detail IDs if the result set can change, and use
 `scroll="preserve"` for list containers. Pagination changes only the page param

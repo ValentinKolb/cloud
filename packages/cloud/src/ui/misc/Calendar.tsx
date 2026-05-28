@@ -588,10 +588,10 @@ const TimeGridView = (props: {
   return (
     <div class="flex min-h-0 min-w-160 flex-1 flex-col">
       <div
-        class={`grid border-b border-zinc-100 dark:border-zinc-800/70`}
+        class="grid border-b border-zinc-100 dark:border-zinc-800/70"
         style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}
       >
-        <div class="px-2 py-2 text-center text-[11px] font-semibold text-dimmed">{props.labels.allDay}</div>
+        <div />
         <For each={props.days}>
           {(day) => {
             const dayBadge = props.owner.dayBadges?.[calendar.formatDateKey(day)];
@@ -610,6 +610,44 @@ const TimeGridView = (props: {
                   )}
                 </Show>
               </a>
+            );
+          }}
+        </For>
+      </div>
+      <div
+        class="grid max-h-28 overflow-y-auto border-b border-zinc-100 dark:border-zinc-800/70"
+        style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}
+      >
+        <div class="sticky top-0 bg-white px-2 py-2 text-center text-[11px] font-semibold text-dimmed dark:bg-zinc-950">
+          {props.labels.allDay}
+        </div>
+        <For each={props.days}>
+          {(day) => {
+            const allDay = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day) && event.allDay);
+            const previewAllDay = previewEvents().filter((event) => event.dayKey === calendar.formatDateKey(day) && event.allDay);
+            return (
+              <div
+                class="min-h-10 border-r border-zinc-100 p-1 dark:border-zinc-800/70"
+                classList={{ "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day) }}
+                onDblClick={() => {
+                  const start = startOfDay(day);
+                  props.owner.onSlotDoubleClick?.({ start, end: calendar.addDays(start, 1), allDay: true });
+                }}
+                {...dropPreviewProps(props.owner, props.events, dropPreview, setDropPreview, allDayKey(day), () => startOfDay(day), true)}
+              >
+                <div class="flex flex-col gap-1">
+                  <For each={previewAllDay}>
+                    {(event) => (
+                      <div class="rounded border border-dashed border-blue-500 bg-blue-500/10 px-1.5 py-1 text-[10px] font-semibold text-blue-600">
+                        {event.title}
+                      </div>
+                    )}
+                  </For>
+                  <For each={allDay}>
+                    {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} compact />}
+                  </For>
+                </div>
+              </div>
             );
           }}
         </For>
@@ -634,30 +672,8 @@ const TimeGridView = (props: {
           <For each={props.days}>
             {(day) => {
               const timed = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day) && !event.allDay);
-              const allDay = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day) && event.allDay);
               return (
                 <div class="relative min-h-full border-r border-zinc-100 dark:border-zinc-800/70">
-                  <div
-                    class="absolute inset-x-1 top-1 z-10 flex flex-col gap-1"
-                    classList={{ "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day) }}
-                    onDblClick={() => {
-                      const start = startOfDay(day);
-                      props.owner.onSlotDoubleClick?.({ start, end: calendar.addDays(start, 1), allDay: true });
-                    }}
-                    {...dropPreviewProps(
-                      props.owner,
-                      props.events,
-                      dropPreview,
-                      setDropPreview,
-                      allDayKey(day),
-                      () => startOfDay(day),
-                      true,
-                    )}
-                  >
-                    <For each={allDay}>
-                      {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} compact />}
-                    </For>
-                  </div>
                   <For each={hours()}>
                     {(hour) => (
                       <div
