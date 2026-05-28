@@ -10,6 +10,7 @@
  */
 
 import type { SettingKind, SettingOption } from "../../contracts/shared";
+
 export type { SettingKind, SettingOption };
 
 type SettingEnvResolver = () => unknown;
@@ -24,16 +25,7 @@ type SettingCommon = {
   envBootstrap?: SettingEnvResolver;
 };
 
-type SettingStringLikeKind =
-  | "string"
-  | "text"
-  | "email"
-  | "url"
-  | "secret"
-  | "image"
-  | "cron"
-  | "timezone"
-  | "template";
+type SettingStringLikeKind = "string" | "text" | "email" | "url" | "secret" | "image" | "cron" | "timezone" | "template";
 
 type StringLikeSettingDef = SettingCommon & {
   kind: SettingStringLikeKind;
@@ -77,9 +69,7 @@ export type SettingDef =
   | StringListSettingDef
   | NumberListSettingDef;
 
-export type SettingValidationResult =
-  | { ok: true; value: SettingDef["default"] }
-  | { ok: false; error: string };
+export type SettingValidationResult = { ok: true; value: SettingDef["default"] } | { ok: false; error: string };
 
 const envString = (key: string): string | undefined => {
   const value = process.env[key]?.trim();
@@ -116,7 +106,8 @@ export const SETTINGS: SettingDef[] = [
     label: "URL",
     kind: "string",
     default: "localhost:3000",
-    description: "Public-facing application URL used for links in emails, OAuth redirects, and WebSocket connections (with or without scheme)",
+    description:
+      "Public-facing application URL used for links in emails, OAuth redirects, and WebSocket connections (with or without scheme)",
     placeholder: "e.g. https://cloud.example.org",
     group: "app",
     envFallback: () => envString("APP_URL"),
@@ -209,7 +200,8 @@ export const SETTINGS: SettingDef[] = [
     label: "CA Certificate (PEM)",
     kind: "text",
     default: "",
-    description: "Paste the FreeIPA root CA in PEM format to trust self-signed/private-CA servers without disabling validation. Preferred over allow_insecure.",
+    description:
+      "Paste the FreeIPA root CA in PEM format to trust self-signed/private-CA servers without disabling validation. Preferred over allow_insecure.",
     placeholder: "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
     group: "freeipa",
   },
@@ -218,7 +210,8 @@ export const SETTINGS: SettingDef[] = [
     label: "Allow Insecure TLS",
     kind: "boolean",
     default: false,
-    description: "Skip TLS certificate validation entirely. Use only for local dev — disables MITM protection. Ignored when ca_cert is set.",
+    description:
+      "Skip TLS certificate validation entirely. Use only for local dev — disables MITM protection. Ignored when ca_cert is set.",
     group: "freeipa",
   },
   {
@@ -632,13 +625,22 @@ export const SETTINGS: SettingDef[] = [
     group: "notebooks",
   },
   {
+    key: "notebooks.snapshot_cron",
+    label: "Snapshot Cron",
+    kind: "cron",
+    default: "0 3 * * *",
+    description: "Five-field cron schedule for automatic notebook S3 snapshots in app.timezone.",
+    group: "notebooks",
+  },
+  {
     key: "notebooks.max_attachment_size_mb",
     label: "Max Attachment Size",
     kind: "number",
     default: 10,
     min: 1,
     max: 200,
-    description: "Per-file upload limit for notebook attachments (megabytes). Oversize images are auto-resized client-side before the upload hits this gate; non-image files exceeding the limit are rejected with a clear error.",
+    description:
+      "Per-file upload limit for notebook attachments (megabytes). Oversize images are auto-resized client-side before the upload hits this gate; non-image files exceeding the limit are rejected with a clear error.",
     group: "notebooks",
   },
   {
@@ -648,7 +650,8 @@ export const SETTINGS: SettingDef[] = [
     default: 2048,
     min: 256,
     max: 8192,
-    description: "Longest-side cap (pixels) applied when an oversize image is auto-resized before upload. Aspect ratio is preserved; PNG inputs stay PNG, everything else becomes WebP at quality 0.85.",
+    description:
+      "Longest-side cap (pixels) applied when an oversize image is auto-resized before upload. Aspect ratio is preserved; PNG inputs stay PNG, everything else becomes WebP at quality 0.85.",
     group: "notebooks",
   },
 ];
@@ -674,11 +677,7 @@ const parseStringList = (value: unknown): string[] | null => {
 };
 
 const parseNumberList = (value: unknown): number[] | null => {
-  const rawValues = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-      ? value.split(/[,\n]/).map((entry) => entry.trim())
-      : null;
+  const rawValues = Array.isArray(value) ? value : typeof value === "string" ? value.split(/[,\n]/).map((entry) => entry.trim()) : null;
 
   if (!rawValues) return null;
 

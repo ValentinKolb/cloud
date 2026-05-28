@@ -3,6 +3,8 @@ import {
   CheckboxCard,
   IconInput,
   Link,
+  LogEntriesTable,
+  type LogTableEntry,
   navigateTo,
   PermissionEditor,
   prompts,
@@ -11,7 +13,7 @@ import {
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 import { readSettings, writeSettings } from "./NotebookSettingsStore";
@@ -29,6 +31,32 @@ type NoteSelectOption = {
   label: string;
   description?: string;
   icon?: string;
+};
+
+type BackupStatus = {
+  enabled: boolean;
+  endpoint: string;
+  region: string;
+  bucket: string;
+  scheduleCron: string;
+  accessKeyIdSet: boolean;
+  secretAccessKeySet: boolean;
+  configured: boolean;
+  missing: string[];
+  target: string | null;
+};
+
+type BackupRunResult = {
+  message: string;
+  exportedAt: string;
+  filename: string;
+  bytes: number;
+  sha256: string;
+  paths: {
+    latestZip: string;
+    snapshotZip: string;
+    manifest: string;
+  };
 };
 
 const flattenNoteOptions = (nodes: NoteTreeNode[], depth = 0): NoteSelectOption[] =>
@@ -371,6 +399,136 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
 
 function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
   const href = () => `/api/notebooks/${encodeURIComponent(props.notebook.shortId)}/export.zip`;
+  const [lastRun, setLastRun] = createSignal<BackupRunResult | null>(null);
+  const [base, setBase] = createSignal({
+    enabled: false,
+    endpoint: "",
+    region: "us-east-1",
+    bucket: "",
+  });
+  const [enabled, setEnabled] = createSignal(false);
+  const [endpoint, setEndpoint] = createSignal("");
+  const [region, setRegion] = createSignal("us-east-1");
+  const [bucket, setBucket] = createSignal("");
+  const [accessKeyId, setAccessKeyId] = createSignal("");
+  const [secretAccessKey, setSecretAccessKey] = createSignal("");
+  const [status, { refetch: refetchStatus }] = createResource(
+    () => (props.isAdmin ? props.notebook.shortId : null),
+    async (notebookId): Promise<BackupStatus> => {
+      const res = await apiClient[":id"].snapshots.config.$get({ param: { id: notebookId } });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load snapshot settings."));
+      return await res.json();
+    },
+  );
+  const [logs, { refetch: refetchLogs }] = createResource(
+    () => (props.isAdmin ? props.notebook.shortId : null),
+    async (notebookId): Promise<LogTableEntry[]> => {
+      const res = await apiClient[":id"].snapshots.logs.$get({
+        param: { id: notebookId },
+        query: { _: String(Date.now()) },
+      });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load snapshot logs."));
+      return await res.json();
+    },
+  );
+
+  createEffect(() => {
+    const current = status();
+    if (!current) return;
+    const nextBase = {
+      enabled: current.enabled,
+      endpoint: current.endpoint,
+      region: current.region || "us-east-1",
+      bucket: current.bucket,
+    };
+    setBase(nextBase);
+    setEnabled(current.enabled);
+    setEndpoint(current.endpoint);
+    setRegion(current.region || "us-east-1");
+    setBucket(current.bucket);
+    setAccessKeyId("");
+    setSecretAccessKey("");
+  });
+
+  const configMutation = mutations.create<BackupStatus, void>({
+    mutation: async () => {
+      const res = await apiClient[":id"].snapshots.config.$put({
+        param: { id: props.notebook.shortId },
+        json: {
+          enabled: enabled(),
+          endpoint: endpoint().trim(),
+          region: region().trim() || "us-east-1",
+          bucket: bucket().trim(),
+          accessKeyId: accessKeyId().trim() || undefined,
+          secretAccessKey: secretAccessKey().trim() || undefined,
+        },
+      });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update snapshot settings."));
+      return await res.json();
+    },
+    onSuccess: () => {
+      void refetchStatus();
+      void refetchLogs();
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const backupMutation = mutations.create<BackupRunResult, void>({
+    mutation: async () => {
+      const res = await apiClient[":id"].snapshots.run.$post({ param: { id: props.notebook.shortId } });
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to upload snapshot."));
+      return await res.json();
+    },
+    onSuccess: (result) => {
+      setLastRun(result);
+      void refetchStatus();
+      void refetchLogs();
+    },
+    onError: (error) => {
+      void prompts.error(error.message).finally(() => {
+        void refetchLogs();
+      });
+    },
+  });
+
+  const missing = () => status()?.missing.join(", ") || "none";
+  const dirty = () =>
+    enabled() !== base().enabled ||
+    endpoint().trim() !== base().endpoint ||
+    (region().trim() || "us-east-1") !== base().region ||
+    bucket().trim() !== base().bucket ||
+    accessKeyId().trim().length > 0 ||
+    secretAccessKey().trim().length > 0;
+  const localLogEntries = (): LogTableEntry[] => {
+    const run = lastRun();
+    if (!run) return [];
+    return [
+      {
+        id: `local:${run.sha256}`,
+        level: "info",
+        source: "notebooks:snapshot:s3",
+        message: run.message,
+        metadata: {
+          trigger: "manual",
+          notebookShortId: props.notebook.shortId,
+          bytes: run.bytes,
+          sha256: run.sha256,
+          latestZip: run.paths.latestZip,
+          snapshotZip: run.paths.snapshotZip,
+        },
+        createdAt: run.exportedAt,
+      },
+    ];
+  };
+  const logEntries = () => {
+    const remote = logs() ?? [];
+    const local = localLogEntries();
+    if (local.length === 0) return remote;
+    const localSha = String(local[0]?.metadata?.sha256 ?? "");
+    return remote.some((entry) => String(entry.metadata?.sha256 ?? "") === localSha) ? remote : [...local, ...remote];
+  };
+  const logError = () => (logs.error instanceof Error ? logs.error.message : null);
+  const showSnapshotLogs = () => enabled() || logEntries().length > 0 || logs.loading || !!logError();
 
   return (
     <div class="flex flex-col gap-4">
@@ -383,6 +541,129 @@ function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
           <i class="ti ti-download" />
           Download ZIP export
         </Link>
+        <div class="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold">S3 snapshots</h3>
+              <p class="mt-1 text-xs text-dimmed">
+                One-way ZIP snapshots for this notebook. Cloud admins manage the global schedule in /admin/notebooks.
+              </p>
+            </div>
+            <Show when={enabled()}>
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  disabled={status.loading || backupMutation.loading() || !status()?.configured}
+                  onClick={() => backupMutation.mutate(undefined)}
+                >
+                  <Show when={!backupMutation.loading()} fallback={<i class="ti ti-loader-2 animate-spin" />}>
+                    <i class="ti ti-cloud-upload" />
+                    Upload now
+                  </Show>
+                </button>
+                <Show when={lastRun()}>
+                  {(result) => (
+                    <span class="text-xs text-emerald-600 dark:text-emerald-300">Uploaded {Math.round(result().bytes / 1024)} KB.</span>
+                  )}
+                </Show>
+              </div>
+            </Show>
+          </div>
+
+          <CheckboxCard
+            label="Enable S3 snapshots"
+            description="Writes latest.zip, a timestamped snapshot, and latest-manifest.json to your bucket."
+            icon="ti ti-cloud-upload"
+            value={enabled}
+            onChange={setEnabled}
+            disabled={configMutation.loading()}
+          />
+
+          <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
+            Automatic schedule: <span class="font-mono text-primary">{status()?.scheduleCron ?? "0 3 * * *"}</span>
+            <span class="ml-2 text-dimmed">Cloud admins edit it in /admin/notebooks.</span>
+          </div>
+
+          <Show when={enabled()}>
+            <div class="grid gap-3">
+              <TextInput label="Endpoint" value={endpoint} onInput={setEndpoint} placeholder="https://..." icon="ti ti-link" type="url" />
+              <div class="info-block-info flex items-start gap-2 text-xs">
+                <i class="ti ti-info-circle mt-0.5 shrink-0" />
+                <div>
+                  <p class="font-medium text-primary">S3-compatible endpoint</p>
+                  <p class="mt-0.5 text-dimmed">
+                    Uses Bun's S3 client with virtual-hosted-style requests. Hetzner Object Storage works with endpoints like{" "}
+                    <code>https://nbg1.your-objectstorage.com</code>, <code>https://fsn1.your-objectstorage.com</code>, or{" "}
+                    <code>https://hel1.your-objectstorage.com</code>. Use the matching region such as <code>nbg1</code>. Objects are written
+                    below <code>notebooks/{props.notebook.shortId}/</code>.
+                  </p>
+                </div>
+              </div>
+              <div class="grid gap-3 md:grid-cols-2">
+                <TextInput label="Region" value={region} onInput={setRegion} placeholder="eu-central-1" icon="ti ti-map" />
+                <TextInput label="Bucket" value={bucket} onInput={setBucket} placeholder="my-notebook-backups" icon="ti ti-bucket" />
+              </div>
+              <div class="grid gap-3 md:grid-cols-2">
+                <TextInput
+                  label="Access key ID"
+                  value={accessKeyId}
+                  onInput={setAccessKeyId}
+                  placeholder={status()?.accessKeyIdSet ? "Stored - leave empty to keep" : ""}
+                  icon="ti ti-key"
+                />
+                <TextInput
+                  label="Secret access key"
+                  value={secretAccessKey}
+                  onInput={setSecretAccessKey}
+                  placeholder={status()?.secretAccessKeySet ? "Stored - leave empty to keep" : ""}
+                  icon="ti ti-lock"
+                  password
+                />
+              </div>
+              <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
+                Target: <span class="font-medium text-primary">{status()?.target ?? "not configured"}</span>
+                <Show when={missing() !== "none"}>
+                  <span class="ml-2 text-amber-600 dark:text-amber-300">Missing: {missing()}</span>
+                </Show>
+              </div>
+            </div>
+          </Show>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="btn-primary btn-sm"
+              disabled={configMutation.loading() || !dirty()}
+              onClick={() => configMutation.mutate(undefined)}
+            >
+              <Show when={!configMutation.loading()} fallback={<i class="ti ti-loader-2 animate-spin" />}>
+                <i class="ti ti-device-floppy" />
+                Save snapshot settings
+              </Show>
+            </button>
+          </div>
+        </div>
+
+        <Show when={showSnapshotLogs()}>
+          <div class="flex flex-col gap-3">
+            <h3 class="text-sm font-semibold">Recent snapshots</h3>
+            <Show
+              when={!logError()}
+              fallback={
+                <div class="info-block-error flex items-start gap-2 text-xs">
+                  <i class="ti ti-alert-circle mt-0.5 shrink-0" />
+                  <span>{logError()}</span>
+                </div>
+              }
+            >
+              <LogEntriesTable
+                entries={logEntries()}
+                emptyMessage={logs.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."}
+              />
+            </Show>
+          </div>
+        </Show>
       </Show>
     </div>
   );

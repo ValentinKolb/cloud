@@ -1,4 +1,4 @@
-import { children, createMemo, createSignal, For, Show, type JSX } from "solid-js";
+import { children, createMemo, createSignal, For, type JSX, Show } from "solid-js";
 
 const SETTINGS_MODAL_TAB = Symbol("SettingsModal.Tab");
 
@@ -88,8 +88,8 @@ const SettingsModal = ((props: SettingsModalProps) => {
         </div>
       </section>
 
-      <div class="flex min-h-0 flex-1 gap-2 overflow-hidden max-md:flex-col">
-        <nav class="paper shrink-0 p-2 md:w-44" aria-label={`${props.title} sections`}>
+      <div class="paper flex min-h-0 flex-1 gap-2 overflow-hidden p-2 max-md:flex-col">
+        <nav class="shrink-0 md:w-44" aria-label={`${props.title} sections`}>
           <div class="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
             <For each={tabs()}>
               {(tab) => (
@@ -114,10 +114,10 @@ const SettingsModal = ((props: SettingsModalProps) => {
           </div>
         </nav>
 
-        <main class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <main class="min-h-0 flex-1 overflow-y-auto rounded-lg p-4">
           <Show when={activeTab()}>
             {(tab) => (
-              <section class={`paper h-full p-4 ${tab().tone === "danger" ? "ring-1 ring-red-200 dark:ring-red-900/50" : ""}`}>
+              <section class={`min-h-full ${tab().tone === "danger" ? "rounded-lg ring-1 ring-red-200 dark:ring-red-900/50" : ""}`}>
                 <div class="mb-4 flex items-start gap-3">
                   <span
                     class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
@@ -129,9 +129,7 @@ const SettingsModal = ((props: SettingsModalProps) => {
                     <i class={`${tab().icon || "ti ti-settings"} text-sm`} />
                   </span>
                   <div class="min-w-0">
-                    <h3 class={`section-label mb-1 ${tab().tone === "danger" ? "text-red-600 dark:text-red-300" : ""}`}>
-                      {tab().title}
-                    </h3>
+                    <h3 class={`section-label mb-1 ${tab().tone === "danger" ? "text-red-600 dark:text-red-300" : ""}`}>{tab().title}</h3>
                     <Show when={tab().description}>
                       <p class="text-xs text-dimmed">{tab().description}</p>
                     </Show>

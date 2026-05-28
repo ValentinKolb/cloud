@@ -193,6 +193,28 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   console.log("  ✓ notebooks.note_favorites table");
 
+  // One S3-compatible snapshot configuration per notebook. Credentials
+  // are encrypted at rest in the service layer and never returned
+  // through the API after save. The previous account/target tables were
+  // never released; drop them to keep the model intentionally small.
+  await sql`DROP TABLE IF EXISTS notebooks.backup_targets`.simple();
+  await sql`DROP TABLE IF EXISTS notebooks.backup_accounts`.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS notebooks.s3_snapshot_configs (
+      notebook_id UUID PRIMARY KEY REFERENCES notebooks.notebooks(id) ON DELETE CASCADE,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      endpoint TEXT NOT NULL DEFAULT '',
+      region TEXT NOT NULL DEFAULT 'us-east-1',
+      bucket TEXT NOT NULL DEFAULT '',
+      access_key_id TEXT NOT NULL DEFAULT '',
+      secret_access_key TEXT NOT NULL DEFAULT '',
+      updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`CREATE INDEX IF NOT EXISTS idx_s3_snapshot_configs_enabled ON notebooks.s3_snapshot_configs(enabled)`.simple();
+  console.log("  ✓ notebooks.s3_snapshot_configs table");
+
   // Index table for `attach://<shortId>` references inside note bodies.
   // Replaces the previous `LIKE '%attach://...'` scan in
   // `attachment.usageCount` with an O(log N) lookup.

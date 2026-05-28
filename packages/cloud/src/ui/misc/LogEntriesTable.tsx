@@ -1,4 +1,5 @@
 import { dates } from "@valentinkolb/stdlib";
+import { Show } from "solid-js";
 import DataTable, { type DataTableColumn } from "./DataTable";
 
 export type LogTableEntry = {
@@ -23,11 +24,7 @@ const levelIcon: Record<string, { icon: string; color: string; label: string }> 
 };
 
 export default function LogEntriesTable(props: Props) {
-  if (props.entries.length === 0) {
-    return <div class="paper py-8 text-center text-xs text-dimmed">{props.emptyMessage ?? "No log entries found."}</div>;
-  }
-
-  const columns: DataTableColumn<LogTableEntry>[] = [
+  const columns = (): DataTableColumn<LogTableEntry>[] => [
     { id: "level", header: "Level", value: (entry) => entry.level },
     { id: "source", header: `Source (${props.entries.length})`, value: (entry) => entry.source },
     { id: "message", header: "Message", value: (entry) => entry.message },
@@ -35,27 +32,32 @@ export default function LogEntriesTable(props: Props) {
   ];
 
   return (
-    <DataTable
-      rows={props.entries}
-      columns={columns}
-      getRowId={(entry) => String(entry.id)}
-      hoverRows
-      class="paper overflow-x-auto"
-      renderCell={({ row, col }) => {
-        if (col.id === "level") {
-          const level = levelIcon[row.level] ?? levelIcon.debug!;
-          return (
-            <span class={`inline-flex items-center gap-1.5 whitespace-nowrap ${level.color}`}>
-              <i class={`${level.icon} text-sm`} />
-              <span>{level.label}</span>
-            </span>
-          );
-        }
-        if (col.id === "source") return <span class="whitespace-nowrap text-secondary">{row.source}</span>;
-        if (col.id === "message") return <span title={row.message}>{row.message}</span>;
-        if (col.id === "time") return <span class="text-dimmed">{dates.formatDateTime(row.createdAt)}</span>;
-        return "";
-      }}
-    />
+    <Show
+      when={props.entries.length > 0}
+      fallback={<div class="paper py-8 text-center text-xs text-dimmed">{props.emptyMessage ?? "No log entries found."}</div>}
+    >
+      <DataTable
+        rows={props.entries}
+        columns={columns()}
+        getRowId={(entry) => String(entry.id)}
+        hoverRows
+        class="paper overflow-x-auto"
+        renderCell={({ row, col }) => {
+          if (col.id === "level") {
+            const level = levelIcon[row.level] ?? levelIcon.debug!;
+            return (
+              <span class={`inline-flex items-center gap-1.5 whitespace-nowrap ${level.color}`}>
+                <i class={`${level.icon} text-sm`} />
+                <span>{level.label}</span>
+              </span>
+            );
+          }
+          if (col.id === "source") return <span class="whitespace-nowrap text-secondary">{row.source}</span>;
+          if (col.id === "message") return <span title={row.message}>{row.message}</span>;
+          if (col.id === "time") return <span class="text-dimmed">{dates.formatDateTime(row.createdAt)}</span>;
+          return "";
+        }}
+      />
+    </Show>
   );
 }

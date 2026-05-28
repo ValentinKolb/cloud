@@ -1,7 +1,7 @@
 import type { AttachmentContent } from "./attachments";
 import * as attachments from "./attachments";
-import * as notebooks from "./notebooks";
 import type { Notebook } from "./notebooks";
+import * as notebooks from "./notebooks";
 import type { Note } from "./notes";
 import * as notes from "./notes";
 
@@ -12,6 +12,7 @@ export type NotebookExportFile = {
 
 export type NotebookExport = {
   filename: string;
+  notebook: Pick<Notebook, "id" | "shortId" | "name">;
   files: NotebookExportFile[];
   zip: Uint8Array;
 };
@@ -354,6 +355,11 @@ export const exportNotebookZip = async (params: { notebookId: string; exportedAt
   });
   return {
     filename: exportFilename(notebook, exportedAt),
+    notebook: {
+      id: notebook.id,
+      shortId: notebook.shortId,
+      name: notebook.name,
+    },
     files,
     zip: createZip(files, exportedAt),
   };

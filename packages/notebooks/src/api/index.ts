@@ -1,23 +1,24 @@
-import { Hono, type Context } from "hono";
-import { describeRoute } from "hono-openapi";
-import { z } from "zod";
-import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { notebooksService, reindexRuntime } from "../service";
-import { loadEditableNoteRouteData } from "../service/route-state";
-import { settings, settingsService } from "@valentinkolb/cloud/services";
 import type { MutationResult, PermissionLevel } from "@valentinkolb/cloud/contracts";
 import {
-  ErrorResponseSchema,
-  MessageResponseSchema,
   AccessEntrySchema,
+  createPagination,
+  ErrorResponseSchema,
   GrantAccessSchema,
-  UpdateAccessSchema,
+  hasRole,
+  MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
-  hasRole,
+  parsePagination,
+  UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { parsePagination, createPagination } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { settings, settingsService } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
+import { notebooksService, reindexRuntime } from "../service";
+import { loadEditableNoteRouteData } from "../service/route-state";
 
 // ==========================
 // Zod Schemas
@@ -147,6 +148,10 @@ const FavoriteStateSchema = z.object({
   favorite: z.boolean(),
 });
 
+const SnapshotLogsQuerySchema = z.object({
+  _: z.string().optional().describe("Client cache-buster"),
+});
+
 const AttachmentSchema = z.object({
   id: z.uuid(),
   shortId: z.string().describe("6-char base62 alias for `attach://` schemes"),
@@ -160,6 +165,56 @@ const AttachmentSchema = z.object({
 });
 
 const AttachmentUsageSchema = z.object({ count: z.number().int() });
+
+const NotebookSnapshotConfigSchema = z.object({
+  enabled: z.boolean(),
+  endpoint: z.string(),
+  region: z.string(),
+  bucket: z.string(),
+  scheduleCron: z.string(),
+  accessKeyIdSet: z.boolean(),
+  secretAccessKeySet: z.boolean(),
+  configured: z.boolean(),
+  missing: z.array(z.string()),
+  target: z.string().nullable(),
+});
+
+const UpdateNotebookSnapshotConfigSchema = z.object({
+  enabled: z.boolean(),
+  endpoint: z.string().max(500).optional(),
+  region: z.string().min(1).max(100).optional(),
+  bucket: z.string().min(1).max(255).optional(),
+  accessKeyId: z.string().max(500).optional(),
+  secretAccessKey: z.string().max(1000).optional(),
+});
+
+const LogEntrySchema = z.object({
+  id: z.union([z.number(), z.string()]),
+  level: z.string(),
+  source: z.string(),
+  message: z.string(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.string(),
+});
+
+const NotebookBackupRunSchema = z.object({
+  message: z.string(),
+  exportedAt: z.string(),
+  filename: z.string(),
+  bytes: z.number().int().nonnegative(),
+  sha256: z.string(),
+  paths: z.object({
+    latestZip: z.string(),
+    snapshotZip: z.string(),
+    manifest: z.string(),
+  }),
+  uploaded: z.array(
+    z.object({
+      path: z.string(),
+      bytes: z.number().int().nonnegative(),
+    }),
+  ),
+});
 
 const TocItemSchema = z.object({
   level: z.number().int(),
@@ -358,9 +413,9 @@ const fileTooLarge = (c: Context, maxBytes: number) =>
 // Widget + WS mount BEFORE the auth middleware so they keep their own
 // permission gating instead of inheriting `requireRole("authenticated")`.
 
-import widgetRoutes from "./widgets";
-import templatesRoutes from "./templates";
 import wsRoutes from "../ws";
+import templatesRoutes from "./templates";
+import widgetRoutes from "./widgets";
 
 const app = new Hono<AuthContext>()
   .route("/widget", widgetRoutes)
@@ -1608,38 +1663,139 @@ const appWithAttachments = app
 // Export — portable ZIP archive for lock-in-free backups
 // =============================================================================
 
-const appWithExport = appWithAttachments.get(
-  "/:id/export.zip",
-  describeRoute({
-    tags: ["Notebooks"],
-    summary: "Export notebook",
-    description: "Download a portable ZIP archive with Markdown notes, raw attachments, and JSON metadata.",
-    ...requiresAuth,
-    responses: {
-      200: { description: "Notebook ZIP archive" },
-      403: jsonResponse(ErrorResponseSchema, "Access denied"),
-      404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
-    },
-  }),
-  async (c) => {
-    let notebookId = c.req.param("id")!;
-    const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
-    if (error) return error;
-    notebookId = notebook!.id;
-
-    const exported = await notebooksService.exporter.exportNotebookZip({ notebookId });
-    if (!exported) return respond(c, fail(err.notFound("Notebook")));
-
-    const buffer = exported.zip.buffer.slice(exported.zip.byteOffset, exported.zip.byteOffset + exported.zip.byteLength) as ArrayBuffer;
-    return new Response(new Blob([buffer], { type: "application/zip" }), {
-      headers: {
-        "Content-Type": "application/zip",
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(exported.filename)}"`,
-        "Cache-Control": "no-store",
+const appWithExport = appWithAttachments
+  .get(
+    "/:id/export.zip",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Export notebook",
+      description: "Download a portable ZIP archive with Markdown notes, raw attachments, and JSON metadata.",
+      ...requiresAuth,
+      responses: {
+        200: { description: "Notebook ZIP archive" },
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
       },
-    });
-  },
-);
+    }),
+    async (c) => {
+      let notebookId = c.req.param("id")!;
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
+      if (error) return error;
+      notebookId = notebook!.id;
+
+      const exported = await notebooksService.exporter.exportNotebookZip({ notebookId });
+      if (!exported) return respond(c, fail(err.notFound("Notebook")));
+
+      const buffer = exported.zip.buffer.slice(exported.zip.byteOffset, exported.zip.byteOffset + exported.zip.byteLength) as ArrayBuffer;
+      return new Response(new Blob([buffer], { type: "application/zip" }), {
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(exported.filename)}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    },
+  )
+  .get(
+    "/:id/snapshots/config",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Get notebook S3 snapshot config",
+      description: "Returns redacted S3 snapshot configuration for this notebook. Admin access is required.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(NotebookSnapshotConfigSchema, "Snapshot config"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    async (c) => {
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
+      if (error) return error;
+      return respond(c, ok(await notebooksService.backup.getConfig({ notebookId: notebook!.id })));
+    },
+  )
+  .put(
+    "/:id/snapshots/config",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Update notebook S3 snapshot config",
+      description: "Update this notebook's S3 snapshot configuration. Secrets are encrypted and never returned. Admin access is required.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(NotebookSnapshotConfigSchema, "Snapshot config"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    v("json", UpdateNotebookSnapshotConfigSchema),
+    async (c) => {
+      const user = c.get("user");
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
+      if (error) return error;
+      return respond(
+        c,
+        await notebooksService.backup.updateConfig({
+          notebookId: notebook!.id,
+          userId: user.id,
+          data: c.req.valid("json"),
+        }),
+      );
+    },
+  )
+  .get(
+    "/:id/snapshots/logs",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "List notebook S3 snapshot logs",
+      description: "Returns recent core logging entries for this notebook's S3 snapshot runs.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(z.array(LogEntrySchema), "Snapshot logs"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    v("query", SnapshotLogsQuerySchema),
+    async (c) => {
+      const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
+      if (error) return error;
+      const response = await respond(
+        c,
+        ok(
+          await notebooksService.backup.listLogs({
+            notebookId: notebook!.id,
+            notebookShortId: notebook!.shortId,
+          }),
+        ),
+      );
+      response.headers.set("Cache-Control", "no-store");
+      return response;
+    },
+  )
+  .post(
+    "/:id/snapshots/run",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Run notebook S3 snapshot",
+      description: "Uploads latest.zip, a timestamped snapshot ZIP, and latest-manifest.json to the configured S3 bucket.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(NotebookBackupRunSchema, "Backup uploaded"),
+        400: jsonResponse(ErrorResponseSchema, "Backup disabled or incomplete"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+      },
+    }),
+    async (c) => {
+      let notebookId = c.req.param("id")!;
+      const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
+      if (error) return error;
+      notebookId = notebook!.id;
+      return respond(c, await notebooksService.backup.runS3({ notebookId }));
+    },
+  );
 
 // =============================================================================
 // Tags — list endpoint used by the `/tag` slash-command picker
@@ -1783,7 +1939,10 @@ const appWithAdmin = appWithLimits
         return respond(c, fail(err.badInput(`Setting "${key}" is not in the notebooks namespace`)));
       }
       const { value } = c.req.valid("json");
-      const result = await settingsService.entry.update({ key, value });
+      const result =
+        key === "notebooks.snapshot_cron" && typeof value === "string"
+          ? await notebooksService.backup.updateCron(value)
+          : await settingsService.entry.update({ key, value });
       if (!result.ok) return respond(c, result);
       // If the user changed the reindex cron, reschedule live (no restart
       // needed). Logs go to `notebooks:reindex` for observability.

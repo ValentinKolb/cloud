@@ -1,10 +1,11 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { type PageParams, paginate, type Paginated } from "@valentinkolb/stdlib";
+import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import * as access from "./access";
 import * as attachments from "./attachments";
+import * as backup from "./backup";
 import * as exporter from "./export";
-import * as links from "./links";
 import * as favorites from "./favorites";
+import * as links from "./links";
 import * as noteRefs from "./note-refs";
 import * as notebooks from "./notebooks";
 import * as notes from "./notes";
@@ -14,6 +15,8 @@ import * as tags from "./tags";
 import * as templates from "./templates";
 import * as workspaceEvents from "./workspace-events";
 import { yjsSnapshotWorker } from "./yjs-snapshot-worker";
+
+const snapshotRuntime = backup.snapshotRuntime;
 
 const pageFromPagination = (pagination?: PageParams) => {
   if (!pagination) return null;
@@ -77,8 +80,7 @@ export const notebooksService = {
           hasNext: page * perPage < result.total,
         };
       },
-      summary: async (config: { filter?: { query?: string } }) =>
-        notebooks.adminSummary({ search: config.filter?.query }),
+      summary: async (config: { filter?: { query?: string } }) => notebooks.adminSummary({ search: config.filter?.query }),
     },
     graph: links.buildNotebookGraph,
     access: {
@@ -250,24 +252,18 @@ export const notebooksService = {
   exporter: {
     exportNotebookZip: exporter.exportNotebookZip,
   },
+  backup: {
+    getConfig: backup.getConfig,
+    updateConfig: backup.updateConfig,
+    getCron: backup.getCron,
+    updateCron: backup.updateCron,
+    listLogs: backup.listLogs,
+    runS3: backup.runNotebookS3Backup,
+  },
 };
 
-export {
-  notebooks,
-  notes,
-  access,
-  attachments,
-  exporter,
-  favorites,
-  links,
-  presence,
-  tags,
-  noteRefs,
-  workspaceEvents,
-  reindexRuntime,
-  yjsSnapshotWorker,
-};
-
+export type { Attachment, AttachmentContent, AttachmentKind } from "./attachments";
+export type { Backlink, GraphEdge, GraphNode, NoteGraph, NoteLink } from "./links";
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";
 export type {
@@ -278,5 +274,20 @@ export type {
   NoteWithContent,
   UpdateNote,
 } from "./notes";
-export type { Backlink, GraphEdge, GraphNode, NoteGraph, NoteLink } from "./links";
-export type { Attachment, AttachmentContent, AttachmentKind } from "./attachments";
+export {
+  access,
+  attachments,
+  backup,
+  exporter,
+  favorites,
+  links,
+  notebooks,
+  noteRefs,
+  notes,
+  presence,
+  reindexRuntime,
+  snapshotRuntime,
+  tags,
+  workspaceEvents,
+  yjsSnapshotWorker,
+};
