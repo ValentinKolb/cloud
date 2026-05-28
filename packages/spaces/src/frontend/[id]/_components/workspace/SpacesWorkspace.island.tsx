@@ -8,7 +8,7 @@ import ItemDetailHost from "../detail/ItemDetailHost";
 import SpaceDetailLayoutSync from "../detail/SpaceDetailLayoutSync";
 import SpaceEditPanel from "../edit/SpaceEditPanel";
 import FilterBar from "../filter/FilterBar";
-import { defaultFilter, parseFilterFromUrl } from "../filter/types";
+import { buildFilterUrl, defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
 import KanbanBoard from "../kanban/KanbanBoard";
 import ItemsList from "../list";
 import SpaceSidebar from "../sidebar/SpaceSidebar";
@@ -177,6 +177,15 @@ export default function SpacesWorkspace(props: Props) {
     openSettingsDialog(next);
   };
 
+  const commitFilterPatch = (patch: Partial<FilterState>) => {
+    const href = buildFilterUrl(itemLinkBaseUrl(), { ...patch, page: 1 }, filter());
+    return openRoute(href, { replace: true, scroll: "preserve" });
+  };
+
+  const clearFilters = () => {
+    void openRoute(buildFilterUrl(itemLinkBaseUrl(), defaultFilter, defaultFilter), { replace: true, scroll: "preserve" });
+  };
+
   onMount(() => {
     const abortController = new AbortController();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -266,6 +275,9 @@ export default function SpacesWorkspace(props: Props) {
               total={state().itemsResult.total}
               baseUrl={itemLinkBaseUrl()}
               hideGroupBy={state().currentView === "table"}
+              onFilterChange={commitFilterPatch}
+              onSearchChange={(search) => commitFilterPatch({ search })}
+              onClearFilters={clearFilters}
             />
             <div class="h-2" />
           </>

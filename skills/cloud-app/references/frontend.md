@@ -506,6 +506,10 @@ import { FilterChip } from "@valentinkolb/cloud/ui";
 
 **Props:** `label`, `icon`, `options: FilterChipSection[]`, `value: string[]`, `onChange`, `isActive?`, `position?`, `defaultValue?`
 
+`onChange` fires immediately when an option, clear, or reset action is clicked.
+Do not wait for blur/close in URL-backed filters; the parent island should
+commit the enhanced navigation immediately.
+
 ### Pagination
 
 ```jsx
@@ -1598,7 +1602,8 @@ and islands only initiate browser navigation.
 Source:
 
 - `packages/cloud/src/ui/navigation.ts`
-- `packages/spaces/src/frontend/[id]/_components/filter/FilterBar.island.tsx`
+- `packages/spaces/src/frontend/[id]/_components/filter/FilterBar.tsx`
+- `packages/spaces/src/frontend/[id]/_components/workspace/SpacesWorkspace.island.tsx`
 - `packages/cloud/src/ssr/islands/SearchBar.island.tsx`
 
 **In SSR pages** — read directly from the Hono request URL:
@@ -1644,9 +1649,50 @@ export const buildFilterUrl = (base: string, updates: Partial<Filter>, current: 
 };
 ```
 
-Recommended rule: filter controls update URL params and reset `page` to `1`;
-pagination changes only the page param; mutation success either updates local
-state or calls `refreshCurrentPath()`.
+For AppWorkspace screens with enhanced client navigation, keep the actual
+navigation commit in the workspace island, not inside every filter/search
+control. The filter controls stay visual and callback-driven; the parent owns
+URL construction, route-state loading, `replace` vs `push`, scroll mode, and
+fallback behavior.
+
+```tsx
+const commitFilterPatch = (patch: Partial<FilterState>) => {
+  const href = buildFilterUrl(currentListBaseUrl(), { ...patch, page: 1 }, filter());
+  void openRoute(href, { replace: true, scroll: "preserve" });
+};
+
+<FilterBar
+  filter={filter()}
+  baseUrl={currentListBaseUrl()}
+  onFilterChange={commitFilterPatch}
+  onSearchChange={(search) => commitFilterPatch({ search })}
+  onClearFilters={() => openRoute(buildFilterUrl(currentListBaseUrl(), defaultFilter, defaultFilter), {
+    replace: true,
+    scroll: "preserve",
+  })}
+/>
+```
+
+Search inputs must keep focus while typing. Keep the visible input value local
+inside the search component, debounce the parent commit, and do not key/remount
+the search component on every route-state update. The parent may refresh SSR
+derived state after the debounce, but the input component should remain mounted
+and visually identical. Use a short debounce for app-local filtering; `200ms`
+is the preferred default for enhanced route-state search. If the route commit
+is async, show a subtle trailing spinner in the input via `TextInput`'s
+`suffix` slot while the debounce/request is pending.
+
+Filter chips should commit on click, not on dropdown close. This keeps
+multi-select filters, sort chips, and group chips aligned with the immediately
+visible URL state. Use `replace` for these filter updates so typing and chip
+toggling do not flood browser history.
+
+Recommended rule: filter/search/sort/group changes use `replace`, reset `page`
+to `1`, usually clear selected detail IDs if the result set can change, and use
+`scroll="preserve"` for list containers. Pagination changes only the page param
+and may use `push` when browser back should step through pages. Mutation success
+either updates local state or calls `refreshCurrentPath()`/the workspace route
+refresh helper.
 
 ### Enhanced Link Navigation
 

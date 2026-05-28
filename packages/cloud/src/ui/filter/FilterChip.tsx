@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, createMemo } from "solid-js";
+import { createSignal, createEffect, Show } from "solid-js";
 import Dropdown from "../misc/Dropdown";
 import type { DropdownItem } from "../misc/Dropdown";
 
@@ -50,7 +50,7 @@ type FilterChipProps = {
 /**
  * Filter chip using the shared Dropdown component.
  * Each section can be single-select or multi-select independently.
- * Changes are applied when the dropdown closes.
+ * Changes are committed immediately so URL-backed filters update without losing focus.
  */
 export default function FilterChip(props: FilterChipProps) {
   // Local selection state (tracks pending changes)
@@ -60,12 +60,6 @@ export default function FilterChip(props: FilterChipProps) {
   createEffect(() => setLocalValue([...props.value]));
 
   // Computed values
-  const hasChanges = createMemo(() => {
-    const local = localValue();
-    const original = props.value;
-    return local.length !== original.length || local.some((v) => !original.includes(v));
-  });
-
   const isActive = () => props.isActive ?? localValue().length > 0;
   const isSelected = (value: string) => localValue().includes(value);
   const selectedCount = () => localValue().length;
@@ -81,6 +75,11 @@ export default function FilterChip(props: FilterChipProps) {
   // Find which section a value belongs to
   const getSectionForValue = (value: string) => props.options.findIndex((s) => s.options.some((o) => o.value === value));
 
+  const commitValue = (nextValue: string[]) => {
+    setLocalValue(nextValue);
+    props.onChange(nextValue);
+  };
+
   // Toggle option selection
   const toggleOption = (value: string) => {
     const sectionIndex = getSectionForValue(value);
@@ -89,25 +88,20 @@ export default function FilterChip(props: FilterChipProps) {
 
     const isMultiple = section.multiple ?? false;
 
-    setLocalValue((prev) => {
-      const isCurrentlySelected = prev.includes(value);
+    const prev = localValue();
+    const isCurrentlySelected = prev.includes(value);
+    if (isMultiple) {
+      commitValue(isCurrentlySelected ? prev.filter((v) => v !== value) : [...prev, value]);
+      return;
+    }
 
-      if (isMultiple) {
-        return isCurrentlySelected ? prev.filter((v) => v !== value) : [...prev, value];
-      }
-
-      // Single-select: replace any value from this section
-      const sectionValues = new Set(section.options.map((o) => o.value));
-      const otherValues = prev.filter((v) => !sectionValues.has(v));
-      return isCurrentlySelected ? otherValues : [...otherValues, value];
-    });
+    // Single-select: replace any value from this section.
+    const sectionValues = new Set(section.options.map((o) => o.value));
+    const otherValues = prev.filter((v) => !sectionValues.has(v));
+    commitValue(isCurrentlySelected ? otherValues : [...otherValues, value]);
   };
 
-  const clearOrReset = () => setLocalValue(props.defaultValue ? [...props.defaultValue] : []);
-
-  const handleClose = () => {
-    if (hasChanges()) props.onChange(localValue());
-  };
+  const clearOrReset = () => commitValue(props.defaultValue ? [...props.defaultValue] : []);
 
   // Build dropdown elements
   const dropdownElements = (): DropdownItem[] => {
@@ -128,7 +122,14 @@ export default function FilterChip(props: FilterChipProps) {
             }}
           >
             <Show when={isMultiple}>
-              <input type="checkbox" checked={isSelected(option.value)} readOnly aria-hidden="true" tabindex={-1} class="shrink-0 pointer-events-none" />
+              <input
+                type="checkbox"
+                checked={isSelected(option.value)}
+                readOnly
+                aria-hidden="true"
+                tabindex={-1}
+                class="shrink-0 pointer-events-none"
+              />
             </Show>
 
             <Show when={option.icon && !isMultiple}>
@@ -184,13 +185,5 @@ export default function FilterChip(props: FilterChipProps) {
     </div>
   );
 
-  return (
-    <Dropdown
-      trigger={trigger}
-      elements={dropdownElements()}
-      position={props.position ?? "bottom-left"}
-      onClose={handleClose}
-      width="w-52"
-    />
-  );
+  return <Dropdown trigger={trigger} elements={dropdownElements()} position={props.position ?? "bottom-left"} width="w-52" />;
 }

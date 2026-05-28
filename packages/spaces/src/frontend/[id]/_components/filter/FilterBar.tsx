@@ -24,6 +24,9 @@ type FilterBarProps = {
   total: number;
   baseUrl: string;
   hideGroupBy?: boolean;
+  onFilterChange?: (patch: Partial<FilterState>) => void;
+  onSearchChange?: (search: string) => void | Promise<void>;
+  onClearFilters?: () => void;
 };
 
 // Static filter options (defined outside component to avoid recreation)
@@ -135,7 +138,21 @@ export default function FilterBar(props: FilterBarProps) {
   onMount(() => setLastSpaceId(props.spaceId));
 
   const navigate = (params: Partial<FilterState>) => {
+    if (props.onFilterChange) {
+      props.onFilterChange(params);
+      return;
+    }
     requestSpacesRouteNavigation(buildFilterUrl(props.baseUrl, { ...params, page: 1 }, props.filter));
+  };
+
+  const clearFilters = (event: MouseEvent) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (props.onClearFilters) {
+      props.onClearFilters();
+      return;
+    }
+    requestSpacesRouteNavigation(buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter));
   };
 
   // Dynamic options based on props
@@ -170,7 +187,7 @@ export default function FilterBar(props: FilterBarProps) {
 
   return (
     <div class="flex flex-col gap-2" style="view-transition-name: filter-bar">
-      <SearchInput value={props.filter.search} baseUrl={buildFilterUrl(props.baseUrl, {}, props.filter)} />
+      <SearchInput value={props.filter.search} baseUrl={buildFilterUrl(props.baseUrl, {}, props.filter)} onSearch={props.onSearchChange} />
 
       <div class="flex flex-wrap items-center gap-2">
         {/* View: Type + Status + Assigned To */}
@@ -275,11 +292,7 @@ export default function FilterBar(props: FilterBarProps) {
         {hasFilters && (
           <a
             href={buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter)}
-            onClick={(event) => {
-              if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-              event.preventDefault();
-              requestSpacesRouteNavigation(buildFilterUrl(props.baseUrl, defaultFilter, defaultFilter));
-            }}
+            onClick={clearFilters}
             class="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
             aria-label="Clear all filters"
           >

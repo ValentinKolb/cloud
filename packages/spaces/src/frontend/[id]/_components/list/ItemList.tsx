@@ -1,4 +1,5 @@
 import type { SpaceItem, SpaceColumn, SpaceTag, ItemGroupBy } from "@/contracts";
+import { createMemo } from "solid-js";
 import ItemRow from "./ItemRow";
 
 // =============================================================================
@@ -211,39 +212,37 @@ function GroupHeader(props: { config: GroupConfig; count: number }) {
  * Renders items grouped by column, priority, tag, deadline, or flat.
  */
 export default function ItemList(props: ItemListProps) {
-  const { groups, itemsByGroup } = groupItems(props.items, props.groupBy, props.columns, props.tags);
-
-  const visibleGroups = groups;
-
-  // Flat list - no grouping container
-  if (props.groupBy === "none") {
-    return (
-      <div class="flex flex-col gap-1">
-        {props.items.map((item) => (
-          <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
-        ))}
-      </div>
-    );
-  }
-
-  // Grouped list — filter out empty groups
-  const nonEmptyGroups = visibleGroups.filter((g) => (itemsByGroup[g.key] || []).length > 0);
+  const grouped = createMemo(() => groupItems(props.items, props.groupBy, props.columns, props.tags));
+  const nonEmptyGroups = createMemo(() => {
+    const current = grouped();
+    return current.groups.filter((group) => (current.itemsByGroup[group.key] || []).length > 0);
+  });
 
   return (
-    <div class="flex flex-col gap-2">
-      {nonEmptyGroups.map((group) => {
-        const groupItems = itemsByGroup[group.key]!;
-        return (
-          <div class="rounded-lg bg-zinc-50/50 dark:bg-zinc-800/30">
-            <GroupHeader config={group} count={groupItems.length} />
-            <div class="flex flex-col gap-1 p-2">
-              {groupItems.map((item) => (
-                <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <>
+      {props.groupBy === "none" ? (
+        <div class="flex flex-col gap-1">
+          {props.items.map((item) => (
+            <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
+          ))}
+        </div>
+      ) : (
+        <div class="flex flex-col gap-2">
+          {nonEmptyGroups().map((group) => {
+            const items = grouped().itemsByGroup[group.key] ?? [];
+            return (
+              <div class="rounded-lg bg-zinc-50/50 dark:bg-zinc-800/30">
+                <GroupHeader config={group} count={items.length} />
+                <div class="flex flex-col gap-1 p-2">
+                  {items.map((item) => (
+                    <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }

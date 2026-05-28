@@ -582,7 +582,7 @@ const TimeGridView = (props: {
     requestAnimationFrame(() => {
       if (!scrollContainer || !defaultHourMarker) return;
       const targetTop = defaultHourMarker.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top;
-      scrollContainer.scrollTop = Math.max(0, scrollContainer.scrollTop + targetTop);
+      scrollContainer.scrollTo({ top: Math.max(0, scrollContainer.scrollTop + targetTop), behavior: "smooth" });
     });
   });
   return (
