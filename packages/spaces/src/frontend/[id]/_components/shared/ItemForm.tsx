@@ -17,7 +17,7 @@ export type ItemFormData = {
   endsAt?: string;
   allDay?: boolean;
   deadline?: string;
-  priority?: Priority;
+  priority?: Priority | null;
   assigneeIds?: string[];
   tagIds?: string[];
 };
@@ -67,7 +67,7 @@ export default function ItemForm(props: Props) {
   const [allDay, setAllDay] = createSignal(props.item?.allDay ?? props.defaults?.allDay ?? false);
   const [priority, setPriority] = createSignal(props.item?.priority ?? props.defaults?.priority ?? "");
   const [assignees, setAssignees] = createSignal<SpaceItemAssignee[]>(props.item?.assignees ?? []);
-  const [selectedTags, setSelectedTags] = createSignal<string[]>(props.item?.tags?.map((t) => t.id) ?? []);
+  const [selectedTags, setSelectedTags] = createSignal<string[]>(props.item?.tags?.map((t) => t.id) ?? props.defaults?.tagIds ?? []);
   const [error, setError] = createSignal("");
 
   const isEvent = () => itemType() === "event";
@@ -140,9 +140,9 @@ export default function ItemForm(props: Props) {
       endsAt: isEvent() && endsAt() ? new Date(endsAt()).toISOString() : undefined,
       allDay: isEvent() ? allDay() : false,
       deadline: !isEvent() && deadline() ? new Date(deadline()).toISOString() : undefined,
-      priority: (priority() || undefined) as Priority | undefined,
-      assigneeIds: assignees().length > 0 ? assignees().map((assignee) => assignee.id) : undefined,
-      tagIds: selectedTags().length > 0 ? selectedTags() : undefined,
+      priority: (priority() || (isEditMode() ? null : undefined)) as Priority | null | undefined,
+      assigneeIds: isEditMode() || assignees().length > 0 ? assignees().map((assignee) => assignee.id) : undefined,
+      tagIds: isEditMode() || selectedTags().length > 0 ? selectedTags() : undefined,
     });
   };
 

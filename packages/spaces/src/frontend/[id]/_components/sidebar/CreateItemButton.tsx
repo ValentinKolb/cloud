@@ -23,7 +23,7 @@ export default function CreateItemButton(props: Props) {
 
       const res = await apiClient[":id"].items.$post({
         param: { id: props.spaceId },
-        json: result,
+        json: { ...result, priority: result.priority ?? undefined },
       });
       if (!res.ok) {
         const data = await res.json();

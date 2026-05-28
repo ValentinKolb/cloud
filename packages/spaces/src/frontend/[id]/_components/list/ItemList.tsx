@@ -223,7 +223,14 @@ export default function ItemList(props: ItemListProps) {
       {props.groupBy === "none" ? (
         <div class="flex flex-col gap-1">
           {props.items.map((item) => (
-            <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
+            <ItemRow
+              item={item}
+              spaceId={props.spaceId}
+              columns={props.columns}
+              tags={props.tags}
+              isSelected={item.id === props.selectedItemId}
+              baseUrl={props.baseUrl}
+            />
           ))}
         </div>
       ) : (
@@ -235,7 +242,14 @@ export default function ItemList(props: ItemListProps) {
                 <GroupHeader config={group} count={items.length} />
                 <div class="flex flex-col gap-1 p-2">
                   {items.map((item) => (
-                    <ItemRow item={item} spaceId={props.spaceId} isSelected={item.id === props.selectedItemId} baseUrl={props.baseUrl} />
+                    <ItemRow
+                      item={item}
+                      spaceId={props.spaceId}
+                      columns={props.columns}
+                      tags={props.tags}
+                      isSelected={item.id === props.selectedItemId}
+                      baseUrl={props.baseUrl}
+                    />
                   ))}
                 </div>
               </div>

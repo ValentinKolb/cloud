@@ -1,6 +1,6 @@
 import { dates as calendar } from "@valentinkolb/stdlib";
 import type { Accessor, JSX } from "solid-js";
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../input/SegmentedControl";
 
 export type CalendarView = "day" | "week" | "month" | "year" | "mobile-month";
@@ -68,6 +68,7 @@ export type CalendarProps = {
   visibleEndHour?: number;
   allDayMaxHeightRem?: number;
   selectedDate?: Date | string;
+  selectedEventId?: string;
   dayBadges?: Record<string, CalendarDayBadge>;
   getViewHref?: (view: CalendarView) => string;
   getDateHref?: (date: Date, view: CalendarView) => string;
@@ -280,8 +281,9 @@ const EventChip = (props: {
 }): JSX.Element => {
   const color = () => props.event.color ?? "blue";
   const style = () => (props.event.colorHex ? { "border-left-color": props.event.colorHex } : undefined);
+  const selected = () => props.owner.selectedEventId === props.event.id;
   const className = () =>
-    `block min-w-0 rounded border border-l-2 px-1.5 py-1 text-left leading-tight ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "border-zinc-200 bg-zinc-50 text-primary dark:border-zinc-700 dark:bg-zinc-900" : colorClass[color()]}`;
+    `block min-w-0 rounded border border-l-2 px-1.5 py-1 text-left leading-tight ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "border-zinc-200 bg-zinc-50 text-primary dark:border-zinc-700 dark:bg-zinc-900" : colorClass[color()]} ${selected() ? "outline outline-2 outline-blue-500 outline-offset-1" : ""}`;
   const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
@@ -313,16 +315,31 @@ const EventChip = (props: {
       </Show>
     </>
   );
+  let clickTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    if (clickTimer) clearTimeout(clickTimer);
+  });
   const onClick = (event: MouseEvent) => {
     if (!props.owner.onEventClick) return;
     event.preventDefault();
     event.stopPropagation();
-    props.owner.onEventClick(props.event);
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = setTimeout(
+      () => {
+        clickTimer = undefined;
+        props.owner.onEventClick?.(props.event);
+      },
+      props.owner.onEventDoubleClick ? 220 : 0,
+    );
   };
   const onDoubleClick = (event: MouseEvent) => {
     if (!props.owner.onEventDoubleClick) return;
     event.preventDefault();
     event.stopPropagation();
+    if (clickTimer) {
+      clearTimeout(clickTimer);
+      clickTimer = undefined;
+    }
     props.owner.onEventDoubleClick(props.event);
   };
   const onKeyDown = (event: KeyboardEvent) => {
@@ -543,7 +560,10 @@ const MonthView = (props: {
                   return (
                     <div
                       class={`relative min-w-0 p-1.5 ${calendar.isSameMonth(day, props.date) ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
-                      classList={{ "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === calendar.formatDateKey(day) }}
+                      classList={{
+                        "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === calendar.formatDateKey(day),
+                        "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
+                      }}
                       {...slotInteractionProps(props.owner, () => {
                         const start = startOfDay(day);
                         return { start, end: calendar.addDays(start, 1), allDay: true };
@@ -671,6 +691,13 @@ const TimeGridView = (props: {
       height: Math.max(2.5, (visibleEnd - visibleStart) * 4),
     };
   };
+  const currentTimeLine = (day: Date) => {
+    const now = new Date();
+    if (calendar.formatDateKey(day) !== calendar.formatDateKey(now)) return null;
+    const hour = now.getHours() + now.getMinutes() / 60;
+    if (hour < gridStartHour() || hour > gridEndHour() + 1) return null;
+    return (hour - gridStartHour()) * 4;
+  };
   onMount(() => {
     requestAnimationFrame(() => {
       if (!scrollContainer || !defaultHourMarker) return;
@@ -724,7 +751,10 @@ const TimeGridView = (props: {
             return (
               <div
                 class="min-h-10 border-r border-zinc-100 p-1 dark:border-zinc-800/70"
-                classList={{ "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day) }}
+                classList={{
+                  "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day),
+                  "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
+                }}
                 {...slotInteractionProps(props.owner, () => {
                   const start = startOfDay(day);
                   return { start, end: calendar.addDays(start, 1), allDay: true };
@@ -771,6 +801,11 @@ const TimeGridView = (props: {
               const layouts = () => timedEventLayouts(timed);
               return (
                 <div class="relative min-h-full border-r border-zinc-100 dark:border-zinc-800/70">
+                  <Show when={currentTimeLine(day)}>
+                    {(top) => (
+                      <div class="pointer-events-none absolute inset-x-0 z-40 border-t border-red-500" style={{ top: `${top()}rem` }} />
+                    )}
+                  </Show>
                   <For each={hours()}>
                     {(hour) => (
                       <div
@@ -778,6 +813,7 @@ const TimeGridView = (props: {
                         classList={{
                           "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === `${calendar.formatDateKey(day)}-${hour}`,
                           "bg-zinc-50/70 dark:bg-zinc-900/30": hour < businessStartHour() || hour > businessEndHour(),
+                          "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
                         }}
                         {...slotInteractionProps(props.owner, () => {
                           const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0);

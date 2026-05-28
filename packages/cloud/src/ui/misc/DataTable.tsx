@@ -32,6 +32,7 @@ export type DataTableProps<T> = {
   rowClass?: string | ((row: T) => string | undefined);
   hoverRows?: boolean;
   onRowClick?: (row: T) => void;
+  onRowDoubleClick?: (row: T) => void;
   renderCell?: DataTableRenderCell<T>;
   renderHeader?: DataTableRenderHeader<T>;
   footer?: DataTableFooter<T>;
@@ -70,7 +71,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   let scrollRef: HTMLDivElement | undefined;
   let loadMoreRef: HTMLDivElement | undefined;
   const rowId = (row: T) => props.getRowId?.(row);
-  const isInteractive = () => !!props.onRowClick;
+  const isInteractive = () => !!props.onRowClick || !!props.onRowDoubleClick;
   const shouldHoverRows = () => props.hoverRows ?? isInteractive();
   const shouldRenderLoadMoreSentinel = () => !!props.onLoadMore;
   const cellPadding = () => (props.density === "compact" ? "px-3 py-1.5" : "px-3 py-2");
@@ -213,6 +214,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
                       } ${isSelected() ? "bg-blue-50 dark:bg-blue-900/20" : ""} ${rowClass(row)}`}
                       tabIndex={isInteractive() ? 0 : undefined}
                       onClick={() => props.onRowClick?.(row)}
+                      onDblClick={() => props.onRowDoubleClick?.(row)}
                       onKeyDown={(e) => onRowKeyDown(e, row)}
                     >
                       <For each={props.columns}>

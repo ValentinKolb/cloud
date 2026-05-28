@@ -1,8 +1,6 @@
 import {
   type CalendarEvent,
   Calendar as CoreCalendar,
-  CheckboxCard,
-  DateTimeInput,
   type CalendarEventTimeChange,
   type CalendarView as CoreCalendarView,
   prompts,
@@ -10,12 +8,13 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { dates as calendar } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { For, Show, createSignal } from "solid-js";
+import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CalendarItem } from "@/contracts";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CalendarDetailNavigation from "./CalendarDetailNavigation";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
+import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 import type { CalendarProps, CalendarView } from "./types";
 
 const eventStart = (item: CalendarItem) => item.startsAt ?? item.deadline ?? calendar.today().toISOString();
@@ -83,6 +82,12 @@ export default function Calendar(props: CalendarProps) {
   const clearTags = () => {
     requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, []), { replace: true, scroll: "preserve" });
   };
+  const selectEvent = (event: CalendarEvent) => {
+    const itemId = event.dataSpaceItemId ?? event.id;
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, props.selectedTagIds, itemId), {
+      scroll: "preserve",
+    });
+  };
   const updateEventTime = mutations.create<void, { event: CalendarEvent; next: CalendarEventTimeChange }>({
     mutation: async ({ event, next }) => {
       const itemId = event.dataSpaceItemId ?? event.id;
@@ -111,6 +116,7 @@ export default function Calendar(props: CalendarProps) {
               startsAt: slot.start.toISOString(),
               endsAt: slot.end.toISOString(),
               allDay: slot.allDay ?? false,
+              tagIds: props.selectedTagIds,
             }}
             onSubmit={(data) => close(data)}
             onCancel={() => close(null)}
@@ -121,7 +127,7 @@ export default function Calendar(props: CalendarProps) {
       if (!result) return false;
       const res = await apiClient[":id"].items.$post({
         param: { id: props.spaceId },
-        json: result,
+        json: { ...result, priority: result.priority ?? undefined },
       });
       if (!res.ok) throw new Error("Could not create event");
       return true;
@@ -133,68 +139,14 @@ export default function Calendar(props: CalendarProps) {
     },
     onError: (error) => prompts.error(error.message),
   });
-  const editEventTime = mutations.create<boolean, CalendarEvent>({
+  const editEvent = mutations.create<boolean, CalendarEvent>({
     mutation: async (event) => {
       const itemId = event.dataSpaceItemId ?? event.id;
-      const result = await prompts.dialog<CalendarEventTimeChange | null>(
-        (close) => {
-          const [startsAt, setStartsAt] = createSignal(new Date(event.start).toISOString().slice(0, 16));
-          const [endsAt, setEndsAt] = createSignal(event.end ? new Date(event.end).toISOString().slice(0, 16) : startsAt());
-          const [allDay, setAllDay] = createSignal(Boolean(event.allDay));
-          return (
-            <form
-              class="flex flex-col gap-4"
-              onSubmit={(submitEvent) => {
-                submitEvent.preventDefault();
-                close({
-                  start: new Date(startsAt()),
-                  end: new Date(endsAt()),
-                  allDay: allDay(),
-                });
-              }}
-            >
-              <CheckboxCard
-                label="All-day event"
-                description="Show this in the all-day calendar row"
-                icon="ti ti-calendar"
-                value={allDay}
-                onChange={setAllDay}
-              />
-              <div class="grid grid-cols-2 gap-3">
-                <DateTimeInput label="Start" value={startsAt} onChange={setStartsAt} required />
-                <DateTimeInput label="End" value={endsAt} onChange={setEndsAt} required />
-              </div>
-              <div class="flex justify-end gap-2">
-                <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
-                  Cancel
-                </button>
-                <button type="submit" class="btn-primary btn-sm">
-                  Save
-                </button>
-              </div>
-            </form>
-          );
-        },
-        { title: "Edit Event Time", icon: "ti ti-clock-edit", size: "large" },
-      );
-      if (!result) return false;
-      const res = await apiClient[":id"].items[":itemId"].$patch({
-        param: { id: props.spaceId, itemId },
-        json: {
-          startsAt: result.start.toISOString(),
-          endsAt: result.end.toISOString(),
-          deadline: null,
-          allDay: result.allDay ?? false,
-        },
-      });
-      if (!res.ok) throw new Error("Could not update event time");
-      return true;
+      const itemRes = await apiClient[":id"].items[":itemId"].$get({ param: { id: props.spaceId, itemId } });
+      if (!itemRes.ok) throw new Error("Could not load event");
+      return editItemWithDialog({ spaceId: props.spaceId, item: await itemRes.json(), columns: props.columns, tags: props.tags });
     },
-    onSuccess: (updated) => {
-      if (!updated) return;
-      toast.success("Event updated");
-      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
-    },
+    onSuccess: handleEditItemSuccess,
     onError: (error) => prompts.error(error.message),
   });
 
@@ -236,11 +188,13 @@ export default function Calendar(props: CalendarProps) {
         getViewHref={(view) => buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.selectedTagIds)}
         getDateHref={(date, view) => buildCalendarHref(props.baseUrl, view as CalendarView, date, props.selectedTagIds)}
         getEventHref={(event) => event.href}
+        selectedEventId={props.selectedItemId}
         onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}
         onDateChange={(date, view) => routeTo(view as CalendarView, date)}
+        onEventClick={selectEvent}
         onEventDrop={(event, next) => updateEventTime.mutate({ event, next })}
         onEventResize={(event, next) => updateEventTime.mutate({ event, next })}
-        onEventDoubleClick={(event) => editEventTime.mutate(event)}
+        onEventDoubleClick={(event) => editEvent.mutate(event)}
         onSlotDoubleClick={(slot) => createEvent.mutate(slot)}
       />
     </div>

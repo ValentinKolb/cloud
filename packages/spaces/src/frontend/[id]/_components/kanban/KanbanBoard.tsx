@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ItemFilter, ItemListResult, SpaceItem } from "@/contracts";
+import type { ItemFilter, ItemListResult, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import {
   dnd,
   mutation as mutations,
@@ -11,12 +11,20 @@ import {
 import { dates } from "@valentinkolb/stdlib";
 import { prompts } from "@valentinkolb/cloud/ui";
 import type { KanbanBucketInitial } from "./types";
-import { getDetailItemFromUrl, shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import {
+  getDetailItemFromUrl,
+  shouldHandleDetailClick,
+  shouldHandleItemEditDoubleClick,
+  subscribeToDetailSelection,
+} from "../../../lib/detail";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 
 type Props = {
   spaceId: string;
   baseUrl: string;
+  columns: SpaceColumn[];
+  tags: SpaceTag[];
   selectedItemId?: string;
   initialBuckets: KanbanBucketInitial[];
   pageSize: number;
@@ -131,6 +139,11 @@ export default function KanbanBoard(props: Props) {
   });
 
   const getBucketByKey = (bucketKey: string) => buckets().find((bucket) => bucket.key === bucketKey) ?? null;
+  const editMutation = mutations.create<boolean, SpaceItem>({
+    mutation: (item) => editItemWithDialog({ spaceId: props.spaceId, item, columns: props.columns, tags: props.tags }),
+    onSuccess: handleEditItemSuccess,
+    onError: (err) => prompts.error(err.message),
+  });
   const withViewTransition = (update: () => void) => {
     if (typeof document === "undefined") {
       update();
@@ -495,6 +508,10 @@ export default function KanbanBoard(props: Props) {
                         const dropId = `drop:item:${bucket.key}:${item.id}`;
                         const isDraggingThis = () => boardDnd.activeId() === dragId;
                         const isMovingThis = () => moveMutation.loading() && movingItemId() === item.id;
+                        let detailClickTimer: number | undefined;
+                        onCleanup(() => {
+                          if (detailClickTimer) window.clearTimeout(detailClickTimer);
+                        });
 
                         return (
                           <>
@@ -536,8 +553,22 @@ export default function KanbanBoard(props: Props) {
                                 onClick={(event) => {
                                   if (!shouldHandleDetailClick(event, event.currentTarget)) return;
                                   event.preventDefault();
-                                  setSelectedItemId(item.id);
-                                  requestSpacesRouteNavigation(buildItemUrl(props.baseUrl, item.id), { scroll: "preserve" });
+                                  if (detailClickTimer) window.clearTimeout(detailClickTimer);
+                                  detailClickTimer = window.setTimeout(() => {
+                                    setSelectedItemId(item.id);
+                                    requestSpacesRouteNavigation(buildItemUrl(props.baseUrl, item.id), { scroll: "preserve" });
+                                    detailClickTimer = undefined;
+                                  }, 220);
+                                }}
+                                onDblClick={(event) => {
+                                  if (!shouldHandleItemEditDoubleClick(event)) return;
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  if (detailClickTimer) {
+                                    window.clearTimeout(detailClickTimer);
+                                    detailClickTimer = undefined;
+                                  }
+                                  editMutation.mutate(item);
                                 }}
                                 class="block"
                               >

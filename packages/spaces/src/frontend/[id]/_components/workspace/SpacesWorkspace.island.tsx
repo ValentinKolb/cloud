@@ -302,7 +302,9 @@ export default function SpacesWorkspace(props: Props) {
               ) : state().currentView === "table" ? (
                 <ItemsTable
                   items={state().itemsResult.items}
+                  spaceId={spaceId()}
                   columns={state().space.columns}
+                  tags={state().space.tags}
                   selectedItemId={selectedItemId()}
                   baseUrl={itemLinkBaseUrl()}
                   scrollPreserveKey={`spaces-table-${spaceId()}`}
@@ -335,6 +337,8 @@ export default function SpacesWorkspace(props: Props) {
             <KanbanBoard
               spaceId={spaceId()}
               baseUrl={itemLinkBaseUrl()}
+              columns={state().space.columns}
+              tags={state().space.tags}
               selectedItemId={selectedItemId()}
               initialBuckets={state().kanbanBuckets}
               pageSize={KANBAN_PAGE_SIZE}
@@ -349,6 +353,7 @@ export default function SpacesWorkspace(props: Props) {
               columns={state().space.columns}
               tags={state().space.tags}
               selectedTagIds={state().calendarTagIds}
+              selectedItemId={selectedItemId()}
               view={state().calendarView}
               date={new Date(state().calendarDate)}
               baseUrl={itemLinkBaseUrl()}

@@ -2,14 +2,17 @@ import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid
 import { apiClient } from "@/api/client";
 import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import type { SpaceItem } from "@/contracts";
+import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { dates } from "@valentinkolb/stdlib";
-import { shouldHandleDetailClick, subscribeToDetailSelection } from "../../../lib/detail";
+import { shouldHandleDetailClick, shouldHandleItemEditDoubleClick, subscribeToDetailSelection } from "../../../lib/detail";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 
 type ItemRowProps = {
   item: SpaceItem;
   spaceId: string;
+  columns: SpaceColumn[];
+  tags: SpaceTag[];
   isSelected: boolean;
   /** Base URL for item links (without item param) */
   baseUrl: string;
@@ -59,6 +62,11 @@ export default function ItemRow(props: ItemRowProps) {
     },
     onError: (err) => prompts.error(err.message),
   });
+  const editMutation = mutations.create<boolean, void>({
+    mutation: () => editItemWithDialog({ spaceId: props.spaceId, item: props.item, columns: props.columns, tags: props.tags }),
+    onSuccess: handleEditItemSuccess,
+    onError: (err) => prompts.error(err.message),
+  });
 
   const isCompleted = () => !!props.item.completedAt;
   const isEvent = () => !!(props.item.startsAt && props.item.endsAt);
@@ -69,6 +77,10 @@ export default function ItemRow(props: ItemRowProps) {
     const sep = props.baseUrl.includes("?") ? "&" : "?";
     return `${props.baseUrl}${sep}item=${props.item.id}`;
   };
+  let detailClickTimer: number | undefined;
+  onCleanup(() => {
+    if (detailClickTimer) window.clearTimeout(detailClickTimer);
+  });
 
   return (
     <div
@@ -77,7 +89,21 @@ export default function ItemRow(props: ItemRowProps) {
       onClick={(event) => {
         if (!shouldHandleDetailClick(event)) return;
         event.preventDefault();
-        requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
+        if (detailClickTimer) window.clearTimeout(detailClickTimer);
+        detailClickTimer = window.setTimeout(() => {
+          requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
+          detailClickTimer = undefined;
+        }, 220);
+      }}
+      onDblClick={(event) => {
+        if (!shouldHandleItemEditDoubleClick(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (detailClickTimer) {
+          window.clearTimeout(detailClickTimer);
+          detailClickTimer = undefined;
+        }
+        editMutation.mutate(undefined);
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
