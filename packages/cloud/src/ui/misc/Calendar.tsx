@@ -64,6 +64,9 @@ export type CalendarProps = {
   withWeekNumbers?: boolean;
   startHour?: number;
   endHour?: number;
+  visibleStartHour?: number;
+  visibleEndHour?: number;
+  allDayMaxHeightRem?: number;
   selectedDate?: Date | string;
   dayBadges?: Record<string, CalendarDayBadge>;
   getViewHref?: (view: CalendarView) => string;
@@ -99,6 +102,12 @@ type NormalizedEvent = CalendarEvent & {
 
 type CalendarPreview = CalendarEventTimeChange & {
   id: string;
+};
+
+type TimedEventLayout = {
+  event: NormalizedEvent;
+  lane: number;
+  lanes: number;
 };
 
 const labels: Required<CalendarLabels> = {
@@ -196,6 +205,9 @@ const normalizeEvents = (events: CalendarEvent[]): NormalizedEvent[] =>
 
 const eventHref = (props: CalendarProps, event: CalendarEvent): string | undefined => props.getEventHref?.(event) ?? event.href;
 
+const draggedEventId = (event: DragEvent): string =>
+  activeDraggedEventId || event.dataTransfer?.getData("application/x-calendar-event") || event.dataTransfer?.getData("text/plain") || "";
+
 const moveEventTo = (event: NormalizedEvent, target: Date, allDay = false): CalendarEventTimeChange => {
   const duration = Math.max(30 * 60 * 1000, event.sourceEndDate.getTime() - event.sourceStartDate.getTime());
   const start = new Date(target);
@@ -220,6 +232,40 @@ const previewSegments = (preview: CalendarPreview | null, days: Date[]): Normali
       ]).filter((event) => days.some((day) => event.dayKey === calendar.formatDateKey(day)))
     : [];
 
+const timedEventLayouts = (events: NormalizedEvent[]): TimedEventLayout[] => {
+  const sorted = [...events].sort((a, b) => a.startDate.getTime() - b.startDate.getTime() || b.endDate.getTime() - a.endDate.getTime());
+  const groups: NormalizedEvent[][] = [];
+  let currentGroup: NormalizedEvent[] = [];
+  let currentGroupEnd = 0;
+
+  for (const event of sorted) {
+    const start = event.startDate.getTime();
+    const end = event.endDate.getTime();
+    if (currentGroup.length === 0 || start < currentGroupEnd) {
+      currentGroup.push(event);
+      currentGroupEnd = Math.max(currentGroupEnd, end);
+      continue;
+    }
+    groups.push(currentGroup);
+    currentGroup = [event];
+    currentGroupEnd = end;
+  }
+  if (currentGroup.length > 0) groups.push(currentGroup);
+
+  return groups.flatMap((group) => {
+    const laneEnds: number[] = [];
+    const assigned = group.map((event) => {
+      const start = event.startDate.getTime();
+      const lane = laneEnds.findIndex((end) => end <= start);
+      const nextLane = lane >= 0 ? lane : laneEnds.length;
+      laneEnds[nextLane] = event.endDate.getTime();
+      return { event, lane: nextLane };
+    });
+    const lanes = Math.max(1, laneEnds.length);
+    return assigned.map((item) => ({ ...item, lanes }));
+  });
+};
+
 const EventChip = (props: {
   event: NormalizedEvent;
   owner: CalendarProps;
@@ -231,6 +277,9 @@ const EventChip = (props: {
   const style = () => (props.event.colorHex ? { "border-color": props.event.colorHex } : undefined);
   const className = () =>
     `block min-w-0 rounded border px-1.5 py-1 text-left leading-tight ${props.fill ? "h-full" : ""} ${props.owner.onEventDrop ? "cursor-grab active:cursor-grabbing" : ""} ${props.event.display === "background" ? "opacity-60" : ""} ${props.event.colorHex ? "border-l-2 bg-zinc-50 text-primary dark:bg-zinc-900" : colorClass[color()]}`;
+  const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
+  const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
+  const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
   const dragProps = () =>
     props.owner.onEventDrop
       ? {
@@ -248,12 +297,12 @@ const EventChip = (props: {
   const content = (
     <>
       <span class="block truncate text-[11px] font-semibold">{props.event.title}</span>
-      <Show when={!props.event.allDay && !props.compact}>
+      <Show when={showTime()}>
         <span class="block truncate text-[10px] opacity-75">
           {formatTime(props.event.startDate)} - {formatTime(props.event.endDate)}
         </span>
       </Show>
-      <Show when={props.event.location && !props.compact}>
+      <Show when={showLocation()}>
         <span class="block truncate text-[10px] opacity-75">{props.event.location}</span>
       </Show>
     </>
@@ -264,6 +313,11 @@ const EventChip = (props: {
     event.stopPropagation();
     props.owner.onEventDoubleClick(props.event);
   };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (!props.owner.onEventDoubleClick || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    props.owner.onEventDoubleClick(props.event);
+  };
 
   return props.href ? (
     <a
@@ -272,12 +326,23 @@ const EventChip = (props: {
       data-space-item-id={props.event.dataSpaceItemId}
       style={style()}
       onDblClick={onDoubleClick}
+      onKeyDown={onKeyDown}
+      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate)} to ${formatTime(props.event.endDate)}`}`}
       {...dragProps()}
     >
       {content}
     </a>
   ) : (
-    <div class={className()} style={style()} onDblClick={onDoubleClick} {...dragProps()}>
+    <div
+      class={className()}
+      style={style()}
+      role={props.owner.onEventDoubleClick ? "button" : undefined}
+      tabIndex={props.owner.onEventDoubleClick ? 0 : undefined}
+      onDblClick={onDoubleClick}
+      onKeyDown={onKeyDown}
+      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate)} to ${formatTime(props.event.endDate)}`}`}
+      {...dragProps()}
+    >
       {content}
     </div>
   );
@@ -289,8 +354,7 @@ const dropTargetProps = (owner: CalendarProps, events: NormalizedEvent[], target
     onDragOver: (event: DragEvent) => event.preventDefault(),
     onDrop: (event: DragEvent) => {
       event.preventDefault();
-      const id =
-        activeDraggedEventId || event.dataTransfer?.getData("application/x-calendar-event") || event.dataTransfer?.getData("text/plain");
+      const id = draggedEventId(event);
       const calendarEvent = events.find((candidate) => candidate.id === id);
       if (!calendarEvent) return;
       owner.onEventDrop?.(calendarEvent, moveEventTo(calendarEvent, target(), allDay));
@@ -524,8 +588,8 @@ const TimeGridView = (props: {
   labels: Required<CalendarLabels>;
   days: Date[];
 }): JSX.Element => {
-  const gridStartHour = () => 0;
-  const gridEndHour = () => 23;
+  const gridStartHour = () => props.owner.visibleStartHour ?? 0;
+  const gridEndHour = () => props.owner.visibleEndHour ?? 23;
   const businessStartHour = () => props.owner.startHour ?? 8;
   const businessEndHour = () => props.owner.endHour ?? 18;
   const hours = () => Array.from({ length: gridEndHour() - gridStartHour() + 1 }, (_, index) => gridStartHour() + index);
@@ -541,16 +605,14 @@ const TimeGridView = (props: {
     return {
       onDragEnter: (event: DragEvent) => {
         event.preventDefault();
-        const id =
-          activeDraggedEventId || event.dataTransfer?.getData("application/x-calendar-event") || event.dataTransfer?.getData("text/plain");
+        const id = draggedEventId(event);
         const calendarEvent = props.events.find((candidate) => candidate.id === id);
         setDropPreview(key);
         if (calendarEvent) setTimePreview({ id: calendarEvent.id, ...moveEventTo(calendarEvent, target(), allDay) });
       },
       onDragOver: (event: DragEvent) => {
         event.preventDefault();
-        const id =
-          activeDraggedEventId || event.dataTransfer?.getData("application/x-calendar-event") || event.dataTransfer?.getData("text/plain");
+        const id = draggedEventId(event);
         const calendarEvent = props.events.find((candidate) => candidate.id === id);
         setDropPreview(key);
         if (calendarEvent) setTimePreview({ id: calendarEvent.id, ...moveEventTo(calendarEvent, target(), allDay) });
@@ -615,8 +677,11 @@ const TimeGridView = (props: {
         </For>
       </div>
       <div
-        class="grid max-h-28 overflow-y-auto border-b border-zinc-100 dark:border-zinc-800/70"
-        style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}
+        class="grid overflow-y-auto border-b border-zinc-100 dark:border-zinc-800/70"
+        style={{
+          "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))`,
+          "max-height": `${props.owner.allDayMaxHeightRem ?? 7}rem`,
+        }}
       >
         <div class="sticky top-0 bg-white px-2 py-2 text-center text-[11px] font-semibold text-dimmed dark:bg-zinc-950">
           {props.labels.allDay}
@@ -672,6 +737,7 @@ const TimeGridView = (props: {
           <For each={props.days}>
             {(day) => {
               const timed = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day) && !event.allDay);
+              const layouts = () => timedEventLayouts(timed);
               return (
                 <div class="relative min-h-full border-r border-zinc-100 dark:border-zinc-800/70">
                   <For each={hours()}>
@@ -709,10 +775,13 @@ const TimeGridView = (props: {
                       );
                     }}
                   </For>
-                  <For each={timed}>
-                    {(event, index) => {
+                  <For each={layouts()}>
+                    {(layoutItem) => {
+                      const event = layoutItem.event;
                       const layout = eventLayout(event);
-                      const lane = index() % 2;
+                      const visualLanes = Math.min(layoutItem.lanes, 3);
+                      const laneWidth = layoutItem.lanes <= 1 ? 100 : 72;
+                      const laneOffset = layoutItem.lanes <= 1 ? 0 : (28 / Math.max(1, visualLanes - 1)) * (layoutItem.lane % visualLanes);
                       const [resizePreview, setResizePreview] = createSignal<Date | null>(null);
                       const resizeStart = (pointerEvent: PointerEvent) => {
                         if (!props.owner.onEventResize) return;
@@ -742,12 +811,13 @@ const TimeGridView = (props: {
                       };
                       return (
                         <div
-                          class="absolute px-1"
+                          class="absolute"
                           style={{
                             top: `${layout.top}rem`,
                             height: `${layout.height}rem`,
-                            left: lane === 0 ? "0.25rem" : "50%",
-                            right: lane === 0 ? "50%" : "0.25rem",
+                            left: `${laneOffset}%`,
+                            width: `${laneWidth}%`,
+                            "z-index": String(20 + layoutItem.lane),
                           }}
                         >
                           <div class="group relative h-full">
@@ -761,7 +831,7 @@ const TimeGridView = (props: {
                                       height: `${eventLayout({ ...event, endDate: end(), sourceEndDate: end() }).height}rem`,
                                     }}
                                   />
-                                  <div class="pointer-events-none absolute inset-x-0 top-full z-30 rounded-b border border-dashed border-blue-500 bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 shadow-sm dark:bg-zinc-950/90">
+                                  <div class="pointer-events-none absolute inset-x-0 top-full z-30 rounded-b border border-dashed border-blue-500 bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:bg-zinc-950/90">
                                     until {formatTime(end())}
                                   </div>
                                 </>
@@ -772,7 +842,7 @@ const TimeGridView = (props: {
                                 type="button"
                                 aria-label="Resize event"
                                 draggable={false}
-                                class="absolute inset-x-2 bottom-0 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-md bg-white/75 text-current opacity-0 shadow-sm backdrop-blur transition-opacity group-hover:opacity-85 focus:opacity-100 hover:opacity-100 dark:bg-zinc-950/75"
+                                class="absolute inset-x-2 bottom-0 z-20 flex h-4 cursor-ns-resize items-center justify-center rounded-md bg-white/75 text-current opacity-0 backdrop-blur transition-opacity group-hover:opacity-85 focus:opacity-100 hover:opacity-100 dark:bg-zinc-950/75"
                                 onPointerDown={resizeStart}
                                 onDragStart={(event) => event.preventDefault()}
                               >

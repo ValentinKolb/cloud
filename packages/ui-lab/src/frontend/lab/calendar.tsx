@@ -76,6 +76,81 @@ const events: CalendarEvent[] = [
   },
 ];
 
+const allDayStressEvents: CalendarEvent[] = [
+  ...events,
+  {
+    id: "migration-window",
+    title: "Migration window",
+    start: "2026-05-25 00:00:00",
+    end: "2026-05-28 00:00:00",
+    allDay: true,
+    color: "violet",
+    calendarName: "Infra",
+  },
+  {
+    id: "legal-review",
+    title: "Legal review due",
+    start: "2026-05-27 00:00:00",
+    end: "2026-05-28 00:00:00",
+    allDay: true,
+    color: "amber",
+  },
+  {
+    id: "backup-audit",
+    title: "Backup audit",
+    start: "2026-05-27 00:00:00",
+    end: "2026-05-28 00:00:00",
+    allDay: true,
+    color: "zinc",
+  },
+  {
+    id: "release-freeze",
+    title: "Release freeze",
+    start: "2026-05-27 00:00:00",
+    end: "2026-05-30 00:00:00",
+    allDay: true,
+    color: "red",
+  },
+];
+
+const overlapEvents: CalendarEvent[] = [
+  {
+    id: "design-a",
+    title: "Design review A",
+    start: "2026-05-27 09:00:00",
+    end: "2026-05-27 11:00:00",
+    color: "blue",
+  },
+  {
+    id: "design-b",
+    title: "Design review B",
+    start: "2026-05-27 09:30:00",
+    end: "2026-05-27 10:30:00",
+    color: "emerald",
+  },
+  {
+    id: "design-c",
+    title: "Incident retro",
+    start: "2026-05-27 10:00:00",
+    end: "2026-05-27 12:30:00",
+    color: "violet",
+  },
+  {
+    id: "design-d",
+    title: "Partner call",
+    start: "2026-05-27 11:00:00",
+    end: "2026-05-27 12:00:00",
+    color: "amber",
+  },
+  {
+    id: "overnight",
+    title: "Overnight deploy",
+    start: "2026-05-27 22:00:00",
+    end: "2026-05-28 02:00:00",
+    color: "red",
+  },
+];
+
 const hrefForDate = (date: Date, view: string) => {
   const key = `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, "0")}-${`${date.getDate()}`.padStart(2, "0")}`;
   return `/app/ui-lab/surfaces/calendar?view=${view}&date=${key}`;
@@ -164,6 +239,89 @@ export const CalendarMonthDemo = () => (
     <Calendar view="month" date={baseDate} events={events} withWeekNumbers getDateHref={hrefForDate} />
   </DemoCard>
 );
+
+export const CalendarAllDayStressDemo = () => (
+  <DemoCard
+    id="calendar-all-day-stress"
+    chip={{ kind: "component", name: "Calendar", from: FROM_UI }}
+    variant="sticky all-day row"
+    description="All-day and multi-day items render in a capped row above the timed grid. The row can scroll independently while the hour grid keeps its own scroll position."
+    code={`<Calendar
+  view="week"
+  date="2026-05-27"
+  events={allDayStressEvents}
+  allDayMaxHeightRem={5}
+  startHour={8}
+  endHour={18}
+/>`}
+  >
+    <Calendar
+      view="week"
+      date={baseDate}
+      events={allDayStressEvents}
+      allDayMaxHeightRem={5}
+      startHour={8}
+      endHour={18}
+      getDateHref={hrefForDate}
+    />
+  </DemoCard>
+);
+
+export const CalendarOverlapDemo = () => {
+  const [demoEvents, setDemoEvents] = createSignal<CalendarEvent[]>(overlapEvents);
+  const [selectedEventTitle, setSelectedEventTitle] = createSignal("None");
+  const updateEventTime = (event: CalendarEvent, next: { start: Date; end: Date; allDay?: boolean }) => {
+    setDemoEvents((current) =>
+      current.map((candidate) =>
+        candidate.id === event.id
+          ? {
+              ...candidate,
+              start: next.start,
+              end: next.end,
+              allDay: next.allDay ?? candidate.allDay,
+            }
+          : candidate,
+      ),
+    );
+  };
+
+  return (
+    <DemoCard
+      id="calendar-overlap-interactions"
+      chip={{ kind: "component", name: "Calendar", from: FROM_UI }}
+      variant="overlap lanes, drag and resize"
+      description="Timed overlaps are assigned to stable lanes. Drag/drop and resize callbacks update the same controlled event array, so app code can persist changes through its own mutation layer."
+      code={`const [events, setEvents] = createSignal(overlapEvents);
+
+<Calendar
+  view="week"
+  date="2026-05-27"
+  events={events()}
+  visibleStartHour={6}
+  visibleEndHour={22}
+  onEventDrop={(event, next) => updateEvent(event, next)}
+  onEventResize={(event, next) => updateEvent(event, next)}
+/>`}
+    >
+      <Calendar
+        view="week"
+        date={baseDate}
+        events={demoEvents()}
+        visibleStartHour={6}
+        visibleEndHour={22}
+        startHour={8}
+        endHour={18}
+        getDateHref={hrefForDate}
+        onEventDrop={updateEventTime}
+        onEventResize={updateEventTime}
+        onEventDoubleClick={(event) => setSelectedEventTitle(event.title)}
+      />
+      <div class="border-t border-zinc-100 px-3 py-2 text-xs text-dimmed dark:border-zinc-800/70">
+        Double-click target: <span class="font-semibold text-primary">{selectedEventTitle()}</span>
+      </div>
+    </DemoCard>
+  );
+};
 
 export const CalendarDayDemo = () => (
   <DemoCard

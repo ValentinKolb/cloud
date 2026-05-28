@@ -12,7 +12,15 @@ import {
   RemoveBtnDemo,
   SegmentedControlDemo,
 } from "../lab/buttons";
-import { CalendarDayDemo, CalendarMobileDemo, CalendarMonthDemo, CalendarScheduleDemo, CalendarYearDemo } from "../lab/calendar";
+import {
+  CalendarAllDayStressDemo,
+  CalendarDayDemo,
+  CalendarMobileDemo,
+  CalendarMonthDemo,
+  CalendarOverlapDemo,
+  CalendarScheduleDemo,
+  CalendarYearDemo,
+} from "../lab/calendar";
 import {
   ChartBar,
   ChartDonut,
@@ -502,10 +510,20 @@ export const uiLabDocs: UiLabDocSection[] = [
         "Calendar",
         "ti ti-calendar-week",
         "SSR-first schedule views for app calendars, from compact Spaces-style months to richer day/week/year planning.",
-        ["calendar-schedule", "calendar-day", "calendar-month", "calendar-year", "calendar-mobile-month"],
+        [
+          "calendar-schedule",
+          "calendar-all-day-stress",
+          "calendar-overlap-interactions",
+          "calendar-day",
+          "calendar-month",
+          "calendar-year",
+          "calendar-mobile-month",
+        ],
         () => (
           <DemoGrid columns="one">
             <CalendarScheduleDemo />
+            <CalendarAllDayStressDemo />
+            <CalendarOverlapDemo />
             <CalendarDayDemo />
             <CalendarMonthDemo />
             <CalendarYearDemo />
