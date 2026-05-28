@@ -80,17 +80,11 @@ export type WorkspaceDashboardRoute = {
   isBaseDefault: boolean;
 };
 
-export type WorkspaceSettingsRoute = {
-  kind: "settings";
-  accessEntries: AccessEntry[];
-  dashboards: Dashboard[];
-};
-
 export type WorkspaceEmptyRoute = {
   kind: "empty";
 };
 
-export type GridsWorkspaceRoute = WorkspaceRecordsRoute | WorkspaceDashboardRoute | WorkspaceSettingsRoute | WorkspaceEmptyRoute;
+export type GridsWorkspaceRoute = WorkspaceRecordsRoute | WorkspaceDashboardRoute | WorkspaceEmptyRoute;
 
 export type GridsWorkspaceState =
   | { kind: "notFound"; title: string; message: string }
@@ -163,7 +157,6 @@ export const loadGridsWorkspaceState = async (params: {
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
-  settings?: boolean;
 }): Promise<GridsWorkspaceState> => {
   const url = new URL(params.href, "http://grids.local");
   const adminModeRequested = url.searchParams.get("edit") === "true";
@@ -223,30 +216,6 @@ export const loadGridsWorkspaceState = async (params: {
     { title: "Grids", href: "/app/grids" },
     { title: base.name, href: `/app/grids/${base.shortId}` },
   ];
-
-  if (params.settings) {
-    if (!canManageBase) {
-      return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
-    }
-    return {
-      kind: "ok",
-      base,
-      baseShortId: base.shortId,
-      title: [...titleBase, { title: "Settings" }],
-      rememberPath,
-      adminModeRequested,
-      editModeToggleHref,
-      canManageBase,
-      canCreateTables,
-      canUseEditMode,
-      catalog,
-      route: {
-        kind: "settings",
-        accessEntries: await gridsService.access.listForBase(baseId),
-        dashboards,
-      },
-    };
-  }
 
   let activeDashboard = params.activeDashboardSlug
     ? await gridsService.dashboard.getByIdOrShortId(baseId, params.activeDashboardSlug)

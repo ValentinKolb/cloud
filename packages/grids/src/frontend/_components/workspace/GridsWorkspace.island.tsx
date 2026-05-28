@@ -9,7 +9,7 @@ import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
 import RememberGridsPath from "../sidebar/RememberGridsPath.island";
-import type { GridsWorkspaceState, WorkspaceDashboardRoute, WorkspaceRecordsRoute, WorkspaceSettingsRoute } from "./workspace-state";
+import type { GridsWorkspaceState, WorkspaceDashboardRoute, WorkspaceRecordsRoute } from "./workspace-state";
 
 type Props = {
   initialState: Extract<GridsWorkspaceState, { kind: "ok" }>;
@@ -39,6 +39,7 @@ const sidebarStateClass = (active: boolean, adminMode: boolean) =>
 
 export default function GridsWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
+  const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
   let routeRequest = 0;
 
   const loadWorkspaceState = async (href: string) => {
@@ -65,6 +66,31 @@ export default function GridsWorkspace(props: Props) {
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Could not open route");
       nav.fallback();
+    }
+  };
+
+  const openSettingsDialog = async () => {
+    if (settingsDialogOpen()) return;
+    try {
+      const [accessRes, dashboardsRes] = await Promise.all([
+        apiClient.access["by-base"][":baseId"].$get({ param: { baseId: state().base.id } }),
+        apiClient.dashboards["by-base"][":baseId"].$get({ param: { baseId: state().base.id } }),
+      ]);
+      if (!accessRes.ok || !dashboardsRes.ok) throw new Error("Could not load settings");
+      const [accessEntries, dashboards] = await Promise.all([accessRes.json(), dashboardsRes.json()]);
+      setSettingsDialogOpen(true);
+      await prompts.dialog<void>(
+        (close) => (
+          <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+            <BaseSettingsPanel base={state().base} accessEntries={accessEntries} dashboards={dashboards} onClose={() => close()} />
+          </div>
+        ),
+        { surface: "bare", header: false, size: "large" },
+      );
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Could not open settings");
+    } finally {
+      setSettingsDialogOpen(false);
     }
   };
 
@@ -151,14 +177,6 @@ export default function GridsWorkspace(props: Props) {
     </div>
   );
 
-  const renderSettings = (route: WorkspaceSettingsRoute) => (
-    <div class="flex-1 min-h-0 p-2" data-route-key={routeKey()} data-scroll-preserve={`grids-main-${routeKey()}`}>
-      <div class="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col" style="view-transition-name: grids-settings-modal">
-        <BaseSettingsPanel base={state().base} accessEntries={route.accessEntries} dashboards={route.dashboards} />
-      </div>
-    </div>
-  );
-
   return (
     <>
       <RememberGridsPath path={state().rememberPath} />
@@ -170,12 +188,15 @@ export default function GridsWorkspace(props: Props) {
             iconStyle="background-color:#3b82f6"
             action={
               state().canManageBase ? (
-                <AppWorkspace.SidebarIconAction
-                  href={keepEdit(`/app/grids/${state().base.shortId}/settings`, state().adminModeRequested)}
-                  icon="ti ti-settings"
-                  label="Settings"
-                  onNavigate={handleNavigate}
-                />
+                <button
+                  type="button"
+                  onClick={() => void openSettingsDialog()}
+                  class="absolute right-0 top-0 inline-flex h-6 w-6 items-center justify-center text-dimmed transition-colors hover:text-primary"
+                  title="Settings"
+                  aria-label={`Settings for ${state().base.name}`}
+                >
+                  <i class="ti ti-settings text-xs" />
+                </button>
               ) : undefined
             }
           />
@@ -191,11 +212,7 @@ export default function GridsWorkspace(props: Props) {
                 </AppWorkspace.SidebarItem>
               )}
               {state().canManageBase && (
-                <AppWorkspace.SidebarItem
-                  href={keepEdit(`/app/grids/${state().base.shortId}/settings`, state().adminModeRequested)}
-                  icon="ti ti-settings"
-                  onNavigate={handleNavigate}
-                >
+                <AppWorkspace.SidebarItem onClick={() => void openSettingsDialog()} icon="ti ti-settings">
                   Settings
                 </AppWorkspace.SidebarItem>
               )}
@@ -354,7 +371,6 @@ export default function GridsWorkspace(props: Props) {
               <Switch>
                 <Match when={route.kind === "dashboard"}>{renderDashboard(route as WorkspaceDashboardRoute)}</Match>
                 <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
-                <Match when={route.kind === "settings"}>{renderSettings(route as WorkspaceSettingsRoute)}</Match>
                 <Match when={route.kind === "empty"}>
                   <div class="paper p-8 text-center text-sm text-dimmed">
                     {state().canCreateTables

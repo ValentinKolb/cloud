@@ -25,6 +25,7 @@ type Props = {
   /** Pre-fetched dashboards on this base, used to populate the
    *  default-dashboard select. Empty list disables the select. */
   dashboards: Dashboard[];
+  onClose?: () => void;
 };
 
 /**
@@ -38,7 +39,7 @@ export default function BaseSettingsPanel(props: Props) {
         title="Base settings"
         subtitle={props.base.name}
         icon="ti ti-table"
-        onClose={() => navigateTo(`/app/grids/${props.base.shortId}`)}
+        onClose={props.onClose ?? (() => undefined)}
         closeLabel="Close settings"
       >
         <SettingsModal.Tab

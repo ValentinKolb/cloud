@@ -2,7 +2,6 @@ import { type AuthContext, auth } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import dashboardRenderPage from "./[baseId]/dashboard/[dashboardId]/page";
 import baseDetailPage from "./[baseId]/page";
-import baseSettingsPage from "./[baseId]/settings/page";
 import formulaReferencePage from "./[baseId]/table/[tableId]/formula-reference/page";
 import tableRecordsPage from "./[baseId]/table/[tableId]/page";
 import viewRecordsPage from "./[baseId]/table/[tableId]/view/[viewId]/page";
@@ -25,7 +24,6 @@ export const publicRoutes = new Hono<AuthContext>().get("/forms/:token", auth.re
  *   /:base/table/:table/view/:view       →  records page scoped to view
  *   /:base/table/:table                  →  records page
  *   /:base/dashboard/:dashboard          →  dashboard render
- *   /:base/settings                      →  base settings
  *   /:base                               →  base home (redirects)
  *
  * The records / view / dashboard render routes all share the SAME
@@ -52,5 +50,4 @@ export default new Hono<AuthContext>()
   .get("/:baseId/table/:tableId", auth.requireRole("user", auth.redirectToLogin), ...tableRecordsPage)
   // Dashboard paths.
   .get("/:baseId/dashboard/:dashboardId", auth.requireRole("user", auth.redirectToLogin), ...dashboardRenderPage)
-  .get("/:baseId/settings", auth.requireRole("user", auth.redirectToLogin), ...baseSettingsPage)
   .get("/:baseId", auth.requireRole("user", auth.redirectToLogin), ...baseDetailPage);
