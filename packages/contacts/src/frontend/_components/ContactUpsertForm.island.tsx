@@ -1,4 +1,4 @@
-import { navigateTo, prompts, RemoveBtn, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo, PanelDialog, prompts, RemoveBtn, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -18,6 +18,9 @@ type Props = {
    * flow opens this form with the host contact already selected as parent).
    */
   defaultParent?: ContactRef | null;
+  title?: string;
+  subtitle?: string;
+  icon?: string;
   backHref?: string;
   onCancel?: () => void;
   onSaved?: (contact: Contact) => void;
@@ -380,6 +383,16 @@ export default function ContactUpsertForm(props: Props) {
     removeMutation.mutate(undefined);
   };
 
+  const handleCancel = () => {
+    if (props.onCancel) {
+      props.onCancel();
+      return;
+    }
+    if (props.backHref) {
+      navigateTo(props.backHref);
+    }
+  };
+
   const openParentPicker = async () => {
     const picked = await prompts.dialog<Contact | null>(
       (close) => (
@@ -403,468 +416,501 @@ export default function ContactUpsertForm(props: Props) {
   };
 
   return (
-    <div class="space-y-8">
-      <section>
-        <h3 class="detail-section-label">Identity</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={firstName} onInput={setFirstName} />
-          <TextInput label="Last Name" placeholder="Mustermann" icon="ti ti-user" value={lastName} onInput={setLastName} />
-          <div class="md:col-span-2">
-            <TextInput
-              label="Nickname"
-              placeholder="e.g. Alex"
-              description="Shown as the primary name in lists and the detail header. Falls back to first + last name when empty."
-              icon="ti ti-user"
-              value={label}
-              onInput={setLabel}
-            />
-          </div>
-          <div class="md:col-span-2">
-            <div class="text-label mb-1.5 block text-xs">
-              Belongs to <span class="font-normal text-dimmed">(optional)</span>
+    <PanelDialog>
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <PanelDialog.Header
+          title={props.title ?? (props.mode === "create" ? "New Contact" : "Edit Contact")}
+          subtitle={props.subtitle}
+          icon={props.icon ?? (props.mode === "create" ? "ti ti-user-plus" : "ti ti-pencil")}
+          close={handleCancel}
+        />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Identity" subtitle="Name, parent contact, and book tags." icon="ti ti-id">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <TextInput label="First Name" placeholder="Max" icon="ti ti-user" value={firstName} onInput={setFirstName} />
+              <TextInput label="Last Name" placeholder="Mustermann" icon="ti ti-user" value={lastName} onInput={setLastName} />
+              <div class="md:col-span-2">
+                <TextInput
+                  label="Nickname"
+                  placeholder="e.g. Alex"
+                  description="Shown as the primary name in lists and the detail header. Falls back to first + last name when empty."
+                  icon="ti ti-user"
+                  value={label}
+                  onInput={setLabel}
+                />
+              </div>
+              <div class="md:col-span-2">
+                <div class="text-label mb-1.5 block text-xs">
+                  Belongs to <span class="font-normal text-dimmed">(optional)</span>
+                </div>
+                <p class="mb-2 text-[11px] text-dimmed">
+                  Link this contact under a parent (e.g. an employee under their company). Cycles are blocked by the server.
+                </p>
+                <Show
+                  when={parentRef()}
+                  fallback={
+                    <button type="button" class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary" onClick={openParentPicker}>
+                      <i class="ti ti-corner-down-right" /> Pick a parent contact
+                    </button>
+                  }
+                >
+                  {(parent) => (
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        <i class="ti ti-corner-down-right text-[10px]" />
+                        {resolveContactName(parent())}
+                      </span>
+                      <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-primary" onClick={openParentPicker}>
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500"
+                        onClick={() => setParentRef(null)}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+                </Show>
+              </div>
+              <div class="md:col-span-2">
+                <div class="text-label mb-1.5 block text-xs">
+                  Tags <span class="font-normal text-dimmed">(optional)</span>
+                </div>
+                <p class="mb-2 text-[11px] text-dimmed">
+                  Categorize the contact (e.g. „VIP", „Lead", „Supplier"). Tags are scoped to this book.
+                </p>
+                <ContactTagsPicker
+                  bookId={props.bookId}
+                  selectedIds={tagIds()}
+                  onChange={setTagIds}
+                  manageUrl={`/app/contacts/${props.bookId}/settings`}
+                  compact
+                />
+              </div>
             </div>
-            <p class="mb-2 text-[11px] text-dimmed">
-              Link this contact under a parent (e.g. an employee under their company). Cycles are blocked by the server.
-            </p>
-            <Show
-              when={parentRef()}
-              fallback={
-                <button type="button" class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary" onClick={openParentPicker}>
-                  <i class="ti ti-corner-down-right" /> Pick a parent contact
+          </PanelDialog.Section>
+
+          <PanelDialog.Section title="Personal" subtitle="Optional personal profile details." icon="ti ti-user-heart">
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
+              <TextInput
+                label="Salutation / Title"
+                placeholder="Dr., Prof., Ms., Mr."
+                icon="ti ti-id-badge-2"
+                value={salutation}
+                onInput={setSalutation}
+              />
+              <TextInput
+                label="Pronouns"
+                placeholder="she/her, he/him, they/them"
+                icon="ti ti-user-heart"
+                value={pronouns}
+                onInput={setPronouns}
+              />
+              <TextInput
+                label="Preferred Language"
+                placeholder="de, en, fr"
+                icon="ti ti-language"
+                value={preferredLanguage}
+                onInput={setPreferredLanguage}
+              />
+            </div>
+          </PanelDialog.Section>
+
+          <PanelDialog.Section title="Work" subtitle="Company, role, department, and billing identifiers." icon="ti ti-briefcase">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <TextInput
+                label="Company"
+                placeholder="Example GmbH"
+                description="Shown as a chip in the contact header."
+                icon="ti ti-building"
+                value={companyName}
+                onInput={setCompanyName}
+              />
+              <TextInput
+                label="VAT ID"
+                placeholder="DE123456789"
+                description="Country prefix + ID, e.g. DE123456789."
+                icon="ti ti-receipt-2"
+                value={vatId}
+                onInput={setVatId}
+              />
+              <TextInput label="Department" placeholder="Sales" icon="ti ti-hierarchy" value={department} onInput={setDepartment} />
+              <TextInput label="Job Title" placeholder="Account Manager" icon="ti ti-briefcase" value={jobTitle} onInput={setJobTitle} />
+            </div>
+          </PanelDialog.Section>
+
+          <PanelDialog.Section title="Reach" subtitle="Email, telephone, and website contact points." icon="ti ti-address-book">
+            <div class="space-y-5">
+              <div class="space-y-2">
+                <Index each={emails()}>
+                  {(email, index) => (
+                    <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                      <TextInput
+                        ariaLabel="Email label"
+                        placeholder="work, private…"
+                        value={() => email().label}
+                        onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
+                      />
+                      <TextInput
+                        ariaLabel="Email address"
+                        placeholder="name@company.com"
+                        icon="ti ti-mail text-blue-500 dark:text-blue-400"
+                        value={() => email().email}
+                        onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, email: value } : row)))}
+                      />
+                      <div class="flex items-center justify-end">
+                        <RemoveBtn ariaLabel="Remove email" onClick={() => setEmails((current) => current.filter((_, i) => i !== index))} />
+                      </div>
+                    </div>
+                  )}
+                </Index>
+                <button
+                  type="button"
+                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                  onClick={() => setEmails([...emails(), { ...EMPTY_EMAIL }])}
+                >
+                  <i class="ti ti-plus" /> Add email
                 </button>
-              }
-            >
-              {(parent) => (
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                    <i class="ti ti-corner-down-right text-[10px]" />
-                    {resolveContactName(parent())}
-                  </span>
-                  <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-primary" onClick={openParentPicker}>
-                    Change
-                  </button>
-                  <button type="button" class="btn-simple btn-sm text-xs text-dimmed hover:text-red-500" onClick={() => setParentRef(null)}>
-                    Clear
-                  </button>
-                </div>
-              )}
-            </Show>
-          </div>
-          <div class="md:col-span-2">
-            <div class="text-label mb-1.5 block text-xs">
-              Tags <span class="font-normal text-dimmed">(optional)</span>
+              </div>
+
+              <div class="space-y-2">
+                <Index each={phones()}>
+                  {(phone, index) => (
+                    <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                      <TextInput
+                        ariaLabel="Telephone label"
+                        placeholder="mobile, work…"
+                        value={() => phone().label}
+                        onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
+                      />
+                      <TextInput
+                        ariaLabel="Telephone number"
+                        placeholder="+49 151 12345678"
+                        icon="ti ti-phone text-green-600 dark:text-green-400"
+                        value={() => phone().phone}
+                        onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
+                      />
+                      <div class="flex items-center justify-end">
+                        <RemoveBtn
+                          ariaLabel="Remove phone number"
+                          onClick={() => setPhones((current) => current.filter((_, i) => i !== index))}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </Index>
+                <button
+                  type="button"
+                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                  onClick={() => setPhones([...phones(), { ...EMPTY_PHONE }])}
+                >
+                  <i class="ti ti-plus" /> Add phone
+                </button>
+              </div>
+
+              <div class="space-y-2">
+                <Index each={websites()}>
+                  {(website, index) => (
+                    <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
+                      <TextInput
+                        ariaLabel="Website label"
+                        placeholder="work, personal…"
+                        value={() => website().label}
+                        onInput={(value) =>
+                          setWebsites((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        ariaLabel="Website URL"
+                        placeholder="https://example.com"
+                        icon="ti ti-world text-purple-600 dark:text-purple-400"
+                        value={() => website().url}
+                        onInput={(value) => setWebsites((current) => current.map((row, i) => (i === index ? { ...row, url: value } : row)))}
+                      />
+                      <div class="flex items-center justify-end">
+                        <RemoveBtn
+                          ariaLabel="Remove website"
+                          onClick={() => setWebsites((current) => current.filter((_, i) => i !== index))}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </Index>
+                <button
+                  type="button"
+                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                  onClick={() => setWebsites([...websites(), { ...EMPTY_WEBSITE }])}
+                >
+                  <i class="ti ti-plus" /> Add website
+                </button>
+              </div>
             </div>
-            <p class="mb-2 text-[11px] text-dimmed">
-              Categorize the contact (e.g. „VIP", „Lead", „Supplier"). Tags are scoped to this book.
-            </p>
-            <ContactTagsPicker
-              bookId={props.bookId}
-              selectedIds={tagIds()}
-              onChange={setTagIds}
-              manageUrl={`/app/contacts/${props.bookId}/settings`}
-              compact
-            />
-          </div>
-        </div>
-      </section>
+          </PanelDialog.Section>
 
-      <section>
-        <h3 class="detail-section-label">Personal</h3>
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <TextInput label="Birthday" placeholder="1990-01-31" icon="ti ti-cake" value={birthday} onInput={setBirthday} />
-          <TextInput
-            label="Salutation / Title"
-            placeholder="Dr., Prof., Ms., Mr."
-            icon="ti ti-id-badge-2"
-            value={salutation}
-            onInput={setSalutation}
-          />
-          <TextInput
-            label="Pronouns"
-            placeholder="she/her, he/him, they/them"
-            icon="ti ti-user-heart"
-            value={pronouns}
-            onInput={setPronouns}
-          />
-          <TextInput
-            label="Preferred Language"
-            placeholder="de, en, fr"
-            icon="ti ti-language"
-            value={preferredLanguage}
-            onInput={setPreferredLanguage}
-          />
-        </div>
-      </section>
-
-      <section>
-        <h3 class="detail-section-label">Work</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <TextInput
-            label="Company"
-            placeholder="Example GmbH"
-            description="Shown as a chip in the contact header."
-            icon="ti ti-building"
-            value={companyName}
-            onInput={setCompanyName}
-          />
-          <TextInput
-            label="VAT ID"
-            placeholder="DE123456789"
-            description="Country prefix + ID, e.g. DE123456789."
-            icon="ti ti-receipt-2"
-            value={vatId}
-            onInput={setVatId}
-          />
-          <TextInput label="Department" placeholder="Sales" icon="ti ti-hierarchy" value={department} onInput={setDepartment} />
-          <TextInput label="Job Title" placeholder="Account Manager" icon="ti ti-briefcase" value={jobTitle} onInput={setJobTitle} />
-        </div>
-      </section>
-
-      <section>
-        <h3 class="detail-section-label">Reach</h3>
-        <div class="space-y-5">
-          <div class="space-y-2">
-            <Index each={emails()}>
-              {(email, index) => (
-                <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-                  <TextInput
-                    ariaLabel="Email label"
-                    placeholder="work, private…"
-                    value={() => email().label}
-                    onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                  />
-                  <TextInput
-                    ariaLabel="Email address"
-                    placeholder="name@company.com"
-                    icon="ti ti-mail text-blue-500 dark:text-blue-400"
-                    value={() => email().email}
-                    onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, email: value } : row)))}
-                  />
-                  <div class="flex items-center justify-end">
-                    <RemoveBtn ariaLabel="Remove email" onClick={() => setEmails((current) => current.filter((_, i) => i !== index))} />
-                  </div>
-                </div>
-              )}
-            </Index>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-              onClick={() => setEmails([...emails(), { ...EMPTY_EMAIL }])}
-            >
-              <i class="ti ti-plus" /> Add email
-            </button>
-          </div>
-
-          <div class="space-y-2">
-            <Index each={phones()}>
-              {(phone, index) => (
-                <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-                  <TextInput
-                    ariaLabel="Telephone label"
-                    placeholder="mobile, work…"
-                    value={() => phone().label}
-                    onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                  />
-                  <TextInput
-                    ariaLabel="Telephone number"
-                    placeholder="+49 151 12345678"
-                    icon="ti ti-phone text-green-600 dark:text-green-400"
-                    value={() => phone().phone}
-                    onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
-                  />
-                  <div class="flex items-center justify-end">
-                    <RemoveBtn
-                      ariaLabel="Remove phone number"
-                      onClick={() => setPhones((current) => current.filter((_, i) => i !== index))}
-                    />
-                  </div>
-                </div>
-              )}
-            </Index>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-              onClick={() => setPhones([...phones(), { ...EMPTY_PHONE }])}
-            >
-              <i class="ti ti-plus" /> Add phone
-            </button>
-          </div>
-
-          <div class="space-y-2">
-            <Index each={websites()}>
-              {(website, index) => (
-                <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-                  <TextInput
-                    ariaLabel="Website label"
-                    placeholder="work, personal…"
-                    value={() => website().label}
-                    onInput={(value) => setWebsites((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                  />
-                  <TextInput
-                    ariaLabel="Website URL"
-                    placeholder="https://example.com"
-                    icon="ti ti-world text-purple-600 dark:text-purple-400"
-                    value={() => website().url}
-                    onInput={(value) => setWebsites((current) => current.map((row, i) => (i === index ? { ...row, url: value } : row)))}
-                  />
-                  <div class="flex items-center justify-end">
-                    <RemoveBtn ariaLabel="Remove website" onClick={() => setWebsites((current) => current.filter((_, i) => i !== index))} />
-                  </div>
-                </div>
-              )}
-            </Index>
-            <button
-              type="button"
-              class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-              onClick={() => setWebsites([...websites(), { ...EMPTY_WEBSITE }])}
-            >
-              <i class="ti ti-plus" /> Add website
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section>
-        <h3 class="detail-section-label">Addresses</h3>
-        <div class="space-y-3">
-          <Index each={addresses()}>
-            {(address, index) => (
-              <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <TextInput
-                    label="Label"
-                    placeholder="e.g. office, home"
-                    icon="ti ti-tag"
-                    value={() => address().label}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                  />
-                  <TextInput
-                    label="Recipient"
-                    placeholder="Max Mustermann"
-                    icon="ti ti-user"
-                    value={() => address().recipientName}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))
-                    }
-                  />
-                  <div class="md:col-span-2">
-                    <TextInput
-                      label="Company"
-                      placeholder="Example GmbH"
-                      icon="ti ti-building"
-                      value={() => address().companyName}
-                      onInput={(value) =>
-                        setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))
-                      }
-                    />
-                  </div>
-                  <TextInput
-                    label="Address Line 1"
-                    placeholder="Musterstraße 1"
-                    icon="ti ti-home"
-                    required
-                    value={() => address().line1}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line1: value } : row)))}
-                  />
-                  <TextInput
-                    label="Address Line 2"
-                    placeholder="c/o, floor, etc. (optional)"
-                    icon="ti ti-home"
-                    value={() => address().line2}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line2: value } : row)))}
-                  />
-                  <TextInput
-                    label="Postal Code"
-                    placeholder="89073"
-                    icon="ti ti-map-pin"
-                    required
-                    value={() => address().postalCode}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))
-                    }
-                  />
-                  <TextInput
-                    label="City"
-                    placeholder="Ulm"
-                    icon="ti ti-building-community"
-                    required
-                    value={() => address().city}
-                    onInput={(value) => setAddresses((current) => current.map((row, i) => (i === index ? { ...row, city: value } : row)))}
-                  />
-                  <TextInput
-                    label="State / Region"
-                    placeholder="Baden-Württemberg"
-                    description="Optional. US state or other region."
-                    icon="ti ti-map-2"
-                    value={() => address().stateRegion}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))
-                    }
-                  />
-                  <TextInput
-                    label="Country Code"
-                    placeholder="DE"
-                    description="ISO 2-letter, e.g. DE, AT, CH."
-                    icon="ti ti-flag"
-                    value={() => address().countryCode}
-                    onInput={(value) =>
-                      setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))
-                    }
-                  />
-                </div>
-                <div class="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
-                    onClick={() => setAddresses((current) => current.filter((_, i) => i !== index))}
-                  >
-                    <i class="ti ti-trash" /> Remove address
-                  </button>
-                </div>
-              </div>
-            )}
-          </Index>
-          <button
-            type="button"
-            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-            onClick={() => setAddresses([...addresses(), { ...EMPTY_ADDRESS }])}
+          <PanelDialog.Section
+            title="Addresses"
+            subtitle="Postal addresses with optional recipient and company details."
+            icon="ti ti-map-pin"
           >
-            <i class="ti ti-plus" /> Add address
-          </button>
-        </div>
-      </section>
+            <div class="space-y-3">
+              <Index each={addresses()}>
+                {(address, index) => (
+                  <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <TextInput
+                        label="Label"
+                        placeholder="e.g. office, home"
+                        icon="ti ti-tag"
+                        value={() => address().label}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Recipient"
+                        placeholder="Max Mustermann"
+                        icon="ti ti-user"
+                        value={() => address().recipientName}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))
+                        }
+                      />
+                      <div class="md:col-span-2">
+                        <TextInput
+                          label="Company"
+                          placeholder="Example GmbH"
+                          icon="ti ti-building"
+                          value={() => address().companyName}
+                          onInput={(value) =>
+                            setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))
+                          }
+                        />
+                      </div>
+                      <TextInput
+                        label="Address Line 1"
+                        placeholder="Musterstraße 1"
+                        icon="ti ti-home"
+                        required
+                        value={() => address().line1}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line1: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Address Line 2"
+                        placeholder="c/o, floor, etc. (optional)"
+                        icon="ti ti-home"
+                        value={() => address().line2}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line2: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Postal Code"
+                        placeholder="89073"
+                        icon="ti ti-map-pin"
+                        required
+                        value={() => address().postalCode}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="City"
+                        placeholder="Ulm"
+                        icon="ti ti-building-community"
+                        required
+                        value={() => address().city}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, city: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="State / Region"
+                        placeholder="Baden-Württemberg"
+                        description="Optional. US state or other region."
+                        icon="ti ti-map-2"
+                        value={() => address().stateRegion}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Country Code"
+                        placeholder="DE"
+                        description="ISO 2-letter, e.g. DE, AT, CH."
+                        icon="ti ti-flag"
+                        value={() => address().countryCode}
+                        onInput={(value) =>
+                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))
+                        }
+                      />
+                    </div>
+                    <div class="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
+                        onClick={() => setAddresses((current) => current.filter((_, i) => i !== index))}
+                      >
+                        <i class="ti ti-trash" /> Remove address
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Index>
+              <button
+                type="button"
+                class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                onClick={() => setAddresses([...addresses(), { ...EMPTY_ADDRESS }])}
+              >
+                <i class="ti ti-plus" /> Add address
+              </button>
+            </div>
+          </PanelDialog.Section>
 
-      <section>
-        <h3 class="detail-section-label">Bank Details</h3>
-        <div class="space-y-3">
-          <Index each={bankAccounts()}>
-            {(account, index) => (
-              <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
-                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <TextInput
-                    label="Label"
-                    placeholder="e.g. billing, refunds"
-                    icon="ti ti-tag"
-                    value={() => account().label}
-                    onInput={(value) =>
-                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
-                    }
-                  />
-                  <TextInput
-                    label="Account Holder"
-                    placeholder="Max Mustermann"
-                    icon="ti ti-user"
-                    required
-                    value={() => account().accountHolderName}
-                    onInput={(value) =>
-                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, accountHolderName: value } : row)))
-                    }
-                  />
-                  <TextInput
-                    label="IBAN"
-                    placeholder="DE02120300000000202051"
-                    icon="ti ti-credit-card"
-                    required
-                    value={() => account().iban}
-                    onInput={(value) =>
-                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, iban: value } : row)))
-                    }
-                  />
-                  <TextInput
-                    label="BIC"
-                    placeholder="BYLADEM1001"
-                    icon="ti ti-building-bank"
-                    value={() => account().bic}
-                    onInput={(value) => setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bic: value } : row)))}
-                  />
-                  <TextInput
-                    label="Bank Name"
-                    placeholder="Example Bank"
-                    icon="ti ti-building-bank"
-                    value={() => account().bankName}
-                    onInput={(value) =>
-                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bankName: value } : row)))
-                    }
-                  />
-                  <TextInput
-                    label="Note"
-                    placeholder="Optional"
-                    icon="ti ti-notes"
-                    value={() => account().note}
-                    onInput={(value) =>
-                      setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, note: value } : row)))
-                    }
-                  />
-                </div>
-                <div class="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
-                    onClick={() => setBankAccounts((current) => current.filter((_, i) => i !== index))}
-                  >
-                    <i class="ti ti-trash" /> Remove bank details
-                  </button>
-                </div>
-              </div>
-            )}
-          </Index>
-          <button
-            type="button"
-            class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-            onClick={() => setBankAccounts([...bankAccounts(), { ...EMPTY_BANK_ACCOUNT }])}
+          <PanelDialog.Section
+            title="Bank Details"
+            subtitle="Banking information for billing, refunds, and payouts."
+            icon="ti ti-building-bank"
           >
-            <i class="ti ti-plus" /> Add bank details
-          </button>
-        </div>
-      </section>
+            <div class="space-y-3">
+              <Index each={bankAccounts()}>
+                {(account, index) => (
+                  <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <TextInput
+                        label="Label"
+                        placeholder="e.g. billing, refunds"
+                        icon="ti ti-tag"
+                        value={() => account().label}
+                        onInput={(value) =>
+                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Account Holder"
+                        placeholder="Max Mustermann"
+                        icon="ti ti-user"
+                        required
+                        value={() => account().accountHolderName}
+                        onInput={(value) =>
+                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, accountHolderName: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="IBAN"
+                        placeholder="DE02120300000000202051"
+                        icon="ti ti-credit-card"
+                        required
+                        value={() => account().iban}
+                        onInput={(value) =>
+                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, iban: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="BIC"
+                        placeholder="BYLADEM1001"
+                        icon="ti ti-building-bank"
+                        value={() => account().bic}
+                        onInput={(value) =>
+                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bic: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Bank Name"
+                        placeholder="Example Bank"
+                        icon="ti ti-building-bank"
+                        value={() => account().bankName}
+                        onInput={(value) =>
+                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bankName: value } : row)))
+                        }
+                      />
+                      <TextInput
+                        label="Note"
+                        placeholder="Optional"
+                        icon="ti ti-notes"
+                        value={() => account().note}
+                        onInput={(value) =>
+                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, note: value } : row)))
+                        }
+                      />
+                    </div>
+                    <div class="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
+                        onClick={() => setBankAccounts((current) => current.filter((_, i) => i !== index))}
+                      >
+                        <i class="ti ti-trash" /> Remove bank details
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Index>
+              <button
+                type="button"
+                class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
+                onClick={() => setBankAccounts([...bankAccounts(), { ...EMPTY_BANK_ACCOUNT }])}
+              >
+                <i class="ti ti-plus" /> Add bank details
+              </button>
+            </div>
+          </PanelDialog.Section>
+        </PanelDialog.Body>
 
-      <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
-        <div>
-          {props.mode === "edit" && (
-            <button
-              type="button"
-              class="btn-danger btn-sm"
-              aria-label="Delete contact"
-              disabled={upsertMutation.loading() || removeMutation.loading()}
-              onClick={handleDelete}
-            >
-              {removeMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
-              Delete
-            </button>
-          )}
-        </div>
+        <PanelDialog.Footer>
+          <div class="flex w-full flex-wrap items-center justify-between gap-2">
+            <div>
+              {props.mode === "edit" && (
+                <button
+                  type="button"
+                  class="btn-danger btn-sm"
+                  aria-label="Delete contact"
+                  disabled={upsertMutation.loading() || removeMutation.loading()}
+                  onClick={handleDelete}
+                >
+                  {removeMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-trash" />}
+                  Delete
+                </button>
+              )}
+            </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <Show
-            when={props.backHref}
-            fallback={
-              <Show when={props.onCancel}>
-                <button type="button" class="btn-secondary btn-sm" onClick={() => props.onCancel?.()}>
+            <div class="flex flex-wrap items-center gap-2">
+              <Show
+                when={props.backHref}
+                fallback={
+                  <Show when={props.onCancel}>
+                    <button type="button" class="btn-secondary btn-sm" onClick={() => props.onCancel?.()}>
+                      Cancel
+                    </button>
+                  </Show>
+                }
+              >
+                <a href={props.backHref!} class="btn-secondary btn-sm">
                   Cancel
-                </button>
+                </a>
               </Show>
-            }
-          >
-            <a href={props.backHref!} class="btn-secondary btn-sm">
-              Cancel
-            </a>
-          </Show>
-          <button
-            type="button"
-            class="btn-primary btn-sm"
-            aria-label={props.mode === "create" ? "Create contact" : "Save contact changes"}
-            disabled={upsertMutation.loading() || removeMutation.loading()}
-            onClick={() => upsertMutation.mutate(undefined)}
-          >
-            {upsertMutation.loading() ? (
-              <i class="ti ti-loader-2 animate-spin" />
-            ) : (
-              <i class={props.mode === "create" ? "ti ti-plus" : "ti ti-device-floppy"} />
-            )}
-            {props.mode === "create" ? "Create Contact" : "Save Changes"}
-          </button>
-        </div>
+              <button
+                type="button"
+                class="btn-primary btn-sm"
+                aria-label={props.mode === "create" ? "Create contact" : "Save contact changes"}
+                disabled={upsertMutation.loading() || removeMutation.loading()}
+                onClick={() => upsertMutation.mutate(undefined)}
+              >
+                {upsertMutation.loading() ? (
+                  <i class="ti ti-loader-2 animate-spin" />
+                ) : (
+                  <i class={props.mode === "create" ? "ti ti-plus" : "ti ti-device-floppy"} />
+                )}
+                {props.mode === "create" ? "Create Contact" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </PanelDialog.Footer>
       </div>
-    </div>
+    </PanelDialog>
   );
 }

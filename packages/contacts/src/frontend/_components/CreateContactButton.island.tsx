@@ -1,4 +1,4 @@
-import { navigateTo, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, navigateTo, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
 import type { Contact } from "../../service";
 import ContactUpsertForm from "./ContactUpsertForm.island";
 
@@ -51,15 +51,18 @@ export default function CreateContactButton(props: Props) {
     if (!result) return;
 
     const selectedBook = props.writableBooks.find((book) => book.id === result.bookId);
-    const created = await prompts.dialog<Contact | undefined>(
+    const created = await dialogCore.open<Contact | undefined>(
       (close) => (
-        <ContactUpsertForm mode="create" bookId={result.bookId} onCancel={() => close(undefined)} onSaved={(contact) => close(contact)} />
+        <ContactUpsertForm
+          mode="create"
+          bookId={result.bookId}
+          title={selectedBook ? `New Contact in ${selectedBook.name}` : "New Contact"}
+          icon="ti ti-user-plus"
+          onCancel={() => close(undefined)}
+          onSaved={(contact) => close(contact)}
+        />
       ),
-      {
-        title: selectedBook ? `New Contact in ${selectedBook.name}` : "New Contact",
-        icon: "ti ti-user-plus",
-        size: "large",
-      },
+      panelDialogOptions,
     );
 
     if (!created) return;

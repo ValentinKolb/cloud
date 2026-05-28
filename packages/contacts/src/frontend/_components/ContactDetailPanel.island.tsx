@@ -1,4 +1,4 @@
-import { navigateTo, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, navigateTo, panelDialogOptions, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -184,11 +184,7 @@ export default function ContactDetailPanel(props: Props) {
   });
 
   const openAddMemberDialog = async (parent: Contact) => {
-    const member = await prompts.dialog<Contact | null>((close) => <AddMemberDialog parent={parent} close={close} />, {
-      title: `Add member to ${resolveContactName(parent)}`,
-      icon: "ti ti-users-plus",
-      size: "large",
-    });
+    const member = await dialogCore.open<Contact | null>((close) => <AddMemberDialog parent={parent} close={close} />, panelDialogOptions);
     if (!member) return;
     refreshCurrentPath();
   };
@@ -198,21 +194,19 @@ export default function ContactDetailPanel(props: Props) {
   };
 
   const openEditDialog = async (selectedContact: Contact) => {
-    const updated = await prompts.dialog<Contact | undefined>(
+    const updated = await dialogCore.open<Contact | undefined>(
       (close) => (
         <ContactUpsertForm
           mode="edit"
           bookId={selectedContact.bookId}
           initialContact={selectedContact}
+          title={`Edit ${resolveContactName(selectedContact)}`}
+          icon="ti ti-pencil"
           onCancel={() => close(undefined)}
           onSaved={(contact) => close(contact)}
         />
       ),
-      {
-        title: `Edit ${resolveContactName(selectedContact)}`,
-        icon: "ti ti-pencil",
-        size: "large",
-      },
+      panelDialogOptions,
     );
 
     if (!updated) return;

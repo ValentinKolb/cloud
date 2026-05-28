@@ -1,8 +1,9 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { PanelDialog, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
+import { resolveContactName } from "../../shared";
 import ContactSearchPicker from "./ContactSearchPicker.island";
 import ContactUpsertForm from "./ContactUpsertForm.island";
 
@@ -59,34 +60,52 @@ export default function AddMemberDialog(props: Props) {
   });
 
   return (
-    <div class="flex flex-col gap-3">
-      <Show
-        when={mode() === "pick"}
-        fallback={
-          <ContactUpsertForm
-            mode="create"
-            bookId={props.parent.bookId}
-            defaultParent={parentRef}
-            onCancel={() => setMode("pick")}
-            onSaved={(created) => props.close(created)}
-          />
-        }
-      >
-        <ContactSearchPicker
+    <Show
+      when={mode() === "pick"}
+      fallback={
+        <ContactUpsertForm
+          mode="create"
           bookId={props.parent.bookId}
-          excludeIds={[props.parent.id]}
-          placeholder="Search contacts in this book…"
-          onSelect={(contact) => {
-            if (linkMutation.loading()) return;
-            linkMutation.mutate({ contact });
-          }}
+          defaultParent={parentRef}
+          title="New Member"
+          subtitle={`Belongs to ${resolveContactName(props.parent)}`}
+          icon="ti ti-user-plus"
+          onCancel={() => setMode("pick")}
+          onSaved={(created) => props.close(created)}
         />
-        <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <button type="button" class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary" onClick={() => setMode("create")}>
-            <i class="ti ti-plus" /> Create new contact as member
-          </button>
+      }
+    >
+      <PanelDialog>
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <PanelDialog.Header
+            title={`Add member to ${resolveContactName(props.parent)}`}
+            subtitle="Link an existing contact or create a new member."
+            icon="ti ti-users-plus"
+            close={() => props.close(null)}
+          />
+          <PanelDialog.Body>
+            <PanelDialog.Section title="Existing Contact" subtitle="Search this book and attach the selected contact." icon="ti ti-search">
+              <ContactSearchPicker
+                bookId={props.parent.bookId}
+                excludeIds={[props.parent.id]}
+                placeholder="Search contacts in this book..."
+                onSelect={(contact) => {
+                  if (linkMutation.loading()) return;
+                  linkMutation.mutate({ contact });
+                }}
+              />
+            </PanelDialog.Section>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(null)}>
+              Cancel
+            </button>
+            <button type="button" class="btn-primary btn-sm" onClick={() => setMode("create")}>
+              <i class="ti ti-plus" /> Create new contact
+            </button>
+          </PanelDialog.Footer>
         </div>
-      </Show>
-    </div>
+      </PanelDialog>
+    </Show>
   );
 }
