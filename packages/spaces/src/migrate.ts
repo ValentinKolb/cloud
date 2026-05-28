@@ -79,6 +79,7 @@ export const migrate = async (): Promise<void> => {
       description TEXT,
       starts_at TIMESTAMPTZ,
       ends_at TIMESTAMPTZ,
+      all_day BOOLEAN NOT NULL DEFAULT false,
       deadline TIMESTAMPTZ,
       priority TEXT CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
       position INT NOT NULL DEFAULT 0,
@@ -93,6 +94,10 @@ export const migrate = async (): Promise<void> => {
         (starts_at IS NOT NULL AND ends_at IS NOT NULL AND ends_at > starts_at)
       )
     )
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS all_day BOOLEAN NOT NULL DEFAULT false
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_items_space

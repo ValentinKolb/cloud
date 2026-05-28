@@ -13,6 +13,7 @@ import type {
   ItemFilter,
   ItemListResult,
 } from "@/contracts";
+import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
 
 // ==========================
@@ -27,6 +28,7 @@ type DbItem = {
   description: string | null;
   starts_at: Date | null;
   ends_at: Date | null;
+  all_day: boolean;
   deadline: Date | null;
   priority: string | null;
   rank: string;
@@ -45,6 +47,7 @@ type DbCalendarItem = {
   title: string;
   starts_at: Date | null;
   ends_at: Date | null;
+  all_day: boolean;
   deadline: Date | null;
   priority: string | null;
 };
@@ -83,6 +86,7 @@ const mapToItem = (row: DbItem): SpaceItem => ({
   description: row.description,
   startsAt: row.starts_at?.toISOString() ?? null,
   endsAt: row.ends_at?.toISOString() ?? null,
+  allDay: row.all_day,
   deadline: row.deadline?.toISOString() ?? null,
   priority: (row.priority as Priority) ?? null,
   rank: row.rank,
@@ -175,7 +179,6 @@ const hydrateRelations = async (items: SpaceItem[]): Promise<SpaceItem[]> => {
   }
   return items;
 };
-
 
 /**
  * Dashboard widget query: today's events and the next deadlines, across
@@ -325,7 +328,7 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
   if (includeCompleted) {
     rows = await sql<DbItem[]>`
       SELECT
-        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.deadline,
+        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.all_day, i.deadline,
         i.priority, i.rank::text AS rank,
         i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
       FROM spaces.items i
@@ -336,7 +339,7 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
   } else {
     rows = await sql<DbItem[]>`
       SELECT
-        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.deadline,
+        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.all_day, i.deadline,
         i.priority, i.rank::text AS rank,
         i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
       FROM spaces.items i
@@ -477,7 +480,7 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
   // Get items with pagination
   const rows = await sql<DbItem[]>`
     SELECT i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at,
-           i.deadline, i.priority, i.rank::text AS rank,
+           i.all_day, i.deadline, i.priority, i.rank::text AS rank,
            i.completed_at, i.email_thread_id,
            i.created_by, i.created_at, i.updated_at
     FROM spaces.items i
@@ -554,7 +557,7 @@ export const searchAcross = async (params: {
   const rows = await sql<DbItemAcross[]>`
     SELECT
       i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at,
-      i.deadline, i.priority, i.rank::text AS rank,
+      i.all_day, i.deadline, i.priority, i.rank::text AS rank,
       i.completed_at, i.email_thread_id,
       i.created_by, i.created_at, i.updated_at,
       s.name AS space_name
@@ -599,6 +602,7 @@ export const get = async (params: { id: string }): Promise<SpaceItem | null> => 
       i.description,
       i.starts_at,
       i.ends_at,
+      i.all_day,
       i.deadline,
       i.priority,
       i.rank::text AS rank,
@@ -647,7 +651,7 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO spaces.items (
       space_id, column_id, title, description, starts_at, ends_at, deadline,
-      priority, rank, completed_at, created_by
+      all_day, priority, rank, completed_at, created_by
     )
     VALUES (
       ${spaceId},
@@ -657,6 +661,7 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
       ${data.startsAt ?? null},
       ${data.endsAt ?? null},
       ${data.deadline ?? null},
+      ${data.allDay ?? false},
       ${data.priority ?? null},
       ${rank.toDb(nextRank)}::bigint,
       ${null},
@@ -696,6 +701,7 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     return { ok: false, error: "Failed to load created item", status: 500 };
   }
 
+  publishSpaceEvent({ type: "item.created", spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -716,6 +722,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   const description = data.description === undefined ? existing.description : data.description;
   const startsAt = data.startsAt === undefined ? existing.startsAt : data.startsAt;
   const endsAt = data.endsAt === undefined ? existing.endsAt : data.endsAt;
+  const allDay = data.allDay === undefined ? existing.allDay : data.allDay;
   const deadline = data.deadline === undefined ? existing.deadline : data.deadline;
   const priority = data.priority === undefined ? existing.priority : data.priority;
   const changingColumn = !!(data.columnId && data.columnId !== existing.columnId);
@@ -750,6 +757,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
             description = ${description},
             starts_at = ${startsAt},
             ends_at = ${endsAt},
+            all_day = ${allDay},
             deadline = ${deadline},
             priority = ${priority},
             updated_at = now()
@@ -762,6 +770,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
             description = ${description},
             starts_at = ${startsAt},
             ends_at = ${endsAt},
+            all_day = ${allDay},
             deadline = ${deadline},
             priority = ${priority},
             updated_at = now()
@@ -802,6 +811,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     return { ok: false, error: "Failed to load updated item", status: 500 };
   }
 
+  publishSpaceEvent({ type: "item.updated", spaceId: item.spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -809,6 +819,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
  * Delete an item
  */
 export const remove = async (params: { id: string }): Promise<MutationResult<void>> => {
+  const existing = await get({ id: params.id });
   const result = await sql`
     DELETE FROM spaces.items
     WHERE id = ${params.id}
@@ -818,13 +829,19 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
     return { ok: false, error: "Item not found", status: 404 };
   }
 
+  if (existing) publishSpaceEvent({ type: "item.deleted", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
 };
 
 /**
  * Move an item to a different column/rank
  */
-export const move = async (params: { id: string; columnId: string; rank: string; completed?: boolean }): Promise<MutationResult<SpaceItem>> => {
+export const move = async (params: {
+  id: string;
+  columnId: string;
+  rank: string;
+  completed?: boolean;
+}): Promise<MutationResult<SpaceItem>> => {
   const { id, columnId } = params;
   let targetRank: bigint;
   try {
@@ -892,6 +909,7 @@ export const move = async (params: { id: string; columnId: string; rank: string;
     return { ok: false, error: "Failed to load moved item", status: 500 };
   }
 
+  publishSpaceEvent({ type: "item.moved", spaceId: item.spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -919,6 +937,7 @@ export const setCompleted = async (params: { id: string; completed: boolean }): 
     return { ok: false, error: "Failed to load item", status: 500 };
   }
 
+  publishSpaceEvent({ type: "item.completed", spaceId: item.spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -929,8 +948,8 @@ export const setAssignees = async (params: { id: string; userIds: string[] }): P
   const { id, userIds } = params;
 
   // Verify item exists
-  const [exists] = await sql<{ id: string }[]>`SELECT id FROM spaces.items WHERE id = ${id}`;
-  if (!exists) {
+  const existing = await get({ id });
+  if (!existing) {
     return { ok: false, error: "Item not found", status: 404 };
   }
 
@@ -944,6 +963,7 @@ export const setAssignees = async (params: { id: string; userIds: string[] }): P
     `;
   }
 
+  publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
 };
 
@@ -954,8 +974,8 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
   const { id, tagIds } = params;
 
   // Verify item exists
-  const [exists] = await sql<{ id: string }[]>`SELECT id FROM spaces.items WHERE id = ${id}`;
-  if (!exists) {
+  const existing = await get({ id });
+  if (!existing) {
     return { ok: false, error: "Item not found", status: 404 };
   }
 
@@ -969,6 +989,7 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
     `;
   }
 
+  publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
 };
 
@@ -992,7 +1013,7 @@ export const listCalendar = async (params: { userId: string; groups: string[]; f
          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
-           i.title, i.starts_at, i.ends_at, i.deadline, i.priority
+           i.title, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority
     FROM spaces.items i
     JOIN spaces.spaces s ON i.space_id = s.id
     WHERE i.space_id IN (SELECT id FROM accessible_spaces)
@@ -1005,6 +1026,7 @@ export const listCalendar = async (params: { userId: string; groups: string[]; f
     ORDER BY COALESCE(i.starts_at, i.deadline)
   `;
 
+  const tagsByItemId = await getTagsByItemIds(rows.map((row) => row.id));
   return rows.map((r) => ({
     id: r.id,
     spaceId: r.space_id,
@@ -1013,8 +1035,10 @@ export const listCalendar = async (params: { userId: string; groups: string[]; f
     title: r.title,
     startsAt: r.starts_at?.toISOString() ?? null,
     endsAt: r.ends_at?.toISOString() ?? null,
+    allDay: r.all_day,
     deadline: r.deadline?.toISOString() ?? null,
     priority: (r.priority as Priority) ?? null,
+    tags: tagsByItemId.get(r.id) ?? [],
   }));
 };
 

@@ -49,6 +49,7 @@ export const SpaceItemSchema = z.object({
   description: z.string().nullable().describe("Item description (markdown)"),
   startsAt: z.string().nullable().describe("Event start time (ISO)"),
   endsAt: z.string().nullable().describe("Event end time (ISO)"),
+  allDay: z.boolean().default(false).describe("Whether the item is an all-day event"),
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
   rank: z.string().describe("Item ordering rank within a column"),
@@ -90,8 +91,10 @@ export const CalendarItemSchema = z.object({
   title: z.string().describe("Item title"),
   startsAt: z.string().nullable().describe("Event start time (ISO)"),
   endsAt: z.string().nullable().describe("Event end time (ISO)"),
+  allDay: z.boolean().default(false).describe("Whether the item is an all-day event"),
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
+  tags: z.array(SpaceTagSchema).optional().describe("Attached tags"),
 });
 export type CalendarItem = z.infer<typeof CalendarItemSchema>;
 
@@ -184,6 +187,7 @@ export const CreateItemSchema = z
     description: z.string().max(5000).optional().describe("Item description (markdown)"),
     startsAt: z.string().datetime().optional().describe("Event start time (ISO)"),
     endsAt: z.string().datetime().optional().describe("Event end time (ISO)"),
+    allDay: z.boolean().optional().describe("Whether the item is an all-day event"),
     deadline: z.string().datetime().optional().describe("Todo deadline (ISO)"),
     priority: PrioritySchema.optional().describe("Item priority"),
     assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
@@ -201,6 +205,7 @@ export const UpdateItemSchema = z.object({
   description: z.string().max(5000).nullable().optional().describe("Item description (markdown)"),
   startsAt: z.string().datetime().nullable().optional().describe("Event start time (ISO)"),
   endsAt: z.string().datetime().nullable().optional().describe("Event end time (ISO)"),
+  allDay: z.boolean().optional().describe("Whether the item is an all-day event"),
   deadline: z.string().datetime().nullable().optional().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().optional().describe("Item priority"),
   assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),

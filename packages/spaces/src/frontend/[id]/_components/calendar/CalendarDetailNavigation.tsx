@@ -18,6 +18,7 @@ export default function CalendarDetailNavigation(props: Props) {
   onMount(() => {
     const root = document.getElementById(props.rootId);
     if (!root) return;
+    let pendingNavigation: ReturnType<typeof setTimeout> | undefined;
     const hoverClasses = ["hover:bg-zinc-200", "dark:hover:bg-zinc-700"];
     const activeClasses = ["!bg-blue-100", "dark:!bg-blue-900/30", "!hover:bg-blue-100", "dark:!hover:bg-blue-900/30"];
 
@@ -50,7 +51,15 @@ export default function CalendarDetailNavigation(props: Props) {
       if (!itemId) return;
 
       event.preventDefault();
-      requestSpacesRouteNavigation(href, { scroll: "preserve" });
+      if (event.detail > 1) {
+        if (pendingNavigation) clearTimeout(pendingNavigation);
+        pendingNavigation = undefined;
+        return;
+      }
+      pendingNavigation = setTimeout(() => {
+        requestSpacesRouteNavigation(href, { scroll: "preserve" });
+        pendingNavigation = undefined;
+      }, 180);
     };
 
     root.addEventListener("click", onClick);
@@ -65,6 +74,7 @@ export default function CalendarDetailNavigation(props: Props) {
     window.addEventListener(SPACES_ROUTE_NAVIGATION_EVENT, onRouteNavigation);
 
     onCleanup(() => {
+      if (pendingNavigation) clearTimeout(pendingNavigation);
       root.removeEventListener("click", onClick);
       window.removeEventListener(SPACES_ROUTE_NAVIGATION_EVENT, onRouteNavigation);
       unsubscribe();

@@ -3,6 +3,7 @@ import { describeRoute } from "hono-openapi";
 import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { spacesService } from "../service";
+import { subscribeSpaceEvents } from "../service/events";
 import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
 import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
 import type { MutationResult, Space, PermissionLevel } from "@/contracts";
@@ -148,6 +149,55 @@ const app = new Hono<AuthContext>()
         settings: target.settings,
       });
       return c.json(state);
+    },
+  )
+
+  .get(
+    "/:id/events",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Stream space events",
+      description: "Best-effort server-sent event stream for refreshing mounted space workspaces.",
+      ...requiresAuth,
+      responses: {
+        200: {
+          description: "Server-sent events",
+          content: { "text/event-stream": { schema: { type: "string" } } },
+        },
+      },
+    }),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const { error } = await checkSpaceAccess(c, spaceId);
+      if (error) return error;
+
+      const encoder = new TextEncoder();
+      let unsubscribe: (() => void) | undefined;
+      let keepalive: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const send = (event: string, data: unknown) => {
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          };
+          send("ready", { spaceId });
+          unsubscribe = subscribeSpaceEvents((event) => {
+            if (event.spaceId === spaceId) send(event.type, event);
+          });
+          keepalive = setInterval(() => send("ping", { at: new Date().toISOString() }), 25_000);
+        },
+        cancel() {
+          unsubscribe?.();
+          if (keepalive) clearInterval(keepalive);
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+        },
+      });
     },
   )
 

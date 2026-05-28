@@ -23,6 +23,7 @@ type DbItem = {
   description: string | null;
   starts_at: Date | null;
   ends_at: Date | null;
+  all_day: boolean;
   deadline: Date | null;
   priority: string | null;
   created_at: Date;
@@ -71,7 +72,7 @@ export const generate = async (params: { spaceId: string; baseUrl: string }): Pr
 
   // Get all non-completed items with time data
   const items = await sql<DbItem[]>`
-    SELECT id, title, description, starts_at, ends_at, deadline, priority, created_at, updated_at
+    SELECT id, title, description, starts_at, ends_at, all_day, deadline, priority, created_at, updated_at
     FROM spaces.items
     WHERE space_id = ${params.spaceId}
       AND completed_at IS NULL
@@ -99,6 +100,7 @@ export const generate = async (params: { spaceId: string; baseUrl: string }): Pr
         id: item.id,
         start: item.starts_at,
         end: item.ends_at,
+        allDay: item.all_day,
         summary: item.title,
         description: item.description ?? undefined,
         url: `${params.baseUrl}/app/spaces/${space.id}/items/${item.id}`,

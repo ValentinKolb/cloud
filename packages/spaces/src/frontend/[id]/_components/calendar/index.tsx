@@ -1,8 +1,21 @@
-import { type CalendarEvent, Calendar as CoreCalendar, type CalendarView as CoreCalendarView } from "@valentinkolb/cloud/ui";
+import {
+  type CalendarEvent,
+  Calendar as CoreCalendar,
+  CheckboxCard,
+  DateTimeInput,
+  type CalendarEventTimeChange,
+  type CalendarView as CoreCalendarView,
+  prompts,
+  toast,
+} from "@valentinkolb/cloud/ui";
 import { dates as calendar } from "@valentinkolb/stdlib";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { CalendarItem } from "@/contracts";
-import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CalendarDetailNavigation from "./CalendarDetailNavigation";
+import ItemForm, { type ItemFormData } from "../shared/ItemForm";
 import type { CalendarProps, CalendarView } from "./types";
 
 const eventStart = (item: CalendarItem) => item.startsAt ?? item.deadline ?? calendar.today().toISOString();
@@ -31,7 +44,7 @@ const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView
     title: item.title,
     start: eventStart(item),
     end: eventEnd(item),
-    allDay: false,
+    allDay: item.allDay || Boolean(item.deadline && !item.startsAt),
     color: priorityColor(item),
     colorHex: isDeadline ? undefined : item.spaceColor,
     href: buildCalendarHref(baseUrl, view, date, item.id),
@@ -43,7 +56,13 @@ const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView
 
 export default function Calendar(props: CalendarProps) {
   const rootId = `space-calendar-${props.spaceId}`;
-  const events = () => props.items.map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date));
+  const [tagFilter, setTagFilter] = createSignal<string[]>([]);
+  const visibleItems = () => {
+    const selected = tagFilter();
+    if (selected.length === 0) return props.items;
+    return props.items.filter((item) => item.tags?.some((tag) => selected.includes(tag.id)));
+  };
+  const events = () => visibleItems().map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date));
   const dayBadges = () =>
     Object.fromEntries(
       Object.entries(props.weather ?? {}).map(([date, weather]) => [
@@ -57,11 +76,152 @@ export default function Calendar(props: CalendarProps) {
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
     requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date), { replace, scroll: "preserve" });
   };
+  const toggleTag = (tagId: string) => {
+    setTagFilter((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
+  };
+  const updateEventTime = mutations.create<void, { event: CalendarEvent; next: CalendarEventTimeChange }>({
+    mutation: async ({ event, next }) => {
+      const itemId = event.dataSpaceItemId ?? event.id;
+      const res = await apiClient[":id"].items[":itemId"].$patch({
+        param: { id: props.spaceId, itemId },
+        json: {
+          startsAt: next.start.toISOString(),
+          endsAt: next.end.toISOString(),
+          deadline: null,
+          allDay: next.allDay ?? false,
+        },
+      });
+      if (!res.ok) throw new Error("Could not update event time");
+    },
+    onSuccess: () => requestCurrentSpacesRouteRefresh({ scroll: "preserve" }),
+  });
+  const createEvent = mutations.create<boolean, CalendarEventTimeChange>({
+    mutation: async (slot) => {
+      const result = await prompts.dialog<ItemFormData | null>(
+        (close) => (
+          <ItemForm
+            columns={props.columns}
+            tags={props.tags}
+            defaults={{
+              type: "event",
+              startsAt: slot.start.toISOString(),
+              endsAt: slot.end.toISOString(),
+              allDay: slot.allDay ?? false,
+            }}
+            onSubmit={(data) => close(data)}
+            onCancel={() => close(null)}
+          />
+        ),
+        { title: "New Event", icon: "ti ti-calendar-plus", size: "large" },
+      );
+      if (!result) return false;
+      const res = await apiClient[":id"].items.$post({
+        param: { id: props.spaceId },
+        json: result,
+      });
+      if (!res.ok) throw new Error("Could not create event");
+      return true;
+    },
+    onSuccess: (created) => {
+      if (!created) return;
+      toast.success("Event created");
+      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  const editEventTime = mutations.create<boolean, CalendarEvent>({
+    mutation: async (event) => {
+      const itemId = event.dataSpaceItemId ?? event.id;
+      const result = await prompts.dialog<CalendarEventTimeChange | null>(
+        (close) => {
+          const [startsAt, setStartsAt] = createSignal(new Date(event.start).toISOString().slice(0, 16));
+          const [endsAt, setEndsAt] = createSignal(event.end ? new Date(event.end).toISOString().slice(0, 16) : startsAt());
+          const [allDay, setAllDay] = createSignal(Boolean(event.allDay));
+          return (
+            <form
+              class="flex flex-col gap-4"
+              onSubmit={(submitEvent) => {
+                submitEvent.preventDefault();
+                close({
+                  start: new Date(startsAt()),
+                  end: new Date(endsAt()),
+                  allDay: allDay(),
+                });
+              }}
+            >
+              <CheckboxCard
+                label="All-day event"
+                description="Show this in the all-day calendar row"
+                icon="ti ti-calendar"
+                value={allDay}
+                onChange={setAllDay}
+              />
+              <div class="grid grid-cols-2 gap-3">
+                <DateTimeInput label="Start" value={startsAt} onChange={setStartsAt} required />
+                <DateTimeInput label="End" value={endsAt} onChange={setEndsAt} required />
+              </div>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>
+                  Cancel
+                </button>
+                <button type="submit" class="btn-primary btn-sm">
+                  Save
+                </button>
+              </div>
+            </form>
+          );
+        },
+        { title: "Edit Event Time", icon: "ti ti-clock-edit", size: "large" },
+      );
+      if (!result) return false;
+      const res = await apiClient[":id"].items[":itemId"].$patch({
+        param: { id: props.spaceId, itemId },
+        json: {
+          startsAt: result.start.toISOString(),
+          endsAt: result.end.toISOString(),
+          deadline: null,
+          allDay: result.allDay ?? false,
+        },
+      });
+      if (!res.ok) throw new Error("Could not update event time");
+      return true;
+    },
+    onSuccess: (updated) => {
+      if (!updated) return;
+      toast.success("Event updated");
+      requestCurrentSpacesRouteRefresh({ scroll: "preserve" });
+    },
+    onError: (error) => prompts.error(error.message),
+  });
 
   return (
-    <div id={rootId} class="flex flex-col gap-2">
+    <div id={rootId} class="flex min-h-0 flex-1 flex-col gap-2">
       <CalendarDetailNavigation rootId={rootId} />
+      <Show when={props.tags.length > 0}>
+        <div class="flex flex-wrap items-center gap-1.5 px-1">
+          <button
+            type="button"
+            class={`btn-segment ${tagFilter().length === 0 ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""}`}
+            onClick={() => setTagFilter([])}
+          >
+            All tags
+          </button>
+          <For each={props.tags}>
+            {(tag) => (
+              <button
+                type="button"
+                class={`btn-segment gap-1.5 ${tagFilter().includes(tag.id) ? "ring-1 ring-blue-400" : ""}`}
+                onClick={() => toggleTag(tag.id)}
+              >
+                <span class="h-2 w-2 rounded-full" style={{ "background-color": tag.color }} />
+                {tag.name}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
       <CoreCalendar
+        class="flex-1"
         view={props.view}
         date={props.date}
         events={events()}
@@ -74,6 +234,10 @@ export default function Calendar(props: CalendarProps) {
         getEventHref={(event) => event.href}
         onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}
         onDateChange={(date, view) => routeTo(view as CalendarView, date)}
+        onEventDrop={(event, next) => updateEventTime.mutate({ event, next })}
+        onEventResize={(event, next) => updateEventTime.mutate({ event, next })}
+        onEventDoubleClick={(event) => editEventTime.mutate(event)}
+        onSlotDoubleClick={(slot) => createEvent.mutate(slot)}
       />
     </div>
   );

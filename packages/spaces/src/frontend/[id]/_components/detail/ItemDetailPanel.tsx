@@ -7,6 +7,7 @@ import {
   Dropdown,
   EntitySearch,
   MarkdownView,
+  TextInput,
   prompts,
   toast,
   type DropdownItem,
@@ -519,42 +520,41 @@ export default function ItemDetailPanel(props: Props) {
 
   const editDescriptionMutation = mutations.create<SpaceItem | null, void>({
     mutation: async () => {
-      const result = await prompts.form({
-        title: "Edit Description",
-        icon: "ti ti-file-text",
-        size: "large",
-        fields: {
-          description: {
-            type: "text",
-            label: false,
-            multiline: true,
-            lines: 12,
-            default: props.item.description || "",
-            placeholder: "Write a description…",
-            maxLength: 5000,
-          },
-          cheatsheet: {
-            type: "info",
-            content: () => (
-              <div class="text-[11px] leading-relaxed text-dimmed">
-                <span class="font-medium">Markdown:</span> <code class="font-mono">**bold**</code>
-                {"  ·  "}
-                <code class="font-mono">*italic*</code>
-                {"  ·  "}
-                <code class="font-mono"># heading</code>
-                {"  ·  "}
-                <code class="font-mono">- list</code>
-                {"  ·  "}
-                <code class="font-mono">[text](url)</code>
-                {"  ·  "}
-                <code class="font-mono">`code`</code>
+      const result = await prompts.dialog<string | null>(
+        (close) => {
+          const [description, setDescription] = createSignal(props.item.description || "");
+          return (
+            <form
+              class="flex flex-col gap-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                close(description());
+              }}
+            >
+              <TextInput
+                ariaLabel="Description"
+                markdown
+                lines={12}
+                maxLength={5000}
+                value={description}
+                onInput={setDescription}
+                placeholder="Write a description..."
+              />
+              <div class="flex justify-end gap-2">
+                <button type="button" onClick={() => close(null)} class="btn-secondary btn-sm">
+                  Cancel
+                </button>
+                <button type="submit" class="btn-primary btn-sm">
+                  Save
+                </button>
               </div>
-            ),
-          },
+            </form>
+          );
         },
-      });
-      if (!result || result.description === (props.item.description || "")) return null;
-      return patchItem({ description: result.description || null });
+        { title: "Edit Description", icon: "ti ti-file-text", size: "large" },
+      );
+      if (result === null || result === undefined || result === (props.item.description || "")) return null;
+      return patchItem({ description: result || null });
     },
     onSuccess: handleItemUpdated,
     onError: (err) => prompts.error(err.message),

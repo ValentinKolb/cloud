@@ -17,7 +17,7 @@ export default function CreateItemButton(props: Props) {
     mutation: async () => {
       const result = await prompts.dialog<ItemFormData | null>(
         (close) => <ItemForm columns={props.columns} tags={props.tags} onSubmit={(data) => close(data)} onCancel={() => close(null)} />,
-        { title: "New Item", icon: "ti ti-plus" },
+        { title: "New Item", icon: "ti ti-plus", size: "large" },
       );
       if (!result) return null;
 

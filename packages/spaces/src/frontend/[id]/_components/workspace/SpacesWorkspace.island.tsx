@@ -1,4 +1,5 @@
 import { AppWorkspace, type LinkNavigateEvent, type NavigationScrollMode, navigate, Pagination, prompts } from "@valentinkolb/cloud/ui";
+import { streaming } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -177,6 +178,31 @@ export default function SpacesWorkspace(props: Props) {
   };
 
   onMount(() => {
+    const abortController = new AbortController();
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        void openRoute(currentHref(), { replace: true, scroll: "preserve" });
+      }, 120);
+    };
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/spaces/${spaceId()}/events`, {
+          headers: { Accept: "text/event-stream" },
+          signal: abortController.signal,
+        });
+        if (!response.ok || !response.body) return;
+        for await (const event of streaming.parseSSE(response.body)) {
+          if (abortController.signal.aborted) return;
+          if (event.event?.startsWith("item.")) scheduleRefresh();
+        }
+      } catch {
+        // Best-effort refresh: normal navigation still works if the stream drops.
+      }
+    })();
+
     const handleRouteNavigation = (event: Event) => {
       const detail = (event as CustomEvent<SpacesRouteNavigationDetail>).detail;
       if (detail?.href) void openRoute(detail.href, { replace: detail.replace, scroll: detail.scroll });
@@ -198,6 +224,8 @@ export default function SpacesWorkspace(props: Props) {
     window.addEventListener("popstate", handlePopState);
     if (state().isSettingsMode) openSettingsDialog(state());
     onCleanup(() => {
+      abortController.abort();
+      if (refreshTimer) clearTimeout(refreshTimer);
       routeStateMutation.abort();
       window.removeEventListener(SPACES_ROUTE_NAVIGATION_EVENT, handleRouteNavigation);
       window.removeEventListener("popstate", handlePopState);
@@ -243,7 +271,10 @@ export default function SpacesWorkspace(props: Props) {
           </>
         )}
 
-        <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`spaces-main-${spaceId()}`}>
+        <div
+          class={`flex-1 min-h-0 ${state().currentView === "calendar" ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}
+          data-scroll-preserve={`spaces-main-${spaceId()}`}
+        >
           {(state().currentView === "list" || state().currentView === "table") && (
             <>
               {state().itemsResult.items.length === 0 ? (
