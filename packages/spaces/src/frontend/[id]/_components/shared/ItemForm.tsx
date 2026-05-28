@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { EntitySearch, type EntitySearchPrincipal, TextInput } from "@valentinkolb/cloud/ui";
+import { EntitySearch, type EntitySearchPrincipal, PanelDialog, TextInput } from "@valentinkolb/cloud/ui";
 import { CheckboxCard } from "@valentinkolb/cloud/ui";
 import { SelectInput } from "@valentinkolb/cloud/ui";
 import { SegmentedControl } from "@valentinkolb/cloud/ui";
@@ -31,6 +31,8 @@ type Props = {
   onSubmit: (data: ItemFormData) => void;
   onCancel: () => void;
   submitLabel?: string;
+  title?: string;
+  icon?: string;
 };
 
 const PRIORITY_OPTIONS = [
@@ -147,192 +149,201 @@ export default function ItemForm(props: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} class="flex max-h-[74vh] flex-col gap-4 overflow-y-auto pr-1">
-      <div class="paper flex flex-col gap-4 p-3">
-        <TextInput
-          label="Title"
-          description={!isEditMode() ? "A short summary of what needs to be done" : undefined}
-          placeholder="What needs to be done?"
-          icon="ti ti-text-caption"
-          value={title}
-          onInput={(v) => {
-            setTitle(v);
-            setError("");
-          }}
-          required
+    <PanelDialog>
+      <form onSubmit={handleSubmit} class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <PanelDialog.Header
+          title={props.title ?? (isEditMode() ? "Edit item" : "New item")}
+          icon={props.icon ?? "ti ti-pencil"}
+          close={props.onCancel}
         />
-
-        <TextInput
-          label="Description"
-          description={!isEditMode() ? "Optional details or notes" : undefined}
-          placeholder="Description in markdown ..."
-          value={description}
-          onInput={setDescription}
-          markdown
-        />
-      </div>
-
-      <div class="paper flex flex-col gap-4 p-3">
-        <Show when={!isEditMode()}>
-          <div>
-            <p class="block text-sm font-medium mb-1">Type</p>
-            <p class="text-xs text-dimmed mb-2">Tasks have a deadline, events have a start and end time</p>
-            <SegmentedControl
-              options={[
-                { value: "task" as const, label: "Task", icon: "ti ti-checkbox" },
-                {
-                  value: "event" as const,
-                  label: "Event",
-                  icon: "ti ti-calendar-event",
-                },
-              ]}
-              value={itemType}
-              onChange={handleTypeChange}
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Basics" subtitle="Name and notes shown across views and detail panels." icon="ti ti-id">
+            <TextInput
+              label="Title"
+              description={!isEditMode() ? "A short summary of what needs to be done" : undefined}
+              placeholder="What needs to be done?"
+              icon="ti ti-text-caption"
+              value={title}
+              onInput={(v) => {
+                setTitle(v);
+                setError("");
+              }}
+              required
             />
-          </div>
-        </Show>
-
-        <div class="grid grid-cols-2 gap-3">
-          <SelectInput
-            label="Kanban"
-            description={!isEditMode() ? "Current workflow state" : undefined}
-            placeholder="Select column"
-            icon="ti ti-progress"
-            value={columnId}
-            onChange={setColumnId}
-            options={columnOptions()}
-            required={!isEvent()}
-          />
-          <SelectInput
-            label="Priority"
-            description={!isEditMode() ? "How urgent is this?" : undefined}
-            placeholder="Select priority"
-            icon="ti ti-flag"
-            value={priority}
-            onChange={setPriority}
-            options={PRIORITY_OPTIONS}
-            clearable
-          />
-        </div>
-
-        <Show when={!isEvent()}>
-          <DateTimeInput
-            label="Deadline"
-            description={!isEditMode() ? "When should this be completed?" : undefined}
-            value={deadline}
-            onChange={setDeadline}
-          />
-        </Show>
-
-        <Show when={isEvent()}>
-          <div class="flex flex-col gap-3">
-            <CheckboxCard
-              label="All-day event"
-              description="Show this in the all-day calendar row"
-              icon="ti ti-calendar"
-              value={allDay}
-              onChange={setAllDay}
+            <TextInput
+              label="Description"
+              description={!isEditMode() ? "Optional details or notes" : undefined}
+              placeholder="Description in markdown ..."
+              value={description}
+              onInput={setDescription}
+              markdown
             />
-            <div class="grid grid-cols-2 gap-3">
-              <DateTimeInput
-                label="Start"
-                description={!isEditMode() ? "When does it start?" : undefined}
-                value={startsAt}
-                onChange={(v) => {
-                  setStartsAt(v);
-                  setError("");
-                }}
-                required
-              />
-              <DateTimeInput
-                label="End"
-                description={!isEditMode() ? "When does it end?" : undefined}
-                value={endsAt}
-                onChange={(v) => {
-                  setEndsAt(v);
-                  setError("");
-                }}
-                required
-              />
-            </div>
-          </div>
-        </Show>
-      </div>
+          </PanelDialog.Section>
 
-      <div class="paper flex flex-col gap-4 p-3">
-        <Show when={props.tags && props.tags.length > 0}>
-          <div>
-            <p class="block text-sm font-medium mb-1">Tags</p>
+          <PanelDialog.Section title="Schedule" subtitle="Workflow, priority, deadlines, and calendar timing." icon="ti ti-calendar-time">
             <Show when={!isEditMode()}>
-              <p class="text-xs text-dimmed mb-2">Categorize with tags</p>
+              <div>
+                <p class="mb-1 block text-sm font-medium">Type</p>
+                <p class="mb-2 text-xs text-dimmed">Tasks have a deadline, events have a start and end time</p>
+                <SegmentedControl
+                  options={[
+                    { value: "task" as const, label: "Task", icon: "ti ti-checkbox" },
+                    {
+                      value: "event" as const,
+                      label: "Event",
+                      icon: "ti ti-calendar-event",
+                    },
+                  ]}
+                  value={itemType}
+                  onChange={handleTypeChange}
+                />
+              </div>
             </Show>
-            <div class="flex flex-wrap gap-2">
-              <For each={props.tags}>
-                {(tag) => (
-                  <button
-                    type="button"
-                    onClick={() => toggleTag(tag.id)}
-                    class={`px-2 py-1 rounded-full text-xs flex items-center gap-1 transition-all ${
-                      selectedTags().includes(tag.id) ? "opacity-100" : "opacity-40 hover:opacity-70"
-                    }`}
-                    style={`background-color: ${tag.color}${selectedTags().includes(tag.id) ? "30" : "15"}; color: ${tag.color}`}
-                  >
-                    <span class="w-2 h-2 rounded-full" style={`background-color: ${tag.color}`} />
-                    {tag.name}
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
-        </Show>
 
-        <div class="flex flex-col gap-3">
-          <p class="mb-1 block text-sm font-medium">Assignees</p>
-          <p class="mb-2 text-xs text-dimmed">Assign initial owners or leave unassigned</p>
-          <Show when={assignees().length > 0}>
-            <div class="mb-2 flex flex-wrap gap-2">
-              <For each={assignees()}>
-                {(assignee) => (
-                  <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
-                    <span class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] dark:bg-zinc-700">
-                      {assignee.displayName.charAt(0).toUpperCase()}
-                    </span>
-                    <span>{assignee.displayName}</span>
-                    <button type="button" onClick={() => removeAssignee(assignee.id)} class="text-dimmed hover:text-red-500">
-                      <i class="ti ti-x text-xs" />
-                    </button>
-                  </span>
-                )}
-              </For>
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <SelectInput
+                label="Kanban"
+                description={!isEditMode() ? "Current workflow state" : undefined}
+                placeholder="Select column"
+                icon="ti ti-progress"
+                value={columnId}
+                onChange={setColumnId}
+                options={columnOptions()}
+                required={!isEvent()}
+              />
+              <SelectInput
+                label="Priority"
+                description={!isEditMode() ? "How urgent is this?" : undefined}
+                placeholder="Select priority"
+                icon="ti ti-flag"
+                value={priority}
+                onChange={setPriority}
+                options={PRIORITY_OPTIONS}
+                clearable
+              />
+            </div>
+
+            <Show when={!isEvent()}>
+              <DateTimeInput
+                label="Deadline"
+                description={!isEditMode() ? "When should this be completed?" : undefined}
+                value={deadline}
+                onChange={setDeadline}
+              />
+            </Show>
+
+            <Show when={isEvent()}>
+              <CheckboxCard
+                label="All-day event"
+                description="Show this in the all-day calendar row"
+                icon="ti ti-calendar"
+                value={allDay}
+                onChange={setAllDay}
+              />
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <DateTimeInput
+                  label="Start"
+                  description={!isEditMode() ? "When does it start?" : undefined}
+                  value={startsAt}
+                  onChange={(v) => {
+                    setStartsAt(v);
+                    setError("");
+                  }}
+                  required
+                />
+                <DateTimeInput
+                  label="End"
+                  description={!isEditMode() ? "When does it end?" : undefined}
+                  value={endsAt}
+                  onChange={(v) => {
+                    setEndsAt(v);
+                    setError("");
+                  }}
+                  required
+                />
+              </div>
+            </Show>
+          </PanelDialog.Section>
+
+          <PanelDialog.Section title="Classify" subtitle="Tags and ownership used for filtering and coordination." icon="ti ti-tags">
+            <Show when={props.tags && props.tags.length > 0}>
+              <div>
+                <p class="mb-1 block text-sm font-medium">Tags</p>
+                <Show when={!isEditMode()}>
+                  <p class="mb-2 text-xs text-dimmed">Categorize with tags</p>
+                </Show>
+                <div class="flex flex-wrap gap-2">
+                  <For each={props.tags}>
+                    {(tag) => (
+                      <button
+                        type="button"
+                        onClick={() => toggleTag(tag.id)}
+                        class={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-all ${
+                          selectedTags().includes(tag.id) ? "opacity-100" : "opacity-40 hover:opacity-70"
+                        }`}
+                        style={`background-color: ${tag.color}${selectedTags().includes(tag.id) ? "30" : "15"}; color: ${tag.color}`}
+                      >
+                        <span class="h-2 w-2 rounded-full" style={`background-color: ${tag.color}`} />
+                        {tag.name}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </div>
+            </Show>
+
+            <div class="flex flex-col gap-3">
+              <div>
+                <p class="mb-1 block text-sm font-medium">Assignees</p>
+                <p class="text-xs text-dimmed">Assign initial owners or leave unassigned</p>
+              </div>
+              <Show when={assignees().length > 0}>
+                <div class="flex flex-wrap gap-2">
+                  <For each={assignees()}>
+                    {(assignee) => (
+                      <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+                        <span class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] dark:bg-zinc-700">
+                          {assignee.displayName.charAt(0).toUpperCase()}
+                        </span>
+                        <span>{assignee.displayName}</span>
+                        <button type="button" onClick={() => removeAssignee(assignee.id)} class="text-dimmed hover:text-red-500">
+                          <i class="ti ti-x text-xs" />
+                        </button>
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <EntitySearch
+                includeUsers
+                excludeUserIds={assignees().map((assignee) => assignee.id)}
+                onSelect={addAssignee}
+                placeholder="Search users to assign..."
+                resultsHeightClass="h-36"
+              />
+            </div>
+          </PanelDialog.Section>
+
+          <Show when={error()}>
+            <div class="flex items-center gap-1 text-sm text-red-500">
+              <i class="ti ti-alert-circle" />
+              {error()}
             </div>
           </Show>
-          <EntitySearch
-            includeUsers
-            excludeUserIds={assignees().map((assignee) => assignee.id)}
-            onSelect={addAssignee}
-            placeholder="Search users to assign..."
-            resultsHeightClass="h-36"
-          />
-        </div>
-      </div>
+        </PanelDialog.Body>
 
-      {/* Error */}
-      <Show when={error()}>
-        <div class="text-sm text-red-500 flex items-center gap-1">
-          <i class="ti ti-alert-circle" />
-          {error()}
-        </div>
-      </Show>
-
-      {/* Actions */}
-      <div class="flex justify-end gap-2 pt-2">
-        <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
-          Cancel
-        </button>
-        <button type="submit" class="btn-primary btn-sm">
-          {props.submitLabel ?? (isEditMode() ? "Save" : "Create Item")}
-        </button>
-      </div>
-    </form>
+        <PanelDialog.Footer>
+          <span />
+          <div class="flex items-center gap-2">
+            <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
+              Cancel
+            </button>
+            <button type="submit" class="btn-primary btn-sm">
+              {props.submitLabel ?? (isEditMode() ? "Save" : "Create Item")}
+            </button>
+          </div>
+        </PanelDialog.Footer>
+      </form>
+    </PanelDialog>
   );
 }

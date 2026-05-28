@@ -3,6 +3,8 @@ import {
   Calendar as CoreCalendar,
   type CalendarEventTimeChange,
   type CalendarView as CoreCalendarView,
+  dialogCore,
+  panelDialogOptions,
   prompts,
   toast,
 } from "@valentinkolb/cloud/ui";
@@ -106,7 +108,7 @@ export default function Calendar(props: CalendarProps) {
   });
   const createEvent = mutations.create<boolean, CalendarEventTimeChange>({
     mutation: async (slot) => {
-      const result = await prompts.dialog<ItemFormData | null>(
+      const result = await dialogCore.open<ItemFormData | null>(
         (close) => (
           <ItemForm
             columns={props.columns}
@@ -120,9 +122,11 @@ export default function Calendar(props: CalendarProps) {
             }}
             onSubmit={(data) => close(data)}
             onCancel={() => close(null)}
+            title="New event"
+            icon="ti ti-calendar-plus"
           />
         ),
-        { title: "New Event", icon: "ti ti-calendar-plus", size: "large" },
+        panelDialogOptions,
       );
       if (!result) return false;
       const res = await apiClient[":id"].items.$post({

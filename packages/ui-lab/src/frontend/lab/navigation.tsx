@@ -10,11 +10,14 @@ import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/clou
 import {
   AppOverview,
   AppWorkspace,
+  dialogCore,
   FilterChip,
   type FilterChipSection,
   Link,
   Pagination,
+  PanelDialog,
   PermissionEditor,
+  panelDialogOptions,
   SettingsModal,
   TextInput,
 } from "@valentinkolb/cloud/ui";
@@ -415,6 +418,112 @@ export const SettingsModalDemo = () => (
     </div>
   </DemoCard>
 );
+
+export const PanelDialogDemo = () => {
+  const openDemo = () => {
+    void dialogCore.open<void>(
+      (close) => (
+        <PanelDialog>
+          <PanelDialog.Header title="Edit item" icon="ti ti-pencil" close={close} />
+          <PanelDialog.Body>
+            <PanelDialog.Section title="Basics" subtitle="Layout only: bring your own inputs and mutation." icon="ti ti-id">
+              <TextInput label="Title" value={() => "Launch checklist"} onInput={() => {}} icon="ti ti-text-caption" />
+              <TextInput label="Description" value={() => "Coordinate final release tasks."} onInput={() => {}} markdown />
+            </PanelDialog.Section>
+            <PanelDialog.Section
+              title="Classify"
+              subtitle="Sections keep complex forms scannable without owning field behavior."
+              icon="ti ti-tags"
+            >
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <button type="button" class="btn-input justify-start">
+                  <i class="ti ti-progress" />
+                  In progress
+                </button>
+                <button type="button" class="btn-input justify-start">
+                  <i class="ti ti-flag" />
+                  High priority
+                </button>
+              </div>
+            </PanelDialog.Section>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <button type="button" class="btn-simple btn-sm text-red-500">
+              <i class="ti ti-trash" />
+              Delete
+            </button>
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn-secondary btn-sm" onClick={() => close()}>
+                Cancel
+              </button>
+              <button type="button" class="btn-primary btn-sm" onClick={() => close()}>
+                Save
+              </button>
+            </div>
+          </PanelDialog.Footer>
+        </PanelDialog>
+      ),
+      panelDialogOptions,
+    );
+  };
+
+  return (
+    <DemoCard
+      id="paneldialog"
+      chip={{ kind: "component", name: "PanelDialog", from: FROM_UI }}
+      description="Layout-only modal chrome for complex editors: fixed panel, non-scrolling header/footer, scrollable body, and section cards. State, validation, and mutations stay in the app."
+      code={`dialogCore.open<void>(
+  (close) => (
+    <PanelDialog>
+      <PanelDialog.Header title="Edit item" icon="ti ti-pencil" close={close} />
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Basics" icon="ti ti-id">
+          …
+        </PanelDialog.Section>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        …
+      </PanelDialog.Footer>
+    </PanelDialog>
+  ),
+  panelDialogOptions,
+);`}
+    >
+      <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+        <div class="mx-auto flex h-[26rem] max-w-3xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
+          <PanelDialog.Header title="Edit item" subtitle="Inline preview of the dialog layout" icon="ti ti-pencil" close={() => {}} />
+          <PanelDialog.Body>
+            <PanelDialog.Section title="Basics" subtitle="Name and notes shown across app surfaces." icon="ti ti-id">
+              <TextInput label="Title" value={() => "Launch checklist"} onInput={() => {}} icon="ti ti-text-caption" />
+              <TextInput label="Description" value={() => "Coordinate final release tasks."} onInput={() => {}} markdown />
+            </PanelDialog.Section>
+            <PanelDialog.Section title="Classify" subtitle="Use regular app controls inside sections." icon="ti ti-tags">
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <button type="button" class="btn-input justify-start">
+                  <i class="ti ti-progress" />
+                  In progress
+                </button>
+                <button type="button" class="btn-input justify-start">
+                  <i class="ti ti-flag" />
+                  High priority
+                </button>
+              </div>
+            </PanelDialog.Section>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <button type="button" class="btn-simple btn-sm text-red-500">
+              <i class="ti ti-trash" />
+              Delete
+            </button>
+            <button type="button" class="btn-primary btn-sm" onClick={openDemo}>
+              Open modal
+            </button>
+          </PanelDialog.Footer>
+        </div>
+      </div>
+    </DemoCard>
+  );
+};
 
 const permissionEntries: AccessEntry[] = [
   {

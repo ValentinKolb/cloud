@@ -1,5 +1,5 @@
 import { apiClient } from "@/api/client";
-import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, dialogCore, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
@@ -15,9 +15,18 @@ type Props = {
 export default function CreateItemButton(props: Props) {
   const mutation = mutations.create<SpaceItem | null, void>({
     mutation: async () => {
-      const result = await prompts.dialog<ItemFormData | null>(
-        (close) => <ItemForm columns={props.columns} tags={props.tags} onSubmit={(data) => close(data)} onCancel={() => close(null)} />,
-        { title: "New Item", icon: "ti ti-plus", size: "large" },
+      const result = await dialogCore.open<ItemFormData | null>(
+        (close) => (
+          <ItemForm
+            columns={props.columns}
+            tags={props.tags}
+            onSubmit={(data) => close(data)}
+            onCancel={() => close(null)}
+            title="New item"
+            icon="ti ti-plus"
+          />
+        ),
+        panelDialogOptions,
       );
       if (!result) return null;
 

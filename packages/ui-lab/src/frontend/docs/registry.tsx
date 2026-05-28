@@ -88,6 +88,7 @@ import {
   FilterChipDemo,
   NavigationEnhancementDemo,
   PaginationDemo,
+  PanelDialogDemo,
   PermissionEditorDemo,
   SettingsModalDemo,
 } from "../lab/navigation";
@@ -411,6 +412,19 @@ export const uiLabDocs: UiLabDocSection[] = [
         () => (
           <DemoGrid columns="one">
             <SettingsModalDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "layout",
+        "panel-dialog",
+        "PanelDialog",
+        "ti ti-pencil",
+        "Layout-only dialog shell for complex editors with fixed header/footer and sectioned body.",
+        ["paneldialog"],
+        () => (
+          <DemoGrid columns="one">
+            <PanelDialogDemo />
           </DemoGrid>
         ),
       ),

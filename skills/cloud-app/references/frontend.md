@@ -858,6 +858,55 @@ await prompts.dialog<void>(
 
 The component owns tab layout and optional internal active-tab state. Keep saving, dirty state, permissions, and mutations in the app.
 
+### PanelDialog
+
+Layout-only shell for complex editor dialogs. Source: `packages/cloud/src/ui/misc/PanelDialog.tsx`; real usage: Spaces item create/edit/event dialogs in `packages/spaces/src/frontend/[id]/_components/shared/ItemForm.tsx` opened via `dialogCore.open(..., panelDialogOptions)`.
+
+Use `PanelDialog` when the modal body is a real editor with multiple groups, a fixed header/footer, and a scrollable body. Do **not** use it for small one-field prompts (`prompts.form` is better), simple picker dialogs (`prompts.dialog` is enough), or tabbed app settings (`SettingsModal` is the right shell).
+
+```tsx
+import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
+
+const result = await dialogCore.open<ItemFormData | null>(
+  (close) => (
+    <PanelDialog>
+      <form onSubmit={submit}>
+        <PanelDialog.Header title="Edit item" icon="ti ti-pencil" close={() => close(null)} />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Basics" subtitle="Name and notes." icon="ti ti-id">
+            <TextInput label="Title" value={title} onInput={setTitle} required />
+            <TextInput label="Description" value={description} onInput={setDescription} markdown />
+          </PanelDialog.Section>
+          <PanelDialog.Section title="Schedule" icon="ti ti-calendar-time">
+            ...
+          </PanelDialog.Section>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <span />
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-secondary btn-sm" onClick={() => close(null)}>Cancel</button>
+            <button type="submit" class="btn-primary btn-sm">Save</button>
+          </div>
+        </PanelDialog.Footer>
+      </form>
+    </PanelDialog>
+  ),
+  panelDialogOptions,
+);
+```
+
+`PanelDialog` props: `children`.
+
+`PanelDialog.Header` props: `title`, `subtitle?`, `icon`, `close`.
+
+`PanelDialog.Body` / `Footer` props: `children`.
+
+`PanelDialog.Section` props: `title`, `subtitle?`, `icon`, `children`.
+
+`panelDialogOptions` is the standard `dialogCore.open` option object for this shell. It gives the Grids-style centered panel, fixed max viewport height, scroll-contained body, and bare content padding. `confirmDiscardIfDirty(dirty)` is available for editor close guards, but dirty state stays in the app.
+
+The component is visual structure only. Keep form state, validation, input components, mutations, save/cancel semantics, and API calls in the consuming app. If the dialog is part of a write flow, open it inside `mutation.create()` just like `prompts.dialog`.
+
 #### Settings dialog recipe
 
 When opening settings from an island, use a bare prompt dialog. `SettingsModal` supplies the header, tabs, and close button; the prompt supplies only the overlay/portal. For access callbacks, do not import `GrantableLevel` from contracts: it is local to `PermissionEditor.tsx`. Prefer inference, or type grantable permissions as `Exclude<PermissionLevel, "none">` with `PermissionLevel` from `@valentinkolb/cloud/contracts`.

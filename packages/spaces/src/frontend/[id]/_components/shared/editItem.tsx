@@ -1,4 +1,4 @@
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { dialogCore, panelDialogOptions, toast } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
@@ -27,7 +27,7 @@ export const saveItemFormData = async (params: { spaceId: string; itemId: string
 };
 
 export const editItemWithDialog = async (params: EditItemParams): Promise<boolean> => {
-  const result = await prompts.dialog<ItemFormData | null>(
+  const result = await dialogCore.open<ItemFormData | null>(
     (close) => (
       <ItemForm
         item={params.item}
@@ -36,9 +36,11 @@ export const editItemWithDialog = async (params: EditItemParams): Promise<boolea
         onSubmit={(data) => close(data)}
         onCancel={() => close(null)}
         submitLabel="Save Item"
+        title="Edit item"
+        icon="ti ti-edit"
       />
     ),
-    { title: "Edit Item", icon: "ti ti-edit", size: "large" },
+    panelDialogOptions,
   );
   if (!result) return false;
   await saveItemFormData({ spaceId: params.spaceId, itemId: params.item.id, data: result });

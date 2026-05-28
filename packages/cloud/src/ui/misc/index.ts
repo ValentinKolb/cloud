@@ -53,6 +53,14 @@ export type { LogTableEntry } from "./LogEntriesTable";
 export { default as LogEntriesTable } from "./LogEntriesTable";
 export { default as MarkdownView } from "./MarkdownView";
 export { Pagination } from "./Pagination";
+export type {
+  PanelDialogBodyProps,
+  PanelDialogFooterProps,
+  PanelDialogHeaderProps,
+  PanelDialogProps,
+  PanelDialogSectionProps,
+} from "./PanelDialog";
+export { confirmDiscardIfDirty, default as PanelDialog, panelDialogOptions, panelDialogPanelClass } from "./PanelDialog";
 export { default as PermissionEditor } from "./PermissionEditor";
 export { default as ProgressBar } from "./ProgressBar";
 export { default as RemoveBtn } from "./RemoveBtn";
