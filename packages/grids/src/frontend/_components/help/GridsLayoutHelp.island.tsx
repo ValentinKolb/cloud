@@ -19,7 +19,7 @@ type RuleProps = {
 const HelpCard = (props: HelpCardProps) => (
   <section class="rounded-lg bg-zinc-50/80 p-3 text-sm leading-relaxed text-zinc-700 ring-1 ring-inset ring-zinc-200/70 dark:bg-zinc-900/45 dark:text-zinc-300 dark:ring-zinc-800">
     <h4 class="flex items-center gap-2 text-sm font-semibold text-primary">
-      <i class={`ti ${props.icon} text-blue-500`} />
+      <i class={`ti ${props.icon} text-blue-500`} aria-hidden="true" />
       {props.title}
     </h4>
     <div class="mt-2 text-sm text-dimmed">{props.children}</div>
@@ -42,7 +42,7 @@ const HelpList = (props: HelpListProps) => (
     <For each={props.items}>
       {(item) => (
         <li class="flex gap-2">
-          <i class="ti ti-check mt-0.5 text-sm text-emerald-500" />
+          <i class="ti ti-check mt-0.5 text-sm text-emerald-500" aria-hidden="true" />
           <span>{item}</span>
         </li>
       )}
@@ -55,7 +55,7 @@ const WarningList = (props: HelpListProps) => (
     <For each={props.items}>
       {(item) => (
         <li class="flex gap-2">
-          <i class="ti ti-minus mt-0.5 text-sm text-zinc-400" />
+          <i class="ti ti-minus mt-0.5 text-sm text-zinc-400" aria-hidden="true" />
           <span>{item}</span>
         </li>
       )}
@@ -77,8 +77,8 @@ const StartTab = () => (
     </p>
     <HelpGrid>
       <HelpCard title="Source of truth" icon="ti-database">
-        PostgreSQL is the source of truth. Filters, sorting, grouping, aggregation, search, exports, and dashboard stats ask the server for
-        the current result.
+        Results are recalculated from saved data. Filters, sorting, grouping, aggregation, search, exports, and dashboard stats use the
+        current server result.
       </HelpCard>
       <HelpCard title="When to use what" icon="ti-route">
         Use a table for records, a view for a saved slice, a form for guided input, a dashboard for reporting, and an automation for a
@@ -150,15 +150,16 @@ const TablesTab = () => (
 const ViewsTab = () => (
   <div class="space-y-4">
     <div class="info-block-info flex items-start gap-2 text-xs">
-      <i class="ti ti-info-circle mt-0.5 shrink-0" />
-      <span>Filter, sort, group, aggregate, export, and search run on the server. SQL stays the source of truth.</span>
+      <i class="ti ti-info-circle mt-0.5 shrink-0" aria-hidden="true" />
+      <span>Filter, sort, group, aggregate, export, and search use the same saved data on the server.</span>
     </div>
     <HelpGrid>
       <HelpCard title="Filter and sort" icon="ti-sort-ascending">
         Filters are exact rules, such as Status is Open or Amount is greater than 100. Sort decides order after filters and search apply.
       </HelpCard>
       <HelpCard title="Group and aggregate" icon="ti-sum">
-        Group turns many records into categories. Aggregations calculate one value per category: count, sum, min, max, latest, or average.
+        Group turns many records into categories. Aggregations calculate one value per category: count, unique count, sum, min, max, or
+        average.
       </HelpCard>
       <HelpCard title="Chart-ready views" icon="ti-chart-bar">
         Charts need a grouped source view with at least one aggregation. Group is the label. Aggregation is the number.
@@ -194,7 +195,7 @@ const SearchTab = () => (
         <HelpList
           items={[
             "text and long text values",
-            "numbers, decimals, dates, and booleans as displayed values",
+            "numbers, decimals, dates, and booleans as stored text",
             "select option labels",
             "relation labels when you can read the linked table",
           ]}
