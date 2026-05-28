@@ -1605,6 +1605,43 @@ const appWithAttachments = app
   );
 
 // =============================================================================
+// Export — portable ZIP archive for lock-in-free backups
+// =============================================================================
+
+const appWithExport = appWithAttachments.get(
+  "/:id/export.zip",
+  describeRoute({
+    tags: ["Notebooks"],
+    summary: "Export notebook",
+    description: "Download a portable ZIP archive with Markdown notes, raw attachments, and JSON metadata.",
+    ...requiresAuth,
+    responses: {
+      200: { description: "Notebook ZIP archive" },
+      403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      404: jsonResponse(ErrorResponseSchema, "Notebook not found"),
+    },
+  }),
+  async (c) => {
+    let notebookId = c.req.param("id")!;
+    const { notebook, error } = await checkNotebookAccess(c, notebookId, "admin");
+    if (error) return error;
+    notebookId = notebook!.id;
+
+    const exported = await notebooksService.exporter.exportNotebookZip({ notebookId });
+    if (!exported) return respond(c, fail(err.notFound("Notebook")));
+
+    const buffer = exported.zip.buffer.slice(exported.zip.byteOffset, exported.zip.byteOffset + exported.zip.byteLength) as ArrayBuffer;
+    return new Response(new Blob([buffer], { type: "application/zip" }), {
+      headers: {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(exported.filename)}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  },
+);
+
+// =============================================================================
 // Tags — list endpoint used by the `/tag` slash-command picker
 // =============================================================================
 
@@ -1613,7 +1650,7 @@ const TagSummarySchema = z.object({
   count: z.number().int(),
 });
 
-const appWithTags = appWithAttachments.get(
+const appWithTags = appWithExport.get(
   "/:id/tags",
   describeRoute({
     tags: ["Notebooks"],

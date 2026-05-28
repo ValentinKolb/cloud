@@ -2,6 +2,7 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   CheckboxCard,
   IconInput,
+  Link,
   navigateTo,
   PermissionEditor,
   prompts,
@@ -362,6 +363,29 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
 }
 
 // =============================================================================
+// Export
+// =============================================================================
+
+function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
+  const href = () => `/api/notebooks/${encodeURIComponent(props.notebook.shortId)}/export.zip`;
+
+  return (
+    <div class="flex flex-col gap-4">
+      <div class="rounded-lg bg-zinc-50 p-4 text-sm text-secondary dark:bg-zinc-900/60">
+        Export this notebook as plain Markdown, raw attachments, and small JSON metadata files. Admin permission is required because the
+        archive contains the full notebook.
+      </div>
+      <Show when={props.isAdmin} fallback={<p class="text-xs text-dimmed">Only notebook admins can download full exports.</p>}>
+        <Link href={href()} download="" class="btn-primary btn-md self-start">
+          <i class="ti ti-download" />
+          Download ZIP export
+        </Link>
+      </Show>
+    </div>
+  );
+}
+
+// =============================================================================
 // Permissions
 // =============================================================================
 
@@ -473,6 +497,9 @@ function NotebookSettingsBody(props: Props & { bare?: boolean; close?: () => voi
             description="Navigation layout and notebook-level behavior."
           >
             <FeaturesSection notebook={notebook()} isAdmin={props.isAdmin} onNotebookChange={setNotebook} />
+          </SettingsModal.Tab>
+          <SettingsModal.Tab id="export" title="Export" icon="ti ti-download" description="Download a portable notebook archive.">
+            <ExportSection notebook={notebook()} isAdmin={props.isAdmin} />
           </SettingsModal.Tab>
           {props.isAdmin && (
             <>

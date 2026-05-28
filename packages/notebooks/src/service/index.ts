@@ -2,6 +2,7 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { type PageParams, paginate, type Paginated } from "@valentinkolb/stdlib";
 import * as access from "./access";
 import * as attachments from "./attachments";
+import * as exporter from "./export";
 import * as links from "./links";
 import * as favorites from "./favorites";
 import * as noteRefs from "./note-refs";
@@ -246,9 +247,26 @@ export const notebooksService = {
     extractIds: attachments.extractIds,
     transformHtml: attachments.transformAttachments,
   },
+  exporter: {
+    exportNotebookZip: exporter.exportNotebookZip,
+  },
 };
 
-export { notebooks, notes, access, attachments, favorites, links, presence, tags, noteRefs, workspaceEvents, reindexRuntime, yjsSnapshotWorker };
+export {
+  notebooks,
+  notes,
+  access,
+  attachments,
+  exporter,
+  favorites,
+  links,
+  presence,
+  tags,
+  noteRefs,
+  workspaceEvents,
+  reindexRuntime,
+  yjsSnapshotWorker,
+};
 
 // Re-export commonly used types
 export type { CreateNotebook, Notebook, NotebookAdminListItem, UpdateNotebook } from "./notebooks";
