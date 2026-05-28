@@ -8,6 +8,7 @@ import BaseSettingsPanel from "../settings/BaseSettingsPanel.island";
 import CreateDashboardButton from "../sidebar/CreateDashboardButton.island";
 import CreateTableButton from "../sidebar/CreateTableButton.island";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
+import GridsLayoutHelp from "../help/GridsLayoutHelp.island";
 import RememberGridsPath from "../sidebar/RememberGridsPath.island";
 import type { GridsWorkspaceState, WorkspaceDashboardRoute, WorkspaceRecordsRoute } from "./workspace-state";
 
@@ -181,6 +182,7 @@ export default function GridsWorkspace(props: Props) {
     <>
       <RememberGridsPath path={state().rememberPath} />
       <AppWorkspace class="flex-1 min-h-0">
+        <GridsLayoutHelp />
         <AppWorkspace.Sidebar>
           <AppWorkspace.SidebarHeader
             title={state().base.name}
