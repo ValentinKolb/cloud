@@ -5,7 +5,14 @@ import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
-import { confirmDiscardIfDirty, GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
+import {
+  confirmDiscardIfDirty,
+  GridsPanelDialog,
+  GridsPanelDialogBody,
+  GridsPanelDialogFooter,
+  GridsPanelDialogHeader,
+  gridsPanelDialogOptions,
+} from "../dialogs/dialog-layout";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
@@ -54,7 +61,7 @@ type OpenFieldEditArgs = {
 };
 
 export const openFieldEditDialog = (args: OpenFieldEditArgs): Promise<void> =>
-  dialogCore.open<void>((close) => <FieldEditDialog args={args} close={close} />, gridsBareDialogOptions);
+  dialogCore.open<void>((close) => <FieldEditDialog args={args} close={close} />, gridsPanelDialogOptions);
 
 function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) {
   const [dirty, setDirty] = createSignal(false);
@@ -62,7 +69,8 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
   return (
-    <GridsBareDialog title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean}>
+    <GridsPanelDialog>
+      <GridsPanelDialogHeader title={`Edit field — ${props.args.field.name}`} icon="ti ti-pencil" close={closeIfClean} />
       <FieldEditor
         field={props.args.field}
         baseShortId={props.args.baseShortId}
@@ -83,7 +91,7 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
         }}
         onCancel={closeIfClean}
       />
-    </GridsBareDialog>
+    </GridsPanelDialog>
   );
 }
 
@@ -215,8 +223,8 @@ function FieldEditor(props: {
   const typeDescription = FIELD_TYPE_DESCRIPTIONS[props.field.type];
 
   return (
-    <div class="flex min-h-0 flex-1 flex-col gap-2">
-      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+    <>
+      <GridsPanelDialogBody>
         {/* Type primer — short, type-specific blurb so the constraint
           inputs further down ("precision", "decimal places", "regex" etc.) make
           immediate sense to non-power users. */}
@@ -414,9 +422,9 @@ function FieldEditor(props: {
             fieldsByTable={props.fieldsByTable}
           />
         </FieldEditorSection>
-      </div>
+      </GridsPanelDialogBody>
 
-      <div class="paper flex shrink-0 items-center justify-between gap-2 p-4">
+      <GridsPanelDialogFooter>
         <button type="button" class="btn-simple btn-sm text-red-500 hover:text-red-600" onClick={props.onDeleted}>
           <i class="ti ti-trash" /> Delete field
         </button>
@@ -430,14 +438,14 @@ function FieldEditor(props: {
             {updateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
         </div>
-      </div>
-    </div>
+      </GridsPanelDialogFooter>
+    </>
   );
 }
 
 function FieldEditorSection(props: { title: string; subtitle?: string; icon: string; children: JSX.Element }) {
   return (
-    <section class="paper p-4">
+    <section class="paper border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/70">
       <header class="mb-2 flex items-start gap-2">
         <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
           <i class={`${props.icon} text-sm`} />

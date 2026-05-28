@@ -95,8 +95,7 @@ TYPE_LABELS["updated_by"] = "Updated by";
 export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   text: "A single line of text — names, titles, codes, anything short. Set min/max length if the value should be a certain size, or a regex pattern to enforce a format like a postcode.",
   longtext: "Multi-line text — paragraphs, notes, instructions. Bound the size the same way as text if you need to.",
-  number:
-    "A number, stored decimal-safe. Use decimal places for money or exact measurements; set 0 decimal places for whole numbers.",
+  number: "A number, stored decimal-safe. Use decimal places for money or exact measurements; set 0 decimal places for whole numbers.",
   boolean: "A yes/no checkbox.",
   date: "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
   select: "A fixed list of choices. Use single mode for one choice, or multiple mode for tags/categories.",
@@ -886,12 +885,12 @@ function FormulaConstraints(props: {
       <div class="info-block-info text-xs flex flex-col gap-2">
         <span class="font-medium">Formula basics</span>
         <span class="text-dimmed">
-          Search fields by name, then insert the suggested reference. Formulas store stable refs like <code>#aB3kQ</code>, so renaming a field
-          does not break saved formulas.
+          Search fields by name, then insert the suggested reference. Formulas store stable refs like <code>#aB3kQ</code>, so renaming a
+          field does not break saved formulas.
         </span>
         <span class="text-dimmed">
-          Numbers and decimals calculate with decimal-safe arithmetic when exact values are involved. Empty values stay empty; formula errors render
-          as <code>#ERROR</code>.
+          Numbers and decimals calculate with decimal-safe arithmetic when exact values are involved. Empty values stay empty; formula
+          errors render as <code>#ERROR</code>.
         </span>
       </div>
 
@@ -988,47 +987,49 @@ function FormulaPreview(props: { preview: FormulaPreviewResponse | null; loading
         </Show>
       </div>
 
-      <Show when={props.preview} fallback={<p class="text-dimmed">Type a formula to preview the latest records.</p>}>
-        {(preview) => (
-          <div class="flex flex-col gap-2">
-            <Show when={preview().diagnostics.length > 0}>
-              <div class={preview().ok ? "info-block-info py-1.5 text-[11px]" : "info-block-error py-1.5 text-[11px]"}>
-                <For each={preview().diagnostics}>{(diagnostic) => <div>{diagnostic.message}</div>}</For>
-              </div>
-            </Show>
+      <div class="h-48 overflow-auto">
+        <Show when={props.preview} fallback={<p class="text-dimmed">Type a formula to preview the latest records.</p>}>
+          {(preview) => (
+            <div class="flex flex-col gap-2">
+              <Show when={preview().diagnostics.length > 0}>
+                <div class={preview().ok ? "info-block-info py-1.5 text-[11px]" : "info-block-danger py-1.5 text-[11px]"}>
+                  <For each={preview().diagnostics}>{(diagnostic) => <div>{diagnostic.message}</div>}</For>
+                </div>
+              </Show>
 
-            <Show
-              when={preview().rows.length > 0}
-              fallback={<Show when={preview().ok}>{<p class="text-dimmed">No records to preview yet.</p>}</Show>}
-            >
-              <DataTable
-                rows={preview().rows}
-                columns={columns()}
-                getRowId={(row) => row.recordId}
-                class="max-h-48 overflow-auto"
-                tableClass="w-full text-[11px]"
-                density="compact"
-                stickyHeader={false}
-                hoverRows={false}
-                cellContentClass="max-w-40 whitespace-nowrap"
-                renderCell={({ col, value }) => (
-                  <span
-                    class={
-                      col.id === "result" && typeof value === "string" && value.startsWith("#")
-                        ? "font-medium text-red-600 dark:text-red-400"
-                        : col.id === "result"
-                          ? "font-medium text-secondary"
-                          : "text-dimmed"
-                    }
-                  >
-                    {previewValue(value)}
-                  </span>
-                )}
-              />
-            </Show>
-          </div>
-        )}
-      </Show>
+              <Show
+                when={preview().rows.length > 0}
+                fallback={<Show when={preview().ok}>{<p class="text-dimmed">No records to preview yet.</p>}</Show>}
+              >
+                <DataTable
+                  rows={preview().rows}
+                  columns={columns()}
+                  getRowId={(row) => row.recordId}
+                  class="overflow-auto"
+                  tableClass="w-full text-[11px]"
+                  density="compact"
+                  stickyHeader={false}
+                  hoverRows={false}
+                  cellContentClass="max-w-40 whitespace-nowrap"
+                  renderCell={({ col, value }) => (
+                    <span
+                      class={
+                        col.id === "result" && typeof value === "string" && value.startsWith("#")
+                          ? "font-medium text-red-600 dark:text-red-400"
+                          : col.id === "result"
+                            ? "font-medium text-secondary"
+                            : "text-dimmed"
+                      }
+                    >
+                      {previewValue(value)}
+                    </span>
+                  )}
+                />
+              </Show>
+            </div>
+          )}
+        </Show>
+      </div>
     </div>
   );
 }
