@@ -60,6 +60,8 @@ type Props = {
   onRecordClick?: (record: GridRecord) => void;
   /** Highlighted row id — purely visual. */
   selectedId?: string | null;
+  /** Short-lived live-refresh glow row ids — purely visual. */
+  highlightedIds?: ReadonlySet<string>;
   /**
    * Optional saved-view column override. When set, dictates BOTH the
    * visible field set AND their order (instead of the default
@@ -288,6 +290,11 @@ export default function DatabaseTable(props: Props) {
         getRowId={(record) => record.id}
         selectedRowId={props.selectedId}
         onRowClick={props.onRecordClick}
+        rowClass={(record) =>
+          props.highlightedIds?.has(record.id)
+            ? "bg-blue-50 shadow-[inset_3px_0_0_rgb(59_130_246)] transition-colors dark:bg-blue-950/35"
+            : undefined
+        }
         empty="No records"
         hasMore={props.hasMore}
         loadingMore={props.loadingMore}

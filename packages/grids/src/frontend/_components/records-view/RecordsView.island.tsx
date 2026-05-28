@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { Dropdown, dialogCore, prompts } from "@valentinkolb/cloud/ui";
+import { streaming } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -27,6 +28,7 @@ import GridToolbar from "../toolbar/GridToolbar";
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
 import { fetchTableQuery } from "./fetcher";
+import { highlightedIdsForLiveRefresh, isLiveRecordEventForTable, liveRefreshQuery, visibleIdsFromResult } from "./live-refresh";
 import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-url";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
@@ -203,7 +205,7 @@ export default function RecordsView(props: Props) {
     if (!q) return baseQuery;
     return { ...baseQuery, search: { q, fieldIds: search().fieldIds } };
   };
-  const [data, { refetch }] = createResource(
+  const [data, { refetch, mutate }] = createResource(
     () => ({ tableId: props.tableId, query: queryWithSearch(), cursor: cursor() }),
     (args) => fetchTableQuery(args),
     { initialValue: props.initialData },
@@ -211,13 +213,25 @@ export default function RecordsView(props: Props) {
 
   const [flatItems, setFlatItems] = createSignal<GridRecord[]>(props.initialData.items ?? []);
   const [flatNextCursor, setFlatNextCursor] = createSignal<string | null>(props.initialData.nextCursor ?? null);
+  const [livePending, setLivePending] = createSignal(false);
+  const [liveRefreshing, setLiveRefreshing] = createSignal(false);
+  const [highlightedRecordIds, setHighlightedRecordIds] = createSignal<Set<string>>(new Set());
   let didApplyFirstFlatPage = false;
+  let replaceNextFlatPage = false;
+  let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingLiveRecordIds = new Set<string>();
 
   createEffect(() => {
     const response = data();
     if (!response || isGrouped()) return;
     const pageItems = (response.items ?? []) as GridRecord[];
     setFlatNextCursor(response.nextCursor ?? null);
+    if (replaceNextFlatPage) {
+      replaceNextFlatPage = false;
+      setFlatItems(pageItems);
+      return;
+    }
     if (!didApplyFirstFlatPage) {
       didApplyFirstFlatPage = true;
       setFlatItems(pageItems);
@@ -363,6 +377,58 @@ export default function RecordsView(props: Props) {
     setCursor(next);
   };
 
+  const hasBlockingDialog = () => dialogCore.isOpen();
+
+  const applyLiveRefresh = async () => {
+    if (data.loading) {
+      setLivePending(true);
+      return;
+    }
+
+    const eventRecordIds = pendingLiveRecordIds;
+    pendingLiveRecordIds = new Set();
+    const previousVisibleIds = isGrouped() ? [] : flatItems().map((record) => record.id);
+    setLivePending(false);
+    setLiveRefreshing(true);
+
+    try {
+      const next = await fetchTableQuery({
+        tableId: props.tableId,
+        query: isGrouped() ? queryWithSearch() : liveRefreshQuery(queryWithSearch(), flatItems().length),
+        cursor: null,
+      });
+      if (!isGrouped()) replaceNextFlatPage = true;
+      mutate(next);
+
+      if (!isGrouped()) {
+        const highlighted = highlightedIdsForLiveRefresh({
+          eventRecordIds,
+          previousVisibleIds,
+          nextVisibleIds: visibleIdsFromResult(next),
+        });
+        if (highlighted.length > 0) {
+          if (highlightTimer) clearTimeout(highlightTimer);
+          setHighlightedRecordIds(new Set(highlighted));
+          highlightTimer = setTimeout(() => setHighlightedRecordIds(new Set()), 2400);
+        }
+      }
+    } catch {
+      setLivePending(true);
+    } finally {
+      setLiveRefreshing(false);
+    }
+  };
+
+  const scheduleLiveRefresh = () => {
+    if (props.trashMode) return;
+    setLivePending(true);
+    if (hasBlockingDialog()) return;
+    if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+    liveRefreshTimer = setTimeout(() => {
+      void applyLiveRefresh();
+    }, 250);
+  };
+
   /** Row click in the grid → open the detail panel. pushState so the
    *  browser back button closes the panel — that's the natural mental
    *  model ("back undoes my last forward action"). */
@@ -449,6 +515,36 @@ export default function RecordsView(props: Props) {
     onCleanup(() => {
       window.removeEventListener("popstate", onPop);
       history.scrollRestoration = prevRestoration;
+    });
+  });
+
+  onMount(() => {
+    if (props.trashMode) return;
+    const abortController = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(`/api/grids/workspace/events/by-table/${props.tableId}`, {
+          headers: { Accept: "text/event-stream" },
+          signal: abortController.signal,
+        });
+        if (!response.ok || !response.body) return;
+        for await (const event of streaming.parseSSE(response.body)) {
+          if (abortController.signal.aborted) return;
+          if (!event.data) continue;
+          const payload = JSON.parse(event.data);
+          if (!isLiveRecordEventForTable(payload, props.tableId)) continue;
+          pendingLiveRecordIds.add(payload.recordId);
+          scheduleLiveRefresh();
+        }
+      } catch {
+        // Best-effort live refresh. Normal query navigation still works if the stream drops.
+      }
+    })();
+
+    onCleanup(() => {
+      abortController.abort();
+      if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
+      if (highlightTimer) clearTimeout(highlightTimer);
     });
   });
 
@@ -915,6 +1011,18 @@ export default function RecordsView(props: Props) {
             {props.trashMode && "Deleted: "}
             {recordCountText()}
           </span>
+          <Show when={livePending() || liveRefreshing()}>
+            <button
+              type="button"
+              class="btn-input btn-input-sm text-blue-700 dark:text-blue-300"
+              disabled={liveRefreshing()}
+              onClick={() => void applyLiveRefresh()}
+              title="Refresh records"
+            >
+              <i class={`ti ${liveRefreshing() ? "ti-loader-2 animate-spin" : "ti-refresh"}`} />
+              Updates available
+            </button>
+          </Show>
 
           <Show
             when={!props.trashMode}
@@ -1053,6 +1161,7 @@ export default function RecordsView(props: Props) {
                 baseId={props.baseShortId}
                 tableShortIds={props.tableShortIds}
                 selectedId={selectedRecordId()}
+                highlightedIds={highlightedRecordIds()}
                 onRecordClick={onSelectRecord}
                 viewColumns={effectiveViewColumns()}
                 aggregates={props.trashMode ? {} : aggregates()}
