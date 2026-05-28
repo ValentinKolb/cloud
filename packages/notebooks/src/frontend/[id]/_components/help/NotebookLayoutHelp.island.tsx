@@ -626,6 +626,23 @@ const chartExample = code(
   "}).show();",
 );
 
+const scriptLifecycleExample = code(
+  "// 1. Read source data",
+  'const ideas = current.table("ideas")?.rows ?? [];',
+  "",
+  "// 2. Render output",
+  "ui.render(",
+  '  ui.metric("Ideas", ideas.length, { icon: "ti ti-bulb" }),',
+  '  ui.live(() => ui.table(current.table("ideas")?.rows ?? [])),',
+  ");",
+  "",
+  "// 3. Add actions when needed",
+  'ui.button("Add idea", async () => {',
+  '  const title = await ui.prompt.text("Idea title");',
+  '  if (title) await current.table("ideas")?.add(title, "new");',
+  "}).show();",
+);
+
 const MarkdownTab = () => (
   <div class="space-y-5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
     <p>
@@ -798,6 +815,7 @@ const ApiTab = () => (
       Script blocks expose four namespaces: <InlineCode>current</InlineCode>, <InlineCode>nb</InlineCode>, <InlineCode>ui</InlineCode>, and{" "}
       <InlineCode>std</InlineCode>. Type a namespace and a dot to use autocomplete.
     </p>
+    <Info>Read data first, render output second, then add buttons. That order keeps scripts small and makes them easier to debug.</Info>
     <Section title="Quick map" icon="ti-api">
       <MiniGrid>
         <MiniCard title="current">Read and update the note that contains the script.</MiniCard>
@@ -805,6 +823,20 @@ const ApiTab = () => (
         <MiniCard title="ui">Render text, tables, charts, buttons, prompts, cards, and toasts.</MiniCard>
         <MiniCard title="std">Curated stdlib helpers: text, dates, fuzzy search, crypto, charts, QR, files, images, timing.</MiniCard>
       </MiniGrid>
+    </Section>
+    <Section title="Common lifecycle" icon="ti-route">
+      <ApiCardGrid>
+        <ApiMethod name="One-shot output" signature="ui.render(...elements)" returns="void">
+          <p>Use this for static output, prompts, and buttons that update Markdown.</p>
+        </ApiMethod>
+        <ApiMethod name="Reactive output" signature="ui.live(() => element)" returns="UI element">
+          <p>Use this for tables, charts, and counters that should re-read the current note after edits.</p>
+        </ApiMethod>
+        <ApiMethod name="Cleanup" signature="return () => cleanup()" returns="void">
+          <p>Return a cleanup function when a script starts timers, observers, or subscriptions.</p>
+        </ApiMethod>
+      </ApiCardGrid>
+      <Snippet title="Small script structure" code={scriptLifecycleExample} language="script" />
     </Section>
 
     <Section title="current" icon="ti-note">

@@ -40,11 +40,8 @@
  *   executing AsyncFunction, but late kit side effects from old
  *   source are rejected after a re-run/destroy.
  *
- * # Read-mode parallel
- *
- * The read-mode equivalent lives in `lib/script/read-mode.ts` —
- * same engine (`lib/script/runner.ts`) drives both paths so authoring
- * + viewing stay byte-identical.
+ * Locked / read-only notes use the same output widget, but the
+ * runtime is created in read mode so script write APIs stay disabled.
  */
 import { syntaxTree } from "@codemirror/language";
 import { Prec, RangeSet, StateField, type EditorState, type Extension, type Range, type Transaction } from "@codemirror/state";
@@ -68,15 +65,17 @@ import { selectionIntersectsRange } from "./_lib/cursor-zone-field";
  *  `current.notebook.id` exposed to script authors. */
 export type ScriptsConfig = {
   scriptsEnabled: () => boolean;
+  readOnly: () => boolean;
   notebookId: string;
   /** Snapshot of the current note at script-run time. The factory
    *  re-reads this getter every run, so renames / locks are picked
    *  up on the next debounced re-evaluation. */
   noteSnapshot: () => KitNoteSnapshot;
-  /** Live Y.Text for the current note's content — kit writes
-   *  mutate this directly. */
+  /** Live Y.Text for the current note's content — kit writes mutate
+   *  this directly when `readOnly()` is false. */
   ytext: Y.Text;
-  /** Y.Doc for the current note — feeds `current.kv.*`. */
+  /** Y.Doc for the current note — feeds `current.kv.*` when
+   *  `readOnly()` is false. */
   ydoc: Y.Doc;
 };
 
@@ -345,11 +344,11 @@ class OutputWidget extends WidgetType {
     // outer guard only catches the rare framework-side failure.
     try {
       const kit = createKit({
-        mode: "edit",
+        mode: this.config.readOnly() ? "read" : "edit",
         notebookId: this.config.notebookId,
         note: this.config.noteSnapshot(),
-        ytext: this.config.ytext,
-        ydoc: this.config.ydoc,
+        ytext: this.config.readOnly() ? undefined : this.config.ytext,
+        ydoc: this.config.readOnly() ? undefined : this.config.ydoc,
         outputEl: state.outputEl,
         isActive,
         registerDisposer: (fn) => {

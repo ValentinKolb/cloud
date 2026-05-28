@@ -53,17 +53,13 @@ const readErrorMessage = async (response: Response, fallback: string): Promise<s
 };
 
 export const openNotebookSettingsDialog = (props: Props): Promise<void> =>
-  prompts.dialog<void>(
-    (close) => <NotebookSettingsBody {...props} bare close={() => close()} />,
-    { surface: "bare", header: false, size: "large" },
-  );
+  prompts.dialog<void>((close) => <NotebookSettingsBody {...props} bare close={() => close()} />, {
+    surface: "bare",
+    header: false,
+    size: "large",
+  });
 
-function LocalSaveStrip(props: {
-  dirty: boolean;
-  loading: boolean;
-  label?: string;
-  onSave: () => void;
-}) {
+function LocalSaveStrip(props: { dirty: boolean; loading: boolean; label?: string; onSave: () => void }) {
   return (
     <Show
       when={props.dirty}
@@ -86,7 +82,7 @@ function LocalSaveStrip(props: {
               Saving
             </>
           ) : (
-            props.label ?? "Save"
+            (props.label ?? "Save")
           )}
         </button>
       </div>
@@ -126,7 +122,12 @@ function SaveStatus(props: { loading: boolean; saved: boolean; error?: string | 
 // General
 // =============================================================================
 
-function GeneralSection(props: { notebook: Notebook; tree: NoteTreeNode[]; canWrite: boolean; onNotebookChange: (notebook: Notebook) => void }) {
+function GeneralSection(props: {
+  notebook: Notebook;
+  tree: NoteTreeNode[];
+  canWrite: boolean;
+  onNotebookChange: (notebook: Notebook) => void;
+}) {
   const options = createMemo(() => flattenNoteOptions(props.tree));
   const [base, setBase] = createSignal({
     name: props.notebook.name,
@@ -141,17 +142,12 @@ function GeneralSection(props: { notebook: Notebook; tree: NoteTreeNode[]; canWr
 
   const selectedLabel = () => options().find((option) => option.id === homepageNoteId())?.label;
   const dirty = () =>
-    name() !== base().name ||
-    description() !== base().description ||
-    icon() !== base().icon ||
-    homepageNoteId() !== base().homepageNoteId;
+    name() !== base().name || description() !== base().description || icon() !== base().icon || homepageNoteId() !== base().homepageNoteId;
 
   const fetchNotes = async (query: string, signal: AbortSignal): Promise<NoteSelectOption[]> => {
     if (signal.aborted) return [];
     const q = query.trim().toLowerCase();
-    const filtered = q
-      ? options().filter((option) => `${option.label} ${option.description ?? ""}`.toLowerCase().includes(q))
-      : options();
+    const filtered = q ? options().filter((option) => `${option.label} ${option.description ?? ""}`.toLowerCase().includes(q)) : options();
     return filtered.slice(0, 50);
   };
 
@@ -325,7 +321,7 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
   const setScriptsEnabled = async (next: boolean) => {
     if (next && !enabled()) {
       const confirmed = await prompts.confirm(
-        `Scripts in this notebook can read your notes, modify content, and call browser APIs on your behalf.\n\nEnable scripting in "${props.notebook.name}"?`,
+        `Script blocks run trusted JavaScript in the browser of every user who opens notes in this notebook. They can read notebook content visible to that user, use script APIs, call browser APIs, and perform notebook actions with that user's permissions.\n\nOnly enable scripts for notebooks where you trust the content and the people who can edit it.\n\nEnable scripting in "${props.notebook.name}"?`,
         {
           title: "Enable scripting",
           icon: "ti ti-alert-triangle",
@@ -350,12 +346,19 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
       <div class="flex flex-col gap-3">
         <CheckboxCard
           label="Enable script blocks"
-          description="Allows ```script fences to run JavaScript in this notebook."
+          description="Allows ```script fences to run trusted JavaScript for everyone who opens this notebook."
           icon="ti ti-code"
           value={enabled}
           onChange={setScriptsEnabled}
           disabled={!props.isAdmin || mutation.loading()}
         />
+        <div class="info-block-warning flex items-start gap-2 text-xs">
+          <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
+          <span>
+            Scripts run in each viewer's browser. They are not sandboxed and can use browser APIs, read notebook content visible to that
+            viewer, and perform notebook actions with that viewer's permissions.
+          </span>
+        </div>
         <SaveStatus loading={mutation.loading()} saved={saved()} error={error()} />
       </div>
     </div>
@@ -391,10 +394,7 @@ function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
 
 function PermissionsSection(props: { notebook: Notebook; accessEntries: AccessEntry[]; isAdmin: boolean }) {
   return (
-    <Show
-      when={props.isAdmin}
-      fallback={<p class="text-xs text-dimmed">Only notebook admins can manage access.</p>}
-    >
+    <Show when={props.isAdmin} fallback={<p class="text-xs text-dimmed">Only notebook admins can manage access.</p>}>
       <PermissionEditor
         initialEntries={props.accessEntries}
         canEdit

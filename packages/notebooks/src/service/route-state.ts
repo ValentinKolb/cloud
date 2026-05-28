@@ -1,10 +1,8 @@
-import { markdown } from "@valentinkolb/cloud/shared";
-import { extractNamedBlockSummaries, renderNamedBlockHandlesMarkdown, type NamedBlockSummary } from "../lib/named-blocks";
-import { extractTaskProgress, extractTocFromMarkdown, injectHeadingIds, type TaskProgress, type TocItem } from "../lib/note-insights";
-import { transformAttachments, type Attachment } from "./attachments";
-import { transformNoteLinks, type Backlink } from "./links";
+import { extractNamedBlockSummaries, type NamedBlockSummary } from "../lib/named-blocks";
+import { extractTaskProgress, extractTocFromMarkdown, type TaskProgress, type TocItem } from "../lib/note-insights";
+import type { Attachment } from "./attachments";
+import type { Backlink } from "./links";
 import { notebooksService } from "./index";
-import { transformTags } from "./tags";
 import type { NoteWithContent } from "./notes";
 
 export type SelectedNoteRouteState = {
@@ -14,7 +12,6 @@ export type SelectedNoteRouteState = {
     title: string;
     yjsSnapshot: string | null;
     contentMd: string | null;
-    renderedHtml: string | null;
     lockedAt: string | null;
     parentId: string | null;
     createdAt: string;
@@ -72,13 +69,12 @@ type LoadSelectedNoteParams = {
   bypassAccess: boolean;
 };
 
-const toSelectedNote = (note: NoteWithContent, renderedHtml: string | null): SelectedNoteRouteState["note"] => ({
+const toSelectedNote = (note: NoteWithContent): SelectedNoteRouteState["note"] => ({
   id: note.id,
   shortId: note.shortId,
   title: note.title,
   yjsSnapshot: note.yjsSnapshot,
   contentMd: note.contentMd,
-  renderedHtml,
   lockedAt: note.lockedAt,
   parentId: note.parentId,
   createdAt: note.createdAt,
@@ -96,19 +92,10 @@ export const loadSelectedNoteRouteState = async (params: LoadSelectedNoteParams)
   const namedBlocks = extractNamedBlockSummaries(note.contentMd);
 
   const attachmentShortIds = notebooksService.attachment.extractIds(note.contentMd);
-  const noteLinkShortIds = readonlyMode ? notebooksService.note.extractLinks(note.contentMd) : [];
-  const [referencedAttachments, noteLinkResolutions, backlinks] = await Promise.all([
+  const [referencedAttachments, backlinks] = await Promise.all([
     attachmentShortIds.length > 0
       ? notebooksService.attachment.listByShortIds({ shortIds: attachmentShortIds, notebookId: params.notebookId })
       : Promise.resolve([]),
-    noteLinkShortIds.length > 0
-      ? notebooksService.note.resolveShortIdsToNotebookShortIds({
-          shortIds: noteLinkShortIds,
-          userId: params.userId,
-          userGroups: params.userGroups,
-          bypassAccess: params.bypassAccess,
-        })
-      : Promise.resolve(new Map<string, { notebookShortId: string; noteShortId: string }>()),
     notebooksService.note.backlinks.list({
       noteId: note.id,
       userId: params.userId,
@@ -117,31 +104,8 @@ export const loadSelectedNoteRouteState = async (params: LoadSelectedNoteParams)
     }),
   ]);
 
-  const renderedHtml = readonlyMode
-    ? injectHeadingIds(
-        transformTags(
-          transformAttachments(
-            transformNoteLinks(markdown.render(renderNamedBlockHandlesMarkdown(note.contentMd)), {
-              noteShortIdToHref: new Map(
-                [...noteLinkResolutions].map(([shortId, resolved]) => [
-                  shortId,
-                  `/app/notebooks/${resolved.notebookShortId}/notes/${resolved.noteShortId}`,
-                ]),
-              ),
-            }),
-            {
-              notebookId: params.notebookId,
-              shortIdToFilename: new Map(referencedAttachments.map((attachment) => [attachment.shortId, attachment.filename])),
-            },
-          ),
-          { notebookId: params.notebookId },
-        ),
-        tocItems,
-      )
-    : null;
-
   return {
-    note: toSelectedNote(note, renderedHtml),
+    note: toSelectedNote(note),
     readonlyMode,
     tocItems,
     taskProgress,

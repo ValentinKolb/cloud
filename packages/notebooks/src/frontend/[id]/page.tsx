@@ -11,7 +11,6 @@ import NotebookDetailPanel from "./_components/detail/NotebookDetailPanel.island
 import { extractTocFromMarkdown } from "./_components/detail/toc";
 import NoteEditor from "./_components/editor/NoteEditor.client";
 import NotebookLayoutHelp from "./_components/help/NotebookLayoutHelp.island";
-import ReadonlyNote from "./_components/editor/ReadonlyNote.island";
 import NotebookGraph from "./_components/graph/NotebookGraph.island";
 import NotebookSettingsPanel from "./_components/settings/NotebookSettingsPanel.island";
 import { parseDetailPanelOpen, parseSettings } from "./_components/settings/NotebookSettingsStore";
@@ -67,7 +66,7 @@ export default ssr<AuthContext>(async (c) => {
 
   const isAdmin = permission === "admin";
   const canWrite = permission === "write" || isAdmin;
-  const canRunScripts = notebook.scriptsEnabled && isAdmin;
+  const canRunScripts = notebook.scriptsEnabled;
 
   // Check mode
   const mode = c.req.query("mode");
@@ -108,7 +107,6 @@ export default ssr<AuthContext>(async (c) => {
     title: string;
     yjsSnapshot: string | null;
     contentMd: string | null;
-    renderedHtml: string | null;
     lockedAt: string | null;
     parentId: string | null;
     createdAt: string;
@@ -117,8 +115,8 @@ export default ssr<AuthContext>(async (c) => {
   } | null = null;
   let selectedRouteState: SelectedNoteRouteState | null = null;
 
-  // TOC items shared by detail panel + readonly anchor injection.
-  // Extracted from `content_md` once and reused.
+  // TOC and named-block items feed the detail panel. Extract once from
+  // `content_md` and reuse for the initial SSR state.
   let tocItems: ReturnType<typeof extractTocFromMarkdown> = [];
   let namedBlocks: ReturnType<typeof extractNamedBlockSummaries> = [];
 
@@ -133,7 +131,6 @@ export default ssr<AuthContext>(async (c) => {
           title: noteMeta.title,
           yjsSnapshot: null,
           contentMd: noteMeta.contentMd,
-          renderedHtml: null,
           lockedAt: noteMeta.lockedAt,
           parentId: noteMeta.parentId,
           createdAt: noteMeta.createdAt,
@@ -250,50 +247,26 @@ export default ssr<AuthContext>(async (c) => {
           ) : isGraphMode && graph ? (
             <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />
           ) : selectedNote ? (
-            readonlyMode ? (
-              <ReadonlyNote
-                // Editor + readonly view get the canonical UUID, NOT the
-                // short-id. The yjs websocket, presence channel, attachment
-                // API, and Y.Doc topic all key on the canonical form
-                // internally — passing the UUID end-to-end keeps every
-                // payload.noteId comparison on a single value and avoids
-                // the dropped-initial-syncPush race that plagued the
-                // short-id-everywhere variant. URL-builder + markdown
-                // schemes still use short-ids (notebook.shortId etc).
-                noteId={selectedNote.id}
-                noteTitle={selectedNote.title}
-                notebookId={notebook.shortId}
-                scriptsEnabled={canRunScripts}
-                noteShortId={selectedNote.shortId}
-                noteContent={selectedNote.contentMd ?? ""}
-                noteCreatedAt={selectedNote.createdAt}
-                noteUpdatedAt={selectedNote.updatedAt}
-                noteLockedAt={selectedNote.lockedAt}
-                noteParentId={selectedNote.parentId}
-                notebookName={notebook.name}
-                renderedHtml={selectedNote.renderedHtml ?? ""}
-                isLocked={!!selectedNote.lockedAt}
-              />
-            ) : (
-              <NoteEditor
-                noteId={selectedNote.id}
-                noteTitle={selectedNote.title}
-                notebookId={notebook.shortId}
-                scriptsEnabled={canRunScripts}
-                noteShortId={selectedNote.shortId}
-                noteCreatedAt={selectedNote.createdAt}
-                noteUpdatedAt={selectedNote.updatedAt}
-                noteLockedAt={selectedNote.lockedAt}
-                noteParentId={selectedNote.parentId}
-                notebookName={notebook.name}
-                appUrl={appUrl}
-                sessionToken={sessionToken!}
-                userId={user.id}
-                displayName={user.displayName}
-                initialSnapshot={selectedNote.yjsSnapshot}
-                initialPanelOpen={detailPanelOpen}
-              />
-            )
+            <NoteEditor
+              noteId={selectedNote.id}
+              noteTitle={selectedNote.title}
+              notebookId={notebook.shortId}
+              scriptsEnabled={canRunScripts}
+              noteShortId={selectedNote.shortId}
+              noteCreatedAt={selectedNote.createdAt}
+              noteUpdatedAt={selectedNote.updatedAt}
+              noteLockedAt={selectedNote.lockedAt}
+              noteParentId={selectedNote.parentId}
+              notebookName={notebook.name}
+              appUrl={appUrl}
+              sessionToken={sessionToken!}
+              userId={user.id}
+              displayName={user.displayName}
+              initialSnapshot={selectedNote.yjsSnapshot}
+              initialContent={selectedNote.contentMd}
+              initialPanelOpen={detailPanelOpen}
+              readOnly={readonlyMode}
+            />
           ) : (
             <div class="flex-1 flex items-center justify-center">
               <p class="flex items-center gap-1.5 text-xs text-dimmed">

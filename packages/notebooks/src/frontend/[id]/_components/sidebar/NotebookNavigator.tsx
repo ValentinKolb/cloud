@@ -447,6 +447,9 @@ export default function NotebookNavigator(props: Props) {
                             class={`ti ${selectedNoteRootId() ? "ti-folder" : "ti-home"} shrink-0 text-sm text-zinc-500 dark:text-zinc-400`}
                           />
                           <span class="min-w-0 truncate">{note().title || "Untitled"}</span>
+                          <Show when={note().lockedAt}>
+                            <i class="ti ti-lock shrink-0 text-xs text-amber-500" title="Locked" />
+                          </Show>
                         </p>
                       </div>
                       <Show when={props.canWrite}>
@@ -486,7 +489,12 @@ export default function NotebookNavigator(props: Props) {
                     >
                       <div class="flex items-start gap-2">
                         <div class="min-w-0 flex-1">
-                          <p class="truncate text-xs font-semibold text-primary">{note.title || "Untitled"}</p>
+                          <p class="flex min-w-0 items-center gap-1.5 truncate text-xs font-semibold text-primary">
+                            <span class="min-w-0 truncate">{note.title || "Untitled"}</span>
+                            <Show when={note.lockedAt}>
+                              <i class="ti ti-lock shrink-0 text-xs text-amber-500" title="Locked" />
+                            </Show>
+                          </p>
                           <Show when={plainPreview(note.contentMd)}>
                             <p class="mt-0.5 line-clamp-2 text-[11px] leading-snug text-dimmed">{plainPreview(note.contentMd)}</p>
                           </Show>

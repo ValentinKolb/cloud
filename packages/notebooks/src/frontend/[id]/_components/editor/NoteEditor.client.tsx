@@ -1,4 +1,5 @@
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
 import { encoding } from "@valentinkolb/stdlib";
 import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { editor } from "../../../lib/editor";
@@ -70,7 +71,9 @@ type Props = {
   userId: string;
   displayName: string;
   initialSnapshot: string | null;
+  initialContent?: string | null;
   initialPanelOpen: boolean;
+  readOnly?: boolean;
 };
 
 const CURSOR_IDLE_TIMEOUT_MS = 8_000;
@@ -248,6 +251,9 @@ function EditorInstance(props: Props) {
   }
 
   const ytext = doc.getText("codemirror");
+  if (props.readOnly && !props.initialSnapshot && props.initialContent) {
+    ytext.insert(0, props.initialContent);
+  }
   const awareness = new Awareness(doc);
 
   const color = getNotebookPresenceColor(props.userId);
@@ -261,9 +267,11 @@ function EditorInstance(props: Props) {
     value: ytext.toString(),
   });
 
-  const undoManager = new Y.UndoManager(ytext);
-  addExtension(() => yCollab(ytext, awareness, { undoManager }));
-  addExtension(() => keymap.of(yUndoManagerKeymap));
+  const undoManager = props.readOnly ? null : new Y.UndoManager(ytext);
+  if (!props.readOnly && undoManager) {
+    addExtension(() => yCollab(ytext, awareness, { undoManager }));
+    addExtension(() => keymap.of(yUndoManagerKeymap));
+  }
 
   let cursorIdleTimer: ReturnType<typeof setTimeout> | undefined;
   let cursorHiddenByIdle = false;
@@ -313,6 +321,7 @@ function EditorInstance(props: Props) {
   addExtension(slashCommandsExtension({ notebookId: props.notebookId }));
   addExtension(editor.markdownExtension());
   addExtension(editor.searchTheme());
+  addExtension(() => (props.readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []));
 
   addExtension(() => {
     if (richMode()) return isDark() ? editor.customDarkInit() : editor.customLightInit();
@@ -363,6 +372,7 @@ function EditorInstance(props: Props) {
           // edits and corrupt the script body / surrounding doc.
           editor.scriptsExtension({
             scriptsEnabled: () => props.scriptsEnabled,
+            readOnly: () => !!props.readOnly,
             notebookId: props.notebookId,
             noteSnapshot: () => ({
               shortId: props.noteShortId,
@@ -384,65 +394,69 @@ function EditorInstance(props: Props) {
       : [],
   );
 
-  const provider = yjs.createYjsProvider({
-    doc,
-    awareness,
-    noteId: props.noteId,
-    appUrl: props.appUrl,
-    sessionToken: props.sessionToken,
-    onConnectionChange: setConnected,
-    // Forwards every presence update to the OnlineSection island via a
-    // window event — the editor itself doesn't need to track participants
-    // anymore now that the toolbar no longer renders them.
-    onPresenceChange: (next) => {
-      window.dispatchEvent(new CustomEvent(PRESENCE_EVENT, { detail: next }));
-    },
-    workspace: {
-      notebookId: props.notebookId,
-      onEvent: (event, cursor) => {
-        window.dispatchEvent(new CustomEvent(WORKSPACE_EVENT, { detail: { event, cursor } }));
-      },
-    },
-    onFatal: (error) => {
-      if (fatalPromptOpen) return;
-      fatalPromptOpen = true;
-      const isLocked = error.code === "NOTE_LOCKED";
-      const isMissing = error.code === "NOTE_NOT_FOUND";
-      const isRevoked = error.code === "ACCESS_REVOKED" || error.code === "ACCESS_DENIED";
-      const isSession = error.code === "SESSION_EXPIRED" || error.code === "LOGIN_REQUIRED";
+  const provider = props.readOnly
+    ? null
+    : yjs.createYjsProvider({
+        doc,
+        awareness,
+        noteId: props.noteId,
+        appUrl: props.appUrl,
+        sessionToken: props.sessionToken,
+        onConnectionChange: setConnected,
+        // Forwards every presence update to the OnlineSection island via a
+        // window event — the editor itself doesn't need to track participants
+        // anymore now that the toolbar no longer renders them.
+        onPresenceChange: (next) => {
+          window.dispatchEvent(new CustomEvent(PRESENCE_EVENT, { detail: next }));
+        },
+        workspace: {
+          notebookId: props.notebookId,
+          onEvent: (event, cursor) => {
+            window.dispatchEvent(new CustomEvent(WORKSPACE_EVENT, { detail: { event, cursor } }));
+          },
+        },
+        onFatal: (error) => {
+          if (fatalPromptOpen) return;
+          fatalPromptOpen = true;
+          const isLocked = error.code === "NOTE_LOCKED";
+          const isMissing = error.code === "NOTE_NOT_FOUND";
+          const isRevoked = error.code === "ACCESS_REVOKED" || error.code === "ACCESS_DENIED";
+          const isSession = error.code === "SESSION_EXPIRED" || error.code === "LOGIN_REQUIRED";
 
-      const title = isLocked
-        ? "Note Locked"
-        : isMissing
-          ? "Note Not Found"
-          : isRevoked
-            ? "Access Changed"
-            : isSession
-              ? "Session Expired"
-              : "Connection Closed";
+          const title = isLocked
+            ? "Note Locked"
+            : isMissing
+              ? "Note Not Found"
+              : isRevoked
+                ? "Access Changed"
+                : isSession
+                  ? "Session Expired"
+                  : "Connection Closed";
 
-      const icon = isLocked
-        ? "ti ti-lock"
-        : isMissing
-          ? "ti ti-file-x"
-          : isRevoked
-            ? "ti ti-shield-off"
-            : isSession
-              ? "ti ti-login-2"
-              : "ti ti-alert-triangle";
+          const icon = isLocked
+            ? "ti ti-lock"
+            : isMissing
+              ? "ti ti-file-x"
+              : isRevoked
+                ? "ti ti-shield-off"
+                : isSession
+                  ? "ti ti-login-2"
+                  : "ti ti-alert-triangle";
 
-      const message = isMissing ? "Note not found. It may have been deleted." : error.message || "The collaboration connection was closed.";
+          const message = isMissing
+            ? "Note not found. It may have been deleted."
+            : error.message || "The collaboration connection was closed.";
 
-      void prompts
-        .alert(`${message} The note view will now reload.`, {
-          title,
-          icon,
-        })
-        .finally(() => {
-          refreshCurrentPath();
-        });
-    },
-  });
+          void prompts
+            .alert(`${message} The note view will now reload.`, {
+              title,
+              icon,
+            })
+            .finally(() => {
+              refreshCurrentPath();
+            });
+        },
+      });
 
   let themeObserver: MutationObserver | undefined;
   let tocDebounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -600,9 +614,11 @@ function EditorInstance(props: Props) {
 
   onMount(() => {
     writeSettings(props.notebookId, { lastNoteId: props.noteId });
-    provider.connect();
-    focusEditor();
-    scheduleCursorIdleHide();
+    provider?.connect();
+    if (!props.readOnly) {
+      focusEditor();
+      scheduleCursorIdleHide();
+    }
     // First emit so the panel reflects the current doc immediately on mount,
     // not only after the first keystroke.
     emitDerivedDocState();
@@ -639,8 +655,8 @@ function EditorInstance(props: Props) {
     window.removeEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);
     window.removeEventListener(EDITOR_INSERT_ATTACHMENT_EVENT, onInsertAttachment);
     themeObserver?.disconnect();
-    provider.dispose();
-    undoManager.destroy();
+    provider?.dispose();
+    undoManager?.destroy();
     awareness.destroy();
     doc.destroy();
   });
@@ -649,9 +665,10 @@ function EditorInstance(props: Props) {
     <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
       <div
         class={`paper relative flex-1 min-h-0 overflow-y-auto bg-white dark:bg-zinc-950 cursor-text transition-colors ${
-          dz.isDragging() ? "ring-2 ring-blue-400 dark:ring-blue-500 ring-inset" : ""
+          !props.readOnly && dz.isDragging() ? "ring-2 ring-blue-400 dark:ring-blue-500 ring-inset" : ""
         }`}
         onMouseDown={(event) => {
+          if (props.readOnly) return;
           const target = event.target as HTMLElement | null;
           if (target?.closest(".cm-editor")) return;
           event.preventDefault();
@@ -674,20 +691,22 @@ function EditorInstance(props: Props) {
             scheduleCursorIdleHide();
           }
         }}
-        onPaste={onPaste}
-        {...dz.handlers}
+        onPaste={props.readOnly ? undefined : onPaste}
+        {...(props.readOnly ? {} : dz.handlers)}
         role="textbox"
         tabIndex={-1}
-        aria-label="Note editor surface"
+        aria-label={props.readOnly ? "Readonly note surface" : "Note editor surface"}
       >
         <div ref={editorRef} />
       </div>
-      <EditorToolbar
-        connected={connected()}
-        editorView={editorView()}
-        notebookId={props.notebookId}
-        initialPanelOpen={props.initialPanelOpen}
-      />
+      <Show when={!props.readOnly}>
+        <EditorToolbar
+          connected={connected()}
+          editorView={editorView()}
+          notebookId={props.notebookId}
+          initialPanelOpen={props.initialPanelOpen}
+        />
+      </Show>
     </div>
   );
 }
