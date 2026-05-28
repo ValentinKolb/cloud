@@ -12,7 +12,7 @@ import type {
 import { onMount } from "solid-js";
 import { type FilterState, defaultFilter, buildFilterUrl, hasActiveFilters } from "./types";
 import { setLastSpaceId } from "../settings/SpaceSettingsStore";
-import SearchInput from "./SearchInput.island";
+import SearchInput from "./SearchInput";
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { requestSpacesRouteNavigation } from "../workspace/workspace-events";
 

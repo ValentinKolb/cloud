@@ -82,11 +82,16 @@ export const ButtonInputs = () => (
       { kind: "utility", name: "btn-input" },
       { kind: "utility", name: "btn-input-primary" },
       { kind: "utility", name: "btn-input-success" },
+      { kind: "utility", name: "btn-segment" },
     ]}
-    description="Input-shaped buttons — match the visual weight of `TextInput` etc. Use in toolbars next to input fields."
+    description="Input-shaped buttons match fields. Segment buttons match `SegmentedControl` in compact toolbars."
     code={`<button class="btn-input btn-input-sm">Default</button>
 <button class="btn-input-primary btn-input-sm">Primary</button>
-<button class="btn-input-success btn-input-sm">Success</button>`}
+<button class="btn-input-success btn-input-sm">Success</button>
+<button class="btn-segment">Today</button>
+<button class="btn-segment-icon" aria-label="Previous">
+  <i class="ti ti-chevron-left" />
+</button>`}
   >
     <div class="flex items-center gap-2">
       <button type="button" class="btn-input btn-input-sm">
@@ -100,6 +105,12 @@ export const ButtonInputs = () => (
       <button type="button" class="btn-input-success btn-input-sm">
         <i class="ti ti-check" />
         Done
+      </button>
+      <button type="button" class="btn-segment">
+        Today
+      </button>
+      <button type="button" class="btn-segment-icon" aria-label="Previous">
+        <i class="ti ti-chevron-left" />
       </button>
     </div>
   </DemoCard>

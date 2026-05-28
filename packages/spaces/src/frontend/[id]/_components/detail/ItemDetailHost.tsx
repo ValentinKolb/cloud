@@ -3,7 +3,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
-import ItemDetailPanel from "./ItemDetailPanel.island";
+import ItemDetailPanel from "./ItemDetailPanel";
 import { subscribeToDetailSelection } from "../../../lib/detail";
 
 type Props = {

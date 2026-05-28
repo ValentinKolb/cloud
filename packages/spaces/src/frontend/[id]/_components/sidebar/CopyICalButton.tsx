@@ -4,7 +4,7 @@ import { AppWorkspace } from "@valentinkolb/cloud/ui";
 
 type Props = {
   icalToken: string | null;
-  variant?: "sidebar" | "chip";
+  variant?: "sidebar" | "chip" | "icon";
 };
 
 export default function CopyICalButton(props: Props) {
@@ -31,6 +31,20 @@ export default function CopyICalButton(props: Props) {
       <button type="button" onClick={handleCopy} class="btn-input btn-input-sm">
         <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"}`} />
         <span>{copied() ? "Copied!" : "iCal URL"}</span>
+      </button>
+    );
+  }
+
+  if (props.variant === "icon") {
+    return (
+      <button
+        type="button"
+        onClick={handleCopy}
+        class="sidebar-icon-action"
+        title={copied() ? "Copied iCal URL" : "Copy iCal URL"}
+        aria-label={copied() ? "Copied iCal URL" : "Copy iCal URL"}
+      >
+        <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-base`} />
       </button>
     );
   }

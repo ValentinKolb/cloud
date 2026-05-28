@@ -1,12 +1,11 @@
 import { weatherService } from "@valentinkolb/cloud/services";
 import { dates as calendar } from "@valentinkolb/stdlib";
+import type { CalendarItem, ItemListResult, SpaceComment, SpaceItem } from "@/contracts";
 import { spacesService } from "@/service";
-import type { ItemListResult, SpaceComment, SpaceItem } from "@/contracts";
-import { defaultFilter, parseFilterFromUrl } from "../filter/types";
-import { isValidPanelWidth, isValidView, parseSpaceSettings } from "../settings/SpaceSettingsStore";
-import type { CalendarItem } from "@/contracts";
 import type { CalendarView, DayWeather } from "../calendar/types";
+import { defaultFilter, parseFilterFromUrl } from "../filter/types";
 import type { KanbanBucketInitial } from "../kanban/types";
+import { isValidPanelWidth, isValidView, parseSpaceSettings } from "../settings/SpaceSettingsStore";
 import type { SpacesWorkspaceState } from "./workspace-types";
 
 type AuthUser = {
@@ -139,12 +138,18 @@ export const loadSpacesWorkspaceState = async (params: {
     kanbanBuckets.push(await loadBucket({ key: "completed", label: "Completed", color: "#10b981", kind: "completed", columnId: null }));
   }
 
-  const calendarView: CalendarView = calendarViewParam && ["month", "week"].includes(calendarViewParam) ? calendarViewParam : "month";
+  const calendarView: CalendarView =
+    calendarViewParam && ["day", "week", "month", "year"].includes(calendarViewParam) ? calendarViewParam : "month";
   const calendarDate = calendar.parseCalendarDate(calendarDateParam);
   let calendarItems: CalendarItem[] = [];
   const calendarWeather: Record<string, DayWeather> = {};
   if (currentView === "calendar") {
-    const { from, to } = calendar.getDateRange(calendarView, calendarDate);
+    const { from, to } =
+      calendarView === "day"
+        ? { from: calendarDate, to: calendar.addDays(calendarDate, 1) }
+        : calendarView === "year"
+          ? { from: new Date(calendarDate.getFullYear(), 0, 1), to: new Date(calendarDate.getFullYear() + 1, 0, 1) }
+          : calendar.getDateRange(calendarView, calendarDate);
     calendarItems = (
       await spacesService.item.calendar.list({
         userId: params.user.id,

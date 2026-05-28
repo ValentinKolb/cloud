@@ -30,8 +30,8 @@ notifications, logging, settings management, and more — so that app developers
 
 These are standalone packages on GitHub. Each has its own Claude skill — prefer those skills for detailed API questions.
 
-- **`@valentinkolb/stdlib`** — Encoding, hashing, crypto, dates, file helpers, SolidJS primitives (`createMutation`, `debounce`, `hotkeys`), browser utilities. [github.com/ValentinKolb/stdlib](https://github.com/ValentinKolb/stdlib)
-- **`@valentinkolb/sync`** — Distributed primitives: registry, mutex, job queue, rate limiting, topic streams, ephemeral state. [github.com/ValentinKolb/sync](https://github.com/ValentinKolb/sync)
+- **`@valentinkolb/stdlib`** — Encoding, hashing, crypto, dates, file helpers, SolidJS primitives (`mutation.create`, `debounce`, `hotkeys`), browser utilities. [github.com/ValentinKolb/stdlib](https://github.com/ValentinKolb/stdlib)
+- **`@valentinkolb/sync`** — Distributed primitives: rate limiting, mutexes, durable queues/jobs, schedulers, topic streams, and ephemeral state. The cloud app registry is implemented with `ephemeral<T>` plus a prefix filter, not the removed v4 `registry` module. [github.com/ValentinKolb/sync](https://github.com/ValentinKolb/sync)
 - **`@valentinkolb/ssr`** — Minimal SolidJS islands SSR framework for Bun/Hono. Pages render server-side, islands hydrate client-side. [github.com/ValentinKolb/ssr](https://github.com/ValentinKolb/ssr)
 
 ## Architecture Overview
@@ -183,7 +183,7 @@ These are provided by the `@valentinkolb/cloud` package. Import paths:
 | `@valentinkolb/cloud/server` | `auth`, `v`, `respond`, `ok`, `fail`, `err`, `rateLimit`, `jsonResponse`, access helpers |
 | `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, postgres helpers |
 | `@valentinkolb/cloud/services/settings` | `get`, `set`, `remove`, `getAll`, `loadCache` — all reads are async (cache-aside through Redis) |
-| `@valentinkolb/cloud/ui` | All UI components, `prompts`, `DialogHeader`, `FilterChip`, `Pagination`, etc. |
+| `@valentinkolb/cloud/ui` | All UI components, `prompts`, `DialogHeader`, `AppOverview`, `AppWorkspace`, `DataTable`, `FilterChip`, `Pagination`, etc. |
 | `@valentinkolb/cloud/browser` | `api.create()` (typed Hono client), `copyToClipboard` |
 | `@valentinkolb/cloud/ssr` | `Layout`, `AdminLayout`, `getRuntimeContext` |
 | `@valentinkolb/cloud/contracts` | Zod schemas, types (`Role`, `User`, `PaginationQuerySchema`, etc.) |

@@ -1080,6 +1080,49 @@ or neither** — mismatched description heights create vertical asymmetry that
 reads as a layout bug. Use `<div class="md:col-span-2">` to push a field with
 a long description onto its own row.
 
+### Data Tables
+
+Use `DataTable` instead of hand-writing `<table>` markup for tabular rows and
+dataviews. Source: `packages/cloud/src/ui/misc/DataTable.tsx`. Live UI Lab
+route: `/app/ui-lab/content/table`. Real usages include
+`packages/logging/src/frontend/_components/LogTable.island.tsx`,
+`packages/gateway/src/frontend/page.tsx`, `packages/oauth/src/frontend/page.tsx`,
+and `packages/spaces/src/frontend/admin.tsx`.
+
+```tsx
+import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+
+type Row = { id: string; name: string; status: "new" | "done"; total: number };
+
+const columns: DataTableColumn<Row>[] = [
+  { id: "name", header: "Name", value: "name" },
+  { id: "status", header: "Status", value: "status" },
+  { id: "total", header: "Total", value: "total", cellClass: "tabular-nums" },
+];
+
+<DataTable
+  rows={rows}
+  columns={columns}
+  getRowId={(row) => row.id}
+  selectedRowId={selectedId()}
+  onRowClick={(row) => setSelectedId(row.id)}
+  renderCell={({ row, col, value, render }) =>
+    col.id === "status" ? <StatusBadge value={row.status} /> : render(value)
+  }
+/>;
+```
+
+Core props: `rows`, `columns`, `getRowId?`, `selectedRowId?`, `rowClass?`,
+`hoverRows?`, `onRowClick?`, `renderCell?`, `renderHeader?`, `footer?`,
+`hasMore?`, `loadingMore?`, `onLoadMore?`, `empty?`, `density?`,
+`stickyHeader?`, `cellContentClass?`, `fillHeight?`, `class?`, `tableClass?`.
+
+`DataTable` owns sticky headers, row hover/keyboard activation when
+`onRowClick` is present, selected-row styling, empty state, footer rows,
+density, custom cell/header renderers, and an intersection-observer load-more
+sentinel. Keep app code focused on columns, row IDs, and domain-specific cell
+rendering.
+
 ### Stats
 
 Use `StatGrid` and `StatCell` instead of hand-writing stat grids. Sources: `packages/cloud/src/ui/misc/StatGrid.tsx` and `packages/cloud/src/ui/misc/StatCell.tsx`. Live UI Lab route: `/app/ui-lab/surfaces/stats`.

@@ -1,10 +1,10 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { AdminLayout } from "@valentinkolb/cloud/ssr";
-import { DataTable, Pagination, StatCell, StatGrid, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
-import AdminSpaceActions from "./_components/AdminSpaceActions.island";
+import { DataTable, type DataTableColumn, Pagination, StatCell, StatGrid } from "@valentinkolb/cloud/ui";
+import { ssr } from "../config";
 import { spacesService } from "../service";
+import AdminSpaceActions from "./_components/AdminSpaceActions.island";
 
 const PER_PAGE = 100;
 
@@ -35,12 +35,7 @@ export default ssr<AuthContext>(async (c) => {
     { id: "permissions", header: "Permissions", value: (space) => space.permissionCount, cellClass: "whitespace-nowrap" },
     {
       id: "actions",
-      header: (
-        <>
-          <span class="sr-only">Actions</span>
-          <i class="ti ti-settings text-sm" aria-hidden="true" />
-        </>
-      ),
+      header: "Settings",
       headerClass: "w-px text-right",
       cellClass: "text-right whitespace-nowrap",
     },

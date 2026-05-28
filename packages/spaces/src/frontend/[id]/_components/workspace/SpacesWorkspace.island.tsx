@@ -1,26 +1,18 @@
-import {
-  AppWorkspace,
-  documentNavigate,
-  type LinkNavigateEvent,
-  type NavigationScrollMode,
-  navigate,
-  Pagination,
-  prompts,
-} from "@valentinkolb/cloud/ui";
+import { AppWorkspace, type LinkNavigateEvent, type NavigationScrollMode, navigate, Pagination, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import Calendar from "../calendar";
-import ItemDetailHost from "../detail/ItemDetailHost.island";
-import SpaceDetailLayoutSync from "../detail/SpaceDetailLayoutSync.island";
-import SpaceEditPanel from "../edit/SpaceEditPanel.island";
-import FilterBar from "../filter/FilterBar.island";
+import ItemDetailHost from "../detail/ItemDetailHost";
+import SpaceDetailLayoutSync from "../detail/SpaceDetailLayoutSync";
+import SpaceEditPanel from "../edit/SpaceEditPanel";
+import FilterBar from "../filter/FilterBar";
 import { defaultFilter, parseFilterFromUrl } from "../filter/types";
-import KanbanBoard from "../kanban/KanbanBoard.island";
+import KanbanBoard from "../kanban/KanbanBoard";
 import ItemsList from "../list";
 import SpaceSidebar from "../sidebar/SpaceSidebar";
-import ItemsTable from "../table/ItemsTable.island";
-import { SPACES_ROUTE_NAVIGATION_EVENT, type SpacesRouteNavigationDetail } from "./workspace-events";
+import ItemsTable from "../table/ItemsTable";
+import { requestSpacesRouteNavigation, SPACES_ROUTE_NAVIGATION_EVENT, type SpacesRouteNavigationDetail } from "./workspace-events";
 import {
   buildSpacesItemLinkBaseUrl,
   buildSpacesPaginationBaseUrl,
@@ -33,12 +25,27 @@ type Props = {
   initialState: Extract<SpacesWorkspaceState, { kind: "ok" }>;
 };
 
+type OkWorkspaceState = Extract<SpacesWorkspaceState, { kind: "ok" }>;
+
+type RouteStateRequest = {
+  href: string;
+  resolve: (state: OkWorkspaceState | null) => void;
+  reject: (error: Error) => void;
+};
+
+type RouteStateResult = {
+  request: RouteStateRequest;
+  state: OkWorkspaceState | null;
+};
+
 const KANBAN_PAGE_SIZE = 30;
 
 const currentHref = () => `${window.location.pathname}${window.location.search}`;
 
 export default function SpacesWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
+  const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
+  let activeRouteRequest: RouteStateRequest | null = null;
   const spaceId = () => state().space.id;
   const baseSpaceUrl = () => `/app/spaces/${spaceId()}`;
   const currentUrl = () => new URL(`${baseSpaceUrl()}${state().query ? `?${state().query}` : ""}`, "http://spaces.local");
@@ -63,36 +70,85 @@ export default function SpacesWorkspace(props: Props) {
       currentPanelWidth: state().currentPanelWidth,
     });
 
-  const routeStateMutation = mutations.create<Extract<SpacesWorkspaceState, { kind: "ok" }> | null, string>({
-    mutation: async (href, ctx) => {
+  const routeStateMutation = mutations.create<RouteStateResult, RouteStateRequest>({
+    mutation: async (request, ctx) => {
+      const { href } = request;
       const target = parseSpacesWorkspaceHref(href);
-      if (!target || target.spaceId !== spaceId()) return null;
+      if (!target || target.spaceId !== spaceId()) return { request, state: null };
       const res = await apiClient.workspace.route.$get({ query: { href } }, { init: { signal: ctx.abortSignal } });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error("message" in data ? data.message : "Could not load workspace route");
+      }
       const next = (await res.json()) as SpacesWorkspaceState;
-      return next.kind === "ok" ? next : null;
+      return { request, state: next.kind === "ok" ? next : null };
     },
-    onError: (error) => {
+    onSuccess: (result, _ctx) => {
+      // The mutation primitive exposes results via callbacks; bridge it back to
+      // the route navigation flow that needs to decide before pushing history.
+      result.request.resolve(result.state);
+    },
+    onError: (error, _ctx) => {
       if (error.name === "AbortError") return;
+      activeRouteRequest?.reject(error);
       prompts.error(error.message || "Could not open route");
     },
   });
 
-  const fetchRouteState = async (href: string) => {
+  const fetchRouteState = async (href: string): Promise<OkWorkspaceState | null> => {
     const target = parseSpacesWorkspaceHref(href);
     if (!target || target.spaceId !== spaceId()) return null;
     routeStateMutation.abort();
-    return (await routeStateMutation.mutate(href)) ?? null;
+    return new Promise((resolve, reject) => {
+      const request = { href, resolve, reject };
+      activeRouteRequest = request;
+      void routeStateMutation.mutate(request).finally(() => {
+        if (activeRouteRequest === request) activeRouteRequest = null;
+      });
+    });
+  };
+
+  const openSettingsDialog = (settingsState: OkWorkspaceState) => {
+    if (settingsDialogOpen()) return;
+    setSettingsDialogOpen(true);
+    void prompts
+      .dialog<void>(
+        (close) => (
+          <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
+            <SpaceEditPanel
+              space={settingsState.space}
+              baseUrl={settingsState.icalBaseUrl}
+              initialSettings={settingsState.settings}
+              accessEntries={settingsState.accessEntries}
+              isAdmin={settingsState.isAdmin}
+              onClose={() => {
+                close();
+                if (state().isSettingsMode) {
+                  requestSpacesRouteNavigation(`/app/spaces/${settingsState.space.id}`, { scroll: "preserve" });
+                }
+              }}
+            />
+          </div>
+        ),
+        { surface: "bare", header: false, size: "large" },
+      )
+      .finally(() => {
+        setSettingsDialogOpen(false);
+        if (state().isSettingsMode) {
+          requestSpacesRouteNavigation(`/app/spaces/${settingsState.space.id}`, { scroll: "preserve" });
+        }
+      });
   };
 
   const openRoute = async (href: string, options: { replace?: boolean; scroll?: NavigationScrollMode } = {}) => {
     const next = await fetchRouteState(href);
     if (!next) {
-      documentNavigate(href);
+      prompts.error("Could not open this Spaces route without reloading.");
       return;
     }
     setState(next);
     navigate(href, { replace: options.replace, scroll: options.scroll ?? "top" });
+    if (next.isSettingsMode) openSettingsDialog(next);
   };
 
   const handleNavigate = async (nav: LinkNavigateEvent) => {
@@ -103,11 +159,21 @@ export default function SpacesWorkspace(props: Props) {
     const target = `${nav.url.pathname}${nav.url.search}`;
     const next = await fetchRouteState(target);
     if (!next) {
-      nav.fallback(target);
+      prompts.error("Could not open this Spaces route without reloading.");
       return;
     }
     setState(next);
     nav.push(target, { scroll: nav.scroll });
+    if (next.isSettingsMode) openSettingsDialog(next);
+  };
+
+  const openSettingsRoute = async () => {
+    const next = await fetchRouteState(`/app/spaces/${spaceId()}/settings`);
+    if (!next?.isSettingsMode) {
+      prompts.error("Could not open settings without reloading.");
+      return;
+    }
+    openSettingsDialog(next);
   };
 
   onMount(() => {
@@ -119,7 +185,9 @@ export default function SpacesWorkspace(props: Props) {
     const handlePopState = () => {
       void fetchRouteState(currentHref())
         .then((next) => {
-          if (next) setState(next);
+          if (!next) return;
+          setState(next);
+          if (next.isSettingsMode) openSettingsDialog(next);
         })
         .catch((error) => {
           prompts.error(error instanceof Error ? error.message : "Could not open route");
@@ -128,6 +196,7 @@ export default function SpacesWorkspace(props: Props) {
 
     window.addEventListener(SPACES_ROUTE_NAVIGATION_EVENT, handleRouteNavigation);
     window.addEventListener("popstate", handlePopState);
+    if (state().isSettingsMode) openSettingsDialog(state());
     onCleanup(() => {
       routeStateMutation.abort();
       window.removeEventListener(SPACES_ROUTE_NAVIGATION_EVENT, handleRouteNavigation);
@@ -136,8 +205,7 @@ export default function SpacesWorkspace(props: Props) {
   });
 
   const selectedItemId = () => state().selectedItem?.id ?? new URLSearchParams(state().query).get("item") ?? "";
-  const detailScrollPreserveKey = () =>
-    state().isSettingsMode ? `spaces-detail-${spaceId()}-settings` : `spaces-detail-${spaceId()}-${selectedItemId() || "empty"}`;
+  const detailScrollPreserveKey = () => `spaces-detail-${spaceId()}-${selectedItemId() || "empty"}`;
   const spaceContext = () => ({
     space: state().space,
     columns: state().space.columns,
@@ -151,7 +219,7 @@ export default function SpacesWorkspace(props: Props) {
 
   return (
     <AppWorkspace class="flex-1 min-h-0">
-      <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} />
+      <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} />
 
       <AppWorkspace.Main>
         {state().space.description && (
@@ -229,51 +297,38 @@ export default function SpacesWorkspace(props: Props) {
           )}
 
           {state().currentView === "calendar" && (
-            <div class="p-3">
-              <Calendar
-                spaceId={spaceId()}
-                items={state().calendarItems}
-                columns={state().space.columns}
-                tags={state().space.tags}
-                view={state().calendarView}
-                date={new Date(state().calendarDate)}
-                baseUrl={itemLinkBaseUrl()}
-                weather={state().calendarWeather}
-              />
-            </div>
+            <Calendar
+              spaceId={spaceId()}
+              items={state().calendarItems}
+              columns={state().space.columns}
+              tags={state().space.tags}
+              view={state().calendarView}
+              date={new Date(state().calendarDate)}
+              baseUrl={itemLinkBaseUrl()}
+              weather={state().calendarWeather}
+            />
           )}
         </div>
       </AppWorkspace.Main>
 
       <AppWorkspace.Detail
         id="space-detail-panel"
-        open={state().isSettingsMode || Boolean(selectedItemId())}
+        open={Boolean(selectedItemId())}
         widthClass={spacesDetailPanelWidthClass(state().currentPanelWidth)}
-        viewTransitionName={state().isSettingsMode ? "space-settings-panel" : "space-detail-panel-shell"}
-        class={state().isSettingsMode ? "p-2" : ""}
+        viewTransitionName="space-detail-panel-shell"
       >
         <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={detailScrollPreserveKey()}>
-          {state().isSettingsMode ? (
-            <SpaceEditPanel
-              space={state().space}
-              baseUrl={state().icalBaseUrl}
-              initialSettings={state().settings}
-              accessEntries={state().accessEntries}
-              isAdmin={state().isAdmin}
-            />
-          ) : (
-            <ItemDetailHost
-              spaceId={spaceId()}
-              baseUrl={itemLinkBaseUrl()}
-              currentUserId={state().currentUserId}
-              tags={state().space.tags}
-              initialItem={state().selectedItem}
-              initialComments={state().selectedItemComments}
-            />
-          )}
+          <ItemDetailHost
+            spaceId={spaceId()}
+            baseUrl={itemLinkBaseUrl()}
+            currentUserId={state().currentUserId}
+            tags={state().space.tags}
+            initialItem={state().selectedItem}
+            initialComments={state().selectedItemComments}
+          />
         </div>
       </AppWorkspace.Detail>
-      <SpaceDetailLayoutSync detailContainerId="space-detail-panel" forceOpen={state().isSettingsMode} />
+      <SpaceDetailLayoutSync detailContainerId="space-detail-panel" />
     </AppWorkspace>
   );
 }

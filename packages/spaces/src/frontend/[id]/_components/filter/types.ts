@@ -1,12 +1,4 @@
-import type {
-  ItemType,
-  ItemStatus,
-  DeadlineFilter,
-  ItemSort,
-  ItemGroupBy,
-  Priority,
-  AssignedToFilter,
-} from "@/contracts";
+import type { ItemType, ItemStatus, DeadlineFilter, ItemSort, ItemGroupBy, Priority, AssignedToFilter } from "@/contracts";
 import type { ViewType, DetailPanelWidth } from "../settings/SpaceSettingsStore";
 
 // =============================================================================

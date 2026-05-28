@@ -9,7 +9,7 @@ type Props = {
   spaceId: string;
   columns: SpaceColumn[];
   tags: SpaceTag[];
-  variant?: "primary" | "secondary" | "sidebar" | "chip";
+  variant?: "primary" | "secondary" | "sidebar" | "chip" | "icon";
 };
 
 export default function CreateItemButton(props: Props) {
@@ -64,6 +64,21 @@ export default function CreateItemButton(props: Props) {
       >
         New Item
       </AppWorkspace.SidebarItem>
+    );
+  }
+
+  if (props.variant === "icon") {
+    return (
+      <button
+        type="button"
+        onClick={() => mutation.mutate(undefined)}
+        disabled={mutation.loading()}
+        class="sidebar-icon-action sidebar-icon-action-success"
+        title="New Item"
+        aria-label="New Item"
+      >
+        <i class={`ti ${mutation.loading() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
+      </button>
     );
   }
 

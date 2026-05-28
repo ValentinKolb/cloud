@@ -30,6 +30,7 @@ type Props = {
   space: SpaceDetail;
   baseUrl: string;
   initialSettings: SpaceUserSettings;
+  onClose?: () => void;
   /** Access entries for permission management (requires admin) */
   accessEntries?: AccessEntry[];
   /** Whether the current user has admin permission on this space */
@@ -47,7 +48,7 @@ export default function SpaceEditPanel(props: Props) {
         title="Space settings"
         subtitle={props.space.name}
         icon="ti ti-layout-kanban"
-        onClose={() => requestSpacesRouteNavigation(`/app/spaces/${props.space.id}`, { scroll: "preserve" })}
+        onClose={props.onClose ?? (() => requestSpacesRouteNavigation(`/app/spaces/${props.space.id}`, { scroll: "preserve" }))}
         closeLabel="Close settings"
       >
         <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and color.">

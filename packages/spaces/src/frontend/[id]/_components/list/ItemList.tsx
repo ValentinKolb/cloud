@@ -1,5 +1,5 @@
 import type { SpaceItem, SpaceColumn, SpaceTag, ItemGroupBy } from "@/contracts";
-import ItemRow from "./ItemRow.island";
+import ItemRow from "./ItemRow";
 
 // =============================================================================
 // Types

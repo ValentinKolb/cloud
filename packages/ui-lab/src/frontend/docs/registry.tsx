@@ -12,6 +12,7 @@ import {
   RemoveBtnDemo,
   SegmentedControlDemo,
 } from "../lab/buttons";
+import { CalendarDayDemo, CalendarMobileDemo, CalendarMonthDemo, CalendarScheduleDemo, CalendarYearDemo } from "../lab/calendar";
 import {
   ChartBar,
   ChartDonut,
@@ -492,6 +493,23 @@ export const uiLabDocs: UiLabDocSection[] = [
             <StatCellDemo />
             <StatGridDemo />
             <StatHeroGridDemo />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "surfaces",
+        "calendar",
+        "Calendar",
+        "ti ti-calendar-week",
+        "SSR-first schedule views for app calendars, from compact Spaces-style months to richer day/week/year planning.",
+        ["calendar-schedule", "calendar-day", "calendar-month", "calendar-year", "calendar-mobile-month"],
+        () => (
+          <DemoGrid columns="one">
+            <CalendarScheduleDemo />
+            <CalendarDayDemo />
+            <CalendarMonthDemo />
+            <CalendarYearDemo />
+            <CalendarMobileDemo />
           </DemoGrid>
         ),
       ),

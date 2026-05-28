@@ -648,38 +648,55 @@ const createThing = mutation.create<Thing | null, void>({
 
 The platform provides several layout conventions. Use `fullWidth` on `Layout` for multi-column layouts.
 
-#### Table Layout (like Logging app)
+#### Data Table Layout
 
 ```jsx
-<Layout c={c} title="Admin" fullWidth>  {/* or use AdminLayout for admin pages */}
+import { DataTable, type DataTableColumn, Pagination } from "@valentinkolb/cloud/ui";
+
+const columns: DataTableColumn<Item>[] = [
+  { id: "title", header: "Title", value: "title" },
+  { id: "status", header: "Status", value: "status" },
+  { id: "created", header: "Created", value: (item) => item.createdAt },
+];
+
+<Layout c={c} title="Admin" fullWidth>
   <div class="flex flex-col gap-2">
     <div>
       <h1 class="text-base font-semibold text-primary">Items</h1>
       <p class="mt-1 text-xs text-dimmed">{total} entries</p>
     </div>
     <FilterBar filter={filter} />
-    <ItemTable items={items} />
+    <DataTable rows={items} columns={columns} getRowId={(item) => item.id} />
     <Pagination currentPage={p.page} totalPages={p.total_pages} baseUrl="/app/my-app?page=" />
   </div>
 </Layout>
 ```
 
-#### Sidebar + Content Layout (like Files, Weather)
+Use `DataTable` for real tabular lists/dataviews before writing custom table markup. It owns sticky headers, density, row hover/selection, custom cell/header renderers, footer rows, empty state, and infinite-load sentinel behavior. Existing source-backed examples: `packages/logging/src/frontend/_components/LogTable.island.tsx`, `packages/gateway/src/frontend/page.tsx`, and UI Lab `/app/ui-lab/content/table`.
+
+#### AppWorkspace Sidebar + Content Layout
 
 ```jsx
 <Layout c={c} fullWidth title={breadcrumbs}>
-  <div class="app-cols h-full">
-    <MySidebar items={items} activeId={activeId} />
-    <div class="flex-1 min-w-0 flex flex-col">
-      <div class="flex-1 min-h-0 overflow-y-auto">
-        {activeItem ? <Detail item={activeItem} /> : <EmptyState />}
-      </div>
-    </div>
-  </div>
+  <AppWorkspace class="h-full">
+    <AppWorkspace.Sidebar>
+      <AppWorkspace.SidebarHeader title="My App" icon="ti ti-star" />
+      <AppWorkspace.SidebarDesktop>
+        <AppWorkspace.SidebarBody scrollPreserveKey="my-app-sidebar">
+          <AppWorkspace.SidebarSection title="Items">
+            <AppWorkspace.SidebarItem href="/app/my-app" icon="ti ti-list" navigation="document">
+              All items
+            </AppWorkspace.SidebarItem>
+          </AppWorkspace.SidebarSection>
+        </AppWorkspace.SidebarBody>
+      </AppWorkspace.SidebarDesktop>
+    </AppWorkspace.Sidebar>
+    <AppWorkspace.Main>{activeItem ? <Detail item={activeItem} /> : <EmptyState />}</AppWorkspace.Main>
+  </AppWorkspace>
 </Layout>
 ```
 
-The `app-cols` class creates a responsive sidebar + content grid (sidebar hidden on mobile with toggle).
+Use `AppWorkspace` for full app shells with sidebar/main/detail. `app-cols` remains a low-level utility, but new app shells should prefer the component API so navigation enhancement, scroll preservation, mobile/sidebar styling, and detail-panel sizing stay consistent.
 
 #### Card Grid Layout (like Spaces)
 
@@ -722,7 +739,7 @@ The `app-cols` class creates a responsive sidebar + content grid (sidebar hidden
 | `btn-sm`, `btn-md` | Button sizes |
 | `paper`, `paper-highlighted` | Card with border/shadow, hover state |
 | `text-primary`, `text-secondary`, `text-dimmed`, `text-label` | Text colors |
-| `app-cols` | Sidebar + content responsive grid |
+| `app-cols` | Low-level sidebar + content grid; prefer `AppWorkspace` for new app shells |
 | `info-block-info`, `info-block-warning`, `info-block-danger` | Banners |
 | `section-label` | Small uppercase label for sections |
 
@@ -736,6 +753,7 @@ The `app-cols` class creates a responsive sidebar + content grid (sidebar hidden
 | `prompts.search(resolver, opts?)` | Search dialog with async results |
 | `Pagination` | Page navigation with URL params |
 | `FilterChip` | Multi-option filter dropdown |
+| `DataTable` | Shared table/dataview component for tabular rows |
 | `EntitySearch` | User/group search autocomplete |
 | `PermissionEditor` | Access control UI (grant/revoke via ResourceAccessAdapter) |
 | `AppOverview` | Shared app overview/start-page shell |
