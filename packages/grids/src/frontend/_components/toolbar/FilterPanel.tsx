@@ -1,6 +1,7 @@
 import { DateTimeInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
+import RelationPicker from "../records/RelationPicker";
 import { type FilterOp, filterableFields, opsForType } from "./filter-ops";
 
 export type FilterLeaf = {
@@ -130,7 +131,7 @@ export default function FilterPanel(props: Props) {
   );
 }
 
-type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "number-days" | "date" | "number" | "text";
+type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "relation" | "number-days" | "date" | "number" | "text";
 
 /**
  * Renders the right-hand value input for a filter row, type-aware:
@@ -140,8 +141,9 @@ type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "number-day
  *  - select fields (is / isNot): cloud Select over field options
  *  - select multi-value ops (one-of / none-of): TextInput
  *    (comma-separated → parsed to a string[] on input)
+ *  - relation contains: RelationPicker over the target table
  *  - dates: cloud DateTimeInput dateOnly (or NumberInput for lastNDays)
- *  - numbers: cloud NumberInput
+ *  - numeric fields: cloud NumberInput
  *  - text-shaped fallback: cloud TextInput
  *
  * IMPORTANT: this component is REACTIVE by way of Switch/Match — destructuring
@@ -163,9 +165,10 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
       return "multi";
     }
     if (field.type === "boolean") return "boolean";
+    if (field.type === "relation" && op.id === "containsAny") return "relation";
     if (field.type === "date" && op.id === "lastNDays") return "number-days";
     if (field.type === "date") return "date";
-    if (field.type === "number" || field.type === "autonumber") {
+    if (field.type === "number" || field.type === "autonumber" || field.type === "percent" || field.type === "duration") {
       return "number";
     }
     return "text";
@@ -253,6 +256,24 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
             placeholder="—"
             clearable
           />
+        </div>
+      </Match>
+
+      <Match when={kind() === "relation"}>
+        <div class="w-64">
+          {(() => {
+            const targetTableId = (props.field?.config as { targetTableId?: string } | undefined)?.targetTableId;
+            if (!targetTableId) return <span class="text-xs text-amber-600 dark:text-amber-400">Pick a target table first.</span>;
+            return (
+              <RelationPicker
+                targetTableId={targetTableId}
+                value={() => (Array.isArray(props.value) ? (props.value as string[]) : [])}
+                labels={() => ({})}
+                multi
+                onChange={(v) => props.onChange(v)}
+              />
+            );
+          })()}
         </div>
       </Match>
 

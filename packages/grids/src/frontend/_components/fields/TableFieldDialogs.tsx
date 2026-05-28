@@ -18,6 +18,11 @@ import { FieldInput } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
 import { FIELD_TYPE_DESCRIPTIONS, FieldConfigEditor, type FieldConfigState, TYPE_LABELS } from "./field-config-editor";
 
+const RECORD_INPUT_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json", "relation"]);
+const PRESENTABLE_TYPES = new Set(["text", "number", "boolean", "date", "select", "autonumber", "percent", "duration"]);
+const INDEXABLE_TYPES = new Set(["text", "longtext", "number", "autonumber", "percent", "duration", "date", "boolean", "select"]);
+const UNIQUE_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "autonumber"]);
+
 export type TableHeader = {
   id: string;
   /** UUID of the parent base. Kept for API calls that still take UUIDs. */
@@ -139,7 +144,11 @@ function FieldEditor(props: {
   const [columnLabel, setColumnLabel] = createSignal(initialColumn()?.label ?? "");
   let formatControls: ColumnFormatControlsHandle | undefined;
   const [dirty, setDirty] = createSignal(false);
-  const supportsDefaultValue = () => props.field.type !== "file";
+  const supportsRequired = () => RECORD_INPUT_TYPES.has(props.field.type);
+  const supportsDefaultValue = () => RECORD_INPUT_TYPES.has(props.field.type);
+  const supportsPresentable = () => PRESENTABLE_TYPES.has(props.field.type);
+  const supportsIndexed = () => INDEXABLE_TYPES.has(props.field.type);
+  const supportsUnique = () => UNIQUE_TYPES.has(props.field.type);
 
   // Touch-tracker — any field-level edit flips the dirty bit.
   const wrap =
@@ -180,12 +189,12 @@ function FieldEditor(props: {
           name: name().trim(),
           description: description().trim() || null,
           icon: icon().trim() || null,
-          required: required(),
-          presentable: presentable(),
+          required: supportsRequired() ? required() : false,
+          presentable: supportsPresentable() ? presentable() : false,
           hideInTable: hideInTable(),
           defaultValue: supportsDefaultValue() ? defaultValue() : null,
-          indexed: indexed(),
-          uniqueConstraint: uniqueConstraint(),
+          indexed: supportsIndexed() ? indexed() : false,
+          uniqueConstraint: supportsUnique() ? uniqueConstraint() : false,
           config: config() as Record<string, unknown>,
         },
       });
@@ -274,20 +283,24 @@ function FieldEditor(props: {
           icon="ti ti-toggle-right"
         >
           <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <CheckboxCard
-              label="Required"
-              description="Every record must have a value for this field."
-              icon="ti ti-asterisk"
-              value={required}
-              onChange={wrap(setRequired)}
-            />
-            <CheckboxCard
-              label="Use as record label"
-              description="Show this field when another table links to this record."
-              icon="ti ti-tag"
-              value={presentable}
-              onChange={wrap(setPresentable)}
-            />
+            <Show when={supportsRequired()}>
+              <CheckboxCard
+                label="Required"
+                description="Every record must have a value for this field."
+                icon="ti ti-asterisk"
+                value={required}
+                onChange={wrap(setRequired)}
+              />
+            </Show>
+            <Show when={supportsPresentable()}>
+              <CheckboxCard
+                label="Use as record label"
+                description="Show this field when another table links to this record."
+                icon="ti ti-tag"
+                value={presentable}
+                onChange={wrap(setPresentable)}
+              />
+            </Show>
             <CheckboxCard
               label="Hide in table"
               description="Keep it out of the default table view; detail panels and custom views can still show it."
@@ -295,25 +308,29 @@ function FieldEditor(props: {
               value={hideInTable}
               onChange={wrap(setHideInTable)}
             />
-            <CheckboxCard
-              label="Unique values"
-              description="No two records can share the same value. Existing duplicates block saving."
-              icon="ti ti-fingerprint"
-              value={uniqueConstraint}
-              onChange={wrap(setUniqueConstraint)}
-            />
+            <Show when={supportsUnique()}>
+              <CheckboxCard
+                label="Unique values"
+                description="No two records can share the same value. Existing duplicates block saving."
+                icon="ti ti-fingerprint"
+                value={uniqueConstraint}
+                onChange={wrap(setUniqueConstraint)}
+              />
+            </Show>
           </div>
         </FieldEditorSection>
 
-        <FieldEditorSection title="Query performance" subtitle="Use only for fields that are filtered or sorted often." icon="ti ti-bolt">
-          <CheckboxCard
-            label="Indexed"
-            description="Faster filters and sorts on this field. Costs disk and write work."
-            icon="ti ti-database-search"
-            value={indexed}
-            onChange={wrap(setIndexed)}
-          />
-        </FieldEditorSection>
+        <Show when={supportsIndexed()}>
+          <FieldEditorSection title="Query performance" subtitle="Use only for fields that are filtered or sorted often." icon="ti ti-bolt">
+            <CheckboxCard
+              label="Indexed"
+              description="Faster filters and sorts on this field. Costs disk and write work."
+              icon="ti ti-database-search"
+              value={indexed}
+              onChange={wrap(setIndexed)}
+            />
+          </FieldEditorSection>
+        </Show>
 
         <Show when={props.tableColumns}>
           <FieldEditorSection

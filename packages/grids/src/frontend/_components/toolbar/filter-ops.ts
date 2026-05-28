@@ -66,13 +66,19 @@ const SELECT_OPS: FilterOp[] = [
   { id: "isNotEmpty", label: "not empty", needsValue: false },
 ];
 
+const RELATION_OPS: FilterOp[] = [
+  { id: "containsAny", label: "contains", needsValue: true },
+  { id: "isEmpty", label: "empty", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", needsValue: false },
+];
+
 export const opsForType = (type: string): FilterOp[] => {
   switch (type) {
     case "text":
     case "longtext":
       return TEXT_OPS;
     case "number":
-        case "autonumber":
+    case "autonumber":
     case "percent":
     case "duration":
       return NUMBER_OPS;
@@ -82,6 +88,8 @@ export const opsForType = (type: string): FilterOp[] => {
       return BOOL_OPS;
     case "select":
       return SELECT_OPS;
+    case "relation":
+      return RELATION_OPS;
     // json: opaque to filter — no ops surfaced.
     default:
       return [];

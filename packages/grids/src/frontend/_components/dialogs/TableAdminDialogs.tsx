@@ -122,6 +122,8 @@ const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
   formula: "Computes a value from other fields.",
 };
 
+const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json");
+
 const chooseFieldType = () =>
   prompts.dialog<string>(
     (close) => (
@@ -142,7 +144,7 @@ const chooseFieldType = () =>
             </div>
           </section>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <For each={TYPE_OPTIONS}>
+            <For each={CREATE_TYPE_OPTIONS}>
               {(type) => (
                 <button
                   type="button"

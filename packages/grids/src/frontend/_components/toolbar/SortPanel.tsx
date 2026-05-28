@@ -15,7 +15,7 @@ type Props = {
   onRowsChange: (next: SortRow[]) => void;
 };
 
-const SORTABLE_TYPES = new Set(["text", "longtext", "number", "autonumber", "date", "boolean"]);
+const SORTABLE_TYPES = new Set(["text", "longtext", "number", "autonumber", "percent", "duration", "date", "boolean"]);
 
 const sortableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && SORTABLE_TYPES.has(f.type));
 
