@@ -2,10 +2,15 @@ import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } f
 import { encoding } from "@valentinkolb/stdlib";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
-import { notebooksWorkspace, type NotebookWorkspaceEvent } from "../../../lib/workspace-events";
+import { type NotebookWorkspaceEvent, notebooksWorkspace } from "../../../lib/workspace-events";
 import { notebooksYjs } from "../../../lib/yjs";
 
 type YjsErrorCode = (typeof notebooksYjs.errorCode)[keyof typeof notebooksYjs.errorCode];
+
+type ProviderMessage = {
+  type?: unknown;
+  payload?: unknown;
+};
 
 export type YjsProviderError = {
   code: YjsErrorCode;
@@ -98,9 +103,11 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     return false;
   };
 
-  const sendSyncPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.syncPublish, { noteId: activeNoteId, payload: encoding.toBase64(data) });
+  const sendSyncPublish = (data: Uint8Array): boolean =>
+    sendJson(WS_TYPE.syncPublish, { noteId: activeNoteId, payload: encoding.toBase64(data) });
 
-  const sendAwarenessPublish = (data: Uint8Array): boolean => sendJson(WS_TYPE.awarenessPublish, { noteId: activeNoteId, payload: encoding.toBase64(data) });
+  const sendAwarenessPublish = (data: Uint8Array): boolean =>
+    sendJson(WS_TYPE.awarenessPublish, { noteId: activeNoteId, payload: encoding.toBase64(data) });
 
   const sendReplayRequest = (fromCursor: string | null): boolean =>
     sendJson(WS_TYPE.replayRequest, {
@@ -222,85 +229,95 @@ export function createYjsProvider(opts: YjsProviderOptions) {
     return null;
   };
 
-  const handleJsonMessage = (raw: string) => {
-    let message: unknown;
+  const parseJsonMessage = (raw: string): ProviderMessage | null => {
     try {
-      message = JSON.parse(raw);
+      const message = JSON.parse(raw) as unknown;
+      return message && typeof message === "object" ? (message as ProviderMessage) : null;
     } catch {
-      return;
+      return null;
     }
+  };
 
-    if (!message || typeof message !== "object") return;
-    const msg = message as { type?: unknown; payload?: unknown };
-    if (msg.type === WS_TYPE.error) {
-      const error = normalizeError(msg.payload);
-      opts.onError?.(error);
-      if (TERMINAL_ERROR_CODES.has(error.code)) {
-        terminate(error);
-      }
-      return;
+  const handleProviderErrorMessage = (msg: ProviderMessage): boolean => {
+    if (msg.type !== WS_TYPE.error) return false;
+    const error = normalizeError(msg.payload);
+    opts.onError?.(error);
+    if (TERMINAL_ERROR_CODES.has(error.code)) {
+      terminate(error);
     }
+    return true;
+  };
 
+  const handleWorkspaceErrorMessage = (msg: ProviderMessage): boolean => {
     if (msg.type === WORKSPACE_WS_TYPE.error || msg.type === WORKSPACE_WS_TYPE.revoked) {
       const error = normalizeError(msg.payload);
       opts.workspace?.onError?.(error);
-      return;
+      return true;
     }
+    return false;
+  };
 
-    if (msg.type === WORKSPACE_WS_TYPE.ready) {
-      const payload = (msg.payload ?? {}) as { notebookId?: unknown };
-      if (typeof payload.notebookId === "string") activeWorkspaceId = payload.notebookId;
-      return;
-    }
+  const handleWorkspaceReadyMessage = (msg: ProviderMessage): boolean => {
+    if (msg.type !== WORKSPACE_WS_TYPE.ready) return false;
+    const payload = (msg.payload ?? {}) as { notebookId?: unknown };
+    if (typeof payload.notebookId === "string") activeWorkspaceId = payload.notebookId;
+    return true;
+  };
 
-    if (msg.type === WORKSPACE_WS_TYPE.event) {
-      const payload = (msg.payload ?? {}) as {
-        notebookId?: unknown;
-        cursor?: unknown;
-        event?: unknown;
-      };
-      if (!opts.workspace || payload.notebookId !== activeWorkspaceId) return;
-      if (typeof payload.cursor === "string") lastWorkspaceCursor = payload.cursor;
-      const event = payload.event as NotebookWorkspaceEvent | undefined;
-      if (!event || event.v !== 1 || event.notebookId !== activeWorkspaceId) return;
-      opts.workspace.onEvent?.(event, typeof payload.cursor === "string" ? payload.cursor : null);
-      return;
-    }
+  const handleWorkspaceEventMessage = (msg: ProviderMessage): boolean => {
+    if (msg.type !== WORKSPACE_WS_TYPE.event) return false;
+    const payload = (msg.payload ?? {}) as {
+      notebookId?: unknown;
+      cursor?: unknown;
+      event?: unknown;
+    };
+    if (!opts.workspace || payload.notebookId !== activeWorkspaceId) return true;
+    if (typeof payload.cursor === "string") lastWorkspaceCursor = payload.cursor;
+    const event = payload.event as NotebookWorkspaceEvent | undefined;
+    if (!event || event.v !== 1 || event.notebookId !== activeWorkspaceId) return true;
+    opts.workspace.onEvent?.(event, typeof payload.cursor === "string" ? payload.cursor : null);
+    return true;
+  };
 
-    if (msg.type === WS_TYPE.replayReady) {
-      const payload = (msg.payload ?? {}) as { noteId?: unknown };
-      // Adopt the server-canonical id form. We may have sent a
-      // short-id; the server replies with the canonical UUID. Updating
-      // `activeNoteId` here means every subsequent send + every
-      // inbound `payload.noteId` matcher uses the same value.
-      if (typeof payload.noteId === "string") activeNoteId = payload.noteId;
-      replayReady = true;
-      sendLocalStateIfNeeded();
-      return;
-    }
+  const handleReplayReadyMessage = (msg: ProviderMessage): boolean => {
+    if (msg.type !== WS_TYPE.replayReady) return false;
+    const payload = (msg.payload ?? {}) as { noteId?: unknown };
+    // Adopt the server-canonical id form. We may have sent a
+    // short-id; the server replies with the canonical UUID. Updating
+    // `activeNoteId` here means every subsequent send + every
+    // inbound `payload.noteId` matcher uses the same value.
+    if (typeof payload.noteId === "string") activeNoteId = payload.noteId;
+    replayReady = true;
+    sendLocalStateIfNeeded();
+    return true;
+  };
 
+  const handlePresenceMessage = (msg: ProviderMessage): boolean => {
     if (msg.type === WS_TYPE.presenceSnapshot || msg.type === WS_TYPE.presenceChanged) {
       const payload = (msg.payload ?? {}) as {
         noteId?: unknown;
         participants?: unknown;
       };
 
-      if (payload.noteId !== activeNoteId) return;
+      if (payload.noteId !== activeNoteId) return true;
       const participants = NotebookPresenceParticipantSchema.array().safeParse(payload.participants);
-      if (!participants.success) return;
+      if (!participants.success) return true;
       opts.onPresenceChange?.(participants.data);
-      return;
+      return true;
     }
+    return false;
+  };
 
+  const handlePushMessage = (msg: ProviderMessage): boolean => {
     const isPushType = msg.type === WS_TYPE.syncPush || msg.type === WS_TYPE.awarenessPush;
-    if (!isPushType) return;
+    if (!isPushType) return false;
 
     const payload = msg.payload as {
       noteId?: unknown;
       updates?: Array<{ cursor?: unknown; payload?: unknown }>;
     };
 
-    if (payload.noteId !== activeNoteId || !Array.isArray(payload.updates)) return;
+    if (payload.noteId !== activeNoteId || !Array.isArray(payload.updates)) return true;
     for (const update of payload.updates) {
       if (typeof update.payload !== "string") continue;
       try {
@@ -320,6 +337,20 @@ export function createYjsProvider(opts: YjsProviderOptions) {
 
     replayReady = true;
     sendLocalStateIfNeeded();
+    return true;
+  };
+
+  const handleJsonMessage = (raw: string) => {
+    const msg = parseJsonMessage(raw);
+    if (!msg) return;
+
+    if (handleProviderErrorMessage(msg)) return;
+    if (handleWorkspaceErrorMessage(msg)) return;
+    if (handleWorkspaceReadyMessage(msg)) return;
+    if (handleWorkspaceEventMessage(msg)) return;
+    if (handleReplayReadyMessage(msg)) return;
+    if (handlePresenceMessage(msg)) return;
+    handlePushMessage(msg);
   };
 
   const connect = () => {

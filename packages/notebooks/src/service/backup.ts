@@ -47,6 +47,13 @@ type NotebookSnapshotConfigSecret = {
   configured: boolean;
 };
 
+type SnapshotCredentials = Pick<NotebookSnapshotConfigSecret, "accessKeyId" | "secretAccessKey">;
+
+type ResolvedSnapshotUpdate = Pick<
+  NotebookSnapshotConfigSecret,
+  "enabled" | "endpoint" | "region" | "bucket" | "accessKeyId" | "secretAccessKey"
+>;
+
 export type NotebookBackupPaths = {
   latestZip: string;
   snapshotZip: string;
@@ -163,15 +170,16 @@ const summarizeProviderText = (value: string): string => {
   return summary || stripHtml(text).slice(0, 400);
 };
 
-export const describeSnapshotError = (error: unknown, fallback = "Provider returned no error details."): string => {
-  if (error instanceof Error) {
-    const parts = [summarizeProviderText(error.message), error.name && error.name !== "Error" ? `(${error.name})` : ""].filter(Boolean);
-    const cause = (error as { cause?: unknown }).cause;
-    const causeText = cause ? describeSnapshotError(cause, "") : "";
-    const message = [parts.join(" "), causeText ? `Cause: ${causeText}` : ""].filter(Boolean).join(" ").trim();
-    return !message || message === "(S3Error)" ? fallback : message;
-  }
-  if (typeof error === "string") return summarizeProviderText(error) || fallback;
+const describeErrorObject = (error: Error, fallback: string): string => {
+  const errorText = summarizeProviderText(error.message);
+  const errorName = error.name && error.name !== "Error" ? `(${error.name})` : "";
+  const cause = (error as { cause?: unknown }).cause;
+  const causeText = cause ? describeSnapshotError(cause, "") : "";
+  const message = [errorText, errorName, causeText ? `Cause: ${causeText}` : ""].filter(Boolean).join(" ").trim();
+  return !message || message === "(S3Error)" ? fallback : message;
+};
+
+const describeUnknownError = (error: unknown, fallback: string): string => {
   try {
     const json = JSON.stringify(error);
     return json && json !== "{}" ? json : fallback;
@@ -179,6 +187,12 @@ export const describeSnapshotError = (error: unknown, fallback = "Provider retur
     const text = String(error).trim();
     return text || fallback;
   }
+};
+
+export const describeSnapshotError = (error: unknown, fallback = "Provider returned no error details."): string => {
+  if (error instanceof Error) return describeErrorObject(error, fallback);
+  if (typeof error === "string") return summarizeProviderText(error) || fallback;
+  return describeUnknownError(error, fallback);
 };
 
 export const validateSnapshotEndpoint = (endpoint: string, region: string): Result<void> => {
@@ -238,12 +252,41 @@ const readConfigRow = async (notebookId: string): Promise<SnapshotConfigRow | nu
   return row ?? null;
 };
 
-export const getConfig = async (params: { notebookId: string }): Promise<NotebookSnapshotConfig> => {
-  const row = await readConfigRow(params.notebookId);
+const decryptRowCredentials = async (
+  row: Pick<SnapshotConfigRow, "access_key_id" | "secret_access_key"> | null,
+): Promise<SnapshotCredentials> => {
   const accessKeyId = row?.access_key_id ? await decryptString(row.access_key_id) : "";
   const secretAccessKey = row?.secret_access_key ? await decryptString(row.secret_access_key) : "";
+  return { accessKeyId, secretAccessKey };
+};
+
+const configMissingFields = (config: Pick<NotebookSnapshotConfigSecret, "bucket"> & SnapshotCredentials): string[] => getMissing(config);
+
+const resolveUpdateValue = (incoming: string | undefined, current: string | undefined, normalize = normalizeText): string =>
+  incoming === undefined ? (current ?? "") : normalize(incoming);
+
+const resolveSnapshotUpdate = (current: NotebookBackupConfig | null, data: UpdateNotebookSnapshotConfig): ResolvedSnapshotUpdate => ({
+  enabled: data.enabled,
+  endpoint: resolveUpdateValue(data.endpoint, current?.endpoint),
+  region: resolveUpdateValue(data.region, current?.region ?? "us-east-1", normalizeRegion),
+  bucket: resolveUpdateValue(data.bucket, current?.bucket),
+  accessKeyId: resolveUpdateValue(data.accessKeyId, current?.accessKeyId),
+  secretAccessKey: resolveUpdateValue(data.secretAccessKey, current?.secretAccessKey),
+});
+
+const validateResolvedSnapshotConfig = (config: ResolvedSnapshotUpdate): Result<void> => {
+  if (!config.enabled) return ok(undefined);
+
+  const missing = configMissingFields(config);
+  if (missing.length > 0) return fail(err.badInput(`Missing S3 snapshot settings: ${missing.join(", ")}`));
+  return validateSnapshotEndpoint(config.endpoint, config.region);
+};
+
+export const getConfig = async (params: { notebookId: string }): Promise<NotebookSnapshotConfig> => {
+  const row = await readConfigRow(params.notebookId);
+  const { accessKeyId, secretAccessKey } = await decryptRowCredentials(row);
   const bucket = normalizeText(row?.bucket);
-  const missing = getMissing({ bucket, accessKeyId, secretAccessKey });
+  const missing = configMissingFields({ bucket, accessKeyId, secretAccessKey });
   const enabled = row?.enabled ?? false;
   const scheduleCron = await getCron();
 
@@ -265,8 +308,7 @@ const readConfigSecret = async (notebookId: string): Promise<NotebookBackupConfi
   const row = await readConfigRow(notebookId);
   if (!row) return null;
 
-  const accessKeyId = row.access_key_id ? await decryptString(row.access_key_id) : "";
-  const secretAccessKey = row.secret_access_key ? await decryptString(row.secret_access_key) : "";
+  const { accessKeyId, secretAccessKey } = await decryptRowCredentials(row);
   const config: NotebookBackupConfig = {
     enabled: row.enabled,
     endpoint: normalizeText(row.endpoint),
@@ -283,25 +325,11 @@ const readConfigSecret = async (notebookId: string): Promise<NotebookBackupConfi
   return config;
 };
 
-export const updateConfig = async (params: {
-  notebookId: string;
-  userId: string;
-  data: UpdateNotebookSnapshotConfig;
-}): Promise<Result<NotebookSnapshotConfig>> => {
-  const current = await readConfigSecret(params.notebookId);
-  const endpoint = params.data.endpoint === undefined ? (current?.endpoint ?? "") : normalizeText(params.data.endpoint);
-  const region = params.data.region === undefined ? (current?.region ?? "us-east-1") : normalizeRegion(params.data.region);
-  const bucket = params.data.bucket === undefined ? (current?.bucket ?? "") : normalizeText(params.data.bucket);
-  const accessKeyId = params.data.accessKeyId === undefined ? (current?.accessKeyId ?? "") : normalizeText(params.data.accessKeyId);
-  const secretAccessKey =
-    params.data.secretAccessKey === undefined ? (current?.secretAccessKey ?? "") : normalizeText(params.data.secretAccessKey);
-
-  if (params.data.enabled) {
-    const missing = getMissing({ bucket, accessKeyId, secretAccessKey });
-    if (missing.length > 0) return fail(err.badInput(`Missing S3 snapshot settings: ${missing.join(", ")}`));
-    const endpointValidation = validateSnapshotEndpoint(endpoint, region);
-    if (!endpointValidation.ok) return fail(endpointValidation.error);
-  }
+const persistSnapshotConfig = async (params: { notebookId: string; userId: string; config: ResolvedSnapshotUpdate }): Promise<void> => {
+  const [encryptedAccessKeyId, encryptedSecretAccessKey] = await Promise.all([
+    encryptValue(params.config.accessKeyId),
+    encryptValue(params.config.secretAccessKey),
+  ]);
 
   await sql`
     INSERT INTO notebooks.s3_snapshot_configs (
@@ -317,12 +345,12 @@ export const updateConfig = async (params: {
     )
     VALUES (
       ${params.notebookId}::uuid,
-      ${params.data.enabled},
-      ${endpoint},
-      ${region},
-      ${bucket},
-      ${await encryptValue(accessKeyId)},
-      ${await encryptValue(secretAccessKey)},
+      ${params.config.enabled},
+      ${params.config.endpoint},
+      ${params.config.region},
+      ${params.config.bucket},
+      ${encryptedAccessKeyId},
+      ${encryptedSecretAccessKey},
       ${params.userId}::uuid,
       now()
     )
@@ -337,6 +365,19 @@ export const updateConfig = async (params: {
       updated_by = EXCLUDED.updated_by,
       updated_at = now()
   `;
+};
+
+export const updateConfig = async (params: {
+  notebookId: string;
+  userId: string;
+  data: UpdateNotebookSnapshotConfig;
+}): Promise<Result<NotebookSnapshotConfig>> => {
+  const current = await readConfigSecret(params.notebookId);
+  const next = resolveSnapshotUpdate(current, params.data);
+  const validation = validateResolvedSnapshotConfig(next);
+  if (!validation.ok) return fail(validation.error);
+
+  await persistSnapshotConfig({ notebookId: params.notebookId, userId: params.userId, config: next });
   return ok(await getConfig({ notebookId: params.notebookId }));
 };
 

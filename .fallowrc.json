@@ -20,12 +20,15 @@
   "dynamicallyLoaded": [
     "styles.css",
     "packages/*/src/styles/app.css",
+    "packages/*/scripts/build-extras.ts",
+    "packages/*/scripts/dev-extras.ts",
     "packages/cloud/scripts/preload.ts"
   ],
   "ignoreDependencies": [
     "lean-qr",
     "@tailwindcss/typography",
     "@babel/preset-typescript",
-    "babel-preset-solid"
+    "babel-preset-solid",
+    "notebooks-script-intelligence"
   ]
 }

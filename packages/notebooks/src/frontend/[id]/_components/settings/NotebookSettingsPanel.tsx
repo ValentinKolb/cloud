@@ -13,7 +13,7 @@ import {
   TextInput,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createResource, createSignal, Show } from "solid-js";
+import { type Accessor, createEffect, createMemo, createResource, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Notebook, NoteTreeNode } from "../sidebar/types";
 import { readSettings, writeSettings } from "./NotebookSettingsStore";
@@ -59,6 +59,8 @@ type BackupRunResult = {
   };
 };
 
+type BackupDraft = Pick<BackupStatus, "enabled" | "endpoint" | "region" | "bucket">;
+
 const flattenNoteOptions = (nodes: NoteTreeNode[], depth = 0): NoteSelectOption[] =>
   nodes.flatMap((note) => [
     {
@@ -79,6 +81,37 @@ const readErrorMessage = async (response: Response, fallback: string): Promise<s
   }
   return fallback;
 };
+
+const backupDraftFromStatus = (status: BackupStatus): BackupDraft => ({
+  enabled: status.enabled,
+  endpoint: status.endpoint,
+  region: status.region || "us-east-1",
+  bucket: status.bucket,
+});
+
+const backupDraftIsDirty = (draft: BackupDraft, base: BackupDraft, accessKeyId: string, secretAccessKey: string): boolean =>
+  draft.enabled !== base.enabled ||
+  draft.endpoint.trim() !== base.endpoint ||
+  (draft.region.trim() || "us-east-1") !== base.region ||
+  draft.bucket.trim() !== base.bucket ||
+  accessKeyId.trim().length > 0 ||
+  secretAccessKey.trim().length > 0;
+
+const snapshotLogEntryFromRun = (run: BackupRunResult, notebookShortId: string): LogTableEntry => ({
+  id: `local:${run.sha256}`,
+  level: "info",
+  source: "notebooks:snapshot:s3",
+  message: run.message,
+  metadata: {
+    trigger: "manual",
+    notebookShortId,
+    bytes: run.bytes,
+    sha256: run.sha256,
+    latestZip: run.paths.latestZip,
+    snapshotZip: run.paths.snapshotZip,
+  },
+  createdAt: run.exportedAt,
+});
 
 export const openNotebookSettingsDialog = (props: Props): Promise<void> =>
   prompts.dialog<void>((close) => <NotebookSettingsBody {...props} bare close={() => close()} />, {
@@ -397,6 +430,161 @@ function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; onNotebo
 // Export
 // =============================================================================
 
+function SnapshotUploadAction(props: {
+  enabled: boolean;
+  configured: boolean;
+  loading: boolean;
+  disabled: boolean;
+  lastRun: BackupRunResult | null;
+  onRun: () => void;
+}) {
+  return (
+    <Show when={props.enabled}>
+      <div class="flex flex-wrap items-center justify-end gap-2">
+        <button type="button" class="btn-secondary btn-sm" disabled={props.disabled || !props.configured} onClick={props.onRun}>
+          <Show when={!props.loading} fallback={<i class="ti ti-loader-2 animate-spin" />}>
+            <i class="ti ti-cloud-upload" />
+            Upload now
+          </Show>
+        </button>
+        <Show when={props.lastRun}>
+          {(result) => <span class="text-xs text-emerald-600 dark:text-emerald-300">Uploaded {Math.round(result().bytes / 1024)} KB.</span>}
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
+function SnapshotConfigFields(props: {
+  notebookShortId: string;
+  enabled: Accessor<boolean>;
+  setEnabled: Setter<boolean>;
+  endpoint: Accessor<string>;
+  setEndpoint: Setter<string>;
+  region: Accessor<string>;
+  setRegion: Setter<string>;
+  bucket: Accessor<string>;
+  setBucket: Setter<string>;
+  accessKeyId: Accessor<string>;
+  setAccessKeyId: Setter<string>;
+  secretAccessKey: Accessor<string>;
+  setSecretAccessKey: Setter<string>;
+  status: BackupStatus | undefined;
+  missing: string;
+  saving: boolean;
+  dirty: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <>
+      <CheckboxCard
+        label="Enable S3 snapshots"
+        description="Writes latest.zip, a timestamped snapshot, and latest-manifest.json to your bucket."
+        icon="ti ti-cloud-upload"
+        value={props.enabled}
+        onChange={props.setEnabled}
+        disabled={props.saving}
+      />
+
+      <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
+        Automatic schedule: <span class="font-mono text-primary">{props.status?.scheduleCron ?? "0 3 * * *"}</span>
+        <span class="ml-2 text-dimmed">Cloud admins edit it in /admin/notebooks.</span>
+      </div>
+
+      <Show when={props.enabled()}>
+        <div class="grid gap-3">
+          <TextInput
+            label="Endpoint"
+            value={props.endpoint}
+            onInput={props.setEndpoint}
+            placeholder="https://..."
+            icon="ti ti-link"
+            type="url"
+          />
+          <div class="info-block-info flex items-start gap-2 text-xs">
+            <i class="ti ti-info-circle mt-0.5 shrink-0" />
+            <div>
+              <p class="font-medium text-primary">S3-compatible endpoint</p>
+              <p class="mt-0.5 text-dimmed">
+                Uses Bun's S3 client with virtual-hosted-style requests. Hetzner Object Storage works with endpoints like{" "}
+                <code>https://nbg1.your-objectstorage.com</code>, <code>https://fsn1.your-objectstorage.com</code>, or{" "}
+                <code>https://hel1.your-objectstorage.com</code>. Use the matching region such as <code>nbg1</code>. Objects are written
+                below <code>notebooks/{props.notebookShortId}/</code>.
+              </p>
+            </div>
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <TextInput label="Region" value={props.region} onInput={props.setRegion} placeholder="eu-central-1" icon="ti ti-map" />
+            <TextInput
+              label="Bucket"
+              value={props.bucket}
+              onInput={props.setBucket}
+              placeholder="my-notebook-backups"
+              icon="ti ti-bucket"
+            />
+          </div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <TextInput
+              label="Access key ID"
+              value={props.accessKeyId}
+              onInput={props.setAccessKeyId}
+              placeholder={props.status?.accessKeyIdSet ? "Stored - leave empty to keep" : ""}
+              icon="ti ti-key"
+            />
+            <TextInput
+              label="Secret access key"
+              value={props.secretAccessKey}
+              onInput={props.setSecretAccessKey}
+              placeholder={props.status?.secretAccessKeySet ? "Stored - leave empty to keep" : ""}
+              icon="ti ti-lock"
+              password
+            />
+          </div>
+          <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
+            Target: <span class="font-medium text-primary">{props.status?.target ?? "not configured"}</span>
+            <Show when={props.missing !== "none"}>
+              <span class="ml-2 text-amber-600 dark:text-amber-300">Missing: {props.missing}</span>
+            </Show>
+          </div>
+        </div>
+      </Show>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="btn-primary btn-sm" disabled={props.saving || !props.dirty} onClick={props.onSave}>
+          <Show when={!props.saving} fallback={<i class="ti ti-loader-2 animate-spin" />}>
+            <i class="ti ti-device-floppy" />
+            Save snapshot settings
+          </Show>
+        </button>
+      </div>
+    </>
+  );
+}
+
+function SnapshotLogsSection(props: { show: boolean; entries: LogTableEntry[]; loading: boolean; error: string | null }) {
+  return (
+    <Show when={props.show}>
+      <div class="flex flex-col gap-3">
+        <h3 class="text-sm font-semibold">Recent snapshots</h3>
+        <Show
+          when={!props.error}
+          fallback={
+            <div class="info-block-error flex items-start gap-2 text-xs">
+              <i class="ti ti-alert-circle mt-0.5 shrink-0" />
+              <span>{props.error}</span>
+            </div>
+          }
+        >
+          <LogEntriesTable
+            entries={props.entries}
+            emptyMessage={props.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."}
+          />
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
 function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
   const href = () => `/api/notebooks/${encodeURIComponent(props.notebook.shortId)}/export.zip`;
   const [lastRun, setLastRun] = createSignal<BackupRunResult | null>(null);
@@ -435,17 +623,12 @@ function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
   createEffect(() => {
     const current = status();
     if (!current) return;
-    const nextBase = {
-      enabled: current.enabled,
-      endpoint: current.endpoint,
-      region: current.region || "us-east-1",
-      bucket: current.bucket,
-    };
+    const nextBase = backupDraftFromStatus(current);
     setBase(nextBase);
-    setEnabled(current.enabled);
-    setEndpoint(current.endpoint);
-    setRegion(current.region || "us-east-1");
-    setBucket(current.bucket);
+    setEnabled(nextBase.enabled);
+    setEndpoint(nextBase.endpoint);
+    setRegion(nextBase.region);
+    setBucket(nextBase.bucket);
     setAccessKeyId("");
     setSecretAccessKey("");
   });
@@ -493,32 +676,16 @@ function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
 
   const missing = () => status()?.missing.join(", ") || "none";
   const dirty = () =>
-    enabled() !== base().enabled ||
-    endpoint().trim() !== base().endpoint ||
-    (region().trim() || "us-east-1") !== base().region ||
-    bucket().trim() !== base().bucket ||
-    accessKeyId().trim().length > 0 ||
-    secretAccessKey().trim().length > 0;
+    backupDraftIsDirty(
+      { enabled: enabled(), endpoint: endpoint(), region: region(), bucket: bucket() },
+      base(),
+      accessKeyId(),
+      secretAccessKey(),
+    );
   const localLogEntries = (): LogTableEntry[] => {
     const run = lastRun();
     if (!run) return [];
-    return [
-      {
-        id: `local:${run.sha256}`,
-        level: "info",
-        source: "notebooks:snapshot:s3",
-        message: run.message,
-        metadata: {
-          trigger: "manual",
-          notebookShortId: props.notebook.shortId,
-          bytes: run.bytes,
-          sha256: run.sha256,
-          latestZip: run.paths.latestZip,
-          snapshotZip: run.paths.snapshotZip,
-        },
-        createdAt: run.exportedAt,
-      },
-    ];
+    return [snapshotLogEntryFromRun(run, props.notebook.shortId)];
   };
   const logEntries = () => {
     const remote = logs() ?? [];
@@ -549,121 +716,39 @@ function ExportSection(props: { notebook: Notebook; isAdmin: boolean }) {
                 One-way ZIP snapshots for this notebook. Cloud admins manage the global schedule in /admin/notebooks.
               </p>
             </div>
-            <Show when={enabled()}>
-              <div class="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  class="btn-secondary btn-sm"
-                  disabled={status.loading || backupMutation.loading() || !status()?.configured}
-                  onClick={() => backupMutation.mutate(undefined)}
-                >
-                  <Show when={!backupMutation.loading()} fallback={<i class="ti ti-loader-2 animate-spin" />}>
-                    <i class="ti ti-cloud-upload" />
-                    Upload now
-                  </Show>
-                </button>
-                <Show when={lastRun()}>
-                  {(result) => (
-                    <span class="text-xs text-emerald-600 dark:text-emerald-300">Uploaded {Math.round(result().bytes / 1024)} KB.</span>
-                  )}
-                </Show>
-              </div>
-            </Show>
+            <SnapshotUploadAction
+              enabled={enabled()}
+              configured={!!status()?.configured}
+              loading={backupMutation.loading()}
+              disabled={status.loading || backupMutation.loading()}
+              lastRun={lastRun()}
+              onRun={() => backupMutation.mutate(undefined)}
+            />
           </div>
 
-          <CheckboxCard
-            label="Enable S3 snapshots"
-            description="Writes latest.zip, a timestamped snapshot, and latest-manifest.json to your bucket."
-            icon="ti ti-cloud-upload"
-            value={enabled}
-            onChange={setEnabled}
-            disabled={configMutation.loading()}
+          <SnapshotConfigFields
+            notebookShortId={props.notebook.shortId}
+            enabled={enabled}
+            setEnabled={setEnabled}
+            endpoint={endpoint}
+            setEndpoint={setEndpoint}
+            region={region}
+            setRegion={setRegion}
+            bucket={bucket}
+            setBucket={setBucket}
+            accessKeyId={accessKeyId}
+            setAccessKeyId={setAccessKeyId}
+            secretAccessKey={secretAccessKey}
+            setSecretAccessKey={setSecretAccessKey}
+            status={status()}
+            missing={missing()}
+            saving={configMutation.loading()}
+            dirty={dirty()}
+            onSave={() => configMutation.mutate(undefined)}
           />
-
-          <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
-            Automatic schedule: <span class="font-mono text-primary">{status()?.scheduleCron ?? "0 3 * * *"}</span>
-            <span class="ml-2 text-dimmed">Cloud admins edit it in /admin/notebooks.</span>
-          </div>
-
-          <Show when={enabled()}>
-            <div class="grid gap-3">
-              <TextInput label="Endpoint" value={endpoint} onInput={setEndpoint} placeholder="https://..." icon="ti ti-link" type="url" />
-              <div class="info-block-info flex items-start gap-2 text-xs">
-                <i class="ti ti-info-circle mt-0.5 shrink-0" />
-                <div>
-                  <p class="font-medium text-primary">S3-compatible endpoint</p>
-                  <p class="mt-0.5 text-dimmed">
-                    Uses Bun's S3 client with virtual-hosted-style requests. Hetzner Object Storage works with endpoints like{" "}
-                    <code>https://nbg1.your-objectstorage.com</code>, <code>https://fsn1.your-objectstorage.com</code>, or{" "}
-                    <code>https://hel1.your-objectstorage.com</code>. Use the matching region such as <code>nbg1</code>. Objects are written
-                    below <code>notebooks/{props.notebook.shortId}/</code>.
-                  </p>
-                </div>
-              </div>
-              <div class="grid gap-3 md:grid-cols-2">
-                <TextInput label="Region" value={region} onInput={setRegion} placeholder="eu-central-1" icon="ti ti-map" />
-                <TextInput label="Bucket" value={bucket} onInput={setBucket} placeholder="my-notebook-backups" icon="ti ti-bucket" />
-              </div>
-              <div class="grid gap-3 md:grid-cols-2">
-                <TextInput
-                  label="Access key ID"
-                  value={accessKeyId}
-                  onInput={setAccessKeyId}
-                  placeholder={status()?.accessKeyIdSet ? "Stored - leave empty to keep" : ""}
-                  icon="ti ti-key"
-                />
-                <TextInput
-                  label="Secret access key"
-                  value={secretAccessKey}
-                  onInput={setSecretAccessKey}
-                  placeholder={status()?.secretAccessKeySet ? "Stored - leave empty to keep" : ""}
-                  icon="ti ti-lock"
-                  password
-                />
-              </div>
-              <div class="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-secondary dark:bg-zinc-900/70">
-                Target: <span class="font-medium text-primary">{status()?.target ?? "not configured"}</span>
-                <Show when={missing() !== "none"}>
-                  <span class="ml-2 text-amber-600 dark:text-amber-300">Missing: {missing()}</span>
-                </Show>
-              </div>
-            </div>
-          </Show>
-
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              class="btn-primary btn-sm"
-              disabled={configMutation.loading() || !dirty()}
-              onClick={() => configMutation.mutate(undefined)}
-            >
-              <Show when={!configMutation.loading()} fallback={<i class="ti ti-loader-2 animate-spin" />}>
-                <i class="ti ti-device-floppy" />
-                Save snapshot settings
-              </Show>
-            </button>
-          </div>
         </div>
 
-        <Show when={showSnapshotLogs()}>
-          <div class="flex flex-col gap-3">
-            <h3 class="text-sm font-semibold">Recent snapshots</h3>
-            <Show
-              when={!logError()}
-              fallback={
-                <div class="info-block-error flex items-start gap-2 text-xs">
-                  <i class="ti ti-alert-circle mt-0.5 shrink-0" />
-                  <span>{logError()}</span>
-                </div>
-              }
-            >
-              <LogEntriesTable
-                entries={logEntries()}
-                emptyMessage={logs.loading ? "Loading snapshot logs..." : "No snapshot runs logged yet."}
-              />
-            </Show>
-          </div>
-        </Show>
+        <SnapshotLogsSection show={showSnapshotLogs()} entries={logEntries()} loading={logs.loading} error={logError()} />
       </Show>
     </div>
   );
