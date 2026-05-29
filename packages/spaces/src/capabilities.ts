@@ -2,12 +2,17 @@ import type { AppSearchInput, AppSearchResult } from "@valentinkolb/cloud/contra
 import { spacesService } from "./service";
 import type { ItemAcrossKind } from "./service";
 
-const SEARCH_TAGS = ["space", "task", "event", "kanban", "calendar"] as const;
+const SEARCH_TAGS = ["space", "spaces", "task", "tasks", "todo", "event", "events", "urgent", "kanban", "calendar"] as const;
 const SEARCH_HELP = "Find spaces, tasks, and events in your workspace.";
 const SEARCH_TAG_HELP = [
   { tag: "space", help: "Show spaces only." },
+  { tag: "spaces", help: "Show spaces only (alias of #space)." },
   { tag: "task", help: "Show tasks only." },
+  { tag: "tasks", help: "Show tasks only (alias of #task)." },
+  { tag: "todo", help: "Show open tasks only." },
   { tag: "event", help: "Show events (items with a time range) only." },
+  { tag: "events", help: "Show events only (alias of #event)." },
+  { tag: "urgent", help: "Show urgent items only." },
   { tag: "kanban", help: "Show tasks only (alias of #task)." },
   { tag: "calendar", help: "Show events only (alias of #event)." },
 ] as const;
@@ -17,10 +22,15 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
   if (!user.roles.includes("user")) return [];
 
   const tags = new Set(input.tags);
-  const kindActive = ["space", "task", "event", "kanban", "calendar"].some((t) => tags.has(t));
-  const includeSpaces = !kindActive || tags.has("space");
-  const includeTasks = !kindActive || tags.has("task") || tags.has("kanban");
-  const includeEvents = !kindActive || tags.has("event") || tags.has("calendar");
+  const wantsSpaces = tags.has("space") || tags.has("spaces");
+  const wantsTasks = tags.has("task") || tags.has("tasks") || tags.has("todo") || tags.has("kanban");
+  const wantsEvents = tags.has("event") || tags.has("events") || tags.has("calendar");
+  const itemFilterActive = tags.has("todo") || tags.has("urgent");
+  const kindActive = wantsSpaces || wantsTasks || wantsEvents;
+  const includeSpaces = !kindActive && !itemFilterActive ? true : wantsSpaces;
+  const includeAllItemKinds = !kindActive || (itemFilterActive && !wantsTasks && !wantsEvents);
+  const includeTasks = includeAllItemKinds || wantsTasks;
+  const includeEvents = includeAllItemKinds || wantsEvents;
 
   if (!includeSpaces && !includeTasks && !includeEvents) return [];
 
@@ -45,6 +55,8 @@ export const search = async (input: AppSearchInput): Promise<AppSearchResult[]> 
           groups: user.memberofGroupIds,
           query: input.query,
           kinds,
+          status: tags.has("todo") ? "open" : undefined,
+          priority: tags.has("urgent") ? ["urgent"] : undefined,
           limit: input.limit,
         })
       : Promise.resolve([]),

@@ -531,6 +531,8 @@ export const searchAcross = async (params: {
   groups: string[];
   query: string;
   kinds: ItemAcrossKind;
+  status?: "open";
+  priority?: Priority[];
   limit: number;
 }): Promise<ItemAcrossResult[]> => {
   const { userId, query, kinds, limit } = params;
@@ -547,6 +549,10 @@ export const searchAcross = async (params: {
   } else if (kinds === "event") {
     kindCondition = sql`(i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL)`;
   }
+
+  const statusCondition = params.status === "open" ? sql`i.completed_at IS NULL` : sql`TRUE`;
+  const priorityCondition =
+    params.priority && params.priority.length > 0 ? sql`i.priority = ANY(${toPgTextArray(params.priority)}::text[])` : sql`TRUE`;
 
   // Permission check via EXISTS subquery rather than LEFT JOIN. The previous
   // join approach needed `SELECT DISTINCT` to dedupe items joined to multiple
@@ -576,6 +582,8 @@ export const searchAcross = async (params: {
         )
     )
       AND ${kindCondition}
+      AND ${statusCondition}
+      AND ${priorityCondition}
       AND (i.title ILIKE ${pattern} OR i.description ILIKE ${pattern})
     ORDER BY
       CASE WHEN i.title ILIKE ${pattern} THEN 0 ELSE 1 END,
