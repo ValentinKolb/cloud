@@ -1761,7 +1761,8 @@ const appWithExport = appWithAttachments
     async (c) => {
       const { notebook, error } = await checkNotebookAccess(c, c.req.param("id")!, "admin");
       if (error) return error;
-      const response = await respond(
+      c.header("Cache-Control", "no-store");
+      return respond(
         c,
         ok(
           await notebooksService.backup.listLogs({
@@ -1770,8 +1771,6 @@ const appWithExport = appWithAttachments
           }),
         ),
       );
-      response.headers.set("Cache-Control", "no-store");
-      return response;
     },
   )
   .post(
