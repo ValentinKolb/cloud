@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { auth, type AuthContext, v } from "@valentinkolb/cloud/server";
+import { auth, getDateConfig, type AuthContext, v } from "@valentinkolb/cloud/server";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
 
 const parseWorkspaceHref = (href: string) => {
@@ -32,6 +32,7 @@ const app = new Hono<AuthContext>()
     const state = await loadGridsWorkspaceState({
       user: c.get("user"),
       href: c.req.valid("query").href,
+      dateConfig: await getDateConfig(c),
       ...target,
     });
     return c.json(state);

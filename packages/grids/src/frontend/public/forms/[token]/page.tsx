@@ -1,8 +1,9 @@
 import { listLegalLinks } from "@valentinkolb/cloud";
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ssr } from "../../../../config";
 import { gridsService } from "../../../../service";
 import PublicFormSubmit from "../../../_components/forms/PublicFormSubmit.island";
+import PublicTimezoneCookie from "../../../_components/forms/PublicTimezoneCookie.island";
 
 /**
  * Public form rendering page. Anonymous, no auth required.
@@ -53,6 +54,7 @@ export default ssr<AuthContext>(async (c) => {
 
   c.get("page").title = form.config.title ?? form.name;
   c.get("page").description = form.config.description ?? undefined;
+  const dateConfig = await getDateConfig(c);
 
   // Sanitize the form object before hydration: strip form_value entries
   // (their `value` is server-only) and drop ownerUserId / publicToken
@@ -70,7 +72,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <PublicShell legalLinks={legalLinks}>
-      <PublicFormSubmit publicToken={token} form={safeForm} fields={fields} />
+      <PublicFormSubmit publicToken={token} form={safeForm} fields={fields} dateConfig={dateConfig} />
     </PublicShell>
   );
 });
@@ -84,6 +86,7 @@ type LegalLink = { label: string; href: string; icon?: string };
 function PublicShell(props: { legalLinks: LegalLink[]; children: any }) {
   return (
     <div class="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950">
+      <PublicTimezoneCookie />
       <main class="flex-1 w-full max-w-2xl mx-auto px-4 py-6 sm:py-10">{props.children}</main>
       <footer class="shrink-0 w-full px-4 py-3 flex items-center justify-center flex-wrap gap-x-4 gap-y-1 text-xs text-dimmed">
         {props.legalLinks.map((link) => (

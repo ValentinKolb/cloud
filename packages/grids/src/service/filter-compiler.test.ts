@@ -135,18 +135,18 @@ describe("compileFilter — structural compilation", () => {
     expect(r.ok).toBe(true);
   });
 
-  test("date-time filters keep local wall time and reject offsets", () => {
+  test("date-time filters require timezone-aware instants", () => {
     const timed = mkField("fld_time", "date", { includeTime: true });
-    const ok = compileFilter({ fieldId: "fld_time", op: "=", value: "2026-05-02T12:00" }, [...fields, timed]);
+    const ok = compileFilter({ fieldId: "fld_time", op: "=", value: "2026-05-02T12:00:00+02:00" }, [...fields, timed]);
     expect(ok.ok).toBe(true);
     if (ok.ok && ok.clause.kind === "predicate") {
       expect(ok.clause.dateIncludeTime).toBe(true);
-      expect(ok.clause.value).toBe("2026-05-02T12:00");
+      expect(ok.clause.value).toBe("2026-05-02T12:00:00+02:00");
     }
 
-    const shifted = compileFilter({ fieldId: "fld_time", op: "=", value: "2026-05-02T12:00:00+02:00" }, [...fields, timed]);
-    expect(shifted.ok).toBe(false);
-    if (!shifted.ok) expect(shifted.error).toMatch(/local date-time/);
+    const local = compileFilter({ fieldId: "fld_time", op: "=", value: "2026-05-02T12:00" }, [...fields, timed]);
+    expect(local.ok).toBe(false);
+    if (!local.ok) expect(local.error).toMatch(/timezone-aware/);
   });
 
   test("date-only filters reject date-times and reversed ranges", () => {

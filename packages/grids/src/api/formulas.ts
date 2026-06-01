@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, jsonResponse, respond, type AuthContext, v } from "@valentinkolb/cloud/server";
+import { auth, getDateConfig, jsonResponse, respond, type AuthContext, v } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import { checkFormula } from "../service/formula-preview";
@@ -32,35 +32,35 @@ const FormulaPreviewResponseSchema = z.object({
   ),
 });
 
-const app = new Hono<AuthContext>()
-  .use(auth.requireRole("authenticated"))
-  .post(
-    "/by-table/:tableId/check",
-    describeRoute({
-      tags: ["Grids:Formula"],
-      summary: "Validate a formula and preview latest records",
-      responses: {
-        200: jsonResponse(FormulaPreviewResponseSchema, "Formula diagnostics and preview rows"),
-        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
-        404: jsonResponse(ErrorResponseSchema, "Table not found"),
-      },
-    }),
-    v("json", FormulaCheckBodySchema),
-    async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const table = await gridsService.table.get(tableId);
-      if (!table) return c.json({ message: "Table not found" }, 404);
-      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const body = c.req.valid("json");
-      return respond(c, () =>
-        checkFormula({
-          tableId,
-          expression: body.expression,
-          currentFieldId: body.currentFieldId ?? null,
-        }),
-      );
+const app = new Hono<AuthContext>().use(auth.requireRole("authenticated")).post(
+  "/by-table/:tableId/check",
+  describeRoute({
+    tags: ["Grids:Formula"],
+    summary: "Validate a formula and preview latest records",
+    responses: {
+      200: jsonResponse(FormulaPreviewResponseSchema, "Formula diagnostics and preview rows"),
+      403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+      404: jsonResponse(ErrorResponseSchema, "Table not found"),
     },
-  );
+  }),
+  v("json", FormulaCheckBodySchema),
+  async (c) => {
+    const tableId = c.req.param("tableId")!;
+    const table = await gridsService.table.get(tableId);
+    if (!table) return c.json({ message: "Table not found" }, 404);
+    const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+    if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+    const body = c.req.valid("json");
+    const dateConfig = await getDateConfig(c);
+    return respond(c, () =>
+      checkFormula({
+        tableId,
+        expression: body.expression,
+        currentFieldId: body.currentFieldId ?? null,
+        dateConfig,
+      }),
+    );
+  },
+);
 
 export default app;

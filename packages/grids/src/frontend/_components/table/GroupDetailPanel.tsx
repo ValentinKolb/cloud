@@ -1,4 +1,5 @@
 import { TextInput } from "@valentinkolb/cloud/ui";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { AggregationSpec, FilterTree, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
@@ -32,6 +33,7 @@ type Props = {
   relationLabels: Record<string, string>;
   onClose: () => void;
   onOpenRecord: (record: GridRecord) => void;
+  dateConfig?: DateContext;
 };
 
 type FetchVars = {
@@ -72,6 +74,7 @@ export default function GroupDetailPanel(props: Props) {
         groupBy: props.groupBy,
         keys: props.bucket.keys,
         q: vars.q,
+        dateConfig: props.dateConfig,
       });
       return fetchTableQuery({ tableId: props.tableId, query, cursor: vars.cursor }, { signal: abortSignal });
     },
@@ -142,9 +145,9 @@ export default function GroupDetailPanel(props: Props) {
     }
     if (raw == null) return "—";
     if (field.type === "select") {
-      return formatCell([raw], field.type, field.config) || String(raw);
+      return formatCell([raw], field.type, field.config, undefined, props.dateConfig) || String(raw);
     }
-    return formatCell(raw, field.type, field.config) || String(raw);
+    return formatCell(raw, field.type, spec.granularity ? { ...field.config, includeTime: false } : field.config, undefined, props.dateConfig) || String(raw);
   };
 
   const renderRecordLine = (record: GridRecord) => {
@@ -268,7 +271,7 @@ export default function GroupDetailPanel(props: Props) {
       const ids = Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : typeof value === "string" ? [value] : [];
       return ids.map((id) => expandedLabel(record.expanded?.[id], id)).join(", ");
     }
-    return formatCell(value, field.type, field.config);
+    return formatCell(value, field.type, field.config, undefined, props.dateConfig);
   }
 }
 
@@ -304,9 +307,10 @@ const buildMemberQuery = (params: {
   groupBy: GroupBySpec[];
   keys: unknown[];
   q: string;
+  dateConfig?: DateContext;
 }): ViewQuery => {
   const leaves = params.groupBy
-    .map((spec, index) => groupFilterLeaf(spec, params.keys[index], params.fields))
+    .map((spec, index) => groupFilterLeaf(spec, params.keys[index], params.fields, params.dateConfig))
     .filter((leaf): leaf is FilterLeaf => !!leaf);
   const filter = mergeFilters(params.baseQuery.filter, leaves);
   const q = params.q.trim();
@@ -326,7 +330,7 @@ const mergeFilters = (base: FilterTree | undefined, leaves: FilterTree[]): Filte
   return { op: "AND", filters: [base, ...leaves].filter(Boolean) as FilterTree[] };
 };
 
-const groupFilterLeaf = (spec: GroupBySpec, key: unknown, fields: Field[]): FilterLeaf | null => {
+const groupFilterLeaf = (spec: GroupBySpec, key: unknown, fields: Field[], dateConfig?: DateContext): FilterLeaf | null => {
   const field = fields.find((f) => f.id === spec.fieldId);
   if (!field) return null;
   if (key === null || key === undefined || key === "") {
@@ -349,17 +353,33 @@ const groupFilterLeaf = (spec: GroupBySpec, key: unknown, fields: Field[]): Filt
     case "duration":
       return Number.isFinite(Number(key)) ? { fieldId: field.id, op: "=", value: Number(key) } : null;
     case "date":
-      return dateGroupFilter(field.id, key, spec.granularity, Boolean((field.config as { includeTime?: boolean }).includeTime));
+      return dateGroupFilter(field.id, key, spec.granularity, Boolean((field.config as { includeTime?: boolean }).includeTime), dateConfig);
     default:
       return { fieldId: field.id, op: "equals", value: String(key) };
   }
 };
 
-const dateGroupFilter = (fieldId: string, key: unknown, granularity?: GroupBySpec["granularity"], includeTime = false): FilterLeaf => {
+const zonedBoundary = (localDateTime: string, dateConfig?: DateContext): string => {
+  const utcFallback = () => new Date(`${localDateTime}Z`).toISOString();
+  if (!dateConfig?.timeZone) return utcFallback();
+  try {
+    return dates.zonedDateTimeToInstant(localDateTime, dateConfig.timeZone, { disambiguation: "compatible" });
+  } catch {
+    return utcFallback();
+  }
+};
+
+const dateGroupFilter = (
+  fieldId: string,
+  key: unknown,
+  granularity?: GroupBySpec["granularity"],
+  includeTime = false,
+  dateConfig?: DateContext,
+): FilterLeaf => {
   const startDate = String(key).slice(0, 10);
   const [y, m, d] = startDate.split("-").map(Number);
   if (!y || !m || !d) return { fieldId, op: "=", value: startDate };
-  if (!granularity) return { fieldId, op: "=", value: includeTime ? `${startDate}T00:00` : startDate };
+  if (!granularity) return { fieldId, op: "=", value: includeTime ? String(key) : startDate };
 
   const end = new Date(Date.UTC(y, m - 1, d));
   if (granularity === "day") end.setUTCDate(end.getUTCDate() + 1);
@@ -372,6 +392,6 @@ const dateGroupFilter = (fieldId: string, key: unknown, granularity?: GroupBySpe
   return {
     fieldId,
     op: "between",
-    value: includeTime ? [`${startDate}T00:00`, `${endDate}T23:59:59`] : [startDate, endDate],
+    value: includeTime ? [zonedBoundary(`${startDate}T00:00`, dateConfig), zonedBoundary(`${endDate}T23:59:59.999`, dateConfig)] : [startDate, endDate],
   };
 };

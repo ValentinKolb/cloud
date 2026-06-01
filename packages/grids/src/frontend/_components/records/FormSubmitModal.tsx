@@ -1,4 +1,5 @@
 import { CopyButton, dialogCore, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -19,14 +20,14 @@ import { errorMessage } from "../utils/api-helpers";
  *   redirecting away — fits the modal context where the user came in
  *   to add a single record and likely wants to add more in a row.
  */
-export const openFormModal = (form: Form, fields: Field[], options: { onSubmitted?: () => void } = {}) =>
+export const openFormModal = (form: Form, fields: Field[], options: { onSubmitted?: () => void; dateConfig?: DateContext } = {}) =>
   dialogCore.open<void>(
     (close) => (
       <PanelDialog>
         <PanelDialog.Header title={form.config.title ?? form.name} icon="ti ti-forms" close={() => close()} />
         <PanelDialog.Body>
           <PanelDialog.Section title="Submit form" subtitle={form.name} icon="ti ti-forms">
-            <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} close={close} />
+            <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} dateConfig={options.dateConfig} close={close} />
           </PanelDialog.Section>
         </PanelDialog.Body>
       </PanelDialog>
@@ -34,7 +35,7 @@ export const openFormModal = (form: Form, fields: Field[], options: { onSubmitte
     panelDialogOptions,
   );
 
-function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () => void; close: (result?: void) => void }) {
+function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () => void; dateConfig?: DateContext; close: (result?: void) => void }) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
 
@@ -107,7 +108,15 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
           {(entry) => {
             const field = fieldsById.get(entry.fieldId);
             if (!field || field.deletedAt) return null;
-            return <FieldInput field={field} entry={entry} value={values()[entry.fieldId]} onChange={(v) => setValue(entry.fieldId, v)} />;
+            return (
+              <FieldInput
+                field={field}
+                entry={entry}
+                value={values()[entry.fieldId]}
+                onChange={(v) => setValue(entry.fieldId, v)}
+                dateConfig={props.dateConfig}
+              />
+            );
           }}
         </For>
 

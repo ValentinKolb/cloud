@@ -11,6 +11,7 @@ import {
   Select,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -63,6 +64,7 @@ type OpenFieldEditArgs = {
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
   tableColumns?: ColumnSpec[];
+  dateConfig?: DateContext;
   onSaved: (next: Field) => void;
   onTableColumnsSaved?: (columns: ColumnSpec[]) => void;
   onDeleted: () => Promise<void> | void;
@@ -86,6 +88,7 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
         otherTables={props.args.otherTables}
         fieldsByTable={props.args.fieldsByTable}
         tableColumns={props.args.tableColumns}
+        dateConfig={props.args.dateConfig}
         onDirtyChange={setDirty}
         onSaved={(next) => {
           setDirty(false);
@@ -114,6 +117,7 @@ function FieldEditor(props: {
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
   tableColumns?: ColumnSpec[];
+  dateConfig?: DateContext;
   onSaved: (next: Field) => void;
   onTableColumnsSaved?: (columns: ColumnSpec[]) => void;
   onDeleted: () => void;
@@ -396,6 +400,7 @@ function FieldEditor(props: {
                   }}
                   value={defaultValue()}
                   onChange={(v) => wrap(setDefaultValue)(v)}
+                  dateConfig={props.dateConfig}
                 />
               }
             >
@@ -426,6 +431,7 @@ function FieldEditor(props: {
                   }}
                   value={defaultValue()}
                   onChange={(v) => wrap(setDefaultValue)(v)}
+                  dateConfig={props.dateConfig}
                 />
               </Show>
             </Show>

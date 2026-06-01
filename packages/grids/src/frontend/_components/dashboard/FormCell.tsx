@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { FormWidget } from "../../../service";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
@@ -9,6 +10,7 @@ type Props = {
   widget: FormWidget;
   data: WidgetData;
   onSubmitted?: () => void;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -47,7 +49,7 @@ export default function FormCell(props: Props) {
           if (!d.canSubmit) {
             return <NoAccessPlaceholder widget={props.widget} formName={d.form.name} />;
           }
-          return <FormBody widget={props.widget} form={d.form} fields={d.fields} onSubmitted={props.onSubmitted} />;
+          return <FormBody widget={props.widget} form={d.form} fields={d.fields} onSubmitted={props.onSubmitted} dateConfig={props.dateConfig} />;
         })()}
       </Show>
     </div>
@@ -83,6 +85,7 @@ function FormBody(props: {
   form: Extract<WidgetData, { kind: "form" }>["form"];
   fields: Extract<WidgetData, { kind: "form" }>["fields"];
   onSubmitted?: () => void;
+  dateConfig?: DateContext;
 }) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
@@ -137,7 +140,15 @@ function FormBody(props: {
           {(entry) => {
             const field = fieldsById.get(entry.fieldId);
             if (!field || field.deletedAt) return null;
-            return <FieldInput field={field} entry={entry} value={values()[entry.fieldId]} onChange={(v) => setValue(entry.fieldId, v)} />;
+            return (
+              <FieldInput
+                field={field}
+                entry={entry}
+                value={values()[entry.fieldId]}
+                onChange={(v) => setValue(entry.fieldId, v)}
+                dateConfig={props.dateConfig}
+              />
+            );
           }}
         </For>
 

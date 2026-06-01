@@ -1,4 +1,5 @@
 import { dialogCore, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import type { Field, GridRecord } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
@@ -39,6 +40,7 @@ type OpenArgs = {
   record?: GridRecord;
   /** Existing relation labels so relation chips do not render as UUIDs. */
   relationLabels?: Record<string, string>;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -157,6 +159,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
             error={() => errors()[f.id]}
             baseId={args.baseId}
             relationLabels={args.relationLabels}
+            dateConfig={args.dateConfig}
           />
         );
       };

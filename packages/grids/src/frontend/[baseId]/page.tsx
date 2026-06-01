@@ -1,4 +1,4 @@
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import GridsWorkspace from "../_components/workspace/GridsWorkspace.island";
@@ -13,6 +13,7 @@ export default ssr<AuthContext>(async (c) => {
     activeTableSlug: c.req.param("tableId") ?? null,
     activeViewSlug: c.req.param("viewId") ?? null,
     activeDashboardSlug: c.req.param("dashboardId") ?? null,
+    dateConfig: await getDateConfig(c),
   });
 
   if (state.kind !== "ok") {

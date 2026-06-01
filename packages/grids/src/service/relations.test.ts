@@ -103,6 +103,16 @@ describe("enrichRecordsWithFormulas — basic evaluation", () => {
     expect(rec.data["fld-empty"]).toBeUndefined();
   });
 
+  test("formula date functions use the provided timezone context", () => {
+    const today = mkFormula("fld-today", "TODAY", "TODAY()");
+    const rec = mkRecord("rec-1", {});
+    enrichRecordsWithFormulas([rec], [today], {
+      dateConfig: { timeZone: "Europe/Berlin" },
+      now: new Date("2026-05-01T22:30:00.000Z"),
+    });
+    expect(rec.data["fld-today"]).toBe("2026-05-02");
+  });
+
   test("deleted formula fields are ignored", () => {
     const f = { ...mkFormula("fld-1", "F1", "1 + 1"), deletedAt: "2026-01-02T00:00:00Z" };
     const rec = mkRecord("rec-1", {});

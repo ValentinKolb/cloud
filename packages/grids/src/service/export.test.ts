@@ -152,6 +152,21 @@ describe("formatCellForExport", () => {
     expect(formatCellForExport(3.14, text)).toBe("3.14");
   });
 
+  test("date-only fields export the stored calendar day", () => {
+    const date = mkField({ id: "fld-date", type: "date" });
+    expect(formatCellForExport("2026-05-02T23:00:00-02:00", date)).toBe("2026-05-02");
+  });
+
+  test("date-time fields export in the configured timezone", () => {
+    const dateTime = mkField({ id: "fld-datetime", type: "date", config: { includeTime: true } });
+    expect(
+      formatCellForExport("2026-05-02T10:00:00.000Z", dateTime, {
+        markdown: "raw",
+        dateConfig: { timeZone: "Europe/Berlin", locale: "en", firstDayOfWeek: 1 },
+      }),
+    ).toBe("2026-05-02 12:00");
+  });
+
   test("longtext can render markdown as sanitized HTML", () => {
     const md = mkField({ id: "fld-md", type: "longtext" });
     expect(formatCellForExport("**bold**", md, { markdown: "html" })).toContain("<strong>bold</strong>");

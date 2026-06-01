@@ -1,4 +1,5 @@
 import { markdown } from "@valentinkolb/cloud/shared";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { AggregationSpec, ColumnSpec, GroupBySpec, StatSource, Widget, WidgetFormat } from "../contracts";
 import type { Field, GridRecord } from "./types";
 import type { Form } from "./forms";
@@ -122,6 +123,10 @@ type ViewerContext = {
   isAdmin?: boolean;
 };
 
+type ResolveOptions = {
+  dateConfig?: DateContext;
+};
+
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
 type LinkWidget = Extract<Widget, { kind: "link" }>;
 type LinkDataBase = {
@@ -143,17 +148,17 @@ type LinkDataBase = {
  * expansion) are evaluated inside the per-kind resolvers using the
  * viewer context.
  */
-export const resolveWidgetData = async (widget: Widget, viewer: ViewerContext): Promise<WidgetData> => {
+export const resolveWidgetData = async (widget: Widget, viewer: ViewerContext, options: ResolveOptions = {}): Promise<WidgetData> => {
   try {
     switch (widget.kind) {
       case "stat":
-        return await resolveStat(widget.source);
+        return await resolveStat(widget.source, options);
       case "chart":
-        return await resolveChart(widget, viewer);
+        return await resolveChart(widget, viewer, options);
       case "view":
-        return await resolveView(widget, viewer);
+        return await resolveView(widget, viewer, options);
       case "view-stats":
-        return await resolveViewStats(widget, viewer);
+        return await resolveViewStats(widget, viewer, options);
       case "form":
         return await resolveForm(widget, viewer);
       case "markdown":
@@ -341,7 +346,7 @@ const iconForLinkTarget = (kind: Extract<Widget, { kind: "link" }>["target"]["ki
 // stat
 // =============================================================================
 
-const resolveStat = async (source: StatSource): Promise<WidgetData> => {
+const resolveStat = async (source: StatSource, options: ResolveOptions): Promise<WidgetData> => {
   const agg = source.aggregations[0];
   if (!agg) return { kind: "error", reason: "stat widget has no aggregation" };
   const aggKey = `${agg.fieldId}__${agg.agg}`;
@@ -353,8 +358,9 @@ const resolveStat = async (source: StatSource): Promise<WidgetData> => {
       tableId: source.tableId,
       filter: source.filter ?? null,
       requests: source.aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
+      dateConfig: options.dateConfig,
     }),
-    source.trend ? resolveStatTrend(source, aggKey) : Promise.resolve<number[] | null>(null),
+    source.trend ? resolveStatTrend(source, aggKey, options) : Promise.resolve<number[] | null>(null),
   ]);
   if (!scalar.ok) return { kind: "error", reason: scalar.error.message };
   return {
@@ -364,7 +370,7 @@ const resolveStat = async (source: StatSource): Promise<WidgetData> => {
   };
 };
 
-const resolveStatTrend = async (source: StatSource, aggKey: string): Promise<number[] | null> => {
+const resolveStatTrend = async (source: StatSource, aggKey: string, options: ResolveOptions): Promise<number[] | null> => {
   if (!source.trend) return null;
   const agg = source.aggregations[0];
   if (!agg) return null;
@@ -381,6 +387,7 @@ const resolveStatTrend = async (source: StatSource, aggKey: string): Promise<num
       ],
       limit: source.trend.windowSize,
       fromEnd: true,
+      dateConfig: options.dateConfig,
     });
     if (!result.ok) return null;
     const numbers: number[] = [];
@@ -400,7 +407,7 @@ const resolveStatTrend = async (source: StatSource, aggKey: string): Promise<num
 // from view.query), optionally trims to the most-recent `limit` buckets.
 // =============================================================================
 
-const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: ViewerContext): Promise<WidgetData> => {
+const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: ViewerContext, options: ResolveOptions): Promise<WidgetData> => {
   const view = await views.get(widget.viewId);
   if (!view) return { kind: "error", reason: "source view not found" };
   const groupBy = view.query.groupBy ?? [];
@@ -427,6 +434,7 @@ const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: 
       limit: widget.limit,
       fromEnd: widget.limit !== undefined,
       viewer,
+      dateConfig: options.dateConfig,
     }),
     fields.listByTable(view.tableId),
   ]);
@@ -455,14 +463,19 @@ const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: 
 // view — embedded read-only table of a saved view OR a raw table
 // =============================================================================
 
-const resolveView = async (widget: Extract<Widget, { kind: "view" }>, viewer: ViewerContext): Promise<WidgetData> => {
+const resolveView = async (widget: Extract<Widget, { kind: "view" }>, viewer: ViewerContext, options: ResolveOptions): Promise<WidgetData> => {
   if (widget.source.kind === "view") {
-    return resolveSavedView(widget.source.viewId, widget.title, viewer);
+    return resolveSavedView(widget.source.viewId, widget.title, viewer, options);
   }
-  return resolveRawTable(widget.source.tableId, widget.title, viewer);
+  return resolveRawTable(widget.source.tableId, widget.title, viewer, options);
 };
 
-const resolveSavedView = async (viewId: string, titleOverride: string | undefined, viewer: ViewerContext): Promise<WidgetData> => {
+const resolveSavedView = async (
+  viewId: string,
+  titleOverride: string | undefined,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<WidgetData> => {
   const view = await views.get(viewId);
   if (!view) return { kind: "error", reason: "view not found" };
   const table = await tables.get(view.tableId);
@@ -482,6 +495,7 @@ const resolveSavedView = async (viewId: string, titleOverride: string | undefine
     limit: EMBEDDED_VIEW_PAGESIZE,
     includeRelations: true,
     viewer,
+    dateConfig: options.dateConfig,
   });
   if (!recordList.ok) return { kind: "error", reason: recordList.error.message };
   return {
@@ -495,7 +509,12 @@ const resolveSavedView = async (viewId: string, titleOverride: string | undefine
   };
 };
 
-const resolveRawTable = async (tableId: string, titleOverride: string | undefined, viewer: ViewerContext): Promise<WidgetData> => {
+const resolveRawTable = async (
+  tableId: string,
+  titleOverride: string | undefined,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<WidgetData> => {
   const table = await tables.get(tableId);
   if (!table) return { kind: "error", reason: "table not found" };
   const baseTables = await tables.listByBase(table.baseId);
@@ -505,6 +524,7 @@ const resolveRawTable = async (tableId: string, titleOverride: string | undefine
     limit: EMBEDDED_VIEW_PAGESIZE,
     includeRelations: true,
     viewer,
+    dateConfig: options.dateConfig,
   });
   if (!recordList.ok) return { kind: "error", reason: recordList.error.message };
   return {
@@ -524,7 +544,11 @@ const resolveRawTable = async (tableId: string, titleOverride: string | undefine
 // hairline grid within its single paper slot).
 // =============================================================================
 
-const resolveViewStats = async (widget: Extract<Widget, { kind: "view-stats" }>, viewer: ViewerContext): Promise<WidgetData> => {
+const resolveViewStats = async (
+  widget: Extract<Widget, { kind: "view-stats" }>,
+  viewer: ViewerContext,
+  options: ResolveOptions,
+): Promise<WidgetData> => {
   const titleFallback = widget.title ?? "View stats";
   const view = await views.get(widget.viewId);
   if (!view) {
@@ -550,9 +574,9 @@ const resolveViewStats = async (widget: Extract<Widget, { kind: "view-stats" }>,
   const title = widget.title ?? view.name;
   const isGrouped = (view.query.groupBy ?? []).length > 0;
   if (isGrouped) {
-    return await resolveGroupedViewStats(view, title, link, viewer);
+    return await resolveGroupedViewStats(view, title, link, viewer, options);
   }
-  return await resolveUngroupedViewStats(view, title, link, viewer);
+  return await resolveUngroupedViewStats(view, title, link, viewer, options);
 };
 
 const resolveUngroupedViewStats = async (
@@ -560,6 +584,7 @@ const resolveUngroupedViewStats = async (
   title: string,
   link: { tableShortId: string; viewShortId: string },
   viewer: ViewerContext,
+  options: ResolveOptions,
 ): Promise<WidgetData> => {
   const fieldsList = await fields.listByTable(view.tableId);
   const fieldsById = new Map(fieldsList.map((f) => [f.id, f]));
@@ -584,6 +609,7 @@ const resolveUngroupedViewStats = async (
     deletedOnly: view.query.deletedOnly,
     limit: 1,
     viewer,
+    dateConfig: options.dateConfig,
   });
   if (!result.ok) {
     return {
@@ -617,6 +643,7 @@ const resolveGroupedViewStats = async (
   title: string,
   link: { tableShortId: string; viewShortId: string },
   viewer: ViewerContext,
+  options: ResolveOptions,
 ): Promise<WidgetData> => {
   const aggs = view.query.aggregations ?? [];
   if (aggs.length === 0) {
@@ -640,10 +667,11 @@ const resolveGroupedViewStats = async (
       agg: a.agg as "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max",
     })),
     groupSort: view.query.groupSort,
-      includeDeleted: view.query.includeDeleted,
-      deletedOnly: view.query.deletedOnly,
+    includeDeleted: view.query.includeDeleted,
+    deletedOnly: view.query.deletedOnly,
     limit: 1,
     viewer,
+    dateConfig: options.dateConfig,
   });
   if (!result.ok) {
     return {

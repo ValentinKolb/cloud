@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { LinkWidget as LinkWidgetConfig } from "../../../service";
 import { openFormModal } from "../records/FormSubmitModal";
 import type { WidgetData } from "./widget-data";
@@ -8,6 +9,7 @@ type Props = {
   data: WidgetData;
   baseShortId: string;
   onSubmitted?: () => void;
+  dateConfig?: DateContext;
 };
 
 export default function LinkWidget(props: Props) {
@@ -93,7 +95,7 @@ export default function LinkWidget(props: Props) {
                       class="btn-primary btn-sm"
                       disabled={!target.canSubmit}
                       onClick={() => {
-                        if (target.canSubmit) openFormModal(target.form, target.fields, { onSubmitted: props.onSubmitted });
+                        if (target.canSubmit) openFormModal(target.form, target.fields, { onSubmitted: props.onSubmitted, dateConfig: props.dateConfig });
                       }}
                     >
                       <i class={target.canSubmit ? "ti ti-forms" : "ti ti-lock"} />

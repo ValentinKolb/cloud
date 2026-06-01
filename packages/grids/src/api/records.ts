@@ -1,17 +1,13 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import * as settings from "@valentinkolb/cloud/services/settings";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { ok, fail, err } from "@valentinkolb/stdlib";
 import { gridsService } from "../service";
-import {
-  GridRecordSchema,
-  RecordPayloadSchema,
-  ExportBodySchema,
-} from "../contracts";
+import { GridRecordSchema, RecordPayloadSchema, ExportBodySchema } from "../contracts";
 import { gateAt } from "./permissions";
 
 const GridFileSchema = z.object({
@@ -96,10 +92,7 @@ const app = new Hono<AuthContext>()
 
       const maxBytes = await getMaxFileSizeBytes();
       if (file.size > maxBytes) {
-        return c.json(
-          { message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` },
-          413,
-        );
+        return c.json({ message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` }, 413);
       }
 
       const user = c.get("user");
@@ -195,7 +188,11 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
-      return respond(c, () => gridsService.record.create(tableId, c.req.valid("json"), user.id), 201);
+      return respond(
+        c,
+        async () => gridsService.record.create(tableId, c.req.valid("json"), user.id, { dateConfig: await getDateConfig(c) }),
+        201,
+      );
     },
   )
 
@@ -216,7 +213,7 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const record = await gridsService.record.get(tableId, recordId);
+      const record = await gridsService.record.get(tableId, recordId, { dateConfig: await getDateConfig(c) });
       if (!record) return c.json({ message: "Record not found" }, 404);
       return c.json(record);
     },
@@ -243,8 +240,8 @@ const app = new Hono<AuthContext>()
       const ifMatchHeader = c.req.header("If-Match");
       const ifMatchVersion = ifMatchHeader ? Number(ifMatchHeader) : undefined;
       const user = c.get("user");
-      return respond(c, () =>
-        gridsService.record.update(tableId, recordId, c.req.valid("json"), user.id, ifMatchVersion),
+      return respond(c, async () =>
+        gridsService.record.update(tableId, recordId, c.req.valid("json"), user.id, ifMatchVersion, { dateConfig: await getDateConfig(c) }),
       );
     },
   )
@@ -297,9 +294,8 @@ const app = new Hono<AuthContext>()
         fields: body.fields,
         csv: body.csv,
         markdown: body.markdown,
-        viewer: hasRole(user, "admin")
-          ? undefined
-          : { userId: user.id, userGroups: user.memberofGroupIds },
+        dateConfig: await getDateConfig(c),
+        viewer: hasRole(user, "admin") ? undefined : { userId: user.id, userGroups: user.memberofGroupIds },
       });
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
 

@@ -14,6 +14,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget } from "../../../service";
@@ -46,6 +47,7 @@ type Props = {
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
   widgetData: Record<string, WidgetData>;
+  dateConfig?: DateContext;
   onWidgetRecordsChanged?: () => void;
   onDashboardChanged?: () => void;
 };
@@ -317,6 +319,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       dashboard={dashboard()}
       widgetData={widgetData()}
       baseShortId={props.baseShortId}
+      dateConfig={props.dateConfig}
       onWidgetRecordsChanged={props.onWidgetRecordsChanged}
       edit={{
         onGeneral: () =>

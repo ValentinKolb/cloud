@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { Field, Form } from "../../../service";
 import { openFormEditorDialog } from "../forms/FormsManager";
 import { openFormModal } from "../records/FormSubmitModal";
@@ -12,6 +13,7 @@ type Props = {
    *  render input rows for each user_input entry referenced by the
    *  form config. Pre-fetched server-side so the click is instant. */
   fields: Field[];
+  dateConfig?: DateContext;
 };
 
 const chooseEditModeAction = (formName: string) =>
@@ -75,6 +77,7 @@ export default function FormSidebarEntry(props: Props) {
   const openSubmit = () =>
     openFormModal(props.form, props.fields, {
       onSubmitted: refreshCurrentPath,
+      dateConfig: props.dateConfig,
     });
 
   const openEditor = () =>

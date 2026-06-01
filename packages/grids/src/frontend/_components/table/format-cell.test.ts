@@ -7,8 +7,16 @@ describe("formatCell", () => {
     expect(formatCell("2026-05-14T00:00:00+00:00", "date", {})).toBe("2026-05-14");
   });
 
-  test("keeps date-time wall time when the date field includes time", () => {
-    expect(formatCell("2026-05-14T10:30", "date", { includeTime: true })).toBe("2026-05-14 10:30");
+  test("renders date-time instants in the configured timezone", () => {
+    expect(formatCell("2026-05-14T08:30:00.000Z", "date", { includeTime: true }, undefined, { timeZone: "Europe/Berlin" })).toBe(
+      "2026-05-14 10:30",
+    );
+  });
+
+  test("does not timezone-shift date-only formatted values", () => {
+    expect(
+      formatCell("2026-05-14", "date", {}, { kind: "date", format: "long", includeTime: false }, { timeZone: "America/Los_Angeles" }),
+    ).toContain("14");
   });
 
   test("renders select option labels in stored order", () => {

@@ -23,7 +23,7 @@ const autonumberSeqName = (fieldId: string): string => `grids_an_${fieldId.repla
  *  gate before embedding fieldId in DDL identifiers. */
 const isSafeFieldId = (fieldId: string): boolean => /^[a-f0-9-]+$/i.test(fieldId);
 
-const indexExpressionForType = (fieldId: string, type: string): string | null => {
+const indexExpressionForType = (fieldId: string, type: string, config?: Record<string, unknown>): string | null => {
   switch (type) {
     case "number":
     case "autonumber":
@@ -32,10 +32,9 @@ const indexExpressionForType = (fieldId: string, type: string): string | null =>
       // All numeric field types share the numeric expression index.
       return `((grids.try_numeric(data->>'${fieldId}')))`;
     case "date":
-      // Date expression indexes need an IMMUTABLE parser. The app writes
-      // canonical YYYY-MM-DD values, so grids.try_iso_date can parse
-      // without session DateStyle.
-      return `((grids.try_iso_date(data->>'${fieldId}')))`;
+      return (config as { includeTime?: boolean } | undefined)?.includeTime
+        ? `((grids.try_timestamptz(data->>'${fieldId}')))`
+        : `((grids.try_iso_date(data->>'${fieldId}')))`;
     case "boolean":
       return `((grids.try_boolean(data->>'${fieldId}')))`;
     case "text":
@@ -57,7 +56,12 @@ const fieldIndexWhere = (_fieldId: string, tableId: string): string => `WHERE ta
  * caller must invoke this OUTSIDE any in-flight tx (which is the case in
  * field.update / field.create where the tx is already committed).
  */
-export const ensureFieldIndex = async (fieldId: string, type: string, tableId: string): Promise<void> => {
+export const ensureFieldIndex = async (
+  fieldId: string,
+  type: string,
+  tableId: string,
+  config?: Record<string, unknown>,
+): Promise<void> => {
   // Field IDs are UUIDs (constrained set [a-f0-9-]) so embedding them in
   // SQL identifiers is safe — no other path produces a `fieldId` value.
   if (!isSafeFieldId(fieldId) || !isSafeFieldId(tableId)) {
@@ -65,7 +69,7 @@ export const ensureFieldIndex = async (fieldId: string, type: string, tableId: s
     return;
   }
 
-  const expression = indexExpressionForType(fieldId, type);
+  const expression = indexExpressionForType(fieldId, type, config);
   if (!expression) {
     // select / unsupported types use a different strategy (jsonb_path_ops GIN).
     if (type === "select") {

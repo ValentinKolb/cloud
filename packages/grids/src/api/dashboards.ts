@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import {
   DashboardSchema,
@@ -175,6 +175,8 @@ const app = new Hono<AuthContext>()
         userId: user.id,
         userGroups: user.memberofGroupIds,
         isAdmin,
+      }, { 
+        dateConfig: await getDateConfig(c),
       });
       return c.json(data);
     },

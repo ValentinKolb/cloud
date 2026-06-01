@@ -1,5 +1,5 @@
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { emitTableMetadataEvent } from "./metadata-events";
 import {
@@ -136,17 +136,11 @@ const isDateNowDefault = (value: unknown): value is { kind: "now" } =>
   (value as { kind?: unknown }).kind === "now" &&
   Object.keys(value as Record<string, unknown>).length === 1;
 
-export const materializeFieldDefault = (field: Field): unknown => {
+export const materializeFieldDefault = (field: Field, options: { dateConfig?: DateContext; now?: Date } = {}): unknown => {
   if (field.type !== "date" || !isDateNowDefault(field.defaultValue)) return field.defaultValue;
   const includeTime = (field.config as { includeTime?: boolean }).includeTime ?? false;
-  const now = new Date();
-  if (!includeTime) return now.toISOString().slice(0, 10);
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${d}T${hh}:${mm}`;
+  const now = options.now ?? new Date();
+  return includeTime ? now.toISOString() : dates.formatDateKey(now, options.dateConfig);
 };
 
 export const validateDefaultValue = (type: string, config: Record<string, unknown>, value: unknown): Result<unknown> => {
@@ -327,7 +321,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // re-toggle (filterable indexes are nice-to-have for performance,
   // not correctness — fields work without them).
   if (field.indexed) {
-    void ensureFieldIndex(field.id, field.type, field.tableId);
+    void ensureFieldIndex(field.id, field.type, field.tableId, field.config);
   }
   // Unique-constraint indexes ARE correctness-critical: if the build
   // fails, the row claiming `unique_constraint = true` would lie about
@@ -439,7 +433,7 @@ const logFieldUpdateDiff = async (existing: Field, next: FieldUpdateState, actor
 const syncFieldIndexes = async (existing: Field, field: Field): Promise<Result<void>> => {
   // Toggle indexed state outside the row commit. Both calls are idempotent.
   if (existing.indexed !== field.indexed) {
-    if (field.indexed) void ensureFieldIndex(field.id, field.type, field.tableId);
+    if (field.indexed) void ensureFieldIndex(field.id, field.type, field.tableId, field.config);
     else void dropFieldIndex(field.id);
   }
   // Unique-constraint enable: AWAIT the build and roll back the metadata
@@ -556,7 +550,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
     actorId,
   });
   // Re-create the expression index if the field was indexed.
-  if (existing.indexed) void ensureFieldIndex(id, existing.type, existing.tableId);
+  if (existing.indexed) void ensureFieldIndex(id, existing.type, existing.tableId, existing.config);
   return ok({ ...existing, deletedAt: null });
 };
 

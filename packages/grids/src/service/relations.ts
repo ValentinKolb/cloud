@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { evaluate, renderResult } from "../formula/evaluator";
+import type { FormulaRuntimeContext } from "../formula/functions";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { formulaError } from "../formula/types";
 import type { SqlClient } from "./audit";
@@ -253,7 +254,7 @@ const orderFormulasByDeps = (
  * Inter-formula references evaluate in dependency order; cycles surface
  * as #CYCLE rather than silent wrong values.
  */
-export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]): GridRecord[] => {
+export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[], options: FormulaRuntimeContext = {}): GridRecord[] => {
   const formulaFields = fields.filter((f) => !f.deletedAt && f.type === "formula");
   if (formulaFields.length === 0) return records;
 
@@ -284,7 +285,7 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
     }
     for (const { field, ast } of ordered) {
       if (cycle.has(field.id)) continue;
-      const value = evaluate(ast, { fields: scratch, slugToId });
+      const value = evaluate(ast, { fields: scratch, slugToId, dateConfig: options.dateConfig, now: options.now });
       scratch[field.id] = value;
     }
     // Render once at the end — every formula's display string is now

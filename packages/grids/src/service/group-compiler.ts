@@ -129,7 +129,11 @@ const aggAliasFor = (req: GroupAggregationSpec): string => `${req.fieldId}__${re
 
 /** Build a per-group projection. Scalar / date / relation branches
  *  diverge here. */
-const resolveGroupBy = (specs: GroupBySpec[], fields: Field[]): { ok: true; resolved: ResolvedGroup[] } | { ok: false; error: string } => {
+const resolveGroupBy = (
+  specs: GroupBySpec[],
+  fields: Field[],
+  timeZone = "UTC",
+): { ok: true; resolved: ResolvedGroup[] } | { ok: false; error: string } => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
   const resolved: ResolvedGroup[] = [];
   let relationJoinCounter = 0;
@@ -187,20 +191,18 @@ const resolveGroupBy = (specs: GroupBySpec[], fields: Field[]): { ok: true; reso
     }
 
     if (field.type === "date" && spec.granularity) {
-      // Server-side bucketing. Date-time fields are floating local
-      // wall times, not UTC instants, so they use timestamp without
-      // time zone. Date-only fields still use canonical YYYY-MM-DD.
-      // Casts go through grids.try_* helpers
-      // so corrupt values produce NULL instead of crashing the GROUP BY.
+      // Server-side bucketing. Date-time fields are stored as UTC
+      // instants and bucketed in the user's/app's configured timezone.
+      // Date-only fields stay pure calendar values.
       const gran = spec.granularity;
       const expr = (field.config as { includeTime?: boolean }).includeTime
-        ? sql`grids.try_timestamp(r.data->>${field.id})`
+        ? sql`grids.try_timestamptz(r.data->>${field.id}) AT TIME ZONE ${timeZone}`
         : sql`grids.try_iso_date(r.data->>${field.id})::timestamp`;
       resolved.push({
         spec,
         field,
         alias,
-        expr: sql`date_trunc(${gran}, ${expr})`,
+        expr: sql`date_trunc(${gran}, ${expr})::date`,
       });
       continue;
     }
@@ -378,7 +380,7 @@ const buildFromClause = (groups: ResolvedGroup[]): any => {
 };
 
 const buildWhereClause = (params: CompileGroupParams): { ok: true; where: any } | { ok: false; error: string } => {
-  const filterCompiled = compileFilter(params.filter ?? null, params.fields);
+  const filterCompiled = compileFilter(params.filter ?? null, params.fields, { timeZone: params.timeZone });
   if (!filterCompiled.ok) return { ok: false, error: `filter: ${filterCompiled.error}` };
 
   const whereParts: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
@@ -461,6 +463,7 @@ type CompileGroupParams = {
   includeDeleted?: boolean;
   /** When true, only soft-deleted records are included. */
   deletedOnly?: boolean;
+  timeZone?: string;
 };
 
 type CompileGroupResult =
@@ -475,7 +478,7 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
       return { ok: false, error: "groupBy supports at most 3 levels" };
   }
 
-  const groups = resolveGroupBy(params.groupBy, params.fields);
+  const groups = resolveGroupBy(params.groupBy, params.fields, params.timeZone ?? "UTC");
   if (!groups.ok) return groups;
 
   const fieldsById = new Map(params.fields.map((f) => [f.id, f]));

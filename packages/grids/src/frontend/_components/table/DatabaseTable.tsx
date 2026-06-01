@@ -1,5 +1,6 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { DataTable, type DataTableColumn, MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { AggregationSpec } from "../../../contracts";
 import type { Field, GridRecord, RecordList } from "../../../service";
@@ -88,6 +89,7 @@ type Props = {
   loadingMore?: boolean;
   onLoadMore?: () => void;
   scrollPreserveKey?: string;
+  dateConfig?: DateContext;
   adminMode?: boolean;
   onFieldSettings?: (field: Field) => void;
   onFieldMove?: (field: Field, direction: -1 | 1) => void;
@@ -194,7 +196,7 @@ export default function DatabaseTable(props: Props) {
     const relationField = cfg.relationFieldId
       ? props.result.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation" && !f.deletedAt)
       : undefined;
-    const value = formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id));
+    const value = formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id), props.dateConfig);
     if (!value || !relationField) return value;
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = record.data[relationField.id];
@@ -226,7 +228,7 @@ export default function DatabaseTable(props: Props) {
       const ratio = progressRatio(record.data[field.id], field.type, field.config);
       const percent = Math.round(ratio * 100);
       const label =
-        fmt.label === "none" ? "" : fmt.label === "value" ? formatCell(record.data[field.id], field.type, field.config) : `${percent}%`;
+        fmt.label === "none" ? "" : fmt.label === "value" ? formatCell(record.data[field.id], field.type, field.config, undefined, props.dateConfig) : `${percent}%`;
       return (
         <span class="flex min-w-36 items-center gap-3">
           <ProgressBar value={percent} size="sm" class="w-32 shrink-0" />
@@ -236,7 +238,7 @@ export default function DatabaseTable(props: Props) {
         </span>
       );
     }
-    return formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id));
+    return formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id), props.dateConfig);
   };
 
   const columns = (): DataTableColumn<GridRecord>[] =>
@@ -265,7 +267,7 @@ export default function DatabaseTable(props: Props) {
         {(spec) => {
           const value = () => (props.aggregates ?? {})[`${spec.fieldId}__${spec.agg}`];
           const displayValue = () =>
-            spec.fieldId === "*" ? String(value()) : formatCell(value(), field.type, field.config, columnFormat(field.id));
+            spec.fieldId === "*" ? String(value()) : formatCell(value(), field.type, field.config, columnFormat(field.id), props.dateConfig);
           const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
           const label = spec.label?.trim() || fallbackLabel;
           return (

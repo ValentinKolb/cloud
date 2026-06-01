@@ -1,5 +1,4 @@
 import type { BarItem, Point, Series, SliceItem } from "@valentinkolb/stdlib";
-import { dates } from "@valentinkolb/stdlib";
 import type { AggregationSpec, ChartWidget, Field, GroupBySpec } from "../../../service";
 
 /**
@@ -59,6 +58,18 @@ export const toNumber = (v: unknown): number | null => {
   return null;
 };
 
+const dateKeyParts = (key: unknown): { year: number; month: number; day: number } | null => {
+  const [year, month, day] = String(key).slice(0, 10).split("-").map(Number);
+  return year && month && day ? { year, month, day } : null;
+};
+
+const formatCalendarDateKey = (key: unknown, options: Intl.DateTimeFormatOptions): string => {
+  const parts = dateKeyParts(key);
+  if (!parts) return String(key);
+  const d = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  return d.toLocaleDateString(undefined, { ...options, timeZone: "UTC" });
+};
+
 /** Render the first groupBy key of a bucket as a category label
  *  (donut / bar / line x-axis tick). Resolution order:
  *
@@ -89,12 +100,9 @@ export const formatCategoryKey = (key: unknown, spec: GroupBySpec | undefined, r
       return /^\d{4}$/.test(year) ? year : String(key);
     }
     if (granularity === "month" || granularity === "quarter") {
-      const [year, month] = String(key).slice(0, 10).split("-").map(Number);
-      const d = year && month ? new Date(Date.UTC(year, month - 1, 1)) : new Date(key);
-      if (!Number.isFinite(d.valueOf())) return String(key);
-      return d.toLocaleDateString(undefined, { year: "numeric", month: "short" });
+      return formatCalendarDateKey(key, { year: "numeric", month: "short" });
     }
-    return dates.formatDate(key as string | Date);
+    return formatCalendarDateKey(key, { year: "numeric", month: "short", day: "numeric" });
   }
 
   // Plain UUID fallback when the lookup failed (e.g. relationLabels

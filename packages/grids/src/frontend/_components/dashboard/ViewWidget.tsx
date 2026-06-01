@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { Widget } from "../../../service";
 import DatabaseTable from "../table/DatabaseTable";
 import type { WidgetData } from "./widget-data";
@@ -9,6 +10,7 @@ type Props = {
   /** Slug of the parent base — prepended to the view-deep-link in the
    *  header. Only used when `data.fullViewLink` is non-null. */
   baseShortId: string;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -90,6 +92,7 @@ export default function ViewWidget(props: Props) {
                 tableShortIds={viewData.tableShortIds}
                 viewColumns={viewData.viewColumns}
                 showColumnSubtitles={false}
+                dateConfig={props.dateConfig}
               />
             </div>
           );

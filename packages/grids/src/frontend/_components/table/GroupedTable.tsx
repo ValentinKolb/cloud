@@ -1,4 +1,5 @@
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { Show } from "solid-js";
 import type { Field } from "../../../service";
 import type { FormatSpec } from "../../../service/views";
@@ -62,6 +63,7 @@ type Props = {
   scrollPreserveKey?: string;
   onColumnSettings?: (columnId: string) => void;
   onColumnMove?: (columnId: string, direction: -1 | 1) => void;
+  dateConfig?: DateContext;
 };
 
 export const groupedGroupColumnId = (spec: GroupByCol, index: number): string => `group:${index}:${spec.fieldId}:${spec.granularity ?? ""}`;
@@ -121,7 +123,7 @@ export default function GroupedTable(props: Props) {
     if (val === null || val === undefined) return "—";
     if (spec.format) {
       const field = spec.fieldId === "*" ? null : fieldsById.get(spec.fieldId);
-      return formatCell(val, field?.type ?? "number", field?.config ?? {}, spec.format) || String(val);
+      return formatCell(val, field?.type ?? "number", field?.config ?? {}, spec.format, props.dateConfig) || String(val);
     }
     if (typeof val === "number") return Number.isInteger(val) ? String(val) : val.toFixed(2);
     return String(val);
@@ -250,7 +252,15 @@ export default function GroupedTable(props: Props) {
               />
             );
           }
-          return f ? formatCell(val, f.type, f.config, meta.spec.format) || formatScalarKey(val) : formatScalarKey(val);
+          return f
+            ? formatCell(
+                val,
+                f.type,
+                meta.spec.granularity ? { ...f.config, includeTime: false } : f.config,
+                meta.spec.format,
+                props.dateConfig,
+              ) || formatScalarKey(val)
+            : formatScalarKey(val);
         }}
       />
     </Show>

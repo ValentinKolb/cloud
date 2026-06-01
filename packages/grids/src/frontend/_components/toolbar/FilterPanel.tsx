@@ -1,4 +1,5 @@
 import { DateTimeInput, MultiSelectInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
@@ -20,6 +21,7 @@ type Props = {
   fields: Field[];
   rows: () => FilterLeaf[];
   onRowsChange: (next: FilterLeaf[]) => void;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -110,7 +112,13 @@ export default function FilterPanel(props: Props) {
                 />
               </div>
 
-              <FilterValueInput field={field()} op={op()} value={leaf().value} onChange={(v) => updateLeaf(index, { value: v })} />
+              <FilterValueInput
+                field={field()}
+                op={op()}
+                value={leaf().value}
+                onChange={(v) => updateLeaf(index, { value: v })}
+                dateConfig={props.dateConfig}
+              />
 
               <button type="button" class="text-dimmed hover:text-red-500 px-1" onClick={() => removeLeaf(index)} title="Remove filter">
                 <i class="ti ti-x" />
@@ -151,7 +159,13 @@ type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "relation" 
  * shows a text box). Always read `props.op` / `props.field` from inside JSX
  * or memos; never bind them to const at the top.
  */
-function FilterValueInput(props: { field: Field | null; op: FilterOp | null; value: unknown; onChange: (v: unknown) => void }) {
+function FilterValueInput(props: {
+  field: Field | null;
+  op: FilterOp | null;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  dateConfig?: DateContext;
+}) {
   const kind = createMemo<ValueKind>(() => {
     const field = props.field;
     const op = props.op;
@@ -195,7 +209,12 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
             <span class="flex items-center gap-1">
               <div class="w-44">
                 {isDate() ? (
-                  <DateTimeInput dateOnly={dateOnly()} value={() => dateAt(0)} onChange={(v) => props.onChange([v, range()[1]])} />
+                  <DateTimeInput
+                    dateOnly={dateOnly()}
+                    dateConfig={dateOnly() ? undefined : props.dateConfig}
+                    value={() => dateAt(0)}
+                    onChange={(v) => props.onChange([v, range()[1]])}
+                  />
                 ) : (
                   <NumberInput value={() => numAt(0)} onChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
                 )}
@@ -203,7 +222,12 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
               <span class="text-dimmed">to</span>
               <div class="w-44">
                 {isDate() ? (
-                  <DateTimeInput dateOnly={dateOnly()} value={() => dateAt(1)} onChange={(v) => props.onChange([range()[0], v])} />
+                  <DateTimeInput
+                    dateOnly={dateOnly()}
+                    dateConfig={dateOnly() ? undefined : props.dateConfig}
+                    value={() => dateAt(1)}
+                    onChange={(v) => props.onChange([range()[0], v])}
+                  />
                 ) : (
                   <NumberInput value={() => numAt(1)} onChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
                 )}
@@ -302,6 +326,7 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
         <div class="w-44">
           <DateTimeInput
             dateOnly={!Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime)}
+            dateConfig={(props.field?.config as { includeTime?: boolean } | undefined)?.includeTime ? props.dateConfig : undefined}
             value={() => (typeof props.value === "string" ? props.value : "")}
             onChange={(v) => props.onChange(v)}
           />

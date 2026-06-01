@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { getHandler } from "../field-types";
 import { defaultTableAggregations } from "../table-defaults";
@@ -136,7 +136,11 @@ const preflightRelationTargets = async (
  * either the provided value or the field's default. Required-checks apply.
  * Autonumber fields receive a sequence value derived from the existing rows.
  */
-const validateForCreate = async (tableId: string, payload: Record<string, unknown>): Promise<Result<Record<string, unknown>>> => {
+const validateForCreate = async (
+  tableId: string,
+  payload: Record<string, unknown>,
+  options: { dateConfig?: DateContext } = {},
+): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(tableId);
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
@@ -157,7 +161,7 @@ const validateForCreate = async (tableId: string, payload: Record<string, unknow
     if (!handler || !handler.userInput) continue;
 
     const provided = Object.prototype.hasOwnProperty.call(payload, field.id);
-    const raw = provided ? payload[field.id] : materializeFieldDefault(field);
+    const raw = provided ? payload[field.id] : materializeFieldDefault(field, { dateConfig: options.dateConfig });
     const result = handler.validate(raw, field.config, field.required);
     if (!result.ok) return fail(err.badInput(formatFieldValidationError(field.name, result.error)));
     if (result.value !== null && result.value !== undefined) {
@@ -220,12 +224,13 @@ export const list = async (params: {
    */
   viewer?: ExpansionViewer;
   includeAggregates?: boolean;
+  dateConfig?: DateContext;
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
 
   // Filter compilation
-  const filterCompiled = compileFilter(params.filter ?? null, fields);
+  const filterCompiled = compileFilter(params.filter ?? null, fields, { timeZone: params.dateConfig?.timeZone });
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
   const searchCompiled = await compileSearchClause({
@@ -301,7 +306,7 @@ export const list = async (params: {
   }
   // Formulas still run in JS — they reference computed and base values
   // alike, and the formula engine is not SQL-projectable yet.
-  enrichRecordsWithFormulas(items, fields);
+  enrichRecordsWithFormulas(items, fields, { dateConfig: params.dateConfig });
 
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
   // because it reads `record.data[fieldId]` to figure out which UUIDs
@@ -321,6 +326,7 @@ export const list = async (params: {
         deletedOnly: params.deletedOnly,
         requests: defaultListAggregates(fields),
         viewer: params.viewer,
+        dateConfig: params.dateConfig,
       })
     : ok<Record<string, unknown>>({});
   if (!aggregatesResult.ok) return aggregatesResult;
@@ -352,6 +358,7 @@ export const group = async (params: {
   includeDeleted?: boolean;
   deletedOnly?: boolean;
   viewer?: ExpansionViewer;
+  dateConfig?: DateContext;
 }): Promise<Result<{ buckets: GroupBucket[]; nextCursor: string | null; explode: boolean }>> => {
   const fields = await listFields(params.tableId);
 
@@ -388,6 +395,7 @@ export const group = async (params: {
     fromEnd: params.fromEnd,
     includeDeleted: params.includeDeleted,
     deletedOnly: params.deletedOnly,
+    timeZone: params.dateConfig?.timeZone,
   });
   if (!compiled.ok) return fail(err.badInput(compiled.error));
 
@@ -396,11 +404,11 @@ export const group = async (params: {
   const visible = params.fromEnd && hasMore ? rows.slice(-limit) : rows.slice(0, limit);
 
   const buckets: GroupBucket[] = visible.map((row) => {
-    const keys = compiled.resolvedGroups.map((_, i) => {
+    const keys = compiled.resolvedGroups.map((group, i) => {
       const raw = row[`gk_${i}`];
       // Date keys come back as JS Date — normalize to ISO string for
       // a stable JSON envelope. Bigints (count-likes) become numbers.
-      if (raw instanceof Date) return raw.toISOString();
+      if (raw instanceof Date) return group.spec.granularity ? raw.toISOString().slice(0, 10) : raw.toISOString();
       if (typeof raw === "bigint") return Number(raw);
       return raw ?? null;
     });
@@ -446,10 +454,11 @@ export const aggregate = async (params: {
   includeDeleted?: boolean;
   deletedOnly?: boolean;
   viewer?: ExpansionViewer;
+  dateConfig?: DateContext;
 }): Promise<Result<Record<string, unknown>>> => {
   const fields = await listFields(params.tableId);
 
-  const filterCompiled = compileFilter(params.filter ?? null, fields);
+  const filterCompiled = compileFilter(params.filter ?? null, fields, { timeZone: params.dateConfig?.timeZone });
   if (!filterCompiled.ok) return fail(err.badInput(`filter: ${filterCompiled.error}`));
   const filterClause = renderClause(filterCompiled.clause);
   const searchCompiled = await compileSearchClause({
@@ -495,7 +504,7 @@ export const aggregate = async (params: {
 export const get = async (
   tableId: string,
   recordId: string,
-  opts: { includeRelations?: boolean; viewer?: ExpansionViewer } = {},
+  opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
 ): Promise<GridRecord | null> => {
   const fields = await listFields(tableId);
   const computed = await buildComputedProjections(fields);
@@ -517,7 +526,7 @@ export const get = async (
   // mirrors the list-path shape exactly.
   await hydrateRelationsFromLinks([record], fields);
   applyComputedProjections([row as Record<string, unknown>], new Map([[record.id, record]]), computed);
-  enrichRecordsWithFormulas([record], fields);
+  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fields, opts.viewer);
   }
@@ -532,6 +541,7 @@ export const create = async (
     bypassDirectInsertCheck?: boolean;
     includeRelations?: boolean;
     viewer?: ExpansionViewer;
+    dateConfig?: DateContext;
   } = {},
 ): Promise<Result<GridRecord>> => {
   // Per-table QoL gate: a "submission inbox" table can mark
@@ -548,7 +558,7 @@ export const create = async (
     }
   }
 
-  const validated = await validateForCreate(tableId, payload);
+  const validated = await validateForCreate(tableId, payload, { dateConfig: opts.dateConfig });
   if (!validated.ok) return validated;
 
   const fields = await listFields(tableId);
@@ -611,6 +621,7 @@ export const create = async (
   // Hydrate so the returned record carries the relation arrays the
   // caller just sent — keeps the API contract stable.
   await hydrateRelationsFromLinks([record], fields);
+  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fields, opts.viewer);
   }
@@ -635,7 +646,7 @@ export const update = async (
   payload: Record<string, unknown>,
   actorId: string | null,
   ifMatchVersion?: number,
-  opts: { includeRelations?: boolean; viewer?: ExpansionViewer } = {},
+  opts: { includeRelations?: boolean; viewer?: ExpansionViewer; dateConfig?: DateContext } = {},
 ): Promise<Result<GridRecord>> => {
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
@@ -724,6 +735,7 @@ export const update = async (
 
   const record = mapRow(txResult);
   await hydrateRelationsFromLinks([record], fields);
+  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
   if (opts.includeRelations) {
     await attachRelationExpansion([record], fields, opts.viewer);
   }

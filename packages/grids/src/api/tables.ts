@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
 import {
@@ -187,6 +187,7 @@ const app = new Hono<AuthContext>()
       // the direct-field filter DSL.
       const tableFields = await gridsService.field.listByTable(tableId);
       const user = c.get("user");
+      const dateConfig = await getDateConfig(c);
       const viewer = {
         userId: user.id,
         userGroups: user.memberofGroupIds,
@@ -217,6 +218,7 @@ const app = new Hono<AuthContext>()
           includeDeleted: query.includeDeleted,
           deletedOnly: query.deletedOnly,
           viewer,
+          dateConfig,
         });
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         // Resolve presentable labels for relation-typed group keys so
@@ -254,6 +256,7 @@ const app = new Hono<AuthContext>()
         sort: query.sort,
         includeRelations: true,
         viewer,
+        dateConfig,
       });
       if (!listResult.ok) return c.json({ message: listResult.error.message }, listResult.error.status);
 
@@ -270,6 +273,7 @@ const app = new Hono<AuthContext>()
           deletedOnly: query.deletedOnly,
           requests: query.aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
           viewer,
+          dateConfig,
         });
         if (aggResult.ok) aggregates = { ...aggregates, ...aggResult.data };
       }

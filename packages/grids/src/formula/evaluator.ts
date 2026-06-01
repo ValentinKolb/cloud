@@ -1,8 +1,8 @@
-import { FN_LIBRARY, isFormulaError } from "./functions";
+import { FN_LIBRARY, isFormulaError, type FormulaRuntimeContext } from "./functions";
 import { decimalToString, isExactShaped, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { type BinOp, type Expr, formulaError, type Literal } from "./types";
 
-type EvalContext = {
+type EvalContext = FormulaRuntimeContext & {
   /** Record data keyed by field id (UUID). */
   fields: Record<string, unknown>;
   /** Optional `slug → fieldId` map. Lets the evaluator resolve `#slug`
@@ -196,7 +196,7 @@ const evalCall = (ast: Extract<Expr, { kind: "call" }>, ctx: EvalContext): unkno
   const args = evalCallArgs(ast.args, ctx);
   if (isFormulaError(args)) return args;
   try {
-    return fn(args);
+    return fn(args, ctx);
   } catch {
     return formulaError(`FN_ERROR:${ast.fn}`);
   }

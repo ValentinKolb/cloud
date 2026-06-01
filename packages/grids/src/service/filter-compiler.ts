@@ -39,6 +39,7 @@ export type CompiledClause =
       value?: unknown;
       caseInsensitive?: boolean;
       dateIncludeTime?: boolean;
+      timeZone?: string;
     };
 
 // ──────────────────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ const opsForType = (type: string): Set<string> => {
 // ──────────────────────────────────────────────────────────────────
 
 type CompileResult = { ok: true; clause: CompiledClause } | { ok: false; error: string };
+type CompileOptions = { timeZone?: string };
 
 // Distinguishes group vs leaf by SHAPE, not just `op`. A leaf with op
 // "AND"/"OR" would otherwise be misclassified as a group with undefined
@@ -90,21 +92,21 @@ const isGroup = (t: FilterTree): t is FilterGroup => {
   return (g.op === "AND" || g.op === "OR") && Array.isArray(g.filters);
 };
 
-export const compileFilter = (tree: FilterTree | null | undefined, fields: Field[]): CompileResult => {
+export const compileFilter = (tree: FilterTree | null | undefined, fields: Field[], options: CompileOptions = {}): CompileResult => {
   if (tree === null || tree === undefined) return { ok: true, clause: { kind: "true" } };
 
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  return walk(tree, fieldsById);
+  return walk(tree, fieldsById, options);
 };
 
-const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult => {
+const walk = (tree: FilterTree, fieldsById: Map<string, Field>, options: CompileOptions): CompileResult => {
   if (isGroup(tree)) {
     if (tree.filters.length === 0) {
       return { ok: true, clause: { kind: tree.op === "AND" ? "true" : "false" } };
     }
     const parts: CompiledClause[] = [];
     for (const f of tree.filters) {
-      const r = walk(f, fieldsById);
+      const r = walk(f, fieldsById, options);
       if (!r.ok) return r;
       parts.push(r.clause);
     }
@@ -130,42 +132,44 @@ const walk = (tree: FilterTree, fieldsById: Map<string, Field>): CompileResult =
     return { ok: false, error: `field "${field.name}" / op "${tree.op}": ${valueErr}` };
   }
 
-  return {
-    ok: true,
-    clause: {
-      kind: "predicate",
-      fieldId: field.id,
-      fieldType: field.type,
-      op: tree.op,
-      value: tree.value,
-      caseInsensitive: tree.caseInsensitive,
-      dateIncludeTime,
-    },
+  const clause: PredicateClause = {
+    kind: "predicate",
+    fieldId: field.id,
+    fieldType: field.type,
+    op: tree.op,
+    value: tree.value,
+    caseInsensitive: tree.caseInsensitive,
+    ...(field.type === "date" ? { dateIncludeTime, timeZone: options.timeZone ?? "UTC" } : {}),
   };
+  return { ok: true, clause };
 };
 
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_DATE_TIME_REGEX = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?$/;
+const INSTANT_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[zZ]|[+-]\d{2}:?\d{2})$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VALUELESS_OPS = new Set(["isEmpty", "isNotEmpty", "today", "thisWeek", "thisMonth"]);
 const NUMBER_TYPES = new Set(["number", "autonumber", "percent", "duration"]);
 
 const isValidDateValue = (value: unknown, dateIncludeTime?: boolean): boolean => {
-  const datePattern = dateIncludeTime ? LOCAL_DATE_TIME_REGEX : ISO_DATE_REGEX;
-  return typeof value === "string" && datePattern.test(value);
+  if (typeof value !== "string") return false;
+  if (!dateIncludeTime) return ISO_DATE_REGEX.test(value);
+  if (!INSTANT_REGEX.test(value)) return false;
+  return !Number.isNaN(new Date(value).getTime());
 };
 
 const dateValueError = (dateIncludeTime?: boolean): string =>
-  dateIncludeTime ? "expected local date-time string" : "expected ISO date string";
+  dateIncludeTime ? "expected timezone-aware ISO date-time string" : "expected ISO date string";
 
 const validateDateBounds = (value: unknown, dateIncludeTime?: boolean): string | null => {
   if (!Array.isArray(value) || value.length !== 2) return "between expects [from, to]";
   for (const v of value) {
     if (!isValidDateValue(v, dateIncludeTime)) {
-      return dateIncludeTime ? "between bounds must be local date-time strings" : "between bounds must be ISO date strings";
+      return dateIncludeTime ? "between bounds must be timezone-aware ISO date-time strings" : "between bounds must be ISO date strings";
     }
   }
-  return value[0] > value[1] ? "between lower bound must be before upper bound" : null;
+  const lower = dateIncludeTime ? new Date(String(value[0])).getTime() : String(value[0]);
+  const upper = dateIncludeTime ? new Date(String(value[1])).getTime() : String(value[1]);
+  return lower > upper ? "between lower bound must be before upper bound" : null;
 };
 
 const validateDateValue = (op: string, value: unknown, dateIncludeTime?: boolean): string | null => {
@@ -235,11 +239,14 @@ type PredicateProjection = {
 
 const predicateProjection = (p: PredicateClause): PredicateProjection => {
   const fieldId = p.fieldId;
+  const timeZone = p.timeZone ?? "UTC";
   return {
     text: p.caseInsensitive ? sql`LOWER(data->>${fieldId})` : sql`data->>${fieldId}`,
     numeric: sql`grids.try_numeric(data->>${fieldId})`,
-    date: p.dateIncludeTime ? sql`grids.try_timestamp(data->>${fieldId})` : sql`grids.try_iso_date(data->>${fieldId})`,
-    dateOnly: p.dateIncludeTime ? sql`grids.try_timestamp(data->>${fieldId})::date` : sql`grids.try_iso_date(data->>${fieldId})`,
+    date: p.dateIncludeTime ? sql`grids.try_timestamptz(data->>${fieldId})` : sql`grids.try_iso_date(data->>${fieldId})`,
+    dateOnly: p.dateIncludeTime
+      ? sql`(grids.try_timestamptz(data->>${fieldId}) AT TIME ZONE ${timeZone})::date`
+      : sql`grids.try_iso_date(data->>${fieldId})`,
     bool: sql`grids.try_boolean(data->>${fieldId})`,
   };
 };
@@ -303,10 +310,10 @@ const renderNumberPredicate = (p: PredicateClause, projection: PredicateProjecti
 const renderDateComparison = (p: PredicateClause, projection: PredicateProjection, opSql: "=" | "<" | ">"): any =>
   p.dateIncludeTime
     ? opSql === "="
-      ? sql`${projection.date} = ${p.value}::timestamp`
+      ? sql`${projection.date} = ${p.value}::timestamptz`
       : opSql === "<"
-        ? sql`${projection.date} < ${p.value}::timestamp`
-        : sql`${projection.date} > ${p.value}::timestamp`
+        ? sql`${projection.date} < ${p.value}::timestamptz`
+        : sql`${projection.date} > ${p.value}::timestamptz`
     : opSql === "="
       ? sql`${projection.date} = ${p.value}::date`
       : opSql === "<"
@@ -314,6 +321,10 @@ const renderDateComparison = (p: PredicateClause, projection: PredicateProjectio
         : sql`${projection.date} > ${p.value}::date`;
 
 const renderDatePredicate = (p: PredicateClause, projection: PredicateProjection): any => {
+  const timeZone = p.timeZone ?? "UTC";
+  const localToday = sql`(CURRENT_TIMESTAMP AT TIME ZONE ${timeZone})::date`;
+  const localNow = sql`CURRENT_TIMESTAMP AT TIME ZONE ${timeZone}`;
+  const localDateExpr = p.dateIncludeTime ? sql`${projection.date} AT TIME ZONE ${timeZone}` : sql`${projection.date}::timestamp`;
   switch (p.op) {
     case "=":
       return renderDateComparison(p, projection, "=");
@@ -324,18 +335,18 @@ const renderDatePredicate = (p: PredicateClause, projection: PredicateProjection
     case "between": {
       const v = p.value as [unknown, unknown] | undefined;
       return p.dateIncludeTime
-        ? sql`${projection.date} BETWEEN ${v?.[0]}::timestamp AND ${v?.[1]}::timestamp`
+        ? sql`${projection.date} BETWEEN ${v?.[0]}::timestamptz AND ${v?.[1]}::timestamptz`
         : sql`${projection.date} BETWEEN ${v?.[0]}::date AND ${v?.[1]}::date`;
     }
     case "today":
-      return sql`${projection.dateOnly} = CURRENT_DATE`;
+      return sql`${projection.dateOnly} = ${localToday}`;
     case "thisWeek":
-      return sql`date_trunc('week', ${projection.date}) = date_trunc('week', CURRENT_TIMESTAMP::timestamp)`;
+      return sql`date_trunc('week', ${localDateExpr}) = date_trunc('week', ${localNow})`;
     case "thisMonth":
-      return sql`date_trunc('month', ${projection.date}) = date_trunc('month', CURRENT_TIMESTAMP::timestamp)`;
+      return sql`date_trunc('month', ${localDateExpr}) = date_trunc('month', ${localNow})`;
     case "lastNDays": {
       const n = Number(p.value ?? 0);
-      return sql`(${projection.dateOnly} >= CURRENT_DATE - ${n}::int * INTERVAL '1 day' AND ${projection.dateOnly} <= CURRENT_DATE)`;
+      return sql`(${projection.dateOnly} >= ${localToday} - ${n}::int * INTERVAL '1 day' AND ${projection.dateOnly} <= ${localToday})`;
     }
     case "isEmpty":
       return sql`data->>${p.fieldId} IS NULL`;

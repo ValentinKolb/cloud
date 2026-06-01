@@ -130,9 +130,7 @@ describe("bucketsToSlices / bucketsToBars", () => {
   });
 
   test("bars alias slices (structural identity)", () => {
-    expect(bucketsToBars(sliceBuckets, countStar, categoryGroupBy)).toEqual(
-      bucketsToSlices(sliceBuckets, countStar, categoryGroupBy),
-    );
+    expect(bucketsToBars(sliceBuckets, countStar, categoryGroupBy)).toEqual(bucketsToSlices(sliceBuckets, countStar, categoryGroupBy));
   });
 
   test("drops buckets with non-numeric / missing value (no zero-area noise)", () => {
@@ -142,9 +140,7 @@ describe("bucketsToSlices / bucketsToBars", () => {
       { keys: ["C"], values: { "*__count": "not-a-number" } },
       { keys: ["D"], values: {} },
     ];
-    expect(bucketsToSlices(mixed, countStar, categoryGroupBy)).toEqual([
-      { label: "A", value: 10 },
-    ]);
+    expect(bucketsToSlices(mixed, countStar, categoryGroupBy)).toEqual([{ label: "A", value: 10 }]);
   });
 
   test("empty bucket list → empty result (no throw)", () => {
@@ -217,9 +213,7 @@ describe("bucketsToScatterSeries", () => {
   });
 
   test("third agg becomes bubble size", () => {
-    const buckets = [
-      { keys: ["a"], values: { "*__count": 5, "f-amount__sum": 10, "f-score__avg": 3 } },
-    ];
+    const buckets = [{ keys: ["a"], values: { "*__count": 5, "f-amount__sum": 10, "f-score__avg": 3 } }];
     const out = bucketsToScatterSeries(buckets, [countStar, sumAmount, avgScore], fieldsById);
     expect(out[0]!.data[0]!.size).toBe(3);
   });
@@ -267,11 +261,7 @@ const widget = (chartType: ChartWidget["chartType"]): ChartWidget => ({
   viewId: "11111111-1111-1111-1111-111111111111",
 });
 
-const renderInput = (
-  w: ChartWidget,
-  aggs: AggregationSpec[],
-  buckets: typeof sliceBuckets,
-) => ({
+const renderInput = (w: ChartWidget, aggs: AggregationSpec[], buckets: typeof sliceBuckets) => ({
   widget: w,
   groupBy: [categoryGroupBy],
   aggregations: aggs,

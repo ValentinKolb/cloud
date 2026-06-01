@@ -1,5 +1,6 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
@@ -105,6 +106,7 @@ export type GridsWorkspaceState =
       canManageBase: boolean;
       canCreateTables: boolean;
       canUseEditMode: boolean;
+      dateConfig?: DateContext;
       catalog: WorkspaceCatalog;
       route: GridsWorkspaceRoute;
     };
@@ -162,6 +164,7 @@ type LoadWorkspaceParams = {
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
+  dateConfig?: DateContext;
 };
 
 type WorkspaceChrome = {
@@ -260,6 +263,7 @@ const okState = (common: WorkspaceCommon, route: GridsWorkspaceRoute, title = co
   canManageBase: common.canManageBase,
   canCreateTables: common.canCreateTables,
   canUseEditMode: common.canUseEditMode,
+  dateConfig: common.params.dateConfig,
   catalog: common.catalog,
   route,
 });
@@ -276,7 +280,9 @@ const resolveActiveDashboard = async (params: LoadWorkspaceParams, base: Base, d
 const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard): Promise<OkWorkspaceState> => {
   const widgets = dashboard.config.rows.flatMap((r) => r.cells);
   const results = await Promise.all(
-    widgets.map((w) => resolveWidgetData(w, buildViewer(common.params.user)).then((data) => [w.id, data] as const)),
+    widgets.map((w) =>
+      resolveWidgetData(w, buildViewer(common.params.user), { dateConfig: common.params.dateConfig }).then((data) => [w.id, data] as const),
+    ),
   );
   const widgetData = Object.fromEntries(results);
   const canEditActiveDashboard =
@@ -300,6 +306,7 @@ type InitialRecordsArgs = {
   activeView: View | null;
   trashMode: boolean;
   user: AuthUser;
+  dateConfig?: DateContext;
 };
 
 const resolveInitialQuery = (recordsState: RecordsState, activeView: View | null) => {
@@ -360,6 +367,7 @@ const loadGroupedInitialRecords = async (
     search: query.effectiveSearch.q ? { q: query.effectiveSearch.q, fieldIds: query.effectiveSearch.fieldIds } : null,
     limit: 1000,
     viewer,
+    dateConfig: args.dateConfig,
   });
   if (!groupResult.ok) return data;
 
@@ -390,6 +398,7 @@ const loadListedInitialRecords = async (
     cursor: args.recordsState.cursor,
     includeRelations: true,
     viewer,
+    dateConfig: args.dateConfig,
   });
   if (listResult.ok) {
     data.records = query.viewLimit !== undefined ? { ...listResult.data, nextCursor: null } : listResult.data;
@@ -406,6 +415,7 @@ const loadListedInitialRecords = async (
     deletedOnly: args.trashMode,
     requests: query.effectiveAggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
     viewer,
+    dateConfig: args.dateConfig,
   });
   if (aggResult.ok) data.aggregates = { ...data.aggregates, ...aggResult.data };
   return data;
@@ -439,13 +449,14 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
     activeView,
     trashMode: common.chrome.trashMode,
     user: common.params.user,
+    dateConfig: common.params.dateConfig,
   });
 
   const selectedRecordId = recordsState.selectedRecordId;
-  const selectedRecord =
-    !selectedRecordId
-      ? null
-      : (initial.records.items.find((r) => r.id === selectedRecordId) ?? (await gridsService.record.get(activeTable.id, selectedRecordId)));
+  const selectedRecord = !selectedRecordId
+    ? null
+    : (initial.records.items.find((r) => r.id === selectedRecordId) ??
+      (await gridsService.record.get(activeTable.id, selectedRecordId, { dateConfig: common.params.dateConfig })));
   const canEditActiveView =
     !!activeView &&
     (activeView.ownerUserId === null

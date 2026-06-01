@@ -31,7 +31,7 @@ type CompiledSort = {
   encodeCursorFromRow: (row: Record<string, unknown>) => string;
 };
 
-type CastKind = "numeric" | "date" | "boolean" | "text";
+type CastKind = "numeric" | "date" | "timestamptz" | "boolean" | "text";
 
 /**
  * Maps the storage descriptor's projection kind onto the cast kind used
@@ -45,8 +45,9 @@ const cursorCastFor = (kind: ProjectionKind): CastKind | null => {
     case "numeric":
       return "numeric";
     case "date":
-    case "datetime":
       return "date";
+    case "datetime":
+      return "timestamptz";
     case "boolean":
       return "boolean";
     case "text":
@@ -79,6 +80,8 @@ const castedValue = (cast: CastKind, value: unknown): any => {
         return sql`NULL::numeric`;
       case "date":
         return sql`NULL::date`;
+      case "timestamptz":
+        return sql`NULL::timestamptz`;
       case "boolean":
         return sql`NULL::boolean`;
       case "text":
@@ -90,6 +93,8 @@ const castedValue = (cast: CastKind, value: unknown): any => {
       return sql`${value}::numeric`;
     case "date":
       return sql`${value}::date`;
+    case "timestamptz":
+      return sql`${value}::timestamptz`;
     case "boolean":
       return sql`${value}::boolean`;
     case "text":

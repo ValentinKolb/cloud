@@ -1,4 +1,5 @@
 import { dnd, type DndBuildIntentContext } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show, onCleanup } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
 import ChartWidget from "./ChartWidget";
@@ -18,6 +19,7 @@ type Props = {
   widgetData: Record<string, WidgetData>;
   /** Slug of the parent base — needed by view-cell / chart-cell links. */
   baseShortId: string;
+  dateConfig?: DateContext;
   onWidgetRecordsChanged?: () => void;
   edit?: {
     onGeneral: () => void;
@@ -176,6 +178,7 @@ export default function DashboardLayout(props: Props) {
                 edit={props.edit}
                 rowDnd={rowDnd}
                 cellDnd={cellDnd}
+                dateConfig={props.dateConfig}
               />
               <Show when={props.edit}>
                 {(edit) => (
@@ -208,6 +211,7 @@ function RowRenderer(props: {
   edit?: Props["edit"];
   rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
   cellDnd: ReturnType<typeof dnd.create<CellDragMeta, CellDropMeta, CellDropIntent>>;
+  dateConfig?: DateContext;
 }) {
   return (
     <DashboardRowGrid
@@ -220,6 +224,7 @@ function RowRenderer(props: {
       edit={props.edit}
       rowDnd={props.rowDnd}
       cellDnd={props.cellDnd}
+      dateConfig={props.dateConfig}
     />
   );
 }
@@ -234,6 +239,7 @@ function DashboardRowGrid(props: {
   edit?: Props["edit"];
   rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
   cellDnd: ReturnType<typeof dnd.create<CellDragMeta, CellDropMeta, CellDropIntent>>;
+  dateConfig?: DateContext;
 }) {
   const insertIndex = () => {
     const intent = props.cellDnd.intent();
@@ -300,6 +306,7 @@ function DashboardRowGrid(props: {
                   data={props.widgetData[cell.id]}
                   baseShortId={props.baseShortId}
                   onWidgetRecordsChanged={props.onWidgetRecordsChanged}
+                  dateConfig={props.dateConfig}
                 />
               </div>
             </>
@@ -471,7 +478,13 @@ function EditCellControls(props: { rowIdx: number; cellIdx: number; cell: Widget
 /** Per-cell dispatcher inside a mixed row. Switches on kind and hands
  *  off to the matching cell renderer. Missing data resolves to an
  *  error sentinel so the cell shows a red notice instead of crashing. */
-function CellRenderer(props: { widget: Widget; data: WidgetData | undefined; baseShortId: string; onWidgetRecordsChanged?: () => void }) {
+function CellRenderer(props: {
+  widget: Widget;
+  data: WidgetData | undefined;
+  baseShortId: string;
+  onWidgetRecordsChanged?: () => void;
+  dateConfig?: DateContext;
+}) {
   const data = (): WidgetData => props.data ?? { kind: "error", reason: "no data resolved for this widget" };
 
   switch (props.widget.kind) {
@@ -489,17 +502,25 @@ function CellRenderer(props: { widget: Widget; data: WidgetData | undefined; bas
         </div>
       );
     case "view":
-      return <EmbeddedViewWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
+      return <EmbeddedViewWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} dateConfig={props.dateConfig} />;
     case "chart":
       return <ChartWidget widget={props.widget} data={data()} />;
     case "view-stats":
       return <ViewStatsCell widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
     case "form":
-      return <FormCell widget={props.widget} data={data()} onSubmitted={props.onWidgetRecordsChanged} />;
+      return <FormCell widget={props.widget} data={data()} onSubmitted={props.onWidgetRecordsChanged} dateConfig={props.dateConfig} />;
     case "markdown":
       return <MarkdownWidget widget={props.widget} data={data()} />;
     case "link":
-      return <LinkWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} onSubmitted={props.onWidgetRecordsChanged} />;
+      return (
+        <LinkWidget
+          widget={props.widget}
+          data={data()}
+          baseShortId={props.baseShortId}
+          onSubmitted={props.onWidgetRecordsChanged}
+          dateConfig={props.dateConfig}
+        />
+      );
   }
 }
 

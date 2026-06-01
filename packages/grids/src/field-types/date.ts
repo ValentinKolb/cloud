@@ -7,11 +7,25 @@ const DateConfigSchema = z
     min: z.string().optional(),
     max: z.string().optional(),
   })
-  // min must not exceed max. Pure string compare on ISO date strings
-  // is order-correct (lexical = chronological for the date-only / full
-  // ISO timestamp shapes we accept), so no parsing needed.
   .superRefine((data, ctx) => {
-    if (data.min !== undefined && data.max !== undefined && data.min > data.max) {
+    const includeTime = data.includeTime ?? false;
+    const min = data.min === undefined ? null : parseAndCanonicalize(data.min, includeTime);
+    const max = data.max === undefined ? null : parseAndCanonicalize(data.max, includeTime);
+    if (data.min !== undefined && min === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: includeTime ? "min must be a timezone-aware ISO date-time" : "min must be an ISO date",
+        path: ["min"],
+      });
+    }
+    if (data.max !== undefined && max === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: includeTime ? "max must be a timezone-aware ISO date-time" : "max must be an ISO date",
+        path: ["max"],
+      });
+    }
+    if (min !== null && max !== null && min > max) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "min cannot exceed max",
@@ -22,7 +36,7 @@ const DateConfigSchema = z
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_PREFIX_RE = /^(\d{4}-\d{2}-\d{2})/;
-const LOCAL_DATETIME_RE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,3})?)?$/;
+const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[zZ]|[+-]\d{2}:?\d{2})$/;
 
 const isValidDateOnly = (value: string): boolean => {
   if (!DATE_ONLY_RE.test(value)) return false;
@@ -30,22 +44,16 @@ const isValidDateOnly = (value: string): boolean => {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 };
 
-const normalizeLocalDateTime = (raw: string): string | null => {
-  if (DATE_ONLY_RE.test(raw)) return isValidDateOnly(raw) ? `${raw}T00:00` : null;
-  const match = LOCAL_DATETIME_RE.exec(raw);
-  if (!match) return null;
-  const [, date, hh, mm, ss, ms] = match;
-  if (!date || !isValidDateOnly(date)) return null;
-  const hour = Number(hh);
-  const minute = Number(mm);
-  const second = ss === undefined ? 0 : Number(ss);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
-  return `${date}T${hh}:${mm}${ss !== undefined ? `:${ss}${ms ?? ""}` : ""}`;
+const normalizeInstant = (raw: string): string | null => {
+  if (!INSTANT_RE.test(raw)) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 };
 
 const parseAndCanonicalize = (raw: string, includeTime: boolean): string | null => {
   if (includeTime) {
-    return normalizeLocalDateTime(raw);
+    return normalizeInstant(raw);
   }
   // Date-only fields keep the calendar date the user supplied. If an
   // API caller sends a timestamp, use its leading YYYY-MM-DD date part

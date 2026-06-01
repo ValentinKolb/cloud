@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { evaluate, renderResult } from "./evaluator";
+import type { FormulaRuntimeContext } from "./functions";
 import { parseFormula } from "./parser";
 
-const run = (src: string, fields: Record<string, unknown> = {}): unknown => {
+const run = (src: string, fields: Record<string, unknown> = {}, ctx: FormulaRuntimeContext = {}): unknown => {
   const r = parseFormula(src);
   if (!r.ok) throw new Error(r.error);
-  return evaluate(r.ast, { fields });
+  return evaluate(r.ast, { fields, ...ctx });
 };
 
 const runWithSlugs = (src: string, fields: Record<string, unknown>, slugToId: Record<string, string>): unknown => {
@@ -118,11 +119,27 @@ test("YEAR / MONTH / DAY", () => {
   expect(run('DAY("2026-05-02")')).toBe(2);
   expect(run('DAY("2026-05-02T00:30")')).toBe(2);
 });
+test("date functions use the configured timezone for instants", () => {
+  const ctx = { dateConfig: { timeZone: "Europe/Berlin" }, now: new Date("2026-05-01T22:30:00.000Z") };
+  expect(run("TODAY()", {}, ctx)).toBe("2026-05-02");
+  expect(run("NOW()", {}, ctx)).toBe("2026-05-01T22:30:00.000Z");
+  expect(run('DAY("2026-05-01T22:30:00.000Z")', {}, ctx)).toBe(2);
+});
 test("DATEADD days", () => {
   expect(run('DATEADD("2026-05-02", 7, "days")')).toBe("2026-05-09");
 });
+test("DATEADD preserves instants for time-aware inputs", () => {
+  expect(run('DATEADD("2026-05-01T22:30:00.000Z", 1, "days")', {}, { dateConfig: { timeZone: "Europe/Berlin" } })).toBe(
+    "2026-05-02T22:30:00.000Z",
+  );
+});
 test("DATEDIFF days", () => {
   expect(run('DATEDIFF("2026-05-02", "2026-05-09", "days")')).toBe(7);
+});
+test("DATEDIFF days compares local calendar days for instants", () => {
+  expect(
+    run('DATEDIFF("2026-05-01T22:30:00.000Z", "2026-05-02T21:30:00.000Z", "days")', {}, { dateConfig: { timeZone: "Europe/Berlin" } }),
+  ).toBe(0);
 });
 
 // ── Field references ─────────────────────────────────────────────

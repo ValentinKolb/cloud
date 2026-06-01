@@ -41,7 +41,7 @@ export type ProjectionKind =
   | "numeric" // try_numeric(data->>id)
   | "boolean" // try_boolean(data->>id)
   | "date" // try_iso_date(data->>id)
-  | "datetime" // try_timestamp(data->>id)
+  | "datetime" // try_timestamptz(data->>id)
   | "jsonbArray" // select arrays; no scalar projection
   | "relationLink" // record_links junction
   | "computed" // formula/lookup/rollup; hydrated post-query
@@ -93,7 +93,7 @@ const data = (alias: string) => sql.unsafe(`${alias}.data`);
 
 const tryNumeric = (alias: string, fieldId: string) => sql`grids.try_numeric(${data(alias)}->>${fieldId})`;
 const tryDate = (alias: string, fieldId: string) => sql`grids.try_iso_date(${data(alias)}->>${fieldId})`;
-const tryTimestamp = (alias: string, fieldId: string) => sql`grids.try_timestamp(${data(alias)}->>${fieldId})`;
+const tryTimestampTz = (alias: string, fieldId: string) => sql`grids.try_timestamptz(${data(alias)}->>${fieldId})`;
 const tryBoolean = (alias: string, fieldId: string) => sql`grids.try_boolean(${data(alias)}->>${fieldId})`;
 const textOf = (alias: string, fieldId: string) => sql`${data(alias)}->>${fieldId}`;
 
@@ -169,7 +169,7 @@ const STORAGE: Record<string, StorageDescriptor> = {
   // ── Date / time ──────────────────────────────────────────────────
   date: {
     kind: "date",
-    project: (f, a) => ((f.config as { includeTime?: boolean }).includeTime ? tryTimestamp(a, f.id) : tryDate(a, f.id)),
+    project: (f, a) => ((f.config as { includeTime?: boolean }).includeTime ? tryTimestampTz(a, f.id) : tryDate(a, f.id)),
     formatKind: "date",
     sortable: true,
     filterable: true,

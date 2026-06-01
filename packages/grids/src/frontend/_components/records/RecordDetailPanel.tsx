@@ -1,6 +1,6 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { MarkdownView, prompts } from "@valentinkolb/cloud/ui";
-import { text } from "@valentinkolb/stdlib";
+import { text, type DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -32,6 +32,7 @@ type Props = {
    *  values instead of raw UUIDs. */
   relationLabels?: Record<string, string>;
   tableShortIds?: Record<string, string>;
+  dateConfig?: DateContext;
   /** Close the panel (delegates URL writeback to RecordsView). */
   onClose: () => void;
   /** Emitted after a successful edit. RecordsView refetches the data
@@ -126,6 +127,7 @@ export default function RecordDetailPanel(props: Props) {
       tableName: props.tableName,
       record: rec,
       relationLabels: props.relationLabels,
+      dateConfig: props.dateConfig,
     });
     if (!result) return;
     updateMut.mutate({ rec, payload: result });
@@ -174,7 +176,7 @@ export default function RecordDetailPanel(props: Props) {
   const renderLookupCell = (field: Field, rec: GridRecord) => {
     const cfg = field.config as { relationFieldId?: string };
     const relationField = cfg.relationFieldId ? props.fields.find((f) => f.id === cfg.relationFieldId && f.type === "relation") : undefined;
-    const value = formatCell(rec.data[field.id], field.type, field.config);
+    const value = formatCell(rec.data[field.id], field.type, field.config, undefined, props.dateConfig);
     if (!value || !relationField) return value || "—";
     const targetTableId = (relationField.config as { targetTableId?: string }).targetTableId;
     const linked = rec.data[relationField.id];
@@ -213,7 +215,7 @@ export default function RecordDetailPanel(props: Props) {
     if (isMarkdownLongtext(field) && typeof value === "string") {
       return <MarkdownView html={markdown.render(value)} smallHeadings class="text-sm" />;
     }
-    return formatCell(value, field.type, field.config) || "—";
+    return formatCell(value, field.type, field.config, undefined, props.dateConfig) || "—";
   };
 
   // ---- Pick the "title" of the record for the panel header --------------
@@ -222,7 +224,7 @@ export default function RecordDetailPanel(props: Props) {
     if (tf) {
       const v = rec.data[tf.id];
       if (typeof v === "string" && v.length > 0) return v;
-      const formatted = formatCell(v, tf.type, tf.config);
+      const formatted = formatCell(v, tf.type, tf.config, undefined, props.dateConfig);
       if (formatted) return formatted;
     }
     return "Untitled record";

@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { Dropdown, dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog, prompts } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -133,6 +134,7 @@ type Props = {
    * of freezing the view's snapshot at navigation time. See post-cleanup #4.
    */
   activeViewQuery: ViewQuery | null;
+  dateConfig?: DateContext;
 };
 
 type RecordsTableQueryResult = TableQueryResult & {
@@ -768,6 +770,7 @@ export default function RecordsView(props: Props) {
       otherTables: props.otherTables,
       fieldsByTable: { ...props.fieldsByTable, [props.tableId]: fields() },
       tableColumns: effectiveViewColumns(),
+      dateConfig: props.dateConfig,
       onSaved: (updated) => syncFields(fields().map((f) => (f.id === updated.id ? updated : f))),
       onTableColumnsSaved: setTableColumns,
       onDeleted: async () => {
@@ -1263,6 +1266,7 @@ export default function RecordsView(props: Props) {
               onCommit={onToolbarCommit}
               onRecordCreated={onRecordCreated}
               onRecordsChanged={() => void refreshVisibleRecords({ force: true })}
+              dateConfig={props.dateConfig}
             />
           </div>
         </Show>
@@ -1349,6 +1353,7 @@ export default function RecordsView(props: Props) {
                 onViewColumnMove={
                   adminMode() && (isSavedView() ? props.canEditActiveView : props.canManageTable) ? moveViewColumnInline : undefined
                 }
+                dateConfig={props.dateConfig}
               />
             }
           >
@@ -1369,6 +1374,7 @@ export default function RecordsView(props: Props) {
               scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewShortId ?? "default"}`}
               onColumnSettings={openGroupedViewColumnSettings}
               onColumnMove={moveGroupedViewColumnInline}
+              dateConfig={props.dateConfig}
             />
           </Show>
         </div>
@@ -1393,6 +1399,7 @@ export default function RecordsView(props: Props) {
                 onClose={onCloseDetail}
                 onUpdated={onRecordUpdated}
                 onRemoved={onRecordRemoved}
+                dateConfig={props.dateConfig}
               />
             }
           >
@@ -1407,6 +1414,7 @@ export default function RecordsView(props: Props) {
                 relationLabels={mergedRelationLabels()}
                 onClose={onCloseGroupDetail}
                 onOpenRecord={onOpenGroupedRecord}
+                dateConfig={props.dateConfig}
               />
             )}
           </Show>

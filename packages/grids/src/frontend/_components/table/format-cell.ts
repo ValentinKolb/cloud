@@ -1,4 +1,5 @@
 import type { FormatSpec } from "../../../service/views";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import Decimal from "decimal.js";
 
 /**
@@ -16,24 +17,30 @@ import Decimal from "decimal.js";
  * Relation values are NOT handled here — they need a label cache from
  * the SSR layer, see DatabaseTable / RecordDetailPanel.
  */
-export const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, unknown>, format?: FormatSpec): string => {
+export const formatCell = (
+  value: unknown,
+  type: string,
+  fieldConfig?: Record<string, unknown>,
+  format?: FormatSpec,
+  dateConfig?: DateContext,
+): string => {
   if (value === null || value === undefined || value === "") return "";
 
-  const override = format ? formatOverride(value, type, format) : null;
+  const override = format ? formatOverride(value, type, format, dateConfig) : null;
   if (override !== null) return override;
 
   // ── Type-default rendering ──────────────────────────────────────
   const renderer = DEFAULT_RENDERERS[type];
-  if (renderer) return renderer(value, fieldConfig ?? {});
+  if (renderer) return renderer(value, fieldConfig ?? {}, dateConfig);
 
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 };
 
-type CellRenderer = (value: unknown, fieldConfig: Record<string, unknown>) => string;
+type CellRenderer = (value: unknown, fieldConfig: Record<string, unknown>, dateConfig?: DateContext) => string;
 
-const formatOverride = (value: unknown, type: string, format: FormatSpec): string | null => {
-  if (format.kind === "date" && canUseDateFormat(type, value)) return formatDate(value, format);
+const formatOverride = (value: unknown, type: string, format: FormatSpec, dateConfig?: DateContext): string | null => {
+  if (format.kind === "date" && canUseDateFormat(type, value)) return formatDate(value, format, dateConfig);
   if (format.kind === "decimal" && canUseDecimalFormat(type, value)) return formatDecimal(value, format);
   if (format.kind === "percent" && canUsePercentFormat(type)) return formatPercent(value, format);
   return null;
@@ -48,7 +55,8 @@ const canUseDecimalFormat = (type: string, value: unknown): value is number | st
 const canUsePercentFormat = (type: string): boolean => type === "percent" || type === "formula";
 
 const DEFAULT_RENDERERS: Record<string, CellRenderer> = {
-  date: (value, fieldConfig) => (typeof value === "string" ? formatDateDefault(value, fieldConfig) : fallbackValue(value)),
+  date: (value, fieldConfig, dateConfig) =>
+    typeof value === "string" ? formatDateDefault(value, fieldConfig, dateConfig) : fallbackValue(value),
   boolean: (value) => (value ? "Yes" : "No"),
   select: (value, fieldConfig) => (Array.isArray(value) ? formatSelect(value, fieldConfig) : fallbackValue(value)),
   number: (value, fieldConfig) => formatNumberDefault(value, fieldConfig),
@@ -58,8 +66,17 @@ const DEFAULT_RENDERERS: Record<string, CellRenderer> = {
 
 const fallbackValue = (value: unknown): string => (typeof value === "object" ? JSON.stringify(value) : String(value));
 
-const formatDateDefault = (value: string, fieldConfig: Record<string, unknown>): string =>
-  fieldConfig.includeTime ? value.replace("T", " ") : value.slice(0, 10);
+const zonedDateTimeText = (value: string, dateConfig?: DateContext): string => {
+  if (!dateConfig?.timeZone) return value.replace("T", " ");
+  try {
+    return dates.instantToZonedInput(value, dateConfig.timeZone).replace("T", " ");
+  } catch {
+    return value.replace("T", " ");
+  }
+};
+
+const formatDateDefault = (value: string, fieldConfig: Record<string, unknown>, dateConfig?: DateContext): string =>
+  fieldConfig.includeTime ? zonedDateTimeText(value, dateConfig) : value.slice(0, 10);
 
 const formatSelect = (ids: unknown[], fieldConfig: Record<string, unknown>): string => {
   const options = (fieldConfig.options as Array<{ id: string; label: string }> | undefined) ?? [];
@@ -86,12 +103,13 @@ const formatDuration = (value: number): string => {
 
 // ─── format-spec implementations ─────────────────────────────────
 
-const formatDate = (iso: string, spec: Extract<FormatSpec, { kind: "date" }>): string => {
+const formatDate = (iso: string, spec: Extract<FormatSpec, { kind: "date" }>, dateConfig?: DateContext): string => {
   if (spec.format === "iso") {
-    return spec.includeTime ? iso : iso.slice(0, 10);
+    return spec.includeTime ? zonedDateTimeText(iso, dateConfig) : iso.slice(0, 10);
   }
-  const d = new Date(iso);
+  const d = new Date(spec.includeTime ? iso : `${iso.slice(0, 10)}T00:00:00.000Z`);
   if (Number.isNaN(d.getTime())) return iso;
+  const timeZone = spec.includeTime ? dateConfig?.timeZone : "UTC";
   if (spec.format === "relative") {
     const days = Math.round((Date.now() - d.getTime()) / 86_400_000);
     if (days === 0) return "today";
@@ -99,18 +117,21 @@ const formatDate = (iso: string, spec: Extract<FormatSpec, { kind: "date" }>): s
     if (days === -1) return "tomorrow";
     if (days > 0 && days < 30) return `${days}d ago`;
     if (days < 0 && days > -30) return `in ${-days}d`;
-    return d.toLocaleDateString();
+    return d.toLocaleDateString(undefined, timeZone ? { timeZone } : undefined);
   }
   if (spec.format === "long") {
     return d.toLocaleDateString(undefined, {
       year: "numeric",
       month: "long",
       day: "numeric",
+      ...(timeZone && { timeZone }),
       ...(spec.includeTime && { hour: "2-digit", minute: "2-digit" }),
     });
   }
   // short — locale-aware
-  return spec.includeTime ? d.toLocaleString() : d.toLocaleDateString();
+  return spec.includeTime
+    ? d.toLocaleString(undefined, timeZone ? { timeZone } : undefined)
+    : d.toLocaleDateString(undefined, timeZone ? { timeZone } : undefined);
 };
 
 const formatDecimal = (v: number | string, spec: Extract<FormatSpec, { kind: "decimal" }>): string => {

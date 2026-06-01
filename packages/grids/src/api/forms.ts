@@ -1,13 +1,9 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
+import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import {
-  FormConfigSchema,
-  ShortIdSchema,
-  UserInputFormFieldEntrySchema,
-} from "../contracts";
+import { FormConfigSchema, ShortIdSchema, UserInputFormFieldEntrySchema } from "../contracts";
 import { gridsService } from "../service";
 import { materializeFieldDefault } from "../service/fields";
 import { gateAt } from "./permissions";
@@ -80,6 +76,7 @@ const submitFormResponse = async (
   const formFields = form.config.fields ?? [];
   const fields = await gridsService.field.listByTable(form.tableId);
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
+  const dateConfig = await getDateConfig(c);
   const entriesById = new Map(formFields.map((entry) => [entry.fieldId, entry]));
   const fieldName = (fieldId: string) => {
     const entry = entriesById.get(fieldId);
@@ -115,7 +112,7 @@ const submitFormResponse = async (
     if (e.kind !== "user_input") continue;
     if (payload[e.fieldId] === undefined && e.defaultValue !== undefined && e.defaultValue !== null) {
       const field = fieldsById.get(e.fieldId);
-      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.defaultValue }) : e.defaultValue;
+      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.defaultValue }, { dateConfig }) : e.defaultValue;
     }
     if (e.required && (payload[e.fieldId] === undefined || payload[e.fieldId] === null || payload[e.fieldId] === "")) {
       return c.json({ message: `Field "${fieldName(e.fieldId)}" is required` }, 400);
@@ -124,7 +121,7 @@ const submitFormResponse = async (
   for (const e of formFields) {
     if (e.kind === "form_value") {
       const field = fieldsById.get(e.fieldId);
-      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.value }) : e.value;
+      payload[e.fieldId] = field ? materializeFieldDefault({ ...field, defaultValue: e.value }, { dateConfig }) : e.value;
     }
   }
 
@@ -133,23 +130,19 @@ const submitFormResponse = async (
   // such tables, so we always allow it here.
   const result = await gridsService.record.create(form.tableId, payload, actorId, {
     bypassDirectInsertCheck: true,
+    dateConfig,
   });
   if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
   return c.json({ recordId: result.data.id }, 201);
 };
 
-const toPublicForm = (
-  f: import("../service/forms").Form,
-): z.infer<typeof PublicFormSchema> => ({
+const toPublicForm = (f: import("../service/forms").Form): z.infer<typeof PublicFormSchema> => ({
   id: f.id,
   name: f.name,
   config: {
     title: f.config.title,
     description: f.config.description,
-    fields: f.config.fields.filter(
-      (e): e is Extract<typeof f.config.fields[number], { kind: "user_input" }> =>
-        e.kind === "user_input",
-    ),
+    fields: f.config.fields.filter((e): e is Extract<(typeof f.config.fields)[number], { kind: "user_input" }> => e.kind === "user_input"),
     submitLabel: f.config.submitLabel,
     successMessage: f.config.successMessage,
     redirectUrl: f.config.redirectUrl,
@@ -291,11 +284,7 @@ const app = new Hono<AuthContext>()
       // Gate at form-write — most-specific-wins resolution lets a
       // table-write user pass through automatically (table-write
       // shadows the form-target's "none" default).
-      const gate = await gateAt(
-        c,
-        { baseId: table.baseId, tableId: table.id, formId },
-        "write",
-      );
+      const gate = await gateAt(c, { baseId: table.baseId, tableId: table.id, formId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
       return submitFormResponse(c, form, c.req.valid("json"), user.id);
@@ -320,11 +309,7 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const user = c.get("user");
-      return respond(
-        c,
-        () => gridsService.form.create({ tableId, ...c.req.valid("json") }, user.id),
-        201,
-      );
+      return respond(c, () => gridsService.form.create({ tableId, ...c.req.valid("json") }, user.id), 201);
     },
   )
 

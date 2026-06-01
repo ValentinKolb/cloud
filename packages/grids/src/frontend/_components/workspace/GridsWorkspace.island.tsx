@@ -314,6 +314,7 @@ export default function GridsWorkspace(props: Props) {
         searchableFields={route.searchableFields}
         groupedExplode={route.groupedExplode}
         activeViewQuery={route.activeViewQuery}
+        dateConfig={state().dateConfig}
       />
     </div>
   );
@@ -333,6 +334,7 @@ export default function GridsWorkspace(props: Props) {
           initialAccessEntries={route.activeDashboardAccessEntries}
           canEditAccess={state().canManageBase}
           widgetData={route.widgetData}
+          dateConfig={state().dateConfig}
           onWidgetRecordsChanged={() => void runDashboardRecordRefresh()}
           onDashboardChanged={refreshActiveDashboardRoute}
         />
@@ -341,6 +343,7 @@ export default function GridsWorkspace(props: Props) {
           dashboard={route.dashboard}
           widgetData={route.widgetData}
           baseShortId={state().base.shortId}
+          dateConfig={state().dateConfig}
           onWidgetRecordsChanged={() => void runDashboardRecordRefresh()}
         />
       )}
@@ -440,6 +443,7 @@ export default function GridsWorkspace(props: Props) {
                         fields={state().catalog.fieldsByTable[table.id] ?? []}
                         editMode={state().adminModeRequested && canEditForm}
                         initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
+                        dateConfig={state().dateConfig}
                       />
                     );
                   })}
@@ -558,6 +562,7 @@ export default function GridsWorkspace(props: Props) {
                         fields={state().catalog.fieldsByTable[table.id] ?? []}
                         editMode={state().adminModeRequested && canEditForm}
                         initialAccessEntries={state().catalog.formAccessEntriesByTable[table.id]?.[form.id] ?? []}
+                        dateConfig={state().dateConfig}
                       />
                     );
                   })}

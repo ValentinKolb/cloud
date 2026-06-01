@@ -30,7 +30,7 @@ const numericProjection = (field: Field): any => {
 
 const dateProjection = (field: Field): any =>
   (field.config as { includeTime?: boolean }).includeTime
-    ? sql`grids.try_timestamp(data->>${field.id})`
+    ? sql`grids.try_timestamptz(data->>${field.id})`
     : sql`grids.try_iso_date(data->>${field.id})`;
 
 const isCompatible = (agg: AggKind, type: string): boolean => {

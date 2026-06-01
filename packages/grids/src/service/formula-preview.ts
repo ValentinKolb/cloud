@@ -1,4 +1,4 @@
-import { ok, type Result } from "@valentinkolb/stdlib";
+import { ok, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { evaluate, renderResult } from "../formula/evaluator";
@@ -96,6 +96,7 @@ export const checkFormula = async (params: {
   tableId: string;
   expression: string;
   currentFieldId?: string | null;
+  dateConfig?: DateContext;
 }): Promise<Result<FormulaPreviewResult>> => {
   const expression = params.expression.trim();
   if (!expression) {
@@ -132,12 +133,12 @@ export const checkFormula = async (params: {
 
   const rows = await loadLatestRows(params.tableId, usableFields);
   const formulaFields = params.currentFieldId ? usableFields.filter((field) => field.id !== params.currentFieldId) : usableFields;
-  enrichRecordsWithFormulas(rows, formulaFields);
+  enrichRecordsWithFormulas(rows, formulaFields, { dateConfig: params.dateConfig });
 
   const slugToId = Object.fromEntries(usableFields.map((field) => [field.shortId, field.id]));
   let hasPreviewError = false;
   const previewRows = rows.map((record) => {
-    const rawResult = evaluate(parsed.ast, { fields: record.data, slugToId });
+    const rawResult = evaluate(parsed.ast, { fields: record.data, slugToId, dateConfig: params.dateConfig });
     if (isFormulaError(rawResult)) hasPreviewError = true;
     return {
       recordId: record.id,

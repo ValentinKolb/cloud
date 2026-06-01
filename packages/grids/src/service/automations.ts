@@ -2,7 +2,7 @@ import { sql } from "bun";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { createHmac } from "node:crypto";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
+import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import {
   AutomationActionSchema,
@@ -80,6 +80,12 @@ const PRIVATE_WEBHOOKS_SETTING = "grids.webhook_allow_private_networks";
 const RUN_RETENTION_SETTING = "grids.automation_run_retention_days";
 
 type AutomationWithSecret = Automation & { webhookSecret: string | null };
+
+const automationDateConfig = async (): Promise<DateContext> => ({
+  timeZone: dates.normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
+  locale: "en",
+  firstDayOfWeek: 1,
+});
 
 const normalizeAction = (value: unknown): AutomationAction => {
   const parsed = AutomationActionSchema.safeParse(parseJsonbRow(value, value));
@@ -195,7 +201,8 @@ const validateRecordTrigger = async (baseId: string, trigger: AutomationTrigger)
   if (!table || table.baseId !== baseId) return fail(err.badInput("record trigger table must belong to the automation base"));
   if (trigger.filter) {
     const fields = await listFields(trigger.tableId);
-    const compiled = compileFilter(trigger.filter, fields);
+    const dateConfig = await automationDateConfig();
+    const compiled = compileFilter(trigger.filter, fields, { timeZone: dateConfig.timeZone });
     if (!compiled.ok) return fail(err.badInput(`automation filter is invalid: ${compiled.error}`));
   }
   return ok();
@@ -331,6 +338,7 @@ const resolveRecord = async (automation: AutomationWithSecret, subject: Automati
   }
   const record = await getRecord(subject.tableId, subject.recordId, {
     includeRelations: true,
+    dateConfig: await automationDateConfig(),
   });
   if (!record) return fail(err.notFound("record"));
   if (automation.payload.includeRecord === false) return ok(null);
@@ -427,7 +435,8 @@ export const recordMatchesAutomationFilter = async (automation: Automation, even
   if (automation.trigger.kind !== "record" || !automation.trigger.filter) return ok(true);
   const tableId = automation.trigger.tableId ?? event.tableId;
   const fields = await listFields(tableId);
-  const compiled = compileFilter(automation.trigger.filter, fields);
+  const dateConfig = await automationDateConfig();
+  const compiled = compileFilter(automation.trigger.filter, fields, { timeZone: dateConfig.timeZone });
   if (!compiled.ok) return fail(err.badInput(`automation filter is invalid: ${compiled.error}`));
   const clause = renderClause(compiled.clause);
   const [row] = await sql<{ matched: boolean }[]>`

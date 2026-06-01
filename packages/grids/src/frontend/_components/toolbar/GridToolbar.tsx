@@ -1,4 +1,5 @@
 import { Dropdown, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, on, Show, untrack } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -49,6 +50,7 @@ type Props = {
   /** Emitted after form submit where there is no single record-open
    *  intent; the parent just refetches the records resource. */
   onRecordsChanged?: () => void;
+  dateConfig?: DateContext;
 };
 
 /**
@@ -170,6 +172,7 @@ export default function GridToolbar(props: Props) {
       fields: liveFields,
       baseId: props.baseId,
       tableName: props.tableName,
+      dateConfig: props.dateConfig,
     });
     if (!result) return;
     addMut.mutate(result);
@@ -178,6 +181,7 @@ export default function GridToolbar(props: Props) {
   const submitForm = (form: Form) =>
     openFormModal(form, props.fields, {
       onSubmitted: () => props.onRecordsChanged?.(),
+      dateConfig: props.dateConfig,
     });
 
   // ---- Filter / Sort one-click toggles ----------------------------------
@@ -405,7 +409,7 @@ export default function GridToolbar(props: Props) {
       {/* Filter panel — render iff there's at least one filter row */}
       <Show when={hasFilter()}>
         <div class="paper p-3">
-          <FilterPanel fields={props.fields} rows={filterRows} onRowsChange={setFilterRows} />
+          <FilterPanel fields={props.fields} rows={filterRows} onRowsChange={setFilterRows} dateConfig={props.dateConfig} />
         </div>
       </Show>
 

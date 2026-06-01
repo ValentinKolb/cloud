@@ -1,10 +1,15 @@
 import Decimal from "decimal.js";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { decimalResult, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { formulaError, isFormulaError, type Literal } from "./types";
 
 /** Return value from any function — either a literal, an error sentinel,
  *  or null. */
 type FnReturn = Literal | ReturnType<typeof formulaError>;
+export type FormulaRuntimeContext = {
+  dateConfig?: DateContext;
+  now?: Date;
+};
 
 const num = (v: unknown): number | null => {
   return toNumber(v);
@@ -31,36 +36,101 @@ const ymd = (date: Date): string => {
   return `${y}-${m}-${d}`;
 };
 
-const LOCAL_DATE_LIKE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?)?$/;
+const pad2 = (n: number): string => String(n).padStart(2, "0");
+const DATE_LIKE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?)?$/;
+const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[zZ]|[+-]\d{2}:?\d{2})$/;
 
-const parseDateLike = (v: unknown): Date | null => {
-  if (v instanceof Date) return v;
-  if (typeof v !== "string") return null;
-  const local = LOCAL_DATE_LIKE_RE.exec(v);
-  if (local) {
-    const [, y, m, d, hh = "00", mm = "00", ss = "00"] = local;
-    const year = Number(y);
-    const month = Number(m);
-    const day = Number(d);
-    const hour = Number(hh);
-    const minute = Number(mm);
-    const second = Number(ss);
-    const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-    if (Number.isNaN(date.getTime())) return null;
-    if (
-      date.getUTCFullYear() !== year ||
-      date.getUTCMonth() + 1 !== month ||
-      date.getUTCDate() !== day ||
-      date.getUTCHours() !== hour ||
-      date.getUTCMinutes() !== minute ||
-      date.getUTCSeconds() !== second
-    ) {
-      return null;
-    }
-    return date;
+type FormulaDateParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+type FormulaDateValue = {
+  instant: Date;
+  parts: FormulaDateParts;
+  hasTime: boolean;
+  instantBacked: boolean;
+};
+
+const formulaTimeZone = (ctx: FormulaRuntimeContext): string => dates.normalizeTimeZone(ctx.dateConfig?.timeZone, "UTC");
+
+const dateFromParts = (parts: FormulaDateParts): Date =>
+  new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second));
+
+const isValidParts = (parts: FormulaDateParts): boolean => {
+  const d = dateFromParts(parts);
+  return (
+    !Number.isNaN(d.getTime()) &&
+    d.getUTCFullYear() === parts.year &&
+    d.getUTCMonth() + 1 === parts.month &&
+    d.getUTCDate() === parts.day &&
+    d.getUTCHours() === parts.hour &&
+    d.getUTCMinutes() === parts.minute &&
+    d.getUTCSeconds() === parts.second
+  );
+};
+
+const partsInput = (parts: FormulaDateParts): string =>
+  `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second)}`;
+
+const localPartsForInstant = (date: Date, timeZone: string): FormulaDateParts | null => {
+  const formatted = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: string) => Number(formatted.find((p) => p.type === type)?.value);
+  const parts = {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: part("hour"),
+    minute: part("minute"),
+    second: part("second"),
+  };
+  return isValidParts(parts) ? parts : null;
+};
+
+const parseDateLike = (v: unknown, ctx: FormulaRuntimeContext): FormulaDateValue | null => {
+  const timeZone = formulaTimeZone(ctx);
+  if (v instanceof Date) {
+    const parts = localPartsForInstant(v, timeZone);
+    return parts ? { instant: v, parts, hasTime: true, instantBacked: true } : null;
   }
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (typeof v !== "string") return null;
+  if (INSTANT_RE.test(v)) {
+    const instant = new Date(v);
+    if (Number.isNaN(instant.getTime())) return null;
+    const parts = localPartsForInstant(instant, timeZone);
+    return parts ? { instant, parts, hasTime: true, instantBacked: true } : null;
+  }
+  const local = DATE_LIKE_RE.exec(v);
+  if (!local) return null;
+  const [, y, m, d, hh = "00", mm = "00", ss = "00"] = local;
+  const parts = {
+    year: Number(y),
+    month: Number(m),
+    day: Number(d),
+    hour: Number(hh),
+    minute: Number(mm),
+    second: Number(ss),
+  };
+  if (!isValidParts(parts)) return null;
+  const hasTime = v.includes("T");
+  const instant = hasTime
+    ? new Date(dates.zonedDateTimeToInstant(partsInput(parts), timeZone, { disambiguation: "compatible" }))
+    : dateFromParts(parts);
+  return { instant, parts, hasTime, instantBacked: hasTime };
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -68,7 +138,7 @@ const parseDateLike = (v: unknown): Date | null => {
 // already-evaluated arguments (any nested formula errors propagate).
 // ─────────────────────────────────────────────────────────────────
 
-type FnImpl = (args: unknown[]) => FnReturn;
+type FnImpl = (args: unknown[], ctx: FormulaRuntimeContext) => FnReturn;
 
 const decimalArgs = (args: unknown[]) => {
   const values = args.map(toDecimalValue).filter((v): v is NonNullable<ReturnType<typeof toDecimalValue>> => v !== null);
@@ -204,42 +274,56 @@ export const FN_LIBRARY: Record<string, FnImpl> = {
   CONTAINS: ([haystack, needle]) => str(haystack).includes(str(needle)),
 
   // ── Date ────────────────────────────────────────────────────────
-  TODAY: () => ymd(new Date()),
-  NOW: () => new Date().toISOString(),
-  YEAR: ([v]) => {
-    const d = parseDateLike(v);
-    return d === null ? null : d.getUTCFullYear();
+  TODAY: (_args, ctx) => dates.formatDateKey(ctx.now ?? new Date(), { ...ctx.dateConfig, timeZone: formulaTimeZone(ctx) }),
+  NOW: (_args, ctx) => (ctx.now ?? new Date()).toISOString(),
+  YEAR: ([v], ctx) => {
+    const d = parseDateLike(v, ctx);
+    return d === null ? null : d.parts.year;
   },
-  MONTH: ([v]) => {
-    const d = parseDateLike(v);
-    return d === null ? null : d.getUTCMonth() + 1;
+  MONTH: ([v], ctx) => {
+    const d = parseDateLike(v, ctx);
+    return d === null ? null : d.parts.month;
   },
-  DAY: ([v]) => {
-    const d = parseDateLike(v);
-    return d === null ? null : d.getUTCDate();
+  DAY: ([v], ctx) => {
+    const d = parseDateLike(v, ctx);
+    return d === null ? null : d.parts.day;
   },
-  DATEADD: ([dateArg, count, unit]) => {
-    const d = parseDateLike(dateArg);
+  DATEADD: ([dateArg, count, unit], ctx) => {
+    const d = parseDateLike(dateArg, ctx);
     if (d === null) return null;
     const n = num(count);
     if (n === null) return null;
     const u = String(unit ?? "days").toLowerCase();
-    const next = new Date(d.getTime());
+    const next = dateFromParts(d.parts);
     if (u === "days" || u === "day") next.setUTCDate(next.getUTCDate() + n);
     else if (u === "months" || u === "month") next.setUTCMonth(next.getUTCMonth() + n);
     else if (u === "years" || u === "year") next.setUTCFullYear(next.getUTCFullYear() + n);
     else if (u === "hours" || u === "hour") next.setUTCHours(next.getUTCHours() + n);
     else if (u === "minutes" || u === "minute") next.setUTCMinutes(next.getUTCMinutes() + n);
     else return formulaError("DATEADD_BAD_UNIT");
-    return ymd(next);
+    const parts = {
+      year: next.getUTCFullYear(),
+      month: next.getUTCMonth() + 1,
+      day: next.getUTCDate(),
+      hour: next.getUTCHours(),
+      minute: next.getUTCMinutes(),
+      second: next.getUTCSeconds(),
+    };
+    const timeUnit = u === "hours" || u === "hour" || u === "minutes" || u === "minute";
+    if (!d.instantBacked && !d.hasTime && !timeUnit) return ymd(next);
+    return dates.zonedDateTimeToInstant(partsInput(parts), formulaTimeZone(ctx), { disambiguation: "compatible" });
   },
-  DATEDIFF: ([from, to, unit]) => {
-    const a = parseDateLike(from);
-    const b = parseDateLike(to);
+  DATEDIFF: ([from, to, unit], ctx) => {
+    const a = parseDateLike(from, ctx);
+    const b = parseDateLike(to, ctx);
     if (a === null || b === null) return null;
-    const ms = b.getTime() - a.getTime();
     const u = String(unit ?? "days").toLowerCase();
-    if (u === "days" || u === "day") return Math.floor(ms / (1000 * 60 * 60 * 24));
+    if (u === "days" || u === "day") {
+      const aDay = Date.UTC(a.parts.year, a.parts.month - 1, a.parts.day);
+      const bDay = Date.UTC(b.parts.year, b.parts.month - 1, b.parts.day);
+      return Math.floor((bDay - aDay) / (1000 * 60 * 60 * 24));
+    }
+    const ms = b.instant.getTime() - a.instant.getTime();
     if (u === "hours" || u === "hour") return Math.floor(ms / (1000 * 60 * 60));
     if (u === "minutes" || u === "minute") return Math.floor(ms / (1000 * 60));
     if (u === "seconds" || u === "second") return Math.floor(ms / 1000);

@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from "solid-js";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
@@ -11,6 +12,7 @@ type Props = {
   form: Form;
   /** Resolved table fields so we know each entry's type + options. */
   fields: Field[];
+  dateConfig?: DateContext;
 };
 
 /**
@@ -120,7 +122,13 @@ export default function PublicFormSubmit(props: Props) {
               const field = fieldsById.get(entry.fieldId);
               if (!field || field.deletedAt) return null;
               return (
-                <FieldInput field={field} entry={entry} value={values()[entry.fieldId]} onChange={(v) => setValue(entry.fieldId, v)} />
+                <FieldInput
+                  field={field}
+                  entry={entry}
+                  value={values()[entry.fieldId]}
+                  onChange={(v) => setValue(entry.fieldId, v)}
+                  dateConfig={props.dateConfig}
+                />
               );
             }}
           </For>

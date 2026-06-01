@@ -30,13 +30,11 @@ describe("date defaults", () => {
   });
 
   test("materializes now server-side", () => {
-    const value = materializeFieldDefault(dateField({ kind: "now" }));
-    expect(typeof value).toBe("string");
-    expect(String(value)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const now = new Date("2026-05-01T22:30:00.000Z");
+    const value = materializeFieldDefault(dateField({ kind: "now" }), { now, dateConfig: { timeZone: "Europe/Berlin" } });
+    expect(value).toBe("2026-05-02");
 
-    const timed = materializeFieldDefault(dateField({ kind: "now" }, true));
-    expect(typeof timed).toBe("string");
-    expect(String(timed)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
-    expect(String(timed)).not.toMatch(/Z|[+-]\d{2}:\d{2}$/);
+    const timed = materializeFieldDefault(dateField({ kind: "now" }, true), { now, dateConfig: { timeZone: "Europe/Berlin" } });
+    expect(timed).toBe("2026-05-01T22:30:00.000Z");
   });
 });

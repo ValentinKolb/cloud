@@ -1,5 +1,5 @@
 import { markdown as markdownRenderer } from "@valentinkolb/cloud/shared";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { dates, err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type { ExportFieldSpec, SearchSpec, ViewQuery } from "../contracts";
 import { listByTable as listFields } from "./fields";
@@ -12,7 +12,7 @@ import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
-type ExportFormatOptions = { markdown: "raw" | "html" };
+type ExportFormatOptions = { markdown: "raw" | "html"; dateConfig?: DateContext };
 type RelationExportConfig = NonNullable<ExportFieldSpec["relation"]>;
 
 /** Hard cap on rows per export call so a single request can't blow up
@@ -24,6 +24,7 @@ const fetchAllForExport = async (params: {
   tableId: string;
   query: ViewQuery;
   viewer?: ExpansionViewer;
+  dateConfig?: DateContext;
 }): Promise<Result<{ items: GridRecord[]; truncated: boolean }>> => {
   const limit = Math.min(params.query.limit ?? MAX_EXPORT_ROWS, MAX_EXPORT_ROWS);
   const items: GridRecord[] = [];
@@ -41,6 +42,7 @@ const fetchAllForExport = async (params: {
       sort: params.query.sort ?? [],
       includeRelations: false,
       viewer: params.viewer,
+      dateConfig: params.dateConfig,
     });
     if (!page.ok) return fail(page.error);
     items.push(...page.data.items);
@@ -66,6 +68,16 @@ const fetchAllForExport = async (params: {
  */
 export const formatCellForExport = (value: unknown, field: Field, options: ExportFormatOptions = { markdown: "raw" }): string => {
   if (value === null || value === undefined) return "";
+  if (field.type === "date") {
+    if ((field.config as { includeTime?: boolean } | undefined)?.includeTime) {
+      if (typeof value !== "string" && typeof value !== "number" && !(value instanceof Date)) return String(value);
+      const instant = value instanceof Date ? value.toISOString() : String(value);
+      const timeZone = options.dateConfig?.timeZone;
+      if (!timeZone) return instant;
+      return dates.instantToZonedInput(instant, timeZone).replace("T", " ");
+    }
+    return String(value).slice(0, 10);
+  }
   if (field.type === "longtext" && options.markdown === "html") {
     return markdownRenderer.renderSync(String(value));
   }
@@ -305,6 +317,7 @@ export const exportRecords = async (params: {
   fields?: ExportFieldSpec[];
   csv?: { delimiter?: string };
   markdown?: "raw" | "html";
+  dateConfig?: DateContext;
   /** Optional viewer gates relation-field expansion across target tables. */
   viewer?: ExpansionViewer;
 }): Promise<Result<ExportResult>> => {
@@ -332,7 +345,7 @@ export const exportRecords = async (params: {
     selected: picked.data.selected,
     viewer: params.viewer,
   });
-  const options: ExportFormatOptions = { markdown: params.markdown ?? "raw" };
+  const options: ExportFormatOptions = { markdown: params.markdown ?? "raw", dateConfig: params.dateConfig };
   const delimiter = params.csv?.delimiter ?? ",";
 
   const date = new Date().toISOString().slice(0, 10);

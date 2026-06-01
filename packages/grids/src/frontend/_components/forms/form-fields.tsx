@@ -1,4 +1,5 @@
 import { Checkbox, CheckboxCard, DateTimeInput, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, FormFieldEntry } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
@@ -74,6 +75,7 @@ export function FieldInput(props: {
   baseId?: string;
   /** Optional UUID → label map for already-linked relation values. */
   relationLabels?: Record<string, string>;
+  dateConfig?: DateContext;
 }) {
   const label = props.entry.label || props.field.name;
   const required = props.entry.required ?? props.field.required;
@@ -212,6 +214,7 @@ export function FieldInput(props: {
           description={helpText}
           required={required}
           dateOnly={!includeTime}
+          dateConfig={includeTime ? props.dateConfig : undefined}
           value={stringValue}
           onChange={(v) => props.onChange(v)}
           error={error}
@@ -225,6 +228,7 @@ export function FieldInput(props: {
           label={label}
           description={helpText}
           required={required}
+          dateConfig={props.dateConfig}
           value={stringValue}
           onChange={(v) => props.onChange(v)}
           error={error}

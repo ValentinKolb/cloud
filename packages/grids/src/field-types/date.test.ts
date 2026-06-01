@@ -19,13 +19,27 @@ test("date: keeps the supplied calendar date when includeTime=false", () => {
   });
 });
 
-test("datetime: stores local wall time without timezone conversion", () => {
-  const result = dateHandler.validate("2026-05-02T12:00", { includeTime: true }, false);
-  expect(result).toEqual({ ok: true, value: "2026-05-02T12:00" });
+test("datetime: stores timezone-aware values as canonical UTC instants", () => {
+  const result = dateHandler.validate("2026-05-02T12:00:00+02:00", { includeTime: true }, false);
+  expect(result).toEqual({ ok: true, value: "2026-05-02T10:00:00.000Z" });
 });
 
-test("datetime: rejects timezone offsets to avoid hidden shifts", () => {
-  expect(dateHandler.validate("2026-05-02T12:00:00+02:00", { includeTime: true }, false).ok).toBe(false);
+test("datetime: rejects timezone-less wall times", () => {
+  expect(dateHandler.validate("2026-05-02T12:00", { includeTime: true }, false).ok).toBe(false);
+});
+
+test("datetime: compares min/max after canonical timezone normalization", () => {
+  expect(
+    dateHandler.validate(
+      "2026-05-02T12:30:00Z",
+      {
+        includeTime: true,
+        min: "2026-05-02T14:00:00+02:00",
+        max: "2026-05-02T15:00:00+02:00",
+      },
+      false,
+    ),
+  ).toEqual({ ok: true, value: "2026-05-02T12:30:00.000Z" });
 });
 
 test("date: rejects garbage strings", () => {
