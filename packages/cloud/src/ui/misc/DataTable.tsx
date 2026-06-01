@@ -70,6 +70,9 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   const [hoveredColumn, setHoveredColumn] = createSignal<number | null>(null);
   let scrollRef: HTMLDivElement | undefined;
   let loadMoreRef: HTMLDivElement | undefined;
+  let hasMore = false;
+  let loadingMore = false;
+  let onLoadMore: (() => void) | undefined;
   const rowId = (row: T) => props.getRowId?.(row);
   const isInteractive = () => !!props.onRowClick || !!props.onRowDoubleClick;
   const shouldHoverRows = () => props.hoverRows ?? isInteractive();
@@ -90,9 +93,9 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   };
 
   const maybeLoadMore = () => {
-    if (!props.hasMore || props.loadingMore || !props.onLoadMore) return;
+    if (!hasMore || loadingMore || !onLoadMore) return;
     if (!isNearBottom()) return;
-    props.onLoadMore();
+    onLoadMore();
   };
 
   const valueOf = (row: T, col: DataTableColumn<T>) => {
@@ -138,9 +141,10 @@ export default function DataTable<T>(props: DataTableProps<T>) {
 
   createEffect(() => {
     props.rows.length;
-    props.hasMore;
-    props.loadingMore;
-    queueMicrotask(maybeLoadMore);
+    hasMore = !!props.hasMore;
+    loadingMore = !!props.loadingMore;
+    onLoadMore = props.onLoadMore;
+    maybeLoadMore();
   });
 
   return (

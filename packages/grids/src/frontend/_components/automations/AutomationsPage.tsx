@@ -2,6 +2,7 @@ import {
   CheckboxCard,
   DataTable,
   type DataTableColumn,
+  MultiSelectInput,
   Select,
   TextInput,
   dialogCore,
@@ -373,20 +374,21 @@ function AutomationEditor(props: Props & { automation?: Automation; onSaved: () 
                   ]}
                 />
                 <Show when={fieldMode() === "selected"}>
-                  <div class="grid gap-2 sm:grid-cols-2">
-                    <For each={selectedTableFields()}>
-                      {(field) => (
-                        <CheckboxCard
-                          label={field.name}
-                          description={field.type}
-                          value={() => fieldIds().includes(field.id)}
-                          onChange={(checked) =>
-                            setFieldIds(checked ? [...fieldIds(), field.id] : fieldIds().filter((id) => id !== field.id))
-                          }
-                        />
-                      )}
-                    </For>
-                  </div>
+                  <MultiSelectInput
+                    label="Selected fields"
+                    description="Only these fields are included in the webhook payload."
+                    icon="ti ti-columns"
+                    placeholder="Choose fields"
+                    value={fieldIds}
+                    onChange={setFieldIds}
+                    options={selectedTableFields().map((field) => ({
+                      id: field.id,
+                      label: field.name,
+                      description: field.type,
+                      icon: field.icon ?? "ti ti-columns",
+                    }))}
+                    clearable
+                  />
                 </Show>
               </Show>
             </div>

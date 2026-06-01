@@ -358,7 +358,7 @@ const selected = await prompts.search(
 All from `@valentinkolb/cloud/ui`. **Important:** Reactive props expect accessor functions, not direct values.
 
 ```jsx
-import { TextInput, NumberInput, Select, Switch, Checkbox, TagsInput } from "@valentinkolb/cloud/ui";
+import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, TagsInput } from "@valentinkolb/cloud/ui";
 
 <TextInput
   value={() => mySignal()}              // accessor function, NOT direct value
@@ -374,6 +374,16 @@ import { TextInput, NumberInput, Select, Switch, Checkbox, TagsInput } from "@va
   onChange={(v) => setCategory(v)}
   label="Category"
   options={[{ id: "a", label: "A" }, { id: "b", label: "B" }]}  // uses `id`
+/>
+
+<MultiSelectInput
+  value={() => categoryIds()}
+  onChange={(ids) => setCategoryIds(ids)}
+  label="Categories"
+  options={[
+    { id: "a", label: "A", icon: "ti ti-tag", description: "Primary category", color: "#3b82f6" },
+    { id: "b", label: "B", icon: "ti ti-tag", color: "#10b981" },
+  ]}
 />
 
 <Switch
@@ -414,7 +424,7 @@ Key behavior:
 - `showSteppers` renders explicit plus/minus buttons; `disableSteppers` keeps native keyboard/input behavior but hides step controls.
 - `prefix`/`suffix` render inside the input shell.
 
-#### Select and Combobox
+#### Select, MultiSelectInput, and Combobox
 
 `Select` owns option lists and optional async fetching. Source: `packages/cloud/src/ui/input/Select.tsx`.
 
@@ -426,6 +436,20 @@ Key behavior:
   options={[{ id: "work", label: "Work", icon: "ti ti-briefcase" }]}
   fetchData={async (query) => searchCategories(query)}
   fetchDebounceMs={250}
+  clearable
+/>
+```
+
+`MultiSelectInput` uses the same option shape as `Select`, plus optional `color`. It owns a stable `string[]` value and renders selected options as compact colored pills. Use it for multi-choice filters, labels, roles, tags backed by known ids, and other cases where the chosen values must be constrained to known options. Source: `packages/cloud/src/ui/input/MultiSelectInput.tsx`.
+
+```tsx
+<MultiSelectInput
+  value={() => selectedIds()}
+  onChange={setSelectedIds}
+  options={[
+    { id: "open", label: "Open", icon: "ti ti-circle", description: "Needs work", color: "#3b82f6" },
+    { id: "done", label: "Done", icon: "ti ti-check", color: "#10b981" },
+  ]}
   clearable
 />
 ```

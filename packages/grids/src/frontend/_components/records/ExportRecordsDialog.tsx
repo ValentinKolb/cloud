@@ -1,4 +1,4 @@
-import { prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ExportBody, Field, ViewQuery } from "../../../contracts";
@@ -82,13 +82,6 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
 
-  const toggleTargetField = (index: number, fieldId: string, checked: boolean) => {
-    const row = rows()[index];
-    if (!row) return;
-    const next = checked ? [...row.targetFieldIds, fieldId] : row.targetFieldIds.filter((id) => id !== fieldId);
-    updateRow(index, { targetFieldIds: next });
-  };
-
   const runExport = async () => {
     const selected = rows().filter((row) => row.enabled);
     if (selected.length === 0) {
@@ -138,114 +131,121 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
   };
 
   return (
-    <div class="flex w-[min(44rem,calc(100vw-3rem))] max-w-full flex-col gap-4">
-      <div class="grid gap-3 sm:grid-cols-3">
-        <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-          Format
-          <select class="input" value={format()} onChange={(e) => setFormat(e.currentTarget.value as "csv" | "json")}>
-            <option value="csv">CSV</option>
-            <option value="json">JSON</option>
-          </select>
-        </label>
-        <Show when={format() === "csv"}>
-          <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-            Delimiter
-            <select class="input" value={delimiter()} onChange={(e) => setDelimiter(e.currentTarget.value as "," | ";" | "\t" | "|")}>
-              <option value=",">Comma</option>
-              <option value=";">Semicolon</option>
-              <option value={"\t"}>Tab</option>
-              <option value="|">Pipe</option>
-            </select>
-          </label>
-        </Show>
-        <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-          Markdown
-          <select class="input" value={markdown()} onChange={(e) => setMarkdown(e.currentTarget.value as "raw" | "html")}>
-            <option value="raw">Keep markdown</option>
-            <option value="html">Convert to HTML</option>
-          </select>
-        </label>
-      </div>
+    <PanelDialog>
+      <PanelDialog.Header title="Export records" icon="ti ti-download" close={props.close} />
+      <PanelDialog.Body>
+        <PanelDialog.Section title="Format" subtitle="Choose file type and how special values should be written." icon="ti ti-file-export">
+          <div class="grid gap-3 sm:grid-cols-3">
+            <label class="flex flex-col gap-1 text-xs font-medium text-primary">
+              Format
+              <select class="input" value={format()} onChange={(e) => setFormat(e.currentTarget.value as "csv" | "json")}>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+              </select>
+            </label>
+            <Show when={format() === "csv"}>
+              <label class="flex flex-col gap-1 text-xs font-medium text-primary">
+                Delimiter
+                <select class="input" value={delimiter()} onChange={(e) => setDelimiter(e.currentTarget.value as "," | ";" | "\t" | "|")}>
+                  <option value=",">Comma</option>
+                  <option value=";">Semicolon</option>
+                  <option value={"\t"}>Tab</option>
+                  <option value="|">Pipe</option>
+                </select>
+              </label>
+            </Show>
+            <label class="flex flex-col gap-1 text-xs font-medium text-primary">
+              Markdown
+              <select class="input" value={markdown()} onChange={(e) => setMarkdown(e.currentTarget.value as "raw" | "html")}>
+                <option value="raw">Keep markdown</option>
+                <option value="html">Convert to HTML</option>
+              </select>
+            </label>
+          </div>
+        </PanelDialog.Section>
 
-      <div class="flex max-h-[46vh] flex-col gap-2 overflow-y-auto">
-        <For each={rows()}>
-          {(row, index) => {
-            const field = fieldsById.get(row.fieldId)!;
-            const targetTableId = relationTargetTableId(field);
-            const availableTargetFields = () =>
-              targetTableId ? (targetFields()[targetTableId] ?? []).sort((a, b) => a.position - b.position) : [];
-            return (
-              <div class="rounded-lg border border-zinc-200/70 p-3 dark:border-zinc-800">
-                <div class="grid gap-2 sm:grid-cols-[1.4rem_1fr_1fr] sm:items-center">
-                  <input
-                    type="checkbox"
-                    checked={row.enabled}
-                    onChange={(e) => updateRow(index(), { enabled: e.currentTarget.checked })}
-                    aria-label={`Export ${field.name}`}
-                  />
-                  <div class="min-w-0">
-                    <div class="truncate text-xs font-medium text-primary">{field.name}</div>
-                    <div class="text-[11px] text-dimmed">{field.type}</div>
-                  </div>
-                  <input
-                    class="input input-sm"
-                    value={row.label}
-                    onInput={(e) => updateRow(index(), { label: e.currentTarget.value })}
-                    disabled={!row.enabled}
-                    aria-label={`Export label for ${field.name}`}
-                  />
-                </div>
-                <Show when={field.type === "relation" && row.enabled}>
-                  <div class="mt-2 grid gap-2 sm:grid-cols-[10rem_1fr]">
-                    <select
-                      class="input input-sm"
-                      value={row.relationMode}
-                      onChange={(e) => updateRow(index(), { relationMode: e.currentTarget.value as RowState["relationMode"] })}
-                    >
-                      <option value="ids">IDs</option>
-                      <option value="labels">Labels</option>
-                      <option value="fields">Selected fields</option>
-                    </select>
-                    <Show when={row.relationMode === "fields"}>
-                      <div class="flex flex-wrap gap-1.5">
-                        <For each={availableTargetFields()}>
-                          {(target) => (
-                            <label class="inline-flex items-center gap-1 rounded-full border border-zinc-300 px-2 py-1 text-[11px] dark:border-zinc-700">
-                              <input
-                                type="checkbox"
-                                checked={row.targetFieldIds.includes(target.id)}
-                                onChange={(e) => toggleTargetField(index(), target.id, e.currentTarget.checked)}
-                              />
-                              {target.name}
-                            </label>
-                          )}
-                        </For>
+        <PanelDialog.Section title="Fields" subtitle="Pick exported columns and relation output." icon="ti ti-columns">
+          <div class="flex max-h-[46vh] flex-col gap-2 overflow-y-auto">
+            <For each={rows()}>
+              {(row, index) => {
+                const field = fieldsById.get(row.fieldId)!;
+                const targetTableId = relationTargetTableId(field);
+                const availableTargetFields = () =>
+                  targetTableId ? (targetFields()[targetTableId] ?? []).sort((a, b) => a.position - b.position) : [];
+                return (
+                  <div class="rounded-lg border border-zinc-200/70 p-3 dark:border-zinc-800">
+                    <div class="grid gap-2 sm:grid-cols-[1.4rem_1fr_1fr] sm:items-center">
+                      <input
+                        type="checkbox"
+                        checked={row.enabled}
+                        onChange={(e) => updateRow(index(), { enabled: e.currentTarget.checked })}
+                        aria-label={`Export ${field.name}`}
+                      />
+                      <div class="min-w-0">
+                        <div class="truncate text-xs font-medium text-primary">{field.name}</div>
+                        <div class="text-[11px] text-dimmed">{field.type}</div>
+                      </div>
+                      <input
+                        class="input input-sm"
+                        value={row.label}
+                        onInput={(e) => updateRow(index(), { label: e.currentTarget.value })}
+                        disabled={!row.enabled}
+                        aria-label={`Export label for ${field.name}`}
+                      />
+                    </div>
+                    <Show when={field.type === "relation" && row.enabled}>
+                      <div class="mt-2 grid gap-2 sm:grid-cols-[10rem_1fr]">
+                        <select
+                          class="input input-sm"
+                          value={row.relationMode}
+                          onChange={(e) => updateRow(index(), { relationMode: e.currentTarget.value as RowState["relationMode"] })}
+                        >
+                          <option value="ids">IDs</option>
+                          <option value="labels">Labels</option>
+                          <option value="fields">Selected fields</option>
+                        </select>
+                        <Show when={row.relationMode === "fields"}>
+                          <MultiSelectInput
+                            placeholder="Choose fields"
+                            icon="ti ti-columns"
+                            value={() => row.targetFieldIds}
+                            onChange={(targetFieldIds) => updateRow(index(), { targetFieldIds })}
+                            options={availableTargetFields().map((target) => ({
+                              id: target.id,
+                              label: target.name,
+                              description: target.type,
+                              icon: target.icon ?? "ti ti-columns",
+                            }))}
+                            clearable
+                          />
+                        </Show>
                       </div>
                     </Show>
                   </div>
-                </Show>
-              </div>
-            );
-          }}
-        </For>
-      </div>
-
-      <Show when={error()}>
-        <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
-      </Show>
-
-      <div class="flex justify-end gap-2">
-        <button type="button" class="btn-input btn-input-sm" onClick={props.close} disabled={busy()}>
-          Cancel
-        </button>
-        <button type="button" class="btn-input btn-input-sm" onClick={() => void runExport()} disabled={busy()}>
-          <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-download"} text-sm`} />
-          Export
-        </button>
-      </div>
-    </div>
+                );
+              }}
+            </For>
+          </div>
+          <Show when={error()}>
+            <p class="text-xs text-red-600 dark:text-red-400">{error()}</p>
+          </Show>
+        </PanelDialog.Section>
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span />
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-simple btn-sm" onClick={props.close} disabled={busy()}>
+            Cancel
+          </button>
+          <button type="button" class="btn-primary btn-sm" onClick={() => void runExport()} disabled={busy()}>
+            <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-download"} text-sm`} />
+            Export
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
   );
 };
 
 export const openExportRecordsDialog = (args: OpenArgs): Promise<void> =>
-  prompts.dialog<void>((close) => <ExportDialogBody {...args} close={close} />, { title: "Export records", icon: "ti ti-download" });
+  dialogCore.open<void>((close) => <ExportDialogBody {...args} close={close} />, panelDialogOptions);

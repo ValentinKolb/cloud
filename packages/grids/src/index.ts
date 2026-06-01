@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { websocket } from "hono/bun";
 import { app } from "./config";
 import { middleware, type AuthContext } from "@valentinkolb/cloud/server";
 import apiRoutes from "./api";
@@ -15,7 +16,7 @@ const router = new Hono<AuthContext>()
   .route("/admin/grids", adminRoutes)
   .route("/share/grids", publicRoutes);
 
-export default await app.start({
+const result = await app.start({
   fetch: router.fetch,
   openapi: apiRoutes,
   lifecycle: {
@@ -30,6 +31,8 @@ export default await app.start({
     },
   },
 });
+
+export default { ...result, websocket };
 
 export { gridsService as service };
 export type { ApiType } from "./api";

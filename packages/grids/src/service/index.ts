@@ -15,6 +15,7 @@ import * as exporter from "./export";
 import * as maintenance from "./maintenance";
 import * as formulaPreview from "./formula-preview";
 import * as relationsModule from "./relations";
+import * as metadataEvents from "./metadata-events";
 import { automationRuntime } from "./automations-runtime";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import { resolveEffectivePermission, loadGrantsForUser, hasAtLeast, hasGrantsForResource } from "./permission-resolver";
@@ -110,6 +111,7 @@ export const gridsService = {
     get: dashboards.get,
     getByShortId: dashboards.getByShortId,
     getByIdOrShortId: dashboards.getByIdOrShortId,
+    sourceTableIds: dashboards.sourceTableIds,
     create: dashboards.create,
     update: dashboards.update,
     remove: dashboards.remove,
@@ -166,9 +168,10 @@ export const gridsService = {
     buildExpansionCache: relationsModule.buildRelationExpansionCache,
     lookup: relationsModule.lookupRecords,
   },
+  metadataEvents,
 };
 
-export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, automations, templates, automationRuntime, exporter, maintenance, formulaPreview };
+export { bases, tables, fields, records, audit, access, views, dashboards, forms, files, automations, templates, automationRuntime, exporter, maintenance, formulaPreview, metadataEvents };
 export type { View, ViewQuery, ColumnSpec, FormatSpec } from "./views";
 export type {
   Dashboard,

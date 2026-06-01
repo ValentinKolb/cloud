@@ -10,6 +10,7 @@ import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
 import { errorMessage } from "../utils/api-helpers";
 import AggregationsPanel, { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
 import FilterPanel, { blankLeaf, type FilterLeaf, isFilterLeafComplete } from "./FilterPanel";
+import { filterableFields } from "./filter-ops";
 import GroupByPanel, { blankGroupByRow, type GroupByRow, isGroupByRowComplete } from "./GroupByPanel";
 import SortPanel, { blankSortRow, isSortRowComplete, type SortRow } from "./SortPanel";
 
@@ -44,7 +45,7 @@ type Props = {
    * (RecordsView) opens the detail panel for the new record and
    * refetches the table.
    */
-  onRecordCreated?: (recordId: string) => void;
+  onRecordCreated?: (record: GridRecord) => void;
   /** Emitted after form submit where there is no single record-open
    *  intent; the parent just refetches the records resource. */
   onRecordsChanged?: () => void;
@@ -64,22 +65,30 @@ export default function GridToolbar(props: Props) {
   const [sortRows, setSortRows] = createSignal<SortRow[]>(props.initialSort);
   const [groupByRows, setGroupByRows] = createSignal<GroupByRow[]>(props.initialGroupBy);
   const [aggRows, setAggRows] = createSignal<AggregationRow[]>(props.initialAggregations);
+  let skipNextFilterDraftCommit = false;
 
   const hasFilter = () => filterRows().length > 0;
   const hasSort = () => sortRows().length > 0;
   const hasGroupBy = () => groupByRows().length > 0;
   const hasAgg = () => aggRows().length > 0;
+  const hasFilterableFields = () => filterableFields(props.fields).length > 0;
   const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg();
   const hasSaveableQuery = () => hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
   const activeForms = createMemo(() => (props.forms ?? []).filter((f) => f.isActive));
   const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const completeFilterRows = (rows: FilterLeaf[]) => rows.filter((l) => isFilterLeafComplete(l, props.fields));
 
   createEffect(() => {
     const nextFilter = props.initialFilter;
     const nextSort = props.initialSort;
     const nextGroupBy = props.initialGroupBy;
     const nextAgg = props.initialAggregations;
-    if (!sameJson(untrack(filterRows), nextFilter)) setFilterRows(nextFilter);
+    const currentFilter = untrack(filterRows);
+    const currentCompleteFilter = completeFilterRows(currentFilter);
+    const hasFilterDraft = currentFilter.length > currentCompleteFilter.length;
+    if (!sameJson(currentFilter, nextFilter) && !(hasFilterDraft && sameJson(currentCompleteFilter, nextFilter))) {
+      setFilterRows(nextFilter);
+    }
     if (!sameJson(untrack(sortRows), nextSort)) setSortRows(nextSort);
     if (!sameJson(untrack(groupByRows), nextGroupBy)) setGroupByRows(nextGroupBy);
     if (!sameJson(untrack(aggRows), nextAgg)) setAggRows(nextAgg);
@@ -88,7 +97,7 @@ export default function GridToolbar(props: Props) {
   // Validators trim incomplete rows before emitting upstream — same
   // contract as before, just propagated through onCommit instead of
   // navigateTo.
-  const validFilter = () => filterRows().filter((l) => isFilterLeafComplete(l, props.fields));
+  const validFilter = () => completeFilterRows(filterRows());
   const validSort = () => sortRows().filter((r) => isSortRowComplete(r, props.fields));
   const validGroupBy = () => groupByRows().filter((r) => isGroupByRowComplete(r, props.fields));
   const validAgg = () => aggRows().filter(isAggregationRowComplete);
@@ -105,6 +114,11 @@ export default function GridToolbar(props: Props) {
         const s = validSort();
         const g = validGroupBy();
         const a = validAgg();
+        if (skipNextFilterDraftCommit && filterRows().length > f.length) {
+          skipNextFilterDraftCommit = false;
+          return;
+        }
+        skipNextFilterDraftCommit = false;
         props.onCommit({
           filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
           sort: s.length > 0 ? s : undefined,
@@ -135,7 +149,7 @@ export default function GridToolbar(props: Props) {
       // refetches its createResource and optionally opens the detail
       // panel for the new row). Fall back to a full nav for any future
       // caller that doesn't wire it up.
-      if (props.onRecordCreated) props.onRecordCreated(created.id);
+      if (props.onRecordCreated) props.onRecordCreated(created);
       else refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
@@ -173,7 +187,12 @@ export default function GridToolbar(props: Props) {
   // mental model: "Filter button = add a filter").
   const onFilterClick = () => {
     const blank = blankLeaf(props.fields);
-    if (blank) setFilterRows([...filterRows(), blank]);
+    if (!blank) {
+      prompts.error("This table has no filterable fields.");
+      return;
+    }
+    skipNextFilterDraftCommit = true;
+    setFilterRows([...filterRows(), blank]);
   };
   const onSortClick = () => {
     const blank = blankSortRow(props.fields);
@@ -326,7 +345,13 @@ export default function GridToolbar(props: Props) {
         </Show>
 
         {/* Filter — clicking adds a blank row; the panel below renders iff rows > 0. */}
-        <button type="button" class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`} onClick={onFilterClick}>
+        <button
+          type="button"
+          class={`btn-input btn-input-sm ${hasFilter() ? "btn-input-active" : ""}`}
+          onClick={onFilterClick}
+          disabled={!hasFilterableFields()}
+          title={hasFilterableFields() ? "Add filter" : "No filterable fields"}
+        >
           <i class="ti ti-filter" />
           Filter
         </button>

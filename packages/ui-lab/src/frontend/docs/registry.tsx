@@ -64,6 +64,7 @@ import {
   IconInputDemo,
   ImageInputDemo,
   MarkdownEditorStandalone,
+  MultiSelectInputDemo,
   NumberInputBasic,
   NumberInputCurrency,
   NumberInputPercent,
@@ -239,12 +240,13 @@ export const uiLabDocs: UiLabDocSection[] = [
         "Select",
         "ti ti-selector",
         "Static options and async fetchData selects.",
-        ["select-basic", "select-fetchdata", "selectchip"],
+        ["select-basic", "select-fetchdata", "selectchip", "multiselectinput"],
         () => (
           <DemoGrid>
             <SelectBasic />
             <SelectFetchData />
             <SelectChipDemo />
+            <MultiSelectInputDemo />
           </DemoGrid>
         ),
       ),

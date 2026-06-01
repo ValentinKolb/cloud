@@ -1,7 +1,7 @@
-import { job, scheduler } from "@valentinkolb/sync";
 import { logger, get as settingsGet } from "@valentinkolb/cloud/services";
+import { job, scheduler } from "@valentinkolb/sync";
 import * as automations from "./automations";
-import type { GridsRecordEvent } from "./record-events";
+import { type GridsRecordEvent, registerRecordEventHandler } from "./record-events";
 import type { Automation, AutomationSubject } from "./types";
 
 const log = logger("grids:automations");
@@ -37,6 +37,7 @@ const automationJob = job<AutomationJobInput, { runId: string | null; status: st
 
 let started = false;
 let registerPromise: Promise<void> | null = null;
+let unregisterRecordEventHandler: (() => void) | null = null;
 
 const scheduleId = (automationId: string): string => `automation:${automationId}`;
 const eventJobKey = (automationId: string, event: GridsRecordEvent): string =>
@@ -118,12 +119,52 @@ const registerAll = async (): Promise<void> => {
   }
 };
 
+const dispatchRecordEvent = async (event: GridsRecordEvent): Promise<void> => {
+  const candidates = await automations.listRecordEventEnabled(event);
+  for (const automation of candidates) {
+    const matched = await automations.recordMatchesAutomationFilter(automation, event);
+    if (!matched.ok) {
+      log.warn("Record automation filter failed", {
+        automationId: automation.id,
+        tableId: event.tableId,
+        recordId: event.recordId,
+        error: matched.error.message,
+      });
+      continue;
+    }
+    if (!matched.data) continue;
+    await automationJob.submit({
+      key: eventJobKey(automation.id, event),
+      input: {
+        automationId: automation.id,
+        triggerKind: "event",
+        eventName: event.type,
+        triggerDetails: {
+          recordEvent: event.type,
+          changedFieldIds: event.changedFieldIds,
+          occurredAt: event.occurredAt,
+        },
+        reason: event.type,
+        input: null,
+        subject: { type: "record", tableId: event.tableId, recordId: event.recordId },
+      },
+    });
+  }
+};
+
+const ensureStarted = () => {
+  if (!started) {
+    automationScheduler.start();
+    started = true;
+  }
+  if (!unregisterRecordEventHandler) {
+    unregisterRecordEventHandler = registerRecordEventHandler(dispatchRecordEvent);
+  }
+};
+
 export const automationRuntime = {
   start: async (): Promise<void> => {
-    if (!started) {
-      automationScheduler.start();
-      started = true;
-    }
+    ensureStarted();
     if (!registerPromise) {
       registerPromise = registerAll().finally(() => {
         registerPromise = null;
@@ -136,15 +177,14 @@ export const automationRuntime = {
     if (!started) return;
     await automationScheduler.stop();
     automationJob.stop();
+    unregisterRecordEventHandler?.();
+    unregisterRecordEventHandler = null;
     started = false;
     registerPromise = null;
   },
 
   sync: async (automation: Automation): Promise<void> => {
-    if (!started) {
-      automationScheduler.start();
-      started = true;
-    }
+    ensureStarted();
     await createSchedule(automation);
   },
 
@@ -152,36 +192,5 @@ export const automationRuntime = {
     await automationScheduler.delete({ id: scheduleId(automationId) });
   },
 
-  dispatchRecordEvent: async (event: GridsRecordEvent): Promise<void> => {
-    const candidates = await automations.listRecordEventEnabled(event);
-    for (const automation of candidates) {
-      const matched = await automations.recordMatchesAutomationFilter(automation, event);
-      if (!matched.ok) {
-        log.warn("Record automation filter failed", {
-          automationId: automation.id,
-          tableId: event.tableId,
-          recordId: event.recordId,
-          error: matched.error.message,
-        });
-        continue;
-      }
-      if (!matched.data) continue;
-      await automationJob.submit({
-        key: eventJobKey(automation.id, event),
-        input: {
-          automationId: automation.id,
-          triggerKind: "event",
-          eventName: event.type,
-          triggerDetails: {
-            recordEvent: event.type,
-            changedFieldIds: event.changedFieldIds,
-            occurredAt: event.occurredAt,
-          },
-          reason: event.type,
-          input: null,
-          subject: { type: "record", tableId: event.tableId, recordId: event.recordId },
-        },
-      });
-    }
-  },
+  dispatchRecordEvent,
 };

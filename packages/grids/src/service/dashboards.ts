@@ -2,6 +2,7 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
+import { emitMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import {
@@ -125,6 +126,66 @@ const ensureDashboardInBase = async (
 
 const widgetsOf = (config: DashboardConfig): Widget[] =>
   config.rows.flatMap((row) => row.cells);
+
+export const sourceTableIds = async (dashboard: Dashboard): Promise<string[]> => {
+  const tableIds = new Set<string>();
+  const directTableIds = new Set<string>();
+  const viewIds = new Set<string>();
+  const formIds = new Set<string>();
+
+  for (const widget of widgetsOf(dashboard.config)) {
+    if (widget.kind === "stat") {
+      directTableIds.add(widget.source.tableId);
+    } else if (widget.kind === "chart" || widget.kind === "view-stats") {
+      viewIds.add(widget.viewId);
+    } else if (widget.kind === "view") {
+      if (widget.source.kind === "table") directTableIds.add(widget.source.tableId);
+      else viewIds.add(widget.source.viewId);
+    } else if (widget.kind === "form") {
+      formIds.add(widget.formId);
+    }
+  }
+
+  const directList = [...directTableIds];
+  if (directList.length > 0) {
+    const rows = await sql<{ table_id: string }[]>`
+      SELECT DISTINCT t.id::text AS table_id
+      FROM grids.tables t
+      WHERE t.id = ANY(${toPgUuidArray(directList)}::uuid[])
+        AND t.deleted_at IS NULL
+        AND t.base_id = ${dashboard.baseId}::uuid
+    `;
+    for (const row of rows) tableIds.add(row.table_id);
+  }
+
+  const viewList = [...viewIds];
+  if (viewList.length > 0) {
+    const rows = await sql<{ table_id: string }[]>`
+      SELECT DISTINCT v.table_id::text AS table_id
+      FROM grids.views v
+      JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+      WHERE v.id = ANY(${toPgUuidArray(viewList)}::uuid[])
+        AND v.deleted_at IS NULL
+        AND t.base_id = ${dashboard.baseId}::uuid
+    `;
+    for (const row of rows) tableIds.add(row.table_id);
+  }
+
+  const formList = [...formIds];
+  if (formList.length > 0) {
+    const rows = await sql<{ table_id: string }[]>`
+      SELECT DISTINCT f.table_id::text AS table_id
+      FROM grids.forms f
+      JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+      WHERE f.id = ANY(${toPgUuidArray(formList)}::uuid[])
+        AND f.deleted_at IS NULL
+        AND t.base_id = ${dashboard.baseId}::uuid
+    `;
+    for (const row of rows) tableIds.add(row.table_id);
+  }
+
+  return [...tableIds].sort();
+};
 
 const validateWidgetRefs = async (
   widget: Widget,
@@ -379,6 +440,12 @@ export const create = async (
     action: "created",
     diff: { dashboard: { old: null, new: { id: dashboard.id, name: dashboard.name } } },
   });
+  await emitMetadataEvent({
+    type: "dashboard.created",
+    baseId: input.baseId,
+    resource: { kind: "dashboard", id: dashboard.id },
+    actorId,
+  });
   return ok(dashboard);
 };
 
@@ -455,6 +522,12 @@ export const update = async (
     action: "updated",
     diff: { dashboard: { old: existing.name, new: dashboard.name } },
   });
+  await emitMetadataEvent({
+    type: "dashboard.updated",
+    baseId: existing.baseId,
+    resource: { kind: "dashboard", id: dashboard.id },
+    actorId,
+  });
   return ok(dashboard);
 };
 
@@ -477,6 +550,12 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
     `;
   });
   await logAudit({ baseId: existing.baseId, userId: actorId, action: "deleted" });
+  await emitMetadataEvent({
+    type: "dashboard.deleted",
+    baseId: existing.baseId,
+    resource: { kind: "dashboard", id },
+    actorId,
+  });
   return ok();
 };
 
@@ -495,5 +574,11 @@ export const restore = async (
   if (!row) return fail(err.internal("restore failed"));
   const dashboard = mapRow(row);
   await logAudit({ baseId: existing.baseId, userId: actorId, action: "restored" });
+  await emitMetadataEvent({
+    type: "dashboard.restored",
+    baseId: existing.baseId,
+    resource: { kind: "dashboard", id },
+    actorId,
+  });
   return ok(dashboard);
 };

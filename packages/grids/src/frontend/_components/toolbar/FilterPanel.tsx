@@ -1,4 +1,4 @@
-import { DateTimeInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { DateTimeInput, MultiSelectInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
@@ -139,8 +139,7 @@ type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "relation" 
  *  - ops with `needsRange=true` (between): TWO inputs side-by-side
  *  - boolean fields: cloud Select
  *  - select fields (is / isNot): cloud Select over field options
- *  - select multi-value ops (one-of / none-of): TextInput
- *    (comma-separated → parsed to a string[] on input)
+ *  - select multi-value ops (one-of / none-of): MultiSelectInput
  *  - relation contains: RelationPicker over the target table
  *  - dates: cloud DateTimeInput dateOnly (or NumberInput for lastNDays)
  *  - numeric fields: cloud NumberInput
@@ -228,18 +227,25 @@ function FilterValueInput(props: { field: Field | null; op: FilterOp | null; val
       </Match>
 
       <Match when={kind() === "multi"}>
-        <div class="w-44">
-          <TextInput
-            icon="ti ti-list"
-            placeholder="comma-separated"
-            value={() => (Array.isArray(props.value) ? props.value.join(", ") : String(props.value ?? ""))}
-            onChange={(v) => {
-              const parts = v
-                .split(",")
-                .map((s) => s.trim())
-                .filter(Boolean);
-              props.onChange(parts);
-            }}
+        <div class="w-72">
+          <MultiSelectInput
+            placeholder="Options"
+            value={() => (Array.isArray(props.value) ? props.value.filter((item): item is string => typeof item === "string") : [])}
+            onChange={(value) => props.onChange(value)}
+            options={(
+              (
+                props.field?.config as
+                  | { options?: Array<{ id: string; label: string; description?: string; icon?: string; color?: string }> }
+                  | undefined
+              )?.options ?? []
+            ).map((option) => ({
+              id: option.id,
+              label: option.label,
+              description: option.description,
+              icon: option.icon,
+              color: option.color,
+            }))}
+            clearable
           />
         </div>
       </Match>

@@ -93,6 +93,7 @@ export function FieldInput(props: {
       const markdown = Boolean((props.field.config as { markdown?: boolean }).markdown);
       return (
         <TextInput
+          name={props.field.id}
           label={label}
           description={helpText}
           required={required}
@@ -101,6 +102,7 @@ export function FieldInput(props: {
           lines={markdown ? 8 : 4}
           value={stringValue}
           onInput={(v) => props.onChange(v)}
+          onChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -113,6 +115,7 @@ export function FieldInput(props: {
       // type without running off the visible area.
       return (
         <TextInput
+          name={props.field.id}
           label={label}
           description={helpText}
           required={required}
@@ -120,6 +123,7 @@ export function FieldInput(props: {
           lines={6}
           value={stringValue}
           onInput={(v) => props.onChange(v)}
+          onChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -137,11 +141,13 @@ export function FieldInput(props: {
       };
       return (
         <TextInput
+          name={props.field.id}
           label={label}
           description={helpText}
           required={required}
           value={numberText}
           onInput={(v) => props.onChange(v)}
+          onChange={(v) => props.onChange(v)}
           inputMode={decimalPlaces === 0 ? "numeric" : "decimal"}
           icon="ti ti-number"
           prefix={unit && unitPosition === "prefix" ? <span class="font-mono">{unit}</span> : undefined}
@@ -174,12 +180,14 @@ export function FieldInput(props: {
       // the user to compute seconds.
       return (
         <TextInput
+          name={props.field.id}
           label={label}
           description={helpText}
           required={required}
           placeholder="HH:MM:SS or seconds"
           value={stringValue}
           onInput={(v) => props.onChange(v)}
+          onChange={(v) => props.onChange(v)}
           error={error}
         />
       );
@@ -331,11 +339,13 @@ export function FieldInput(props: {
       // text / unknown-but-userInput → plain text.
       return (
         <TextInput
+          name={props.field.id}
           label={label}
           description={helpText}
           required={required}
           value={stringValue}
           onInput={(v) => props.onChange(v)}
+          onChange={(v) => props.onChange(v)}
           error={error}
         />
       );

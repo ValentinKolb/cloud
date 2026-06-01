@@ -123,6 +123,13 @@ type ViewerContext = {
 };
 
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
+type LinkWidget = Extract<Widget, { kind: "link" }>;
+type LinkDataBase = {
+  kind: "link";
+  title: string;
+  description: string | null;
+  icon: string;
+};
 
 /**
  * Resolves the data for a single widget against the live DB. Pure
@@ -164,94 +171,121 @@ const resolveMarkdown = (widget: Extract<Widget, { kind: "markdown" }>): WidgetD
   html: markdown.render(widget.markdown || ""),
 });
 
-const resolveLink = async (widget: Extract<Widget, { kind: "link" }>, viewer: ViewerContext): Promise<WidgetData> => {
-  const base = {
+const linkTitle = (widget: LinkWidget, fallback: string): string => widget.title?.trim() || fallback;
+const linkDescription = (widget: LinkWidget, fallback: string | null | undefined): string | null =>
+  widget.description?.trim() || fallback || null;
+
+const linkBase = (widget: LinkWidget): LinkDataBase => ({
     kind: "link" as const,
     title: widget.title?.trim() || "Open",
     description: widget.description?.trim() || null,
     icon: widget.icon || iconForLinkTarget(widget.target.kind),
+});
+
+const resolveUrlLink = (widget: LinkWidget, base: LinkDataBase): WidgetData => ({
+  ...base,
+  target: { kind: "url", url: widget.target.kind === "url" ? widget.target.url : "" },
+});
+
+const resolveDashboardLink = async (widget: LinkWidget, base: LinkDataBase, viewer: ViewerContext): Promise<WidgetData> => {
+  if (widget.target.kind !== "dashboard") return { kind: "error", reason: "invalid dashboard link target" };
+  const dashboard = await dashboards.get(widget.target.dashboardId);
+  if (!dashboard) return { kind: "error", reason: "dashboard not found" };
+  if (!(await canReadDashboardTarget(dashboard, viewer))) {
+    return blockedLinkData(base, "No access to this dashboard");
+  }
+  return {
+    ...base,
+    title: linkTitle(widget, dashboard.name),
+    description: linkDescription(widget, dashboard.description),
+    target: {
+      kind: "dashboard",
+      dashboardId: dashboard.id,
+      dashboardShortId: dashboard.shortId,
+      name: dashboard.name,
+    },
   };
+};
+
+const resolveTableLink = async (widget: LinkWidget, base: LinkDataBase, viewer: ViewerContext): Promise<WidgetData> => {
+  if (widget.target.kind !== "table") return { kind: "error", reason: "invalid table link target" };
+  const table = await tables.get(widget.target.tableId);
+  if (!table) return { kind: "error", reason: "table not found" };
+  if (!(await canReadTableTarget(table, viewer))) {
+    return blockedLinkData(base, "No access to this table");
+  }
+  return {
+    ...base,
+    title: linkTitle(widget, table.name),
+    description: linkDescription(widget, table.description),
+    target: { kind: "table", tableId: table.id, tableShortId: table.shortId, name: table.name },
+  };
+};
+
+const resolveViewLink = async (widget: LinkWidget, base: LinkDataBase, viewer: ViewerContext): Promise<WidgetData> => {
+  if (widget.target.kind !== "view") return { kind: "error", reason: "invalid view link target" };
+  const view = await views.get(widget.target.viewId);
+  if (!view) return { kind: "error", reason: "view not found" };
+  const table = await tables.get(view.tableId);
+  if (!table) return { kind: "error", reason: "view's parent table not found" };
+  if (!(await canReadViewTarget(view, table.baseId, viewer))) {
+    return blockedLinkData(base, "No access to this view");
+  }
+  return {
+    ...base,
+    title: linkTitle(widget, view.name),
+    target: {
+      kind: "view",
+      viewId: view.id,
+      viewShortId: view.shortId,
+      tableShortId: table.shortId,
+      name: view.name,
+      tableName: table.name,
+    },
+  };
+};
+
+const resolveFormLink = async (widget: LinkWidget, base: LinkDataBase, viewer: ViewerContext): Promise<WidgetData> => {
+  if (widget.target.kind !== "form") return { kind: "error", reason: "invalid form link target" };
+  const form = await forms.get(widget.target.formId);
+  if (!form) return { kind: "error", reason: "form not found" };
+  const [table, formFields] = await Promise.all([tables.get(form.tableId), fields.listByTable(form.tableId)]);
+  if (!table) return { kind: "error", reason: "form's parent table not found" };
+  const canSubmit = viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id);
+  if (!canSubmit) return blockedLinkData(base, "No submit access for this form");
+  return {
+    ...base,
+    title: linkTitle(widget, form.name),
+    description: linkDescription(widget, form.config.description),
+    target: { kind: "form", form, fields: formFields, tableName: table.name, canSubmit },
+  };
+};
+
+const resolveLink = async (widget: LinkWidget, viewer: ViewerContext): Promise<WidgetData> => {
+  const base = linkBase(widget);
   switch (widget.target.kind) {
     case "url":
-      return { ...base, target: { kind: "url", url: widget.target.url } };
-    case "dashboard": {
-      const dashboard = await dashboards.get(widget.target.dashboardId);
-      if (!dashboard) return { kind: "error", reason: "dashboard not found" };
-      if (!(await canReadDashboardTarget(dashboard, viewer))) {
-        return blockedLinkData(base, "No access to this dashboard");
-      }
-      return {
-        ...base,
-        title: widget.title?.trim() || dashboard.name,
-        description: widget.description?.trim() || dashboard.description,
-        target: {
-          kind: "dashboard",
-          dashboardId: dashboard.id,
-          dashboardShortId: dashboard.shortId,
-          name: dashboard.name,
-        },
-      };
-    }
-    case "table": {
-      const table = await tables.get(widget.target.tableId);
-      if (!table) return { kind: "error", reason: "table not found" };
-      if (!(await canReadTableTarget(table, viewer))) {
-        return blockedLinkData(base, "No access to this table");
-      }
-      return {
-        ...base,
-        title: widget.title?.trim() || table.name,
-        description: widget.description?.trim() || table.description,
-        target: { kind: "table", tableId: table.id, tableShortId: table.shortId, name: table.name },
-      };
-    }
-    case "view": {
-      const view = await views.get(widget.target.viewId);
-      if (!view) return { kind: "error", reason: "view not found" };
-      const table = await tables.get(view.tableId);
-      if (!table) return { kind: "error", reason: "view's parent table not found" };
-      if (!(await canReadViewTarget(view, table.baseId, viewer))) {
-        return blockedLinkData(base, "No access to this view");
-      }
-      return {
-        ...base,
-        title: widget.title?.trim() || view.name,
-        target: {
-          kind: "view",
-          viewId: view.id,
-          viewShortId: view.shortId,
-          tableShortId: table.shortId,
-          name: view.name,
-          tableName: table.name,
-        },
-      };
-    }
-    case "form": {
-      const form = await forms.get(widget.target.formId);
-      if (!form) return { kind: "error", reason: "form not found" };
-      const [table, formFields] = await Promise.all([tables.get(form.tableId), fields.listByTable(form.tableId)]);
-      if (!table) return { kind: "error", reason: "form's parent table not found" };
-      const canSubmit = viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id);
-      if (!canSubmit) return blockedLinkData(base, "No submit access for this form");
-      return {
-        ...base,
-        title: widget.title?.trim() || form.name,
-        description: widget.description?.trim() || form.config.description || null,
-        target: { kind: "form", form, fields: formFields, tableName: table.name, canSubmit },
-      };
-    }
+      return resolveUrlLink(widget, base);
+    case "dashboard":
+      return resolveDashboardLink(widget, base, viewer);
+    case "table":
+      return resolveTableLink(widget, base, viewer);
+    case "view":
+      return resolveViewLink(widget, base, viewer);
+    case "form":
+      return resolveFormLink(widget, base, viewer);
   }
 };
 
-const blockedLinkData = (
-  base: { kind: "link"; title: string; description: string | null; icon: string },
-  reason: string,
-): WidgetData => ({
+const blockedLinkData = (base: LinkDataBase, reason: string): WidgetData => ({
   ...base,
   target: { kind: "blocked", reason },
 });
 
-const canReadTableTarget = async (table: NonNullable<Awaited<ReturnType<typeof tables.get>>>, viewer: ViewerContext): Promise<boolean> => {
+type SavedTable = NonNullable<Awaited<ReturnType<typeof tables.get>>>;
+type SavedDashboard = NonNullable<Awaited<ReturnType<typeof dashboards.get>>>;
+
+const canReadTableTarget = async (table: SavedTable, viewer: ViewerContext): Promise<boolean> => {
   if (viewer.isAdmin) return true;
   const grants = await loadGrantsForUser({
     userId: viewer.userId,
@@ -263,7 +297,7 @@ const canReadTableTarget = async (table: NonNullable<Awaited<ReturnType<typeof t
 };
 
 const canReadViewTarget = async (
-  view: NonNullable<Awaited<ReturnType<typeof views.get>>>,
+  view: SavedView,
   baseId: string,
   viewer: ViewerContext,
 ): Promise<boolean> => {
@@ -281,10 +315,7 @@ const canReadViewTarget = async (
   return hasGrantsForResource(grants, "view", view.id);
 };
 
-const canReadDashboardTarget = async (
-  dashboard: NonNullable<Awaited<ReturnType<typeof dashboards.get>>>,
-  viewer: ViewerContext,
-): Promise<boolean> => {
+const canReadDashboardTarget = async (dashboard: SavedDashboard, viewer: ViewerContext): Promise<boolean> => {
   if (viewer.isAdmin) return true;
   const grants = await loadGrantsForUser({
     userId: viewer.userId,

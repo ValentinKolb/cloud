@@ -1,4 +1,4 @@
-import { CopyButton, prompts } from "@valentinkolb/cloud/ui";
+import { CopyButton, dialogCore, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
@@ -20,11 +20,19 @@ import { errorMessage } from "../utils/api-helpers";
  *   to add a single record and likely wants to add more in a row.
  */
 export const openFormModal = (form: Form, fields: Field[], options: { onSubmitted?: () => void } = {}) =>
-  prompts.dialog<void>((close) => <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} close={close} />, {
-    title: form.config.title ?? form.name,
-    icon: "ti ti-forms",
-    size: "large",
-  });
+  dialogCore.open<void>(
+    (close) => (
+      <PanelDialog>
+        <PanelDialog.Header title={form.config.title ?? form.name} icon="ti ti-forms" close={() => close()} />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Submit form" subtitle={form.name} icon="ti ti-forms">
+            <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} close={close} />
+          </PanelDialog.Section>
+        </PanelDialog.Body>
+      </PanelDialog>
+    ),
+    panelDialogOptions,
+  );
 
 function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () => void; close: (result?: void) => void }) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));

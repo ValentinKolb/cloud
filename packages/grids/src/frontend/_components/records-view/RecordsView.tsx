@@ -1,6 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, dialogCore, prompts } from "@valentinkolb/cloud/ui";
-import { streaming } from "@valentinkolb/stdlib";
+import { Dropdown, dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog, prompts } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
@@ -8,7 +7,6 @@ import type { AggregationSpec, GroupBySpec, TableQueryResult, ViewQuery } from "
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import type { ColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
-import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../dialogs/TableAdminDialogs";
 import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
@@ -28,7 +26,14 @@ import GridToolbar from "../toolbar/GridToolbar";
 import SearchBar from "../toolbar/SearchBar";
 import { errorMessage } from "../utils/api-helpers";
 import { fetchTableQuery } from "./fetcher";
-import { highlightedIdsForLiveRefresh, isLiveRecordEventForTable, liveRefreshQuery, visibleIdsFromResult } from "./live-refresh";
+import { createGridsRecordEventsProvider } from "./grids-record-events-provider";
+import {
+  highlightedIdsForLiveRefresh,
+  liveRefreshQuery,
+  mergeLiveRefreshItems,
+  shouldOptimisticallyRemoveDeletedRecord,
+  visibleIdsFromResult,
+} from "./live-refresh";
 import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-url";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
@@ -130,6 +135,11 @@ type Props = {
   activeViewQuery: ViewQuery | null;
 };
 
+type RecordsTableQueryResult = TableQueryResult & {
+  __recordsFetchEpoch?: number;
+  __liveCommitId?: number;
+};
+
 export default function RecordsView(props: Props) {
   // ── Canonical state ────────────────────────────────────────────────
   const [tableName, setTableName] = createSignal(props.tableName);
@@ -199,16 +209,21 @@ export default function RecordsView(props: Props) {
   // keystroke updates the source signal and the API request body in one
   // step — the records service compiles it into SQL separately from the
   // structured FilterTree.
+  let resourceFetchEpochCounter = 0;
   const queryWithSearch = (): ViewQuery => {
     const { search: _savedSearch, ...baseQuery } = query();
     const q = search().q.trim();
     if (!q) return baseQuery;
     return { ...baseQuery, search: { q, fieldIds: search().fieldIds } };
   };
-  const [data, { refetch, mutate }] = createResource(
+  const [data, { refetch, mutate }] = createResource<RecordsTableQueryResult, { tableId: string; query: ViewQuery; cursor: string | null }>(
     () => ({ tableId: props.tableId, query: queryWithSearch(), cursor: cursor() }),
-    (args) => fetchTableQuery(args),
-    { initialValue: props.initialData },
+    async (args): Promise<RecordsTableQueryResult> => {
+      const epoch = ++resourceFetchEpochCounter;
+      const result = await fetchTableQuery(args);
+      return { ...result, __recordsFetchEpoch: epoch };
+    },
+    { initialValue: { ...props.initialData, __recordsFetchEpoch: 0 } as RecordsTableQueryResult },
   );
 
   const [flatItems, setFlatItems] = createSignal<GridRecord[]>(props.initialData.items ?? []);
@@ -220,11 +235,35 @@ export default function RecordsView(props: Props) {
   let replaceNextFlatPage = false;
   let liveRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  let liveRefreshAbort: AbortController | undefined;
+  let liveProvider: ReturnType<typeof createGridsRecordEventsProvider> | null = null;
+  let pendingLiveCursor: string | null = null;
+  let refreshRequestId = 0;
   let pendingLiveRecordIds = new Set<string>();
+  let staleResourceEpochFloor = -1;
+  let liveCommitId = 0;
+
+  const invalidateLiveRefreshes = () => {
+    refreshRequestId++;
+    liveRefreshAbort?.abort();
+    liveRefreshAbort = undefined;
+    pendingLiveRecordIds = new Set();
+    pendingLiveCursor = null;
+    if (liveRefreshTimer) {
+      clearTimeout(liveRefreshTimer);
+      liveRefreshTimer = undefined;
+    }
+    setLivePending(false);
+    setLiveRefreshing(false);
+  };
 
   createEffect(() => {
-    const response = data();
+    const response = data() as RecordsTableQueryResult | undefined;
     if (!response || isGrouped()) return;
+    const isLiveCommit = typeof response.__liveCommitId === "number" && response.__liveCommitId === liveCommitId;
+    const fetchEpoch = response.__recordsFetchEpoch ?? 0;
+    if (!isLiveCommit && fetchEpoch <= staleResourceEpochFloor) return;
+    if (isLiveCommit) return;
     const pageItems = (response.items ?? []) as GridRecord[];
     setFlatNextCursor(response.nextCursor ?? null);
     if (replaceNextFlatPage) {
@@ -282,17 +321,18 @@ export default function RecordsView(props: Props) {
   // When a selected id can't be found locally, fetch it once. This is
   // the rare deep-link / paginated-out path; common case (row click)
   // hands us the record directly via items().
-  createMemo(() => {
+  createEffect(() => {
     const id = selectedRecordId();
     if (!id) {
       setFetchedSelected(null);
       return;
     }
     if (selectedRecord()) return; // already resolved
+    const requestedId = id;
     apiClient.records[":tableId"][":recordId"].$get({ param: { tableId: props.tableId, recordId: id } }).then(async (res) => {
       if (!res.ok) return;
       const rec = await res.json();
-      setFetchedSelected(() => rec);
+      if (selectedRecordId() === requestedId) setFetchedSelected(() => rec);
     });
   });
 
@@ -339,6 +379,25 @@ export default function RecordsView(props: Props) {
     else history.pushState(null, "", finalUrl);
   };
 
+  const closeSelectedRecord = () => {
+    setSelectedRecordId(null);
+    setFetchedSelected(null);
+    syncUrl({ replace: true });
+  };
+
+  const verifySelectedRecordAfterRefresh = async (result: TableQueryResult) => {
+    const id = selectedRecordId();
+    if (!id || visibleIdsFromResult(result).includes(id)) return;
+    const res = await apiClient.records[":tableId"][":recordId"].$get({ param: { tableId: props.tableId, recordId: id } });
+    if (selectedRecordId() !== id) return;
+    if (res.ok) {
+      const record = await res.json();
+      if (selectedRecordId() === id) setFetchedSelected(() => record);
+      return;
+    }
+    if (res.status === 403 || res.status === 404) closeSelectedRecord();
+  };
+
   // ── Commit handlers (called from children) ─────────────────────────
   /**
    * Toolbar emits the current shape of filter/sort/group/agg. We merge
@@ -351,6 +410,7 @@ export default function RecordsView(props: Props) {
     groupBy?: ViewQuery["groupBy"];
     aggregations?: ViewQuery["aggregations"];
   }) => {
+    invalidateLiveRefreshes();
     setQuery((prev) => ({
       ...prev,
       filter: patch.filter,
@@ -365,6 +425,7 @@ export default function RecordsView(props: Props) {
 
   /** SearchBar's onSearchChange. Mirror semantics to onToolbarCommit. */
   const onSearchChange = (next: { q: string; fieldIds: string[] }) => {
+    invalidateLiveRefreshes();
     setSearch({ ...next, override: true });
     setSelectedGroup(null);
     setCursor(null);
@@ -374,31 +435,53 @@ export default function RecordsView(props: Props) {
   const loadNextFlatPage = () => {
     const next = flatNextCursor();
     if (!next || data.loading || isGrouped()) return;
+    invalidateLiveRefreshes();
     setCursor(next);
   };
 
   const hasBlockingDialog = () => dialogCore.isOpen();
 
-  const applyLiveRefresh = async () => {
-    if (data.loading) {
+  const refreshVisibleRecords = async (config: { recordIds?: Iterable<string>; force?: boolean } = {}) => {
+    if (!config.force && (data.loading || hasBlockingDialog())) {
+      if (config.recordIds) {
+        for (const id of config.recordIds) pendingLiveRecordIds.add(id);
+      }
       setLivePending(true);
       return;
     }
 
-    const eventRecordIds = pendingLiveRecordIds;
+    const eventRecordIds = new Set(config.recordIds ?? pendingLiveRecordIds);
     pendingLiveRecordIds = new Set();
+    const cursorToApply = pendingLiveCursor;
     const previousVisibleIds = isGrouped() ? [] : flatItems().map((record) => record.id);
+    const requestId = ++refreshRequestId;
+    liveRefreshAbort?.abort();
+    const abort = new AbortController();
+    liveRefreshAbort = abort;
     setLivePending(false);
     setLiveRefreshing(true);
 
     try {
-      const next = await fetchTableQuery({
-        tableId: props.tableId,
-        query: isGrouped() ? queryWithSearch() : liveRefreshQuery(queryWithSearch(), flatItems().length),
-        cursor: null,
-      });
-      if (!isGrouped()) replaceNextFlatPage = true;
-      mutate(next);
+      const next = await fetchTableQuery(
+        {
+          tableId: props.tableId,
+          query: isGrouped() ? queryWithSearch() : liveRefreshQuery(queryWithSearch(), flatItems().length),
+          cursor: null,
+        },
+        { signal: abort.signal },
+      );
+      if (requestId !== refreshRequestId) return;
+      if (!isGrouped()) {
+        const pageItems = (next.items ?? []) as GridRecord[];
+        setFlatItems((current) => mergeLiveRefreshItems({ currentItems: current, nextItems: pageItems }));
+        setFlatNextCursor(next.nextCursor ?? null);
+      }
+      liveCommitId++;
+      staleResourceEpochFloor = resourceFetchEpochCounter;
+      mutate({ ...next, __liveCommitId: liveCommitId } as RecordsTableQueryResult);
+      await verifySelectedRecordAfterRefresh(next);
+      liveProvider?.markApplied(cursorToApply);
+      if (pendingLiveCursor === cursorToApply) pendingLiveCursor = null;
 
       if (!isGrouped()) {
         const highlighted = highlightedIdsForLiveRefresh({
@@ -409,15 +492,26 @@ export default function RecordsView(props: Props) {
         if (highlighted.length > 0) {
           if (highlightTimer) clearTimeout(highlightTimer);
           setHighlightedRecordIds(new Set(highlighted));
-          highlightTimer = setTimeout(() => setHighlightedRecordIds(new Set()), 2400);
+          highlightTimer = setTimeout(() => setHighlightedRecordIds(new Set()), 1400);
         }
       }
+      if (pendingLiveCursor) {
+        setLivePending(true);
+        scheduleLiveRefresh();
+      }
     } catch {
-      setLivePending(true);
+      if (abort.signal.aborted) return;
+      if (requestId === refreshRequestId) {
+        pendingLiveRecordIds = new Set([...eventRecordIds, ...pendingLiveRecordIds]);
+        setLivePending(true);
+      }
     } finally {
-      setLiveRefreshing(false);
+      if (liveRefreshAbort === abort) liveRefreshAbort = undefined;
+      if (requestId === refreshRequestId) setLiveRefreshing(false);
     }
   };
+
+  const applyLiveRefresh = () => refreshVisibleRecords();
 
   const scheduleLiveRefresh = () => {
     if (props.trashMode) return;
@@ -425,9 +519,22 @@ export default function RecordsView(props: Props) {
     if (hasBlockingDialog()) return;
     if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
     liveRefreshTimer = setTimeout(() => {
-      void applyLiveRefresh();
+      liveRefreshTimer = undefined;
+      if (hasBlockingDialog()) {
+        setLivePending(true);
+        return;
+      }
+      void refreshVisibleRecords();
     }, 250);
   };
+
+  createEffect(() => {
+    if (props.trashMode) return;
+    if (!livePending()) return;
+    if (liveRefreshing() || data.loading || hasBlockingDialog()) return;
+    if (liveRefreshTimer) return;
+    void refreshVisibleRecords();
+  });
 
   /** Row click in the grid → open the detail panel. pushState so the
    *  browser back button closes the panel — that's the natural mental
@@ -450,8 +557,7 @@ export default function RecordsView(props: Props) {
   /** Detail-panel close button. replaceState because closing isn't a
    *  "forward" action — undoing it via back wouldn't be useful. */
   const onCloseDetail = () => {
-    setSelectedRecordId(null);
-    syncUrl({ replace: true });
+    closeSelectedRecord();
   };
 
   const onCloseGroupDetail = () => {
@@ -469,25 +575,37 @@ export default function RecordsView(props: Props) {
    *  panel so the user can finish setting up relation fields (which
    *  the create-prompt can't render an input for). pushState so the
    *  back button collapses the picker first. */
-  const onRecordCreated = (recordId: string) => {
-    setSelectedRecordId(recordId);
+  const onRecordCreated = (record: GridRecord) => {
+    setFetchedSelected(() => record);
+    setSelectedRecordId(record.id);
     syncUrl({ replace: false });
-    void refetch();
+    void refreshVisibleRecords({ recordIds: [record.id], force: true });
   };
 
   /** After an in-panel edit: refetch the records resource so the grid
    *  reflects the new value. The selected-record panel closes itself
    *  via setSelectedRecord update on the next data() tick. */
-  const onRecordUpdated = () => {
-    void refetch();
+  const onRecordUpdated = (record: GridRecord) => {
+    setFetchedSelected(() => record);
+    if (!isGrouped()) {
+      setFlatItems((prev) => prev.map((item) => (item.id === record.id ? record : item)));
+    }
+    void refreshVisibleRecords({ recordIds: [record.id], force: true });
   };
 
   /** After a delete or restore: close the panel + refetch. */
   const onRecordRemoved = () => {
-    setSelectedRecordId(null);
-    setFetchedSelected(null);
-    syncUrl({ replace: true });
-    void refetch();
+    const recordId = selectedRecordId();
+    if (recordId && !isGrouped()) {
+      setFlatItems((prev) => prev.filter((record) => record.id !== recordId));
+      setHighlightedRecordIds((prev) => {
+        const next = new Set(prev);
+        next.delete(recordId);
+        return next;
+      });
+    }
+    closeSelectedRecord();
+    void refreshVisibleRecords({ force: true });
   };
 
   // ── popstate listener + scroll-restoration takeover ───────────────
@@ -501,6 +619,7 @@ export default function RecordsView(props: Props) {
     history.scrollRestoration = "manual";
 
     const onPop = () => {
+      invalidateLiveRefreshes();
       const parsed = parseRecordsState(new URL(location.href).searchParams);
       // Update every URL-derived signal — filter / sort / group / agg
       // can change too if the user navigated to/from a saved view.
@@ -520,29 +639,67 @@ export default function RecordsView(props: Props) {
 
   onMount(() => {
     if (props.trashMode) return;
-    const abortController = new AbortController();
-    void (async () => {
-      try {
-        const response = await fetch(`/api/grids/workspace/events/by-table/${props.tableId}`, {
-          headers: { Accept: "text/event-stream" },
-          signal: abortController.signal,
-        });
-        if (!response.ok || !response.body) return;
-        for await (const event of streaming.parseSSE(response.body)) {
-          if (abortController.signal.aborted) return;
-          if (!event.data) continue;
-          const payload = JSON.parse(event.data);
-          if (!isLiveRecordEventForTable(payload, props.tableId)) continue;
-          pendingLiveRecordIds.add(payload.recordId);
-          scheduleLiveRefresh();
+    if (typeof document === "undefined") return;
+
+    const drainAfterDialogClose = () => {
+      requestAnimationFrame(() => {
+        if (!livePending() || liveRefreshing() || data.loading || hasBlockingDialog()) return;
+        void refreshVisibleRecords();
+      });
+    };
+
+    document.addEventListener("close", drainAfterDialogClose, true);
+    onCleanup(() => document.removeEventListener("close", drainAfterDialogClose, true));
+  });
+
+  onMount(() => {
+    if (props.trashMode) return;
+    liveProvider = createGridsRecordEventsProvider({
+      tableId: props.tableId,
+      onReady: () => {
+        void refreshVisibleRecords();
+      },
+      onEvent: (event, cursor) => {
+        if (cursor) pendingLiveCursor = cursor;
+        pendingLiveRecordIds.add(event.recordId);
+        if (event.type === "record.deleted" && shouldOptimisticallyRemoveDeletedRecord(query())) {
+          if (!isGrouped()) {
+            setFlatItems((prev) => prev.filter((record) => record.id !== event.recordId));
+            setHighlightedRecordIds((prev) => {
+              const next = new Set(prev);
+              next.delete(event.recordId);
+              return next;
+            });
+          }
+          if (event.recordId === selectedRecordId()) {
+            closeSelectedRecord();
+          }
         }
-      } catch {
-        // Best-effort live refresh. Normal query navigation still works if the stream drops.
-      }
-    })();
+        scheduleLiveRefresh();
+      },
+      onError: () => {
+        setLivePending(true);
+      },
+      onRevoked: (error) => {
+        setLivePending(false);
+        liveCommitId++;
+        staleResourceEpochFloor = resourceFetchEpochCounter;
+        setFlatItems([]);
+        mutate({ items: [], buckets: [], aggregates: {}, nextCursor: null, __liveCommitId: liveCommitId } as RecordsTableQueryResult);
+        prompts.error(error.message || "Your access to this table changed. Reload the page to continue.");
+      },
+      onFatal: (error) => {
+        setLivePending(false);
+        prompts.error(error.message || "Live updates are unavailable. Reload the page to continue.");
+      },
+    });
+
+    liveProvider.connect();
 
     onCleanup(() => {
-      abortController.abort();
+      liveProvider?.dispose();
+      liveProvider = null;
+      liveRefreshAbort?.abort();
       if (liveRefreshTimer) clearTimeout(liveRefreshTimer);
       if (highlightTimer) clearTimeout(highlightTimer);
     });
@@ -933,41 +1090,56 @@ export default function RecordsView(props: Props) {
       await prompts.alert("All columns are already visible.", { title: "No hidden columns", icon: "ti ti-check" });
       return;
     }
-    dialogCore.open<void>(
-      (close) => (
-        <GridsBareDialog title="Add column" icon="ti ti-plus" close={() => close()}>
-          <div class="min-h-0 flex-1 overflow-y-auto">
-            <section class="paper p-2">
-              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <For each={columns}>
-                  {(column) => (
-                    <button
-                      type="button"
-                      class="paper p-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/40"
-                      onClick={() => {
-                        column.add();
-                        close();
-                      }}
-                    >
-                      <div class="flex items-start gap-3">
-                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                          <i class={`${column.icon} text-sm`} />
-                        </span>
-                        <span class="min-w-0">
-                          <span class="block truncate text-sm font-semibold text-primary">{column.label}</span>
-                          <span class="mt-0.5 block text-xs text-dimmed">{column.description}</span>
-                        </span>
-                      </div>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </section>
-          </div>
-        </GridsBareDialog>
-      ),
-      gridsBareDialogOptions,
-    );
+    dialogCore.open<void>((close) => {
+      const [selectedColumnIds, setSelectedColumnIds] = createSignal<string[]>([]);
+      const addSelected = () => {
+        const selected = selectedColumnIds();
+        if (selected.length === 0) return;
+        if (isGrouped()) {
+          patchViewQueryMut.mutate({
+            hiddenGroupedColumns: (query().hiddenGroupedColumns ?? []).filter((hiddenId) => !selected.includes(hiddenId)),
+          });
+        } else {
+          const existing = effectiveViewColumns() ?? [];
+          const existingIds = new Set(existing.map((column) => column.fieldId));
+          persistFlatViewColumns([...existing, ...selected.filter((id) => !existingIds.has(id)).map((fieldId) => ({ fieldId }))]);
+        }
+        close();
+      };
+      return (
+        <PanelDialog>
+          <PanelDialog.Header title="Add columns" icon="ti ti-plus" close={() => close()} />
+          <PanelDialog.Body>
+            <PanelDialog.Section title="Columns" subtitle="Choose one or more hidden columns to show." icon="ti ti-layout-columns">
+              <MultiSelectInput
+                placeholder="Choose columns"
+                icon="ti ti-columns"
+                value={selectedColumnIds}
+                onChange={setSelectedColumnIds}
+                options={columns.map((column) => ({
+                  id: column.id,
+                  label: column.label,
+                  description: column.description,
+                  icon: column.icon,
+                }))}
+                clearable
+              />
+            </PanelDialog.Section>
+          </PanelDialog.Body>
+          <PanelDialog.Footer>
+            <span />
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn-simple btn-sm" onClick={() => close()}>
+                Cancel
+              </button>
+              <button type="button" class="btn-primary btn-sm" onClick={addSelected} disabled={selectedColumnIds().length === 0}>
+                Add columns
+              </button>
+            </div>
+          </PanelDialog.Footer>
+        </PanelDialog>
+      );
+    }, panelDialogOptions);
   };
 
   // ── Render ─────────────────────────────────────────────────────────
@@ -1090,7 +1262,7 @@ export default function RecordsView(props: Props) {
               canWrite={props.canWrite}
               onCommit={onToolbarCommit}
               onRecordCreated={onRecordCreated}
-              onRecordsChanged={() => void refetch()}
+              onRecordsChanged={() => void refreshVisibleRecords({ force: true })}
             />
           </div>
         </Show>

@@ -2,6 +2,7 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
+import { emitTableMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import { validateViewQueryForTable } from "./query-validation";
@@ -259,6 +260,11 @@ export const create = async (
   }, "idx_grids_views_short_id");
   const view = mapRow(row);
   await logAudit({ tableId: input.tableId, userId: actorId, action: "created", diff: { view: { old: null, new: { id: view.id, name: view.name } } } });
+  await emitTableMetadataEvent(input.tableId, {
+    type: "view.created",
+    resource: { kind: "view", id: view.id, tableId: input.tableId },
+    actorId,
+  });
   return ok(view);
 };
 
@@ -322,6 +328,11 @@ export const update = async (
   if (!row) return fail(err.internal("update failed"));
   const view = mapRow(row);
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff: { view: { old: existing.name, new: view.name } } });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "view.updated",
+    resource: { kind: "view", id: view.id, tableId: existing.tableId },
+    actorId,
+  });
   return ok(view);
 };
 
@@ -334,6 +345,11 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   if (!existing) return fail(err.notFound("View"));
   await sql`UPDATE grids.views SET deleted_at = now() WHERE id = ${id}::uuid AND deleted_at IS NULL`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "view.deleted",
+    resource: { kind: "view", id, tableId: existing.tableId },
+    actorId,
+  });
   return ok();
 };
 
@@ -349,5 +365,10 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   if (!row) return fail(err.internal("restore failed"));
   const view = mapRow(row);
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "view.restored",
+    resource: { kind: "view", id, tableId: existing.tableId },
+    actorId,
+  });
   return ok(view);
 };

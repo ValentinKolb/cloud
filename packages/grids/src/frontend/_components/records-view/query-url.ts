@@ -65,6 +65,49 @@ const tryParseArray = <T extends Record<string, unknown>>(raw: string | null | u
   return parsed.filter((x): x is T => typeof x === "object" && x !== null && required.every((k) => k in (x as object)));
 };
 
+const entryOf = <K extends string, V>(key: K, value: V | undefined): Array<[K, V]> => (value === undefined ? [] : [[key, value]]);
+
+const nonEmptyArray = <T>(items: T[]): T[] | undefined => (items.length > 0 ? items : undefined);
+
+const parseFilterParam = (params: URLSearchParams): ViewQuery["filter"] | undefined =>
+  tryParseJson<ViewQuery["filter"]>(params.get("filter")) ?? undefined;
+
+const parseSortParam = (params: URLSearchParams): RecordsUrlQuery["sort"] | undefined =>
+  nonEmptyArray(tryParseArray<{ fieldId: string; direction: "asc" | "desc" }>(params.get("sort"), ["fieldId", "direction"]));
+
+const parseGroupByParam = (params: URLSearchParams): RecordsUrlQuery["groupBy"] | undefined =>
+  nonEmptyArray(tryParseArray<{ fieldId: string }>(params.get("groupBy"), ["fieldId"])) as RecordsUrlQuery["groupBy"] | undefined;
+
+const parseGroupSortParam = (params: URLSearchParams): RecordsUrlQuery["groupSort"] | undefined =>
+  nonEmptyArray(
+    tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(params.get("groupSort"), ["fieldId", "agg"]),
+  ) as RecordsUrlQuery["groupSort"] | undefined;
+
+const parseAggregationsParam = (params: URLSearchParams): RecordsUrlQuery["aggregations"] | undefined =>
+  nonEmptyArray(tryParseArray<{ fieldId: string; agg: string }>(params.get("aggregations"), ["fieldId", "agg"])) as
+    | RecordsUrlQuery["aggregations"]
+    | undefined;
+
+const parseDeletedOnlyParam = (params: URLSearchParams): true | undefined => (params.get("trash") === "1" ? true : undefined);
+
+const parseRecordsQuery = (params: URLSearchParams): RecordsUrlQuery =>
+  Object.fromEntries([
+    ...entryOf("filter", parseFilterParam(params)),
+    ...entryOf("sort", parseSortParam(params)),
+    ...entryOf("groupBy", parseGroupByParam(params)),
+    ...entryOf("groupSort", parseGroupSortParam(params)),
+    ...entryOf("aggregations", parseAggregationsParam(params)),
+    ...entryOf("deletedOnly", parseDeletedOnlyParam(params)),
+  ]) as RecordsUrlQuery;
+
+const csvParam = (value: string | null): string[] => (value ? value.split(",").filter(Boolean) : []);
+
+const parseSearchState = (params: URLSearchParams): RecordsState["search"] => ({
+  q: (params.get("q") ?? "").trim(),
+  fieldIds: csvParam(params.get("qFields")),
+  override: params.has("q") || params.has("qFields"),
+});
+
 /**
  * Reads URLSearchParams and produces a typed RecordsState. Bad / missing
  * params produce empty fragments — never throws.
@@ -74,50 +117,15 @@ const tryParseArray = <T extends Record<string, unknown>>(raw: string | null | u
  * boundary via `c.req.param("tableId" / "viewId" / "dashboardId")`, not
  * here.
  */
-export const parseRecordsState = (params: URLSearchParams): RecordsState => {
-  const query: RecordsUrlQuery = {};
-
-  // Filter
-  const filterParsed = tryParseJson<ViewQuery["filter"]>(params.get("filter"));
-  if (filterParsed) query.filter = filterParsed;
-
-  // Sort, groupBy, aggregations — array-shaped, validated by required-key check
-  const sort = tryParseArray<{ fieldId: string; direction: "asc" | "desc" }>(params.get("sort"), ["fieldId", "direction"]);
-  if (sort.length > 0) query.sort = sort;
-
-  const groupBy = tryParseArray<{ fieldId: string }>(params.get("groupBy"), ["fieldId"]);
-  if (groupBy.length > 0) query.groupBy = groupBy as RecordsUrlQuery["groupBy"];
-
-  const groupSort = tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(params.get("groupSort"), [
-    "fieldId",
-    "agg",
-  ]);
-  if (groupSort.length > 0) {
-    query.groupSort = groupSort as RecordsUrlQuery["groupSort"];
-  }
-
-  const aggregations = tryParseArray<{ fieldId: string; agg: string }>(params.get("aggregations"), ["fieldId", "agg"]);
-  if (aggregations.length > 0) {
-    query.aggregations = aggregations as RecordsUrlQuery["aggregations"];
-  }
-
-  if (params.get("trash") === "1") query.deletedOnly = true;
-
+export const parseRecordsState = (params: URLSearchParams): RecordsState => ({
+  query: parseRecordsQuery(params),
+  cursor: params.get("cursor") || null,
+  selectedRecordId: params.get("record") || null,
   // Free-text search lives outside ViewQuery (SSR merges it into the filter
   // tree before the service call so ad-hoc typing layers cleanly on top of
   // saved-view filters).
-  const q = (params.get("q") ?? "").trim();
-  const qFieldsRaw = params.get("qFields") ?? "";
-  const fieldIds = qFieldsRaw ? qFieldsRaw.split(",").filter(Boolean) : [];
-  const searchOverride = params.has("q") || params.has("qFields");
-
-  return {
-    query,
-    cursor: params.get("cursor") || null,
-    selectedRecordId: params.get("record") || null,
-    search: { q, fieldIds, override: searchOverride },
-  };
-};
+  search: parseSearchState(params),
+});
 
 /**
  * Path-based URL context for `buildRecordsUrl`. The values are SHORT
@@ -131,6 +139,52 @@ export type UrlPathContext = {
   /** When set, the URL goes `/table/<t>/view/<v>` instead of just
    *  `/table/<t>`. Drives the sidebar's "active view" highlight too. */
   viewShortId: string | null;
+};
+
+const recordsPath = (path: UrlPathContext): string =>
+  path.viewShortId
+    ? `/app/grids/${path.baseShortId}/table/${path.tableShortId}/view/${path.viewShortId}`
+    : `/app/grids/${path.baseShortId}/table/${path.tableShortId}`;
+
+// Stable JSON.stringify is fine for equality here — both sides come
+// from the same Zod-validated shapes, so key order is stable in practice.
+const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+const matchesViewQuery = (query: RecordsUrlQuery, viewQuery: ViewQuery | null | undefined, key: keyof RecordsUrlQuery): boolean =>
+  Boolean(viewQuery && sameJson(query[key], viewQuery[key]));
+
+const hasUrlValue = (value: unknown): boolean => Boolean(value) && (!Array.isArray(value) || value.length > 0);
+
+const appendJsonOverride = (
+  url: URL,
+  query: RecordsUrlQuery,
+  viewQuery: ViewQuery | null | undefined,
+  key: keyof RecordsUrlQuery,
+) => {
+  const value = query[key];
+  if (hasUrlValue(value) && !matchesViewQuery(query, viewQuery, key)) url.searchParams.set(key, JSON.stringify(value));
+};
+
+const viewSearchOf = (viewQuery: ViewQuery | null | undefined): { q: string; fieldIds: string[] } | null =>
+  viewQuery?.search
+    ? {
+        q: viewQuery.search.q.trim(),
+        fieldIds: viewQuery.search.fieldIds ?? [],
+      }
+    : null;
+
+const searchMatchesView = (search: RecordsState["search"], viewSearch: { q: string; fieldIds: string[] } | null): boolean =>
+  Boolean(viewSearch && search.q.trim() === viewSearch.q && sameJson(search.fieldIds, viewSearch.fieldIds));
+
+const shouldWriteSearchOverride = (search: RecordsState["search"], viewSearch: { q: string; fieldIds: string[] } | null): boolean =>
+  search.override === true ? Boolean(search.q || viewSearch) : Boolean(search.q && !searchMatchesView(search, viewSearch));
+
+const appendSearchOverride = (url: URL, search: RecordsState["search"], viewQuery: ViewQuery | null | undefined) => {
+  const viewSearch = viewSearchOf(viewQuery);
+  if (!shouldWriteSearchOverride(search, viewSearch)) return;
+
+  url.searchParams.set("q", search.q);
+  if (search.fieldIds.length > 0) url.searchParams.set("qFields", search.fieldIds.join(","));
 };
 
 /**
@@ -153,53 +207,17 @@ export type UrlPathContext = {
  * ("the view, as it stands") rather than denormalized snapshots.
  */
 export const buildRecordsUrl = (path: UrlPathContext, state: RecordsState, viewQuery?: ViewQuery | null): string => {
-  const base = path.viewShortId
-    ? `/app/grids/${path.baseShortId}/table/${path.tableShortId}/view/${path.viewShortId}`
-    : `/app/grids/${path.baseShortId}/table/${path.tableShortId}`;
-  const url = new URL(base, "http://x");
+  const url = new URL(recordsPath(path), "http://x");
 
   const { query, search } = state;
-
-  // Stable JSON.stringify is fine for equality here — both sides come
-  // from the same Zod-validated shapes, so key order is stable in practice.
-  const matchesView = (key: keyof RecordsUrlQuery): boolean => {
-    if (!viewQuery) return false;
-    return JSON.stringify(query[key]) === JSON.stringify(viewQuery[key]);
-  };
-
-  if (query.filter && !matchesView("filter")) {
-    url.searchParams.set("filter", JSON.stringify(query.filter));
-  }
-  if (query.sort && query.sort.length > 0 && !matchesView("sort")) {
-    url.searchParams.set("sort", JSON.stringify(query.sort));
-  }
-  if (query.groupBy && query.groupBy.length > 0 && !matchesView("groupBy")) {
-    url.searchParams.set("groupBy", JSON.stringify(query.groupBy));
-  }
-  if (query.groupSort && query.groupSort.length > 0 && !matchesView("groupSort")) {
-    url.searchParams.set("groupSort", JSON.stringify(query.groupSort));
-  }
-  if (query.aggregations && query.aggregations.length > 0 && !matchesView("aggregations")) {
-    url.searchParams.set("aggregations", JSON.stringify(query.aggregations));
-  }
+  appendJsonOverride(url, query, viewQuery, "filter");
+  appendJsonOverride(url, query, viewQuery, "sort");
+  appendJsonOverride(url, query, viewQuery, "groupBy");
+  appendJsonOverride(url, query, viewQuery, "groupSort");
+  appendJsonOverride(url, query, viewQuery, "aggregations");
   if (query.deletedOnly) url.searchParams.set("trash", "1");
 
-  const viewSearch = viewQuery?.search
-    ? {
-        q: viewQuery.search.q.trim(),
-        fieldIds: viewQuery.search.fieldIds ?? [],
-      }
-    : null;
-  const searchMatchesView = Boolean(
-    viewSearch && search.q.trim() === viewSearch.q && JSON.stringify(search.fieldIds) === JSON.stringify(viewSearch.fieldIds),
-  );
-  const shouldWriteSearch = search.override === true ? Boolean(search.q || viewSearch) : Boolean(search.q && !searchMatchesView);
-
-  if (shouldWriteSearch) url.searchParams.set("q", search.q);
-  if (shouldWriteSearch && search.fieldIds.length > 0) {
-    url.searchParams.set("qFields", search.fieldIds.join(","));
-  }
-
+  appendSearchOverride(url, search, viewQuery);
   if (state.cursor) url.searchParams.set("cursor", state.cursor);
   if (state.selectedRecordId) url.searchParams.set("record", state.selectedRecordId);
 

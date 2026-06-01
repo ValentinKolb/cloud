@@ -716,10 +716,9 @@ export const ViewStatsWidgetSchema = z.object({
 /**
  * Form widget — embeds a form for inline data entry on the dashboard.
  * The form's submit POSTs through the existing form-submission path
- * and triggers a full page reload so every other widget re-resolves
- * with the freshly written record. No optimistic UI in v1 (KISS;
- * the reload guarantees visible consistency across stat / chart /
- * view cells without per-widget invalidation logic).
+ * and invalidates the dashboard so every other widget re-resolves
+ * with the freshly written record. No optimistic widget math in v1:
+ * SQL remains the source of truth for stats, charts, and views.
  *
  * Permission: when the viewer can't submit the form, the cell renders
  * a dimmed "no access" placeholder so the dashboard layout stays

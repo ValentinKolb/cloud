@@ -1,6 +1,6 @@
-import { FilterChip, TextInput } from "@valentinkolb/cloud/ui";
+import { MultiSelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import { timed as timing } from "@valentinkolb/stdlib/solid";
-import { createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import type { Field } from "../../../service";
 
 type Props = {
@@ -23,11 +23,16 @@ type Props = {
  * Free-text search input. Pure controlled component — owns its own
  * debounced typing buffer and emits committed values via
  * `onSearchChange`. Column-scope (which fields to search in) lives
- * inline as a FilterChip on the right.
+ * inline as a compact multi-select on the right.
  */
 export default function SearchBar(props: Props) {
   const [q, setQ] = createSignal(props.initialQ);
   const [qFields, setQFields] = createSignal<string[]>(props.initialQFields);
+
+  createEffect(() => {
+    setQ(props.initialQ);
+    setQFields(props.initialQFields);
+  });
 
   const debounce = timing.debounce((next: string, fields: string[]) => {
     props.onSearchChange({ q: next.trim(), fieldIds: fields });
@@ -69,22 +74,21 @@ export default function SearchBar(props: Props) {
         />
       </div>
       <Show when={props.fields.length > 0}>
-        <FilterChip
-          label={allFieldsLabel()}
-          icon="ti ti-columns"
-          options={[
-            {
-              options: props.fields.map((f) => ({
-                value: f.id,
-                label: f.name,
-              })),
-              multiple: true,
-            },
-          ]}
-          value={qFields()}
-          onChange={onFieldsChange}
-          isActive={qFields().length > 0}
-        />
+        <div class="w-64 shrink-0">
+          <MultiSelectInput
+            icon="ti ti-columns"
+            placeholder={allFieldsLabel()}
+            value={qFields}
+            onChange={onFieldsChange}
+            options={props.fields.map((f) => ({
+              id: f.id,
+              label: f.name,
+              icon: f.icon ?? "ti ti-columns",
+              description: f.type,
+            }))}
+            clearable
+          />
+        </div>
       </Show>
     </div>
   );

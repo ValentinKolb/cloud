@@ -20,50 +20,68 @@ const RelationConfigSchema = z.object({
   cardinality: z.enum(["single", "multiple"]).optional(),
 });
 
+type RelationConfig = z.infer<typeof RelationConfigSchema>;
+
+const emptyRelationValue = (raw: unknown): boolean => raw === null || raw === undefined;
+
+const validateEmptyRelation = (required: boolean) => (required ? fail("required") : ok(null));
+
+const parseRelationConfig = (configRaw: unknown) => {
+  const parsed = RelationConfigSchema.safeParse(configRaw ?? {});
+  return parsed.success ? ok(parsed.data) : fail("invalid relation config");
+};
+
+const validateConfiguredTarget = (raw: unknown, config: RelationConfig, required: boolean) => {
+  if (config.targetTableId) return null;
+  return emptyRelationValue(raw) ? validateEmptyRelation(required) : fail("relation has no target table configured yet");
+};
+
+const parseUuidString = (value: string) => (UUID_RE.test(value) ? ok(value) : fail("must be a record uuid"));
+
+const parseUuidArray = (raw: unknown[]): ReturnType<typeof ok<string[]>> | ReturnType<typeof fail> => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") return fail("each link must be a uuid string");
+    if (!UUID_RE.test(item)) return fail(`"${item}" is not a record uuid`);
+    if (seen.has(item)) continue;
+    seen.add(item);
+    ids.push(item);
+  }
+  return ok(ids);
+};
+
+const normalizeRelationValue = (raw: unknown): ReturnType<typeof ok<string[]>> | ReturnType<typeof fail> => {
+  if (typeof raw === "string") {
+    const uuid = parseUuidString(raw);
+    return uuid.ok ? ok([uuid.value]) : uuid;
+  }
+  if (Array.isArray(raw)) return parseUuidArray(raw);
+  return fail("must be a record uuid or array of record uuids");
+};
+
+const validateCardinality = (ids: string[], config: RelationConfig) =>
+  (config.cardinality ?? "multiple") === "single" && ids.length > 1
+    ? fail("single-cardinality relation accepts at most one link")
+    : ok(ids);
+
 export const relationHandler: FieldTypeHandler = {
   type: "relation",
   configSchema: RelationConfigSchema,
   userInput: true,
   validate(raw, configRaw, required) {
-    const parsed = RelationConfigSchema.safeParse(configRaw ?? {});
-    if (!parsed.success) return fail("invalid relation config");
-    const config = parsed.data;
-    // Field is configured but the user hasn't picked a target table yet:
-    // accept null/empty (treat as "not yet wired"), reject any actual link
-    // because we can't validate against a target without it.
-    if (!config.targetTableId) {
-      if (raw === null || raw === undefined) return required ? fail("required") : ok(null);
-      return fail("relation has no target table configured yet");
-    }
-    const cardinality = config.cardinality ?? "multiple";
+    const config = parseRelationConfig(configRaw);
+    if (!config.ok) return config;
 
-    if (raw === null || raw === undefined) return required ? fail("required") : ok(null);
+    const targetError = validateConfiguredTarget(raw, config.value, required);
+    if (targetError) return targetError;
+    if (emptyRelationValue(raw)) return validateEmptyRelation(required);
 
-    // Accept either a single uuid string (sugared) or an array.
-    let arr: string[];
-    if (typeof raw === "string") {
-      if (!UUID_RE.test(raw)) return fail("must be a record uuid");
-      arr = [raw];
-    } else if (Array.isArray(raw)) {
-      arr = [];
-      const seen = new Set<string>();
-      for (const item of raw) {
-        if (typeof item !== "string") return fail("each link must be a uuid string");
-        if (!UUID_RE.test(item)) return fail(`"${item}" is not a record uuid`);
-        if (!seen.has(item)) {
-          seen.add(item);
-          arr.push(item);
-        }
-      }
-    } else {
-      return fail("must be a record uuid or array of record uuids");
-    }
+    const ids = normalizeRelationValue(raw);
+    if (!ids.ok) return ids;
+    if (ids.value.length === 0) return validateEmptyRelation(required);
 
-    if (arr.length === 0) return required ? fail("required") : ok(null);
-    if (cardinality === "single" && arr.length > 1) {
-      return fail("single-cardinality relation accepts at most one link");
-    }
-    return ok(arr);
+    return validateCardinality(ids.value, config.value);
   },
 };
 

@@ -8,6 +8,8 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
     "test": "bun test",
     "browser-smoke": "bun run scripts/browser-smoke.ts",
+    "sql-boundary-smoke": "bun run scripts/sql-boundary-smoke.ts",
+    "webhook-receiver": "bun run scripts/webhook-receiver.ts",
     "smoke": "bash scripts/smoke.sh",
     "soak:100k": "bun run scripts/soak-100k.ts"
   },

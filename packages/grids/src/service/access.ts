@@ -8,6 +8,7 @@ import {
   type PermissionLevel,
   type AccessEntry,
 } from "@valentinkolb/cloud/server";
+import { emitMetadataEvent } from "./metadata-events";
 
 const TABLE_BY_RESOURCE = {
   base: "grids.base_access",
@@ -25,6 +26,20 @@ type DbAccessRow = {
   permission: PermissionLevel;
   created_at: Date;
   display_name: string | null;
+};
+
+const emitAccessChanged = async (binding: AccessBinding | null, accessId: string): Promise<void> => {
+  if (!binding) return;
+  await emitMetadataEvent({
+    type: "access.changed",
+    baseId: binding.baseId,
+    resource: {
+      kind: "access",
+      id: accessId,
+      tableId: "tableId" in binding ? binding.tableId : undefined,
+    },
+    actorId: null,
+  });
 };
 
 const principalFromRow = (row: DbAccessRow): Principal => {
@@ -71,6 +86,7 @@ export const grantAccess = async (params: {
     await sql`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
   }
 
+  await emitAccessChanged(await resolveAccessBinding(accessId), accessId);
   return ok({ accessId });
 };
 
@@ -156,8 +172,12 @@ export const listDashboardAccess = (dashboardId: string) => listAccess("dashboar
  * service so callers don't need to know whether the entry came from base /
  * table / view ACL — they all share the auth.access row.
  */
-export const updateAccessLevel = (accessId: string, level: PermissionLevel) =>
-  platformUpdateAccess({ id: accessId, permission: level });
+export const updateAccessLevel = async (accessId: string, level: PermissionLevel) => {
+  const binding = await resolveAccessBinding(accessId);
+  const result = await platformUpdateAccess({ id: accessId, permission: level });
+  if (result.ok) await emitAccessChanged(binding, accessId);
+  return result;
+};
 
 /**
  * Revokes an access binding. The auth.access row is also deleted: in this
@@ -167,7 +187,9 @@ export const updateAccessLevel = (accessId: string, level: PermissionLevel) =>
  * automatically once the access row is gone.
  */
 export const revokeAccess = async (accessId: string): Promise<Result<void>> => {
+  const binding = await resolveAccessBinding(accessId);
   const r = await platformDeleteAccess({ id: accessId });
+  if (r.ok) await emitAccessChanged(binding, accessId);
   return r.ok ? ok() : fail(r.error);
 };
 

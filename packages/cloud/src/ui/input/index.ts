@@ -17,6 +17,12 @@ export { default as DateTimeInput } from "./DateTimeInput";
 export { default as IconInput } from "./IconInput";
 export { default as ImageInput } from "./ImageInput";
 export { default as MarkdownEditor, type MarkdownEditorProps } from "./markdown/MarkdownEditor";
+export {
+  default as MultiSelectInput,
+  MultiSelectInput as MultiSelect,
+  type MultiSelectInputProps,
+  type MultiSelectOption,
+} from "./MultiSelectInput";
 export { default as NumberInput } from "./NumberInput";
 export { default as PinInput } from "./PinInput";
 export { default as SegmentedControl } from "./SegmentedControl";

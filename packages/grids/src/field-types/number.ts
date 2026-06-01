@@ -2,6 +2,20 @@ import { z } from "zod";
 import Decimal from "decimal.js";
 import { fail, ok, type FieldTypeHandler } from "./types";
 
+type NumberConfigInput = {
+  min?: string | number;
+  max?: string | number;
+  precision?: number;
+  decimalPlaces?: number;
+  scale?: number;
+  integerOnly?: boolean;
+};
+
+type ConfigIssue = {
+  message: string;
+  path: string[];
+};
+
 const NumberConfigSchema = z
   .object({
     min: z.union([z.string(), z.number()]).optional(),
@@ -15,56 +29,94 @@ const NumberConfigSchema = z
     unitPosition: z.enum(["prefix", "suffix"]).optional(),
   })
   .superRefine((data, ctx) => {
-    const places = data.integerOnly ? 0 : (data.decimalPlaces ?? data.scale);
-    if (data.precision !== undefined && places !== undefined && places > data.precision) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "decimal places cannot exceed precision",
-        path: ["decimalPlaces"],
-      });
-    }
-
-    const min = parseConfigDecimal(data.min);
-    const max = parseConfigDecimal(data.max);
-    if (data.min !== undefined && min === null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "min must be a number", path: ["min"] });
-    }
-    if (data.max !== undefined && max === null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "max must be a number", path: ["max"] });
-    }
-    if (min !== null && max !== null && min.gt(max)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "min cannot exceed max", path: ["min"] });
-    }
+    for (const issue of numberConfigIssues(data)) ctx.addIssue({ code: z.ZodIssueCode.custom, ...issue });
   });
 
-const parseConfigDecimal = (value: unknown): Decimal | null => {
-  if (value === undefined || value === null || value === "") return null;
+const parseFiniteDecimal = (raw: string): Decimal | null => {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
   try {
-    const d = new Decimal(typeof value === "number" ? String(value) : String(value).trim());
+    const d = new Decimal(trimmed);
     return d.isFinite() ? d : null;
   } catch {
     return null;
   }
 };
 
+const parseConfigDecimal = (value: unknown): Decimal | null => parseDecimal(value);
+
+const configuredPlacesInput = (config: NumberConfigInput): number | undefined =>
+  config.integerOnly ? 0 : (config.decimalPlaces ?? config.scale);
+
+const decimalPlacesConfigIssue = (config: NumberConfigInput): ConfigIssue | null => {
+  const places = configuredPlacesInput(config);
+  return config.precision !== undefined && places !== undefined && places > config.precision
+    ? { message: "decimal places cannot exceed precision", path: ["decimalPlaces"] }
+    : null;
+};
+
+const configDecimalIssue = (key: "min" | "max", value: string | number | undefined): ConfigIssue | null =>
+  value !== undefined && parseConfigDecimal(value) === null ? { message: `${key} must be a number`, path: [key] } : null;
+
+const minMaxConfigIssue = (config: NumberConfigInput): ConfigIssue | null => {
+  const min = parseConfigDecimal(config.min);
+  const max = parseConfigDecimal(config.max);
+  return min !== null && max !== null && min.gt(max) ? { message: "min cannot exceed max", path: ["min"] } : null;
+};
+
+const numberConfigIssues = (config: NumberConfigInput): ConfigIssue[] =>
+  [
+    decimalPlacesConfigIssue(config),
+    configDecimalIssue("min", config.min),
+    configDecimalIssue("max", config.max),
+    minMaxConfigIssue(config),
+  ].filter((issue): issue is ConfigIssue => issue !== null);
+
+const decimalText = (raw: unknown): string | null => (typeof raw === "number" || typeof raw === "string" ? String(raw) : null);
+
+const amountValue = (raw: unknown): unknown => (typeof raw === "object" && raw !== null && "amount" in raw ? (raw as { amount?: unknown }).amount : raw);
+
 const parseDecimal = (raw: unknown): Decimal | null => {
-  if (typeof raw === "number") {
-    if (!Number.isFinite(raw)) return null;
-    return new Decimal(String(raw));
-  }
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (trimmed.length === 0) return null;
-    try {
-      const dec = new Decimal(trimmed);
-      return dec.isFinite() ? dec : null;
-    } catch {
-      return null;
-    }
-  }
-  if (typeof raw === "object" && raw !== null && "amount" in raw) return parseDecimal((raw as { amount?: unknown }).amount);
+  const text = decimalText(amountValue(raw));
+  return text === null ? null : parseFiniteDecimal(text);
+};
+
+type NumberConfig = z.infer<typeof NumberConfigSchema>;
+
+const isEmptyInput = (raw: unknown): boolean => raw === null || raw === undefined || raw === "";
+
+const configuredDecimalPlaces = (config: NumberConfig): number | undefined =>
+  config.integerOnly ? 0 : (config.decimalPlaces ?? config.scale);
+
+const decimalPlacesError = (dec: Decimal, places: number | undefined): string | null => {
+  if (places === undefined || dec.decimalPlaces() <= places) return null;
+  return places === 0 ? "must be an integer" : `max ${places} decimal places`;
+};
+
+const integerOnlyError = (dec: Decimal, config: NumberConfig): string | null =>
+  config.integerOnly && !dec.isInteger() ? "must be an integer" : null;
+
+const integerDigitCount = (dec: Decimal): number => (dec.isZero() ? 0 : Math.max(0, dec.precision(true) - dec.decimalPlaces()));
+
+const precisionError = (dec: Decimal, config: NumberConfig, places: number | undefined): string | null => {
+  if (config.precision === undefined) return null;
+  const maxPlaces = places ?? dec.decimalPlaces();
+  const maxIntegerDigits = config.precision - maxPlaces;
+  return integerDigitCount(dec) > maxIntegerDigits
+    ? `exceeds precision ${config.precision} (max ${maxIntegerDigits} integer digits)`
+    : null;
+};
+
+const rangeError = (dec: Decimal, config: NumberConfig): string | null => {
+  const min = parseConfigDecimal(config.min);
+  if (min !== null && dec.lt(min)) return `min ${config.min}`;
+  const max = parseConfigDecimal(config.max);
+  if (max !== null && dec.gt(max)) return `max ${config.max}`;
   return null;
 };
+
+const firstNumberError = (dec: Decimal, config: NumberConfig, places: number | undefined): string | null =>
+  decimalPlacesError(dec, places) ?? integerOnlyError(dec, config) ?? precisionError(dec, config, places) ?? rangeError(dec, config);
 
 export const numberHandler: FieldTypeHandler = {
   type: "number",
@@ -75,32 +127,14 @@ export const numberHandler: FieldTypeHandler = {
     if (!parsed.success) return fail("invalid field config");
     const config = parsed.data;
 
-    if (raw === null || raw === undefined || raw === "") {
-      return required ? fail("required") : ok(null);
-    }
+    if (isEmptyInput(raw)) return required ? fail("required") : ok(null);
 
     const dec = parseDecimal(raw);
     if (dec === null) return fail("must be a finite number");
 
-    const places = config.integerOnly ? 0 : (config.decimalPlaces ?? config.scale);
-    if (places !== undefined && dec.decimalPlaces() > places) {
-      return places === 0 ? fail("must be an integer") : fail(`max ${places} decimal places`);
-    }
-    if (config.integerOnly && !dec.isInteger()) return fail("must be an integer");
-
-    if (config.precision !== undefined) {
-      const maxPlaces = places ?? dec.decimalPlaces();
-      const integerDigits = dec.isZero() ? 0 : Math.max(0, dec.precision(true) - dec.decimalPlaces());
-      const maxIntegerDigits = config.precision - maxPlaces;
-      if (integerDigits > maxIntegerDigits) {
-        return fail(`exceeds precision ${config.precision} (max ${maxIntegerDigits} integer digits)`);
-      }
-    }
-
-    const min = parseConfigDecimal(config.min);
-    if (min !== null && dec.lt(min)) return fail(`min ${config.min}`);
-    const max = parseConfigDecimal(config.max);
-    if (max !== null && dec.gt(max)) return fail(`max ${config.max}`);
+    const places = configuredDecimalPlaces(config);
+    const error = firstNumberError(dec, config, places);
+    if (error) return fail(error);
 
     return ok(places !== undefined ? dec.toFixed(places) : dec.toFixed());
   },

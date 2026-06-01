@@ -13,9 +13,11 @@ import automationsRoutes from "./automations";
 import adminSettingsRoutes from "./admin-settings";
 import templatesRoutes from "./templates";
 import formulasRoutes from "./formulas";
+import wsRoutes from "../ws";
 
 const app = new Hono()
   .use(rateLimit())
+  .route("/ws", wsRoutes)
   .route("/admin/settings", adminSettingsRoutes)
   .route("/templates", templatesRoutes)
   .route("/bases", basesRoutes)

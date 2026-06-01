@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
@@ -27,23 +27,40 @@ type Props = {
 export default function PublicFormSubmit(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
+  let formRef: HTMLFormElement | undefined;
 
   const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
+  const [clientReady, setClientReady] = createSignal(false);
 
   const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
+
+  onMount(() => setClientReady(true));
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const payload: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(values())) {
-        if (v === "" || v === undefined || v === null) continue;
-        if (Array.isArray(v) && v.length === 0) continue;
+      const payload: Record<string, unknown> = { ...values() };
+      if (formRef) {
+        const formData = new FormData(formRef);
+        for (const [key, value] of formData.entries()) {
+          if (typeof value !== "string") continue;
+          payload[key] = value;
+        }
+      }
+      for (const [k, v] of Object.entries(payload)) {
+        if (v === "" || v === undefined || v === null) {
+          delete payload[k];
+          continue;
+        }
+        if (Array.isArray(v) && v.length === 0) {
+          delete payload[k];
+          continue;
+        }
         payload[k] = v;
       }
       const res = await apiClient.forms.public[":token"].submit.$post({
@@ -92,7 +109,12 @@ export default function PublicFormSubmit(props: Props) {
           </div>
         }
       >
-        <form class="flex flex-col gap-3" onSubmit={handleSubmit}>
+        <form
+          ref={formRef}
+          class="flex flex-col gap-3"
+          data-grids-public-form-ready={clientReady() ? "true" : "false"}
+          onSubmit={handleSubmit}
+        >
           <For each={entries}>
             {(entry) => {
               const field = fieldsById.get(entry.fieldId);

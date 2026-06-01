@@ -7,10 +7,11 @@
  * regress during v1 polish. Avoid golden screenshots and fragile full-app
  * snapshots; assert visible user-facing behaviour.
  */
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "dev-admin";
+const SESSION_TOKEN = process.env.SESSION_TOKEN;
 const HEADLESS = process.env.HEADLESS !== "0";
 const KEEP = process.env.KEEP === "1";
 const TIMEOUT = Number(process.env.BROWSER_SMOKE_TIMEOUT_MS ?? 10_000);
@@ -22,6 +23,7 @@ type Fixture = {
   base: { id: string; shortId: string };
   table: { id: string; shortId: string };
   view: { id: string; shortId: string };
+  chartView: { id: string; shortId: string };
   form: { id: string; publicToken: string };
   dashboard: { id: string; shortId: string };
   records: {
@@ -70,6 +72,10 @@ const api = async <T>(
 };
 
 const login = async (): Promise<string> => {
+  if (SESSION_TOKEN) {
+    ok("session-token supplied");
+    return SESSION_TOKEN;
+  }
   const result = await api<{ session_token: string }>("POST", "/api/auth/admin-login", { token: ADMIN_TOKEN }, undefined, 200);
   if (!result.session_token) fail("admin-login returned no session token");
   ok("admin-login");
@@ -190,6 +196,20 @@ const createFixture = async (): Promise<Fixture> => {
     sessionToken,
     201,
   );
+  const chartView = await api<{ id: string; shortId: string }>(
+    "POST",
+    `/api/grids/views/by-table/${table.id}`,
+    {
+      name: "Amount by status",
+      shared: true,
+      query: {
+        groupBy: [{ fieldId: status.id, direction: "asc" }],
+        aggregations: [{ fieldId: amount.id, agg: "sum", label: "Total amount", format: { kind: "decimal", precision: 2 } }],
+      },
+    },
+    sessionToken,
+    201,
+  );
 
   const form = await api<{ id: string; publicToken: string | null }>(
     "POST",
@@ -270,6 +290,29 @@ const createFixture = async (): Promise<Fixture> => {
             ],
           },
           {
+            id: "row-chart",
+            kind: "row",
+            height: "md",
+            cells: [
+              {
+                id: "view-stats-open",
+                kind: "view-stats",
+                span: 6,
+                title: "Status summary",
+                viewId: chartView.id,
+              },
+              {
+                id: "chart-status",
+                kind: "chart",
+                span: 6,
+                title: "Amount by status",
+                chartType: "bar",
+                viewId: chartView.id,
+                format: "currency",
+              },
+            ],
+          },
+          {
             id: "row-form",
             kind: "row",
             height: "md",
@@ -288,6 +331,7 @@ const createFixture = async (): Promise<Fixture> => {
     base,
     table,
     view,
+    chartView,
     form: { id: form.id, publicToken: form.publicToken },
     dashboard,
     records: { first: firstRecord.id },
@@ -333,6 +377,7 @@ const watchPage = (page: Page, errors: string[]) => {
 const expectVisibleText = async (page: Page, text: string, label = text) => {
   await page.waitForFunction(
     (needle) =>
+      !!document.body &&
       Array.from(document.body.querySelectorAll("*")).some((el) => {
         if (!el.textContent?.includes(needle)) return false;
         const style = window.getComputedStyle(el);
@@ -345,10 +390,234 @@ const expectVisibleText = async (page: Page, text: string, label = text) => {
   ok(label);
 };
 
+const expectVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
+  await page.waitForFunction(
+    (source) => {
+      if (!document.body) return false;
+      const regex = new RegExp(source);
+      return Array.from(document.body.querySelectorAll("*")).some((el) => {
+        if (!regex.test(el.textContent ?? "")) return false;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === "hidden" || style.display === "none") return false;
+        return el.getClientRects().length > 0;
+      });
+    },
+    pattern.source,
+    { timeout: TIMEOUT },
+  );
+  ok(label);
+};
+
+const expectNoVisibleTextPattern = async (page: Page, pattern: RegExp, label: string) => {
+  await page.waitForFunction(
+    (source) => {
+      if (!document.body) return false;
+      const regex = new RegExp(source);
+      return !Array.from(document.body.querySelectorAll("*")).some((el) => {
+        if (!regex.test(el.textContent ?? "")) return false;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === "hidden" || style.display === "none") return false;
+        return el.getClientRects().length > 0;
+      });
+    },
+    pattern.source,
+    { timeout: TIMEOUT },
+  );
+  ok(label);
+};
+
 const assertNoBrowserErrors = (errors: string[]) => {
   if (errors.length > 0) {
     fail(`browser errors:\n${errors.slice(0, 8).join("\n")}`);
   }
+};
+
+const browserMutation = async <T>(page: Page, config: { method: string; path: string; body?: unknown; expected?: number }): Promise<T> => {
+  const result = await page.evaluate(async ({ method, path, body, expected }) => {
+    const res = await fetch(path, {
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await res.text();
+    return {
+      ok: res.status === (expected ?? (method === "DELETE" ? 204 : 200)),
+      status: res.status,
+      text,
+    };
+  }, config);
+  if (!result.ok) fail(`${config.method} ${config.path} failed with ${result.status}: ${result.text.slice(0, 400)}`);
+  return result.text ? (JSON.parse(result.text) as T) : (undefined as T);
+};
+
+const expectNoVisibleText = async (page: Page, text: string, label = text) => {
+  await page.waitForFunction(
+    (needle) =>
+      !!document.body &&
+      !Array.from(document.body.querySelectorAll("*")).some((el) => {
+        if (!el.textContent?.includes(needle)) return false;
+        const style = window.getComputedStyle(el);
+        if (style.visibility === "hidden" || style.display === "none") return false;
+        return el.getClientRects().length > 0;
+      }),
+    text,
+    { timeout: TIMEOUT },
+  );
+  ok(label);
+};
+
+const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, baseURL: BASE_URL });
+  await addSessionCookie(context, fixture.sessionToken);
+  const pageA = await context.newPage();
+  const pageB = await context.newPage();
+  pageA.setDefaultTimeout(TIMEOUT);
+  pageB.setDefaultTimeout(TIMEOUT);
+  const errors: string[] = [];
+  const requests: string[] = [];
+  watchPage(pageA, errors);
+  watchPage(pageB, errors);
+  for (const page of [pageA, pageB]) {
+    page.on("request", (request) => requests.push(request.url()));
+  }
+
+  const tablePath = `/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`;
+  await Promise.all([pageA.goto(tablePath, { waitUntil: "domcontentloaded" }), pageB.goto(tablePath, { waitUntil: "domcontentloaded" })]);
+  await expectVisibleText(pageB, "Review invoices", "live tab B table route renders");
+
+  const suffix = `${Date.now()}`;
+  const metadataTableName = `Live metadata ${suffix}`;
+  await browserMutation<{ id: string; shortId: string }>(pageA, {
+    method: "POST",
+    path: `/api/grids/tables/by-base/${fixture.base.id}`,
+    expected: 201,
+    body: { name: metadataTableName, icon: "ti ti-table-plus" },
+  });
+  await expectVisibleText(pageB, metadataTableName, "live metadata table appears in second tab sidebar");
+
+  const createdTitle = `Live create ${suffix}`;
+  const updatedTitle = `Live update ${suffix}`;
+  const created = await browserMutation<{ id: string; version: number }>(pageA, {
+    method: "POST",
+    path: `/api/grids/records/by-table/${fixture.table.id}`,
+    expected: 201,
+    body: {
+      [fixture.fields.title]: createdTitle,
+      [fixture.fields.amount]: "12.34",
+      [fixture.fields.status]: ["open"],
+      [fixture.fields.notes]: "Created from live smoke",
+      [fixture.fields.due]: "2026-05-29",
+    },
+  });
+  await expectVisibleText(pageB, createdTitle, "live create appears in second tab");
+
+  await browserMutation(pageA, {
+    method: "PATCH",
+    path: `/api/grids/records/${fixture.table.id}/${created.id}`,
+    body: {
+      [fixture.fields.title]: updatedTitle,
+      [fixture.fields.amount]: "12.34",
+      [fixture.fields.status]: ["open"],
+      [fixture.fields.notes]: "Updated from live smoke",
+      [fixture.fields.due]: "2026-05-29",
+    },
+  });
+  await expectVisibleText(pageB, updatedTitle, "live update appears in second tab");
+
+  const filterTitle = `Live filtered ${suffix}`;
+  await pageB.goto(`${tablePath}?q=${encodeURIComponent(filterTitle)}&qFields=${fixture.fields.title}`, { waitUntil: "domcontentloaded" });
+  await expectNoVisibleText(pageB, filterTitle, "filtered live row starts absent");
+  await browserMutation(pageA, {
+    method: "POST",
+    path: `/api/grids/records/by-table/${fixture.table.id}`,
+    expected: 201,
+    body: {
+      [fixture.fields.title]: filterTitle,
+      [fixture.fields.amount]: "1.00",
+      [fixture.fields.status]: ["open"],
+      [fixture.fields.notes]: "Filtered live smoke",
+      [fixture.fields.due]: "2026-05-29",
+    },
+  });
+  await expectVisibleText(pageB, filterTitle, "live create respects active search SQL query");
+
+  await pageB.goto(`${tablePath}?record=${created.id}`, { waitUntil: "domcontentloaded" });
+  await expectVisibleText(pageB, "History", "live detail panel route opens");
+  await browserMutation(pageA, {
+    method: "DELETE",
+    path: `/api/grids/records/${fixture.table.id}/${created.id}`,
+    expected: 204,
+  });
+  await expectNoVisibleText(pageB, updatedTitle, "live delete removes record from second tab");
+
+  await pageB.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, { waitUntil: "domcontentloaded" });
+  await expectVisibleText(pageB, "Total amount", "live dashboard route renders stat widget");
+  await expectVisibleText(pageB, "Amount by status", "live dashboard route renders chart widget");
+  await expectVisibleText(pageB, "Status summary", "live dashboard route renders view-stats widget");
+  await expectNoVisibleTextPattern(pageB, /12[,.]000/, "live dashboard chart starts before large event value");
+  const dashboardTitle = `Live dashboard ${suffix}`;
+  await browserMutation(pageA, {
+    method: "POST",
+    path: `/api/grids/records/by-table/${fixture.table.id}`,
+    expected: 201,
+    body: {
+      [fixture.fields.title]: dashboardTitle,
+      [fixture.fields.amount]: "12345.67",
+      [fixture.fields.status]: ["open"],
+      [fixture.fields.notes]: "Dashboard live smoke",
+      [fixture.fields.due]: "2026-05-29",
+    },
+  });
+  await expectVisibleText(pageB, dashboardTitle, "live dashboard embedded view refreshes from record event");
+  await expectVisibleTextPattern(pageB, /12[,.]596[,.]66/, "live dashboard stat refreshes from record event");
+  await expectVisibleTextPattern(pageB, /12[,.]000/, "live dashboard chart refreshes from record event");
+
+  await pageB.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}?edit=true`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectVisibleText(pageB, "Done editing", "live dashboard edit mode renders");
+  const editDashboardTitle = `Live dashboard edit ${suffix}`;
+  await browserMutation(pageA, {
+    method: "POST",
+    path: `/api/grids/records/by-table/${fixture.table.id}`,
+    expected: 201,
+    body: {
+      [fixture.fields.title]: editDashboardTitle,
+      [fixture.fields.amount]: "22222.22",
+      [fixture.fields.status]: ["open"],
+      [fixture.fields.notes]: "Dashboard edit live smoke",
+      [fixture.fields.due]: "2026-05-30",
+    },
+  });
+  await expectVisibleText(pageB, editDashboardTitle, "live dashboard edit embedded view refreshes from record event");
+  await expectVisibleTextPattern(pageB, /34[,.]818[,.]88/, "live dashboard edit stat refreshes from record event");
+
+  await pageB.goto(`/app/grids/${fixture.base.shortId}/dashboard/${fixture.dashboard.shortId}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expectVisibleText(pageB, "Task title", "dashboard form submit fields render");
+  await pageB.waitForTimeout(500);
+  await pageB.getByLabel(/task title/i).fill(`Inline dashboard ${suffix}`);
+  const dashboardBudget = pageB.getByLabel(/budget/i).first();
+  if (await dashboardBudget.count()) await dashboardBudget.fill("33333.33");
+  const submitResponse = pageB.waitForResponse(
+    (response) => response.url().includes(`/api/grids/forms/${fixture.form.id}/submit`) && response.request().method() === "POST",
+    { timeout: TIMEOUT },
+  );
+  await pageB.getByRole("button", { name: /send task/i }).click();
+  const submitted = await submitResponse;
+  if (!submitted.ok()) fail(`dashboard form submit failed with ${submitted.status()}: ${(await submitted.text()).slice(0, 400)}`);
+  const dashboardRefreshAfterSubmit = await pageB
+    .waitForResponse((response) => response.url().includes("/api/grids/workspace/route") && response.ok(), { timeout: TIMEOUT })
+    .catch(() => null);
+  if (!dashboardRefreshAfterSubmit) fail("dashboard form submit did not request a dashboard refresh");
+  await expectVisibleText(pageB, `Inline dashboard ${suffix}`, "dashboard form submit refreshes embedded view");
+  await expectVisibleTextPattern(pageB, /68[,.]152[,.]21/, "dashboard form submit refreshes stat widget");
+
+  if (requests.some((url) => /events\/by-table|text\/event-stream/i.test(url))) fail("live smoke observed legacy SSE request");
+  assertNoBrowserErrors(errors);
+  ok("websocket live refresh create/update/delete flow works");
+  await context.close();
 };
 
 const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
@@ -363,6 +632,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   await expectVisibleText(page, "Tasks", "table route renders");
   await expectVisibleText(page, "Review invoices", "record row renders");
   await expectVisibleText(page, "Open", "select badge renders");
+  await page.waitForTimeout(500);
+  await page.locator("button", { hasText: "Filter" }).first().click();
+  await expectVisibleText(page, "where", "filter toolbar opens a draft row");
   await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/formula-reference`, {
     waitUntil: "domcontentloaded",
   });
@@ -398,7 +670,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
     .locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}/view/${fixture.view.shortId}"]`)
     .first()
     .click();
-  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, { timeout: TIMEOUT });
+  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, {
+    timeout: TIMEOUT,
+  });
   await expectVisibleText(page, "Open task amounts", "enhanced view sidebar navigation renders");
   const viewUrl = new URL(page.url());
   if (!viewUrl.pathname.endsWith(`/table/${fixture.table.shortId}/view/${fixture.view.shortId}`)) {
@@ -415,11 +689,6 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   }
   ok("enhanced table sidebar navigation updates URL");
 
-  await page.locator(`a[href$="/settings"]:visible`).first().click();
-  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/settings`, { timeout: TIMEOUT });
-  await expectVisibleText(page, "Default dashboard", "enhanced settings sidebar navigation renders");
-  ok("enhanced settings sidebar navigation updates URL");
-
   await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}"]`).first().click();
   await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { timeout: TIMEOUT });
   await page.getByRole("link", { name: "Edit mode" }).click();
@@ -434,7 +703,9 @@ const runAuthedDesktop = async (browser: Browser, fixture: Fixture) => {
   });
   await expectVisibleText(page, "History", "record detail opens");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, {
+    waitUntil: "domcontentloaded",
+  });
   await expectVisibleText(page, "Open task amounts", "view route renders");
   await expectVisibleText(page, "Total amount", "view aggregate footer renders");
 
@@ -478,22 +749,30 @@ const runPublicForm = async (browser: Browser, fixture: Fixture) => {
 
   await page.goto(`/share/grids/forms/${fixture.form.publicToken}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Task intake", "public form route renders");
-  const titleBox = page.getByRole("textbox").nth(0);
-  await titleBox.click();
-  await titleBox.pressSequentially("Public smoke task");
-  const budget = page.getByRole("textbox").nth(1);
+  await page.locator('[data-grids-public-form-ready="true"]').waitFor({ state: "attached", timeout: TIMEOUT });
+  const titleBox = page.getByLabel(/task title/i).first();
+  await titleBox.fill("Public smoke task");
+  const budget = page.getByLabel(/budget/i).first();
   if (await budget.count()) await budget.fill("42.42");
-  const textboxValues = await page.getByRole("textbox").evaluateAll((nodes) =>
-    nodes.map((node) => (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement ? node.value : node.textContent ?? "")),
-  );
+  const textboxValues = await page
+    .getByRole("textbox")
+    .evaluateAll((nodes) =>
+      nodes.map((node) =>
+        node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement ? node.value : (node.textContent ?? ""),
+      ),
+    );
   if (!textboxValues.includes("Public smoke task")) {
     fail(`public form title textbox was not filled. Textbox values: ${JSON.stringify(textboxValues)}`);
   }
   await page.getByRole("button", { name: /send task/i }).click();
-  await page.getByText("Task saved", { exact: false }).first().waitFor({ state: "visible", timeout: TIMEOUT }).catch(async () => {
-    const visibleText = (await page.locator("body").innerText({ timeout: 2_000 })).slice(0, 1_000);
-    fail(`public form submit did not show success. Visible page text:\n${visibleText}`);
-  });
+  await page
+    .getByText("Task saved", { exact: false })
+    .first()
+    .waitFor({ state: "visible", timeout: TIMEOUT })
+    .catch(async () => {
+      const visibleText = (await page.locator("body").innerText({ timeout: 2_000 })).slice(0, 1_000);
+      fail(`public form submit did not show success. Visible page text:\n${visibleText}`);
+    });
   ok("public form submit succeeds");
 
   const query = await api<{ items?: Array<{ data: Record<string, unknown> }> }>(
@@ -562,6 +841,7 @@ try {
   await runFormulaPreviewSmoke(fixture);
   browser = await chromium.launch({ headless: HEADLESS });
   await runAuthedDesktop(browser, fixture);
+  await runLiveRefresh(browser, fixture);
   await runPublicForm(browser, fixture);
   await runResponsive(browser, fixture);
   ok("browser smoke complete");

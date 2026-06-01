@@ -29,6 +29,29 @@
   @apply dark:bg-zinc-900 dark:border-blue-400;
 }
 
+.md-editor[data-variant="paper"] {
+  @apply rounded-lg;
+  @apply bg-white border-zinc-100;
+  @apply hover:bg-white hover:border-zinc-100;
+  @apply dark:bg-zinc-900 dark:border-zinc-800;
+  @apply dark:hover:bg-zinc-900 dark:hover:border-zinc-800;
+}
+
+.md-editor[data-variant="paper"]:focus-within {
+  @apply bg-white border-blue-400;
+  @apply dark:bg-zinc-900 dark:border-blue-400;
+}
+
+.md-editor[data-variant="paper"] .md-editor-toolbar {
+  @apply bg-white border-zinc-100;
+  @apply dark:bg-zinc-900 dark:border-zinc-800;
+}
+
+.md-editor[data-variant="paper"] .md-editor-tool {
+  @apply hover:bg-zinc-100;
+  @apply dark:hover:bg-zinc-800;
+}
+
 .md-editor[data-disabled="true"] {
   @apply opacity-50 cursor-not-allowed;
 }
@@ -137,7 +160,10 @@
   font-kerning: none !important;
   font-synthesis: none !important;
   -webkit-font-synthesis: none !important;
-  font-feature-settings: "liga" 0, "clig" 0, "calt" 0 !important;
+  font-feature-settings:
+    "liga" 0,
+    "clig" 0,
+    "calt" 0 !important;
   font-variation-settings: normal !important;
   font-optical-sizing: none !important;
   letter-spacing: 0 !important;

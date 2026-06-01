@@ -75,6 +75,7 @@ export type WorkspaceDashboardRoute = {
   kind: "dashboard";
   dashboard: Dashboard;
   widgetData: Record<string, WidgetData>;
+  recordLiveTableIds?: string[];
   activeDashboardAccessEntries: AccessEntry[];
   canEditActiveDashboard: boolean;
   isBaseDefault: boolean;
@@ -154,15 +155,44 @@ const loadFormAccessEntriesByTable = async (
   return formAccessEntriesByTable;
 };
 
-export const loadGridsWorkspaceState = async (params: {
+type LoadWorkspaceParams = {
   user: AuthUser;
   baseShortId: string;
   href: string;
   activeTableSlug?: string | null;
   activeViewSlug?: string | null;
   activeDashboardSlug?: string | null;
-}): Promise<GridsWorkspaceState> => {
-  const url = new URL(params.href, "http://grids.local");
+};
+
+type WorkspaceChrome = {
+  url: URL;
+  adminModeRequested: boolean;
+  trashMode: boolean;
+  rememberPath: string;
+  editModeToggleHref: string;
+  titleBase: Array<{ title: string; href?: string }>;
+};
+
+type WorkspaceCommon = {
+  params: LoadWorkspaceParams;
+  base: Base;
+  chrome: WorkspaceChrome;
+  catalog: WorkspaceCatalog;
+  canManageBase: boolean;
+  canCreateTables: boolean;
+  canUseEditMode: boolean;
+};
+
+type OkWorkspaceState = Extract<GridsWorkspaceState, { kind: "ok" }>;
+
+const buildViewer = (user: AuthUser) => ({
+  userId: user.id,
+  userGroups: user.memberofGroupIds,
+  isAdmin: hasRole(user, "admin"),
+});
+
+const buildChrome = (href: string, base: Base): WorkspaceChrome => {
+  const url = new URL(href, "http://grids.local");
   const adminModeRequested = url.searchParams.get("edit") === "true";
   const trashMode = url.searchParams.get("trash") === "1";
   const currentPath = `${url.pathname}${url.search}`;
@@ -170,23 +200,27 @@ export const loadGridsWorkspaceState = async (params: {
   const editModeOnHref = urlWithParam(urlWithoutParams(currentPath, ["form"]), "edit", "true");
   const editModeOffHref = urlWithoutParams(currentPath, ["edit", "form"]);
   const editModeToggleHref = adminModeRequested ? editModeOffHref : editModeOnHref;
+  return {
+    url,
+    adminModeRequested,
+    trashMode,
+    rememberPath,
+    editModeToggleHref,
+    titleBase: [
+      { title: "Start", href: "/" },
+      { title: "Grids", href: "/app/grids" },
+      { title: base.name, href: `/app/grids/${base.shortId}` },
+    ],
+  };
+};
 
-  const base = await gridsService.base.getByIdOrShortId(params.baseShortId);
-  if (!base) return { kind: "notFound", title: "Not found", message: "Base not found" };
-
-  const baseId = base.id;
-  const level = await resolveBaseLevel(params.user, baseId);
-  if (!gridsService.permission.hasAtLeast(level, "read")) {
-    return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
-  }
-
+const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCatalog> => {
   const catalogRaw = await gridsService.base.catalog({
     baseId,
-    userId: params.user.id,
-    userGroups: params.user.memberofGroupIds,
-    isAdmin: hasRole(params.user, "admin"),
+    userId: user.id,
+    userGroups: user.memberofGroupIds,
+    isAdmin: hasRole(user, "admin"),
   });
-  const dashboards = catalogRaw.dashboards;
   const tables = catalogRaw.tables;
   const tableById = Object.fromEntries(tables.map((t) => [t.id, t]));
   const sidebarForms: Array<{ form: Form; table: Table }> = [];
@@ -195,9 +229,10 @@ export const loadGridsWorkspaceState = async (params: {
     if (table) sidebarForms.push({ form, table });
   }
   sidebarForms.sort((a, b) => a.form.name.localeCompare(b.form.name, undefined, { sensitivity: "base" }));
+
   const formAccessEntriesByTable = await loadFormAccessEntriesByTable(tables, catalogRaw.tableLevels, catalogRaw.formsByTable);
-  const catalog: WorkspaceCatalog = {
-    dashboards,
+  return {
+    dashboards: catalogRaw.dashboards,
     tables,
     tableLevels: catalogRaw.tableLevels,
     fieldsByTable: catalogRaw.fieldsByTable,
@@ -207,111 +242,67 @@ export const loadGridsWorkspaceState = async (params: {
     tableShortIds: Object.fromEntries(tables.map((t) => [t.id, t.shortId])),
     sidebarForms,
   };
+};
 
-  const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
-  const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
-  const canUseEditMode =
-    canCreateTables ||
-    tables.some((t) => gridsService.permission.hasAtLeast(catalog.tableLevels[t.id] ?? "none", "admin")) ||
-    dashboards.some((d) => d.ownerUserId === params.user.id || (d.ownerUserId === null && canManageBase));
+const canUseEditModeForCatalog = (catalog: WorkspaceCatalog, user: AuthUser, canManageBase: boolean, canCreateTables: boolean) =>
+  canCreateTables ||
+  catalog.tables.some((t) => gridsService.permission.hasAtLeast(catalog.tableLevels[t.id] ?? "none", "admin")) ||
+  catalog.dashboards.some((d) => d.ownerUserId === user.id || (d.ownerUserId === null && canManageBase));
 
-  const titleBase = [
-    { title: "Start", href: "/" },
-    { title: "Grids", href: "/app/grids" },
-    { title: base.name, href: `/app/grids/${base.shortId}` },
-  ];
+const okState = (common: WorkspaceCommon, route: GridsWorkspaceRoute, title = common.chrome.titleBase): OkWorkspaceState => ({
+  kind: "ok",
+  base: common.base,
+  baseShortId: common.base.shortId,
+  title,
+  rememberPath: common.chrome.rememberPath,
+  adminModeRequested: common.chrome.adminModeRequested,
+  editModeToggleHref: common.chrome.editModeToggleHref,
+  canManageBase: common.canManageBase,
+  canCreateTables: common.canCreateTables,
+  canUseEditMode: common.canUseEditMode,
+  catalog: common.catalog,
+  route,
+});
 
-  let activeDashboard = params.activeDashboardSlug
-    ? await gridsService.dashboard.getByIdOrShortId(baseId, params.activeDashboardSlug)
-    : null;
-  if (!params.activeTableSlug && !activeDashboard && base.defaultDashboardId) {
-    const defaultDashboard = await gridsService.dashboard.get(base.defaultDashboardId);
-    if (defaultDashboard && defaultDashboard.deletedAt === null) activeDashboard = defaultDashboard;
-  }
-  const renderDashboard = activeDashboard ? (dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
-  const activeTableFromSlug = params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
-  if (url.pathname.endsWith("/automations")) {
-    if (!canManageBase) return { kind: "accessDenied", title: "Access denied", message: "Only base admins can manage automations" };
-    return {
-      kind: "ok",
-      base,
-      baseShortId: base.shortId,
-      title: [...titleBase, { title: "Automations" }],
-      rememberPath,
-      adminModeRequested,
-      editModeToggleHref,
-      canManageBase,
-      canCreateTables,
-      canUseEditMode,
-      catalog,
-      route: { kind: "automations" },
-    };
-  }
+const resolveActiveDashboard = async (params: LoadWorkspaceParams, base: Base, dashboards: Dashboard[]) => {
+  const explicit = params.activeDashboardSlug ? await gridsService.dashboard.getByIdOrShortId(base.id, params.activeDashboardSlug) : null;
+  if (params.activeTableSlug || explicit || !base.defaultDashboardId) return explicit;
 
-  const activeTableId = activeTableFromSlug?.id ?? null;
-  const activeTable = activeTableId ? (tables.find((t) => t.id === activeTableId) ?? null) : activeDashboard ? null : (tables[0] ?? null);
+  const defaultDashboard = await gridsService.dashboard.get(base.defaultDashboardId);
+  if (defaultDashboard && defaultDashboard.deletedAt === null) return defaultDashboard;
+  return null;
+};
 
-  if (renderDashboard) {
-    const widgets = renderDashboard.config.rows.flatMap((r) => r.cells);
-    const results = await Promise.all(
-      widgets.map((w) =>
-        resolveWidgetData(w, {
-          userId: params.user.id,
-          userGroups: params.user.memberofGroupIds,
-          isAdmin: hasRole(params.user, "admin"),
-        }).then((data) => [w.id, data] as const),
-      ),
-    );
-    const widgetData = Object.fromEntries(results);
-    const canEditActiveDashboard =
-      renderDashboard.ownerUserId === params.user.id || (renderDashboard.ownerUserId === null && canManageBase);
-    return {
-      kind: "ok",
-      base,
-      baseShortId: base.shortId,
-      title: titleBase,
-      rememberPath,
-      adminModeRequested,
-      editModeToggleHref,
-      canManageBase,
-      canCreateTables,
-      canUseEditMode,
-      catalog,
-      route: {
-        kind: "dashboard",
-        dashboard: renderDashboard,
-        widgetData,
-        activeDashboardAccessEntries: canEditActiveDashboard ? await gridsService.access.listForDashboard(renderDashboard.id) : [],
-        canEditActiveDashboard,
-        isBaseDefault: base.defaultDashboardId === renderDashboard.id,
-      },
-    };
-  }
+const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard): Promise<OkWorkspaceState> => {
+  const widgets = dashboard.config.rows.flatMap((r) => r.cells);
+  const results = await Promise.all(
+    widgets.map((w) => resolveWidgetData(w, buildViewer(common.params.user)).then((data) => [w.id, data] as const)),
+  );
+  const widgetData = Object.fromEntries(results);
+  const canEditActiveDashboard =
+    dashboard.ownerUserId === common.params.user.id || (dashboard.ownerUserId === null && common.canManageBase);
 
-  if (!activeTable) {
-    return {
-      kind: "ok",
-      base,
-      baseShortId: base.shortId,
-      title: titleBase,
-      rememberPath,
-      adminModeRequested,
-      editModeToggleHref,
-      canManageBase,
-      canCreateTables,
-      canUseEditMode,
-      catalog,
-      route: { kind: "empty" },
-    };
-  }
+  return okState(common, {
+    kind: "dashboard",
+    dashboard,
+    widgetData,
+    recordLiveTableIds: await gridsService.dashboard.sourceTableIds(dashboard),
+    activeDashboardAccessEntries: canEditActiveDashboard ? await gridsService.access.listForDashboard(dashboard.id) : [],
+    canEditActiveDashboard,
+    isBaseDefault: common.base.defaultDashboardId === dashboard.id,
+  });
+};
 
-  const activeTableLevel = catalog.tableLevels[activeTable.id] ?? "none";
-  const fields = catalog.fieldsByTable[activeTable.id] ?? [];
-  const viewsForTable = catalog.viewsByTable[activeTable.id] ?? [];
-  const candidateView = params.activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, params.activeViewSlug) : null;
-  const activeView = candidateView ? (viewsForTable.find((v) => v.id === candidateView.id) ?? null) : null;
+type InitialRecordsArgs = {
+  activeTable: Table;
+  fields: Field[];
+  recordsState: RecordsState;
+  activeView: View | null;
+  trashMode: boolean;
+  user: AuthUser;
+};
 
-  const recordsState = parseRecordsState(url.searchParams);
+const resolveInitialQuery = (recordsState: RecordsState, activeView: View | null) => {
   const effective = resolveEffectiveQuery(recordsState, activeView);
   const effectiveFilter = effective.filter ?? null;
   const effectiveSort = effective.sort ?? [];
@@ -327,149 +318,226 @@ export const loadGridsWorkspaceState = async (params: {
   const searchSpec = effective.search ?? null;
   const viewLimit = effective.limit;
   const effectiveLimit = viewLimit !== undefined ? Math.min(100, viewLimit) : 100;
-  const rawCursor = recordsState.cursor;
+  return {
+    effective,
+    effectiveFilter,
+    effectiveSort,
+    effectiveIncludeDeleted,
+    effectiveSearch,
+    effectiveGroupBy,
+    effectiveGroupSort,
+    effectiveAggregations,
+    searchSpec,
+    viewLimit,
+    effectiveLimit,
+  };
+};
 
-  let records: { items: GridRecord[]; nextCursor: string | null; aggregates?: Record<string, unknown> } = { items: [], nextCursor: null };
-  let aggregates: Record<string, unknown> = {};
-  let groupedBuckets: WorkspaceGroupBucket[] = [];
-  let groupedExplode = false;
-  let relationLabels: Record<string, string> = {};
+const emptyInitialRecords = () => ({
+  records: { items: [] as GridRecord[], nextCursor: null as string | null } as {
+    items: GridRecord[];
+    nextCursor: string | null;
+    aggregates?: Record<string, unknown>;
+  },
+  aggregates: {} as Record<string, unknown>,
+  groupedBuckets: [] as WorkspaceGroupBucket[],
+  groupedExplode: false,
+  relationLabels: {} as Record<string, string>,
+});
 
-  if (effectiveGroupBy.length > 0 && !trashMode) {
-    const groupResult = await gridsService.record.group({
-      tableId: activeTable.id,
-      groupBy: effectiveGroupBy,
-      aggregations: effectiveAggregations,
-      groupSort: effectiveGroupSort,
-      filter: effectiveFilter,
-      search: effectiveSearch.q ? { q: effectiveSearch.q, fieldIds: effectiveSearch.fieldIds } : null,
-      limit: 1000,
-      viewer: {
-        userId: params.user.id,
-        userGroups: params.user.memberofGroupIds,
-        isAdmin: hasRole(params.user, "admin"),
-      },
-    });
-    if (groupResult.ok) {
-      groupedBuckets = groupResult.data.buckets as WorkspaceGroupBucket[];
-      groupedExplode = groupResult.data.explode;
-      relationLabels = await gridsService.relations.buildLabelCacheForGroupedKeys(
-        groupedBuckets,
-        effectiveGroupBy.map((g) => g.fieldId),
-        fields,
-      );
-    }
-  } else {
-    const listResult = await gridsService.record.list({
-      tableId: activeTable.id,
-      limit: effectiveLimit,
-      includeDeleted: effectiveIncludeDeleted,
-      deletedOnly: trashMode,
-      filter: effectiveFilter,
-      search: searchSpec,
-      sort: effectiveSort,
-      cursor: rawCursor,
-      includeRelations: true,
-      viewer: {
-        userId: params.user.id,
-        userGroups: params.user.memberofGroupIds,
-        isAdmin: hasRole(params.user, "admin"),
-      },
-    });
-    if (listResult.ok) {
-      records = viewLimit !== undefined ? { ...listResult.data, nextCursor: null } : listResult.data;
-      aggregates = records.aggregates ?? {};
-    }
-    relationLabels = await gridsService.relations.buildLabelCache(records.items, fields);
-    if (!trashMode && fields.length > 0 && effectiveAggregations.length > 0) {
-      const aggResult = await gridsService.record.aggregate({
-        tableId: activeTable.id,
-        filter: effectiveFilter,
-        search: searchSpec,
-        includeDeleted: effectiveIncludeDeleted,
-        deletedOnly: trashMode,
-        requests: effectiveAggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
-        viewer: {
-          userId: params.user.id,
-          userGroups: params.user.memberofGroupIds,
-          isAdmin: hasRole(params.user, "admin"),
-        },
-      });
-      if (aggResult.ok) aggregates = { ...aggregates, ...aggResult.data };
-    }
+const loadGroupedInitialRecords = async (
+  args: InitialRecordsArgs,
+  query: ReturnType<typeof resolveInitialQuery>,
+  viewer: ReturnType<typeof buildViewer>,
+) => {
+  const data = emptyInitialRecords();
+  const groupResult = await gridsService.record.group({
+    tableId: args.activeTable.id,
+    groupBy: query.effectiveGroupBy,
+    aggregations: query.effectiveAggregations,
+    groupSort: query.effectiveGroupSort,
+    filter: query.effectiveFilter,
+    search: query.effectiveSearch.q ? { q: query.effectiveSearch.q, fieldIds: query.effectiveSearch.fieldIds } : null,
+    limit: 1000,
+    viewer,
+  });
+  if (!groupResult.ok) return data;
+
+  data.groupedBuckets = groupResult.data.buckets as WorkspaceGroupBucket[];
+  data.groupedExplode = groupResult.data.explode;
+  data.relationLabels = await gridsService.relations.buildLabelCacheForGroupedKeys(
+    data.groupedBuckets,
+    query.effectiveGroupBy.map((g) => g.fieldId),
+    args.fields,
+  );
+  return data;
+};
+
+const loadListedInitialRecords = async (
+  args: InitialRecordsArgs,
+  query: ReturnType<typeof resolveInitialQuery>,
+  viewer: ReturnType<typeof buildViewer>,
+) => {
+  const data = emptyInitialRecords();
+  const listResult = await gridsService.record.list({
+    tableId: args.activeTable.id,
+    limit: query.effectiveLimit,
+    includeDeleted: query.effectiveIncludeDeleted,
+    deletedOnly: args.trashMode,
+    filter: query.effectiveFilter,
+    search: query.searchSpec,
+    sort: query.effectiveSort,
+    cursor: args.recordsState.cursor,
+    includeRelations: true,
+    viewer,
+  });
+  if (listResult.ok) {
+    data.records = query.viewLimit !== undefined ? { ...listResult.data, nextCursor: null } : listResult.data;
+    data.aggregates = data.records.aggregates ?? {};
   }
+  data.relationLabels = await gridsService.relations.buildLabelCache(data.records.items, args.fields);
+  if (args.trashMode || args.fields.length === 0 || query.effectiveAggregations.length === 0) return data;
 
-  let selectedRecord: GridRecord | null = null;
-  if (recordsState.selectedRecordId) {
-    selectedRecord =
-      records.items.find((r) => r.id === recordsState.selectedRecordId) ??
-      (await gridsService.record.get(activeTable.id, recordsState.selectedRecordId));
-  }
+  const aggResult = await gridsService.record.aggregate({
+    tableId: args.activeTable.id,
+    filter: query.effectiveFilter,
+    search: query.searchSpec,
+    includeDeleted: query.effectiveIncludeDeleted,
+    deletedOnly: args.trashMode,
+    requests: query.effectiveAggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
+    viewer,
+  });
+  if (aggResult.ok) data.aggregates = { ...data.aggregates, ...aggResult.data };
+  return data;
+};
 
+const loadInitialRecords = async (args: InitialRecordsArgs) => {
+  const query = resolveInitialQuery(args.recordsState, args.activeView);
+  const viewer = buildViewer(args.user);
+  const data =
+    query.effectiveGroupBy.length > 0 && !args.trashMode
+      ? await loadGroupedInitialRecords(args, query, viewer)
+      : await loadListedInitialRecords(args, query, viewer);
+
+  return {
+    ...query,
+    ...data,
+  };
+};
+
+const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, activeViewSlug?: string | null): Promise<OkWorkspaceState> => {
+  const activeTableLevel = common.catalog.tableLevels[activeTable.id] ?? "none";
+  const fields = common.catalog.fieldsByTable[activeTable.id] ?? [];
+  const viewsForTable = common.catalog.viewsByTable[activeTable.id] ?? [];
+  const candidateView = activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug) : null;
+  const activeView = candidateView ? (viewsForTable.find((v) => v.id === candidateView.id) ?? null) : null;
+  const recordsState = parseRecordsState(common.chrome.url.searchParams);
+  const initial = await loadInitialRecords({
+    activeTable,
+    fields,
+    recordsState,
+    activeView,
+    trashMode: common.chrome.trashMode,
+    user: common.params.user,
+  });
+
+  const selectedRecordId = recordsState.selectedRecordId;
+  const selectedRecord =
+    !selectedRecordId
+      ? null
+      : (initial.records.items.find((r) => r.id === selectedRecordId) ?? (await gridsService.record.get(activeTable.id, selectedRecordId)));
   const canEditActiveView =
     !!activeView &&
     (activeView.ownerUserId === null
       ? gridsService.permission.hasAtLeast(activeTableLevel, "write")
-      : activeView.ownerUserId === params.user.id && gridsService.permission.hasAtLeast(activeTableLevel, "read"));
+      : activeView.ownerUserId === common.params.user.id && gridsService.permission.hasAtLeast(activeTableLevel, "read"));
 
-  return {
-    kind: "ok",
-    base,
-    baseShortId: base.shortId,
-    title: [
-      ...titleBase,
-      ...(activeView
-        ? [{ title: activeTable.name, href: `/app/grids/${base.shortId}/table/${activeTable.shortId}` }, { title: activeView.name }]
-        : [{ title: activeTable.name }]),
-    ],
-    rememberPath,
-    adminModeRequested,
-    editModeToggleHref,
-    canManageBase,
-    canCreateTables,
-    canUseEditMode,
-    catalog,
-    route: {
+  return okState(
+    common,
+    {
       kind: "records",
       activeTable,
       activeView,
       fields,
-      formsForTable: catalog.formsByTable[activeTable.id] ?? [],
+      formsForTable: common.catalog.formsByTable[activeTable.id] ?? [],
       canWriteRecords: gridsService.permission.hasAtLeast(activeTableLevel, "write"),
       canManageActiveTable: gridsService.permission.hasAtLeast(activeTableLevel, "admin"),
       activeTableAccessEntries: gridsService.permission.hasAtLeast(activeTableLevel, "admin")
         ? await gridsService.access.listForTable(activeTable.id)
         : [],
-      activeFormAccessEntries: formAccessEntriesByTable[activeTable.id] ?? {},
+      activeFormAccessEntries: common.catalog.formAccessEntriesByTable[activeTable.id] ?? {},
       activeViewAccessEntries: activeView && canEditActiveView ? await gridsService.access.listForView(activeView.id) : [],
       canEditActiveView,
-      otherTables: tables.filter((t) => t.id !== activeTable.id).map((t) => ({ id: t.id, name: t.name })),
+      otherTables: common.catalog.tables.filter((t) => t.id !== activeTable.id).map((t) => ({ id: t.id, name: t.name })),
       initialState: {
         query: {
-          filter: effectiveFilter ?? undefined,
-          sort: effectiveSort,
-          groupBy: effectiveGroupBy,
-          aggregations: effectiveAggregations,
-          includeDeleted: effectiveIncludeDeleted,
-          deletedOnly: trashMode,
+          filter: initial.effectiveFilter ?? undefined,
+          sort: initial.effectiveSort,
+          groupBy: initial.effectiveGroupBy,
+          aggregations: initial.effectiveAggregations,
+          includeDeleted: initial.effectiveIncludeDeleted,
+          deletedOnly: common.chrome.trashMode,
         },
-        cursor: rawCursor,
+        cursor: recordsState.cursor,
         selectedRecordId: recordsState.selectedRecordId,
-        search: effectiveSearch,
+        search: initial.effectiveSearch,
       },
       initialData: {
-        items: records.items,
-        buckets: groupedBuckets,
-        aggregates,
-        nextCursor: records.nextCursor,
-        explode: groupedExplode,
+        items: initial.records.items,
+        buckets: initial.groupedBuckets,
+        aggregates: initial.aggregates,
+        nextCursor: initial.records.nextCursor,
+        explode: initial.groupedExplode,
       },
       initialSelectedRecord: selectedRecord,
-      relationLabels,
+      relationLabels: initial.relationLabels,
       activeViewColumns: activeView?.query.columns,
       searchableFields: filterSearchableFields(fields),
-      groupedExplode,
+      groupedExplode: initial.groupedExplode,
       activeViewQuery: activeView?.query ?? null,
     },
-  };
+    [
+      ...common.chrome.titleBase,
+      ...(activeView
+        ? [{ title: activeTable.name, href: `/app/grids/${common.base.shortId}/table/${activeTable.shortId}` }, { title: activeView.name }]
+        : [{ title: activeTable.name }]),
+    ],
+  );
+};
+
+export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Promise<GridsWorkspaceState> => {
+  const base = await gridsService.base.getByIdOrShortId(params.baseShortId);
+  if (!base) return { kind: "notFound", title: "Not found", message: "Base not found" };
+
+  const baseId = base.id;
+  const level = await resolveBaseLevel(params.user, baseId);
+  if (!gridsService.permission.hasAtLeast(level, "read")) {
+    return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
+  }
+
+  const chrome = buildChrome(params.href, base);
+  const catalog = await loadCatalog(baseId, params.user);
+  const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
+  const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
+  const canUseEditMode = canUseEditModeForCatalog(catalog, params.user, canManageBase, canCreateTables);
+  const common: WorkspaceCommon = { params, base, chrome, catalog, canManageBase, canCreateTables, canUseEditMode };
+  const activeDashboard = await resolveActiveDashboard(params, base, catalog.dashboards);
+  const renderDashboard = activeDashboard ? (catalog.dashboards.find((d) => d.id === activeDashboard.id) ?? null) : null;
+  const activeTableFromSlug = params.activeTableSlug ? await gridsService.table.getByIdOrShortId(baseId, params.activeTableSlug) : null;
+  if (chrome.url.pathname.endsWith("/automations")) {
+    if (!canManageBase) return { kind: "accessDenied", title: "Access denied", message: "Only base admins can manage automations" };
+    return okState(common, { kind: "automations" }, [...chrome.titleBase, { title: "Automations" }]);
+  }
+
+  const activeTableId = activeTableFromSlug?.id ?? null;
+  const activeTable = activeTableId
+    ? (catalog.tables.find((t) => t.id === activeTableId) ?? null)
+    : activeDashboard
+      ? null
+      : (catalog.tables[0] ?? null);
+
+  if (renderDashboard) return loadDashboardState(common, renderDashboard);
+
+  if (!activeTable) return okState(common, { kind: "empty" });
+  return loadRecordsState(common, activeTable, params.activeViewSlug);
 };

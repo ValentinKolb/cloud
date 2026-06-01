@@ -80,6 +80,8 @@ export type MarkdownEditorProps = {
   error?: boolean;
   /** Show the lines/words/chars footer. Defaults to ON. */
   showStats?: boolean;
+  /** Visual variant. Defaults to the compact zinc input surface. */
+  variant?: "default" | "paper";
 };
 
 /**
@@ -226,10 +228,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     // tail is verbatim from the suggestion. Filter in
     // `recomputeCompletion` guarantees tail.length > 0 when a
     // completion is active, so we never end up with an empty ghost.
-    const ghostArg =
-      state && active
-        ? { at: state.ctx.end, text: active.text.slice(state.ctx.text.length) }
-        : undefined;
+    const ghostArg = state && active ? { at: state.ctx.end, text: active.text.slice(state.ctx.text.length) } : undefined;
 
     // Highlight function for the overlay renderer. Wraps the markdown
     // highlighter so the generic overlay module stays markdown-agnostic
@@ -239,11 +238,9 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     // travels through the markdown pipeline untouched (PUA char, no
     // regex match), and gets substituted with the ghost span after.
     const labels = knownLabels();
-    previewEl.innerHTML = renderWithOverlay(
-      localValue(),
-      (workText) => highlightMarkdown(workText, { knownLabels: labels }),
-      { ghost: ghostArg },
-    );
+    previewEl.innerHTML = renderWithOverlay(localValue(), (workText) => highlightMarkdown(workText, { knownLabels: labels }), {
+      ghost: ghostArg,
+    });
     // Re-sync scroll AFTER the preview's content grows: when the user
     // hits Enter at the bottom of the visible area, the browser auto-
     // scrolls the textarea before the input event fires. At that
@@ -315,9 +312,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
     // matches the dropdown would linger empty-handedly after every
     // accepted completion.
     const lower = ctx.text.toLowerCase();
-    const usable = list.filter(
-      (s) => s.text.toLowerCase().startsWith(lower) && s.text.length > ctx.text.length,
-    );
+    const usable = list.filter((s) => s.text.toLowerCase().startsWith(lower) && s.text.length > ctx.text.length);
 
     if (usable.length === 0) {
       setCompletionState(null);
@@ -402,9 +397,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
 
   const syncTheme = (): void => {
     if (typeof document === "undefined") return;
-    setIsDarkTheme(
-      document.documentElement.classList.contains("dark") || document.body.classList.contains("dark"),
-    );
+    setIsDarkTheme(document.documentElement.classList.contains("dark") || document.body.classList.contains("dark"));
   };
 
   /** Insert the currently-active suggestion at the caret and clear
@@ -636,6 +629,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
       class="md-editor"
       data-disabled={props.disabled ? "true" : undefined}
       data-error={props.error ? "true" : undefined}
+      data-variant={props.variant === "paper" ? "paper" : undefined}
     >
       <Show when={!props.noToolbar}>
         <Toolbar textarea={taSignal} activeFormats={activeFormats} disabled={props.disabled} />
@@ -738,11 +732,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
             classList={{ dark: isDarkTheme() }}
             aria-label="Completion suggestions"
           >
-            <div
-              class="flex max-h-60 flex-col gap-0.5 overflow-y-auto"
-              role="listbox"
-              aria-label="Suggestions"
-            >
+            <div class="flex max-h-60 flex-col gap-0.5 overflow-y-auto" role="listbox" aria-label="Suggestions">
               <For each={state().suggestions}>
                 {(suggestion, index) => {
                   const isSelected = () => index() === state().selectedIndex;
@@ -757,9 +747,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                         acceptActiveSuggestion();
                         textareaEl?.focus();
                       }}
-                      onMouseEnter={() =>
-                        setCompletionState({ ...state(), selectedIndex: index() })
-                      }
+                      onMouseEnter={() => setCompletionState({ ...state(), selectedIndex: index() })}
                       role="option"
                       aria-selected={isSelected()}
                       class={`group flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-sm transition-colors ${
@@ -770,9 +758,7 @@ export default function MarkdownEditor(props: MarkdownEditorProps) {
                     >
                       <span class="font-mono truncate">{displayLabel(suggestion, state().ctx.completion)}</span>
                       <Show when={suggestion.hint}>
-                        <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">
-                          {suggestion.hint}
-                        </span>
+                        <span class="ml-auto text-xs text-zinc-500 dark:text-zinc-400 truncate">{suggestion.hint}</span>
                       </Show>
                     </div>
                   );

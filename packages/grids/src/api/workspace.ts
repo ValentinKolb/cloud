@@ -2,9 +2,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { auth, type AuthContext, v } from "@valentinkolb/cloud/server";
 import { loadGridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
-import { liveRecordEvents } from "../service/record-events";
-import { gridsService } from "../service";
-import { gateAt } from "./permissions";
 
 const parseWorkspaceHref = (href: string) => {
   const url = new URL(href, "http://grids.local");
@@ -38,61 +35,6 @@ const app = new Hono<AuthContext>()
       ...target,
     });
     return c.json(state);
-  })
-  .get("/events/by-table/:tableId", async (c) => {
-    const tableId = c.req.param("tableId")!;
-    const table = await gridsService.table.get(tableId);
-    if (!table) return c.json({ message: "Table not found" }, 404);
-    const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
-    if (!gate.ok) return c.json({ message: gate.error.message }, gate.error.status);
-
-    const encoder = new TextEncoder();
-    const abort = new AbortController();
-    let closed = false;
-    let keepalive: ReturnType<typeof setInterval> | undefined;
-    const send = (controller: ReadableStreamDefaultController<Uint8Array>, event: string, data: unknown) => {
-      if (closed) return;
-      controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-    };
-
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        send(controller, "ready", { baseId: table.baseId, tableId });
-        keepalive = setInterval(() => send(controller, "ping", { at: new Date().toISOString() }), 25_000);
-
-        void (async () => {
-          try {
-            for await (const event of liveRecordEvents({ baseId: table.baseId, signal: abort.signal })) {
-              if (abort.signal.aborted) return;
-              if (event.data.tableId === tableId) send(controller, event.data.type, event.data);
-            }
-          } catch (error) {
-            if (!abort.signal.aborted) {
-              send(controller, "error", { message: error instanceof Error ? error.message : "Event stream failed" });
-            }
-          } finally {
-            if (keepalive) clearInterval(keepalive);
-            if (!closed) {
-              closed = true;
-              controller.close();
-            }
-          }
-        })();
-      },
-      cancel() {
-        closed = true;
-        abort.abort();
-        if (keepalive) clearInterval(keepalive);
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      },
-    });
   });
 
 export default app;

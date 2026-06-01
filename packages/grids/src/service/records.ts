@@ -1,5 +1,4 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { getHandler } from "../field-types";
 import { defaultTableAggregations } from "../table-defaults";
@@ -12,7 +11,7 @@ import { compileFilter, type FilterTree, renderClause } from "./filter-compiler"
 import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupBySpec, type GroupSortSpec } from "./group-compiler";
 import { parseJsonbRow } from "./jsonb";
 import { requireTableAlive } from "./parent-checks";
-import { publishRecordEvent, type GridsRecordEvent } from "./record-events";
+import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
@@ -26,7 +25,12 @@ import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
 
 type DbRow = Record<string, unknown>;
-const log = logger("grids:records");
+
+const recordVersionConflict = () => ({
+  code: "CONFLICT" as const,
+  status: 409 as const,
+  message: "This record changed since you opened it. Another user or tab may have edited it in the meantime. Reload and try again.",
+});
 
 const defaultListAggregates = (fields: Field[]): AggregateRequest[] =>
   defaultTableAggregations(fields).map((a) => ({ fieldId: a.fieldId, agg: a.agg }));
@@ -56,12 +60,6 @@ const baseIdForTable = async (tableId: string): Promise<string | null> => {
 const emitRecordEvent = async (event: Omit<GridsRecordEvent, "v" | "occurredAt">): Promise<void> => {
   const payload: GridsRecordEvent = { v: 1, occurredAt: new Date().toISOString(), ...event };
   await publishRecordEvent(payload);
-  try {
-    const { automationRuntime } = await import("./automations-runtime");
-    await automationRuntime.dispatchRecordEvent(payload);
-  } catch (error) {
-    log.warn("Failed to dispatch Grids record event", { error: error instanceof Error ? error.message : String(error) });
-  }
 };
 
 /**
@@ -642,7 +640,7 @@ export const update = async (
   const existing = await get(tableId, recordId);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
   if (ifMatchVersion !== undefined && ifMatchVersion !== existing.version) {
-    return fail(err.conflict("Record version mismatch"));
+    return fail(recordVersionConflict());
   }
 
   const validated = await validateForUpdate(tableId, payload);
@@ -722,7 +720,7 @@ export const update = async (
       if ((e as { __versionConflict?: true })?.__versionConflict) return null;
       throw e;
     });
-  if (!txResult) return fail(err.conflict("Record was modified concurrently"));
+  if (!txResult) return fail(recordVersionConflict());
 
   const record = mapRow(txResult);
   await hydrateRelationsFromLinks([record], fields);
@@ -790,5 +788,17 @@ export const restore = async (tableId: string, recordId: string, actorId: string
     return true;
   });
   if (!restored) return fail(err.notFound("Record"));
+  const baseId = await baseIdForTable(tableId);
+  if (baseId) {
+    await emitRecordEvent({
+      type: "record.restored",
+      baseId,
+      tableId,
+      recordId,
+      version: null,
+      changedFieldIds: [],
+      actorId,
+    });
+  }
   return ok();
 };

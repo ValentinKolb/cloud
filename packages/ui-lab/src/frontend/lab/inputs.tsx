@@ -13,6 +13,7 @@ import {
   IconInput,
   ImageInput,
   MarkdownEditor,
+  MultiSelectInput,
   NumberInput,
   PinInput,
   Select,
@@ -806,6 +807,79 @@ export const SelectChipDemo = () => {
   );
 };
 
+export const MultiSelectInputDemo = () => {
+  const options = [
+    {
+      id: "open",
+      label: "Open",
+      description: "Ready to be picked up.",
+      icon: "ti ti-circle",
+      color: "#3b82f6",
+    },
+    {
+      id: "review",
+      label: "In review",
+      description: "Needs a second pair of eyes.",
+      icon: "ti ti-eye",
+      color: "#8b5cf6",
+    },
+    {
+      id: "blocked",
+      label: "Blocked",
+      description: "Waiting on another team.",
+      icon: "ti ti-alert-triangle",
+      color: "#f59e0b",
+    },
+    {
+      id: "done",
+      label: "Done",
+      description: "Closed and shipped.",
+      icon: "ti ti-check",
+      color: "#10b981",
+    },
+    {
+      id: "waiting",
+      label: "Waiting",
+      description: "Paused until a date or reply.",
+      icon: "ti ti-clock",
+      color: "#64748b",
+    },
+    {
+      id: "urgent",
+      label: "Urgent",
+      description: "Needs attention today.",
+      icon: "ti ti-bolt",
+      color: "#ef4444",
+    },
+    {
+      id: "planned",
+      label: "Planned",
+      description: "Scheduled but not started.",
+      icon: "ti ti-calendar",
+      color: "#06b6d4",
+    },
+  ];
+  const [v, setV] = createSignal(options.map((option) => option.id));
+  return (
+    <DemoCard
+      id="multiselectinput"
+      chip={{ kind: "component", name: "MultiSelectInput", from: FROM_UI }}
+      variant="colored option pills"
+      description="Multi-value select with searchable options, descriptions, icons, and soft colored pills in the input."
+      code={`<MultiSelectInput
+  label="Statuses"
+  placeholder="Choose statuses..."
+  value={v}
+  onChange={setV}
+  clearable
+  options={options}
+/>`}
+    >
+      <MultiSelectInput label="Statuses" placeholder="Choose statuses..." value={v} onChange={setV} clearable options={options} />
+    </DemoCard>
+  );
+};
+
 export const ComboboxDemo = () => {
   const [picked, setPicked] = createSignal<string | null>(null);
   const countries = [
@@ -963,6 +1037,7 @@ export const CheckboxDemo = () => {
 export const CheckboxCardDemo = () => {
   const [paid, setPaid] = createSignal(true);
   const [review, setReview] = createSignal(false);
+  const [allDay, setAllDay] = createSignal(false);
   return (
     <DemoCard
       id="checkbox-card"
@@ -978,6 +1053,14 @@ export const CheckboxCardDemo = () => {
     >
       <div class="grid grid-cols-1 gap-2">
         <CheckboxCard label="Paid" description="Invoice is already settled." color="#22c55e" value={paid} onChange={setPaid} />
+        <CheckboxCard
+          label="All-day event"
+          description="Uses input field background for dense forms."
+          icon="ti ti-calendar"
+          variant="input"
+          value={allDay}
+          onChange={setAllDay}
+        />
         <CheckboxCard
           label="Needs review"
           description="Office team should check the record before it moves on."
@@ -1014,6 +1097,7 @@ export const InputsTab = () => (
     <SelectBasic />
     <SelectFetchData />
     <SelectChipDemo />
+    <MultiSelectInputDemo />
     <ComboboxDemo />
     <ColorInputDemo />
     <TagsInputDemo />

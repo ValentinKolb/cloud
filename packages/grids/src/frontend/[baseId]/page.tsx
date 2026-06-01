@@ -31,4 +31,3 @@ export default ssr<AuthContext>(async (c) => {
     </Layout>
   );
 });
-

@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { TableQueryResult, ViewQuery } from "../../../contracts";
-import { highlightedIdsForLiveRefresh, isLiveRecordEventForTable, liveRefreshQuery, visibleIdsFromResult } from "./live-refresh";
+import {
+  highlightedIdsForLiveRefresh,
+  isLiveRecordEventForTable,
+  isTerminalLiveErrorCode,
+  liveRefreshQuery,
+  mergeLiveRefreshItems,
+  shouldOptimisticallyRemoveDeletedRecord,
+  visibleIdsFromResult,
+} from "./live-refresh";
 
 describe("records live refresh helpers", () => {
   test("accepts only v1 record events for the active table", () => {
@@ -17,6 +25,7 @@ describe("records live refresh helpers", () => {
     };
 
     expect(isLiveRecordEventForTable(event, "table-1")).toBe(true);
+    expect(isLiveRecordEventForTable({ ...event, type: "record.restored" }, "table-1")).toBe(true);
     expect(isLiveRecordEventForTable(event, "table-2")).toBe(false);
     expect(isLiveRecordEventForTable({ ...event, type: "automation.run" }, "table-1")).toBe(false);
     expect(isLiveRecordEventForTable({ ...event, v: 2 }, "table-1")).toBe(false);
@@ -39,6 +48,26 @@ describe("records live refresh helpers", () => {
     expect(liveRefreshQuery({ ...query, limit: 1000 }, 700).limit).toBe(500);
   });
 
+  test("merges capped live refresh pages without dropping already loaded tail rows", () => {
+    const record = (id: string) => ({
+      id,
+      tableId: "t",
+      data: {},
+      version: 1,
+      deletedAt: null,
+      createdBy: null,
+      updatedBy: null,
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+    });
+    expect(
+      mergeLiveRefreshItems({
+        currentItems: [record("a"), record("b"), record("c"), record("d")],
+        nextItems: [record("x"), record("b")],
+      }).map((r) => r.id),
+    ).toEqual(["x", "b", "c", "d"]);
+  });
+
   test("extracts visible record ids from query results", () => {
     const result = {
       items: [
@@ -48,5 +77,21 @@ describe("records live refresh helpers", () => {
       nextCursor: null,
     } as TableQueryResult;
     expect(visibleIdsFromResult(result)).toEqual(["a", "b"]);
+  });
+
+  test("treats only permanent live errors as terminal", () => {
+    expect(isTerminalLiveErrorCode("login_required")).toBe(true);
+    expect(isTerminalLiveErrorCode("access_denied")).toBe(true);
+    expect(isTerminalLiveErrorCode("not_found")).toBe(true);
+    expect(isTerminalLiveErrorCode("stream_failed")).toBe(false);
+    expect(isTerminalLiveErrorCode("invalid_message")).toBe(false);
+    expect(isTerminalLiveErrorCode("backpressure")).toBe(false);
+    expect(isTerminalLiveErrorCode(undefined)).toBe(false);
+  });
+
+  test("optimistically removes deletes only from live-only queries", () => {
+    expect(shouldOptimisticallyRemoveDeletedRecord({})).toBe(true);
+    expect(shouldOptimisticallyRemoveDeletedRecord({ includeDeleted: true })).toBe(false);
+    expect(shouldOptimisticallyRemoveDeletedRecord({ deletedOnly: true })).toBe(false);
   });
 });

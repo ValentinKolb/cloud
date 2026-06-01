@@ -14,7 +14,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Dashboard, DashboardConfig, DashboardRow, Field, Form, View, Widget } from "../../../service";
 import {
@@ -28,7 +28,6 @@ import {
   isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
-import { GridsBareDialog, gridsBareDialogOptions } from "../dialogs/dialog-layout";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
 import DashboardLayout from "./DashboardLayout";
@@ -47,6 +46,8 @@ type Props = {
   initialAccessEntries: AccessEntry[];
   canEditAccess: boolean;
   widgetData: Record<string, WidgetData>;
+  onWidgetRecordsChanged?: () => void;
+  onDashboardChanged?: () => void;
 };
 
 const CELL_KIND_OPTIONS: Array<{ id: Widget["kind"]; label: string; description: string; icon: string }> = [
@@ -142,6 +143,11 @@ export default function DashboardWysiwygEditor(props: Props) {
   const [widgetData, setWidgetData] = createSignal<Record<string, WidgetData>>(props.widgetData);
   let saveToken = 0;
 
+  createEffect(() => {
+    const incoming = props.widgetData;
+    setWidgetData((current) => ({ ...current, ...incoming }));
+  });
+
   const saveConfigMut = mutations.create<
     Dashboard,
     DashboardConfig,
@@ -166,6 +172,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       setConfig(dashboard.config);
       setWidgetData((current) => pruneWidgetData(current, dashboard.config));
       if (ctx.widgetsToResolve.length) void resolveWidgets(ctx.widgetsToResolve, ctx.token);
+      props.onDashboardChanged?.();
     },
     onError: (e, ctx) => {
       if (ctx?.token !== saveToken) return;
@@ -310,6 +317,7 @@ export default function DashboardWysiwygEditor(props: Props) {
       dashboard={dashboard()}
       widgetData={widgetData()}
       baseShortId={props.baseShortId}
+      onWidgetRecordsChanged={props.onWidgetRecordsChanged}
       edit={{
         onGeneral: () =>
           openDashboardGeneralDialog({
@@ -351,31 +359,34 @@ const pruneWidgetData = (current: Record<string, WidgetData>, config: DashboardC
 const chooseCellKind = () =>
   dialogCore.open<Widget["kind"] | undefined>(
     (close) => (
-      <GridsBareDialog title="Add cell" icon="ti ti-plus" close={() => close(undefined)}>
-        <div class="min-h-0 overflow-y-auto">
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <For each={CELL_KIND_OPTIONS}>
-              {(opt) => (
-                <button
-                  type="button"
-                  class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                  onClick={() => close(opt.id)}
-                >
-                  <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                    <i class={opt.icon} />
-                  </span>
-                  <span class="min-w-0">
-                    <span class="block font-semibold text-primary">{opt.label}</span>
-                    <span class="mt-0.5 block text-xs text-dimmed">{opt.description}</span>
-                  </span>
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
-      </GridsBareDialog>
+      <PanelDialog>
+        <PanelDialog.Header title="Add cell" icon="ti ti-plus" close={() => close(undefined)} />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Widget type" subtitle="Choose what this dashboard cell should show." icon="ti ti-layout-grid-add">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <For each={CELL_KIND_OPTIONS}>
+                {(opt) => (
+                  <button
+                    type="button"
+                    class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                    onClick={() => close(opt.id)}
+                  >
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                      <i class={opt.icon} />
+                    </span>
+                    <span class="min-w-0">
+                      <span class="block font-semibold text-primary">{opt.label}</span>
+                      <span class="mt-0.5 block text-xs text-dimmed">{opt.description}</span>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </PanelDialog.Section>
+        </PanelDialog.Body>
+      </PanelDialog>
     ),
-    gridsBareDialogOptions,
+    panelDialogOptions,
   );
 
 const ROW_HEIGHT_OPTIONS: Array<{ id: DashboardRow["height"]; label: string; description: string; icon: string }> = [
@@ -390,35 +401,34 @@ const openRowSettingsDialog = (current: DashboardRow["height"]) =>
   dialogCore.open<RowSettingsResult | undefined>((close) => {
     const [height, setHeight] = createSignal<DashboardRow["height"]>(current);
     return (
-      <GridsBareDialog title="Row settings" icon="ti ti-settings" close={() => close(undefined)}>
-        <div class="flex min-h-0 flex-1 flex-col gap-2">
-          <div class="min-h-0 flex-1 overflow-y-auto">
-            <section class="paper p-4">
-              <Select
-                label="Row height"
-                value={height}
-                onChange={(value) => setHeight(value as DashboardRow["height"])}
-                options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
-              />
-            </section>
-          </div>
-          <footer class="paper flex shrink-0 items-center gap-2 p-4">
-            <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
-              <i class="ti ti-trash" /> Delete row
+      <PanelDialog>
+        <PanelDialog.Header title="Row settings" icon="ti ti-settings" close={() => close(undefined)} />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Layout" subtitle="Controls the minimum height of widgets in this row." icon="ti ti-line-height">
+            <Select
+              label="Row height"
+              value={height}
+              onChange={(value) => setHeight(value as DashboardRow["height"])}
+              options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
+            />
+          </PanelDialog.Section>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
+            <i class="ti ti-trash" /> Delete row
+          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-simple btn-sm" onClick={() => close(undefined)}>
+              Cancel
             </button>
-            <div class="ml-auto flex items-center gap-2">
-              <button type="button" class="btn-input btn-sm" onClick={() => close(undefined)}>
-                Cancel
-              </button>
-              <button type="button" class="btn-primary btn-sm" onClick={() => close({ action: "save", height: height() })}>
-                Save
-              </button>
-            </div>
-          </footer>
-        </div>
-      </GridsBareDialog>
+            <button type="button" class="btn-primary btn-sm" onClick={() => close({ action: "save", height: height() })}>
+              Save
+            </button>
+          </div>
+        </PanelDialog.Footer>
+      </PanelDialog>
     );
-  }, gridsBareDialogOptions);
+  }, panelDialogOptions);
 
 function openDashboardGeneralDialog(props: {
   dashboard: Dashboard;

@@ -5,6 +5,7 @@ export type CheckboxCardProps = CheckboxInputProps & {
   label: string | JSX.Element;
   icon?: string;
   color?: string;
+  variant?: "card" | "input";
 };
 
 const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -24,6 +25,7 @@ const CheckboxCard = ({
   disabled = false,
   icon,
   color,
+  variant = "card",
 }: CheckboxCardProps) => {
   const inputId = crypto.randomUUID();
   const checked = () => value?.() === true;
@@ -31,7 +33,11 @@ const CheckboxCard = ({
   return (
     <label
       for={inputId}
-      class="grid cursor-pointer select-none grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border border-zinc-200 bg-white p-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+      class={`grid cursor-pointer select-none grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-lg border p-3 text-left transition-colors ${
+        variant === "input"
+          ? "border-zinc-100 bg-zinc-100 hover:border-zinc-200/70 hover:bg-zinc-200/70 dark:border-zinc-800 dark:bg-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-700"
+          : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
+      }`}
       classList={{
         "border-blue-500 bg-blue-50/70 hover:bg-blue-50 dark:border-blue-500 dark:bg-blue-950/20 dark:hover:bg-blue-950/25":
           checked() && !error?.(),

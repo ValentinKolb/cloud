@@ -7,6 +7,7 @@ type Props = {
   widget: LinkWidgetConfig;
   data: WidgetData;
   baseShortId: string;
+  onSubmitted?: () => void;
 };
 
 export default function LinkWidget(props: Props) {
@@ -92,7 +93,7 @@ export default function LinkWidget(props: Props) {
                       class="btn-primary btn-sm"
                       disabled={!target.canSubmit}
                       onClick={() => {
-                        if (target.canSubmit) openFormModal(target.form, target.fields, { onSubmitted: () => window.location.reload() });
+                        if (target.canSubmit) openFormModal(target.form, target.fields, { onSubmitted: props.onSubmitted });
                       }}
                     >
                       <i class={target.canSubmit ? "ti ti-forms" : "ti ti-lock"} />

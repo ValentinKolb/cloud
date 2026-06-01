@@ -2,8 +2,8 @@ import { dnd, type DndBuildIntentContext } from "@valentinkolb/stdlib/solid";
 import { For, Show, onCleanup } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
 import ChartWidget from "./ChartWidget";
-import FormCell from "./FormCell.island";
-import LinkWidget from "./LinkWidget.island";
+import FormCell from "./FormCell";
+import LinkWidget from "./LinkWidget";
 import MarkdownWidget from "./MarkdownWidget";
 import StatWidgetCell from "./StatWidgetCell";
 import ViewStatsCell from "./ViewStatsCell";
@@ -18,6 +18,7 @@ type Props = {
   widgetData: Record<string, WidgetData>;
   /** Slug of the parent base — needed by view-cell / chart-cell links. */
   baseShortId: string;
+  onWidgetRecordsChanged?: () => void;
   edit?: {
     onGeneral: () => void;
     onAddRowAt: (rowIdx: number) => void;
@@ -132,9 +133,7 @@ export default function DashboardLayout(props: Props) {
         <div class="flex items-start gap-2">
           <div class="min-w-0 flex-1">
             <h1 class="flex min-w-0 items-center gap-2 text-xl font-semibold text-primary">
-              <Show when={props.dashboard.icon}>
-                {(icon) => <i class={`${icon()} shrink-0 text-lg text-dimmed`} />}
-              </Show>
+              <Show when={props.dashboard.icon}>{(icon) => <i class={`${icon()} shrink-0 text-lg text-dimmed`} />}</Show>
               <span class="truncate">{props.dashboard.name}</span>
             </h1>
             <Show when={props.dashboard.description}>
@@ -173,6 +172,7 @@ export default function DashboardLayout(props: Props) {
                 rowCount={props.dashboard.config.rows.length}
                 widgetData={props.widgetData}
                 baseShortId={props.baseShortId}
+                onWidgetRecordsChanged={props.onWidgetRecordsChanged}
                 edit={props.edit}
                 rowDnd={rowDnd}
                 cellDnd={cellDnd}
@@ -204,6 +204,7 @@ function RowRenderer(props: {
   rowCount: number;
   widgetData: Record<string, WidgetData>;
   baseShortId: string;
+  onWidgetRecordsChanged?: () => void;
   edit?: Props["edit"];
   rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
   cellDnd: ReturnType<typeof dnd.create<CellDragMeta, CellDropMeta, CellDropIntent>>;
@@ -215,6 +216,7 @@ function RowRenderer(props: {
       rowCount={props.rowCount}
       widgetData={props.widgetData}
       baseShortId={props.baseShortId}
+      onWidgetRecordsChanged={props.onWidgetRecordsChanged}
       edit={props.edit}
       rowDnd={props.rowDnd}
       cellDnd={props.cellDnd}
@@ -228,6 +230,7 @@ function DashboardRowGrid(props: {
   rowCount: number;
   widgetData: Record<string, WidgetData>;
   baseShortId: string;
+  onWidgetRecordsChanged?: () => void;
   edit?: Props["edit"];
   rowDnd: ReturnType<typeof dnd.create<RowDragMeta, RowDropMeta, RowDropIntent>>;
   cellDnd: ReturnType<typeof dnd.create<CellDragMeta, CellDropMeta, CellDropIntent>>;
@@ -292,7 +295,12 @@ function DashboardRowGrid(props: {
                   cellCount={props.row.cells.length}
                   edit={props.edit}
                 />
-                <CellRenderer widget={cell} data={props.widgetData[cell.id]} baseShortId={props.baseShortId} />
+                <CellRenderer
+                  widget={cell}
+                  data={props.widgetData[cell.id]}
+                  baseShortId={props.baseShortId}
+                  onWidgetRecordsChanged={props.onWidgetRecordsChanged}
+                />
               </div>
             </>
           )}
@@ -463,7 +471,7 @@ function EditCellControls(props: { rowIdx: number; cellIdx: number; cell: Widget
 /** Per-cell dispatcher inside a mixed row. Switches on kind and hands
  *  off to the matching cell renderer. Missing data resolves to an
  *  error sentinel so the cell shows a red notice instead of crashing. */
-function CellRenderer(props: { widget: Widget; data: WidgetData | undefined; baseShortId: string }) {
+function CellRenderer(props: { widget: Widget; data: WidgetData | undefined; baseShortId: string; onWidgetRecordsChanged?: () => void }) {
   const data = (): WidgetData => props.data ?? { kind: "error", reason: "no data resolved for this widget" };
 
   switch (props.widget.kind) {
@@ -487,11 +495,11 @@ function CellRenderer(props: { widget: Widget; data: WidgetData | undefined; bas
     case "view-stats":
       return <ViewStatsCell widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
     case "form":
-      return <FormCell widget={props.widget} data={data()} />;
+      return <FormCell widget={props.widget} data={data()} onSubmitted={props.onWidgetRecordsChanged} />;
     case "markdown":
       return <MarkdownWidget widget={props.widget} data={data()} />;
     case "link":
-      return <LinkWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} />;
+      return <LinkWidget widget={props.widget} data={data()} baseShortId={props.baseShortId} onSubmitted={props.onWidgetRecordsChanged} />;
   }
 }
 

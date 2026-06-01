@@ -1,11 +1,11 @@
 import { sql } from "bun";
 import { type ProjectionKind, storageOf } from "./field-storage";
-import type { CompiledClause, FilterTree } from "./filter-compiler";
+import type { FilterTree } from "./filter-compiler";
 import { compileFilter, renderClause } from "./filter-compiler";
 import type { Field } from "./types";
 
 // =============================================================================
-// Group-by + aggregations compiler (v3 Slice 8)
+// Group-by + aggregations compiler
 // =============================================================================
 // Classic SQL semantics — when groupBy is set, the result is one row
 // per (groupBy-key) tuple containing the requested aggregations. No
@@ -27,7 +27,7 @@ import type { Field } from "./types";
 // Lookup / rollup grouping: rejected for now (would require either
 // rerunning the correlated subquery as GROUP BY expression or wrapping
 // the whole records query in a CTE — both viable, neither tiny).
-// Tracked as v8.1 follow-up.
+// Keep disabled until we have a concrete product need.
 //
 // Cursor pagination: keyset on the group-key tuple. Same shape as
 // the records-list cursor (sortValues + id), except `id` is unused
@@ -291,6 +291,160 @@ const buildAggExpr = (req: GroupAggregationSpec, field: Field | null): { ok: tru
   }
 };
 
+type ResolvedAggregations = {
+  aggKeys: string[];
+  aggExprs: Array<{ key: string; expr: any }>;
+  seenKeys: Set<string>;
+};
+
+const resolveAggregations = (
+  aggregations: GroupAggregationSpec[],
+  fieldsById: Map<string, Field>,
+): { ok: true; resolved: ResolvedAggregations } | { ok: false; error: string } => {
+  const aggKeys: string[] = [];
+  const aggExprs: Array<{ key: string; expr: any }> = [];
+  const seenKeys = new Set<string>();
+
+  for (const req of aggregations) {
+    const field = req.fieldId === "*" ? null : (fieldsById.get(req.fieldId) ?? null);
+    if (req.fieldId !== "*" && !field) return { ok: false, error: "unknown aggregate field" };
+
+    const built = buildAggExpr(req, field);
+    if (!built.ok) return built;
+
+    const key = aggAliasFor(req);
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    aggKeys.push(key);
+    aggExprs.push({ key, expr: built.expr });
+  }
+
+  if (!seenKeys.has("*__count")) {
+    seenKeys.add("*__count");
+    aggKeys.unshift("*__count");
+    aggExprs.unshift({ key: "*__count", expr: sql`count(*)::bigint` });
+  }
+
+  return { ok: true, resolved: { aggKeys, aggExprs, seenKeys } };
+};
+
+const validateGroupSort = (groupSort: GroupSortSpec[], seenAggKeys: Set<string>): { ok: true } | { ok: false; error: string } => {
+  for (const sort of groupSort) {
+    const key = aggAliasFor(sort);
+    if (!seenAggKeys.has(key)) return { ok: false, error: `groupSort references missing aggregate "${key}"` };
+    if (sort.fieldId === "*" && sort.agg !== "count") {
+      return { ok: false, error: `groupSort agg "${sort.agg}" requires a fieldId (only count works on "*")` };
+    }
+  }
+  return { ok: true };
+};
+
+const joinSql = (parts: any[]): any => parts.reduce((acc, cur) => sql`${acc}, ${cur}`);
+
+const buildSelectList = (groups: ResolvedGroup[], aggExprs: Array<{ key: string; expr: any }>): any => {
+  const selectParts = [
+    ...groups.map((g) => sql`${g.expr} AS ${sql.unsafe(g.alias)}`),
+    ...aggExprs.map((a) => sql`${a.expr} AS ${sql.unsafe(`"${a.key}"`)}`),
+  ];
+  return joinSql(selectParts);
+};
+
+const buildFromClause = (groups: ResolvedGroup[]): any => {
+  let from: any = sql`grids.records r
+    JOIN grids.tables _t ON _t.id = r.table_id AND _t.deleted_at IS NULL
+    JOIN grids.bases _b ON _b.id = _t.base_id AND _b.deleted_at IS NULL`;
+
+  for (const g of groups) {
+    if (g.relationJoinIndex === undefined) continue;
+    const alias = `rl_${g.relationJoinIndex}`;
+    from = sql`${from} JOIN grids.record_links ${sql.unsafe(alias)}
+      ON ${sql.unsafe(alias)}.from_record_id = r.id
+     AND ${sql.unsafe(alias)}.from_field_id = ${g.field.id}::uuid`;
+  }
+
+  for (const g of groups) {
+    if (g.selectJoinIndex === undefined) continue;
+    const alias = `ms_${g.selectJoinIndex}`;
+    from = sql`${from} CROSS JOIN LATERAL jsonb_array_elements_text(
+      CASE
+        WHEN jsonb_typeof(r.data->${g.field.id}) = 'array'
+        THEN r.data->${g.field.id}
+        ELSE '[]'::jsonb
+      END
+    ) AS ${sql.unsafe(alias)}(value)`;
+  }
+
+  return from;
+};
+
+const buildWhereClause = (params: CompileGroupParams): { ok: true; where: any } | { ok: false; error: string } => {
+  const filterCompiled = compileFilter(params.filter ?? null, params.fields);
+  if (!filterCompiled.ok) return { ok: false, error: `filter: ${filterCompiled.error}` };
+
+  const whereParts: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
+  if (params.deletedOnly) whereParts.push(sql`r.deleted_at IS NOT NULL`);
+  else if (!params.includeDeleted) whereParts.push(sql`r.deleted_at IS NULL`);
+  whereParts.push(renderClause(filterCompiled.clause));
+  if (params.searchClause) whereParts.push(params.searchClause);
+
+  return { ok: true, where: whereParts.reduce((acc, cur) => sql`${acc} AND ${cur}`) };
+};
+
+const groupOrderPart = (g: ResolvedGroup, index: number, reverse: boolean): any => {
+  const desc = g.spec.direction === "desc";
+  const dir = reverse ? (desc ? sql`ASC` : sql`DESC`) : desc ? sql`DESC` : sql`ASC`;
+  const nulls = reverse ? sql`NULLS FIRST` : sql`NULLS LAST`;
+  return sql`${sql.unsafe(String(index + 1))} ${dir} ${nulls}`;
+};
+
+const aggregateOrderPart = (sort: GroupSortSpec, reverse: boolean): any => {
+  const asc = sort.direction === "asc";
+  const dir = reverse ? (asc ? sql`DESC` : sql`ASC`) : asc ? sql`ASC` : sql`DESC`;
+  const nulls = reverse ? sql`NULLS FIRST` : sql`NULLS LAST`;
+  return sql`${sql.unsafe(`"${aggAliasFor(sort)}"`)} ${dir} ${nulls}`;
+};
+
+const buildOrderBy = (groups: ResolvedGroup[], groupSort: GroupSortSpec[], reverse = false): any => {
+  const parts = [
+    ...groupSort.map((sort) => aggregateOrderPart(sort, reverse)),
+    ...groups.map((group, index) => groupOrderPart(group, index, reverse)),
+  ];
+  return joinSql(parts);
+};
+
+const buildCursorHavingClause = (
+  cursor: CompileGroupParams["cursor"],
+  groups: ResolvedGroup[],
+): { ok: true; havingClause: any } | { ok: false; error: string } => {
+  if (!cursor) return { ok: true, havingClause: sql`TRUE` };
+  if (cursor.keys.length !== groups.length) {
+    return {
+      ok: false,
+      error: `cursor key count (${cursor.keys.length}) must match groupBy length (${groups.length})`,
+    };
+  }
+
+  const branches: any[] = [];
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i]!;
+    const cursorVal = cursor.keys[i];
+    const cmp = (group.spec.direction ?? "asc") === "desc" ? sql`<` : sql`>`;
+    let prefix: any = sql`TRUE`;
+
+    for (let j = 0; j < i; j++) {
+      const previousGroup = groups[j]!;
+      prefix = sql`${prefix} AND (${previousGroup.expr} IS NOT DISTINCT FROM ${cursor.keys[j]})`;
+    }
+
+    const comp =
+      cursorVal === null || cursorVal === undefined ? sql`FALSE` : sql`((${group.expr} ${cmp} ${cursorVal}) OR ${group.expr} IS NULL)`;
+    branches.push(sql`(${prefix} AND ${comp})`);
+  }
+
+  const havingClause = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
+  return { ok: true, havingClause: sql`(${havingClause})` };
+};
+
 type CompileGroupParams = {
   tableId: string;
   groupBy: GroupBySpec[];
@@ -318,14 +472,15 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
     return { ok: false, error: "groupBy is empty — use the regular records list for ungrouped queries" };
   }
   if (params.groupBy.length > 3) {
-    return { ok: false, error: "groupBy supports at most 3 levels in v3" };
+      return { ok: false, error: "groupBy supports at most 3 levels" };
   }
 
   const groups = resolveGroupBy(params.groupBy, params.fields);
   if (!groups.ok) return groups;
 
   const fieldsById = new Map(params.fields.map((f) => [f.id, f]));
-  if (params.cursor && params.groupSort && params.groupSort.length > 0) {
+  const groupSort = params.groupSort ?? [];
+  if (params.cursor && groupSort.length > 0) {
     return {
       ok: false,
       error: "cursor pagination is not supported for aggregate-sorted groups",
@@ -338,41 +493,11 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
     };
   }
 
-  // Aggregation expressions. Dedupe by alias so requesting `count(amount)`
-  // twice doesn't emit duplicate columns — last write wins.
-  const aggKeys: string[] = [];
-  const aggExprs: Array<{ key: string; expr: any }> = [];
-  const seenKeys = new Set<string>();
-  for (const req of params.aggregations) {
-    const fld = req.fieldId === "*" ? null : (fieldsById.get(req.fieldId) ?? null);
-    if (req.fieldId !== "*" && !fld) {
-      return { ok: false, error: "unknown aggregate field" };
-    }
-    const built = buildAggExpr(req, fld);
-    if (!built.ok) return built;
-    const key = aggAliasFor(req);
-    if (seenKeys.has(key)) continue;
-    seenKeys.add(key);
-    aggKeys.push(key);
-    aggExprs.push({ key, expr: built.expr });
-  }
-  // Always include count(*) under "*__count" if not explicitly requested.
-  // Group-bucket UI universally wants "how many records in this bucket".
-  if (!seenKeys.has("*__count")) {
-    aggKeys.unshift("*__count");
-    aggExprs.unshift({ key: "*__count", expr: sql`count(*)::bigint` });
-  }
+  const aggregations = resolveAggregations(params.aggregations, fieldsById);
+  if (!aggregations.ok) return aggregations;
 
-  const groupSort = params.groupSort ?? [];
-  for (const sort of groupSort) {
-    const key = aggAliasFor(sort);
-    if (!seenKeys.has(key) && key !== "*__count") {
-      return { ok: false, error: `groupSort references missing aggregate "${key}"` };
-    }
-    if (sort.fieldId === "*" && sort.agg !== "count") {
-      return { ok: false, error: `groupSort agg "${sort.agg}" requires a fieldId (only count works on "*")` };
-    }
-  }
+  const sortCheck = validateGroupSort(groupSort, aggregations.resolved.seenKeys);
+  if (!sortCheck.ok) return sortCheck;
 
   // ── SQL pieces ──────────────────────────────────────────────────────
   // Filter (over base records) — same compiler as records.list. Note the
@@ -381,82 +506,16 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
   // when there's only one table, the unqualified column references the
   // outer FROM. For our query the FROM aliases as `r`, so the
   // unqualified `data` resolves correctly.
-  const filterCompiled = compileFilter(params.filter ?? null, params.fields);
-  if (!filterCompiled.ok) return { ok: false, error: `filter: ${filterCompiled.error}` };
-  const filterClause: CompiledClause = filterCompiled.clause;
-  const renderedFilter = renderClause(filterClause);
+  const where = buildWhereClause(params);
+  if (!where.ok) return where;
 
-  // SELECT list
-  const selectParts: any[] = [];
-  for (const g of groups.resolved) {
-    selectParts.push(sql`${g.expr} AS ${sql.unsafe(g.alias)}`);
-  }
-  for (const a of aggExprs) {
-    selectParts.push(sql`${a.expr} AS ${sql.unsafe(`"${a.key}"`)}`);
-  }
-  const selectList = selectParts.reduce((acc, cur) => sql`${acc}, ${cur}`);
-
-  // FROM + JOINs — live-parent invariant (records of a trashed table or
-  // base never group), then one explode join per relation or select
-  // group.
-  let from: any = sql`grids.records r
-    JOIN grids.tables _t ON _t.id = r.table_id AND _t.deleted_at IS NULL
-    JOIN grids.bases _b ON _b.id = _t.base_id AND _b.deleted_at IS NULL`;
-  for (const g of groups.resolved) {
-    if (g.relationJoinIndex === undefined) continue;
-    const alias = `rl_${g.relationJoinIndex}`;
-    from = sql`${from} JOIN grids.record_links ${sql.unsafe(alias)}
-      ON ${sql.unsafe(alias)}.from_record_id = r.id
-     AND ${sql.unsafe(alias)}.from_field_id = ${g.field.id}::uuid`;
-    continue;
-  }
-  for (const g of groups.resolved) {
-    if (g.selectJoinIndex === undefined) continue;
-    const alias = `ms_${g.selectJoinIndex}`;
-    from = sql`${from} CROSS JOIN LATERAL jsonb_array_elements_text(
-      CASE
-        WHEN jsonb_typeof(r.data->${g.field.id}) = 'array'
-        THEN r.data->${g.field.id}
-        ELSE '[]'::jsonb
-      END
-    ) AS ${sql.unsafe(alias)}(value)`;
-  }
-
-  // WHERE
-  const whereParts: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
-  if (params.deletedOnly) whereParts.push(sql`r.deleted_at IS NOT NULL`);
-  else if (!params.includeDeleted) whereParts.push(sql`r.deleted_at IS NULL`);
-  whereParts.push(renderedFilter);
-  if (params.searchClause) whereParts.push(params.searchClause);
-  // Cursor predicate is applied in the HAVING clause below — group keys
-  // are aggregate expressions and can't be referenced from WHERE before
-  // grouping happens.
-  const where = whereParts.reduce((acc, cur) => sql`${acc} AND ${cur}`);
+  const selectList = buildSelectList(groups.resolved, aggregations.resolved.aggExprs);
+  const from = buildFromClause(groups.resolved);
 
   // GROUP BY (positional — references the SELECT list aliases)
-  const groupByPositions = groups.resolved.map((_, i) => sql`${sql.unsafe(String(i + 1))}`).reduce((acc, cur) => sql`${acc}, ${cur}`);
-
-  // ORDER BY — aggregate sort first when requested, then group keys for
-  // deterministic ties.
-  const aggregateOrderParts = groupSort.map((s) => {
-    const dir = s.direction === "asc" ? sql`ASC` : sql`DESC`;
-    return sql`${sql.unsafe(`"${aggAliasFor(s)}"`)} ${dir} NULLS LAST`;
-  });
-  const groupOrderParts = groups.resolved.map((g, i) => {
-    const dir = g.spec.direction === "desc" ? sql`DESC` : sql`ASC`;
-    return sql`${sql.unsafe(String(i + 1))} ${dir} NULLS LAST`;
-  });
-  const orderBy = [...aggregateOrderParts, ...groupOrderParts].reduce((acc, cur) => sql`${acc}, ${cur}`);
-
-  const reverseAggregateOrderParts = groupSort.map((s) => {
-    const dir = s.direction === "asc" ? sql`DESC` : sql`ASC`;
-    return sql`${sql.unsafe(`"${aggAliasFor(s)}"`)} ${dir} NULLS FIRST`;
-  });
-  const reverseGroupOrderParts = groups.resolved.map((g, i) => {
-    const dir = g.spec.direction === "desc" ? sql`ASC` : sql`DESC`;
-    return sql`${sql.unsafe(String(i + 1))} ${dir} NULLS FIRST`;
-  });
-  const reverseOrderBy = [...reverseAggregateOrderParts, ...reverseGroupOrderParts].reduce((acc, cur) => sql`${acc}, ${cur}`);
+  const groupByPositions = joinSql(groups.resolved.map((_, i) => sql`${sql.unsafe(String(i + 1))}`));
+  const orderBy = buildOrderBy(groups.resolved, groupSort);
+  const reverseOrderBy = buildOrderBy(groups.resolved, groupSort, true);
 
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
   // We over-fetch by 1 so the caller can detect hasMore.
@@ -474,44 +533,15 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
   //   cursor key non-null + desc: (col < cursor) OR col IS NULL
   //   cursor key null            :  FALSE — nothing comes after the
   //                                 trailing-null tier at this level.
-  let havingClause: any = sql`TRUE`;
-  if (params.cursor) {
-    if (params.cursor.keys.length !== groups.resolved.length) {
-      return {
-        ok: false,
-        error: `cursor key count (${params.cursor.keys.length}) must match groupBy length (${groups.resolved.length})`,
-      };
-    }
-    const branches: any[] = [];
-    for (let i = 0; i < groups.resolved.length; i++) {
-      const g = groups.resolved[i]!;
-      const cursorVal = params.cursor.keys[i];
-      const dir = g.spec.direction ?? "asc";
-      const cmp = dir === "desc" ? sql`<` : sql`>`;
-      // Equality prefix on earlier columns. IS NOT DISTINCT FROM
-      // makes NULL == NULL true, which is what we want here.
-      let prefix: any = sql`TRUE`;
-      for (let j = 0; j < i; j++) {
-        const gj = groups.resolved[j]!;
-        prefix = sql`${prefix} AND (${gj.expr} IS NOT DISTINCT FROM ${params.cursor.keys[j]})`;
-      }
-      // Comparison
-      const comp =
-        cursorVal === null || cursorVal === undefined
-          ? sql`FALSE` // NULLS LAST: nothing after the null tier at this level
-          : sql`((${g.expr} ${cmp} ${cursorVal}) OR ${g.expr} IS NULL)`;
-      branches.push(sql`(${prefix} AND ${comp})`);
-    }
-    havingClause = branches.reduce((acc, cur) => sql`${acc} OR ${cur}`);
-    havingClause = sql`(${havingClause})`;
-  }
+  const having = buildCursorHavingClause(params.cursor, groups.resolved);
+  if (!having.ok) return having;
 
   const groupedQuery = sql`
     SELECT ${selectList}
     FROM ${from}
-    WHERE ${where}
+    WHERE ${where.where}
     GROUP BY ${groupByPositions}
-    HAVING ${havingClause}
+    HAVING ${having.havingClause}
   `;
 
   const query = params.fromEnd
@@ -536,7 +566,7 @@ export const compileGroupQuery = (params: CompileGroupParams): CompileGroupResul
     ok: true,
     query,
     resolvedGroups: groups.resolved,
-    aggKeys,
+    aggKeys: aggregations.resolved.aggKeys,
     cursorable: groupSort.length === 0,
   };
 };

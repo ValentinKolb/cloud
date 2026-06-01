@@ -2,6 +2,7 @@ import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { logAudit } from "./audit";
+import { emitMetadataEvent } from "./metadata-events";
 import { grantAccess } from "./access";
 import { insertWithShortId } from "./short-id";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
@@ -215,6 +216,12 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
   }
 
   await logAudit({ baseId: base.id, userId: actorId, action: "created" });
+  await emitMetadataEvent({
+    type: "base.created",
+    baseId: base.id,
+    resource: { kind: "base", id: base.id },
+    actorId,
+  });
   return ok(base);
 };
 
@@ -277,6 +284,12 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   }
   if (Object.keys(diff).length > 0) {
     await logAudit({ baseId: id, userId: actorId, action: "updated", diff });
+    await emitMetadataEvent({
+      type: "base.updated",
+      baseId: id,
+      resource: { kind: "base", id },
+      actorId,
+    });
   }
 
   return ok(base);
@@ -296,6 +309,12 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   `;
   if (result.count === 0) return fail(err.notFound("base"));
   await logAudit({ baseId: id, userId: actorId, action: "deleted" });
+  await emitMetadataEvent({
+    type: "base.deleted",
+    baseId: id,
+    resource: { kind: "base", id },
+    actorId,
+  });
   return ok();
 };
 
@@ -314,6 +333,12 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   if (!row) return fail(err.notFound("base"));
   const base = mapRow(row);
   await logAudit({ baseId: id, userId: actorId, action: "restored" });
+  await emitMetadataEvent({
+    type: "base.restored",
+    baseId: id,
+    resource: { kind: "base", id },
+    actorId,
+  });
   return ok(base);
 };
 

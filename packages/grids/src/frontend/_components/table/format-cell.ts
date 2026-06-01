@@ -19,46 +19,69 @@ import Decimal from "decimal.js";
 export const formatCell = (value: unknown, type: string, fieldConfig?: Record<string, unknown>, format?: FormatSpec): string => {
   if (value === null || value === undefined || value === "") return "";
 
-  // ── Format-spec wins where types match ──────────────────────────
-  if (format) {
-    if (format.kind === "date" && (type === "date" || type === "formula") && typeof value === "string") {
-      return formatDate(value, format);
-    }
-    if (format.kind === "decimal" && (type === "number" || type === "formula") && typeof value !== "object") {
-      return formatDecimal(value as number | string, format);
-    }
-    if (format.kind === "percent" && (type === "percent" || type === "formula")) {
-      return formatPercent(value, format);
-    }
-  }
+  const override = format ? formatOverride(value, type, format) : null;
+  if (override !== null) return override;
 
   // ── Type-default rendering ──────────────────────────────────────
-  if (type === "date" && typeof value === "string") {
-    return fieldConfig?.includeTime ? value.replace("T", " ") : value.slice(0, 10);
-  }
-  if (type === "boolean") return value ? "Yes" : "No";
-  if (type === "select" && Array.isArray(value)) {
-    const options = (fieldConfig?.options as Array<{ id: string; label: string }> | undefined) ?? [];
-    return value.map((id) => options.find((o) => o.id === id)?.label ?? String(id)).join(", ");
-  }
-  if (type === "number") {
-    const unit = typeof fieldConfig?.unit === "string" ? (fieldConfig.unit as string) : "";
-    const unitPosition = fieldConfig?.unitPosition === "prefix" ? "prefix" : "suffix";
-    const amount =
-      typeof value === "object" && value !== null && "amount" in value
-        ? (value as { amount?: string | number }).amount
-        : (value as string | number);
-    return formatWithUnit(amount, unit, unitPosition);
-  }
-  if (type === "percent" && typeof value === "number") return `${value}%`;
-  if (type === "duration" && typeof value === "number") {
-    const h = Math.floor(value / 3600);
-    const m = Math.floor((value % 3600) / 60);
-    const s = value % 60;
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
+  const renderer = DEFAULT_RENDERERS[type];
+  if (renderer) return renderer(value, fieldConfig ?? {});
+
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+};
+
+type CellRenderer = (value: unknown, fieldConfig: Record<string, unknown>) => string;
+
+const formatOverride = (value: unknown, type: string, format: FormatSpec): string | null => {
+  if (format.kind === "date" && canUseDateFormat(type, value)) return formatDate(value, format);
+  if (format.kind === "decimal" && canUseDecimalFormat(type, value)) return formatDecimal(value, format);
+  if (format.kind === "percent" && canUsePercentFormat(type)) return formatPercent(value, format);
+  return null;
+};
+
+const canUseDateFormat = (type: string, value: unknown): value is string =>
+  (type === "date" || type === "formula") && typeof value === "string";
+
+const canUseDecimalFormat = (type: string, value: unknown): value is number | string =>
+  (type === "number" || type === "formula") && (typeof value === "number" || typeof value === "string");
+
+const canUsePercentFormat = (type: string): boolean => type === "percent" || type === "formula";
+
+const DEFAULT_RENDERERS: Record<string, CellRenderer> = {
+  date: (value, fieldConfig) => (typeof value === "string" ? formatDateDefault(value, fieldConfig) : fallbackValue(value)),
+  boolean: (value) => (value ? "Yes" : "No"),
+  select: (value, fieldConfig) => (Array.isArray(value) ? formatSelect(value, fieldConfig) : fallbackValue(value)),
+  number: (value, fieldConfig) => formatNumberDefault(value, fieldConfig),
+  percent: (value) => (typeof value === "number" ? `${value}%` : fallbackValue(value)),
+  duration: (value) => (typeof value === "number" ? formatDuration(value) : fallbackValue(value)),
+};
+
+const fallbackValue = (value: unknown): string => (typeof value === "object" ? JSON.stringify(value) : String(value));
+
+const formatDateDefault = (value: string, fieldConfig: Record<string, unknown>): string =>
+  fieldConfig.includeTime ? value.replace("T", " ") : value.slice(0, 10);
+
+const formatSelect = (ids: unknown[], fieldConfig: Record<string, unknown>): string => {
+  const options = (fieldConfig.options as Array<{ id: string; label: string }> | undefined) ?? [];
+  const labels = new Map(options.map((o) => [o.id, o.label]));
+  return ids.map((id) => labels.get(String(id)) ?? String(id)).join(", ");
+};
+
+const formatNumberDefault = (value: unknown, fieldConfig: Record<string, unknown>): string => {
+  const unit = typeof fieldConfig.unit === "string" ? fieldConfig.unit : "";
+  const unitPosition = fieldConfig.unitPosition === "prefix" ? "prefix" : "suffix";
+  const amount =
+    typeof value === "object" && value !== null && "amount" in value
+      ? (value as { amount?: string | number }).amount
+      : (value as string | number);
+  return formatWithUnit(amount, unit, unitPosition);
+};
+
+const formatDuration = (value: number): string => {
+  const h = Math.floor(value / 3600);
+  const m = Math.floor((value % 3600) / 60);
+  const s = value % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 };
 
 // ─── format-spec implementations ─────────────────────────────────

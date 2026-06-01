@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { emitTableMetadataEvent } from "./metadata-events";
 import {
   ensureFieldIndex,
   dropFieldIndex,
@@ -130,10 +131,10 @@ const validateFieldConfig = (type: string, config: Record<string, unknown>): Res
 };
 
 const isDateNowDefault = (value: unknown): value is { kind: "now" } =>
-  typeof value === "object"
-  && value !== null
-  && (value as { kind?: unknown }).kind === "now"
-  && Object.keys(value as Record<string, unknown>).length === 1;
+  typeof value === "object" &&
+  value !== null &&
+  (value as { kind?: unknown }).kind === "now" &&
+  Object.keys(value as Record<string, unknown>).length === 1;
 
 export const materializeFieldDefault = (field: Field): unknown => {
   if (field.type !== "date" || !isDateNowDefault(field.defaultValue)) return field.defaultValue;
@@ -161,6 +162,25 @@ export const validateDefaultValue = (type: string, config: Record<string, unknow
     return ok(v.value);
   }
   return ok(value);
+};
+
+type FieldUpdateState = {
+  name: string;
+  description: string | null;
+  icon: string | null;
+  config: Record<string, unknown>;
+  position: number;
+  required: boolean;
+  presentable: boolean;
+  hideInTable: boolean;
+  defaultValue: unknown;
+  indexed: boolean;
+  uniqueConstraint: boolean;
+};
+
+const updatedNullableText = (value: string | null | undefined, current: string | null): string | null => {
+  if (value === undefined) return current;
+  return typeof value === "string" ? value.trim() || null : null;
 };
 
 /**
@@ -263,10 +283,7 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
   // their native PG types — Postgres can't cast `true` directly to
   // jsonb. JSON.stringify on the wrapper produces a valid JSONB literal
   // for primitives (`true`, `42`, `"hello"`) and keeps objects working.
-  const defaultValueJsonb =
-    defaultValue === undefined || defaultValue === null
-      ? null
-      : JSON.stringify(defaultValue);
+  const defaultValueJsonb = defaultValue === undefined || defaultValue === null ? null : JSON.stringify(defaultValue);
   const row = await insertWithShortId<DbRow>(async (shortId) => {
     const [r] = await sql<DbRow[]>`
       INSERT INTO grids.fields (
@@ -320,19 +337,19 @@ export const create = async (input: CreateFieldInput, actorId: string | null): P
       await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
     } catch (e) {
       await sql`UPDATE grids.fields SET unique_constraint = FALSE WHERE id = ${field.id}::uuid`;
-      return fail(err.internal(
-        `field created but unique-constraint index build failed: ${(e as Error).message}`,
-      ));
+      return fail(err.internal(`field created but unique-constraint index build failed: ${(e as Error).message}`));
     }
   }
 
+  await emitTableMetadataEvent(input.tableId, {
+    type: "field.created",
+    resource: { kind: "field", id: field.id, tableId: input.tableId },
+    actorId,
+  });
   return ok(field);
 };
 
-export const update = async (id: string, input: UpdateFieldInput, actorId: string | null): Promise<Result<Field>> => {
-  const existing = await get(id);
-  if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
-
+const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput): Promise<Result<FieldUpdateState>> => {
   const name = input.name?.trim();
   if (name !== undefined && name.length === 0) return fail(err.badInput("name cannot be empty"));
 
@@ -351,31 +368,11 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
   const defaultValid = validateDefaultValue(existing.type, config as Record<string, unknown>, rawDefaultValue);
   if (!defaultValid.ok) return defaultValid;
 
-  // unique_constraint OFF → ON: pre-flight conflict check so we can
-  // return a clean 409 BEFORE running the index build (which would
-  // otherwise fail with a generic Postgres duplicate-key error).
-  if (input.uniqueConstraint === true && !existing.uniqueConstraint) {
-    if (!isUniqueable(existing.type)) {
-      return fail(err.badInput(
-        `unique_constraint not supported for type "${existing.type}" (use a scalar type)`,
-      ));
-    }
-    const conflicts = await findUniqueConflicts(id, existing.tableId);
-    if (conflicts.length > 0) {
-      return fail(err.conflict(
-        `unique_constraint cannot be enabled — duplicate values: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? ` (+${conflicts.length - 5} more)` : ""}`,
-      ));
-    }
-  }
-
-  const next = {
+  return ok({
     name: name ?? existing.name,
     // Empty string in description input → store null (clears the helper).
-    description:
-      input.description !== undefined
-        ? input.description?.trim() || null
-        : existing.description,
-    icon: input.icon !== undefined ? input.icon?.trim() || null : existing.icon,
+    description: updatedNullableText(input.description, existing.description),
+    icon: updatedNullableText(input.icon, existing.icon ?? null),
     config,
     position: input.position ?? existing.position,
     required: input.required ?? existing.required,
@@ -384,13 +381,31 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     defaultValue: defaultValid.data,
     indexed: input.indexed ?? existing.indexed,
     uniqueConstraint: input.uniqueConstraint ?? existing.uniqueConstraint,
-  };
+  });
+};
 
+const ensureUniqueToggleAllowed = async (fieldId: string, existing: Field, input: UpdateFieldInput): Promise<Result<void>> => {
+  // Pre-flight conflict check so users get a clean 409 before the unique
+  // index build could fail with a generic Postgres duplicate-key error.
+  if (input.uniqueConstraint === true && !existing.uniqueConstraint) {
+    if (!isUniqueable(existing.type)) {
+      return fail(err.badInput(`unique_constraint not supported for type "${existing.type}" (use a scalar type)`));
+    }
+    const conflicts = await findUniqueConflicts(fieldId, existing.tableId);
+    if (conflicts.length > 0) {
+      return fail(
+        err.conflict(
+          `unique_constraint cannot be enabled — duplicate values: ${conflicts.slice(0, 5).join(", ")}${conflicts.length > 5 ? ` (+${conflicts.length - 5} more)` : ""}`,
+        ),
+      );
+    }
+  }
+  return ok();
+};
+
+const persistFieldUpdate = async (id: string, next: FieldUpdateState): Promise<Result<Field>> => {
   // Same primitive-to-JSONB stringify dance as create.
-  const nextDefaultValueJsonb =
-    next.defaultValue === undefined || next.defaultValue === null
-      ? null
-      : JSON.stringify(next.defaultValue);
+  const nextDefaultValueJsonb = next.defaultValue === undefined || next.defaultValue === null ? null : JSON.stringify(next.defaultValue);
   const [row] = await sql<DbRow[]>`
     UPDATE grids.fields
     SET name = ${next.name},
@@ -409,15 +424,19 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     RETURNING *
   `;
   if (!row) return fail(err.internal("update failed"));
-  const field = mapRow(row);
+  return ok(mapRow(row));
+};
 
+const logFieldUpdateDiff = async (existing: Field, next: FieldUpdateState, actorId: string | null): Promise<void> => {
   const diff: Record<string, { old: unknown; new: unknown }> = {};
   if (next.name !== existing.name) diff.name = { old: existing.name, new: next.name };
   if (next.required !== existing.required) diff.required = { old: existing.required, new: next.required };
   if (Object.keys(diff).length > 0) {
     await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff });
   }
+};
 
+const syncFieldIndexes = async (existing: Field, field: Field): Promise<Result<void>> => {
   // Toggle indexed state outside the row commit. Both calls are idempotent.
   if (existing.indexed !== field.indexed) {
     if (field.indexed) void ensureFieldIndex(field.id, field.type, field.tableId);
@@ -433,15 +452,39 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
         await ensureFieldUniqueIndex(field.id, field.type, field.tableId);
       } catch (e) {
         await sql`UPDATE grids.fields SET unique_constraint = FALSE WHERE id = ${field.id}::uuid`;
-        return fail(err.internal(
-          `unique-constraint index build failed: ${(e as Error).message}`,
-        ));
+        return fail(err.internal(`unique-constraint index build failed: ${(e as Error).message}`));
       }
     } else {
       void dropFieldUniqueIndex(field.id);
     }
   }
+  return ok();
+};
 
+export const update = async (id: string, input: UpdateFieldInput, actorId: string | null): Promise<Result<Field>> => {
+  const existing = await get(id);
+  if (!existing || existing.deletedAt) return fail(err.notFound("Field"));
+
+  const nextResult = await validateFieldUpdate(existing, input);
+  if (!nextResult.ok) return nextResult;
+
+  const uniqueAllowed = await ensureUniqueToggleAllowed(id, existing, input);
+  if (!uniqueAllowed.ok) return uniqueAllowed;
+
+  const fieldResult = await persistFieldUpdate(id, nextResult.data);
+  if (!fieldResult.ok) return fieldResult;
+  const field = fieldResult.data;
+
+  await logFieldUpdateDiff(existing, nextResult.data, actorId);
+
+  const indexResult = await syncFieldIndexes(existing, field);
+  if (!indexResult.ok) return indexResult;
+
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "field.updated",
+    resource: { kind: "field", id: field.id, tableId: existing.tableId },
+    actorId,
+  });
   return ok(field);
 };
 
@@ -452,11 +495,7 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
  * positions in ONE round-trip via UNNEST + a CASE-driven UPDATE so the
  * change is atomic and the wire cost is constant in the field count.
  */
-export const reorder = async (
-  tableId: string,
-  fieldIds: string[],
-  actorId: string | null,
-): Promise<Result<void>> => {
+export const reorder = async (tableId: string, fieldIds: string[], actorId: string | null): Promise<Result<void>> => {
   if (fieldIds.length === 0) return ok();
 
   // Filter to ids that actually belong to this table — protects against
@@ -485,6 +524,11 @@ export const reorder = async (
     action: "updated",
     diff: { fieldOrder: { old: null, new: validOrdered } },
   });
+  await emitTableMetadataEvent(tableId, {
+    type: "field.reordered",
+    resource: { kind: "field", id: tableId, tableId },
+    actorId,
+  });
 
   return ok();
 };
@@ -506,6 +550,11 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   if (existing.deletedAt === null) return ok(existing);
   await sql`UPDATE grids.fields SET deleted_at = NULL, updated_at = now() WHERE id = ${id}::uuid`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "field.restored",
+    resource: { kind: "field", id, tableId: existing.tableId },
+    actorId,
+  });
   // Re-create the expression index if the field was indexed.
   if (existing.indexed) void ensureFieldIndex(id, existing.type, existing.tableId);
   return ok({ ...existing, deletedAt: null });
@@ -546,6 +595,11 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   await cleanupViewFieldRefs(existing.tableId, id);
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "field.deleted",
+    resource: { kind: "field", id, tableId: existing.tableId },
+    actorId,
+  });
   return ok();
 };
 
@@ -581,9 +635,7 @@ const cleanupViewFieldRefs = async (tableId: string, fieldId: string): Promise<v
     if (!node || typeof node !== "object") return node;
     const n = node as { op?: string; filters?: unknown[]; fieldId?: string };
     if (n.op === "AND" || n.op === "OR") {
-      const filtered = (n.filters ?? [])
-        .map(stripFromFilter)
-        .filter((f) => f !== null);
+      const filtered = (n.filters ?? []).map(stripFromFilter).filter((f) => f !== null);
       return filtered.length === 0 ? null : { ...n, filters: filtered };
     }
     if (n.op === "NOT") {

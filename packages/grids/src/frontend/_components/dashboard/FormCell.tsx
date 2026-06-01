@@ -8,20 +8,17 @@ import type { WidgetData } from "./widget-data";
 type Props = {
   widget: FormWidget;
   data: WidgetData;
+  onSubmitted?: () => void;
 };
 
 /**
  * Form cell — embeds a form for inline data entry on the dashboard.
  * Mirrors `FormSubmitModal` (the in-app form view) but renders inline
  * in a cell slot instead of a modal, and on successful submit it
- * triggers a full page reload (`window.location.reload()`) so every
- * other widget on the dashboard re-resolves with the freshly written
- * record.
- *
- * Full reload is the v1 trade: dead simple, guarantees visible
- * consistency across stat / chart / view cells without per-widget
- * invalidation logic. Scroll position is lost — acceptable for a
- * dashboard's "punch in some data" surface.
+ * notifies the parent so every other widget on the dashboard re-resolves
+ * with the freshly written record. The submit endpoint remains the single
+ * backend write path; the dashboard only invalidates its server-resolved
+ * widget data.
  *
  * **Permission gating.** `data.canSubmit` is resolved SSR-side by
  * the widget resolver — it carries the result of the same form-write
@@ -50,7 +47,7 @@ export default function FormCell(props: Props) {
           if (!d.canSubmit) {
             return <NoAccessPlaceholder widget={props.widget} formName={d.form.name} />;
           }
-          return <FormBody widget={props.widget} form={d.form} fields={d.fields} />;
+          return <FormBody widget={props.widget} form={d.form} fields={d.fields} onSubmitted={props.onSubmitted} />;
         })()}
       </Show>
     </div>
@@ -85,6 +82,7 @@ function FormBody(props: {
   widget: FormWidget;
   form: Extract<WidgetData, { kind: "form" }>["form"];
   fields: Extract<WidgetData, { kind: "form" }>["fields"];
+  onSubmitted?: () => void;
 }) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));
   const entries = userInputEntriesOf(props.form.config.fields);
@@ -114,11 +112,8 @@ function FormBody(props: {
         setError(await errorMessage(res, "Submit failed"));
         return;
       }
-      // Full page reload — every other widget on the dashboard
-      // re-resolves with the new row visible. KISS approach to
-      // post-submit consistency; in-cell success state would leave
-      // sibling widgets stale.
-      window.location.reload();
+      setValues(buildInitialValues(entries));
+      props.onSubmitted?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Submit failed");
     } finally {

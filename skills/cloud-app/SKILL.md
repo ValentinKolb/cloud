@@ -13,6 +13,8 @@ This skill covers everything you need to build a complete app. For platform over
 
 > **Detailed references:** Backend patterns → `references/backend.md` | Frontend patterns → `references/frontend.md`
 
+For app testing conventions, use the Testing Patterns section in `references/backend.md`: prefer `bun:test`, keep pure service/frontend helper tests next to the code, avoid DB/browser tests unless the boundary itself is under test, and expose `test: "bun test"` when an app has tests.
+
 ## What Belongs In An App — And What Does NOT
 
 Apps are domain features *on top of* the platform. They must not redefine platform primitives.

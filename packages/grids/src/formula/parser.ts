@@ -19,160 +19,148 @@ type Token =
   | { kind: "eof" };
 
 const SINGLE_CHAR_OPS = new Set(["+", "-", "*", "/", "%"]);
+const TWO_CHAR_OPS = new Set(["<=", ">=", "!=", "&&", "||"]);
+const SINGLE_CHAR_OPERATORS = new Set([...SINGLE_CHAR_OPS, "<", ">", "=", "!"]);
+const ESCAPED_STRING_CHARS: Record<string, string> = {
+  n: "\n",
+  t: "\t",
+  r: "\r",
+  "\\": "\\",
+};
+
+type ScanResult = { token: Token; next: number };
+type Scanner = (src: string, i: number) => ScanResult | null;
+
+const isWhitespace = (c: string): boolean => c === " " || c === "\t" || c === "\n" || c === "\r";
+const isDigit = (c: string): boolean => c >= "0" && c <= "9";
+const isIdentStart = (c: string): boolean => (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c === "_";
+const isIdentPart = (c: string): boolean => isIdentStart(c) || isDigit(c);
+const isSlugPart = (c: string): boolean => isDigit(c) || (c >= "A" && c <= "Z") || (c >= "a" && c <= "z");
+
+const readDigits = (src: string, i: number): number => {
+  let j = i;
+  while (j < src.length && isDigit(src[j]!)) j++;
+  return j;
+};
+
+const readNumberEnd = (src: string, i: number): number => {
+  const integerEnd = readDigits(src, i);
+  if (src[integerEnd] !== ".") return integerEnd;
+  const fractionStart = integerEnd + 1;
+  if (fractionStart >= src.length || !isDigit(src[fractionStart]!)) {
+    throw new Error(`invalid number literal at offset ${i}`);
+  }
+  return readDigits(src, fractionStart);
+};
+
+const scanNumber: Scanner = (src, i) => {
+  if (!isDigit(src[i]!)) return null;
+  const j = readNumberEnd(src, i);
+  const num = Number(src.slice(i, j));
+  if (!Number.isFinite(num)) throw new Error(`invalid number literal at offset ${i}`);
+  return { token: { kind: "num", value: num }, next: j };
+};
+
+const escapedStringChar = (esc: string | undefined, quote: string): string => {
+  if (esc === quote) return quote;
+  return esc ? (ESCAPED_STRING_CHARS[esc] ?? esc) : "";
+};
+
+const scanString: Scanner = (src, i) => {
+  const quote = src[i];
+  if (quote !== '"' && quote !== "'") return null;
+  let j = i + 1;
+  let value = "";
+  while (j < src.length && src[j] !== quote) {
+    if (src[j] === "\\" && j + 1 < src.length) {
+      value += escapedStringChar(src[j + 1], quote);
+      j += 2;
+    } else {
+      value += src[j];
+      j++;
+    }
+  }
+  if (j >= src.length) throw new Error("unterminated string literal");
+  return { token: { kind: "str", value }, next: j + 1 };
+};
+
+const scanBracedField: Scanner = (src, i) => {
+  if (src[i] !== "{") return null;
+  const j = src.indexOf("}", i + 1);
+  if (j === -1) throw new Error("unclosed field reference");
+  const value = src.slice(i + 1, j).trim();
+  if (value.length === 0) throw new Error("empty field reference");
+  return { token: { kind: "field", value }, next: j + 1 };
+};
+
+const scanSlugField: Scanner = (src, i) => {
+  if (src[i] !== "#") return null;
+  let j = i + 1;
+  while (j < src.length && isSlugPart(src[j]!)) j++;
+  if (j === i + 1) throw new Error("empty slug reference after #");
+  return { token: { kind: "field", value: src.slice(i + 1, j) }, next: j };
+};
+
+const identToken = (ident: string): Token => {
+  const upper = ident.toUpperCase();
+  if (upper === "TRUE") return { kind: "true" };
+  if (upper === "FALSE") return { kind: "false" };
+  if (upper === "NULL") return { kind: "null" };
+  return { kind: "ident", value: ident };
+};
+
+const scanIdentifier: Scanner = (src, i) => {
+  if (!isIdentStart(src[i]!)) return null;
+  let j = i + 1;
+  while (j < src.length && isIdentPart(src[j]!)) j++;
+  return { token: identToken(src.slice(i, j)), next: j };
+};
+
+const scanPunctuation: Scanner = (src, i) => {
+  if (src[i] === "(") return { token: { kind: "lparen" }, next: i + 1 };
+  if (src[i] === ")") return { token: { kind: "rparen" }, next: i + 1 };
+  if (src[i] === ",") return { token: { kind: "comma" }, next: i + 1 };
+  return null;
+};
+
+const scanOperator: Scanner = (src, i) => {
+  const c = src[i]!;
+  const two = src.slice(i, i + 2);
+  if (TWO_CHAR_OPS.has(two)) return { token: { kind: "op", value: two }, next: i + 2 };
+  if (SINGLE_CHAR_OPERATORS.has(c)) return { token: { kind: "op", value: c }, next: i + 1 };
+  return null;
+};
+
+const SCANNERS: Scanner[] = [
+  scanNumber,
+  scanString,
+  scanBracedField,
+  scanSlugField,
+  scanIdentifier,
+  scanPunctuation,
+  scanOperator,
+];
+
+const scanToken = (src: string, i: number): ScanResult => {
+  for (const scanner of SCANNERS) {
+    const result = scanner(src, i);
+    if (result) return result;
+  }
+  throw new Error(`unexpected character "${src[i]}" at position ${i}`);
+};
 
 const tokenize = (src: string): Token[] => {
   const tokens: Token[] = [];
   let i = 0;
-  const n = src.length;
-  while (i < n) {
+  while (i < src.length) {
     const c = src[i]!;
-    // whitespace
-    if (c === " " || c === "\t" || c === "\n" || c === "\r") {
+    if (isWhitespace(c)) {
       i++;
       continue;
     }
-    // numbers — strict decimal grammar `\d+(\.\d+)?`. Previous lazy
-    // consumer (run of digits and dots) accepted "1..2" and produced
-    // Number("1..2") = NaN, which then renderResult happily passed
-    // through as a numeric value (chunk 6 important). The strict
-    // shape rejects malformed inputs at parse time. parseFormula's
-    // outer try/catch turns these throws into clean ParseResult.fail.
-    if (c >= "0" && c <= "9") {
-      let j = i + 1;
-      while (j < n && src[j]! >= "0" && src[j]! <= "9") j++;
-      if (j < n && src[j] === ".") {
-        // Decimal portion: at least one digit must follow the dot.
-        // Reject "1." or "1..2" — better error here than NaN at eval.
-        if (j + 1 >= n || src[j + 1]! < "0" || src[j + 1]! > "9") {
-          throw new Error(`invalid number literal at offset ${i}`);
-        }
-        j++;
-        while (j < n && src[j]! >= "0" && src[j]! <= "9") j++;
-      }
-      const num = Number(src.slice(i, j));
-      if (!Number.isFinite(num)) {
-        throw new Error(`invalid number literal at offset ${i}`);
-      }
-      tokens.push({ kind: "num", value: num });
-      i = j;
-      continue;
-    }
-    // strings (single or double quotes)
-    if (c === '"' || c === "'") {
-      const quote = c;
-      let j = i + 1;
-      let value = "";
-      while (j < n && src[j] !== quote) {
-        if (src[j] === "\\" && j + 1 < n) {
-          const esc = src[j + 1];
-          if (esc === "n") value += "\n";
-          else if (esc === "t") value += "\t";
-          else if (esc === "r") value += "\r";
-          else if (esc === "\\") value += "\\";
-          else if (esc === quote) value += quote;
-          else value += src[j + 1];
-          j += 2;
-        } else {
-          value += src[j];
-          j++;
-        }
-      }
-      if (j >= n) throw new Error("unterminated string literal");
-      tokens.push({ kind: "str", value });
-      i = j + 1;
-      continue;
-    }
-    // field reference — two equivalent syntaxes:
-    //   {fieldId}  legacy / explicit form (still parsed; UUID inside)
-    //   #slug      preferred short form (matches the field's 5-char slug)
-    // Both emit the same `field` token. The evaluator resolves the
-    // value by trying its UUID map first, then its slug map — slugs and
-    // UUIDs can't collide (UUIDs are 36 chars with hyphens, slugs are
-    // 5 chars of alphanumeric).
-    if (c === "{") {
-      const j = src.indexOf("}", i + 1);
-      if (j === -1) throw new Error("unclosed field reference");
-      const value = src.slice(i + 1, j).trim();
-      if (value.length === 0) throw new Error("empty field reference");
-      tokens.push({ kind: "field", value });
-      i = j + 1;
-      continue;
-    }
-    if (c === "#") {
-      let j = i + 1;
-      while (j < n) {
-        const k = src[j]!;
-        if ((k >= "a" && k <= "z") || (k >= "A" && k <= "Z") || (k >= "0" && k <= "9")) {
-          j++;
-        } else break;
-      }
-      if (j === i + 1) throw new Error("empty slug reference after #");
-      const value = src.slice(i + 1, j);
-      tokens.push({ kind: "field", value });
-      i = j;
-      continue;
-    }
-    // identifier (function name) or boolean literal
-    if ((c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c === "_") {
-      let j = i + 1;
-      while (j < n) {
-        const ch = src[j]!;
-        if ((ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch === "_") j++;
-        else break;
-      }
-      const ident = src.slice(i, j);
-      const upper = ident.toUpperCase();
-      if (upper === "TRUE") tokens.push({ kind: "true" });
-      else if (upper === "FALSE") tokens.push({ kind: "false" });
-      else if (upper === "NULL") tokens.push({ kind: "null" });
-      else tokens.push({ kind: "ident", value: ident });
-      i = j;
-      continue;
-    }
-    // punctuation
-    if (c === "(") {
-      tokens.push({ kind: "lparen" });
-      i++;
-      continue;
-    }
-    if (c === ")") {
-      tokens.push({ kind: "rparen" });
-      i++;
-      continue;
-    }
-    if (c === ",") {
-      tokens.push({ kind: "comma" });
-      i++;
-      continue;
-    }
-    // operators
-    if (c === "<" || c === ">" || c === "=" || c === "!") {
-      if (src[i + 1] === "=") {
-        tokens.push({ kind: "op", value: c + "=" });
-        i += 2;
-        continue;
-      }
-      // Bare `!` is unary NOT — the parser's prefix branch handles it.
-      tokens.push({ kind: "op", value: c });
-      i++;
-      continue;
-    }
-    if (c === "&" && src[i + 1] === "&") {
-      tokens.push({ kind: "op", value: "&&" });
-      i += 2;
-      continue;
-    }
-    if (c === "|" && src[i + 1] === "|") {
-      tokens.push({ kind: "op", value: "||" });
-      i += 2;
-      continue;
-    }
-    if (SINGLE_CHAR_OPS.has(c)) {
-      tokens.push({ kind: "op", value: c });
-      i++;
-      continue;
-    }
-    throw new Error(`unexpected character "${c}" at position ${i}`);
+    const result = scanToken(src, i);
+    tokens.push(result.token);
+    i = result.next;
   }
   tokens.push({ kind: "eof" });
   return tokens;

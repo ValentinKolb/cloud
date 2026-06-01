@@ -316,6 +316,11 @@ const isFieldCompatible = (field: FormulaFieldRef, expected: FormulaValueType): 
 };
 
 const escapeHtml = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const isAlpha = (ch: string | undefined): boolean => !!ch && /[A-Za-z_]/.test(ch);
+const isAlphaNum = (ch: string | undefined): boolean => !!ch && /[A-Za-z0-9_]/.test(ch);
+const isRefChar = (ch: string | undefined): boolean => !!ch && /[A-Za-z0-9]/.test(ch);
+const isDigit = (ch: string | undefined): boolean => !!ch && /[0-9]/.test(ch);
+const isFormulaOperator = (ch: string): boolean => /[()+\-*/%,=<>!]/.test(ch);
 
 const suggestionNeedle = (field: FormulaFieldRef): string => `${field.name} ${field.shortId} ${field.type}`.toLowerCase();
 
@@ -478,56 +483,67 @@ export const buildFormulaCompletions = (fields: FormulaFieldRef[]): Completion[]
 ];
 
 export const formulaHighlight = (text: string): string => {
+  const span = (klass: string, value: string): string => `<span class="${klass}">${escapeHtml(value)}</span>`;
+
+  const quotedTokenEnd = (start: number): number => {
+    const quote = text[start]!;
+    let end = start + 1;
+    let escaped = false;
+    while (end < text.length) {
+      const ch = text[end]!;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === quote) return end + 1;
+      end++;
+    }
+    return end;
+  };
+
+  const readWhile = (start: number, predicate: (ch: string | undefined) => boolean): number => {
+    let end = start;
+    while (end < text.length && predicate(text[end])) end++;
+    return end;
+  };
+
+  const numberTokenEnd = (start: number): number => {
+    let end = readWhile(start + 1, isDigit);
+    if (text[end] === "." && isDigit(text[end + 1])) {
+      end = readWhile(end + 1, isDigit);
+    }
+    return end;
+  };
+
   let out = "";
   let i = 0;
   while (i < text.length) {
     const ch = text[i]!;
     if (ch === '"' || ch === "'") {
-      const quote = ch;
-      let j = i + 1;
-      let escaped = false;
-      while (j < text.length) {
-        const c = text[j]!;
-        if (escaped) escaped = false;
-        else if (c === "\\") escaped = true;
-        else if (c === quote) {
-          j++;
-          break;
-        }
-        j++;
-      }
-      out += `<span class="str">${escapeHtml(text.slice(i, j))}</span>`;
-      i = j;
+      const end = quotedTokenEnd(i);
+      out += span("str", text.slice(i, end));
+      i = end;
       continue;
     }
     if (ch === "#") {
-      let j = i + 1;
-      while (j < text.length && /[A-Za-z0-9]/.test(text[j]!)) j++;
-      out += `<span class="field">${escapeHtml(text.slice(i, j))}</span>`;
-      i = j;
+      const end = readWhile(i + 1, isRefChar);
+      out += span("field", text.slice(i, end));
+      i = end;
       continue;
     }
-    if (/[0-9]/.test(ch)) {
-      let j = i + 1;
-      while (j < text.length && /[0-9]/.test(text[j]!)) j++;
-      if (text[j] === "." && /[0-9]/.test(text[j + 1] ?? "")) {
-        j++;
-        while (j < text.length && /[0-9]/.test(text[j]!)) j++;
-      }
-      out += `<span class="num">${escapeHtml(text.slice(i, j))}</span>`;
-      i = j;
+    if (isDigit(ch)) {
+      const end = numberTokenEnd(i);
+      out += span("num", text.slice(i, end));
+      i = end;
       continue;
     }
-    if (/[A-Za-z_]/.test(ch)) {
-      let j = i + 1;
-      while (j < text.length && /[A-Za-z0-9_]/.test(text[j]!)) j++;
-      const word = text.slice(i, j);
-      out += FUNCTION_BY_NAME.has(word.toUpperCase()) ? `<span class="fn">${escapeHtml(word)}</span>` : escapeHtml(word);
-      i = j;
+    if (isAlpha(ch)) {
+      const end = readWhile(i + 1, isAlphaNum);
+      const word = text.slice(i, end);
+      out += FUNCTION_BY_NAME.has(word.toUpperCase()) ? span("fn", word) : escapeHtml(word);
+      i = end;
       continue;
     }
-    if (/[()+\-*/%,=<>!]/.test(ch)) {
-      out += `<span class="op">${escapeHtml(ch)}</span>`;
+    if (isFormulaOperator(ch)) {
+      out += span("op", ch);
       i++;
       continue;
     }

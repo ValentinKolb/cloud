@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
+import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { ColumnSpecSchema } from "../contracts";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
@@ -163,6 +164,12 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
   }, "idx_grids_tables_short_id");
   const table = mapRow(row);
   await logAudit({ baseId: input.baseId, tableId: table.id, userId: actorId, action: "created" });
+  await emitMetadataEvent({
+    type: "table.created",
+    baseId: input.baseId,
+    resource: { kind: "table", id: table.id, tableId: table.id },
+    actorId,
+  });
   return ok(table);
 };
 
@@ -212,6 +219,12 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
   }
   if (Object.keys(diff).length > 0) {
     await logAudit({ baseId: table.baseId, tableId: id, userId: actorId, action: "updated", diff });
+    await emitMetadataEvent({
+      type: "table.updated",
+      baseId: table.baseId,
+      resource: { kind: "table", id, tableId: id },
+      actorId,
+    });
   }
 
   return ok(table);
@@ -229,6 +242,12 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   if (!existing) return fail(err.notFound("Table"));
   await sql`UPDATE grids.tables SET deleted_at = now() WHERE id = ${id}::uuid AND deleted_at IS NULL`;
   await logAudit({ baseId: existing.baseId, tableId: id, userId: actorId, action: "deleted" });
+  await emitMetadataEvent({
+    type: "table.deleted",
+    baseId: existing.baseId,
+    resource: { kind: "table", id, tableId: id },
+    actorId,
+  });
   return ok();
 };
 
@@ -244,5 +263,11 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   if (!row) return fail(err.internal("restore failed"));
   const table = mapRow(row);
   await logAudit({ baseId: existing.baseId, tableId: id, userId: actorId, action: "restored" });
+  await emitMetadataEvent({
+    type: "table.restored",
+    baseId: existing.baseId,
+    resource: { kind: "table", id, tableId: id },
+    actorId,
+  });
   return ok(table);
 };

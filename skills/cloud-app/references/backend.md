@@ -248,6 +248,59 @@ export default await app.start({
 await sql`ALTER TABLE my_app.items ADD COLUMN IF NOT EXISTS priority INT NOT NULL DEFAULT 0`.simple();
 ```
 
+## Testing Patterns
+
+Use `bun:test` for app tests. Prefer small pure tests first, then add integration tests only when a real database or browser boundary is the behavior under test.
+
+### Package script
+
+Apps with tests should expose the same script shape as Grids:
+
+```json
+{
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
+  }
+}
+```
+
+### What to test first
+
+- **Pure service helpers:** compilers, parsers, recurrence expansion, export builders, permission resolvers, URL/query serializers.
+- **Frontend helpers:** URL-state parsing, fetch payload builders, formatting helpers, client-side event reducers.
+- **Contracts:** Zod schemas for tricky input combinations and backwards-compatible shapes.
+- **DB services:** only when the query behavior itself matters and a test harness owns setup/cleanup.
+- **Browser smoke:** only for critical progressive-enhancement flows where SSR fallback, enhanced navigation, focus, or scroll preservation can regress.
+
+### Structure
+
+Keep tests next to the code they cover:
+
+```text
+src/service/recurrence.ts
+src/service/recurrence.test.ts
+src/frontend/_components/records-view/query-url.ts
+src/frontend/_components/records-view/query-url.test.ts
+```
+
+Pure tests should not import the app entrypoint, start Hono, connect to Postgres, or depend on Docker. If code cannot be tested without those, extract the decision logic into a small pure helper and keep the transport/database wrapper thin.
+
+### Example
+
+```typescript
+import { describe, expect, test } from "bun:test";
+import { parseStateFromUrl } from "./query-url";
+
+describe("query url state", () => {
+  test("round-trips search and filters", () => {
+    expect(parseStateFromUrl(new URLSearchParams("q=needle"))).toMatchObject({
+      search: "needle",
+    });
+  });
+});
+```
+
 ## Access Control (ResourceAccessAdapter)
 
 If your app needs fine-grained permissions, use the platform's principal-based access system. Don't query `auth.access` directly — use the helpers from `@valentinkolb/cloud/server`:

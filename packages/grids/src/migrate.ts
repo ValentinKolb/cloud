@@ -1,6 +1,4 @@
 import { sql } from "bun";
-import { crypto } from "@valentinkolb/stdlib";
-import { AutomationTriggerSchema } from "./contracts";
 
 /**
  * Schema for the Grids app: bases → tables → (fields, records, views, forms).
@@ -18,16 +16,10 @@ export const migrate = async (): Promise<void> => {
   console.log("  ✓ grids schema");
 
   // ──────────────────────────────────────────────────────────────────
-  // Safe-cast helpers (Slice 7 bug fix)
+  // Safe-cast helpers
   // ──────────────────────────────────────────────────────────────────
-  // Pre-v3 the filter and sort compilers cast JSONB text values directly
-  // (e.g. `(data->>fid)::numeric`). A single corrupt record (typo,
-  // schema-drift, manual SQL fixup) crashed the entire query — every
-  // user of that table got 500s until somebody fixed the offending row.
-  //
-  // These wrappers return NULL on parse failure instead of raising.
-  // The compilers route every cast through them, so bad data simply
-  // doesn't match the filter / sorts to NULL instead of breaking the page.
+  // Query compilers route casts through these helpers so malformed JSONB
+  // values sort/filter as NULL instead of crashing the whole table read.
   await sql`
     CREATE OR REPLACE FUNCTION grids.try_numeric(t text) RETURNS numeric
     LANGUAGE plpgsql IMMUTABLE STRICT AS $$
@@ -80,16 +72,17 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.bases (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      default_dashboard_id UUID,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT bases_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  // v3: soft-delete consistency. Idempotent for pre-existing DBs.
-  await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
   console.log("  ✓ grids.bases");
 
   await sql`
@@ -108,26 +101,22 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.tables (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
       icon TEXT,
       columns JSONB NOT NULL DEFAULT '[]'::jsonb,
-      primary_field_id UUID,
       position INT NOT NULL DEFAULT 0,
+      disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
-  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS icon TEXT`.simple();
-  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS columns JSONB NOT NULL DEFAULT '[]'::jsonb`.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
-  // Drop the old non-partial index if it exists (keeps the index name
-  // stable across migrations rather than letting both versions coexist).
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_tables_base`.simple();
   console.log("  ✓ grids.tables");
 
   await sql`
@@ -149,6 +138,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.fields (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
@@ -160,24 +150,14 @@ export const migrate = async (): Promise<void> => {
       default_value JSONB,
       indexed BOOLEAN NOT NULL DEFAULT FALSE,
       unique_constraint BOOLEAN NOT NULL DEFAULT FALSE,
+      presentable BOOLEAN NOT NULL DEFAULT FALSE,
+      hide_in_table BOOLEAN NOT NULL DEFAULT FALSE,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT fields_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  // Description is a top-level field-level metadata, not a type-specific
-  // config knob. Idempotent ALTER for any DB that pre-dates this column.
-  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS description TEXT`.simple();
-  // Optional Tabler icon class used by the detail panel and future
-  // schema-aware UIs. Pure presentation metadata; storage/query logic
-  // does not depend on it.
-  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS icon TEXT`.simple();
-  // Presentable: include this field in the auto-generated label when
-  // the record is referenced elsewhere (relation cells, picker results).
-  // Hide-in-table: column hidden from the default records grid; still
-  // shown in the detail panel. Both default to false.
-  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS presentable BOOLEAN NOT NULL DEFAULT FALSE`.simple();
-  await sql`ALTER TABLE grids.fields ADD COLUMN IF NOT EXISTS hide_in_table BOOLEAN NOT NULL DEFAULT FALSE`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
   console.log("  ✓ grids.fields");
 
@@ -238,20 +218,9 @@ export const migrate = async (): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // record_links — junction table for relation fields
   // ──────────────────────────────────────────────────────────────────
-  // v3 replaces the previous "JSONB-array of UUIDs in data->>fieldId"
-  // storage with a real junction table. Wins:
-  //  - real foreign keys + ON DELETE CASCADE (no zombie links to deleted records)
-  //  - reverse-lookup (`which records link to X?`) is an index scan, not a JSONB seq scan
-  //  - lookup/rollup become real SQL JOINs instead of read-time enrichment (Slice 4)
-  //  - group-by on relations works via standard GROUP BY (Slice 8)
-  //
-  // `position` preserves user-ordered cardinality:multiple — the order
-  // matters in the UI ("first link is the primary one") and we want it
-  // to round-trip through writes.
-  //
-  // No backwards-compat with the old JSONB storage: existing relation
-  // values in `records.data` are ignored on read once Slice 3 lands.
-  // Clear them out manually on the local DB if you need a clean slate.
+  // Relation values live in a junction table instead of records.data so
+  // Postgres enforces link integrity and reverse lookups stay indexed.
+  // `position` preserves user order for multi-relation fields.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.record_links (
       from_record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
@@ -264,8 +233,7 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   // Forward read: "all targets of (record, field)" — used on every record fetch.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_forward ON grids.record_links(from_field_id, from_record_id, position)`.simple();
-  // Reverse read: "all records linking to X via field F" — used by
-  // back-references and future "incoming relations" UI.
+  // Reverse read: "all records linking to X via field F".
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_reverse ON grids.record_links(to_record_id, from_field_id)`.simple();
   console.log("  ✓ grids.record_links");
 
@@ -274,11 +242,11 @@ export const migrate = async (): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // owner_user_id NULL = shared (visible to anyone with table-read).
   // `query` carries the canonical ViewQuery JSON (filter/sort/columns/
-  // groupBy/aggregations/limit). v3 renamed from `config` → `query` to
-  // match the canonical concept name in contracts.ts.
+  // groupBy/aggregations/limit).
   await sql`
     CREATE TABLE IF NOT EXISTS grids.views (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       icon TEXT,
@@ -287,32 +255,11 @@ export const migrate = async (): Promise<void> => {
       position INT NOT NULL DEFAULT 0,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT views_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
-  await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS icon TEXT`.simple();
-  // v3 rename: `config` → `query`. Idempotent — runs once on existing
-  // databases that still have the old column name. Drops the legacy
-  // column after copy because no code reads `config` anymore.
-  await sql`
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'grids' AND table_name = 'views'
-          AND column_name = 'config'
-      ) AND NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'grids' AND table_name = 'views'
-          AND column_name = 'query'
-      ) THEN
-        ALTER TABLE grids.views RENAME COLUMN config TO query;
-      END IF;
-    END $$;
-  `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_views_table_live ON grids.views(table_id, position) WHERE deleted_at IS NULL`.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_views_table`.simple();
   console.log("  ✓ grids.views");
 
   await sql`
@@ -335,29 +282,23 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.forms (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
-      field_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
       public_token TEXT,
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       position INT NOT NULL DEFAULT 0,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT forms_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  await sql`ALTER TABLE grids.forms ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`.simple();
-  // v3 Slice 6: frozen Field[] copy taken at form-create — submit
-  // validates against this rather than live `grids.fields`, so editing
-  // a field after publishing a form doesn't silently mutate behavior.
-  await sql`ALTER TABLE grids.forms ADD COLUMN IF NOT EXISTS field_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_forms_table_live ON grids.forms(table_id, position) WHERE deleted_at IS NULL`.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_forms_table`.simple();
   // Public-token lookup is the public form's hot path; partial index keeps
   // it scoped to forms that are actually public AND alive.
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_forms_public_token`.simple();
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_public_token ON grids.forms(public_token) WHERE public_token IS NOT NULL AND deleted_at IS NULL`.simple();
   console.log("  ✓ grids.forms");
 
@@ -400,207 +341,30 @@ export const migrate = async (): Promise<void> => {
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_audit_table ON grids.audit_log(table_id, created_at DESC) WHERE table_id IS NOT NULL`.simple();
   console.log("  ✓ grids.audit_log");
 
-  // ──────────────────────────────────────────────────────────────────
-  // deprecated-type cleanup
-  // ──────────────────────────────────────────────────────────────────
-  // 4 field types had no honest input UX — collapse them onto their
-  // closest surviving cousin so existing rows continue to render. The
-  // stored cell values stay as-is in `data` (text payload survives in a
-  // text column; signature data: URLs survive in longtext; locations
-  // become opaque json). UPDATE only flips the type label.
-  await sql`UPDATE grids.fields SET type = 'text', config = '{}'::jsonb WHERE type = 'color'`.simple();
-  await sql`UPDATE grids.fields SET type = 'longtext', config = '{}'::jsonb WHERE type = 'rich-text'`.simple();
-  await sql`UPDATE grids.fields SET type = 'longtext', config = '{}'::jsonb WHERE type = 'signature'`.simple();
-  await sql`UPDATE grids.fields SET type = 'json', config = '{}'::jsonb WHERE type = 'location'`.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'text',
-        config = jsonb_strip_nulls(config || jsonb_build_object(
-          'regex', '^[^ @]+@[^ @]+\\.[^ @]{2,}$'
-        ))
-    WHERE type = 'email'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'text',
-        config = jsonb_strip_nulls(config || jsonb_build_object(
-          'regex', '^https?://.+$'
-        ))
-    WHERE type = 'url'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'text',
-        config = jsonb_strip_nulls(config || jsonb_build_object(
-          'regex', '^\\+?[0-9 .()\\-]{5,}$'
-        ))
-    WHERE type = 'phone'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'text',
-        config = jsonb_strip_nulls(config || jsonb_build_object(
-          'regex', '^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$'
-        ))
-    WHERE type = 'slug'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'text',
-        config = config - 'format'
-    WHERE type = 'barcode'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'text',
-        config = jsonb_strip_nulls(config || jsonb_build_object(
-          'regex', '^[0-9Xx -]{10,17}$'
-        ))
-    WHERE type = 'isbn'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'number',
-        config = jsonb_build_object(
-          'precision', 16,
-          'decimalPlaces', 2,
-          'unit', COALESCE(NULLIF(config->>'currency', ''), 'EUR'),
-          'unitPosition', 'suffix'
-        )
-    WHERE type = 'currency'
-  `.simple();
-  await sql`
-    UPDATE grids.fields
-    SET type = 'number',
-        config = jsonb_strip_nulls(
-          (config - 'scale')
-          || CASE
-            WHEN config ? 'decimalPlaces' THEN '{}'::jsonb
-            WHEN config->>'scale' ~ '^[0-9]+$' THEN jsonb_build_object('decimalPlaces', (config->>'scale')::int)
-            ELSE '{}'::jsonb
-          END
-        )
-    WHERE type = 'decimal'
-  `.simple();
-  await sql`UPDATE grids.fields SET config = config - 'preset' WHERE type = 'text' AND config ? 'preset'`.simple();
-  console.log("  ✓ deprecated field types collapsed");
-
-  // ──────────────────────────────────────────────────────────────────
-  // table-level QoL flags
-  // ──────────────────────────────────────────────────────────────────
-  // `disable_direct_insert`: when true, records can only be added via
-  // a form. The records-grid + direct API insert paths return 403; the
-  // form-submit handler bypasses the check (form-driven inserts are
-  // always allowed). Used for "submission inbox" tables where every
-  // record must go through validation.
-  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE`.simple();
-  console.log("  ✓ grids.tables.disable_direct_insert");
-
-  // ──────────────────────────────────────────────────────────────────
-  // primary_field_id drop
-  // ──────────────────────────────────────────────────────────────────
-  // Dead column — never read by any code path, just persisted +
-  // pass-through. Record-label generation lives on the per-field
-  // `presentable` flag (multiple presentable fields joined with
-  // " · "). Kept the migration idempotent so reruns are safe.
-  await sql`ALTER TABLE grids.tables DROP COLUMN IF EXISTS primary_field_id`.simple();
-  console.log("  ✓ grids.tables.primary_field_id (dropped)");
-
-  // ──────────────────────────────────────────────────────────────────
-  // form field_snapshot drop
-  // ──────────────────────────────────────────────────────────────────
-  // The frozen-snapshot model proved harder to explain than it was
-  // worth: published forms got "stuck" on stale field metadata and
-  // form-authors didn't notice they had to refresh. Replaced with a
-  // confirm-on-save warning when the form is publicly shared. Live
-  // fields drive everything from now on.
-  await sql`ALTER TABLE grids.forms DROP COLUMN IF EXISTS field_snapshot`.simple();
-  console.log("  ✓ grids.forms.field_snapshot (dropped)");
-
-  // ──────────────────────────────────────────────────────────────────
-  // Short ids alongside UUIDs
-  // ──────────────────────────────────────────────────────────────────
-  // Every base/table/field/form/view/dashboard gets a 5-char readable
-  // `short_id` used for URLs (`/app/grids/k3Mp9/table/8sk2X/edit`) and
-  // formula references (`#a3X8b`). UUIDs stay as PKs and FKs —
-  // short_ids are surface-level only. Records are not short-id'd
-  // (high cardinality; UUIDv7 stays).
-  //
-  // Naming matches the `short_id` convention notebooks uses (single
-  // global concept, single name across packages). The 5-char length
-  // is grids-specific because uniqueness is per-scope (table within
-  // base, field within table, etc) — at 62^5 ≈ 916M slots per scope
-  // the birthday collision rate is negligible. Notebooks uses 6 chars
-  // because its scope is global.
-  //
-  // Idempotent rename block — for environments that ran an older
-  // migration where the column was called `slug`. Pure rename, no
-  // data loss; the existing 5-char base62 values transfer 1:1. The
-  // information_schema check makes this a no-op once the rename has
-  // landed. The accompanying index/constraint renames live further
-  // down (after the create blocks) so a clean fresh install creates
-  // them under the new name from the start.
-  for (const table of ["bases", "tables", "fields", "forms", "views", "dashboards"] as const) {
-    await sql
-      .unsafe(`
-        DO $$
-        BEGIN
-          IF EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'grids' AND table_name = '${table}'
-              AND column_name = 'slug'
-          ) AND NOT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'grids' AND table_name = '${table}'
-              AND column_name = 'short_id'
-          ) THEN
-            ALTER TABLE grids.${table} RENAME COLUMN slug TO short_id;
-          END IF;
-        END $$;
-      `)
-      .simple();
-  }
-
-  await sql`ALTER TABLE grids.bases      ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-  await sql`ALTER TABLE grids.tables     ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-  await sql`ALTER TABLE grids.fields     ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-  await sql`ALTER TABLE grids.forms      ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-  await sql`ALTER TABLE grids.views      ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-
-  // Drop the old slug-named indexes if they still exist (only on DBs
-  // that ran the pre-rename migration). The new short_id indexes are
-  // created in the block below.
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_bases_slug`.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_tables_slug`.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_fields_slug`.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_forms_slug`.simple();
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_views_slug`.simple();
-
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_short_id
-    ON grids.bases(short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.bases(short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_short_id
-    ON grids.tables(base_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.tables(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_fields_short_id
-    ON grids.fields(table_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.fields(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_short_id
-    ON grids.forms(table_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.forms(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_short_id
-    ON grids.views(table_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.views(table_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.{bases,tables,fields,forms,views}.short_id + unique indexes");
 
   // ──────────────────────────────────────────────────────────────────
-  // dashboards (P0 — stat cards + embedded views; chart widgets ship
-  // in P1 once the chart-render lib lands)
+  // dashboards
   // ──────────────────────────────────────────────────────────────────
   // Per-base composition surface. The `config` JSONB carries the full
   // layout tree (rows × cells × widgets) — same blob-on-row pattern as
@@ -611,7 +375,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.dashboards (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      short_id TEXT,
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
@@ -621,10 +385,10 @@ export const migrate = async (): Promise<void> => {
       position INT NOT NULL DEFAULT 0,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT dashboards_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
-  await sql`ALTER TABLE grids.dashboards ADD COLUMN IF NOT EXISTS icon TEXT`.simple();
   // Hot path: list alive dashboards of a base in user-defined order.
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_dashboards_base_live
@@ -632,10 +396,9 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   // short_id uniqueness scoped per base, alive rows only — same
   // partial-index pattern as the other short-id-bearing tables.
-  await sql`DROP INDEX IF EXISTS grids.idx_grids_dashboards_slug`.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_dashboards_short_id
-    ON grids.dashboards(base_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.dashboards(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.dashboards");
 
@@ -656,14 +419,12 @@ export const migrate = async (): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // automations — base-level triggers/actions
   // ──────────────────────────────────────────────────────────────────
-  // V1 intentionally stays small: manual + scheduled triggers, webhook
-  // POST action, run history. Trigger/action stay JSONB discriminants so
-  // later record lifecycle, incoming webhook, HTTP request, record upsert,
-  // and script actions can land without DDL churn.
+  // Trigger/action stay JSONB discriminants so automation capabilities can
+  // evolve without DDL churn.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.automations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      short_id TEXT,
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
@@ -676,7 +437,8 @@ export const migrate = async (): Promise<void> => {
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT automations_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
     )
   `.simple();
   await sql`
@@ -689,29 +451,8 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_automations_short_id
-    ON grids.automations(base_id, short_id) WHERE deleted_at IS NULL AND short_id IS NOT NULL
+    ON grids.automations(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
-  {
-    const rows = await sql<{ id: string; trigger: string }[]>`
-      SELECT id::text AS id, trigger #>> '{}' AS trigger
-      FROM grids.automations
-      WHERE jsonb_typeof(trigger) = 'string'
-    `;
-    for (const row of rows) {
-      try {
-        const parsed = AutomationTriggerSchema.safeParse(JSON.parse(row.trigger));
-        if (!parsed.success) continue;
-        await sql`
-          UPDATE grids.automations
-          SET trigger = (${JSON.stringify(parsed.data)}::text)::jsonb
-          WHERE id = ${row.id}::uuid
-        `;
-      } catch {
-        // Leave invalid legacy strings untouched; service reads them as manual
-        // and future saves rewrite through the contract parser.
-      }
-    }
-  }
   console.log("  ✓ grids.automations");
 
   await sql`
@@ -746,211 +487,5 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   console.log("  ✓ grids.automation_runs");
 
-  // bases.default_dashboard_id: when set, opening /grids/<base> with no
-  // ?table or ?dashboard query param renders this dashboard. Nullable
-  // and intentionally NOT a hard FK — we don't want a base-level dep
-  // on the dashboards table to constrain ordering or destruction.
-  // Service layer treats a stale id (referenced dashboard soft-deleted
-  // or hard-deleted) as "no default" and falls back to first table.
-  await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS default_dashboard_id UUID`.simple();
-  console.log("  ✓ grids.bases.default_dashboard_id");
-
-  // ──────────────────────────────────────────────────────────────────
-  // short_id backfill for rows that pre-date the column
-  // ──────────────────────────────────────────────────────────────────
-  // ALTER TABLE ADD COLUMN above is NULL-tolerant so old rows survive
-  // the migration. The service layer assigns short_ids on insert, but
-  // rows created before that migration ran sit at NULL forever unless
-  // we backfill — and the SSR URL builders interpolate the
-  // (NULL-coerced-to-empty) short_id straight into hrefs, producing
-  // `/table//edit` and similar dead links. Generate one short_id per
-  // alive row, scoped per parent so the partial unique index is
-  // honored. Runs every boot; no-op once all rows are filled.
-  await backfillShortIds();
-  console.log("  ✓ grids.{bases,tables,fields,forms,views,dashboards,automations}.short_id backfill");
-};
-
-// =============================================================================
-// short_id backfill helpers
-// =============================================================================
-
-/** Generate a unique short_id within (table, scope), checking ALL rows
- *  (alive + trashed) to keep restore paths safe — a trashed row that
- *  shares an id with an alive row would conflict on restore. 10 attempts
- *  is overkill for 62^5 ≈ 916M slots; even at 1000 items per scope the
- *  birthday-paradox single-try collision rate is ~0.054%. */
-const generateShortId = async (
-  query: (cand: string) => Promise<boolean>,
-): Promise<string> => {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const cand = crypto.common.readableId(5);
-    if (!(await query(cand))) return cand;
-  }
-  throw new Error("backfill: failed to generate unique short_id after 10 attempts");
-};
-
-const backfillShortIds = async (): Promise<void> => {
-  // We backfill ALL rows (alive + trashed). The partial unique index only
-  // covers alive rows, but trashed rows still serve URL/audit references
-  // and can be restored — they need short_ids too, and those ids must
-  // not collide with any other row in the same scope or restore breaks.
-  // Hence the EXISTS check has no `deleted_at IS NULL` filter either.
-
-  // bases — global scope
-  {
-    const rows = await sql<{ id: string }[]>`SELECT id::text AS id FROM grids.bases WHERE short_id IS NULL`;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(SELECT 1 FROM grids.bases WHERE short_id = ${cand}) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.bases SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-  // tables — scoped per base
-  {
-    const rows = await sql<{ id: string; base_id: string }[]>`
-      SELECT id::text AS id, base_id::text AS base_id FROM grids.tables WHERE short_id IS NULL
-    `;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(
-            SELECT 1 FROM grids.tables
-            WHERE base_id = ${row.base_id}::uuid AND short_id = ${cand}
-          ) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.tables SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-  // fields — scoped per table
-  {
-    const rows = await sql<{ id: string; table_id: string }[]>`
-      SELECT id::text AS id, table_id::text AS table_id FROM grids.fields WHERE short_id IS NULL
-    `;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(
-            SELECT 1 FROM grids.fields
-            WHERE table_id = ${row.table_id}::uuid AND short_id = ${cand}
-          ) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.fields SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-  // forms — scoped per table
-  {
-    const rows = await sql<{ id: string; table_id: string }[]>`
-      SELECT id::text AS id, table_id::text AS table_id FROM grids.forms WHERE short_id IS NULL
-    `;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(
-            SELECT 1 FROM grids.forms
-            WHERE table_id = ${row.table_id}::uuid AND short_id = ${cand}
-          ) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.forms SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-  // views — scoped per table
-  {
-    const rows = await sql<{ id: string; table_id: string }[]>`
-      SELECT id::text AS id, table_id::text AS table_id FROM grids.views WHERE short_id IS NULL
-    `;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(
-            SELECT 1 FROM grids.views
-            WHERE table_id = ${row.table_id}::uuid AND short_id = ${cand}
-          ) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.views SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-  // dashboards — scoped per base
-  {
-    const rows = await sql<{ id: string; base_id: string }[]>`
-      SELECT id::text AS id, base_id::text AS base_id FROM grids.dashboards WHERE short_id IS NULL
-    `;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(
-            SELECT 1 FROM grids.dashboards
-            WHERE base_id = ${row.base_id}::uuid AND short_id = ${cand}
-          ) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.dashboards SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-  // automations — scoped per base
-  {
-    const rows = await sql<{ id: string; base_id: string }[]>`
-      SELECT id::text AS id, base_id::text AS base_id FROM grids.automations WHERE short_id IS NULL
-    `;
-    for (const row of rows) {
-      const shortId = await generateShortId(async (cand) => {
-        const [r] = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS(
-            SELECT 1 FROM grids.automations
-            WHERE base_id = ${row.base_id}::uuid AND short_id = ${cand}
-          ) AS exists
-        `;
-        return Boolean(r?.exists);
-      });
-      await sql`UPDATE grids.automations SET short_id = ${shortId} WHERE id = ${row.id}::uuid`;
-    }
-  }
-
-  // After all rows are filled, tighten the schema: NOT NULL + CHECK so
-  // the contract-layer ShortIdSchema and DB row state cannot drift.
-  //
-  // Both branches are idempotent at the SQL layer:
-  //   - ALTER COLUMN ... SET NOT NULL is a no-op when the column
-  //     already disallows NULL.
-  //   - The CHECK constraint is guarded by a SELECT against pg_constraint
-  //     in a DO block. We use this rather than a JS-side try/catch
-  //     because Bun.sql buries the Postgres SQLSTATE in `errno`, not
-  //     `code` (which gets set to `ERR_POSTGRES_SERVER_ERROR`).
-  //   - Old environments may have `<table>_slug_format_chk` from the
-  //     pre-rename migration; we DROP IF EXISTS that one first so the
-  //     CHECK regex isn't enforced under the old name forever.
-  for (const table of ["bases", "tables", "fields", "forms", "views", "dashboards", "automations"] as const) {
-    await sql.unsafe(`ALTER TABLE grids.${table} ALTER COLUMN short_id SET NOT NULL`).simple();
-    await sql
-      .unsafe(`ALTER TABLE grids.${table} DROP CONSTRAINT IF EXISTS ${table}_slug_format_chk`)
-      .simple();
-    await sql
-      .unsafe(`
-        DO $$
-        BEGIN
-          IF NOT EXISTS (
-            SELECT 1 FROM pg_constraint
-            WHERE conname = '${table}_short_id_format_chk'
-              AND conrelid = 'grids.${table}'::regclass
-          ) THEN
-            ALTER TABLE grids.${table}
-            ADD CONSTRAINT ${table}_short_id_format_chk
-            CHECK (short_id ~ '^[A-Za-z0-9]{5}$');
-          END IF;
-        END $$;
-      `)
-      .simple();
-  }
+  console.log("  ✓ grids schema ready");
 };

@@ -186,6 +186,10 @@
   background: transparent;
 }
 
+.multi-select-pill-strip {
+  scrollbar-width: thin;
+}
+
 body {
   /* Explicit values — avoids @apply layer ordering issues with multiple CSS files */
   background-color: rgb(250 250 250); /* zinc-50 */

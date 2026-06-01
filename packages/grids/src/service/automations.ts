@@ -31,6 +31,30 @@ import type {
 } from "./types";
 
 type DbRow = Record<string, unknown>;
+type ExecuteAutomationParams = {
+  automationId: string;
+  triggerKind: "manual" | "schedule" | "event";
+  eventName?: string;
+  triggerDetails?: Record<string, unknown>;
+  reason?: string;
+  actorId?: string | null;
+  input?: unknown | null;
+  subject?: AutomationSubject;
+  slotTs?: number;
+};
+type AutomationTriggerDetails = {
+  kind: ExecuteAutomationParams["triggerKind"];
+  reason: string;
+  actorId: string | null;
+  slotTs?: number;
+} & Record<string, unknown>;
+type InsertedAutomationRun = { runRow: DbRow; runId: string };
+type WebhookAttempt = {
+  status: AutomationRun["status"];
+  httpStatus: number | null;
+  durationMs: number;
+  errorMessage: string | null;
+};
 
 const AUTOMATION_COLS = sql`
   id, short_id, base_id, name, description, trigger, action, payload,
@@ -597,102 +621,81 @@ export const purgeOldRuns = async (retentionDays?: number): Promise<number> => {
   return result.count ?? 0;
 };
 
-export const execute = async (params: {
-  automationId: string;
-  triggerKind: "manual" | "schedule" | "event";
-  eventName?: string;
-  triggerDetails?: Record<string, unknown>;
-  reason?: string;
-  actorId?: string | null;
-  input?: unknown | null;
-  subject?: AutomationSubject;
-  slotTs?: number;
-}): Promise<Result<AutomationRun>> => {
-  const automation = await getWithSecret(params.automationId);
-  if (!automation) return fail(err.notFound("automation"));
-  // Manual runs intentionally bypass `enabled`: admins can test a paused
-  // automation without re-enabling scheduled/event triggers.
-  if (!automation.enabled && params.triggerKind !== "manual") {
-    return fail(err.badInput("automation is disabled"));
-  }
-  if (automation.action.kind !== "webhook") return fail(err.badInput("unsupported automation action"));
-
-  const subject = params.subject ?? { type: "base" };
-  const input = params.input === undefined ? null : params.input;
-  const inputJson = JSON.stringify(input);
-  if (inputJson.length > MAX_INPUT_BYTES) {
-    return fail(err.badInput("automation input exceeds 64 KB"));
-  }
+const resolveAutomationRecordForRun = async (
+  automation: AutomationWithSecret,
+  subject: AutomationSubject,
+  eventName: string | undefined,
+): Promise<Result<GridRecord | null>> => {
   const recordResult = await resolveRecord(automation, subject);
-  let recordForPayload: GridRecord | null;
-  if (recordResult.ok) {
-    recordForPayload = recordResult.data;
-  } else if (params.eventName === "record.deleted" && subject.type === "record") {
-    recordForPayload = null;
-  } else {
-    return fail(recordResult.error);
-  }
+  if (recordResult.ok) return ok(recordResult.data);
+  if (eventName === "record.deleted" && subject.type === "record") return ok(null);
+  return fail(recordResult.error);
+};
 
-  const target = await validateWebhookTarget(automation.action.url);
-  if (!target.ok) return target;
+const buildTriggerDetails = (params: ExecuteAutomationParams): AutomationTriggerDetails => ({
+  kind: params.triggerKind,
+  reason: params.reason ?? params.triggerKind,
+  actorId: params.actorId ?? null,
+  ...(params.slotTs ? { slotTs: params.slotTs } : {}),
+  ...(params.triggerDetails ?? {}),
+});
 
-  const event = eventFor(params.triggerKind, subject, params.eventName);
-  const trigger = {
-    kind: params.triggerKind,
-    reason: params.reason ?? params.triggerKind,
-    actorId: params.actorId ?? null,
-    ...(params.slotTs ? { slotTs: params.slotTs } : {}),
-    ...(params.triggerDetails ?? {}),
-  };
-  const targetHost = target.data.host;
+const insertAutomationRun = async (args: {
+  automation: AutomationWithSecret;
+  subject: AutomationSubject;
+  inputJson: string;
+  event: string;
+  trigger: AutomationTriggerDetails;
+  targetHost: string;
+}): Promise<Result<InsertedAutomationRun>> => {
   const [runRow] = await sql<DbRow[]>`
     INSERT INTO grids.automation_runs (
       automation_id, base_id, table_id, record_id, event, trigger, subject,
       input, status, target_host, started_at
     )
     VALUES (
-      ${automation.id}::uuid,
-      ${automation.baseId}::uuid,
-      ${subject.type === "record" ? subject.tableId : null}::uuid,
-      ${subject.type === "record" ? subject.recordId : null}::uuid,
-      ${event},
-      (${JSON.stringify(trigger)}::text)::jsonb,
-      (${JSON.stringify(subject)}::text)::jsonb,
-      (${inputJson}::text)::jsonb,
+      ${args.automation.id}::uuid,
+      ${args.automation.baseId}::uuid,
+      ${args.subject.type === "record" ? args.subject.tableId : null}::uuid,
+      ${args.subject.type === "record" ? args.subject.recordId : null}::uuid,
+      ${args.event},
+      (${JSON.stringify(args.trigger)}::text)::jsonb,
+      (${JSON.stringify(args.subject)}::text)::jsonb,
+      (${args.inputJson}::text)::jsonb,
       'running',
-      ${targetHost},
+      ${args.targetHost},
       now()
     )
     RETURNING ${RUN_COLS}
   `;
-  if (!runRow) return fail(err.internal("automation run insert failed"));
+  return runRow ? ok({ runRow, runId: runRow.id as string }) : fail(err.internal("automation run insert failed"));
+};
 
-  const runId = runRow.id as string;
-  const body = JSON.stringify(
-    buildPayload({
-      automation,
-      runId,
-      event,
-      trigger,
-      subject,
-      input,
-      record: recordForPayload,
-    }),
-  );
-  const timestamp = new Date().toISOString();
+const webhookHeaders = (args: {
+  automation: AutomationWithSecret;
+  runId: string;
+  event: string;
+  triggerKind: ExecuteAutomationParams["triggerKind"];
+  slotTs?: number;
+  timestamp: string;
+  body: string;
+}): Record<string, string> => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "User-Agent": "Grids-Automations/1.0",
-    "X-Grids-Run-Id": runId,
-    "X-Grids-Automation-Id": automation.id,
-    "X-Grids-Event": event,
-    "X-Grids-Idempotency-Key": params.triggerKind === "schedule" && params.slotTs ? `${automation.id}:${params.slotTs}` : runId,
-    "X-Grids-Timestamp": timestamp,
+    "X-Grids-Run-Id": args.runId,
+    "X-Grids-Automation-Id": args.automation.id,
+    "X-Grids-Event": args.event,
+    "X-Grids-Idempotency-Key": args.triggerKind === "schedule" && args.slotTs ? `${args.automation.id}:${args.slotTs}` : args.runId,
+    "X-Grids-Timestamp": args.timestamp,
   };
-  if (automation.webhookSecret) {
-    headers["X-Grids-Signature"] = buildWebhookSignature(automation.webhookSecret, timestamp, body);
+  if (args.automation.webhookSecret) {
+    headers["X-Grids-Signature"] = buildWebhookSignature(args.automation.webhookSecret, args.timestamp, args.body);
   }
+  return headers;
+};
 
+const postWebhook = async (automation: AutomationWithSecret, headers: Record<string, string>, body: string): Promise<WebhookAttempt> => {
   const started = Date.now();
   let status: AutomationRun["status"] = "succeeded";
   let httpStatus: number | null = null;
@@ -721,45 +724,111 @@ export const execute = async (params: {
     status = "failed";
     errorMessage = safeError(error);
   }
+  return { status, httpStatus, durationMs: Date.now() - started, errorMessage };
+};
 
-  const durationMs = Date.now() - started;
-  const run = await sql.begin(async (tx) => {
+const finishAutomationRun = async (args: {
+  automation: AutomationWithSecret;
+  runRow: DbRow;
+  runId: string;
+  event: string;
+  triggerKind: ExecuteAutomationParams["triggerKind"];
+  subject: AutomationSubject;
+  actorId: string | null;
+  targetHost: string;
+  attempt: WebhookAttempt;
+}): Promise<AutomationRun> =>
+  sql.begin(async (tx) => {
     const [updatedRow] = await tx<DbRow[]>`
       UPDATE grids.automation_runs
-      SET status = ${status},
-          http_status = ${httpStatus},
-          duration_ms = ${durationMs},
-          error = ${errorMessage},
+      SET status = ${args.attempt.status},
+          http_status = ${args.attempt.httpStatus},
+          duration_ms = ${args.attempt.durationMs},
+          error = ${args.attempt.errorMessage},
           finished_at = now()
-      WHERE id = ${runId}::uuid
+      WHERE id = ${args.runId}::uuid
       RETURNING ${RUN_COLS}
     `;
     await logAudit(
       {
-        baseId: automation.baseId,
-        tableId: subject.type === "record" ? subject.tableId : null,
-        recordId: subject.type === "record" ? subject.recordId : null,
-        userId: params.actorId ?? null,
-        action: status === "succeeded" ? "automation.webhook.sent" : "automation.webhook.failed",
+        baseId: args.automation.baseId,
+        tableId: args.subject.type === "record" ? args.subject.tableId : null,
+        recordId: args.subject.type === "record" ? args.subject.recordId : null,
+        userId: args.actorId,
+        action: args.attempt.status === "succeeded" ? "automation.webhook.sent" : "automation.webhook.failed",
         diff: {
           automation: {
             old: null,
             new: {
-              automationId: automation.id,
-              runId,
-              event,
-              triggerKind: params.triggerKind,
-              targetHost,
-              httpStatus,
-              durationMs,
-              status,
+              automationId: args.automation.id,
+              runId: args.runId,
+              event: args.event,
+              triggerKind: args.triggerKind,
+              targetHost: args.targetHost,
+              httpStatus: args.attempt.httpStatus,
+              durationMs: args.attempt.durationMs,
+              status: args.attempt.status,
             },
           },
         },
       },
       tx,
     );
-    return mapRunRow(updatedRow ?? runRow);
+    return mapRunRow(updatedRow ?? args.runRow);
+  });
+
+export const execute = async (params: ExecuteAutomationParams): Promise<Result<AutomationRun>> => {
+  const automation = await getWithSecret(params.automationId);
+  if (!automation) return fail(err.notFound("automation"));
+  // Manual runs intentionally bypass `enabled`: admins can test a paused
+  // automation without re-enabling scheduled/event triggers.
+  if (!automation.enabled && params.triggerKind !== "manual") {
+    return fail(err.badInput("automation is disabled"));
+  }
+  if (automation.action.kind !== "webhook") return fail(err.badInput("unsupported automation action"));
+
+  const subject = params.subject ?? { type: "base" };
+  const input = params.input === undefined ? null : params.input;
+  const inputJson = JSON.stringify(input);
+  if (inputJson.length > MAX_INPUT_BYTES) {
+    return fail(err.badInput("automation input exceeds 64 KB"));
+  }
+  const recordResult = await resolveAutomationRecordForRun(automation, subject, params.eventName);
+  if (!recordResult.ok) return recordResult;
+
+  const target = await validateWebhookTarget(automation.action.url);
+  if (!target.ok) return target;
+
+  const event = eventFor(params.triggerKind, subject, params.eventName);
+  const trigger = buildTriggerDetails(params);
+  const targetHost = target.data.host;
+  const inserted = await insertAutomationRun({ automation, subject, inputJson, event, trigger, targetHost });
+  if (!inserted.ok) return inserted;
+  const { runRow, runId } = inserted.data;
+  const body = JSON.stringify(
+    buildPayload({
+      automation,
+      runId,
+      event,
+      trigger,
+      subject,
+      input,
+      record: recordResult.data,
+    }),
+  );
+  const timestamp = new Date().toISOString();
+  const headers = webhookHeaders({ automation, runId, event, triggerKind: params.triggerKind, slotTs: params.slotTs, timestamp, body });
+  const attempt = await postWebhook(automation, headers, body);
+  const run = await finishAutomationRun({
+    automation,
+    runRow,
+    runId,
+    event,
+    triggerKind: params.triggerKind,
+    subject,
+    actorId: params.actorId ?? null,
+    targetHost,
+    attempt,
   });
 
   return ok(run);

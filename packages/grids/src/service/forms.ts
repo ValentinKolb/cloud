@@ -5,6 +5,7 @@ import { getHandler } from "../field-types";
 import { logAudit } from "./audit";
 import { listByTable as listFields, validateDefaultValue } from "./fields";
 import { parseJsonbRow } from "./jsonb";
+import { emitTableMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import type { Field } from "./types";
 
@@ -386,6 +387,11 @@ export const create = async (input: CreateFormInput, actorId: string | null): Pr
     action: "created",
     diff: { form: { old: null, new: { id: form.id, name: form.name } } },
   });
+  await emitTableMetadataEvent(input.tableId, {
+    type: "form.created",
+    resource: { kind: "form", id: form.id, tableId: input.tableId },
+    actorId,
+  });
   return ok(form);
 };
 
@@ -430,6 +436,11 @@ export const update = async (id: string, input: UpdateFormInput, actorId: string
   if (!row) return fail(err.internal("update failed"));
   const form = mapRow(row);
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "updated", diff: { form: { old: existing.name, new: form.name } } });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "form.updated",
+    resource: { kind: "form", id: form.id, tableId: existing.tableId },
+    actorId,
+  });
   return ok(form);
 };
 
@@ -443,6 +454,11 @@ export const remove = async (id: string, actorId: string | null): Promise<Result
   if (!existing) return fail(err.notFound("Form"));
   await sql`UPDATE grids.forms SET deleted_at = now() WHERE id = ${id}::uuid AND deleted_at IS NULL`;
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "form.deleted",
+    resource: { kind: "form", id, tableId: existing.tableId },
+    actorId,
+  });
   return ok();
 };
 
@@ -458,5 +474,10 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   if (!row) return fail(err.internal("restore failed"));
   const form = mapRow(row);
   await logAudit({ tableId: existing.tableId, userId: actorId, action: "restored" });
+  await emitTableMetadataEvent(existing.tableId, {
+    type: "form.restored",
+    resource: { kind: "form", id, tableId: existing.tableId },
+    actorId,
+  });
   return ok(form);
 };

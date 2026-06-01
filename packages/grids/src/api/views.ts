@@ -1,16 +1,10 @@
+import { ErrorResponseSchema, hasRole } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
-import {
-  ViewSchema,
-  ViewListSchema,
-  CreateViewSchema,
-  UpdateViewSchema,
-} from "../contracts";
-import { hasRole } from "@valentinkolb/cloud/contracts";
+import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "../contracts";
 import { gridsService } from "../service";
-import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
+import { gateAt, hasExplicitGrant, resolveWithGrants } from "./permissions";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -66,16 +60,17 @@ const app = new Hono<AuthContext>()
       const user = c.get("user");
       return respond(
         c,
-        () => gridsService.view.create(
-          {
-            tableId,
-            name: body.name,
-            icon: body.icon ?? null,
-            query: body.query,
-            ownerUserId: body.shared ? null : user.id,
-          },
-          user.id,
-        ),
+        () =>
+          gridsService.view.create(
+            {
+              tableId,
+              name: body.name,
+              icon: body.icon ?? null,
+              query: body.query,
+              ownerUserId: body.shared ? null : user.id,
+            },
+            user.id,
+          ),
         201,
       );
     },
@@ -154,7 +149,7 @@ const app = new Hono<AuthContext>()
       const isPublishing = body.shared === true && view.ownerUserId !== null;
       const isUnpublishing = body.shared === false && view.ownerUserId === null;
 
-      let gate;
+      let gate: Awaited<ReturnType<typeof gateAt>>;
       if (isPublishing || isUnpublishing) {
         gate = await gateAt(c, { baseId: table.baseId }, "admin");
       } else if (view.ownerUserId === null) {
@@ -195,11 +190,12 @@ const app = new Hono<AuthContext>()
       // which doesn't apply to delete). Shared view ⇒ base-admin.
       // Own personal view ⇒ table-read. Someone else's personal view
       // ⇒ base-admin.
-      const gate = view.ownerUserId === null
-        ? await gateAt(c, { baseId: table.baseId }, "admin")
-        : isOwner
-          ? await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read")
-          : await gateAt(c, { baseId: table.baseId }, "admin");
+      const gate =
+        view.ownerUserId === null
+          ? await gateAt(c, { baseId: table.baseId }, "admin")
+          : isOwner
+            ? await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read")
+            : await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const result = await gridsService.view.remove(viewId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
@@ -225,9 +221,10 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const user = c.get("user");
       const isOwner = view.ownerUserId === user.id;
-      const gate = view.ownerUserId === null
-        ? await gateAt(c, { baseId: table.baseId }, "admin")
-        : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
+      const gate =
+        view.ownerUserId === null
+          ? await gateAt(c, { baseId: table.baseId }, "admin")
+          : await gateAt(c, { baseId: table.baseId, tableId: table.id }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       if (view.ownerUserId !== null && !isOwner) {
         return c.json({ message: "Only the owner can restore a personal view" }, 403);

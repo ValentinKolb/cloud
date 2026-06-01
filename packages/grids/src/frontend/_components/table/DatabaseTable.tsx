@@ -292,7 +292,7 @@ export default function DatabaseTable(props: Props) {
         onRowClick={props.onRecordClick}
         rowClass={(record) =>
           props.highlightedIds?.has(record.id)
-            ? "bg-blue-50 shadow-[inset_3px_0_0_rgb(59_130_246)] transition-colors dark:bg-blue-950/35"
+            ? "bg-sky-50/45 shadow-[inset_2px_0_0_rgb(56_189_248_/_0.65)] transition-colors dark:bg-sky-950/20"
             : undefined
         }
         empty="No records"

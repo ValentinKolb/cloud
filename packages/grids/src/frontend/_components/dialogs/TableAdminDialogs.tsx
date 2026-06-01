@@ -18,7 +18,6 @@ import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
-import { GridsBareDialog, gridsBareDialogOptions } from "./dialog-layout";
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
@@ -194,18 +193,23 @@ export const openFormsDialog = (args: {
 }) =>
   dialogCore.open<void>(
     (close) => (
-      <GridsBareDialog title={`Forms — ${args.tableName}`} icon="ti ti-forms" close={() => close()}>
-        <FormsManager
-          tableId={args.tableId}
-          fields={args.fields}
-          initialForms={args.initialForms}
-          initialFormAccessEntries={args.initialFormAccessEntries}
-          onFormsChanged={args.onFormsChanged}
-          canManage
-        />
-      </GridsBareDialog>
+      <PanelDialog>
+        <PanelDialog.Header title={`Forms — ${args.tableName}`} icon="ti ti-forms" close={() => close()} />
+        <PanelDialog.Body>
+          <PanelDialog.Section title="Forms" subtitle="Manage custom forms for this table." icon="ti ti-forms">
+            <FormsManager
+              tableId={args.tableId}
+              fields={args.fields}
+              initialForms={args.initialForms}
+              initialFormAccessEntries={args.initialFormAccessEntries}
+              onFormsChanged={args.onFormsChanged}
+              canManage
+            />
+          </PanelDialog.Section>
+        </PanelDialog.Body>
+      </PanelDialog>
     ),
-    gridsBareDialogOptions,
+    panelDialogOptions,
   );
 
 export const deleteFieldWithChecks = async (field: Field): Promise<boolean> => {
