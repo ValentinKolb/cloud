@@ -140,6 +140,7 @@ export const contactsService = {
   contact: {
     list: (config: { bookId: string; pagination?: PageParams; filter?: { query?: string; tagIds?: string[] } }) => contacts.list(config),
     get: (config: { bookId: string; id: string }) => contacts.get(config),
+    tree: (config: { bookId: string; id: string }) => contacts.tree(config),
     create: (config: { bookId: string; data: CreateContactInput }) => contacts.create(config),
     update: (config: { bookId: string; id: string; data: UpdateContactInput }) => contacts.update(config),
     move: (config: { sourceBookId: string; targetBookId: string; id: string }) => contacts.move(config),
@@ -176,6 +177,8 @@ export type {
   ContactNote,
   ContactRef,
   ContactTag,
+  ContactTree,
+  ContactTreeNode,
   ContactWebsite,
   CreateBookInput,
   CreateContactInput,

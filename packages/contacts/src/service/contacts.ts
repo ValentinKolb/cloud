@@ -16,6 +16,8 @@ import type {
   ContactPhoneInput,
   ContactRef,
   ContactTag,
+  ContactTree,
+  ContactTreeNode,
   ContactWebsite,
   ContactWebsiteInput,
   CreateContactInput,
@@ -118,6 +120,16 @@ type SearchRow = {
   contact_id: string;
   book_id: string;
   source_kind: "manual" | "system";
+};
+
+type ContactTreeRow = {
+  id: string;
+  label: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  company_name: string | null;
+  job_title: string | null;
+  parent_contact_id: string | null;
 };
 
 /**
@@ -765,6 +777,125 @@ export const get = async (config: { bookId: string; id: string }): Promise<Conta
   const contact = mapped.get(config.id);
   if (!contact || contact.bookId !== config.bookId) return null;
   return contact;
+};
+
+const treeNodeName = (node: ContactTreeNode): string =>
+  (node.label || [node.firstName, node.lastName].filter(Boolean).join(" ") || node.companyName || node.id).toLowerCase();
+
+const sortTreeNodes = (nodes: ContactTreeNode[]) => {
+  nodes.sort((left, right) => treeNodeName(left).localeCompare(treeNodeName(right)));
+  for (const node of nodes) sortTreeNodes(node.children);
+};
+
+/**
+ * Loads the full manual-book hierarchy around a selected contact.
+ *
+ * The root is the selected contact's top-most ancestor in the same book; all
+ * descendants of that root are returned so the detail panel does not depend on
+ * the currently paginated contact list.
+ */
+export const tree = async (config: { bookId: string; id: string }): Promise<ContactTree | null> => {
+  if (isSystemBookId(config.bookId)) return null;
+  if (!isUuid(config.bookId) || !isUuid(config.id)) return null;
+
+  const rows = await sql<ContactTreeRow[]>`
+    WITH RECURSIVE ancestors AS (
+      SELECT id, parent_contact_id, ARRAY[id] AS path
+      FROM contacts.contacts
+      WHERE id = ${config.id}::uuid
+        AND book_id = ${config.bookId}::uuid
+
+      UNION ALL
+
+      SELECT parent.id, parent.parent_contact_id, child.path || parent.id
+      FROM contacts.contacts parent
+      JOIN ancestors child ON child.parent_contact_id = parent.id
+      WHERE parent.book_id = ${config.bookId}::uuid
+        AND NOT parent.id = ANY(child.path)
+    ),
+    root AS (
+      SELECT id
+      FROM ancestors
+      WHERE parent_contact_id IS NULL
+      LIMIT 1
+    ),
+    descendants AS (
+      SELECT
+        c.id,
+        c.label,
+        c.first_name,
+        c.last_name,
+        c.company_name,
+        c.job_title,
+        c.parent_contact_id,
+        0 AS depth,
+        ARRAY[c.id] AS path
+      FROM contacts.contacts c
+      WHERE c.id = (SELECT id FROM root)
+        AND c.book_id = ${config.bookId}::uuid
+
+      UNION ALL
+
+      SELECT
+        child.id,
+        child.label,
+        child.first_name,
+        child.last_name,
+        child.company_name,
+        child.job_title,
+        child.parent_contact_id,
+        descendants.depth + 1 AS depth,
+        descendants.path || child.id
+      FROM contacts.contacts child
+      JOIN descendants ON child.parent_contact_id = descendants.id
+      WHERE child.book_id = ${config.bookId}::uuid
+        AND NOT child.id = ANY(descendants.path)
+    )
+    SELECT
+      id,
+      label,
+      first_name,
+      last_name,
+      company_name,
+      job_title,
+      parent_contact_id
+    FROM descendants
+  `;
+
+  if (rows.length === 0) return null;
+
+  const nodes = new Map<string, ContactTreeNode>();
+  for (const row of rows) {
+    nodes.set(row.id, {
+      id: row.id,
+      label: row.label,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      companyName: row.company_name,
+      jobTitle: row.job_title,
+      parentContactId: row.parent_contact_id,
+      children: [],
+    });
+  }
+
+  let root: ContactTreeNode | null = null;
+  for (const node of nodes.values()) {
+    const parent = node.parentContactId ? nodes.get(node.parentContactId) : null;
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      root = node;
+    }
+  }
+
+  if (!root || !nodes.has(config.id)) return null;
+  sortTreeNodes([root]);
+
+  return {
+    bookId: config.bookId,
+    selectedId: config.id,
+    root,
+  };
 };
 
 /**

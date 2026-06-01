@@ -113,6 +113,24 @@ const ContactRefSchema = z.object({
   jobTitle: z.string().nullable(),
 });
 
+type ContactTreeNodeApi = z.infer<typeof ContactRefSchema> & {
+  parentContactId: string | null;
+  children: ContactTreeNodeApi[];
+};
+
+const ContactTreeNodeSchema: z.ZodType<ContactTreeNodeApi> = z.lazy(() =>
+  ContactRefSchema.extend({
+    parentContactId: z.string().nullable(),
+    children: z.array(ContactTreeNodeSchema),
+  }),
+);
+
+const ContactTreeSchema = z.object({
+  bookId: z.string(),
+  selectedId: z.string(),
+  root: ContactTreeNodeSchema,
+});
+
 const ContactSchema = z.object({
   id: z.string(),
   bookId: z.string(),
@@ -749,6 +767,35 @@ const app = new Hono<AuthContext>()
       }
 
       return respond(c, ok(contact));
+    },
+  )
+
+  .get(
+    "/books/:bookId/contacts/:contactId/tree",
+    describeRoute({
+      tags: ["Contacts"],
+      summary: "Get contact tree",
+      description: "Load the full hierarchy around one manual contact in a specific book.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactTreeSchema, "Contact hierarchy tree"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Contact tree not found"),
+      },
+    }),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+
+      const { error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+
+      const contactTree = await contactsService.contact.tree({ id: contactId, bookId });
+      if (!contactTree) {
+        return respond(c, fail(err.notFound("Contact tree")));
+      }
+
+      return respond(c, ok(contactTree));
     },
   )
 

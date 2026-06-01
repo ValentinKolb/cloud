@@ -87,6 +87,17 @@ export type ContactRef = {
   jobTitle: string | null;
 };
 
+export type ContactTreeNode = ContactRef & {
+  parentContactId: string | null;
+  children: ContactTreeNode[];
+};
+
+export type ContactTree = {
+  bookId: string;
+  selectedId: string;
+  root: ContactTreeNode;
+};
+
 export type Contact = {
   id: string;
   bookId: string;
