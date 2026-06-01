@@ -60,7 +60,12 @@ import {
   ColorInputDemo,
   ComboboxDemo,
   DateInputDemo,
+  DatePickerDemo,
+  DatePickerPlainDemo,
+  DateRangePickerDemo,
+  DateRangePickerWithTimeDemo,
   DateTimeInputDemo,
+  DateTimePickerDemo,
   IconInputDemo,
   ImageInputDemo,
   MarkdownEditorStandalone,
@@ -217,6 +222,23 @@ export const uiLabDocs: UiLabDocSection[] = [
             <NumberInputBasic />
             <NumberInputPercent />
             <NumberInputCurrency />
+          </DemoGrid>
+        ),
+      ),
+      page(
+        "input",
+        "date-picker",
+        "Date Pickers",
+        "ti ti-calendar",
+        "Popover date, date-time, and range pickers with caller-owned presets and timezone-aware output.",
+        ["datepicker-basic", "datepicker-plain", "datetimepicker-basic", "daterangepicker-basic", "daterangepicker-time"],
+        () => (
+          <DemoGrid>
+            <DatePickerDemo />
+            <DatePickerPlainDemo />
+            <DateTimePickerDemo />
+            <DateRangePickerDemo />
+            <DateRangePickerWithTimeDemo />
           </DemoGrid>
         ),
       ),

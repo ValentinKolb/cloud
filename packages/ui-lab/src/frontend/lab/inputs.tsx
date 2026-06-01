@@ -9,7 +9,10 @@ import {
   CheckboxCard,
   ColorInput,
   Combobox,
+  DatePicker,
+  DateRangePicker,
   DateTimeInput,
+  DateTimePicker,
   IconInput,
   ImageInput,
   MarkdownEditor,
@@ -23,10 +26,19 @@ import {
   TagsInput,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createSignal, Show } from "solid-js";
 import DemoCard from "./DemoCard";
 
 const FROM_UI = "@valentinkolb/cloud/ui";
+const pickerDateConfig: DateContext = { timeZone: "Europe/Berlin", weekStartsOn: 1 };
+const pickerToday = dates.formatDateKey(new Date(), pickerDateConfig);
+const pickerTomorrow = dates.formatDateKey(dates.addDays(new Date(), 1, pickerDateConfig), pickerDateConfig);
+const pickerNextWeek = dates.formatDateKey(dates.addWeeks(new Date(), 1, pickerDateConfig), pickerDateConfig);
+const pickerDateTime = (date: string, time: string) =>
+  typeof dates.zonedDateTimeToInstant === "function"
+    ? dates.zonedDateTimeToInstant(`${date}T${time}`, pickerDateConfig.timeZone!, { disambiguation: "compatible" })
+    : `${date}T${time}`;
 
 /* ── TextInput ───────────────────────────────────────────────── */
 
@@ -676,6 +688,181 @@ export const NumberInputCurrency = () => {
 };
 
 /* ── Date/Time ───────────────────────────────────────────────── */
+
+export const DatePickerDemo = () => {
+  const [v, setV] = createSignal<string | null>(pickerToday);
+  return (
+    <DemoCard
+      id="datepicker-basic"
+      chip={{ kind: "component", name: "DatePicker", from: FROM_UI }}
+      variant="single date"
+      description="Popover calendar with caller-owned presets. Values stay date-only `YYYY-MM-DD` strings."
+      code={`<DatePicker
+  label="Due date"
+  value={date}
+  onChange={setDate}
+  presets={[
+    { label: "Today", value: today },
+    { label: "Tomorrow", value: tomorrow },
+  ]}
+/>`}
+    >
+      <DatePicker
+        label="Due date"
+        placeholder="Pick date"
+        value={v}
+        onChange={setV}
+        clearable
+        dateConfig={pickerDateConfig}
+        presets={[
+          { label: "Today", value: pickerToday },
+          { label: "Tomorrow", value: pickerTomorrow },
+          { label: "Next week", value: pickerNextWeek },
+        ]}
+      />
+      <p class="mt-2 font-mono text-xs text-dimmed">{v() ?? "null"}</p>
+    </DemoCard>
+  );
+};
+
+export const DatePickerPlainDemo = () => {
+  const [v, setV] = createSignal<string | null>(null);
+  return (
+    <DemoCard
+      id="datepicker-plain"
+      chip={{ kind: "component", name: "DatePicker", from: FROM_UI }}
+      variant="plain"
+      description="Minimal date picker without presets. Use this when shortcuts would add noise."
+      code={`<DatePicker
+  label="Birthday"
+  placeholder="Pick date"
+  value={date}
+  onChange={setDate}
+  clearable
+/>`}
+    >
+      <DatePicker label="Birthday" placeholder="Pick date" value={v} onChange={setV} clearable dateConfig={pickerDateConfig} />
+      <p class="mt-2 font-mono text-xs text-dimmed">{v() ?? "null"}</p>
+    </DemoCard>
+  );
+};
+
+export const DateTimePickerDemo = () => {
+  const [v, setV] = createSignal<string | null>(pickerDateTime(pickerToday, "09:00"));
+  return (
+    <DemoCard
+      id="datetimepicker-basic"
+      chip={{ kind: "component", name: "DateTimePicker", from: FROM_UI }}
+      variant="timezone-aware"
+      description="The timezone is passive info. With `dateConfig`, picked wall-clock time is emitted as a UTC instant."
+      code={`<DateTimePicker
+  label="Start"
+  value={startsAt}
+  onChange={setStartsAt}
+  dateConfig={dateConfig}
+  presets={[
+    { label: "Tomorrow 09:00", value: tomorrowNineUtc },
+  ]}
+/>`}
+    >
+      <DateTimePicker
+        label="Start"
+        placeholder="Pick date and time"
+        value={v}
+        onChange={setV}
+        clearable
+        dateConfig={pickerDateConfig}
+        presets={[
+          { label: "Today 09:00", value: pickerDateTime(pickerToday, "09:00") },
+          { label: "Today 14:00", value: pickerDateTime(pickerToday, "14:00") },
+          { label: "Tomorrow 09:00", value: pickerDateTime(pickerTomorrow, "09:00") },
+        ]}
+      />
+      <p class="mt-2 font-mono text-xs text-dimmed">{v() ?? "null"}</p>
+    </DemoCard>
+  );
+};
+
+export const DateRangePickerDemo = () => {
+  const [v, setV] = createSignal({ start: pickerToday, end: pickerTomorrow });
+  return (
+    <DemoCard
+      id="daterangepicker-basic"
+      chip={{ kind: "component", name: "DateRangePicker", from: FROM_UI }}
+      variant="date range"
+      description="Range selection uses the same panel. Presets are plain caller data; no hardcoded preset sets live in Cloud UI."
+      code={`<DateRangePicker
+  label="Range"
+  value={range}
+  onChange={setRange}
+  presets={[
+    { label: "Today", value: { start: today, end: today } },
+    { label: "Next 7 days", value: { start: today, end: nextWeek } },
+  ]}
+/>`}
+    >
+      <DateRangePicker
+        label="Range"
+        value={v}
+        onChange={setV}
+        clearable
+        dateConfig={pickerDateConfig}
+        presets={[
+          { label: "Today", value: { start: pickerToday, end: pickerToday } },
+          { label: "Tomorrow", value: { start: pickerTomorrow, end: pickerTomorrow } },
+          { label: "Next 7 days", value: { start: pickerToday, end: pickerNextWeek } },
+        ]}
+      />
+      <p class="mt-2 font-mono text-xs text-dimmed">{JSON.stringify(v())}</p>
+    </DemoCard>
+  );
+};
+
+export const DateRangePickerWithTimeDemo = () => {
+  const [v, setV] = createSignal({
+    start: pickerDateTime(pickerToday, "09:00"),
+    end: pickerDateTime(pickerToday, "10:00"),
+  });
+  return (
+    <DemoCard
+      id="daterangepicker-time"
+      chip={{ kind: "component", name: "DateRangePicker", from: FROM_UI }}
+      variant="range + time"
+      description="`withTime` keeps one component for event ranges. Start/end values are UTC instants when `dateConfig` is set."
+      code={`<DateRangePicker
+  withTime
+  label="Schedule"
+  value={schedule}
+  onChange={setSchedule}
+  dateConfig={dateConfig}
+/>`}
+    >
+      <DateRangePicker
+        withTime
+        label="Schedule"
+        value={v}
+        onChange={setV}
+        clearable
+        dateConfig={pickerDateConfig}
+        presets={[
+          {
+            label: "Morning",
+            value: { start: pickerDateTime(pickerToday, "09:00"), end: pickerDateTime(pickerToday, "12:00") },
+          },
+          {
+            label: "Afternoon",
+            value: { start: pickerDateTime(pickerToday, "13:00"), end: pickerDateTime(pickerToday, "17:00") },
+          },
+          {
+            label: "Tomorrow",
+            value: { start: pickerDateTime(pickerTomorrow, "09:00"), end: pickerDateTime(pickerTomorrow, "10:00") },
+          },
+        ]}
+      />
+      <p class="mt-2 font-mono text-xs text-dimmed">{JSON.stringify(v())}</p>
+    </DemoCard>
+  );
+};
 
 export const DateTimeInputDemo = () => {
   const [v, setV] = createSignal("2026-02-18T10:30");

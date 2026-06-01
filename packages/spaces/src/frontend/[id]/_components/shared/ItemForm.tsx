@@ -1,20 +1,28 @@
-import { createSignal, For, Show } from "solid-js";
-import { EntitySearch, type EntitySearchPrincipal, NumberInput, PanelDialog, TextInput } from "@valentinkolb/cloud/ui";
-import { CheckboxCard } from "@valentinkolb/cloud/ui";
-import { SelectInput } from "@valentinkolb/cloud/ui";
-import { SegmentedControl } from "@valentinkolb/cloud/ui";
-import { DateTimeInput } from "@valentinkolb/cloud/ui";
+import {
+  CheckboxCard,
+  DatePicker,
+  DateRangePicker,
+  DateTimePicker,
+  EntitySearch,
+  type EntitySearchPrincipal,
+  NumberInput,
+  PanelDialog,
+  SegmentedControl,
+  SelectInput,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { createSignal, For, Show } from "solid-js";
 import type { Recurrence, SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
 import {
   emptyRecurrenceState,
+  type RecurrenceEndMode,
+  type RecurrenceFrequency,
+  type RecurrencePreset,
   recurrenceEndOptions,
   recurrenceFrequencyOptions,
   recurrenceFromFormState,
   recurrenceToFormState,
-  type RecurrenceEndMode,
-  type RecurrenceFrequency,
-  type RecurrencePreset,
   weekdayOptions,
 } from "./recurrence";
 
@@ -99,6 +107,7 @@ export default function ItemForm(props: Props) {
   const showAdvanced = () => advancedOpen();
   const defaultTitle = () => (isEditMode() ? (isEvent() ? "Edit event" : "Edit task") : isEvent() ? "New event" : "New task");
   const defaultSubmitLabel = () => (isEditMode() ? (isEvent() ? "Save Event" : "Save Task") : isEvent() ? "Create Event" : "Create Task");
+  const eventRange = () => ({ start: startsAt() || null, end: endsAt() || null });
 
   const columnOptions = () =>
     props.columns.map((c) => ({
@@ -262,12 +271,13 @@ export default function ItemForm(props: Props) {
               markdown
             />
             <Show when={!isEvent()}>
-              <DateTimeInput
+              <DateTimePicker
                 label="Deadline"
                 description={!isEditMode() ? "When should this be completed?" : undefined}
-                value={deadline}
-                onChange={setDeadline}
+                value={() => deadline() || null}
+                onChange={(value) => setDeadline(value ?? "")}
                 dateConfig={props.dateConfig}
+                clearable
               />
             </Show>
 
@@ -280,30 +290,20 @@ export default function ItemForm(props: Props) {
                 value={allDay}
                 onChange={setAllDay}
               />
-              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <DateTimeInput
-                  label="Start"
-                  description={!isEditMode() ? "When does it start?" : undefined}
-                  value={startsAt}
-                  onChange={(v) => {
-                    setStartsAt(v);
-                    setError("");
-                  }}
-                  dateConfig={props.dateConfig}
-                  required
-                />
-                <DateTimeInput
-                  label="End"
-                  description={!isEditMode() ? "When does it end?" : undefined}
-                  value={endsAt}
-                  onChange={(v) => {
-                    setEndsAt(v);
-                    setError("");
-                  }}
-                  dateConfig={props.dateConfig}
-                  required
-                />
-              </div>
+              <DateRangePicker
+                withTime
+                label="Schedule"
+                description={!isEditMode() ? "Start and end time for the event" : undefined}
+                value={eventRange}
+                onChange={(value) => {
+                  setStartsAt(value.start ?? "");
+                  setEndsAt(value.end ?? "");
+                  setError("");
+                }}
+                dateConfig={props.dateConfig}
+                required
+                clearable
+              />
             </Show>
           </div>
 
@@ -373,13 +373,13 @@ export default function ItemForm(props: Props) {
               <Show when={recurrenceEnabled() && recurrenceEndMode() !== "never"}>
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <Show when={recurrenceEndMode() === "on"}>
-                    <DateTimeInput
+                    <DatePicker
                       label="Until"
                       description={!isEditMode() ? "Last date that may contain an occurrence" : undefined}
-                      value={recurrenceUntil}
-                      onChange={setRecurrenceUntil}
-                      dateOnly
+                      value={() => recurrenceUntil() || null}
+                      onChange={(value) => setRecurrenceUntil(value ?? "")}
                       dateConfig={props.dateConfig}
+                      clearable
                     />
                   </Show>
                   <Show when={recurrenceEndMode() === "after"}>
