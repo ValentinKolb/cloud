@@ -225,10 +225,10 @@ const processLine = (line: string, matchRegex: RegExp | null = null): string => 
 
   // Header (1–3 hashes only — h4+ aren't typographically distinct in
   // our font-weight-only scheme, so we don't pretend to support them).
-  const header = /^(#{1,3})\s(.*)$/.exec(line);
+  const header = /^(#{1,3})(\s)(.*)$/.exec(line);
   if (header) {
-    const [, hashes, content] = header;
-    return `<span class="md-h${hashes!.length}"><span class="md-syntax">${hashes} </span>${processInline(content!, matchRegex)}</span>`;
+    const [, hashes, ws, content] = header;
+    return `<span class="md-h${hashes!.length}"><span class="md-syntax">${hashes}${ws}</span>${processInline(content!, matchRegex)}</span>`;
   }
 
   // Horizontal rule — `---`, `***`, or `___` alone on a line.
@@ -237,23 +237,23 @@ const processLine = (line: string, matchRegex: RegExp | null = null): string => 
   }
 
   // Blockquote (`>` is HTML-escaped to `&gt;` by this point).
-  const quote = /^(&gt;)\s(.*)$/.exec(line);
+  const quote = /^(&gt;)(\s)(.*)$/.exec(line);
   if (quote) {
-    return `<span class="md-quote"><span class="md-syntax">${quote[1]} </span>${processInline(quote[2]!, matchRegex)}</span>`;
+    return `<span class="md-quote"><span class="md-syntax">${quote[1]}${quote[2]}</span>${processInline(quote[3]!, matchRegex)}</span>`;
   }
 
   // Bullet list: `- `, `* `, `+ ` with optional leading indent.
-  const bullet = /^(\s*)([-*+])\s(.*)$/.exec(line);
+  const bullet = /^(\s*)([-*+])(\s)(.*)$/.exec(line);
   if (bullet) {
-    const [, indent, marker, content] = bullet;
-    return `${indent}<span class="md-marker">${marker} </span>${processInline(content!, matchRegex)}`;
+    const [, indent, marker, ws, content] = bullet;
+    return `${indent}<span class="md-marker">${marker}${ws}</span>${processInline(content!, matchRegex)}`;
   }
 
   // Numbered list: `1. ` etc.
-  const numbered = /^(\s*)(\d+\.)\s(.*)$/.exec(line);
+  const numbered = /^(\s*)(\d+\.)(\s)(.*)$/.exec(line);
   if (numbered) {
-    const [, indent, marker, content] = numbered;
-    return `${indent}<span class="md-marker">${marker} </span>${processInline(content!, matchRegex)}`;
+    const [, indent, marker, ws, content] = numbered;
+    return `${indent}<span class="md-marker">${marker}${ws}</span>${processInline(content!, matchRegex)}`;
   }
 
   // Plain paragraph line — just inline pass.
@@ -301,5 +301,16 @@ export const highlightMarkdown = (text: string, options: HighlightOptions = {}):
     out.push(processLine(line, matchRegex));
   }
 
-  return restoreSanctuaries(out.join("\n"), sanctuaries);
+  const html = restoreSanctuaries(out.join("\n"), sanctuaries);
+
+  // A `<textarea>` reserves an empty final line for the caret when its
+  // value ends in "\n", but a `white-space: pre-wrap` block swallows
+  // that single trailing newline and renders one line shorter. The
+  // mismatch makes the preview's scrollHeight smaller than the
+  // textarea's, so the scroll-sync clamps and the visible text drifts
+  // up to one line near the bottom. Append one extra newline to mirror
+  // the textarea's phantom last line. Only the LAST trailing newline is
+  // dropped by the layout, so a single extra suffices for any run of
+  // trailing blanks.
+  return text.endsWith("\n") ? `${html}\n` : html;
 };
