@@ -1,7 +1,7 @@
 import { Show, For, createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { dates } from "@valentinkolb/stdlib";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { markdown } from "@valentinkolb/cloud/shared";
 import {
   Dropdown,
@@ -17,6 +17,7 @@ import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "
 import CommentsSection from "./CommentsSection";
 import type { SpaceColumn, SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/contracts";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
+import { summarizeRecurrence } from "../shared/recurrence";
 
 type Props = {
   item: SpaceItem;
@@ -29,6 +30,7 @@ type Props = {
   currentUserId: string;
   /** Initial comments list */
   initialComments?: SpaceComment[];
+  dateConfig?: DateContext;
 };
 
 // =============================================================================
@@ -497,7 +499,14 @@ export default function ItemDetailPanel(props: Props) {
   const handleDelete = () => deleteMutation.mutate({});
 
   const editItemMutation = mutations.create<boolean, void>({
-    mutation: () => editItemWithDialog({ spaceId: props.spaceId, item: props.item, columns: props.columns, tags: props.tags }),
+    mutation: () =>
+      editItemWithDialog({
+        spaceId: props.spaceId,
+        item: props.item,
+        columns: props.columns,
+        tags: props.tags,
+        dateConfig: props.dateConfig,
+      }),
     onSuccess: handleEditItemSuccess,
     onError: (err) => prompts.error(err.message),
   });
@@ -529,6 +538,7 @@ export default function ItemDetailPanel(props: Props) {
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
+  const recurrenceSummary = () => summarizeRecurrence(props.item.recurrence);
 
   const scheduleTitle = () => (isEvent() ? "Event Time" : "Deadline");
 
@@ -646,9 +656,38 @@ export default function ItemDetailPanel(props: Props) {
                 {dates.formatDuration(props.item.startsAt!, props.item.endsAt!)}
               </Show>
             </dd>
+            <Show when={recurrenceSummary()}>
+              <dt class="detail-fact-key">Repeat</dt>
+              <dd>
+                <span class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-500/15 dark:text-blue-300">
+                  <i class="ti ti-repeat" />
+                  {recurrenceSummary()}
+                </span>
+              </dd>
+            </Show>
           </dl>
         </Show>
       </section>
+
+      <Show when={isEvent() && (props.item.location || props.item.url)}>
+        <section class="detail-section">
+          <SectionHeader title="Event details" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />
+          <dl class="detail-facts">
+            <Show when={props.item.location}>
+              <dt class="detail-fact-key">Location</dt>
+              <dd>{props.item.location}</dd>
+            </Show>
+            <Show when={props.item.url}>
+              <dt class="detail-fact-key">URL</dt>
+              <dd>
+                <a href={props.item.url!} target="_blank" rel="noreferrer" class="link break-all">
+                  {props.item.url}
+                </a>
+              </dd>
+            </Show>
+          </dl>
+        </section>
+      </Show>
 
       <section class="detail-section" style="view-transition-name: space-item-detail-description">
         <SectionHeader title="Description" onEdit={() => editItemMutation.mutate(undefined)} disabled={isLoading()} />

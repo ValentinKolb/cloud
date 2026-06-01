@@ -1,4 +1,5 @@
 import { dialogCore, panelDialogOptions, toast } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
@@ -9,6 +10,7 @@ type EditItemParams = {
   item: SpaceItem;
   columns: SpaceColumn[];
   tags: SpaceTag[];
+  dateConfig?: DateContext;
 };
 
 export const saveItemFormData = async (params: { spaceId: string; itemId: string; data: ItemFormData }): Promise<void> => {
@@ -17,6 +19,8 @@ export const saveItemFormData = async (params: { spaceId: string; itemId: string
     json: {
       ...params.data,
       description: params.data.description ?? null,
+      location: params.data.location ?? null,
+      url: params.data.url ?? null,
       priority: params.data.priority ?? null,
       deadline: params.data.deadline ?? null,
       startsAt: params.data.startsAt ?? null,
@@ -38,6 +42,7 @@ export const editItemWithDialog = async (params: EditItemParams): Promise<boolea
         submitLabel="Save Item"
         title="Edit item"
         icon="ti ti-edit"
+        dateConfig={params.dateConfig}
       />
     ),
     panelDialogOptions,

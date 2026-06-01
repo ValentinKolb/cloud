@@ -2,6 +2,7 @@ import { Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type { SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
 import ItemDetailPanel from "./ItemDetailPanel";
 import { subscribeToDetailSelection } from "../../../lib/detail";
@@ -16,6 +17,7 @@ type Props = {
   initialComments: SpaceComment[];
   showEmpty?: boolean;
   emptyText?: string;
+  dateConfig?: DateContext;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
@@ -164,6 +166,7 @@ export default function ItemDetailHost(props: Props) {
             baseUrl={props.baseUrl}
             currentUserId={props.currentUserId}
             initialComments={comments()}
+            dateConfig={props.dateConfig}
           />
         )}
       </Show>

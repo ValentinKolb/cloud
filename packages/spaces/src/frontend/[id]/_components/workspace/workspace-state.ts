@@ -1,5 +1,5 @@
 import { weatherService } from "@valentinkolb/cloud/services";
-import { dates as calendar } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { CalendarItem, ItemListResult, SpaceComment, SpaceItem } from "@/contracts";
 import { spacesService } from "@/service";
 import type { CalendarView, DayWeather } from "../calendar/types";
@@ -19,6 +19,7 @@ export const loadSpacesWorkspaceState = async (params: {
   href: string;
   cookieHeader?: string;
   settings?: boolean;
+  dateConfig?: DateContext;
 }): Promise<SpacesWorkspaceState> => {
   const url = new URL(params.href, "http://spaces.local");
   const spaceId = params.spaceId;
@@ -143,22 +144,34 @@ export const loadSpacesWorkspaceState = async (params: {
 
   const calendarView: CalendarView =
     calendarViewParam && ["day", "week", "month", "year"].includes(calendarViewParam) ? calendarViewParam : "month";
-  const calendarDate = calendar.parseCalendarDate(calendarDateParam);
+  const dateConfig = params.dateConfig;
+  const calendarDate = calendar.parseCalendarDate(calendarDateParam, dateConfig);
   let calendarItems: CalendarItem[] = [];
   const calendarWeather: Record<string, DayWeather> = {};
   if (currentView === "calendar") {
+    const calendarYear = Number(calendar.formatDateKey(calendarDate, dateConfig).slice(0, 4));
     const { from, to } =
       calendarView === "day"
-        ? { from: calendarDate, to: calendar.addDays(calendarDate, 1) }
+        ? { from: calendarDate, to: calendar.addDays(calendarDate, 1, dateConfig) }
         : calendarView === "year"
-          ? { from: new Date(calendarDate.getFullYear(), 0, 1), to: new Date(calendarDate.getFullYear() + 1, 0, 1) }
-          : calendar.getDateRange(calendarView, calendarDate);
+          ? dateConfig?.timeZone
+            ? {
+                from: new Date(
+                  calendar.zonedDateTimeToInstant(`${calendarYear}-01-01T00:00`, dateConfig.timeZone, { disambiguation: "compatible" }),
+                ),
+                to: new Date(
+                  calendar.zonedDateTimeToInstant(`${calendarYear + 1}-01-01T00:00`, dateConfig.timeZone, { disambiguation: "compatible" }),
+                ),
+              }
+            : { from: new Date(calendarYear, 0, 1), to: new Date(calendarYear + 1, 0, 1) }
+          : calendar.getDateRange(calendarView, calendarDate, dateConfig);
     const accessibleItems = (
       await spacesService.item.calendar.list({
         userId: params.user.id,
         groups: params.user.memberofGroupIds,
         from: from.toISOString(),
         to: to.toISOString(),
+        dateConfig,
       })
     ).filter((item) => item.spaceId === spaceId);
     calendarItems =

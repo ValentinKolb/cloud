@@ -8,7 +8,7 @@ import {
   type DndDraggableSnapshot,
   type DndDroppableSnapshot,
 } from "@valentinkolb/stdlib/solid";
-import { dates } from "@valentinkolb/stdlib";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { prompts } from "@valentinkolb/cloud/ui";
 import type { KanbanBucketInitial } from "./types";
 import {
@@ -29,6 +29,7 @@ type Props = {
   initialBuckets: KanbanBucketInitial[];
   pageSize: number;
   completedColumnId?: string | null;
+  dateConfig?: DateContext;
 };
 
 type LoadMoreContext = {
@@ -140,7 +141,8 @@ export default function KanbanBoard(props: Props) {
 
   const getBucketByKey = (bucketKey: string) => buckets().find((bucket) => bucket.key === bucketKey) ?? null;
   const editMutation = mutations.create<boolean, SpaceItem>({
-    mutation: (item) => editItemWithDialog({ spaceId: props.spaceId, item, columns: props.columns, tags: props.tags }),
+    mutation: (item) =>
+      editItemWithDialog({ spaceId: props.spaceId, item, columns: props.columns, tags: props.tags, dateConfig: props.dateConfig }),
     onSuccess: handleEditItemSuccess,
     onError: (err) => prompts.error(err.message),
   });

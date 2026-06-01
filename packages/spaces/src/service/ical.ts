@@ -21,6 +21,8 @@ type DbItem = {
   id: string;
   title: string;
   description: string | null;
+  location: string | null;
+  url: string | null;
   starts_at: Date | null;
   ends_at: Date | null;
   all_day: boolean;
@@ -72,7 +74,7 @@ export const generate = async (params: { spaceId: string; baseUrl: string }): Pr
 
   // Get all non-completed items with time data
   const items = await sql<DbItem[]>`
-    SELECT id, title, description, starts_at, ends_at, all_day, deadline, priority, created_at, updated_at
+    SELECT id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority, created_at, updated_at
     FROM spaces.items
     WHERE space_id = ${params.spaceId}
       AND completed_at IS NULL
@@ -103,7 +105,8 @@ export const generate = async (params: { spaceId: string; baseUrl: string }): Pr
         allDay: item.all_day,
         summary: item.title,
         description: item.description ?? undefined,
-        url: `${params.baseUrl}/app/spaces/${space.id}/items/${item.id}`,
+        location: item.location ?? undefined,
+        url: item.url ?? `${params.baseUrl}/app/spaces/${space.id}?item=${item.id}`,
         created: item.created_at,
         lastModified: item.updated_at,
         priority: priorityToIcal(item.priority as Priority | null),
@@ -116,7 +119,8 @@ export const generate = async (params: { spaceId: string; baseUrl: string }): Pr
         allDay: true,
         summary: `[Deadline] ${item.title}`,
         description: item.description ?? undefined,
-        url: `${params.baseUrl}/app/spaces/${space.id}/items/${item.id}`,
+        location: item.location ?? undefined,
+        url: item.url ?? `${params.baseUrl}/app/spaces/${space.id}?item=${item.id}`,
         created: item.created_at,
         lastModified: item.updated_at,
         priority: priorityToIcal(item.priority as Priority | null),

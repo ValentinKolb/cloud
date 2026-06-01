@@ -1,5 +1,6 @@
 import { apiClient } from "@/api/client";
 import { AppWorkspace, dialogCore, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
@@ -9,6 +10,7 @@ type Props = {
   spaceId: string;
   columns: SpaceColumn[];
   tags: SpaceTag[];
+  dateConfig?: DateContext;
   variant?: "primary" | "secondary" | "sidebar" | "chip" | "icon";
 };
 
@@ -24,6 +26,7 @@ export default function CreateItemButton(props: Props) {
             onCancel={() => close(null)}
             title="New item"
             icon="ti ti-plus"
+            dateConfig={props.dateConfig}
           />
         ),
         panelDialogOptions,
@@ -32,7 +35,13 @@ export default function CreateItemButton(props: Props) {
 
       const res = await apiClient[":id"].items.$post({
         param: { id: props.spaceId },
-        json: { ...result, priority: result.priority ?? undefined },
+        json: {
+          ...result,
+          location: result.location ?? undefined,
+          url: result.url ?? undefined,
+          priority: result.priority ?? undefined,
+          recurrence: result.recurrence ?? undefined,
+        },
       });
       if (!res.ok) {
         const data = await res.json();

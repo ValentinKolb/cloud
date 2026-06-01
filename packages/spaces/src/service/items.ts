@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
+import type { DateContext } from "@valentinkolb/stdlib";
 import type {
   MutationResult,
   SpaceItem,
@@ -12,9 +13,11 @@ import type {
   Priority,
   ItemFilter,
   ItemListResult,
+  Recurrence,
 } from "@/contracts";
 import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
+import { expandRecurringEvents, type ExpandedRecurringEvent, type RecurringEvent, type RecurringOverride } from "./recurrence";
 
 // ==========================
 // Items Service
@@ -26,11 +29,18 @@ type DbItem = {
   column_id: string;
   title: string;
   description: string | null;
+  location: string | null;
+  url: string | null;
   starts_at: Date | null;
   ends_at: Date | null;
   all_day: boolean;
   deadline: Date | null;
   priority: string | null;
+  recurrence_rrule: string | null;
+  recurrence_dtstart: Date | null;
+  recurrence_exdate: Date[] | null;
+  recurring_event_id: string | null;
+  recurrence_id: Date | null;
   rank: string;
   completed_at: Date | null;
   email_thread_id: string | null;
@@ -45,11 +55,18 @@ type DbCalendarItem = {
   space_name: string;
   space_color: string;
   title: string;
+  location: string | null;
+  url: string | null;
   starts_at: Date | null;
   ends_at: Date | null;
   all_day: boolean;
   deadline: Date | null;
   priority: string | null;
+  recurrence_rrule: string | null;
+  recurrence_dtstart: Date | null;
+  recurrence_exdate: Date[] | null;
+  recurring_event_id: string | null;
+  recurrence_id: Date | null;
 };
 
 type DbOverlapItem = {
@@ -75,6 +92,63 @@ type DbItemTag = {
   color: string;
 };
 
+const mapRecurrence = (row: Pick<DbItem, "recurrence_rrule" | "recurrence_dtstart" | "recurrence_exdate">): Recurrence | null => {
+  if (!row.recurrence_rrule) return null;
+  return {
+    rrule: row.recurrence_rrule,
+    dtstart: row.recurrence_dtstart?.toISOString() ?? null,
+    exdate: (row.recurrence_exdate ?? []).map((date) => date.toISOString()),
+  };
+};
+
+const toPgTimestampArray = (values: string[]): string => `{${values.map((value) => `"${new Date(value).toISOString()}"`).join(",")}}`;
+
+const recurrenceValues = (recurrence: Recurrence | null | undefined) => ({
+  rrule: recurrence?.rrule ?? null,
+  dtstart: recurrence?.dtstart ?? null,
+  exdate: recurrence?.exdate && recurrence.exdate.length > 0 ? toPgTimestampArray(recurrence.exdate) : null,
+});
+
+const validateRecurrenceInput = async (params: {
+  spaceId: string;
+  startsAt: string | null | undefined;
+  endsAt: string | null | undefined;
+  recurrence: Recurrence | null | undefined;
+  recurringEventId: string | null | undefined;
+  recurrenceId: string | null | undefined;
+}): Promise<MutationResult<void>> => {
+  const isSeries = !!params.recurrence?.rrule;
+  const isOverride = !!params.recurringEventId || !!params.recurrenceId;
+
+  if (isSeries && isOverride) {
+    return { ok: false, error: "Recurring series cannot also be an override", status: 400 };
+  }
+  if (isSeries && (!params.startsAt || !params.endsAt)) {
+    return { ok: false, error: "Recurring events require start and end times", status: 400 };
+  }
+  if (isOverride) {
+    if (!params.recurringEventId || !params.recurrenceId) {
+      return { ok: false, error: "Recurring overrides require parent event and recurrence id", status: 400 };
+    }
+    if (!params.startsAt || !params.endsAt) {
+      return { ok: false, error: "Recurring overrides require start and end times", status: 400 };
+    }
+    const [parent] = await sql<{ id: string }[]>`
+      SELECT id
+      FROM spaces.items
+      WHERE id = ${params.recurringEventId}
+        AND space_id = ${params.spaceId}
+        AND recurrence_rrule IS NOT NULL
+        AND recurring_event_id IS NULL
+    `;
+    if (!parent) {
+      return { ok: false, error: "Parent recurring event not found in space", status: 400 };
+    }
+  }
+
+  return { ok: true, data: undefined };
+};
+
 /**
  * Converts one item row from `spaces.items` into the API-facing `SpaceItem` object.
  */
@@ -84,11 +158,16 @@ const mapToItem = (row: DbItem): SpaceItem => ({
   columnId: row.column_id,
   title: row.title,
   description: row.description,
+  location: row.location,
+  url: row.url,
   startsAt: row.starts_at?.toISOString() ?? null,
   endsAt: row.ends_at?.toISOString() ?? null,
   allDay: row.all_day,
   deadline: row.deadline?.toISOString() ?? null,
   priority: (row.priority as Priority) ?? null,
+  recurrence: mapRecurrence(row),
+  recurringEventId: row.recurring_event_id,
+  recurrenceId: row.recurrence_id?.toISOString() ?? null,
   rank: row.rank,
   completedAt: row.completed_at?.toISOString() ?? null,
   createdBy: row.created_by,
@@ -328,8 +407,9 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
   if (includeCompleted) {
     rows = await sql<DbItem[]>`
       SELECT
-        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.all_day, i.deadline,
-        i.priority, i.rank::text AS rank,
+        i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline,
+        i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
+        i.rank::text AS rank,
         i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
       FROM spaces.items i
       LEFT JOIN spaces.columns c ON c.id = i.column_id
@@ -339,8 +419,9 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
   } else {
     rows = await sql<DbItem[]>`
       SELECT
-        i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at, i.all_day, i.deadline,
-        i.priority, i.rank::text AS rank,
+        i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline,
+        i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
+        i.rank::text AS rank,
         i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
       FROM spaces.items i
       LEFT JOIN spaces.columns c ON c.id = i.column_id
@@ -437,7 +518,7 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
   // Search filter (search in title and description)
   if (search && search.trim()) {
     const searchPattern = `%${search.trim()}%`;
-    conditions = sql`${conditions} AND (i.title ILIKE ${searchPattern} OR i.description ILIKE ${searchPattern})`;
+    conditions = sql`${conditions} AND (i.title ILIKE ${searchPattern} OR i.description ILIKE ${searchPattern} OR i.location ILIKE ${searchPattern} OR i.url ILIKE ${searchPattern})`;
   }
 
   // Build ORDER BY clause as SQL fragment
@@ -479,8 +560,9 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
 
   // Get items with pagination
   const rows = await sql<DbItem[]>`
-    SELECT i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at,
-           i.all_day, i.deadline, i.priority, i.rank::text AS rank,
+    SELECT i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at,
+           i.all_day, i.deadline, i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
+           i.rank::text AS rank,
            i.completed_at, i.email_thread_id,
            i.created_by, i.created_at, i.updated_at
     FROM spaces.items i
@@ -526,6 +608,92 @@ type DbItemAcross = DbItem & {
   space_name: string;
 };
 
+const mapCalendarRow = (r: DbCalendarItem, tags: SpaceTag[] = []): CalendarItem => ({
+  id: r.id,
+  spaceId: r.space_id,
+  spaceName: r.space_name,
+  spaceColor: r.space_color,
+  title: r.title,
+  location: r.location,
+  url: r.url,
+  startsAt: r.starts_at?.toISOString() ?? null,
+  endsAt: r.ends_at?.toISOString() ?? null,
+  allDay: r.all_day,
+  deadline: r.deadline?.toISOString() ?? null,
+  priority: (r.priority as Priority) ?? null,
+  recurrence: mapRecurrence(r),
+  recurringEventId: r.recurring_event_id,
+  recurrenceId: r.recurrence_id?.toISOString() ?? null,
+  tags,
+});
+
+const calendarRowToRecurringEvent = (item: CalendarItem): (RecurringEvent & { calendarItem: CalendarItem }) | null => {
+  if (!item.startsAt || !item.endsAt || !item.recurrence) return null;
+  return {
+    id: item.id,
+    title: item.title,
+    start: item.startsAt,
+    end: item.endsAt,
+    allDay: item.allDay,
+    recurrence: {
+      rrule: item.recurrence.rrule,
+      dtstart: item.recurrence.dtstart ?? item.startsAt,
+      exdate: item.recurrence.exdate,
+    },
+    calendarItem: item,
+  };
+};
+
+const calendarRowToRecurringOverride = (item: CalendarItem): (RecurringOverride & { calendarItem: CalendarItem }) | null => {
+  if (!item.startsAt || !item.endsAt || !item.recurringEventId || !item.recurrenceId) return null;
+  return {
+    id: item.id,
+    title: item.title,
+    start: item.startsAt,
+    end: item.endsAt,
+    allDay: item.allDay,
+    recurringEventId: item.recurringEventId,
+    recurrenceId: item.recurrenceId,
+    calendarItem: item,
+  };
+};
+
+const expandedToCalendarItem = (event: ExpandedRecurringEvent & { calendarItem?: CalendarItem }): CalendarItem => {
+  const source = event.calendarItem;
+  if (!source) {
+    const parent = event.recurringInstance?.recurringEventId ?? event.id;
+    return {
+      id: event.id,
+      spaceId: "",
+      spaceName: "",
+      spaceColor: "#3b82f6",
+      title: event.title,
+      location: null,
+      url: null,
+      startsAt: new Date(event.start).toISOString(),
+      endsAt: event.end ? new Date(event.end).toISOString() : null,
+      allDay: event.allDay ?? false,
+      deadline: null,
+      priority: null,
+      recurrence: null,
+      recurringEventId: parent,
+      recurrenceId: event.recurringInstance?.recurrenceId ?? null,
+      isRecurringInstance: !!event.recurringInstance,
+      tags: [],
+    };
+  }
+
+  return {
+    ...source,
+    id: event.id,
+    startsAt: new Date(event.start).toISOString(),
+    endsAt: event.end ? new Date(event.end).toISOString() : null,
+    recurringEventId: event.recurringInstance?.recurringEventId ?? source.recurringEventId,
+    recurrenceId: event.recurringInstance?.recurrenceId ?? source.recurrenceId,
+    isRecurringInstance: !!event.recurringInstance,
+  };
+};
+
 export const searchAcross = async (params: {
   userId: string | null;
   groups: string[];
@@ -562,8 +730,9 @@ export const searchAcross = async (params: {
   // and is what notebooks.searchAcross uses.
   const rows = await sql<DbItemAcross[]>`
     SELECT
-      i.id, i.space_id, i.column_id, i.title, i.description, i.starts_at, i.ends_at,
-      i.all_day, i.deadline, i.priority, i.rank::text AS rank,
+      i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at,
+      i.all_day, i.deadline, i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
+      i.rank::text AS rank,
       i.completed_at, i.email_thread_id,
       i.created_by, i.created_at, i.updated_at,
       s.name AS space_name
@@ -584,7 +753,7 @@ export const searchAcross = async (params: {
       AND ${kindCondition}
       AND ${statusCondition}
       AND ${priorityCondition}
-      AND (i.title ILIKE ${pattern} OR i.description ILIKE ${pattern})
+      AND (i.title ILIKE ${pattern} OR i.description ILIKE ${pattern} OR i.location ILIKE ${pattern} OR i.url ILIKE ${pattern})
     ORDER BY
       CASE WHEN i.title ILIKE ${pattern} THEN 0 ELSE 1 END,
       i.updated_at DESC
@@ -608,11 +777,18 @@ export const get = async (params: { id: string }): Promise<SpaceItem | null> => 
       i.column_id,
       i.title,
       i.description,
+      i.location,
+      i.url,
       i.starts_at,
       i.ends_at,
       i.all_day,
       i.deadline,
       i.priority,
+      i.recurrence_rrule,
+      i.recurrence_dtstart,
+      i.recurrence_exdate,
+      i.recurring_event_id,
+      i.recurrence_id,
       i.rank::text AS rank,
       i.completed_at,
       i.email_thread_id,
@@ -648,6 +824,16 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     return { ok: false, error: "Column not found in space", status: 400 };
   }
 
+  const recurrenceCheck = await validateRecurrenceInput({
+    spaceId,
+    startsAt: data.startsAt,
+    endsAt: data.endsAt,
+    recurrence: data.recurrence,
+    recurringEventId: data.recurringEventId,
+    recurrenceId: data.recurrenceId,
+  });
+  if (!recurrenceCheck.ok) return recurrenceCheck;
+
   // Get next rank in column
   const [maxRow] = await sql<{ max: string | null }[]>`
     SELECT MAX(rank)::text as max
@@ -655,22 +841,31 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     WHERE column_id = ${data.columnId}
   `;
   const nextRank = rank.next(maxRow?.max);
+  const recurrence = recurrenceValues(data.recurrence);
 
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO spaces.items (
-      space_id, column_id, title, description, starts_at, ends_at, deadline,
-      all_day, priority, rank, completed_at, created_by
+      space_id, column_id, title, description, location, url, starts_at, ends_at, deadline,
+      all_day, priority, recurrence_rrule, recurrence_dtstart, recurrence_exdate,
+      recurring_event_id, recurrence_id, rank, completed_at, created_by
     )
     VALUES (
       ${spaceId},
       ${data.columnId},
       ${data.title},
       ${data.description ?? null},
+      ${data.location ?? null},
+      ${data.url ?? null},
       ${data.startsAt ?? null},
       ${data.endsAt ?? null},
       ${data.deadline ?? null},
       ${data.allDay ?? false},
       ${data.priority ?? null},
+      ${recurrence.rrule},
+      ${recurrence.dtstart},
+      ${recurrence.exdate ? sql`${recurrence.exdate}::timestamptz[]` : null},
+      ${data.recurringEventId ?? null},
+      ${data.recurrenceId ?? null},
       ${rank.toDb(nextRank)}::bigint,
       ${null},
       ${createdBy}
@@ -728,11 +923,16 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   const columnId = data.columnId ?? existing.columnId;
   const title = data.title ?? existing.title;
   const description = data.description === undefined ? existing.description : data.description;
+  const location = data.location === undefined ? existing.location : data.location;
+  const url = data.url === undefined ? existing.url : data.url;
   const startsAt = data.startsAt === undefined ? existing.startsAt : data.startsAt;
   const endsAt = data.endsAt === undefined ? existing.endsAt : data.endsAt;
   const allDay = data.allDay === undefined ? existing.allDay : data.allDay;
   const deadline = data.deadline === undefined ? existing.deadline : data.deadline;
   const priority = data.priority === undefined ? existing.priority : data.priority;
+  const recurrence = data.recurrence === undefined ? existing.recurrence : data.recurrence;
+  const recurringEventId = data.recurringEventId === undefined ? existing.recurringEventId : data.recurringEventId;
+  const recurrenceId = data.recurrenceId === undefined ? existing.recurrenceId : data.recurrenceId;
   const changingColumn = !!(data.columnId && data.columnId !== existing.columnId);
 
   // If moving to a different column, prepend item to the top of the target column.
@@ -755,6 +955,16 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     const minRank = minRow?.min ? rank.parse(minRow.min) : null;
     targetRank = minRank !== null ? minRank - rank.step() : rank.step();
   }
+  const recurrenceCheck = await validateRecurrenceInput({
+    spaceId: existing.spaceId,
+    startsAt,
+    endsAt,
+    recurrence,
+    recurringEventId,
+    recurrenceId,
+  });
+  if (!recurrenceCheck.ok) return recurrenceCheck;
+  const recurrenceDb = recurrenceValues(recurrence);
 
   const [row] = changingColumn
     ? await sql<{ id: string }[]>`
@@ -763,11 +973,18 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
             rank = ${rank.toDb(targetRank ?? rank.step())}::bigint,
             title = ${title},
             description = ${description},
+            location = ${location},
+            url = ${url},
             starts_at = ${startsAt},
             ends_at = ${endsAt},
             all_day = ${allDay},
             deadline = ${deadline},
             priority = ${priority},
+            recurrence_rrule = ${recurrenceDb.rrule},
+            recurrence_dtstart = ${recurrenceDb.dtstart},
+            recurrence_exdate = ${recurrenceDb.exdate ? sql`${recurrenceDb.exdate}::timestamptz[]` : null},
+            recurring_event_id = ${recurringEventId},
+            recurrence_id = ${recurrenceId},
             updated_at = now()
         WHERE id = ${id}
         RETURNING id
@@ -776,11 +993,18 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
         UPDATE spaces.items
         SET title = ${title},
             description = ${description},
+            location = ${location},
+            url = ${url},
             starts_at = ${startsAt},
             ends_at = ${endsAt},
             all_day = ${allDay},
             deadline = ${deadline},
             priority = ${priority},
+            recurrence_rrule = ${recurrenceDb.rrule},
+            recurrence_dtstart = ${recurrenceDb.dtstart},
+            recurrence_exdate = ${recurrenceDb.exdate ? sql`${recurrenceDb.exdate}::timestamptz[]` : null},
+            recurring_event_id = ${recurringEventId},
+            recurrence_id = ${recurrenceId},
             updated_at = now()
         WHERE id = ${id}
         RETURNING id
@@ -1004,7 +1228,13 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
 /**
  * List calendar items (across multiple spaces the user has access to)
  */
-export const listCalendar = async (params: { userId: string; groups: string[]; from: string; to: string }): Promise<CalendarItem[]> => {
+export const listCalendar = async (params: {
+  userId: string;
+  groups: string[];
+  from: string;
+  to: string;
+  dateConfig?: DateContext;
+}): Promise<CalendarItem[]> => {
   const { userId, from, to } = params;
   const groups = params.groups ?? [];
 
@@ -1021,33 +1251,63 @@ export const listCalendar = async (params: { userId: string; groups: string[]; f
          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
-           i.title, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority
+           i.title, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority,
+           i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id
     FROM spaces.items i
     JOIN spaces.spaces s ON i.space_id = s.id
     WHERE i.space_id IN (SELECT id FROM accessible_spaces)
       AND i.completed_at IS NULL
       AND (
-        (i.starts_at IS NOT NULL AND i.ends_at IS NOT NULL
-         AND i.starts_at < ${to}::timestamptz AND i.ends_at > ${from}::timestamptz)
+        (
+          i.recurrence_rrule IS NULL
+          AND i.starts_at IS NOT NULL
+          AND i.ends_at IS NOT NULL
+          AND i.starts_at < ${to}::timestamptz
+          AND i.ends_at > ${from}::timestamptz
+        )
+        OR (
+          i.recurrence_rrule IS NOT NULL
+          AND i.recurring_event_id IS NULL
+          AND i.starts_at IS NOT NULL
+          AND i.ends_at IS NOT NULL
+        )
+        OR (
+          i.recurring_event_id IS NOT NULL
+          AND i.recurrence_id IS NOT NULL
+          AND i.starts_at IS NOT NULL
+          AND i.ends_at IS NOT NULL
+          AND i.starts_at < ${to}::timestamptz
+          AND i.ends_at > ${from}::timestamptz
+        )
         OR (i.deadline IS NOT NULL AND i.deadline >= ${from}::timestamptz AND i.deadline < ${to}::timestamptz)
       )
     ORDER BY COALESCE(i.starts_at, i.deadline)
   `;
 
   const tagsByItemId = await getTagsByItemIds(rows.map((row) => row.id));
-  return rows.map((r) => ({
-    id: r.id,
-    spaceId: r.space_id,
-    spaceName: r.space_name,
-    spaceColor: r.space_color,
-    title: r.title,
-    startsAt: r.starts_at?.toISOString() ?? null,
-    endsAt: r.ends_at?.toISOString() ?? null,
-    allDay: r.all_day,
-    deadline: r.deadline?.toISOString() ?? null,
-    priority: (r.priority as Priority) ?? null,
-    tags: tagsByItemId.get(r.id) ?? [],
-  }));
+  const items = rows.map((row) => mapCalendarRow(row, tagsByItemId.get(row.id) ?? []));
+  const recurringEvents = items
+    .map(calendarRowToRecurringEvent)
+    .filter((event): event is RecurringEvent & { calendarItem: CalendarItem } => !!event);
+  const overrides = items
+    .map(calendarRowToRecurringOverride)
+    .filter((event): event is RecurringOverride & { calendarItem: CalendarItem } => !!event);
+  const recurringSourceIds = new Set(recurringEvents.map((event) => event.id));
+  const recurringOverrideIds = new Set(overrides.map((event) => event.id));
+  const regularItems = items.filter((item) => !recurringSourceIds.has(item.id) && !recurringOverrideIds.has(item.id));
+  const expanded = expandRecurringEvents({
+    events: recurringEvents,
+    overrides,
+    rangeStart: from,
+    rangeEnd: to,
+    dateConfig: params.dateConfig,
+  }).map((event) => expandedToCalendarItem(event as ExpandedRecurringEvent & { calendarItem?: CalendarItem }));
+
+  return [...regularItems, ...expanded].sort((a, b) => {
+    const aTime = new Date(a.startsAt ?? a.deadline ?? 0).getTime();
+    const bTime = new Date(b.startsAt ?? b.deadline ?? 0).getTime();
+    return aTime - bTime;
+  });
 };
 
 /** Task item for widget display */

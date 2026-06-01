@@ -18,13 +18,15 @@ type DateTimeInputProps = {
   timeZone?: string;
 };
 
+const hasInstantOffset = (value: string) => /[T\s].*([zZ]|[+-]\d{2}:?\d{2})$/.test(value);
+
 /**
  * Date/DateTime input component using native browser inputs
  * @param label - Optional label text
  * @param description - Optional description text
  * @param placeholder - Placeholder text (not shown in date inputs)
  * @param value - Reactive value getter (ISO string or datetime-local format)
- * @param onChange - Called on change event with datetime-local format string
+ * @param onChange - Called with a date key, local datetime string, or UTC instant when dateConfig/timeZone is set
  * @param error - Reactive error message getter
  * @param required - Show required asterisk after label
  * @param disabled - Disable the input
@@ -46,7 +48,7 @@ const DateTimeInput = (props: DateTimeInputProps) => {
     const v = props.value?.();
     if (!v) return "";
     // If it's already in the right format, return as-is
-    if (!v.includes("Z") && !v.includes("+")) return v;
+    if (!hasInstantOffset(v)) return v;
     if (timezone()) {
       if (dateOnly()) return dates.formatDateKey(v, dateContext());
       return dates.instantToZonedInput(v, timezone()!);

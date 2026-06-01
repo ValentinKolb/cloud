@@ -1,4 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
+import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { ItemListResult, SpaceComment, SpaceDetail, SpaceItem } from "@/contracts";
 import { buildFilterUrl, type parseFilterFromUrl, QueryParams } from "../filter/types";
 import type { DetailPanelWidth, SpaceUserSettings, ViewType } from "../settings/SpaceSettingsStore";
@@ -67,8 +68,6 @@ const withoutSelectedItem = (href: string) => {
   return query ? `${url.pathname}?${query}` : url.pathname;
 };
 
-const calendarDateKey = (value: string) => value.slice(0, 10);
-
 export const buildSpacesPaginationBaseUrl = (params: {
   baseSpaceUrl: string;
   filter: FilterState;
@@ -95,6 +94,7 @@ export const buildSpacesItemLinkBaseUrl = (params: {
   calendarView?: string;
   calendarDate?: string;
   calendarTagIds?: string[];
+  dateConfig?: DateContext;
 }) =>
   withoutSelectedItem(
     withViewOverrides({
@@ -116,12 +116,13 @@ const buildCalendarUrl = (
     calendarView?: string;
     calendarDate?: string;
     calendarTagIds?: string[];
+    dateConfig?: DateContext;
   },
 ) => {
   if (params.currentView !== "calendar") return baseSpaceUrl;
   const url = new URL(baseSpaceUrl, "http://localhost");
   if (params.calendarView) url.searchParams.set("cv", params.calendarView);
-  if (params.calendarDate) url.searchParams.set("cd", calendarDateKey(params.calendarDate));
+  if (params.calendarDate) url.searchParams.set("cd", calendar.formatDateKey(params.calendarDate, params.dateConfig));
   if (params.calendarTagIds && params.calendarTagIds.length > 0) url.searchParams.set("ctags", params.calendarTagIds.join(","));
   const query = url.searchParams.toString();
   return query ? `${url.pathname}?${query}` : url.pathname;

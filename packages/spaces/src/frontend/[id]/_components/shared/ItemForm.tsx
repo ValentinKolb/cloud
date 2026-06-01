@@ -1,10 +1,22 @@
 import { createSignal, For, Show } from "solid-js";
-import { EntitySearch, type EntitySearchPrincipal, PanelDialog, TextInput } from "@valentinkolb/cloud/ui";
+import { EntitySearch, type EntitySearchPrincipal, NumberInput, PanelDialog, TextInput } from "@valentinkolb/cloud/ui";
 import { CheckboxCard } from "@valentinkolb/cloud/ui";
 import { SelectInput } from "@valentinkolb/cloud/ui";
 import { SegmentedControl } from "@valentinkolb/cloud/ui";
 import { DateTimeInput } from "@valentinkolb/cloud/ui";
-import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
+import type { DateContext } from "@valentinkolb/stdlib";
+import type { Recurrence, SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
+import {
+  emptyRecurrenceState,
+  recurrenceEndOptions,
+  recurrenceFrequencyOptions,
+  recurrenceFromFormState,
+  recurrenceToFormState,
+  type RecurrenceEndMode,
+  type RecurrenceFrequency,
+  type RecurrencePreset,
+  weekdayOptions,
+} from "./recurrence";
 
 type Priority = "low" | "medium" | "high" | "urgent";
 type ItemType = "task" | "event";
@@ -13,9 +25,12 @@ export type ItemFormData = {
   columnId: string;
   title: string;
   description?: string;
+  location?: string | null;
+  url?: string | null;
   startsAt?: string;
   endsAt?: string;
   allDay?: boolean;
+  recurrence?: Recurrence | null;
   deadline?: string;
   priority?: Priority | null;
   assigneeIds?: string[];
@@ -33,6 +48,7 @@ type Props = {
   submitLabel?: string;
   title?: string;
   icon?: string;
+  dateConfig?: DateContext;
 };
 
 const PRIORITY_OPTIONS = [
@@ -51,28 +67,38 @@ const PRIORITY_OPTIONS = [
 export default function ItemForm(props: Props) {
   const isEditMode = () => !!props.item;
   const initialIsEvent = () => Boolean(props.item?.startsAt && props.item?.endsAt);
+  const dateTimeInitial = (value?: string | null) => (props.dateConfig?.timeZone ? (value ?? "") : (value?.slice(0, 16) ?? ""));
 
   // Form state
   const [title, setTitle] = createSignal(props.item?.title ?? "");
   const [description, setDescription] = createSignal(props.item?.description ?? "");
+  const [location, setLocation] = createSignal(props.item?.location ?? "");
+  const [url, setUrl] = createSignal(props.item?.url ?? "");
   const [columnId, setColumnId] = createSignal(props.item?.columnId ?? props.defaults?.columnId ?? props.columns[0]?.id ?? "");
   const [itemType, setItemType] = createSignal<ItemType>(initialIsEvent() ? "event" : (props.defaults?.type ?? "task"));
-  const [deadline, setDeadline] = createSignal(
-    props.item?.deadline ? props.item.deadline.slice(0, 16) : (props.defaults?.deadline?.slice(0, 16) ?? ""),
-  );
-  const [startsAt, setStartsAt] = createSignal(
-    props.item?.startsAt ? props.item.startsAt.slice(0, 16) : (props.defaults?.startsAt?.slice(0, 16) ?? ""),
-  );
-  const [endsAt, setEndsAt] = createSignal(
-    props.item?.endsAt ? props.item.endsAt.slice(0, 16) : (props.defaults?.endsAt?.slice(0, 16) ?? ""),
-  );
+  const [deadline, setDeadline] = createSignal(dateTimeInitial(props.item?.deadline ?? props.defaults?.deadline));
+  const [startsAt, setStartsAt] = createSignal(dateTimeInitial(props.item?.startsAt ?? props.defaults?.startsAt));
+  const [endsAt, setEndsAt] = createSignal(dateTimeInitial(props.item?.endsAt ?? props.defaults?.endsAt));
   const [allDay, setAllDay] = createSignal(props.item?.allDay ?? props.defaults?.allDay ?? false);
+  const initialRecurrence = recurrenceToFormState(props.item?.recurrence ?? props.defaults?.recurrence, props.dateConfig);
+  const [recurrenceEnabled, setRecurrenceEnabled] = createSignal(initialRecurrence.preset !== "never");
+  const [recurrencePreset] = createSignal<RecurrencePreset>(initialRecurrence.preset === "never" ? "custom" : initialRecurrence.preset);
+  const [recurrenceFrequency, setRecurrenceFrequency] = createSignal<RecurrenceFrequency>(initialRecurrence.frequency);
+  const [recurrenceInterval, setRecurrenceInterval] = createSignal<number | null>(initialRecurrence.interval);
+  const [recurrenceByDay, setRecurrenceByDay] = createSignal<string[]>(initialRecurrence.byDay);
+  const [recurrenceEndMode, setRecurrenceEndMode] = createSignal<RecurrenceEndMode>(initialRecurrence.endMode);
+  const [recurrenceUntil, setRecurrenceUntil] = createSignal(initialRecurrence.until);
+  const [recurrenceCount, setRecurrenceCount] = createSignal<number | null>(initialRecurrence.count);
   const [priority, setPriority] = createSignal(props.item?.priority ?? props.defaults?.priority ?? "");
   const [assignees, setAssignees] = createSignal<SpaceItemAssignee[]>(props.item?.assignees ?? []);
   const [selectedTags, setSelectedTags] = createSignal<string[]>(props.item?.tags?.map((t) => t.id) ?? props.defaults?.tagIds ?? []);
   const [error, setError] = createSignal("");
+  const [advancedOpen, setAdvancedOpen] = createSignal(false);
 
   const isEvent = () => itemType() === "event";
+  const showAdvanced = () => advancedOpen();
+  const defaultTitle = () => (isEditMode() ? (isEvent() ? "Edit event" : "Edit task") : isEvent() ? "New event" : "New task");
+  const defaultSubmitLabel = () => (isEditMode() ? (isEvent() ? "Save Event" : "Save Task") : isEvent() ? "Create Event" : "Create Task");
 
   const columnOptions = () =>
     props.columns.map((c) => ({
@@ -85,6 +111,23 @@ export default function ItemForm(props: Props) {
 
   const toggleTag = (tagId: string) => {
     setSelectedTags((prev) => (prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]));
+  };
+
+  const toggleRecurrenceDay = (day: string) => {
+    setRecurrenceByDay((prev) => (prev.includes(day) ? prev.filter((value) => value !== day) : [...prev, day]));
+  };
+
+  const handleRecurrenceEnabled = (enabled: boolean) => {
+    setRecurrenceEnabled(enabled);
+    if (!enabled) {
+      const empty = emptyRecurrenceState();
+      setRecurrenceFrequency(empty.frequency);
+      setRecurrenceInterval(empty.interval);
+      setRecurrenceByDay(empty.byDay);
+      setRecurrenceEndMode(empty.endMode);
+      setRecurrenceUntil(empty.until);
+      setRecurrenceCount(empty.count);
+    }
   };
 
   const addAssignee = (principal: EntitySearchPrincipal) => {
@@ -132,15 +175,41 @@ export default function ItemForm(props: Props) {
         setError("End time must be after start time");
         return;
       }
+      if (url().trim()) {
+        try {
+          new URL(url().trim());
+        } catch {
+          setError("Event URL must be a valid URL");
+          return;
+        }
+      }
     }
 
     props.onSubmit({
       columnId: columnId() || defaultColumnId(),
       title: title().trim(),
       description: description().trim() || undefined,
+      location: isEvent() ? location().trim() || (isEditMode() ? null : undefined) : undefined,
+      url: isEvent() ? url().trim() || (isEditMode() ? null : undefined) : undefined,
       startsAt: isEvent() && startsAt() ? new Date(startsAt()).toISOString() : undefined,
       endsAt: isEvent() && endsAt() ? new Date(endsAt()).toISOString() : undefined,
       allDay: isEvent() ? allDay() : false,
+      recurrence:
+        isEvent() && recurrenceEnabled()
+          ? recurrenceFromFormState(
+              {
+                preset: recurrencePreset(),
+                frequency: recurrenceFrequency(),
+                interval: recurrenceInterval() ?? 1,
+                byDay: recurrenceByDay(),
+                endMode: recurrenceEndMode(),
+                until: recurrenceUntil(),
+                count: recurrenceCount(),
+              },
+              startsAt(),
+              props.dateConfig,
+            )
+          : null,
       deadline: !isEvent() && deadline() ? new Date(deadline()).toISOString() : undefined,
       priority: (priority() || (isEditMode() ? null : undefined)) as Priority | null | undefined,
       assigneeIds: isEditMode() || assignees().length > 0 ? assignees().map((assignee) => assignee.id) : undefined,
@@ -151,13 +220,27 @@ export default function ItemForm(props: Props) {
   return (
     <PanelDialog>
       <form onSubmit={handleSubmit} class="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <PanelDialog.Header
-          title={props.title ?? (isEditMode() ? "Edit item" : "New item")}
-          icon={props.icon ?? "ti ti-pencil"}
-          close={props.onCancel}
-        />
+        <PanelDialog.Header title={props.title ?? defaultTitle()} icon={props.icon ?? "ti ti-pencil"} close={props.onCancel} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Basics" subtitle="Name and notes shown across views and detail panels." icon="ti ti-id">
+          <div class="flex flex-col gap-4">
+            <Show when={!isEditMode()}>
+              <div>
+                <p class="mb-1 block text-sm font-medium">Type</p>
+                <p class="mb-2 text-xs text-dimmed">Tasks have a deadline, events have a start and end time</p>
+                <SegmentedControl
+                  options={[
+                    { value: "task" as const, label: "Task", icon: "ti ti-checkbox" },
+                    {
+                      value: "event" as const,
+                      label: "Event",
+                      icon: "ti ti-calendar-event",
+                    },
+                  ]}
+                  value={itemType}
+                  onChange={handleTypeChange}
+                />
+              </div>
+            </Show>
             <TextInput
               label="Title"
               description={!isEditMode() ? "A short summary of what needs to be done" : undefined}
@@ -178,57 +261,13 @@ export default function ItemForm(props: Props) {
               onInput={setDescription}
               markdown
             />
-          </PanelDialog.Section>
-
-          <PanelDialog.Section title="Schedule" subtitle="Workflow, priority, deadlines, and calendar timing." icon="ti ti-calendar-time">
-            <Show when={!isEditMode()}>
-              <div>
-                <p class="mb-1 block text-sm font-medium">Type</p>
-                <p class="mb-2 text-xs text-dimmed">Tasks have a deadline, events have a start and end time</p>
-                <SegmentedControl
-                  options={[
-                    { value: "task" as const, label: "Task", icon: "ti ti-checkbox" },
-                    {
-                      value: "event" as const,
-                      label: "Event",
-                      icon: "ti ti-calendar-event",
-                    },
-                  ]}
-                  value={itemType}
-                  onChange={handleTypeChange}
-                />
-              </div>
-            </Show>
-
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <SelectInput
-                label="Kanban"
-                description={!isEditMode() ? "Current workflow state" : undefined}
-                placeholder="Select column"
-                icon="ti ti-progress"
-                value={columnId}
-                onChange={setColumnId}
-                options={columnOptions()}
-                required={!isEvent()}
-              />
-              <SelectInput
-                label="Priority"
-                description={!isEditMode() ? "How urgent is this?" : undefined}
-                placeholder="Select priority"
-                icon="ti ti-flag"
-                value={priority}
-                onChange={setPriority}
-                options={PRIORITY_OPTIONS}
-                clearable
-              />
-            </div>
-
             <Show when={!isEvent()}>
               <DateTimeInput
                 label="Deadline"
                 description={!isEditMode() ? "When should this be completed?" : undefined}
                 value={deadline}
                 onChange={setDeadline}
+                dateConfig={props.dateConfig}
               />
             </Show>
 
@@ -237,6 +276,7 @@ export default function ItemForm(props: Props) {
                 label="All-day event"
                 description="Show this in the all-day calendar row"
                 icon="ti ti-calendar"
+                variant="input"
                 value={allDay}
                 onChange={setAllDay}
               />
@@ -249,6 +289,7 @@ export default function ItemForm(props: Props) {
                     setStartsAt(v);
                     setError("");
                   }}
+                  dateConfig={props.dateConfig}
                   required
                 />
                 <DateTimeInput
@@ -259,70 +300,220 @@ export default function ItemForm(props: Props) {
                     setEndsAt(v);
                     setError("");
                   }}
+                  dateConfig={props.dateConfig}
                   required
                 />
               </div>
             </Show>
-          </PanelDialog.Section>
+          </div>
 
-          <PanelDialog.Section title="Classify" subtitle="Tags and ownership used for filtering and coordination." icon="ti ti-tags">
-            <Show when={props.tags && props.tags.length > 0}>
-              <div>
-                <p class="mb-1 block text-sm font-medium">Tags</p>
-                <Show when={!isEditMode()}>
-                  <p class="mb-2 text-xs text-dimmed">Categorize with tags</p>
-                </Show>
-                <div class="flex flex-wrap gap-2">
-                  <For each={props.tags}>
-                    {(tag) => (
-                      <button
-                        type="button"
-                        onClick={() => toggleTag(tag.id)}
-                        class={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-all ${
-                          selectedTags().includes(tag.id) ? "opacity-100" : "opacity-40 hover:opacity-70"
-                        }`}
-                        style={`background-color: ${tag.color}${selectedTags().includes(tag.id) ? "30" : "15"}; color: ${tag.color}`}
-                      >
-                        <span class="h-2 w-2 rounded-full" style={`background-color: ${tag.color}`} />
-                        {tag.name}
-                      </button>
-                    )}
-                  </For>
+          <Show when={showAdvanced() && isEvent()}>
+            <PanelDialog.Section title="Repeat" subtitle="Optional recurring event series." icon="ti ti-repeat">
+              <CheckboxCard
+                label="Repeat event"
+                description="Create a recurring event series"
+                icon="ti ti-repeat"
+                variant="input"
+                value={recurrenceEnabled}
+                onChange={handleRecurrenceEnabled}
+              />
+              <Show when={recurrenceEnabled()}>
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <SelectInput
+                    label="Frequency"
+                    description={!isEditMode() ? "Repeat cadence" : undefined}
+                    icon="ti ti-repeat"
+                    value={recurrenceFrequency}
+                    onChange={(value) => setRecurrenceFrequency(value as RecurrenceFrequency)}
+                    options={recurrenceFrequencyOptions}
+                  />
+                  <NumberInput
+                    label="Every"
+                    description={!isEditMode() ? "Interval between repeats" : undefined}
+                    icon="ti ti-refresh"
+                    value={recurrenceInterval}
+                    onChange={setRecurrenceInterval}
+                    min={1}
+                    step={1}
+                    allowNegative={false}
+                  />
                 </div>
-              </div>
-            </Show>
-
-            <div class="flex flex-col gap-3">
-              <div>
-                <p class="mb-1 block text-sm font-medium">Assignees</p>
-                <p class="text-xs text-dimmed">Assign initial owners or leave unassigned</p>
-              </div>
-              <Show when={assignees().length > 0}>
-                <div class="flex flex-wrap gap-2">
-                  <For each={assignees()}>
-                    {(assignee) => (
-                      <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
-                        <span class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] dark:bg-zinc-700">
-                          {assignee.displayName.charAt(0).toUpperCase()}
-                        </span>
-                        <span>{assignee.displayName}</span>
-                        <button type="button" onClick={() => removeAssignee(assignee.id)} class="text-dimmed hover:text-red-500">
-                          <i class="ti ti-x text-xs" />
-                        </button>
-                      </span>
-                    )}
-                  </For>
+                <Show when={recurrenceFrequency() === "weekly"}>
+                  <div>
+                    <p class="mb-1 block text-sm font-medium">Weekdays</p>
+                    <p class="mb-2 text-xs text-dimmed">Leave empty to use the event start weekday</p>
+                    <div class="grid grid-cols-7 gap-1">
+                      <For each={weekdayOptions}>
+                        {(day) => (
+                          <button
+                            type="button"
+                            aria-label={day.fullLabel}
+                            aria-pressed={recurrenceByDay().includes(day.id)}
+                            class={`btn-segment justify-center px-0 ${
+                              recurrenceByDay().includes(day.id) ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""
+                            }`}
+                            onClick={() => toggleRecurrenceDay(day.id)}
+                          >
+                            {day.label}
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+                <SelectInput
+                  label="Ends"
+                  description={!isEditMode() ? "Limit the series when needed" : undefined}
+                  icon="ti ti-calendar-due"
+                  value={recurrenceEndMode}
+                  onChange={(value) => setRecurrenceEndMode(value as RecurrenceEndMode)}
+                  options={recurrenceEndOptions}
+                />
+              </Show>
+              <Show when={recurrenceEnabled() && recurrenceEndMode() !== "never"}>
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Show when={recurrenceEndMode() === "on"}>
+                    <DateTimeInput
+                      label="Until"
+                      description={!isEditMode() ? "Last date that may contain an occurrence" : undefined}
+                      value={recurrenceUntil}
+                      onChange={setRecurrenceUntil}
+                      dateOnly
+                      dateConfig={props.dateConfig}
+                    />
+                  </Show>
+                  <Show when={recurrenceEndMode() === "after"}>
+                    <NumberInput
+                      label="Occurrences"
+                      description={!isEditMode() ? "Maximum number of generated events" : undefined}
+                      icon="ti ti-list-numbers"
+                      value={recurrenceCount}
+                      onChange={setRecurrenceCount}
+                      min={1}
+                      step={1}
+                      allowNegative={false}
+                      clearable
+                    />
+                  </Show>
                 </div>
               </Show>
-              <EntitySearch
-                includeUsers
-                excludeUserIds={assignees().map((assignee) => assignee.id)}
-                onSelect={addAssignee}
-                placeholder="Search users to assign..."
-                resultsHeightClass="h-36"
-              />
-            </div>
-          </PanelDialog.Section>
+            </PanelDialog.Section>
+          </Show>
+
+          <Show when={showAdvanced() && isEvent()}>
+            <PanelDialog.Section
+              title="Event details"
+              subtitle="Location and external reference for calendar subscriptions."
+              icon="ti ti-map-pin"
+            >
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <TextInput
+                  label="Location"
+                  description={!isEditMode() ? "Where does it happen?" : undefined}
+                  placeholder="Office, meeting room, or address"
+                  icon="ti ti-map-pin"
+                  value={location}
+                  onInput={setLocation}
+                />
+                <TextInput
+                  label="URL"
+                  description={!isEditMode() ? "Meeting link or reference" : undefined}
+                  placeholder="https://..."
+                  icon="ti ti-link"
+                  type="url"
+                  inputMode="url"
+                  value={url}
+                  onInput={(v) => {
+                    setUrl(v);
+                    setError("");
+                  }}
+                />
+              </div>
+            </PanelDialog.Section>
+          </Show>
+
+          <Show when={showAdvanced()}>
+            <PanelDialog.Section title="Organize" subtitle="Workflow, priority, tags, and ownership." icon="ti ti-tags">
+              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <SelectInput
+                  label="Kanban"
+                  description={!isEditMode() ? "Current workflow state" : undefined}
+                  placeholder="Select column"
+                  icon="ti ti-progress"
+                  value={columnId}
+                  onChange={setColumnId}
+                  options={columnOptions()}
+                  required={!isEvent()}
+                />
+                <SelectInput
+                  label="Priority"
+                  description={!isEditMode() ? "How urgent is this?" : undefined}
+                  placeholder="Select priority"
+                  icon="ti ti-flag"
+                  value={priority}
+                  onChange={setPriority}
+                  options={PRIORITY_OPTIONS}
+                  clearable
+                />
+              </div>
+              <Show when={props.tags && props.tags.length > 0}>
+                <div>
+                  <p class="mb-1 block text-sm font-medium">Tags</p>
+                  <Show when={!isEditMode()}>
+                    <p class="mb-2 text-xs text-dimmed">Categorize with tags</p>
+                  </Show>
+                  <div class="flex flex-wrap gap-2">
+                    <For each={props.tags}>
+                      {(tag) => (
+                        <button
+                          type="button"
+                          onClick={() => toggleTag(tag.id)}
+                          class={`flex items-center gap-1 rounded-full px-2 py-1 text-xs transition-all ${
+                            selectedTags().includes(tag.id) ? "opacity-100" : "opacity-40 hover:opacity-70"
+                          }`}
+                          style={`background-color: ${tag.color}${selectedTags().includes(tag.id) ? "30" : "15"}; color: ${tag.color}`}
+                        >
+                          <span class="h-2 w-2 rounded-full" style={`background-color: ${tag.color}`} />
+                          {tag.name}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+
+              <div class="flex flex-col gap-3">
+                <div>
+                  <p class="mb-1 block text-sm font-medium">Assignees</p>
+                  <p class="text-xs text-dimmed">Assign initial owners or leave unassigned</p>
+                </div>
+                <Show when={assignees().length > 0}>
+                  <div class="flex flex-wrap gap-2">
+                    <For each={assignees()}>
+                      {(assignee) => (
+                        <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+                          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] dark:bg-zinc-700">
+                            {assignee.displayName.charAt(0).toUpperCase()}
+                          </span>
+                          <span>{assignee.displayName}</span>
+                          <button type="button" onClick={() => removeAssignee(assignee.id)} class="text-dimmed hover:text-red-500">
+                            <i class="ti ti-x text-xs" />
+                          </button>
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <EntitySearch
+                  includeUsers
+                  excludeUserIds={assignees().map((assignee) => assignee.id)}
+                  onSelect={addAssignee}
+                  placeholder="Search users to assign..."
+                  resultsHeightClass="h-36"
+                />
+              </div>
+            </PanelDialog.Section>
+          </Show>
 
           <Show when={error()}>
             <div class="flex items-center gap-1 text-sm text-red-500">
@@ -333,13 +524,23 @@ export default function ItemForm(props: Props) {
         </PanelDialog.Body>
 
         <PanelDialog.Footer>
-          <span />
+          <Show fallback={<span />} when={isEditMode() || !advancedOpen()}>
+            <button
+              type="button"
+              class="btn-secondary btn-sm"
+              aria-expanded={advancedOpen()}
+              onClick={() => setAdvancedOpen((open) => !open)}
+            >
+              <i class={`ti ${advancedOpen() ? "ti-eye-off" : "ti-eye"}`} />
+              <span>{advancedOpen() ? "Hide options" : "More options"}</span>
+            </button>
+          </Show>
           <div class="flex items-center gap-2">
             <button type="button" onClick={props.onCancel} class="btn-secondary btn-sm">
               Cancel
             </button>
             <button type="submit" class="btn-primary btn-sm">
-              {props.submitLabel ?? (isEditMode() ? "Save" : "Create Item")}
+              {props.submitLabel ?? defaultSubmitLabel()}
             </button>
           </div>
         </PanelDialog.Footer>

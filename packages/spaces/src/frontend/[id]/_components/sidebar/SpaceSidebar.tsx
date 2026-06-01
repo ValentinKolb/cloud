@@ -1,4 +1,5 @@
 import { AppWorkspace, type LinkNavigateEvent } from "@valentinkolb/cloud/ui";
+import type { DateContext } from "@valentinkolb/stdlib";
 import SidebarSettings from "../settings/SidebarSettings";
 import type { ViewType } from "../settings/SpaceSettingsStore";
 import CopyICalButton from "./CopyICalButton";
@@ -9,6 +10,7 @@ type Props = {
   ctx: SpaceContext;
   onNavigate: (event: LinkNavigateEvent) => void | Promise<void>;
   onOpenSettings: () => void | Promise<void>;
+  dateConfig?: DateContext;
 };
 
 const views: Array<{ id: ViewType; label: string; icon: string }> = [
@@ -74,7 +76,13 @@ export default function SpaceSidebar(props: Props) {
             Settings
           </AppWorkspace.SidebarItem>
           <div style={`view-transition-name:${vt("create-mobile")}`}>
-            <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="chip" />
+            <CreateItemButton
+              spaceId={props.ctx.space.id}
+              columns={props.ctx.columns}
+              tags={props.ctx.tags}
+              dateConfig={props.dateConfig}
+              variant="chip"
+            />
           </div>
           <AppWorkspace.SidebarItem
             href="/app/spaces"
@@ -110,7 +118,13 @@ export default function SpaceSidebar(props: Props) {
           <AppWorkspace.SidebarSection title="Actions">
             <AppWorkspace.SidebarIconGrid columns={3}>
               <div style={`view-transition-name:${vt("create-desktop")}`}>
-                <CreateItemButton spaceId={props.ctx.space.id} columns={props.ctx.columns} tags={props.ctx.tags} variant="icon" />
+                <CreateItemButton
+                  spaceId={props.ctx.space.id}
+                  columns={props.ctx.columns}
+                  tags={props.ctx.tags}
+                  dateConfig={props.dateConfig}
+                  variant="icon"
+                />
               </div>
               <AppWorkspace.SidebarIconAction
                 href="/app/spaces"

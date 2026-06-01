@@ -77,11 +77,18 @@ export const migrate = async (): Promise<void> => {
       column_id UUID NOT NULL REFERENCES spaces.columns(id) ON DELETE RESTRICT,
       title TEXT NOT NULL,
       description TEXT,
+      location TEXT,
+      url TEXT,
       starts_at TIMESTAMPTZ,
       ends_at TIMESTAMPTZ,
       all_day BOOLEAN NOT NULL DEFAULT false,
       deadline TIMESTAMPTZ,
       priority TEXT CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+      recurrence_rrule TEXT,
+      recurrence_dtstart TIMESTAMPTZ,
+      recurrence_exdate TIMESTAMPTZ[],
+      recurring_event_id UUID REFERENCES spaces.items(id) ON DELETE CASCADE,
+      recurrence_id TIMESTAMPTZ,
       position INT NOT NULL DEFAULT 0,
       rank BIGINT NOT NULL DEFAULT 1024,
       completed_at TIMESTAMPTZ,
@@ -98,6 +105,44 @@ export const migrate = async (): Promise<void> => {
   await sql`
     ALTER TABLE spaces.items
     ADD COLUMN IF NOT EXISTS all_day BOOLEAN NOT NULL DEFAULT false
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS location TEXT
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS url TEXT
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS recurrence_rrule TEXT
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS recurrence_dtstart TIMESTAMPTZ
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS recurrence_exdate TIMESTAMPTZ[]
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS recurring_event_id UUID REFERENCES spaces.items(id) ON DELETE CASCADE
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.items
+    ADD COLUMN IF NOT EXISTS recurrence_id TIMESTAMPTZ
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_items_recurring_override_unique
+    ON spaces.items(recurring_event_id, recurrence_id)
+    WHERE recurring_event_id IS NOT NULL AND recurrence_id IS NOT NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_items_recurring_series
+    ON spaces.items(space_id)
+    WHERE recurrence_rrule IS NOT NULL AND completed_at IS NULL
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_items_space

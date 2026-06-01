@@ -1,4 +1,5 @@
 import type { SpaceItem, SpaceColumn, SpaceTag, ItemGroupBy } from "@/contracts";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo } from "solid-js";
 import ItemRow from "./ItemRow";
 
@@ -22,6 +23,7 @@ type ItemListProps = {
   groupBy: ItemGroupBy;
   showCompleted?: boolean;
   baseUrl: string;
+  dateConfig?: DateContext;
 };
 
 // =============================================================================
@@ -230,6 +232,7 @@ export default function ItemList(props: ItemListProps) {
               tags={props.tags}
               isSelected={item.id === props.selectedItemId}
               baseUrl={props.baseUrl}
+              dateConfig={props.dateConfig}
             />
           ))}
         </div>
@@ -249,6 +252,7 @@ export default function ItemList(props: ItemListProps) {
                       tags={props.tags}
                       isSelected={item.id === props.selectedItemId}
                       baseUrl={props.baseUrl}
+                      dateConfig={props.dateConfig}
                     />
                   ))}
                 </div>

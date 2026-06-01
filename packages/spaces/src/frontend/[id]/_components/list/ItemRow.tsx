@@ -3,7 +3,7 @@ import { apiClient } from "@/api/client";
 import { prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
-import { dates } from "@valentinkolb/stdlib";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { shouldHandleDetailClick, shouldHandleItemEditDoubleClick, subscribeToDetailSelection } from "../../../lib/detail";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
@@ -16,6 +16,7 @@ type ItemRowProps = {
   isSelected: boolean;
   /** Base URL for item links (without item param) */
   baseUrl: string;
+  dateConfig?: DateContext;
 };
 
 const PRIORITY_STYLES: Record<string, { icon: string; color: string }> = {
@@ -63,7 +64,14 @@ export default function ItemRow(props: ItemRowProps) {
     onError: (err) => prompts.error(err.message),
   });
   const editMutation = mutations.create<boolean, void>({
-    mutation: () => editItemWithDialog({ spaceId: props.spaceId, item: props.item, columns: props.columns, tags: props.tags }),
+    mutation: () =>
+      editItemWithDialog({
+        spaceId: props.spaceId,
+        item: props.item,
+        columns: props.columns,
+        tags: props.tags,
+        dateConfig: props.dateConfig,
+      }),
     onSuccess: handleEditItemSuccess,
     onError: (err) => prompts.error(err.message),
   });
@@ -110,7 +118,7 @@ export default function ItemRow(props: ItemRowProps) {
         event.preventDefault();
         requestSpacesRouteNavigation(itemUrl(), { scroll: "preserve" });
       }}
-      class={`group flex cursor-pointer items-center gap-3 rounded-md px-4 py-2.5 transition-colors ${
+      class={`group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 transition-colors ${
         isSelectedLocal()
           ? "bg-blue-50 ring-2 ring-inset ring-blue-500/65 dark:bg-blue-900/30 dark:ring-blue-400/60"
           : "bg-white ring-1 ring-inset ring-zinc-300/65 hover:bg-blue-50/25 hover:ring-blue-500/40 dark:bg-zinc-900/65 dark:ring-zinc-700/65 dark:hover:bg-blue-950/12 dark:hover:ring-blue-400/40"

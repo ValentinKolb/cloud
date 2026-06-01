@@ -1,6 +1,16 @@
 import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
-import { v, jsonResponse, requiresAuth, auth, type AuthContext, rateLimit, respond, updateAccess } from "@valentinkolb/cloud/server";
+import {
+  v,
+  jsonResponse,
+  requiresAuth,
+  auth,
+  type AuthContext,
+  rateLimit,
+  respond,
+  updateAccess,
+  getDateConfig,
+} from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { spacesService } from "../service";
 import { subscribeSpaceEvents } from "../service/events";
@@ -147,6 +157,7 @@ const app = new Hono<AuthContext>()
         href,
         cookieHeader: c.req.header("Cookie"),
         settings: target.settings,
+        dateConfig: getDateConfig(c),
       });
       return c.json(state);
     },

@@ -10,6 +10,7 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { dates as calendar } from "@valentinkolb/stdlib";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -26,11 +27,11 @@ const eventEnd = (item: CalendarItem) => item.endsAt ?? item.deadline ?? eventSt
 
 const CALENDAR_TAGS_PARAM = "ctags";
 
-const buildCalendarHref = (baseUrl: string, view: CalendarView, date: Date, tagIds: string[], item?: string) => {
+const buildCalendarHref = (baseUrl: string, view: CalendarView, date: Date, tagIds: string[], item?: string, dateConfig?: DateContext) => {
   const url = new URL(baseUrl, "http://spaces.local");
   url.searchParams.set("view", "calendar");
   url.searchParams.set("cv", view);
-  url.searchParams.set("cd", calendar.formatDateKey(date));
+  url.searchParams.set("cd", calendar.formatDateKey(date, dateConfig));
   if (tagIds.length > 0) url.searchParams.set(CALENDAR_TAGS_PARAM, tagIds.join(","));
   else url.searchParams.delete(CALENDAR_TAGS_PARAM);
   if (item) url.searchParams.set("item", item);
@@ -44,7 +45,14 @@ const priorityColor = (item: CalendarItem) => {
   return "amber";
 };
 
-const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView, date: Date, tagIds: string[]): CalendarEvent => {
+const toCalendarEvent = (
+  item: CalendarItem,
+  baseUrl: string,
+  view: CalendarView,
+  date: Date,
+  tagIds: string[],
+  dateConfig?: DateContext,
+): CalendarEvent => {
   const isDeadline = Boolean(item.deadline && !item.startsAt);
   const detailItemId = item.recurringEventId ?? item.id;
   return {
@@ -55,7 +63,7 @@ const toCalendarEvent = (item: CalendarItem, baseUrl: string, view: CalendarView
     allDay: item.allDay || !item.startsAt,
     color: priorityColor(item),
     colorHex: isDeadline ? undefined : item.spaceColor,
-    href: buildCalendarHref(baseUrl, view, date, tagIds, detailItemId),
+    href: buildCalendarHref(baseUrl, view, date, tagIds, detailItemId, dateConfig),
     dataSpaceItemId: detailItemId,
     calendarName: item.spaceName,
     location: item.location ?? undefined,
@@ -160,7 +168,8 @@ const chooseRecurringEditScope = async (): Promise<RecurringEditScope | null> =>
 
 export default function Calendar(props: CalendarProps) {
   const rootId = `space-calendar-${props.spaceId}`;
-  const events = () => props.items.map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date, props.selectedTagIds));
+  const events = () =>
+    props.items.map((item) => toCalendarEvent(item, props.baseUrl, props.view, props.date, props.selectedTagIds, props.dateConfig));
   const dayBadges = () =>
     Object.fromEntries(
       Object.entries(props.weather ?? {}).map(([date, weather]) => [
@@ -172,20 +181,29 @@ export default function Calendar(props: CalendarProps) {
       ]),
     );
   const routeTo = (view: CalendarView, date: Date, replace = false) => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.selectedTagIds), { replace, scroll: "preserve" });
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, view, date, props.selectedTagIds, undefined, props.dateConfig), {
+      replace,
+      scroll: "preserve",
+    });
   };
   const toggleTag = (tagId: string) => {
     const selected = props.selectedTagIds.includes(tagId)
       ? props.selectedTagIds.filter((id) => id !== tagId)
       : [...props.selectedTagIds, tagId];
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, selected), { replace: true, scroll: "preserve" });
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, selected, undefined, props.dateConfig), {
+      replace: true,
+      scroll: "preserve",
+    });
   };
   const clearTags = () => {
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, []), { replace: true, scroll: "preserve" });
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, [], undefined, props.dateConfig), {
+      replace: true,
+      scroll: "preserve",
+    });
   };
   const selectEvent = (event: CalendarEvent) => {
     const itemId = event.dataSpaceItemId ?? event.id;
-    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, props.selectedTagIds, itemId), {
+    requestSpacesRouteNavigation(buildCalendarHref(props.baseUrl, props.view, props.date, props.selectedTagIds, itemId, props.dateConfig), {
       scroll: "preserve",
     });
   };
@@ -308,6 +326,7 @@ export default function Calendar(props: CalendarProps) {
             onCancel={() => close(null)}
             title="New event"
             icon="ti ti-calendar-plus"
+            dateConfig={props.dateConfig}
           />
         ),
         panelDialogOptions,
@@ -334,13 +353,25 @@ export default function Calendar(props: CalendarProps) {
       const parent = await fetchItem(event);
       const recurrenceId = recurrenceIdFromEvent(event);
       if (!recurrenceId) {
-        return editItemWithDialog({ spaceId: props.spaceId, item: parent, columns: props.columns, tags: props.tags });
+        return editItemWithDialog({
+          spaceId: props.spaceId,
+          item: parent,
+          columns: props.columns,
+          tags: props.tags,
+          dateConfig: props.dateConfig,
+        });
       }
 
       const scope = await chooseRecurringEditScope();
       if (!scope) return false;
       if (scope === "series") {
-        return editItemWithDialog({ spaceId: props.spaceId, item: parent, columns: props.columns, tags: props.tags });
+        return editItemWithDialog({
+          spaceId: props.spaceId,
+          item: parent,
+          columns: props.columns,
+          tags: props.tags,
+          dateConfig: props.dateConfig,
+        });
       }
 
       const formItem: SpaceItem = {
@@ -361,6 +392,7 @@ export default function Calendar(props: CalendarProps) {
             submitLabel="Save Item"
             title={scope === "future" ? "Edit future events" : "Edit occurrence"}
             icon={scope === "future" ? "ti ti-arrow-forward-up" : "ti ti-calendar-event"}
+            dateConfig={props.dateConfig}
           />
         ),
         panelDialogOptions,
@@ -423,8 +455,12 @@ export default function Calendar(props: CalendarProps) {
         withWeekNumbers
         dayBadges={dayBadges()}
         dateConfig={props.dateConfig}
-        getViewHref={(view) => buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.selectedTagIds)}
-        getDateHref={(date, view) => buildCalendarHref(props.baseUrl, view as CalendarView, date, props.selectedTagIds)}
+        getViewHref={(view) =>
+          buildCalendarHref(props.baseUrl, view as CalendarView, props.date, props.selectedTagIds, undefined, props.dateConfig)
+        }
+        getDateHref={(date, view) =>
+          buildCalendarHref(props.baseUrl, view as CalendarView, date, props.selectedTagIds, undefined, props.dateConfig)
+        }
         getEventHref={(event) => event.href}
         selectedEventId={props.selectedItemId}
         onViewChange={(view: CoreCalendarView) => routeTo(view as CalendarView, props.date)}

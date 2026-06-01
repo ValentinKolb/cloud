@@ -163,6 +163,23 @@ export { myService as service };
 export type { ApiType } from "./api";
 ```
 
+For SSR-rendered date/time UI, derive the request date context once and pass it into the island:
+
+```tsx
+import { getDateConfig } from "@valentinkolb/cloud/server";
+
+export default ssr<AuthContext>(async (c) => {
+  const dateConfig = getDateConfig(c);
+  return () => (
+    <Layout c={c} title="Calendar">
+      <CalendarIsland dateConfig={dateConfig} />
+    </Layout>
+  );
+});
+```
+
+`getDateConfig(c)` resolves browser `cloud.timezone` cookie → `app.timezone` → `UTC` and returns the stdlib `DateContext`. Components should pass it to `@valentinkolb/stdlib` `dates.*` helpers instead of using local `Date#getHours()` / `getMonth()` for user-facing UI.
+
 ### styles/app.css — Tailwind Entrypoint
 
 ```css
@@ -867,6 +884,8 @@ const enabled = await settings.get<boolean>("my-app.feature_enabled");
 ```
 
 All `settings.*` reads are async — they go through the Redis cache-aside layer (5-minute TTL). Inside an HTTP handler prefer the sync per-request snapshot on `c.get("settings")` populated by `middleware.settings()`. Settings automatically appear in the admin settings UI, grouped by the dotted-key prefix.
+
+`app.timezone` is the server fallback timezone for jobs, schedulers, and the first SSR render before the browser timezone cookie exists. Do not add per-app timezone settings unless the app has a real domain concept of separate calendars/resources in different timezones.
 
 ### Universal Search Integration
 

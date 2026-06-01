@@ -6,12 +6,14 @@ import { loadSpacesWorkspaceState } from "../_components/workspace/workspace-sta
 
 export default ssr<AuthContext>(async (c) => {
   const spaceId = c.req.param("id") ?? "";
+  const dateConfig = getDateConfig(c);
   const state = await loadSpacesWorkspaceState({
     user: c.get("user"),
     spaceId,
     href: c.req.url,
     cookieHeader: c.req.header("Cookie"),
     settings: true,
+    dateConfig,
   });
 
   if (state.kind === "accessDenied" && state.redirectTo) {
@@ -30,7 +32,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
-      <SpacesWorkspace initialState={state} dateConfig={getDateConfig(c)} />
+      <SpacesWorkspace initialState={state} dateConfig={dateConfig} />
     </Layout>
   );
 });

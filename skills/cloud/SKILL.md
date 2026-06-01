@@ -180,7 +180,7 @@ These are provided by the `@valentinkolb/cloud` package. Import paths:
 | Path | Content |
 |------|---------|
 | `@valentinkolb/cloud` | `defineApp`, app registry, `createHeartbeat`, `buildRuntimeFromRegistry` |
-| `@valentinkolb/cloud/server` | `auth`, `v`, `respond`, `ok`, `fail`, `err`, `rateLimit`, `jsonResponse`, access helpers |
+| `@valentinkolb/cloud/server` | `auth`, `v`, `respond`, `ok`, `fail`, `err`, `rateLimit`, `jsonResponse`, access helpers, timezone helpers |
 | `@valentinkolb/cloud/services` | `logger`, `logging`, `notifications`, `session`, `accounts`, postgres helpers |
 | `@valentinkolb/cloud/services/settings` | `get`, `set`, `remove`, `getAll`, `loadCache` — all reads are async (cache-aside through Redis) |
 | `@valentinkolb/cloud/ui` | All UI components, `prompts`, `DialogHeader`, `AppOverview`, `AppWorkspace`, `DataTable`, `FilterChip`, `Pagination`, etc. |
@@ -229,6 +229,23 @@ await settings.set("logs.retention_days", 60);                   // async, updat
 Inside an HTTP handler prefer the per-request snapshot on `c.get("settings")` (sync, frozen for the request) — it's populated by `middleware.settings()` and avoids the Redis round-trip on every read. Fall back to `await settings.get(...)` outside the request lifecycle (background jobs, lifecycle hooks).
 
 App-owned settings are declared inside `defineApp({ settings: { ... } })` as a typed map (see the `cloud-app` skill). The platform registers them automatically and they appear in the admin settings UI grouped by the dotted-key prefix. They support env-var fallbacks; resolution order: DB value → env fallback → code default.
+
+### Timezones
+
+Store user-facing instants as UTC ISO strings or database timestamps. Date-only values stay date-only (`YYYY-MM-DD`). Rendering and parsing user-facing date/time values should go through `@valentinkolb/stdlib` date helpers with a request-specific date context.
+
+Inside HTTP handlers use the KISS server helpers from `@valentinkolb/cloud/server`:
+
+```typescript
+import { getDateConfig, getTimeZone } from "@valentinkolb/cloud/server";
+
+const dateConfig = getDateConfig(c); // stdlib DateContext
+const timeZone = getTimeZone(c);     // string, mostly for logs/jobs
+```
+
+Resolution order is: browser `cloud.timezone` cookie → global `app.timezone` setting → `UTC`. `Layout` includes the small browser island that writes the cookie with `@valentinkolb/stdlib/browser` cookie helpers. Do not add app-local timezone stores or duplicate date formatting wrappers unless the component truly needs extra behavior.
+
+Background jobs and schedulers do not have a browser cookie, so they use `app.timezone` as their wall-clock timezone. Server-rendered UI should pass `getDateConfig(c)` into time-aware islands/components and let them call stdlib `dates.*`.
 
 ### Session
 

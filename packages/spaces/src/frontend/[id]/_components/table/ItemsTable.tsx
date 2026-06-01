@@ -1,5 +1,5 @@
 import { DataTable, type DataTableColumn, prompts } from "@valentinkolb/cloud/ui";
-import { dates } from "@valentinkolb/stdlib";
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { onCleanup, type JSX } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
@@ -15,6 +15,7 @@ type Props = {
   selectedItemId?: string;
   baseUrl: string;
   scrollPreserveKey?: string;
+  dateConfig?: DateContext;
 };
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -93,7 +94,8 @@ const formatSchedule = (item: SpaceItem) => {
 export default function ItemsTable(props: Props) {
   const columnsById = new Map(props.columns.map((column) => [column.id, column]));
   const editMutation = mutations.create<boolean, SpaceItem>({
-    mutation: (item) => editItemWithDialog({ spaceId: props.spaceId, item, columns: props.columns, tags: props.tags }),
+    mutation: (item) =>
+      editItemWithDialog({ spaceId: props.spaceId, item, columns: props.columns, tags: props.tags, dateConfig: props.dateConfig }),
     onSuccess: handleEditItemSuccess,
     onError: (err) => prompts.error(err.message),
   });

@@ -65,6 +65,7 @@ export default function SpacesWorkspace(props: Props) {
       calendarView: state().calendarView,
       calendarDate: state().calendarDate,
       calendarTagIds: state().calendarTagIds,
+      dateConfig: props.dateConfig,
     });
   const paginationBaseUrl = () =>
     buildSpacesPaginationBaseUrl({
@@ -261,7 +262,7 @@ export default function SpacesWorkspace(props: Props) {
 
   return (
     <AppWorkspace class="flex-1 min-h-0">
-      <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} />
+      <SpaceSidebar ctx={spaceContext()} onNavigate={handleNavigate} onOpenSettings={openSettingsRoute} dateConfig={props.dateConfig} />
 
       <AppWorkspace.Main>
         {state().space.description && (
@@ -310,6 +311,7 @@ export default function SpacesWorkspace(props: Props) {
                   selectedItemId={selectedItemId()}
                   baseUrl={itemLinkBaseUrl()}
                   scrollPreserveKey={`spaces-table-${spaceId()}`}
+                  dateConfig={props.dateConfig}
                 />
               ) : (
                 <ItemsList
@@ -321,6 +323,7 @@ export default function SpacesWorkspace(props: Props) {
                   groupBy={filter().groupBy}
                   showCompleted={filter().status !== "active"}
                   baseUrl={itemLinkBaseUrl()}
+                  dateConfig={props.dateConfig}
                 />
               )}
 
@@ -345,6 +348,7 @@ export default function SpacesWorkspace(props: Props) {
               initialBuckets={state().kanbanBuckets}
               pageSize={KANBAN_PAGE_SIZE}
               completedColumnId={state().completedColumnId}
+              dateConfig={props.dateConfig}
             />
           )}
 
@@ -381,6 +385,7 @@ export default function SpacesWorkspace(props: Props) {
             tags={state().space.tags}
             initialItem={state().selectedItem}
             initialComments={state().selectedItemComments}
+            dateConfig={props.dateConfig}
           />
         </div>
       </AppWorkspace.Detail>

@@ -393,6 +393,19 @@ import { TextInput, NumberInput, Select, MultiSelectInput, Switch, Checkbox, Tag
 />
 ```
 
+#### DateTimeInput and Timezones
+
+`DateTimeInput` accepts `dateConfig?: DateContext` or `timeZone` as a convenience override. When a timezone is provided, the visible native input edits wall-clock time in that timezone while the value handed back to app code is a UTC instant string. Date-only mode stays `YYYY-MM-DD`.
+
+```tsx
+import { DateTimeInput } from "@valentinkolb/cloud/ui";
+
+<DateTimeInput label="Start" value={startsAt} onChange={setStartsAt} dateConfig={props.dateConfig} />
+<DateTimeInput label="Due date" value={deadline} onChange={setDeadline} dateOnly dateConfig={props.dateConfig} />
+```
+
+SSR pages should pass `dateConfig={getDateConfig(c)}` into islands that render date/time inputs, calendars, or other user-facing times. Do not use local `Date#getHours()` / `getMonth()` / `toLocaleString()` directly for timezone-sensitive UI; use `@valentinkolb/stdlib` `dates.*` with the same `DateContext`.
+
 #### TextInput
 
 `TextInput` supports plain text, password/search-like input types, textarea mode, markdown mode, prefix/suffix adornments, clear buttons, abbreviations, completions, and active icons. Source: `packages/cloud/src/ui/input/TextInput.tsx`.
@@ -902,7 +915,8 @@ const result = await dialogCore.open<ItemFormData | null>(
             <TextInput label="Description" value={description} onInput={setDescription} markdown />
           </PanelDialog.Section>
           <PanelDialog.Section title="Schedule" icon="ti ti-calendar-time">
-            ...
+            <DateTimeInput label="Start" value={startsAt} onChange={setStartsAt} dateConfig={props.dateConfig} />
+            <DateTimeInput label="End" value={endsAt} onChange={setEndsAt} dateConfig={props.dateConfig} />
           </PanelDialog.Section>
         </PanelDialog.Body>
         <PanelDialog.Footer>
@@ -930,6 +944,25 @@ const result = await dialogCore.open<ItemFormData | null>(
 `panelDialogOptions` is the standard `dialogCore.open` option object for this shell. It gives the Grids-style centered panel, fixed max viewport height, scroll-contained body, and bare content padding. `confirmDiscardIfDirty(dirty)` is available for editor close guards, but dirty state stays in the app.
 
 The component is visual structure only. Keep form state, validation, input components, mutations, save/cancel semantics, and API calls in the consuming app. If the dialog is part of a write flow, open it inside `mutation.create()` just like `prompts.dialog`.
+
+### Calendar and DateContext
+
+`Calendar` is timezone-aware when passed `dateConfig`. It uses stdlib calendar helpers for day keys, month grids, week/day ranges, all-day rows, timed events, and date navigation. Source: `packages/cloud/src/ui/misc/Calendar.tsx`; Spaces passes the request config through `packages/spaces/src/frontend/[id]/page.tsx` and `SpacesWorkspace`.
+
+```tsx
+import { Calendar } from "@valentinkolb/cloud/ui";
+
+<Calendar
+  view={view()}
+  date={date()}
+  events={events()}
+  dateConfig={props.dateConfig}
+  onViewChange={setView}
+  onDateChange={setDate}
+/>
+```
+
+Rule of thumb: route state stores stable date keys (`YYYY-MM-DD`) and persisted event instants are UTC. Calendar rendering, range loading, drag/drop, and datetime inputs all receive the same `dateConfig`; app code persists the resulting UTC values through its mutation layer.
 
 #### Settings dialog recipe
 

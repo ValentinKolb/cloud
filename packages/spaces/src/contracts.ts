@@ -35,6 +35,13 @@ export type SpaceTag = z.infer<typeof SpaceTagSchema>;
 export const PrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 export type Priority = z.infer<typeof PrioritySchema>;
 
+export const RecurrenceSchema = z.object({
+  rrule: z.string().min(1).describe("RFC 5545 RRULE string"),
+  dtstart: z.string().nullable().optional().describe("Recurrence series start timestamp (ISO)"),
+  exdate: z.array(z.string()).default([]).describe("Excluded recurrence instance timestamps (ISO)"),
+});
+export type Recurrence = z.infer<typeof RecurrenceSchema>;
+
 export const SpaceItemAssigneeSchema = z.object({
   id: SpaceUuidSchema.describe("User UUID"),
   displayName: z.string().describe("User display name"),
@@ -47,11 +54,16 @@ export const SpaceItemSchema = z.object({
   columnId: SpaceUuidSchema.describe("Current column UUID"),
   title: z.string().describe("Item title"),
   description: z.string().nullable().describe("Item description (markdown)"),
+  location: z.string().nullable().describe("Event location"),
+  url: z.string().nullable().describe("Event URL"),
   startsAt: z.string().nullable().describe("Event start time (ISO)"),
   endsAt: z.string().nullable().describe("Event end time (ISO)"),
   allDay: z.boolean().default(false).describe("Whether the item is an all-day event"),
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
+  recurrence: RecurrenceSchema.nullable().describe("Recurring event series data"),
+  recurringEventId: SpaceUuidSchema.nullable().describe("Parent recurring event UUID for overrides"),
+  recurrenceId: z.string().nullable().describe("Original occurrence timestamp (ISO) for overrides"),
   rank: z.string().describe("Item ordering rank within a column"),
   completedAt: z.string().nullable().describe("Completion timestamp (ISO)"),
   createdBy: SpaceUuidSchema.nullable().describe("Creator user UUID"),
@@ -84,16 +96,22 @@ export type SpaceDetail = z.infer<typeof SpaceDetailSchema>;
 
 // Calendar item (for calendar view)
 export const CalendarItemSchema = z.object({
-  id: SpaceUuidSchema.describe("Item UUID"),
+  id: z.string().describe("Calendar item ID; recurring instances use a stable virtual ID"),
   spaceId: SpaceUuidSchema.describe("Parent space UUID"),
   spaceName: z.string().describe("Space name"),
   spaceColor: z.string().describe("Space color"),
   title: z.string().describe("Item title"),
+  location: z.string().nullable().describe("Event location"),
+  url: z.string().nullable().describe("Event URL"),
   startsAt: z.string().nullable().describe("Event start time (ISO)"),
   endsAt: z.string().nullable().describe("Event end time (ISO)"),
   allDay: z.boolean().default(false).describe("Whether the item is an all-day event"),
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
+  recurrence: RecurrenceSchema.nullable().describe("Recurring event series data"),
+  recurringEventId: SpaceUuidSchema.nullable().describe("Parent recurring event UUID for overrides"),
+  recurrenceId: z.string().nullable().describe("Original occurrence timestamp (ISO) for overrides"),
+  isRecurringInstance: z.boolean().optional().describe("Whether this calendar item is an expanded recurring instance"),
   tags: z.array(SpaceTagSchema).optional().describe("Attached tags"),
 });
 export type CalendarItem = z.infer<typeof CalendarItemSchema>;
@@ -185,11 +203,16 @@ export const CreateItemSchema = z
     columnId: SpaceUuidSchema.describe("Target column UUID"),
     title: z.string().min(1).max(200).describe("Item title"),
     description: z.string().max(5000).optional().describe("Item description (markdown)"),
+    location: z.string().max(500).optional().describe("Event location"),
+    url: z.string().url().max(2000).optional().describe("Event URL"),
     startsAt: z.string().datetime().optional().describe("Event start time (ISO)"),
     endsAt: z.string().datetime().optional().describe("Event end time (ISO)"),
     allDay: z.boolean().optional().describe("Whether the item is an all-day event"),
     deadline: z.string().datetime().optional().describe("Todo deadline (ISO)"),
     priority: PrioritySchema.optional().describe("Item priority"),
+    recurrence: RecurrenceSchema.optional().describe("Recurring event series data"),
+    recurringEventId: SpaceUuidSchema.optional().describe("Parent recurring event UUID for overrides"),
+    recurrenceId: z.string().datetime().optional().describe("Original occurrence timestamp (ISO) for overrides"),
     assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
     tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
   })
@@ -203,11 +226,16 @@ export const UpdateItemSchema = z.object({
   columnId: SpaceUuidSchema.optional().describe("Target column UUID"),
   title: z.string().min(1).max(200).optional().describe("Item title"),
   description: z.string().max(5000).nullable().optional().describe("Item description (markdown)"),
+  location: z.string().max(500).nullable().optional().describe("Event location"),
+  url: z.string().url().max(2000).nullable().optional().describe("Event URL"),
   startsAt: z.string().datetime().nullable().optional().describe("Event start time (ISO)"),
   endsAt: z.string().datetime().nullable().optional().describe("Event end time (ISO)"),
   allDay: z.boolean().optional().describe("Whether the item is an all-day event"),
   deadline: z.string().datetime().nullable().optional().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().optional().describe("Item priority"),
+  recurrence: RecurrenceSchema.nullable().optional().describe("Recurring event series data"),
+  recurringEventId: SpaceUuidSchema.nullable().optional().describe("Parent recurring event UUID for overrides"),
+  recurrenceId: z.string().datetime().nullable().optional().describe("Original occurrence timestamp (ISO) for overrides"),
   assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
   tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
 });
