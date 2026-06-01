@@ -111,10 +111,6 @@ export default function ContactOrgTreeView(props: Props) {
       </section>
       <div class="flex-1 min-h-0 overflow-y-auto">
         <section class="detail-section">
-          <div class="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-secondary">
-            <i class="ti ti-hierarchy text-sm" />
-            <span>Reporting line</span>
-          </div>
           <ul class="flex flex-col gap-1">
             <ContactOrgTreeNode
               node={props.tree.root}

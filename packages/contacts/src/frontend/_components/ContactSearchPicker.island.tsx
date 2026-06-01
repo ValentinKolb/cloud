@@ -40,8 +40,8 @@ export default function ContactSearchPicker(props: Props) {
         setResults([]);
         return;
       }
-      const payload = (await res.json()) as { data?: Contact[] };
-      const items = payload.data ?? [];
+      const payload = await res.json();
+      const items = payload.data;
       const excludeSet = new Set(props.excludeIds ?? []);
       setResults(items.filter((c) => !excludeSet.has(c.id)));
     } finally {

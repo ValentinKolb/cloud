@@ -1,6 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { PermissionLevel } from "@valentinkolb/cloud/server";
-import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
+import { paginate, paginateItems, type PermissionLevel } from "@valentinkolb/cloud/server";
+import type { PageParams, Paginated } from "@valentinkolb/stdlib";
 import * as books from "./books";
 import * as contacts from "./contacts";
 import * as notes from "./notes";
@@ -18,28 +18,6 @@ import type {
   UpdateContactNoteInput,
   UpdateContactTagInput,
 } from "./types";
-
-const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
-  if (!pagination) {
-    return {
-      items,
-      page: 1,
-      perPage: items.length,
-      total: items.length,
-      hasNext: false,
-    };
-  }
-
-  const { page, perPage, offset } = paginate(pagination);
-  const sliced = items.slice(offset, offset + perPage);
-  return {
-    items: sliced,
-    page,
-    perPage,
-    total: items.length,
-    hasNext: page * perPage < items.length,
-  };
-};
 
 /**
  * Main Contacts app service facade.

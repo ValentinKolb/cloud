@@ -1,7 +1,7 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, rateLimit, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { v, jsonResponse, requiresAdmin, auth, type AuthContext, rateLimit, respond, respondMessage } from "@valentinkolb/cloud/server";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { oauthService } from "../service";
 import {
   OAuthClientSchema,
@@ -18,17 +18,6 @@ import { z } from "zod";
 // ==========================
 
 const OAuthClientListSchema = z.array(OAuthClientSchema);
-
-/**
- * Wraps mutation results and returns a standardized message payload for API handlers.
- */
-const respondMessage = async (c: Context, resultPromise: Promise<Result<void>>, message: string) => {
-  return respond(c, async () => {
-    const result = await resultPromise;
-    if (!result.ok) return result;
-    return ok({ message });
-  });
-};
 
 /**
  * Admin routes for managing OAuth clients
@@ -73,7 +62,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id") ?? "";
       const client = await oauthService.client.get({ id });
 
       if (!client) {
@@ -130,7 +119,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateOAuthClientSchema),
     async (c) => {
-      const id = c.req.param("id");
+      const id = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
       return respondMessage(c, oauthService.client.update({ id, data }), "Client updated");

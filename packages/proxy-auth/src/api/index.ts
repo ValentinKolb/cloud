@@ -1,7 +1,7 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { v, jsonResponse, requiresAdmin, auth, type AuthContext, rateLimit, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { v, jsonResponse, requiresAdmin, auth, type AuthContext, rateLimit, respond, respondMessage } from "@valentinkolb/cloud/server";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { proxyAuthService } from "../service";
 import {
   ProxyAuthClientSchema,
@@ -13,17 +13,6 @@ import {
 import { z } from "zod";
 
 const ProxyAuthClientListSchema = z.array(ProxyAuthClientSchema);
-
-/**
- * Wraps mutation results and returns a standardized message payload for API handlers.
- */
-const respondMessage = async (c: Context, resultPromise: Promise<Result<void>>, message: string) => {
-  return respond(c, async () => {
-    const result = await resultPromise;
-    if (!result.ok) return result;
-    return ok({ message });
-  });
-};
 
 const app = new Hono<AuthContext>()
   .use(rateLimit())
@@ -98,7 +87,7 @@ const app = new Hono<AuthContext>()
       return respondMessage(
         c,
         proxyAuthService.client.update({
-          id: c.req.param("id"),
+          id: c.req.param("id") ?? "",
           data: c.req.valid("json"),
         }),
         "Client updated",

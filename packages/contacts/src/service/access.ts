@@ -7,8 +7,9 @@ import {
   type PermissionLevel,
   type Principal,
   resolveDisplayNames,
+  paginateItems,
 } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@valentinkolb/stdlib";
+import { err, fail, ok, type PageParams, type Paginated, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { isUuid } from "./shared";
 
@@ -19,28 +20,6 @@ type DbBookAccess = {
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
-};
-
-const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
-  if (!pagination) {
-    return {
-      items,
-      page: 1,
-      perPage: items.length,
-      total: items.length,
-      hasNext: false,
-    };
-  }
-
-  const { page, perPage, offset } = paginate(pagination);
-  const sliced = items.slice(offset, offset + perPage);
-  return {
-    items: sliced,
-    page,
-    perPage,
-    total: items.length,
-    hasNext: page * perPage < items.length,
-  };
 };
 
 /**

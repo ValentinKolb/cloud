@@ -11,14 +11,28 @@ import {
   parsePagination,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, updateAccess, v } from "@valentinkolb/cloud/server";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import {
+  type AuthContext,
+  auth,
+  jsonResponse,
+  rateLimit,
+  requiresAuth,
+  respond,
+  respondMessage,
+  updateAccess,
+  v,
+} from "@valentinkolb/cloud/server";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type MiddlewareHandler, type TypedResponse } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { contactsService } from "../service";
 import * as vcard from "../service/vcard";
+
+const documentRoute = (options: Parameters<typeof describeRoute>[0]) => describeRoute(options) as MiddlewareHandler<AuthContext>;
+
+type ApiErrorResponse = TypedResponse<{ message: string; code?: string }, 400 | 401 | 403 | 404 | 409 | 500, "json">;
 
 const ContactBookSchema = z.object({
   id: z.string(),
@@ -309,16 +323,10 @@ const ContactListResponseSchema = z.object({
   pagination: PaginationResponseSchema,
 });
 
-/**
- * Central helper for mutation handlers that only return a message payload.
- */
-const respondMessage = async (c: Context, resultPromise: Promise<Result<void>>, message: string) => {
-  return respond(c, async () => {
-    const result = await resultPromise;
-    if (!result.ok) return result;
-    return ok({ message });
-  });
-};
+const ImportCommitResponseSchema = z.object({
+  created: z.number(),
+  failures: z.array(z.string()),
+});
 
 /**
  * Resolves one book and checks required permissions for the current user.
@@ -348,7 +356,7 @@ const requireBookAccess = async (c: Context<AuthContext>, bookId: string, requir
     };
   }
 
-  return { book, error: null as Response | null };
+  return { book, error: null as ApiErrorResponse | null };
 };
 
 const requireBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: string) => {
@@ -362,7 +370,7 @@ const requireBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: strin
     };
   }
 
-  if (hasRole(user, "admin")) return { book, error: null as Response | null };
+  if (hasRole(user, "admin")) return { book, error: null as ApiErrorResponse | null };
   return requireBookAccess(c, bookId, "admin");
 };
 
@@ -426,7 +434,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/books",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "List books",
       description: "List contact books visible to the current user, including the virtual system book.",
@@ -460,7 +468,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/books/:bookId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Get book",
       description: "Load one contact book by ID.",
@@ -481,7 +489,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/books",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Create book",
       description: "Create a manual contact book.",
@@ -501,7 +509,7 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/books/:bookId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Update book",
       description: "Update one manual contact book. Requires admin book access.",
@@ -530,7 +538,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/books/:bookId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Delete book",
       description: "Delete one manual contact book. Requires admin book access.",
@@ -560,7 +568,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/books/:bookId/access",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "List book access entries",
       description: "List all access entries for a manual book. Requires admin book access.",
@@ -588,7 +596,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/books/:bookId/access",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Grant book access",
       description: "Grant access to a user, group, or public principal for a manual book. Requires admin book access.",
@@ -618,7 +626,7 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/books/:bookId/access/:accessId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Update book access permission",
       description: "Update one access permission for a manual book. Requires admin book access.",
@@ -658,7 +666,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/books/:bookId/access/:accessId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Revoke book access",
       description: "Delete one access entry from a manual book. Requires admin book access.",
@@ -703,7 +711,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/books/:bookId/contacts",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "List contacts",
       description: "List contacts in a book with pagination and optional search filter.",
@@ -743,7 +751,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/books/:bookId/contacts/:contactId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Get contact",
       description: "Load one contact from a specific book.",
@@ -772,7 +780,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/books/:bookId/contacts/:contactId/tree",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Get contact tree",
       description: "Load the full hierarchy around one manual contact in a specific book.",
@@ -801,7 +809,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/books/:bookId/contacts",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Create contact",
       description: "Create one contact with optional emails/phones/addresses.",
@@ -827,7 +835,7 @@ const app = new Hono<AuthContext>()
 
   .patch(
     "/books/:bookId/contacts/:contactId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Update contact",
       description: "Update one contact. Provided child arrays fully replace existing entries.",
@@ -854,7 +862,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/books/:bookId/contacts/:contactId/move",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Move contact",
       description: "Move one contact from the current manual book to another writable manual book.",
@@ -888,7 +896,7 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/books/:bookId/contacts/:contactId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Delete contact",
       description: "Delete one contact from the selected book.",
@@ -915,7 +923,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/books/:bookId/contacts/:contactId/notes",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "List contact notes",
       description: "Returns the timeline of notes attached to one contact, newest first.",
@@ -937,7 +945,7 @@ const app = new Hono<AuthContext>()
   )
   .post(
     "/books/:bookId/contacts/:contactId/notes",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Add a note to a contact",
       ...requiresAuth,
@@ -970,7 +978,7 @@ const app = new Hono<AuthContext>()
   )
   .patch(
     "/books/:bookId/contacts/:contactId/notes/:noteId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Update one note",
       description: "Only the original author may edit their own note.",
@@ -1005,7 +1013,7 @@ const app = new Hono<AuthContext>()
   )
   .delete(
     "/books/:bookId/contacts/:contactId/notes/:noteId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Delete one note",
       description: "Author or book admin may delete.",
@@ -1049,7 +1057,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/books/:bookId/tags",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "List tags for a book",
       ...requiresAuth,
@@ -1067,7 +1075,7 @@ const app = new Hono<AuthContext>()
   )
   .post(
     "/books/:bookId/tags",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Create a tag",
       ...requiresAuth,
@@ -1087,7 +1095,7 @@ const app = new Hono<AuthContext>()
   )
   .patch(
     "/books/:bookId/tags/:tagId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Update a tag",
       ...requiresAuth,
@@ -1107,7 +1115,7 @@ const app = new Hono<AuthContext>()
   )
   .delete(
     "/books/:bookId/tags/:tagId",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Delete a tag",
       ...requiresAuth,
@@ -1129,7 +1137,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/books/:bookId/export.vcf",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Export book as vCard",
       ...requiresAuth,
@@ -1153,7 +1161,7 @@ const app = new Hono<AuthContext>()
   )
   .get(
     "/books/:bookId/export.csv",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Export book as CSV (flat — first email/phone/address only)",
       ...requiresAuth,
@@ -1175,7 +1183,7 @@ const app = new Hono<AuthContext>()
   )
   .post(
     "/books/:bookId/import/preview",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Parse a vCard payload and preview matches against existing contacts",
       description:
@@ -1252,14 +1260,14 @@ const app = new Hono<AuthContext>()
   )
   .post(
     "/books/:bookId/import/commit",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Bulk create contacts from a previously previewed candidate list",
       description:
         "Caller passes back the candidates that should be created. The server creates them in order and returns the created ids.",
       ...requiresAuth,
       responses: {
-        200: jsonResponse(z.object({ created: z.number() }), "Created count"),
+        200: jsonResponse(ImportCommitResponseSchema, "Created count with per-contact failures"),
       },
     }),
     v(
@@ -1295,7 +1303,7 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   .get(
     "/search",
-    describeRoute({
+    documentRoute({
       tags: ["Contacts"],
       summary: "Search contacts",
       description: "Search across all readable manual books and optionally the system book, returning paginated matches.",

@@ -6,23 +6,12 @@ import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
 import ContactSearchPicker from "./ContactSearchPicker.island";
 import ContactUpsertForm from "./ContactUpsertForm.island";
+import { readErrorMessage } from "./api";
 
 type Props = {
   parent: Contact;
   /** Resolves with the saved/linked member, or null if cancelled. */
   close: (member: Contact | null) => void;
-};
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-
-const errorMessage = async (res: Response, fallback: string) => {
-  try {
-    const data = (await res.json()) as unknown;
-    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
-      return data["message"];
-    }
-  } catch {}
-  return fallback;
 };
 
 /**
@@ -52,8 +41,8 @@ export default function AddMemberDialog(props: Props) {
         param: { bookId: vars.contact.bookId, contactId: vars.contact.id },
         json: { parentContactId: props.parent.id },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to link member"));
-      return (await res.json()) as Contact;
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to link member"));
+      return await res.json();
     },
     onSuccess: (linked) => props.close(linked),
     onError: (error) => prompts.error(error.message),

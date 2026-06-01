@@ -1,6 +1,7 @@
 import { navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
+import { readErrorMessage } from "./api";
 
 type Props = {
   bookId: string;
@@ -24,12 +25,7 @@ export default function DeleteBookButton(props: Props) {
         param: { bookId: props.bookId },
       });
 
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as {
-          message?: string;
-        };
-        throw new Error(data.message ?? "Failed to delete book");
-      }
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to delete book"));
       return true;
     },
     onSuccess: (deleted) => {

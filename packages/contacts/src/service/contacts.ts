@@ -4,6 +4,7 @@ import { resolveStoredContactLabel } from "../shared";
 import { emptyToNull, isUuid, toDateOnly, toPgUuidArray } from "./shared";
 import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
+import { buildContactTree, type ContactTreeRow } from "./tree";
 import type {
   Contact,
   ContactAddress,
@@ -17,7 +18,6 @@ import type {
   ContactRef,
   ContactTag,
   ContactTree,
-  ContactTreeNode,
   ContactWebsite,
   ContactWebsiteInput,
   CreateContactInput,
@@ -120,16 +120,6 @@ type SearchRow = {
   contact_id: string;
   book_id: string;
   source_kind: "manual" | "system";
-};
-
-type ContactTreeRow = {
-  id: string;
-  label: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  company_name: string | null;
-  job_title: string | null;
-  parent_contact_id: string | null;
 };
 
 /**
@@ -779,14 +769,6 @@ export const get = async (config: { bookId: string; id: string }): Promise<Conta
   return contact;
 };
 
-const treeNodeName = (node: ContactTreeNode): string =>
-  (node.label || [node.firstName, node.lastName].filter(Boolean).join(" ") || node.companyName || node.id).toLowerCase();
-
-const sortTreeNodes = (nodes: ContactTreeNode[]) => {
-  nodes.sort((left, right) => treeNodeName(left).localeCompare(treeNodeName(right)));
-  for (const node of nodes) sortTreeNodes(node.children);
-};
-
 /**
  * Loads the full manual-book hierarchy around a selected contact.
  *
@@ -862,40 +844,7 @@ export const tree = async (config: { bookId: string; id: string }): Promise<Cont
     FROM descendants
   `;
 
-  if (rows.length === 0) return null;
-
-  const nodes = new Map<string, ContactTreeNode>();
-  for (const row of rows) {
-    nodes.set(row.id, {
-      id: row.id,
-      label: row.label,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      companyName: row.company_name,
-      jobTitle: row.job_title,
-      parentContactId: row.parent_contact_id,
-      children: [],
-    });
-  }
-
-  let root: ContactTreeNode | null = null;
-  for (const node of nodes.values()) {
-    const parent = node.parentContactId ? nodes.get(node.parentContactId) : null;
-    if (parent) {
-      parent.children.push(node);
-    } else {
-      root = node;
-    }
-  }
-
-  if (!root || !nodes.has(config.id)) return null;
-  sortTreeNodes([root]);
-
-  return {
-    bookId: config.bookId,
-    selectedId: config.id,
-    root,
-  };
+  return buildContactTree({ bookId: config.bookId, selectedId: config.id, rows });
 };
 
 /**
@@ -1175,6 +1124,22 @@ export const remove = async (config: { bookId: string; id: string }): Promise<Re
   return ok();
 };
 
+const hydrateSearchRows = async (rows: SearchRow[]): Promise<Contact[]> => {
+  const manualIds = rows.filter((row) => row.source_kind === "manual").map((row) => row.contact_id);
+  const systemIds = rows.filter((row) => row.source_kind === "system").map((row) => row.contact_id);
+
+  const [manualContactsById, systemContactsById] = await Promise.all([
+    getManualContactsByIds(manualIds),
+    getSystemContactsByIds(systemIds),
+  ]);
+
+  return rows
+    .map((row) =>
+      row.source_kind === "manual" ? (manualContactsById.get(row.contact_id) ?? null) : (systemContactsById.get(row.contact_id) ?? null),
+    )
+    .filter((row): row is Contact => row !== null);
+};
+
 /**
  * Global search across all readable manual books plus the virtual system book.
  */
@@ -1305,19 +1270,7 @@ export const search = async (config: {
     OFFSET ${offset}
   `;
 
-  const manualIds = rows.filter((row) => row.source_kind === "manual").map((row) => row.contact_id);
-  const systemIds = rows.filter((row) => row.source_kind === "system").map((row) => row.contact_id);
-
-  const [manualContactsById, systemContactsById] = await Promise.all([
-    getManualContactsByIds(manualIds),
-    getSystemContactsByIds(systemIds),
-  ]);
-
-  const items = rows
-    .map((row) =>
-      row.source_kind === "manual" ? (manualContactsById.get(row.contact_id) ?? null) : (systemContactsById.get(row.contact_id) ?? null),
-    )
-    .filter((row): row is Contact => row !== null);
+  const items = await hydrateSearchRows(rows);
 
   const total = countRow?.count ?? 0;
   return {

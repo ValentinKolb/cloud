@@ -1,1 +1,1 @@
-export { api, respond } from "./respond";
+export { api, respond, respondMessage } from "./respond";

@@ -1,6 +1,6 @@
 import type { Context, TypedResponse } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
-import { isServiceError, type Result, type ServiceError } from "@valentinkolb/stdlib";
+import { isServiceError, ok, type Result, type ServiceError } from "@valentinkolb/stdlib";
 
 type LegacyResult<T = void> = { ok: true; data: T } | { ok: false; error: string; status: number };
 
@@ -8,7 +8,7 @@ type AnyResult<T = unknown> = Result<T> | LegacyResult<T>;
 type ResultOrFn<T> = T | Promise<T> | (() => T | Promise<T>);
 type SuccessStatus = 200 | 201;
 type ErrorStatus = ServiceError["status"];
-type JsonTypedResponse<T, Status extends StatusCode> = Response & TypedResponse<T, Status, "json">;
+type JsonTypedResponse<T, Status extends StatusCode> = TypedResponse<T, Status, "json">;
 
 type ErrorResponseBody = {
   message: string;
@@ -64,17 +64,25 @@ export async function respond<T>(
   c: Context,
   resultOrFn: ResultOrFn<AnyResult<T>>,
   successStatus: SuccessStatus = 200,
-) {
+): Promise<JsonTypedResponse<T, SuccessStatus> | JsonTypedResponse<ErrorResponseBody, ErrorStatus>> {
   const result = typeof resultOrFn === "function" ? await resultOrFn() : await resultOrFn;
 
   if (!result.ok) {
     const [body, status] = toErrorResponse(result);
-    return c.json(body, status as 400 | 401 | 403 | 404 | 409 | 500);
+    return c.json(body, status as 400 | 401 | 403 | 404 | 409 | 500) as JsonTypedResponse<ErrorResponseBody, ErrorStatus>;
   }
 
-  return c.json(result.data, successStatus as 200 | 201);
+  return c.json(result.data, successStatus as 200 | 201) as JsonTypedResponse<T, SuccessStatus>;
 }
+
+export const respondMessage = (c: Context, resultPromise: Promise<Result<void>>, message: string) =>
+  respond(c, async () => {
+    const result = await resultPromise;
+    if (!result.ok) return result;
+    return ok({ message });
+  });
 
 export const api = {
   respond,
+  respondMessage,
 } as const;

@@ -1,11 +1,26 @@
-import { navigateTo, PanelDialog, prompts, RemoveBtn, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo, PanelDialog, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, Index, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact, ContactRef } from "../../service";
 import { resolveContactName } from "../../shared";
 import ContactSearchPicker from "./ContactSearchPicker.island";
 import ContactTagsPicker from "./ContactTagsPicker.island";
+import { AddressFields, BankAccountFields, ReachFields } from "./ContactUpsertForm.fields";
+import {
+  type EditableAddress,
+  type EditableBankAccount,
+  type EditableEmail,
+  type EditablePhone,
+  type EditableWebsite,
+  buildContactPayload,
+  initialAddressRows,
+  initialBankAccountRows,
+  initialEmailRows,
+  initialPhoneRows,
+  initialWebsiteRows,
+} from "./ContactUpsertForm.model";
+import { readErrorMessage } from "./api";
 
 type ContactUpsertMode = "create" | "edit";
 
@@ -25,130 +40,6 @@ type Props = {
   onCancel?: () => void;
   onSaved?: (contact: Contact) => void;
   onDeleted?: () => void;
-};
-
-type EditableEmail = { label: string; email: string };
-type EditablePhone = { label: string; phone: string };
-type EditableWebsite = { label: string; url: string };
-type EditableBankAccount = {
-  label: string;
-  accountHolderName: string;
-  iban: string;
-  bic: string;
-  bankName: string;
-  note: string;
-};
-type EditableAddress = {
-  label: string;
-  recipientName: string;
-  companyName: string;
-  line1: string;
-  line2: string;
-  postalCode: string;
-  city: string;
-  stateRegion: string;
-  countryCode: string;
-};
-
-const DEFAULT_EMAIL_LABEL = "Email";
-const DEFAULT_PHONE_LABEL = "Telephone";
-const DEFAULT_WEBSITE_LABEL = "Website";
-const DEFAULT_BANK_ACCOUNT_LABEL = "Bank";
-const DEFAULT_ADDRESS_LABEL = "Address";
-
-const EMPTY_EMAIL: EditableEmail = {
-  label: DEFAULT_EMAIL_LABEL,
-  email: "",
-};
-
-const EMPTY_PHONE: EditablePhone = {
-  label: DEFAULT_PHONE_LABEL,
-  phone: "",
-};
-
-const EMPTY_WEBSITE: EditableWebsite = {
-  label: DEFAULT_WEBSITE_LABEL,
-  url: "",
-};
-
-const EMPTY_BANK_ACCOUNT: EditableBankAccount = {
-  label: DEFAULT_BANK_ACCOUNT_LABEL,
-  accountHolderName: "",
-  iban: "",
-  bic: "",
-  bankName: "",
-  note: "",
-};
-
-const EMPTY_ADDRESS: EditableAddress = {
-  label: DEFAULT_ADDRESS_LABEL,
-  recipientName: "",
-  companyName: "",
-  line1: "",
-  line2: "",
-  postalCode: "",
-  city: "",
-  stateRegion: "",
-  countryCode: "DE",
-};
-
-const initialEmailRows = (contact: Contact | null): EditableEmail[] => {
-  if (!contact) return [{ ...EMPTY_EMAIL }];
-  return contact.emails.length > 0
-    ? contact.emails.map((email) => ({
-        label: email.label?.trim() || DEFAULT_EMAIL_LABEL,
-        email: email.email,
-      }))
-    : [{ ...EMPTY_EMAIL }];
-};
-
-const initialPhoneRows = (contact: Contact | null): EditablePhone[] => {
-  if (!contact) return [{ ...EMPTY_PHONE }];
-  return contact.phones.length > 0
-    ? contact.phones.map((phone) => ({
-        label: phone.label?.trim() || DEFAULT_PHONE_LABEL,
-        phone: phone.phone,
-      }))
-    : [{ ...EMPTY_PHONE }];
-};
-
-const initialWebsiteRows = (contact: Contact | null): EditableWebsite[] => {
-  if (!contact) return [{ ...EMPTY_WEBSITE }];
-  return contact.websites.length > 0
-    ? contact.websites.map((website) => ({
-        label: website.label?.trim() || DEFAULT_WEBSITE_LABEL,
-        url: website.url,
-      }))
-    : [{ ...EMPTY_WEBSITE }];
-};
-
-const initialAddressRows = (contact: Contact | null): EditableAddress[] => {
-  if (!contact) return [{ ...EMPTY_ADDRESS }];
-  return contact.addresses.length > 0
-    ? contact.addresses.map((address) => ({
-        label: address.label?.trim() || DEFAULT_ADDRESS_LABEL,
-        recipientName: address.recipientName ?? "",
-        companyName: address.companyName ?? "",
-        line1: address.line1,
-        line2: address.line2 ?? "",
-        postalCode: address.postalCode,
-        city: address.city,
-        stateRegion: address.stateRegion ?? "",
-        countryCode: address.countryCode,
-      }))
-    : [{ ...EMPTY_ADDRESS }];
-};
-
-const initialBankAccountRows = (contact: Contact | null): EditableBankAccount[] => {
-  if (!contact) return [];
-  return contact.bankAccounts.map((account) => ({
-    label: account.label?.trim() || DEFAULT_BANK_ACCOUNT_LABEL,
-    accountHolderName: account.accountHolderName,
-    iban: account.iban,
-    bic: account.bic ?? "",
-    bankName: account.bankName ?? "",
-    note: account.note ?? "",
-  }));
 };
 
 const detailHref = (bookId: string, contactId: string) => `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`;
@@ -184,103 +75,26 @@ export default function ContactUpsertForm(props: Props) {
 
   const upsertMutation = mutations.create<Contact, void>({
     mutation: async () => {
-      const normalizedEmails = emails()
-        .map((email) => ({
-          label: email.label.trim() || null,
-          email: email.email.trim(),
-        }))
-        .filter((email) => email.email.length > 0)
-        .map((email) => ({ label: email.label, email: email.email }));
-
-      const normalizedPhones = phones()
-        .map((phone) => ({
-          label: phone.label.trim() || null,
-          phone: phone.phone.trim(),
-        }))
-        .filter((phone) => phone.phone.length > 0)
-        .map((phone) => ({ label: phone.label, phone: phone.phone }));
-
-      const normalizedWebsites = websites()
-        .map((website) => ({
-          label: website.label.trim() || null,
-          url: website.url.trim(),
-        }))
-        .filter((website) => website.url.length > 0)
-        .map((website) => ({ label: website.label, url: website.url }));
-
-      const normalizedAddresses = addresses()
-        .map((address) => ({
-          label: address.label.trim() || null,
-          recipientName: address.recipientName.trim() || null,
-          companyName: address.companyName.trim() || null,
-          line1: address.line1.trim(),
-          line2: address.line2.trim() || null,
-          postalCode: address.postalCode.trim(),
-          city: address.city.trim(),
-          stateRegion: address.stateRegion.trim() || null,
-          countryCode: address.countryCode.trim().toUpperCase(),
-        }))
-        .filter((address) => {
-          return (
-            address.line1.length > 0 ||
-            address.postalCode.length > 0 ||
-            address.city.length > 0 ||
-            address.recipientName !== null ||
-            address.companyName !== null
-          );
-        });
-
-      const normalizedBankAccounts = bankAccounts()
-        .map((account) => ({
-          label: account.label.trim() || null,
-          accountHolderName: account.accountHolderName.trim(),
-          iban: account.iban.replace(/\s+/g, "").toUpperCase(),
-          bic: account.bic.replace(/\s+/g, "").toUpperCase() || null,
-          bankName: account.bankName.trim() || null,
-          note: account.note.trim() || null,
-        }))
-        .filter((account) => account.accountHolderName.length > 0 || account.iban.length > 0 || account.bic || account.bankName);
-
-      for (const account of normalizedBankAccounts) {
-        if (!account.accountHolderName || !account.iban) {
-          throw new Error("Bank details need account holder name and IBAN");
-        }
-      }
-
-      for (const address of normalizedAddresses) {
-        if (!address.line1 || !address.postalCode || !address.city) {
-          throw new Error("Addresses need line1, postal code, and city");
-        }
-        if (address.countryCode.length !== 2) {
-          throw new Error("Address country code must be 2 letters");
-        }
-      }
-
-      const birthdayValue = birthday().trim();
-      if (birthdayValue && !/^\d{4}-\d{2}-\d{2}$/.test(birthdayValue)) {
-        throw new Error("Birthday must use format YYYY-MM-DD");
-      }
-
-      const payload = {
-        label: label().trim() || null,
-        firstName: firstName().trim() || null,
-        lastName: lastName().trim() || null,
-        companyName: companyName().trim() || null,
-        department: department().trim() || null,
-        jobTitle: jobTitle().trim() || null,
-        vatId: vatId().trim() || null,
-        birthday: birthdayValue || null,
-        salutation: salutation().trim() || null,
-        pronouns: pronouns().trim() || null,
-        preferredLanguage: preferredLanguage().trim() || null,
-        parentContactId: parentRef()?.id ?? null,
+      const payload = buildContactPayload({
+        label: label(),
+        firstName: firstName(),
+        lastName: lastName(),
+        companyName: companyName(),
+        department: department(),
+        jobTitle: jobTitle(),
+        vatId: vatId(),
+        birthday: birthday(),
+        salutation: salutation(),
+        pronouns: pronouns(),
+        preferredLanguage: preferredLanguage(),
+        parentRef: parentRef(),
         tagIds: tagIds(),
-        emails: normalizedEmails,
-        phones: normalizedPhones,
-        addresses: normalizedAddresses,
-        websites: normalizedWebsites,
-        bankAccounts: normalizedBankAccounts,
-      };
+        emails: emails(),
+        phones: phones(),
+        addresses: addresses(),
+        websites: websites(),
+        bankAccounts: bankAccounts(),
+      });
 
       if (props.mode === "create") {
         const response = await apiClient.books[":bookId"].contacts.$post({
@@ -288,14 +102,9 @@ export default function ContactUpsertForm(props: Props) {
           json: payload,
         });
 
-        if (!response.ok) {
-          const data = (await response.json().catch(() => ({}))) as {
-            message?: string;
-          };
-          throw new Error(data.message ?? "Failed to create contact");
-        }
+        if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create contact"));
 
-        const created = (await response.json()) as Contact;
+        const created = await response.json();
         return created;
       }
 
@@ -311,14 +120,9 @@ export default function ContactUpsertForm(props: Props) {
         json: payload,
       });
 
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as {
-          message?: string;
-        };
-        throw new Error(data.message ?? "Failed to update contact");
-      }
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update contact"));
 
-      return (await response.json()) as Contact;
+      return await response.json();
     },
     onSuccess: (contact) => {
       toast.success(props.mode === "create" ? "Contact created" : "Contact updated");
@@ -355,12 +159,7 @@ export default function ContactUpsertForm(props: Props) {
         },
       });
 
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as {
-          message?: string;
-        };
-        throw new Error(data.message ?? "Failed to delete contact");
-      }
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to delete contact"));
 
       return initialContact;
     },
@@ -542,323 +341,18 @@ export default function ContactUpsertForm(props: Props) {
             </div>
           </PanelDialog.Section>
 
-          <PanelDialog.Section title="Reach" subtitle="Email, telephone, and website contact points." icon="ti ti-address-book">
-            <div class="space-y-5">
-              <div class="space-y-2">
-                <Index each={emails()}>
-                  {(email, index) => (
-                    <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-                      <TextInput
-                        ariaLabel="Email label"
-                        placeholder="work, private…"
-                        value={() => email().label}
-                        onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                      />
-                      <TextInput
-                        ariaLabel="Email address"
-                        placeholder="name@company.com"
-                        icon="ti ti-mail text-blue-500 dark:text-blue-400"
-                        value={() => email().email}
-                        onInput={(value) => setEmails((current) => current.map((row, i) => (i === index ? { ...row, email: value } : row)))}
-                      />
-                      <div class="flex items-center justify-end">
-                        <RemoveBtn ariaLabel="Remove email" onClick={() => setEmails((current) => current.filter((_, i) => i !== index))} />
-                      </div>
-                    </div>
-                  )}
-                </Index>
-                <button
-                  type="button"
-                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                  onClick={() => setEmails([...emails(), { ...EMPTY_EMAIL }])}
-                >
-                  <i class="ti ti-plus" /> Add email
-                </button>
-              </div>
+          <ReachFields
+            emails={emails}
+            setEmails={setEmails}
+            phones={phones}
+            setPhones={setPhones}
+            websites={websites}
+            setWebsites={setWebsites}
+          />
 
-              <div class="space-y-2">
-                <Index each={phones()}>
-                  {(phone, index) => (
-                    <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-                      <TextInput
-                        ariaLabel="Telephone label"
-                        placeholder="mobile, work…"
-                        value={() => phone().label}
-                        onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))}
-                      />
-                      <TextInput
-                        ariaLabel="Telephone number"
-                        placeholder="+49 151 12345678"
-                        icon="ti ti-phone text-green-600 dark:text-green-400"
-                        value={() => phone().phone}
-                        onInput={(value) => setPhones((current) => current.map((row, i) => (i === index ? { ...row, phone: value } : row)))}
-                      />
-                      <div class="flex items-center justify-end">
-                        <RemoveBtn
-                          ariaLabel="Remove phone number"
-                          onClick={() => setPhones((current) => current.filter((_, i) => i !== index))}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </Index>
-                <button
-                  type="button"
-                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                  onClick={() => setPhones([...phones(), { ...EMPTY_PHONE }])}
-                >
-                  <i class="ti ti-plus" /> Add phone
-                </button>
-              </div>
+          <AddressFields rows={addresses} setRows={setAddresses} />
 
-              <div class="space-y-2">
-                <Index each={websites()}>
-                  {(website, index) => (
-                    <div class="grid grid-cols-1 md:grid-cols-[140px_1fr_auto] gap-2 items-center">
-                      <TextInput
-                        ariaLabel="Website label"
-                        placeholder="work, personal…"
-                        value={() => website().label}
-                        onInput={(value) =>
-                          setWebsites((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        ariaLabel="Website URL"
-                        placeholder="https://example.com"
-                        icon="ti ti-world text-purple-600 dark:text-purple-400"
-                        value={() => website().url}
-                        onInput={(value) => setWebsites((current) => current.map((row, i) => (i === index ? { ...row, url: value } : row)))}
-                      />
-                      <div class="flex items-center justify-end">
-                        <RemoveBtn
-                          ariaLabel="Remove website"
-                          onClick={() => setWebsites((current) => current.filter((_, i) => i !== index))}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </Index>
-                <button
-                  type="button"
-                  class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                  onClick={() => setWebsites([...websites(), { ...EMPTY_WEBSITE }])}
-                >
-                  <i class="ti ti-plus" /> Add website
-                </button>
-              </div>
-            </div>
-          </PanelDialog.Section>
-
-          <PanelDialog.Section
-            title="Addresses"
-            subtitle="Postal addresses with optional recipient and company details."
-            icon="ti ti-map-pin"
-          >
-            <div class="space-y-3">
-              <Index each={addresses()}>
-                {(address, index) => (
-                  <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <TextInput
-                        label="Label"
-                        placeholder="e.g. office, home"
-                        icon="ti ti-tag"
-                        value={() => address().label}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Recipient"
-                        placeholder="Max Mustermann"
-                        icon="ti ti-user"
-                        value={() => address().recipientName}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, recipientName: value } : row)))
-                        }
-                      />
-                      <div class="md:col-span-2">
-                        <TextInput
-                          label="Company"
-                          placeholder="Example GmbH"
-                          icon="ti ti-building"
-                          value={() => address().companyName}
-                          onInput={(value) =>
-                            setAddresses((current) => current.map((row, i) => (i === index ? { ...row, companyName: value } : row)))
-                          }
-                        />
-                      </div>
-                      <TextInput
-                        label="Address Line 1"
-                        placeholder="Musterstraße 1"
-                        icon="ti ti-home"
-                        required
-                        value={() => address().line1}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line1: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Address Line 2"
-                        placeholder="c/o, floor, etc. (optional)"
-                        icon="ti ti-home"
-                        value={() => address().line2}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, line2: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Postal Code"
-                        placeholder="89073"
-                        icon="ti ti-map-pin"
-                        required
-                        value={() => address().postalCode}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, postalCode: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="City"
-                        placeholder="Ulm"
-                        icon="ti ti-building-community"
-                        required
-                        value={() => address().city}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, city: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="State / Region"
-                        placeholder="Baden-Württemberg"
-                        description="Optional. US state or other region."
-                        icon="ti ti-map-2"
-                        value={() => address().stateRegion}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, stateRegion: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Country Code"
-                        placeholder="DE"
-                        description="ISO 2-letter, e.g. DE, AT, CH."
-                        icon="ti ti-flag"
-                        value={() => address().countryCode}
-                        onInput={(value) =>
-                          setAddresses((current) => current.map((row, i) => (i === index ? { ...row, countryCode: value } : row)))
-                        }
-                      />
-                    </div>
-                    <div class="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
-                        onClick={() => setAddresses((current) => current.filter((_, i) => i !== index))}
-                      >
-                        <i class="ti ti-trash" /> Remove address
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Index>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                onClick={() => setAddresses([...addresses(), { ...EMPTY_ADDRESS }])}
-              >
-                <i class="ti ti-plus" /> Add address
-              </button>
-            </div>
-          </PanelDialog.Section>
-
-          <PanelDialog.Section
-            title="Bank Details"
-            subtitle="Banking information for billing, refunds, and payouts."
-            icon="ti ti-building-bank"
-          >
-            <div class="space-y-3">
-              <Index each={bankAccounts()}>
-                {(account, index) => (
-                  <div class="rounded-lg bg-zinc-200/60 p-3 dark:bg-zinc-800/40">
-                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <TextInput
-                        label="Label"
-                        placeholder="e.g. billing, refunds"
-                        icon="ti ti-tag"
-                        value={() => account().label}
-                        onInput={(value) =>
-                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, label: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Account Holder"
-                        placeholder="Max Mustermann"
-                        icon="ti ti-user"
-                        required
-                        value={() => account().accountHolderName}
-                        onInput={(value) =>
-                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, accountHolderName: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="IBAN"
-                        placeholder="DE02120300000000202051"
-                        icon="ti ti-credit-card"
-                        required
-                        value={() => account().iban}
-                        onInput={(value) =>
-                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, iban: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="BIC"
-                        placeholder="BYLADEM1001"
-                        icon="ti ti-building-bank"
-                        value={() => account().bic}
-                        onInput={(value) =>
-                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bic: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Bank Name"
-                        placeholder="Example Bank"
-                        icon="ti ti-building-bank"
-                        value={() => account().bankName}
-                        onInput={(value) =>
-                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, bankName: value } : row)))
-                        }
-                      />
-                      <TextInput
-                        label="Note"
-                        placeholder="Optional"
-                        icon="ti ti-notes"
-                        value={() => account().note}
-                        onInput={(value) =>
-                          setBankAccounts((current) => current.map((row, i) => (i === index ? { ...row, note: value } : row)))
-                        }
-                      />
-                    </div>
-                    <div class="mt-4 flex justify-end">
-                      <button
-                        type="button"
-                        class="btn-simple btn-sm text-xs text-dimmed hover:text-red-600 dark:hover:text-red-400"
-                        onClick={() => setBankAccounts((current) => current.filter((_, i) => i !== index))}
-                      >
-                        <i class="ti ti-trash" /> Remove bank details
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Index>
-              <button
-                type="button"
-                class="btn-simple btn-sm text-xs text-dimmed hover:text-primary"
-                onClick={() => setBankAccounts([...bankAccounts(), { ...EMPTY_BANK_ACCOUNT }])}
-              >
-                <i class="ti ti-plus" /> Add bank details
-              </button>
-            </div>
-          </PanelDialog.Section>
+          <BankAccountFields rows={bankAccounts} setRows={setBankAccounts} />
         </PanelDialog.Body>
 
         <PanelDialog.Footer>

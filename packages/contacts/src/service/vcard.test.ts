@@ -1,0 +1,205 @@
+import { describe, expect, test } from "bun:test";
+import type { Contact } from "./types";
+import { parse, serializeBook, serializeBookCsv, serializeContact } from "./vcard";
+
+const stamp = "2026-01-01T00:00:00.000Z";
+
+const contact = (overrides: Partial<Contact> = {}): Contact => ({
+  id: "contact-1",
+  bookId: "book-1",
+  label: "Vendor, Primary",
+  firstName: "Ada",
+  lastName: "Lovelace",
+  companyName: "Analytical Engines GmbH",
+  department: "Research;Development",
+  jobTitle: "Chief Scientist",
+  vatId: "DE123456789",
+  birthday: "1815-12-10",
+  salutation: "Dr.",
+  pronouns: "she/her",
+  preferredLanguage: "en",
+  source: null,
+  createdAt: stamp,
+  updatedAt: stamp,
+  emails: [
+    {
+      id: "email-1",
+      contactId: "contact-1",
+      label: "Work",
+      email: "ada@example.test",
+      position: 0,
+      createdAt: stamp,
+      updatedAt: stamp,
+    },
+  ],
+  phones: [
+    {
+      id: "phone-1",
+      contactId: "contact-1",
+      label: "Mobile",
+      phone: "+49 123 456",
+      position: 0,
+      createdAt: stamp,
+      updatedAt: stamp,
+    },
+  ],
+  addresses: [
+    {
+      id: "address-1",
+      contactId: "contact-1",
+      label: "Office",
+      recipientName: "Ada Lovelace",
+      companyName: "Analytical Engines GmbH",
+      line1: "Main Street 1",
+      line2: "Suite 2",
+      postalCode: "10115",
+      city: "Berlin",
+      stateRegion: "BE",
+      countryCode: "DE",
+      position: 0,
+      createdAt: stamp,
+      updatedAt: stamp,
+    },
+  ],
+  websites: [
+    {
+      id: "website-1",
+      contactId: "contact-1",
+      label: "Work Website",
+      url: "https://example.test/ada",
+      position: 0,
+      createdAt: stamp,
+      updatedAt: stamp,
+    },
+  ],
+  bankAccounts: [],
+  parentContactId: null,
+  parent: null,
+  members: [],
+  tags: [],
+  ...overrides,
+});
+
+describe("vCard serialization", () => {
+  test("serializes core contact fields and multi-value data", () => {
+    const output = serializeContact(contact());
+
+    expect(output).toContain("BEGIN:VCARD\r\nVERSION:3.0");
+    expect(output).toContain("FN:Ada Lovelace");
+    expect(output).toContain("N:Lovelace;Ada;;;");
+    expect(output).toContain("NICKNAME:Vendor\\, Primary");
+    expect(output).toContain("ORG:Analytical Engines GmbH;Research\\;Development");
+    expect(output).toContain("TITLE:Chief Scientist");
+    expect(output).toContain("BDAY:1815-12-10");
+    expect(output).toContain("X-VAT-ID:DE123456789");
+    expect(output).toContain("URL;TYPE=workwebsite:https://example.test/ada");
+    expect(output).toContain("EMAIL;TYPE=work:ada@example.test");
+    expect(output).toContain("TEL;TYPE=mobile:+49 123 456");
+    expect(output).toContain("ADR;TYPE=office:;Suite 2;Main Street 1;Berlin;BE;10115;DE");
+    expect(output).toContain("\r\nEND:VCARD");
+  });
+
+  test("folds long lines and serializeBook terminates with CRLF", () => {
+    const output = serializeBook([
+      contact({
+        label: "A".repeat(100),
+        firstName: null,
+        lastName: null,
+        companyName: null,
+      }),
+    ]);
+
+    expect(output).toContain(`NICKNAME:${"A".repeat(66)}\r\n ${"A".repeat(34)}`);
+    expect(output.endsWith("\r\n")).toBe(true);
+  });
+});
+
+describe("vCard parsing", () => {
+  test("parses multi-contact vCard payloads with escaped values and folded lines", () => {
+    const raw = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Ada Lovelace",
+      "N:Lovelace;Ada;;;",
+      "NICKNAME:Vendor\\, Primary",
+      "ORG:Analytical Engines GmbH;Research\\;Development",
+      "TITLE:Chief Scientist",
+      "BDAY:18151210",
+      "X-VAT-ID:DE123456789",
+      "EMAIL;TYPE=work,internet:ada@example.test",
+      "TEL;Mobile:+49 123 456",
+      "URL;TYPE=Homepage:https://example.test/ada",
+      "ADR;TYPE=office:;Suite 2;Main Street 1;Berlin;BE;10115;de",
+      "END:VCARD",
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Only Label",
+      "NOTE:Ignored",
+      "END:VCARD",
+      "",
+    ].join("\r\n");
+
+    expect(parse(raw)).toEqual([
+      {
+        label: "Vendor, Primary",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        companyName: "Analytical Engines GmbH",
+        department: "Research;Development",
+        jobTitle: "Chief Scientist",
+        birthday: "1815-12-10",
+        vatId: "DE123456789",
+        emails: [{ label: "work", email: "ada@example.test" }],
+        phones: [{ label: "mobile", phone: "+49 123 456" }],
+        websites: [{ label: "homepage", url: "https://example.test/ada" }],
+        addresses: [
+          {
+            label: "office",
+            recipientName: null,
+            companyName: null,
+            line1: "Main Street 1",
+            line2: "Suite 2",
+            postalCode: "10115",
+            city: "Berlin",
+            stateRegion: "BE",
+            countryCode: "DE",
+          },
+        ],
+      },
+      {
+        label: "Only Label",
+      },
+    ]);
+  });
+
+  test("skips malformed and incomplete data without dropping the candidate", () => {
+    const raw = [
+      "BEGIN:VCARD",
+      "VERSION:3.0",
+      "FN:Fallback",
+      "BDAY:not-a-date",
+      "EMAIL:",
+      "TEL:",
+      "URL:",
+      "ADR;TYPE=home:;;;;;;USA",
+      "END:VCARD",
+    ].join("\n");
+
+    expect(parse(raw)).toEqual([{ label: "Fallback" }]);
+  });
+});
+
+describe("CSV serialization", () => {
+  test("quotes cells with commas, quotes, and newlines", () => {
+    const output = serializeBookCsv([
+      contact({
+        label: 'Needs "quotes"',
+        companyName: "Line 1\nLine 2",
+      }),
+    ]);
+
+    expect(output).toContain('"Needs ""quotes"""');
+    expect(output).toContain('"Line 1\nLine 2"');
+    expect(output.endsWith("\r\n")).toBe(true);
+  });
+});

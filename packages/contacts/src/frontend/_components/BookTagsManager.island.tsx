@@ -3,22 +3,11 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
+import { readErrorMessage } from "./api";
 
 type Props = {
   bookId: string;
   initialTags: ContactTag[];
-};
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-
-const errorMessage = async (res: Response, fallback: string) => {
-  try {
-    const data = (await res.json()) as unknown;
-    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
-      return data["message"];
-    }
-  } catch {}
-  return fallback;
 };
 
 const DEFAULT_COLOR = "#6b7280";
@@ -128,8 +117,8 @@ export default function BookTagsManager(props: Props) {
         param: { bookId: props.bookId },
         json: data,
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to create tag"));
-      return (await res.json()) as ContactTag;
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create tag"));
+      return await res.json();
     },
     onSuccess: (created) => {
       setTags([...tags(), created].sort((a, b) => a.name.localeCompare(b.name)));
@@ -144,8 +133,8 @@ export default function BookTagsManager(props: Props) {
         param: { bookId: props.bookId, tagId: data.id },
         json: { name: data.name, color: data.color },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update tag"));
-      return (await res.json()) as ContactTag;
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update tag"));
+      return await res.json();
     },
     onSuccess: (updated) => {
       setTags(
@@ -172,7 +161,7 @@ export default function BookTagsManager(props: Props) {
       const res = await apiClient.books[":bookId"].tags[":tagId"].$delete({
         param: { bookId: props.bookId, tagId: tag.id },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to delete tag"));
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to delete tag"));
       return tag;
     },
     onSuccess: (deleted) => {

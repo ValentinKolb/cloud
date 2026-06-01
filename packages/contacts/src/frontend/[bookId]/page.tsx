@@ -8,24 +8,21 @@ import ContactDetailPanel from "../_components/ContactDetailPanel.island";
 import ContactsList from "../_components/ContactsList.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
 import DesktopDetailLayoutSync from "../_components/DesktopDetailLayoutSync.island";
+import {
+  CONTACTS_PER_PAGE,
+  buildContactsPaginationBaseUrl,
+  loadContactBookPermissions,
+  parseContactsPage,
+  permissionForBook,
+  resolveSelectedContact,
+} from "../page-data";
 
-const parsePage = (value: string | undefined): number => {
-  const parsed = Number(value ?? "1");
-  if (!Number.isInteger(parsed) || parsed < 1) return 1;
-  return parsed;
-};
-const buildPaginationBaseUrl = (basePath: string, search: string) => {
-  const params = new URLSearchParams();
-  if (search.trim()) params.set("search", search.trim());
-  const query = params.toString();
-  return query ? `${basePath}?${query}&page=` : `${basePath}?page=`;
-};
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const bookId = c.req.param("bookId") ?? "";
   const search = c.req.query("search") ?? "";
-  const page = parsePage(c.req.query("page"));
-  const perPage = 100;
+  const page = parseContactsPage(c.req.query("page"));
+  const perPage = CONTACTS_PER_PAGE;
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const activeTagId = c.req.query("tag_id") ?? null;
   const [book, booksResult] = await Promise.all([
@@ -67,18 +64,8 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   const books = booksResult.items;
-  const manualBooks = books.filter((entry) => !entry.isSystem);
-  const permissionEntries = await Promise.all(
-    manualBooks.map(async (entry) => ({
-      book: entry,
-      permission: await contactsService.book.permission.get({ bookId: entry.id, userId: user.id, userGroups: user.memberofGroupIds }),
-    })),
-  );
-  const writableBooks = permissionEntries
-    .filter((entry) => entry.permission === "write" || entry.permission === "admin")
-    .map((entry) => ({ id: entry.book.id, name: entry.book.name }));
-  const adminBookIds = permissionEntries.filter((entry) => entry.permission === "admin").map((entry) => entry.book.id);
-  const currentPermission = permissionEntries.find((entry) => entry.book.id === book.id)?.permission ?? "read";
+  const { entries: permissionEntries, adminBookIds, writableBooks } = await loadContactBookPermissions({ books, user });
+  const currentPermission = permissionForBook(permissionEntries, book.id);
   const canWrite = currentPermission === "write" || currentPermission === "admin";
   const [contactsResult, bookTags] = await Promise.all([
     contactsService.contact.list({
@@ -92,17 +79,11 @@ export default ssr<AuthContext>(async (c) => {
     contactsService.tag.list({ bookId }),
   ]);
   const contacts = contactsResult.items;
-  let selectedContact =
-    selectedContactIdFromUrl && contacts.find((contact) => contact.id === selectedContactIdFromUrl)
-      ? (contacts.find((contact) => contact.id === selectedContactIdFromUrl) ?? null)
-      : null;
-  if (!selectedContact && selectedContactIdFromUrl) {
-    selectedContact = await contactsService.contact.get({ bookId, id: selectedContactIdFromUrl });
-  }
+  const selectedContact = await resolveSelectedContact({ contacts, contactId: selectedContactIdFromUrl, bookId, user });
   const initialNotes = selectedContact ? await contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : [];
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
-  const paginationBaseUrl = buildPaginationBaseUrl(`/app/contacts/${bookId}`, search);
+  const paginationBaseUrl = buildContactsPaginationBaseUrl({ basePath: `/app/contacts/${bookId}`, search });
   const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl ?? null;
   const initialSelectedBookId = selectedContact ? bookId : selectedContactIdFromUrl ? bookId : null;
   const hasDesktopDetailSelection = Boolean(selectedContact);

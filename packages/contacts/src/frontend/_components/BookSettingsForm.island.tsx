@@ -6,6 +6,7 @@ import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
 import BookActions from "./BookActions.island";
 import BookTagsManager from "./BookTagsManager.island";
+import { readErrorMessage } from "./api";
 import DeleteBookButton from "./DeleteBookButton";
 
 type Props = {
@@ -39,12 +40,7 @@ export default function BookSettingsForm(props: Props) {
         },
       });
 
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as {
-          message?: string;
-        };
-        throw new Error(data.message ?? "Failed to update book");
-      }
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update book"));
     },
     onSuccess: () => {
       toast.success("Book settings saved");
@@ -116,14 +112,9 @@ export default function BookSettingsForm(props: Props) {
                 json: { principal, permission },
               });
 
-              if (!response.ok) {
-                const data = (await response.json().catch(() => ({}))) as {
-                  message?: string;
-                };
-                throw new Error(data.message ?? "Failed to grant access");
-              }
+              if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to grant access"));
 
-              return (await response.json()) as AccessEntry;
+              return await response.json();
             }}
             updateAccess={async (accessId, permission) => {
               const response = await apiClient.books[":bookId"].access[":accessId"].$patch({
@@ -131,24 +122,14 @@ export default function BookSettingsForm(props: Props) {
                 json: { permission },
               });
 
-              if (!response.ok) {
-                const data = (await response.json().catch(() => ({}))) as {
-                  message?: string;
-                };
-                throw new Error(data.message ?? "Failed to update access");
-              }
+              if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update access"));
             }}
             revokeAccess={async (accessId) => {
               const response = await apiClient.books[":bookId"].access[":accessId"].$delete({
                 param: { bookId: props.bookId, accessId },
               });
 
-              if (!response.ok) {
-                const data = (await response.json().catch(() => ({}))) as {
-                  message?: string;
-                };
-                throw new Error(data.message ?? "Failed to revoke access");
-              }
+              if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access"));
             }}
           />
         </SettingsModal.Tab>

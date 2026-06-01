@@ -1,13 +1,9 @@
-import { dialogCore, navigateTo, panelDialogOptions, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { apiClient } from "@/api/client";
-import type { Contact, ContactNote, ContactRef, ContactTree, ContactTreeNode } from "../../service";
+import type { Contact, ContactNote, ContactRef, ContactTree } from "../../service";
 import { resolveContactName } from "../../shared";
-import AddMemberDialog from "./AddMemberDialog.island";
 import ContactNotesSection from "./ContactNotesSection.island";
+import { createContactDetailActions } from "./ContactDetailPanel.actions";
 import ContactOrgTreeView from "./ContactOrgTreeView";
-import ContactUpsertForm from "./ContactUpsertForm.island";
 import {
   CONTACT_DETAIL_EVENT,
   type ContactDetailPayload,
@@ -90,165 +86,13 @@ export default function ContactDetailPanel(props: Props) {
     });
   });
 
-  const canEdit = () => {
-    const selectedBookId = bookId();
-    if (!selectedBookId || selectedBookId === "system") return false;
-    return props.writableBooks.some((entry) => entry.id === selectedBookId);
-  };
-
-  const canMove = () => {
-    const selectedBookId = bookId();
-    if (!selectedBookId || selectedBookId === "system") return false;
-    return props.writableBooks.some((entry) => entry.id !== selectedBookId);
-  };
-
-  const moveMutation = mutations.create<Contact | null, Contact>({
-    mutation: async (contact) => {
-      const targetOptions = props.writableBooks.filter((entry) => entry.id !== contact.bookId);
-      if (targetOptions.length === 0) {
-        await prompts.alert("There is no other writable contact book available.", {
-          title: "No target book",
-          icon: "ti ti-address-book-off",
-        });
-        return null;
-      }
-
-      const result = await prompts.form({
-        title: "Move Contact",
-        icon: "ti ti-arrows-transfer-up-down",
-        confirmText: "Move",
-        fields: {
-          targetBookId: {
-            type: "select",
-            label: "Move this contact to which book?",
-            required: true,
-            options: targetOptions.map((entry) => ({
-              id: entry.id,
-              label: entry.name,
-              icon: "ti ti-address-book",
-            })),
-          },
-        },
-      });
-      if (!result) return null;
-
-      const response = await apiClient.books[":bookId"].contacts[":contactId"].move.$post({
-        param: {
-          bookId: contact.bookId,
-          contactId: contact.id,
-        },
-        json: { targetBookId: result.targetBookId },
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(data.message ?? "Failed to move contact");
-      }
-
-      return (await response.json()) as Contact;
-    },
-    onSuccess: (moved) => {
-      if (!moved) return;
-      toast.success("Contact moved");
-      navigateTo(`/app/contacts/${moved.bookId}?contact=${moved.id}&contactBook=${moved.bookId}`);
-    },
-    onError: (error) => {
-      void prompts.error(error.message);
-    },
+  const actions = createContactDetailActions({
+    bookId,
+    writableBooks: props.writableBooks,
+    orgTree,
+    setOrgTree,
+    setDetailMode,
   });
-
-  const unlinkMemberMutation = mutations.create<ContactRef | null, { member: ContactRef; parent: Contact }>({
-    mutation: async ({ member, parent }) => {
-      const confirmed = await prompts.confirm(
-        `Remove "${resolveContactName(member)}" from members of "${resolveContactName(parent)}"? The contact stays — only the link is removed.`,
-        {
-          title: "Remove member",
-          icon: "ti ti-unlink",
-          confirmText: "Remove",
-          cancelText: "Cancel",
-        },
-      );
-      if (!confirmed) return null;
-
-      const res = await apiClient.books[":bookId"].contacts[":contactId"].$patch({
-        param: { bookId: parent.bookId, contactId: member.id },
-        json: { parentContactId: null },
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new Error(data.message ?? "Failed to remove member");
-      }
-      return member;
-    },
-    onSuccess: (member) => {
-      if (!member) return;
-      toast.success("Member removed");
-      refreshCurrentPath();
-    },
-    onError: (error) => {
-      void prompts.error(error.message);
-    },
-  });
-
-  const orgTreeMutation = mutations.create<ContactTree, Contact>({
-    mutation: async (selectedContact) => {
-      const response = await apiClient.books[":bookId"].contacts[":contactId"].tree.$get({
-        param: { bookId: selectedContact.bookId, contactId: selectedContact.id },
-      });
-
-      if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(data.message ?? "Failed to load org tree");
-      }
-
-      return (await response.json()) as ContactTree;
-    },
-    onSuccess: (tree) => {
-      setOrgTree(tree);
-      setDetailMode("tree");
-    },
-    onError: (error) => {
-      void prompts.error(error.message);
-    },
-  });
-
-  const openAddMemberDialog = async (parent: Contact) => {
-    const member = await dialogCore.open<Contact | null>((close) => <AddMemberDialog parent={parent} close={close} />, panelDialogOptions);
-    if (!member) return;
-    refreshCurrentPath();
-  };
-
-  const unlinkMember = (member: ContactRef, parent: Contact) => {
-    unlinkMemberMutation.mutate({ member, parent });
-  };
-
-  const openEditDialog = async (selectedContact: Contact) => {
-    const updated = await dialogCore.open<Contact | undefined>(
-      (close) => (
-        <ContactUpsertForm
-          mode="edit"
-          bookId={selectedContact.bookId}
-          initialContact={selectedContact}
-          title={`Edit ${resolveContactName(selectedContact)}`}
-          icon="ti ti-pencil"
-          onCancel={() => close(undefined)}
-          onSaved={(contact) => close(contact)}
-        />
-      ),
-      panelDialogOptions,
-    );
-
-    if (!updated) return;
-    setSelectedContactInUrl({
-      contactId: updated.id,
-      bookId: updated.bookId,
-      contact: updated,
-    });
-  };
-
-  const moveToBook = (selectedContact: Contact) => {
-    moveMutation.mutate(selectedContact);
-  };
 
   return (
     <Show
@@ -270,26 +114,6 @@ export default function ContactDetailPanel(props: Props) {
         const hasFormalName = () => !!(c().label && (c().firstName || c().lastName));
         const hasPersonal = () => hasFormalName() || !!(c().birthday || c().salutation || c().pronouns || c().preferredLanguage);
         const hasOrgTree = () => c().parentContactId !== null || c().members.length > 0;
-        const openOrgTree = () => {
-          if (orgTreeMutation.loading()) return;
-          orgTreeMutation.mutate(c());
-        };
-        const selectOrgTreeNode = async (node: ContactTreeNode) => {
-          const selectedBookId = orgTree()?.bookId ?? c().bookId;
-          const response = await apiClient.books[":bookId"].contacts[":contactId"].$get({
-            param: { bookId: selectedBookId, contactId: node.id },
-          });
-
-          if (!response.ok) {
-            const data = (await response.json().catch(() => ({}))) as { message?: string };
-            void prompts.error(data.message ?? "Failed to load contact");
-            return;
-          }
-
-          const selected = (await response.json()) as Contact;
-          setSelectedContactInUrl({ contactId: selected.id, bookId: selected.bookId, contact: selected });
-        };
-
         return (
           <Show
             when={detailMode() === "tree" && orgTree()}
@@ -344,29 +168,29 @@ export default function ContactDetailPanel(props: Props) {
                             class="btn-simple btn-sm text-dimmed hover:text-primary"
                             aria-label="Show org tree"
                             title="Show org tree"
-                            disabled={orgTreeMutation.loading()}
-                            onClick={openOrgTree}
+                            disabled={actions.orgTreeLoading()}
+                            onClick={() => actions.openOrgTree(c())}
                           >
-                            {orgTreeMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-hierarchy" />}
+                            {actions.orgTreeLoading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-hierarchy" />}
                           </button>
                         </Show>
-                        <Show when={canEdit()}>
+                        <Show when={actions.canEdit()}>
                           <button
                             type="button"
                             class="btn-simple btn-sm text-dimmed hover:text-primary"
                             aria-label="Edit contact"
-                            onClick={() => openEditDialog(c())}
+                            onClick={() => actions.openEditDialog(c())}
                           >
                             <i class="ti ti-pencil" />
                           </button>
                         </Show>
-                        <Show when={canMove()}>
+                        <Show when={actions.canMove()}>
                           <button
                             type="button"
                             class="btn-simple btn-sm text-dimmed hover:text-primary"
                             aria-label="Move contact to another book"
                             title="Move to another book"
-                            onClick={() => moveToBook(c())}
+                            onClick={() => actions.moveToBook(c())}
                           >
                             <i class="ti ti-folder-symlink" />
                           </button>
@@ -523,7 +347,7 @@ export default function ContactDetailPanel(props: Props) {
                     </section>
                   </Show>
 
-                  <Show when={c().members.length > 0 || canEdit()}>
+                  <Show when={c().members.length > 0 || actions.canEdit()}>
                     <section class="detail-section">
                       <h3 class="detail-section-label">Members</h3>
                       <div class="flex flex-col gap-2">
@@ -549,10 +373,10 @@ export default function ContactDetailPanel(props: Props) {
                                       </Show>
                                     </div>
                                   </button>
-                                  <Show when={canEdit()}>
+                                  <Show when={actions.canEdit()}>
                                     <button
                                       type="button"
-                                      onClick={() => unlinkMember(member, c())}
+                                      onClick={() => actions.unlinkMember(member, c())}
                                       class="shrink-0 p-1 text-dimmed opacity-0 transition-all hover:text-red-500 group-hover:opacity-100"
                                       aria-label={`Remove ${resolveContactName(member as ContactRef)} from members`}
                                       title="Remove from members"
@@ -565,11 +389,11 @@ export default function ContactDetailPanel(props: Props) {
                             </For>
                           </ul>
                         </Show>
-                        <Show when={canEdit()}>
+                        <Show when={actions.canEdit()}>
                           <button
                             type="button"
                             class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary"
-                            onClick={() => openAddMemberDialog(c())}
+                            onClick={() => actions.openAddMemberDialog(c())}
                           >
                             <i class="ti ti-plus" /> Add member
                           </button>
@@ -584,7 +408,7 @@ export default function ContactDetailPanel(props: Props) {
                       contactId={c().id}
                       currentUserId={props.currentUserId}
                       initialNotes={c().id === props.initialContactId ? props.initialNotes : []}
-                      canWrite={canEdit()}
+                      canWrite={actions.canEdit()}
                       isBookAdmin={props.adminBookIds.includes(c().bookId)}
                     />
                   </section>
@@ -595,7 +419,7 @@ export default function ContactDetailPanel(props: Props) {
             {(tree) => (
               <ContactOrgTreeView
                 tree={tree()}
-                onSelect={selectOrgTreeNode}
+                onSelect={(node) => actions.selectOrgTreeNode(node, c().bookId)}
                 onBack={() => {
                   setDetailMode("details");
                   setOrgTree(null);

@@ -6,24 +6,11 @@
  * Lives in cloud-lib because every app that has app-scoped settings needs
  * the same API to render its admin form (files, weather, etc.).
  */
-import { err, fail, ok, paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { paginateItems } from "../../server/services";
+import { err, fail, ok, type PageParams, type Paginated } from "@valentinkolb/stdlib";
 import * as settingsPrimitives from ".";
 import type { SettingEntry } from ".";
 import { SETTINGS_MAP, validateSettingValue } from "./defaults";
-
-const paginateEntries = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
-  if (!pagination) {
-    return { items, page: 1, perPage: items.length, total: items.length, hasNext: false };
-  }
-  const { page, perPage, offset } = paginate(pagination);
-  return {
-    items: items.slice(offset, offset + perPage),
-    page,
-    perPage,
-    total: items.length,
-    hasNext: page * perPage < items.length,
-  };
-};
 
 /**
  * Redact secret-kind setting values before they leave the server.
@@ -42,10 +29,7 @@ const redactSecretValue = (entry: SettingEntry): SettingEntry => {
 
 export const settingsService = {
   entry: {
-    list: async (config?: {
-      pagination?: PageParams;
-      filter?: { query?: string; group?: string };
-    }): Promise<Paginated<SettingEntry>> => {
+    list: async (config?: { pagination?: PageParams; filter?: { query?: string; group?: string } }): Promise<Paginated<SettingEntry>> => {
       const entries = await settingsPrimitives.getAll();
       const query = config?.filter?.query?.trim().toLowerCase();
       const group = config?.filter?.group?.trim().toLowerCase();
@@ -62,7 +46,7 @@ export const settingsService = {
         })
         .map(redactSecretValue);
 
-      return paginateEntries(filtered, config?.pagination);
+      return paginateItems(filtered, config?.pagination);
     },
     update: async (config: { key: string; value: unknown }) => {
       if (!SETTINGS_MAP.has(config.key)) {

@@ -23,7 +23,17 @@ import type {
   UserProvider,
 } from "../../contracts/shared";
 import { dates } from "../../shared";
-import { err, fail, ok, paginate, type PageParams, type Paginated, type Result, type ServiceError } from "../../server/services";
+import {
+  err,
+  fail,
+  ok,
+  paginate,
+  paginateItems,
+  type PageParams,
+  type Paginated,
+  type Result,
+  type ServiceError,
+} from "../../server/services";
 
 type CreateUserInput =
   | {
@@ -104,28 +114,6 @@ const ACTIVITY_SOURCES = [
   "auth:guest:cleanup",
   "auth:lifecycle:scheduler",
 ] as const;
-
-const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
-  if (!pagination) {
-    return {
-      items,
-      page: 1,
-      perPage: items.length,
-      total: items.length,
-      hasNext: false,
-    };
-  }
-
-  const { page, perPage, offset } = paginate(pagination);
-  const pagedItems = items.slice(offset, offset + perPage);
-  return {
-    items: pagedItems,
-    page,
-    perPage,
-    total: items.length,
-    hasNext: page * perPage < items.length,
-  };
-};
 
 const toServiceError = (status: MutationErrorStatus, message: string): ServiceError => {
   if (status === 400) return err.badInput(message);
@@ -398,14 +386,11 @@ export const accountsAppService = {
     },
     update: async (config: { ipaSession?: string | null; id: string; data: Parameters<typeof users.update>[0]["data"] }) =>
       fromMutationResult(await users.update(config)),
-    resetPassword: async (config: { ipaSession: string; id: string }) =>
-      fromMutationResult(await users.resetPassword(config)),
+    resetPassword: async (config: { ipaSession: string; id: string }) => fromMutationResult(await users.resetPassword(config)),
     setExpiry: async (config: { ipaSession?: string | null; id: string; expiryDate: string | null }) =>
       fromMutationResult(await users.setExpiry(config)),
-    setProfile: async (config: { id: string; profile: UserProfile }) =>
-      fromMutationResult(await users.setProfile(config)),
-    setAdmin: async (config: { id: string; admin: boolean }) =>
-      fromMutationResult(await users.setAdmin(config)),
+    setProfile: async (config: { id: string; profile: UserProfile }) => fromMutationResult(await users.setProfile(config)),
+    setAdmin: async (config: { id: string; admin: boolean }) => fromMutationResult(await users.setAdmin(config)),
     switchProvider: async (config: { ipaSession: string; id: string; provider: UserProvider }) =>
       fromMutationResult(await users.switchProvider(config)),
     demoteToGuest: async (config: { ipaSession: string; id: string; actor: { userId: string; uid: string } }) =>
@@ -422,11 +407,7 @@ export const accountsAppService = {
      * admin app is UI only and must not dispatch on provider or speak to
      * FreeIPA directly.
      */
-    changeOwnPassword: async (config: {
-      user: User;
-      currentPassword: string;
-      newPassword: string;
-    }): Promise<Result<void>> => {
+    changeOwnPassword: async (config: { user: User; currentPassword: string; newPassword: string }): Promise<Result<void>> => {
       if (!(await getFreeIpaConfig()).enabled) return fail(err.badInput("FreeIPA is disabled."));
       if (config.user.provider !== "ipa") {
         return fail(err.badInput("Password change is only available for IPA accounts."));
@@ -455,9 +436,7 @@ export const accountsAppService = {
       const actor = { userId: config.user.id, uid: config.user.uid };
       if (config.user.provider === "ipa") {
         if (!config.ipaSession) return fail(err.unauthenticated("IPA session required."));
-        return fromMutationResult(
-          await providers.ipa.users.remove({ ipaSession: config.ipaSession, id: config.user.id, actor }),
-        );
+        return fromMutationResult(await providers.ipa.users.remove({ ipaSession: config.ipaSession, id: config.user.id, actor }));
       }
       return fromMutationResult(await providers.local.users.remove({ id: config.user.id, actor }));
     },
@@ -714,7 +693,10 @@ export const accountsAppService = {
         createdAt: rows[0]!.created_at as Date,
       };
     },
-    create: async (config: { user: Pick<User, "id" | "mail" | "provider">; data: { phone?: string; comment?: string; acceptedAgb: true } }) => {
+    create: async (config: {
+      user: Pick<User, "id" | "mail" | "provider">;
+      data: { phone?: string; comment?: string; acceptedAgb: true };
+    }) => {
       if (!(await getFreeIpaConfig()).enabled) {
         return fail(err.badInput("FreeIPA is disabled"));
       }
@@ -924,10 +906,7 @@ export const accountsAppService = {
       return mapSummary(rows[0] ?? {});
     },
     activity: async (): Promise<LogEntry[]> => {
-      const result = await logging.list(
-        { page: 1, perPage: 15, offset: 0 },
-        { sources: [...ACTIVITY_SOURCES] },
-      );
+      const result = await logging.list({ page: 1, perPage: 15, offset: 0 }, { sources: [...ACTIVITY_SOURCES] });
       return result.entries;
     },
   },

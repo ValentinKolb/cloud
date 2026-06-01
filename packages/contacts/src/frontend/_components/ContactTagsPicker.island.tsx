@@ -34,7 +34,7 @@ export default function ContactTagsPicker(props: Props) {
   const refresh = async () => {
     const res = await apiClient.books[":bookId"].tags.$get({ param: { bookId: props.bookId } });
     if (res.ok) {
-      const data = (await res.json()) as ContactTag[];
+      const data = await res.json();
       setAvailable(data);
       setLoaded(true);
     }

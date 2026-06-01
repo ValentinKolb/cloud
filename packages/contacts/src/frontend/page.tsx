@@ -8,23 +8,19 @@ import ContactDetailPanel from "./_components/ContactDetailPanel.island";
 import ContactsList from "./_components/ContactsList.island";
 import ContactsSidebar from "./_components/ContactsSidebar";
 import DesktopDetailLayoutSync from "./_components/DesktopDetailLayoutSync.island";
+import {
+  CONTACTS_PER_PAGE,
+  buildContactsPaginationBaseUrl,
+  loadContactBookPermissions,
+  parseContactsPage,
+  resolveSelectedContact,
+} from "./page-data";
 
-const parsePage = (value: string | undefined): number => {
-  const parsed = Number(value ?? "1");
-  if (!Number.isInteger(parsed) || parsed < 1) return 1;
-  return parsed;
-};
-const buildPaginationBaseUrl = (config: { basePath: string; search: string }): string => {
-  const params = new URLSearchParams();
-  if (config.search.trim()) params.set("search", config.search.trim());
-  const query = params.toString();
-  return query ? `${config.basePath}?${query}&page=` : `${config.basePath}?page=`;
-};
 export default ssr<AuthContext>(async (c) => {
   const user = c.get("user");
   const search = c.req.query("search") ?? "";
-  const page = parsePage(c.req.query("page"));
-  const perPage = 100;
+  const page = parseContactsPage(c.req.query("page"));
+  const perPage = CONTACTS_PER_PAGE;
   const selectedContactIdFromUrl = c.req.query("contact") ?? null;
   const selectedBookIdFromUrl = c.req.query("contactBook") ?? null;
   const [booksResult, contactsResult] = await Promise.all([
@@ -38,39 +34,19 @@ export default ssr<AuthContext>(async (c) => {
   ]);
   const books = booksResult.items;
   const contacts = contactsResult.items;
-  const selectedFromPage =
-    selectedContactIdFromUrl && selectedBookIdFromUrl
-      ? (contacts.find((contact) => contact.id === selectedContactIdFromUrl && contact.bookId === selectedBookIdFromUrl) ?? null)
-      : null;
-  let selectedContact = selectedFromPage;
-  if (!selectedContact && selectedContactIdFromUrl && selectedBookIdFromUrl) {
-    const hasReadAccess = await contactsService.book.permission.canAccess({
-      bookId: selectedBookIdFromUrl,
-      userId: user.id,
-      userGroups: user.memberofGroupIds,
-      requiredLevel: "read",
-    });
-    if (hasReadAccess) {
-      selectedContact = await contactsService.contact.get({ bookId: selectedBookIdFromUrl, id: selectedContactIdFromUrl });
-    }
-  }
-  const manualBooks = books.filter((book) => !book.isSystem);
-  const permissionEntries = await Promise.all(
-    manualBooks.map(async (book) => ({
-      book,
-      permission: await contactsService.book.permission.get({ bookId: book.id, userId: user.id, userGroups: user.memberofGroupIds }),
-    })),
-  );
-  const adminBookIds = permissionEntries.filter((entry) => entry.permission === "admin").map((entry) => entry.book.id);
-  const writableBooks = permissionEntries
-    .filter((entry) => entry.permission === "write" || entry.permission === "admin")
-    .map((entry) => ({ id: entry.book.id, name: entry.book.name }));
+  const selectedContact = await resolveSelectedContact({
+    contacts,
+    contactId: selectedContactIdFromUrl,
+    bookId: selectedBookIdFromUrl,
+    user,
+  });
+  const { adminBookIds, writableBooks } = await loadContactBookPermissions({ books, user });
   const initialNotes = selectedContact
     ? await contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
     : [];
   const bookNames = Object.fromEntries(books.map((book) => [book.id, book.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
-  const paginationBaseUrl = buildPaginationBaseUrl({ basePath: "/app/contacts", search });
+  const paginationBaseUrl = buildContactsPaginationBaseUrl({ basePath: "/app/contacts", search });
   const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl;
   const initialSelectedBookId = selectedContact?.bookId ?? selectedBookIdFromUrl;
   const hasDesktopDetailSelection = Boolean(selectedContact);

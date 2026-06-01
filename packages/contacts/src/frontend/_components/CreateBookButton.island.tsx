@@ -1,6 +1,7 @@
 import { navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
+import { readErrorMessage } from "./api";
 
 type Props = {
   buttonClass?: string;
@@ -41,14 +42,9 @@ export default function CreateBookButton(props: Props) {
         },
       });
 
-      if (!response.ok) {
-        const body = (await response.json().catch(() => ({}))) as {
-          message?: string;
-        };
-        throw new Error(body.message ?? "Failed to create contact book");
-      }
+      if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create contact book"));
 
-      return (await response.json()) as { id: string };
+      return await response.json();
     },
     onSuccess: (book) => {
       if (!book) return;

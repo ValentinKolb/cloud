@@ -16,6 +16,7 @@ export type { AccessEntry, PermissionLevel, PrincipalType, Principal, ResourceAc
 
 export { geo, geoService } from "./geo";
 export type { GeoService, GeoPlace } from "./geo";
+export { paginateItems } from "./pagination";
 
 // Re-export from stdlib for backward compatibility
 // Prefer importing directly from @valentinkolb/stdlib

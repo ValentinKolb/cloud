@@ -5,6 +5,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";
+import { readErrorMessage } from "./api";
 
 type Props = {
   bookId: string;
@@ -16,18 +17,6 @@ type Props = {
   /** Whether the current user is a book admin. Admins can delete notes from
    *  any author (the server enforces the same rule). */
   isBookAdmin: boolean;
-};
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-
-const errorMessage = async (res: Response, fallback: string) => {
-  try {
-    const data = (await res.json()) as unknown;
-    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
-      return data["message"];
-    }
-  } catch {}
-  return fallback;
 };
 
 /**
@@ -64,7 +53,7 @@ export default function ContactNotesSection(props: Props) {
       param: { bookId: props.bookId, contactId: props.contactId },
     });
     if (res.ok) {
-      const data = (await res.json()) as ContactNote[];
+      const data = await res.json();
       setNotes(data);
     }
   };
@@ -75,8 +64,8 @@ export default function ContactNotesSection(props: Props) {
         param: { bookId: props.bookId, contactId: props.contactId },
         json: { content },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to add note"));
-      return (await res.json()) as ContactNote;
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to add note"));
+      return await res.json();
     },
     onSuccess: () => {
       setDraft("");
@@ -92,8 +81,8 @@ export default function ContactNotesSection(props: Props) {
         param: { bookId: props.bookId, contactId: props.contactId, noteId: vars.noteId },
         json: { content: vars.content },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to update note"));
-      return (await res.json()) as ContactNote;
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update note"));
+      return await res.json();
     },
     onSuccess: () => {
       setEditingId(null);
@@ -117,7 +106,7 @@ export default function ContactNotesSection(props: Props) {
       const res = await apiClient.books[":bookId"].contacts[":contactId"].notes[":noteId"].$delete({
         param: { bookId: props.bookId, contactId: props.contactId, noteId: note.id },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to delete note"));
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to delete note"));
       return note.id;
     },
     onSuccess: (deletedId) => {

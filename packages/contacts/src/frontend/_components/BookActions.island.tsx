@@ -4,6 +4,7 @@ import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { CreateContactInput } from "../../service";
 import { resolveContactName } from "../../shared";
+import { readErrorMessage } from "./api";
 
 type Props = {
   bookId: string;
@@ -14,18 +15,6 @@ type Props = {
 type ImportCandidate = {
   candidate: CreateContactInput;
   match: { existingId: string; existingName: string } | null;
-};
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
-
-const errorMessage = async (res: Response, fallback: string) => {
-  try {
-    const data = (await res.json()) as unknown;
-    if (isObject(data) && typeof data["message"] === "string" && data["message"].length > 0) {
-      return data["message"];
-    }
-  } catch {}
-  return fallback;
 };
 
 /** Inline preview + commit for a vCard import. Lives inside a prompts.dialog. */
@@ -41,8 +30,8 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
         param: { bookId: props.bookId },
         json: { format: "vcard", content },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to parse vCard"));
-      const data = (await res.json()) as { candidates: ImportCandidate[] };
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to parse vCard"));
+      const data = await res.json();
       return data.candidates;
     },
     onSuccess: (parsed) => {
@@ -61,8 +50,8 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
         param: { bookId: props.bookId },
         json: { contacts: chosen.map((c) => c.candidate) },
       });
-      if (!res.ok) throw new Error(await errorMessage(res, "Failed to import contacts"));
-      return (await res.json()) as { created: number; failures: string[] };
+      if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to import contacts"));
+      return await res.json();
     },
     onSuccess: (result) => {
       if (result.failures.length > 0) {
