@@ -1,6 +1,6 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
-import type { AggregationSpec, ColumnSpec, GroupBySpec, StatSource, Widget, WidgetFormat } from "../contracts";
+import type { AggregationSpec, ColumnSpec, ComputedColumnSpec, GroupBySpec, StatSource, Widget, WidgetFormat } from "../contracts";
 import type { Field, GridRecord } from "./types";
 import type { Form } from "./forms";
 import * as fields from "./fields";
@@ -11,6 +11,8 @@ import * as tables from "./tables";
 import * as views from "./views";
 import * as dashboards from "./dashboards";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
+
+const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
 
 /**
  * Runtime data shape per dashboard cell — what the SSR pipeline
@@ -589,8 +591,19 @@ const resolveUngroupedViewStats = async (
   const fieldsList = await fields.listByTable(view.tableId);
   const fieldsById = new Map(fieldsList.map((f) => [f.id, f]));
   const visible = view.query.columns
-    ? view.query.columns.map((c) => fieldsById.get(c.fieldId)).filter((f): f is Field => Boolean(f && !f.deletedAt))
-    : fieldsList.filter((f) => !f.deletedAt && !f.hideInTable).sort((a, b) => a.position - b.position);
+    ? view.query.columns
+        .map((column) => {
+          if (isComputedColumn(column)) {
+            return { id: column.id, name: column.label, format: column.format ?? null } as const;
+          }
+          const field = fieldsById.get(column.fieldId);
+          return field && !field.deletedAt ? ({ id: field.id, name: column.label?.trim() || field.name, format: inferFormatFromField(field) } as const) : null;
+        })
+        .filter((entry): entry is { id: string; name: string; format: ViewStatsCell["format"] } => Boolean(entry))
+    : fieldsList
+        .filter((f) => !f.deletedAt && !f.hideInTable)
+        .sort((a, b) => a.position - b.position)
+        .map((field) => ({ id: field.id, name: field.name, format: inferFormatFromField(field) }));
   if (visible.length === 0) {
     return {
       kind: "view-stats",
@@ -610,6 +623,7 @@ const resolveUngroupedViewStats = async (
     limit: 1,
     viewer,
     dateConfig: options.dateConfig,
+    computedColumns: view.query.columns?.filter(isComputedColumn),
   });
   if (!result.ok) {
     return {
@@ -630,10 +644,10 @@ const resolveUngroupedViewStats = async (
       fullViewLink: link,
     };
   }
-  const cells: ViewStatsCell[] = visible.map((f) => ({
-    label: f.name,
-    value: first.data[f.id] ?? null,
-    format: inferFormatFromField(f),
+  const cells: ViewStatsCell[] = visible.map((item) => ({
+    label: item.name,
+    value: first.data[item.id] ?? null,
+    format: item.format,
   }));
   return { kind: "view-stats", title, cells, notice: null, fullViewLink: link };
 };

@@ -6,13 +6,13 @@ import { emitTableMetadataEvent } from "./metadata-events";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
 import { validateViewQueryForTable } from "./query-validation";
-import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type FormatSpec } from "../contracts";
+import { ViewQuerySchema, type View, type ViewQuery, type ColumnSpec, type ComputedColumnSpec, type FieldColumnSpec, type FormatSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
 // View / ViewQuery / ColumnSpec / FormatSpec definitions live in contracts.ts —
 // re-export so consumers can keep importing them from the service layer.
-export type { View, ViewQuery, ColumnSpec, FormatSpec };
+export type { View, ViewQuery, ColumnSpec, ComputedColumnSpec, FieldColumnSpec, FormatSpec };
 
 /**
  * Reads a stored view row and validates the JSONB query blob against

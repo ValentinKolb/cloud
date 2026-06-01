@@ -15,6 +15,7 @@ import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
 import {
   attachRelationExpansion,
   type ExpansionViewer,
+  enrichRecordsWithComputedColumns,
   enrichRecordsWithFormulas,
   hydrateRelationsFromLinks,
   validateRelationTargets,
@@ -23,6 +24,7 @@ import {
 import { compileSearchClause, type SearchSpec } from "./search";
 import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
+import type { ComputedColumnSpec } from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
@@ -225,6 +227,7 @@ export const list = async (params: {
   viewer?: ExpansionViewer;
   includeAggregates?: boolean;
   dateConfig?: DateContext;
+  computedColumns?: ComputedColumnSpec[];
 }): Promise<Result<RecordList>> => {
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
   const fields = await listFields(params.tableId);
@@ -307,6 +310,7 @@ export const list = async (params: {
   // Formulas still run in JS — they reference computed and base values
   // alike, and the formula engine is not SQL-projectable yet.
   enrichRecordsWithFormulas(items, fields, { dateConfig: params.dateConfig });
+  enrichRecordsWithComputedColumns(items, fields, params.computedColumns, { dateConfig: params.dateConfig });
 
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks
   // because it reads `record.data[fieldId]` to figure out which UUIDs

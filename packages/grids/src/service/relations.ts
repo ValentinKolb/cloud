@@ -3,6 +3,7 @@ import { evaluate, renderResult } from "../formula/evaluator";
 import type { FormulaRuntimeContext } from "../formula/functions";
 import { collectFieldRefs, parseFormula } from "../formula/parser";
 import { formulaError } from "../formula/types";
+import type { ComputedColumnSpec } from "../contracts";
 import type { SqlClient } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
@@ -295,6 +296,45 @@ export const enrichRecordsWithFormulas = (records: GridRecord[], fields: Field[]
     }
     for (const id of cycle) {
       rec.data[id] = renderResult(scratch[id]);
+    }
+  }
+  return records;
+};
+
+/**
+ * Evaluates view-only computed columns for visible records. These are
+ * intentionally not Fields and never persist into records.data in the
+ * database; they are derived cells owned by a saved/ad-hoc ViewQuery.
+ */
+export const enrichRecordsWithComputedColumns = (
+  records: GridRecord[],
+  fields: Field[],
+  columns: ComputedColumnSpec[] | undefined,
+  options: FormulaRuntimeContext = {},
+): GridRecord[] => {
+  const computedColumns = (columns ?? []).filter((column) => column.expression.trim().length > 0);
+  if (computedColumns.length === 0 || records.length === 0) return records;
+
+  const slugToId: Record<string, string> = {};
+  for (const field of fields) {
+    if (!field.deletedAt && field.shortId) slugToId[field.shortId] = field.id;
+  }
+
+  const compiled = computedColumns.map((column) => {
+    const parsed = parseFormula(column.expression);
+    return { column, parsed };
+  });
+
+  for (const record of records) {
+    const scratch: Record<string, unknown> = { ...record.data };
+    for (const { column, parsed } of compiled) {
+      if (!parsed.ok) {
+        record.data[column.id] = renderResult(formulaError("ERROR"));
+        continue;
+      }
+      const value = evaluate(parsed.ast, { fields: scratch, slugToId, dateConfig: options.dateConfig, now: options.now });
+      scratch[column.id] = value;
+      record.data[column.id] = renderResult(value);
     }
   }
   return records;

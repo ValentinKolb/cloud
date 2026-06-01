@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { enrichRecordsWithFormulas, relationLabelFields } from "./relations";
+import { enrichRecordsWithComputedColumns, enrichRecordsWithFormulas, relationLabelFields } from "./relations";
 import type { Field, GridRecord } from "./types";
 
 // =============================================================================
@@ -243,5 +243,43 @@ describe("enrichRecordsWithFormulas — multiple records", () => {
     expect(r1.data["fld-f"]).toBe(2);
     expect(r2.data["fld-f"]).toBe(10);
     expect(r3.data["fld-f"]).toBeNull();
+  });
+});
+
+describe("enrichRecordsWithComputedColumns", () => {
+  test("evaluates view-only formulas without persisting field metadata", () => {
+    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "number" });
+    const rec = mkRecord("rec-1", { "fld-price": "24.50" });
+
+    enrichRecordsWithComputedColumns([rec], [price], [
+      {
+        kind: "computed",
+        id: "computed_total",
+        label: "Total with VAT",
+        expression: "#PRICE * 1.19",
+      },
+    ]);
+
+    expect(rec.data.computed_total).toBe("29.155");
+    expect(price.type).toBe("number");
+  });
+
+  test("can reference formula field values evaluated earlier in the read pipeline", () => {
+    const net = mkField({ id: "fld-net", shortId: "NET01", type: "number" });
+    const subtotal = mkFormula("fld-sub", "SUB01", "#NET01 * 2");
+    const rec = mkRecord("rec-1", { "fld-net": "12.10" });
+
+    enrichRecordsWithFormulas([rec], [net, subtotal]);
+    enrichRecordsWithComputedColumns([rec], [net, subtotal], [
+      {
+        kind: "computed",
+        id: "computed_gross",
+        label: "Gross",
+        expression: "#SUB01 + 1",
+      },
+    ]);
+
+    expect(rec.data["fld-sub"]).toBe("24.2");
+    expect(rec.data.computed_gross).toBe("25.2");
   });
 });

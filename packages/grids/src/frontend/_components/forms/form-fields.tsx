@@ -1,4 +1,4 @@
-import { Checkbox, CheckboxCard, DateTimeInput, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show } from "solid-js";
 import type { Field, FormFieldEntry } from "../../../service";
@@ -51,8 +51,8 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * - duration → TextInput with "HH:MM:SS or seconds"; same lenient parser
  *   server-side. NumberInput would lose the HH:MM:SS shorthand.
  * - boolean → Checkbox
- * - date → DateTimeInput dateOnly (or full datetime when config.includeTime)
- * - datetime → DateTimeInput
+ * - date → DatePicker (or DateTimePicker when config.includeTime)
+ * - datetime → DateTimePicker
  * - select → SelectInput in single mode, CheckboxCard list in multi mode
  * - relation → RelationPicker (requires `baseId` prop). Picker disabled
  *   without baseId — used by the default-value editor where deep-link
@@ -131,8 +131,9 @@ export function FieldInput(props: {
       );
 
     case "number": {
-      const decimalPlaces = (props.field.config as { decimalPlaces?: number; scale?: number }).decimalPlaces
-        ?? (props.field.config as { scale?: number }).scale;
+      const decimalPlaces =
+        (props.field.config as { decimalPlaces?: number; scale?: number }).decimalPlaces ??
+        (props.field.config as { scale?: number }).scale;
       const unit = (props.field.config as { unit?: string }).unit;
       const unitPosition = (props.field.config as { unitPosition?: "prefix" | "suffix" }).unitPosition ?? "suffix";
       const numberText = (): string => {
@@ -208,30 +209,44 @@ export function FieldInput(props: {
 
     case "date": {
       const includeTime = (props.field.config as { includeTime?: boolean }).includeTime ?? false;
-      return (
-        <DateTimeInput
+      const pickerValue = () => stringValue() || null;
+      const onPickerChange = (v: string | null) => props.onChange(v ?? "");
+      return includeTime ? (
+        <DateTimePicker
           label={label}
           description={helpText}
           required={required}
-          dateOnly={!includeTime}
-          dateConfig={includeTime ? props.dateConfig : undefined}
-          value={stringValue}
-          onChange={(v) => props.onChange(v)}
+          dateConfig={props.dateConfig}
+          value={pickerValue}
+          onChange={onPickerChange}
           error={error}
+          clearable
+        />
+      ) : (
+        <DatePicker
+          label={label}
+          description={helpText}
+          required={required}
+          dateConfig={props.dateConfig}
+          value={pickerValue}
+          onChange={onPickerChange}
+          error={error}
+          clearable
         />
       );
     }
 
     case "datetime":
       return (
-        <DateTimeInput
+        <DateTimePicker
           label={label}
           description={helpText}
           required={required}
           dateConfig={props.dateConfig}
-          value={stringValue}
-          onChange={(v) => props.onChange(v)}
+          value={() => stringValue() || null}
+          onChange={(v) => props.onChange(v ?? "")}
           error={error}
+          clearable
         />
       );
 

@@ -179,11 +179,9 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
           <PanelDialog>
             <PanelDialog.Header title={title} icon={icon} close={() => close(null)} />
             <PanelDialog.Body>
-              <PanelDialog.Section title="Fields" subtitle="Values are validated again on the server." icon="ti ti-forms">
-                <Show when={editableFields.length > 0} fallback={<p class="text-sm text-dimmed">This table has no editable fields.</p>}>
-                  <For each={editableFields}>{(f) => renderField(f)}</For>
-                </Show>
-              </PanelDialog.Section>
+              <Show when={editableFields.length > 0} fallback={<p class="text-sm text-dimmed">This table has no editable fields.</p>}>
+                <For each={editableFields}>{(f) => renderField(f)}</For>
+              </Show>
             </PanelDialog.Body>
             <PanelDialog.Footer>
               <span />

@@ -60,7 +60,7 @@ export const TableSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   icon: IconNameSchema,
-  columns: z.array(z.lazy(() => ColumnSpecSchema)),
+  columns: z.array(z.lazy(() => FieldColumnSpecSchema)),
   position: z.number().int(),
   disableDirectInsert: z.boolean(),
   deletedAt: z.string().datetime().nullable(),
@@ -73,14 +73,14 @@ export const CreateTableSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(1000).nullable().optional(),
   icon: IconNameSchema,
-  columns: z.array(z.lazy(() => ColumnSpecSchema)).optional(),
+  columns: z.array(z.lazy(() => FieldColumnSpecSchema)).optional(),
 });
 
 export const UpdateTableSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   description: z.string().max(1000).nullable().optional(),
   icon: IconNameSchema,
-  columns: z.array(z.lazy(() => ColumnSpecSchema)).optional(),
+  columns: z.array(z.lazy(() => FieldColumnSpecSchema)).optional(),
   disableDirectInsert: z.boolean().optional(),
 });
 
@@ -346,13 +346,25 @@ export type FormatSpec = z.infer<typeof FormatSpecSchema>;
  * Cross-table data is served by lookup/rollup field types instead
  * (which become real SQL JOINs in Slice 4).
  */
-export const ColumnSpecSchema = z.object({
+export const FieldColumnSpecSchema = z.object({
   fieldId: z.string().uuid(),
   /** Optional per-view header label. Empty labels are not persisted by
    *  the UI; the renderer falls back to the field name. */
   label: z.string().trim().min(1).max(120).optional(),
   format: FormatSpecSchema.optional(),
 });
+export type FieldColumnSpec = z.infer<typeof FieldColumnSpecSchema>;
+
+export const ComputedColumnSpecSchema = z.object({
+  kind: z.literal("computed"),
+  id: z.string().regex(/^computed_[A-Za-z0-9]{5,32}$/),
+  label: z.string().trim().min(1).max(120),
+  expression: z.string().trim().min(1).max(5000),
+  format: FormatSpecSchema.optional(),
+});
+export type ComputedColumnSpec = z.infer<typeof ComputedColumnSpecSchema>;
+
+export const ColumnSpecSchema = z.union([FieldColumnSpecSchema, ComputedColumnSpecSchema]);
 export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
 
 /**

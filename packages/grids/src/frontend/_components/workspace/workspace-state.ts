@@ -5,7 +5,7 @@ import type { Base, Dashboard, Field, Form, GridRecord, Table, View } from "../.
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
 import { filterSearchableFields } from "../../../service/search";
-import type { GroupSortSpec, ViewQuery } from "../../../contracts";
+import type { ComputedColumnSpec, GroupSortSpec, ViewQuery } from "../../../contracts";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 
@@ -25,6 +25,9 @@ type AggregationRaw = {
   agg: "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
   label?: string;
 };
+
+const isComputedColumn = (column: NonNullable<ViewQuery["columns"]>[number]): column is ComputedColumnSpec =>
+  "kind" in column && column.kind === "computed";
 
 export type WorkspaceGroupBucket = {
   keys: unknown[];
@@ -225,7 +228,8 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     isAdmin: hasRole(user, "admin"),
   });
   const tables = catalogRaw.tables;
-  const tableById = Object.fromEntries(tables.map((t) => [t.id, t]));
+  const formTables = catalogRaw.formTables ?? [];
+  const tableById = Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t]));
   const sidebarForms: Array<{ form: Form; table: Table }> = [];
   for (const { form, tableId } of catalogRaw.sidebarForms) {
     const table = tableById[tableId];
@@ -242,7 +246,7 @@ const loadCatalog = async (baseId: string, user: AuthUser): Promise<WorkspaceCat
     viewsByTable: catalogRaw.viewsByTable,
     formsByTable: catalogRaw.formsByTable,
     formAccessEntriesByTable,
-    tableShortIds: Object.fromEntries(tables.map((t) => [t.id, t.shortId])),
+    tableShortIds: Object.fromEntries([...tables, ...formTables].map((t) => [t.id, t.shortId])),
     sidebarForms,
   };
 };
@@ -399,6 +403,7 @@ const loadListedInitialRecords = async (
     includeRelations: true,
     viewer,
     dateConfig: args.dateConfig,
+    computedColumns: query.effective.columns?.filter(isComputedColumn),
   });
   if (listResult.ok) {
     data.records = query.viewLimit !== undefined ? { ...listResult.data, nextCursor: null } : listResult.data;
@@ -522,12 +527,14 @@ export const loadGridsWorkspaceState = async (params: LoadWorkspaceParams): Prom
 
   const baseId = base.id;
   const level = await resolveBaseLevel(params.user, baseId);
-  if (!gridsService.permission.hasAtLeast(level, "read")) {
+  const catalog = await loadCatalog(baseId, params.user);
+  const hasBaseRead = gridsService.permission.hasAtLeast(level, "read");
+  const hasFormOnlyAccess = catalog.sidebarForms.length > 0;
+  if (!hasBaseRead && !hasFormOnlyAccess) {
     return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
   }
 
   const chrome = buildChrome(params.href, base);
-  const catalog = await loadCatalog(baseId, params.user);
   const canManageBase = gridsService.permission.hasAtLeast(level, "admin");
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");
   const canUseEditMode = canUseEditModeForCatalog(catalog, params.user, canManageBase, canCreateTables);

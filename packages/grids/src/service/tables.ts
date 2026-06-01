@@ -3,7 +3,7 @@ import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
-import { ColumnSpecSchema } from "../contracts";
+import { FieldColumnSpecSchema } from "../contracts";
 import type { Table, CreateTableInput, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -11,7 +11,7 @@ type DbRow = Record<string, unknown>;
 const COLS = sql`id, short_id, base_id, name, description, icon, columns, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const parseColumns = (raw: unknown) => {
-  const parsed = ColumnSpecSchema.array().safeParse(raw ?? []);
+  const parsed = FieldColumnSpecSchema.array().safeParse(raw ?? []);
   return parsed.success ? parsed.data : [];
 };
 
@@ -142,7 +142,7 @@ export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promis
 export const create = async (input: CreateTableInput, actorId: string | null): Promise<Result<Table>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
-  const columnsParsed = ColumnSpecSchema.array().safeParse(input.columns ?? []);
+  const columnsParsed = FieldColumnSpecSchema.array().safeParse(input.columns ?? []);
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
 
   const row = await insertWithShortId<DbRow>(async (shortId) => {
@@ -188,7 +188,7 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
     disableDirectInsert:
       input.disableDirectInsert !== undefined ? input.disableDirectInsert : existing.disableDirectInsert,
   };
-  const columnsParsed = ColumnSpecSchema.array().safeParse(next.columns);
+  const columnsParsed = FieldColumnSpecSchema.array().safeParse(next.columns);
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
 
   const [row] = await sql<DbRow[]>`

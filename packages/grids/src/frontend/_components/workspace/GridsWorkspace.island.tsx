@@ -42,6 +42,9 @@ const sidebarStateClass = (active: boolean, adminMode: boolean) =>
       ? "text-emerald-700 hover:bg-emerald-50/70 hover:text-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-200"
       : "";
 
+const formOnlyEmptyText = (count: number) =>
+  count === 1 ? "You have access to 1 form. Click it in the sidebar to fill it out." : `You have access to ${count} forms. Click one in the sidebar to fill it out.`;
+
 export default function GridsWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
   const [settingsDialogOpen, setSettingsDialogOpen] = createSignal(false);
@@ -452,7 +455,7 @@ export default function GridsWorkspace(props: Props) {
 
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
-                  <p class="text-xs text-dimmed px-2 py-1">No tables yet.</p>
+                  <p class="text-xs text-dimmed px-2 py-1">{state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}</p>
                 ) : (
                   state().catalog.tables.map((t) => {
                     const route = state().route;
@@ -571,7 +574,7 @@ export default function GridsWorkspace(props: Props) {
 
               <AppWorkspace.SidebarSection title="Tables">
                 {state().catalog.tables.length === 0 ? (
-                  <p class="text-xs text-dimmed px-2 py-1">No tables yet.</p>
+                  <p class="text-xs text-dimmed px-2 py-1">{state().catalog.sidebarForms.length > 0 ? "No table access." : "No tables yet."}</p>
                 ) : (
                   state().catalog.tables.map((t) => {
                     const route = state().route;
@@ -659,9 +662,16 @@ export default function GridsWorkspace(props: Props) {
                 <Match when={route.kind === "records"}>{renderRecords(route as WorkspaceRecordsRoute)}</Match>
                 <Match when={route.kind === "empty"}>
                   <div class="paper p-8 text-center text-sm text-dimmed">
-                    {state().canCreateTables
-                      ? 'No tables yet. Click "New table" in the sidebar.'
-                      : "No tables. You don't have write access to create one."}
+                    <Show
+                      when={state().catalog.sidebarForms.length > 0}
+                      fallback={
+                        state().canCreateTables
+                          ? 'No tables yet. Click "New table" in the sidebar.'
+                          : "No tables. You don't have write access to create one."
+                      }
+                    >
+                      {formOnlyEmptyText(state().catalog.sidebarForms.length)}
+                    </Show>
                   </div>
                 </Match>
               </Switch>

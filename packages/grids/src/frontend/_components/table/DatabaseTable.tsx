@@ -93,8 +93,8 @@ type Props = {
   adminMode?: boolean;
   onFieldSettings?: (field: Field) => void;
   onFieldMove?: (field: Field, direction: -1 | 1) => void;
-  onViewColumnSettings?: (field: Field) => void;
-  onViewColumnMove?: (field: Field, direction: -1 | 1) => void;
+  onViewColumnSettings?: (column: ColumnSpec, field: Field | null) => void;
+  onViewColumnMove?: (column: ColumnSpec, direction: -1 | 1) => void;
 };
 
 /** Joins a list of arbitrary cell values into a presentable label.
@@ -134,30 +134,71 @@ const renderMarkdownCell = (value: unknown) => {
   return <MarkdownView html={markdown.render(value)} smallHeadings class="text-sm" />;
 };
 
+const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
+  "kind" in column && column.kind === "computed";
+
+const columnId = (column: ColumnSpec): string => (isComputedColumn(column) ? column.id : column.fieldId);
+
 export default function DatabaseTable(props: Props) {
   /** Fields that actually render. When the caller passes `viewColumns`,
    *  it dictates BOTH visibility and order. Otherwise we fall back to
    *  the table-level default: every non-deleted, non-`hideInTable`
    *  field in `position` order — same rule the records page uses. */
-  const visibleFields = (): Field[] => {
+  const computedField = (column: Extract<ColumnSpec, { kind: "computed" }>): Field => ({
+    id: column.id,
+    shortId: column.id.slice(-5),
+    tableId: props.result.fields[0]?.tableId ?? "",
+    name: column.label,
+    description: null,
+    icon: "ti ti-calculator",
+    type: "formula",
+    config: { expression: column.expression },
+    position: 0,
+    required: false,
+    presentable: false,
+    hideInTable: false,
+    defaultValue: null,
+    indexed: false,
+    uniqueConstraint: false,
+    deletedAt: null,
+    createdAt: "",
+    updatedAt: "",
+  });
+
+  const visibleColumns = (): Array<{ column: ColumnSpec; field: Field }> => {
     if (props.viewColumns) {
       const fieldsById = new Map(props.result.fields.map((f) => [f.id, f]));
-      return props.viewColumns.map((c) => fieldsById.get(c.fieldId)).filter((f): f is Field => !!f && !f.deletedAt);
+      const entries: Array<{ column: ColumnSpec; field: Field }> = [];
+      for (const column of props.viewColumns) {
+        if (isComputedColumn(column)) {
+          entries.push({ column, field: computedField(column) });
+          continue;
+        }
+        const field = fieldsById.get(column.fieldId);
+        if (field && !field.deletedAt) entries.push({ column, field });
+      }
+      return entries;
     }
-    return props.result.fields.filter((f) => !f.deletedAt && !f.hideInTable).sort((a, b) => a.position - b.position);
+    return props.result.fields
+      .filter((field) => !field.deletedAt && !field.hideInTable)
+      .sort((a, b) => a.position - b.position)
+      .map((field) => ({ column: { fieldId: field.id }, field }));
   };
+
+  const visibleFields = (): Field[] => visibleColumns().map((entry) => entry.field);
 
   /** Look up a per-column FormatSpec from the active viewColumns, if
    *  any. Drives date / number / currency / percent rendering. */
   const columnFormat = (fieldId: string) => {
     if (!props.viewColumns) return undefined;
-    const col = props.viewColumns.find((c) => c.fieldId === fieldId);
+    const col = props.viewColumns.find((c) => columnId(c) === fieldId);
     return col && "format" in col ? col.format : undefined;
   };
 
   const columnLabel = (fieldId: string, fallback: string) => {
     if (!props.viewColumns) return fallback;
-    return props.viewColumns.find((c) => c.fieldId === fieldId)?.label?.trim() || fallback;
+    const column = props.viewColumns.find((c) => columnId(c) === fieldId);
+    return column && "label" in column ? column.label?.trim() || fallback : fallback;
   };
 
   /** Renders a relation cell as one or more inline `<RecordLink>`s.
@@ -242,7 +283,7 @@ export default function DatabaseTable(props: Props) {
   };
 
   const columns = (): DataTableColumn<GridRecord>[] =>
-    visibleFields().map((field) => ({
+    visibleColumns().map(({ field }) => ({
       id: field.id,
       header: columnLabel(field.id, field.name),
       subtitle: props.showColumnSubtitles === false ? undefined : field.type,
@@ -308,7 +349,8 @@ export default function DatabaseTable(props: Props) {
           return field ? renderCell(row, field) : "";
         }}
         renderHeader={({ col, render }) => {
-          const field = visibleFields().find((f) => f.id === col.id);
+          const entry = visibleColumns().find((item) => item.field.id === col.id);
+          const field = entry?.field;
           const isColumnOrderEdit = !!props.viewColumns && !!props.onViewColumnMove;
           const isViewColumnEdit = !!props.onViewColumnSettings;
           const isFieldEdit = !!props.onFieldSettings;
@@ -328,7 +370,7 @@ export default function DatabaseTable(props: Props) {
                   class={adminIconClass}
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (isColumnOrderEdit) props.onViewColumnMove?.(field, -1);
+                    if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, -1);
                     else props.onFieldMove?.(field, -1);
                   }}
                   disabled={!canMoveLeft}
@@ -342,7 +384,7 @@ export default function DatabaseTable(props: Props) {
                   class={adminIconClass}
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (isColumnOrderEdit) props.onViewColumnMove?.(field, 1);
+                    if (isColumnOrderEdit && entry) props.onViewColumnMove?.(entry.column, 1);
                     else props.onFieldMove?.(field, 1);
                   }}
                   disabled={!canMoveRight}
@@ -356,7 +398,7 @@ export default function DatabaseTable(props: Props) {
                   class={adminIconClass}
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (isViewColumnEdit) props.onViewColumnSettings?.(field);
+                    if (isViewColumnEdit && entry) props.onViewColumnSettings?.(entry.column, isComputedColumn(entry.column) ? null : field);
                     else props.onFieldSettings?.(field);
                   }}
                   title={isViewColumnEdit ? "Column settings" : "Field settings"}

@@ -1,6 +1,7 @@
 import { sql } from "bun";
 import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import type {
+  ComputedColumnSpec,
   AggregationSpec,
   FilterTree,
   GroupBySpec,
@@ -16,6 +17,7 @@ import { filterSearchableFields } from "./search";
 import { compileSort } from "./sort-compiler";
 import { listByTable } from "./fields";
 import type { Field } from "./types";
+import { collectFieldRefs, parseFormula } from "../formula/parser";
 
 const GROUP_AGGS = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
@@ -39,6 +41,20 @@ const validateFieldRefs = (ids: string[], fields: Field[]): Result<void> => {
   const byId = fieldById(fields);
   for (const id of ids) {
     if (!byId.has(id)) return unknownField();
+  }
+  return ok();
+};
+
+const validateComputedColumns = (columns: ComputedColumnSpec[], fields: Field[]): Result<void> => {
+  if (columns.length === 0) return ok();
+  const byId = fieldById(fields);
+  const byShortId = new Map(fields.filter((f) => !f.deletedAt).map((f) => [f.shortId, f]));
+  for (const column of columns) {
+    const parsed = parseFormula(column.expression);
+    if (!parsed.ok) return fail(err.badInput(`computed column "${column.label}": ${parsed.error}`));
+    for (const ref of collectFieldRefs(parsed.ast)) {
+      if (!byId.has(ref) && !byShortId.has(ref)) return unknownField();
+    }
   }
   return ok();
 };
@@ -102,8 +118,14 @@ const validatePartsForFields = (tableId: string, parts: QueryParts, fields: Fiel
   if (!sort.ok) return fail(err.badInput(`sort: ${sort.error}`));
 
   if (parts.columns) {
-    const cols = validateFieldRefs(parts.columns.map((c) => c.fieldId), fields);
+    const fieldColumns = parts.columns.filter((c): c is Extract<typeof c, { fieldId: string }> => "fieldId" in c);
+    const cols = validateFieldRefs(fieldColumns.map((c) => c.fieldId), fields);
     if (!cols.ok) return cols;
+    const computed = validateComputedColumns(
+      parts.columns.filter((c): c is ComputedColumnSpec => "kind" in c && c.kind === "computed"),
+      fields,
+    );
+    if (!computed.ok) return computed;
   }
 
   const groupBy = parts.groupBy ?? [];

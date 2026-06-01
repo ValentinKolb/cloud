@@ -1,7 +1,7 @@
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { ColumnSpecSchema, type View, ViewQuerySchema } from "../contracts";
+import { FieldColumnSpecSchema, type View, ViewQuerySchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
 import type { Form, FormConfig, FormFieldEntry } from "./forms";
 import { parseJsonbRow } from "./jsonb";
@@ -19,6 +19,7 @@ type BaseCatalog = {
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
   formLevels: Record<string, PermissionLevel>;
+  formTables: Table[];
   sidebarForms: Array<{ form: Form; tableId: string }>;
 };
 
@@ -30,7 +31,7 @@ const levelFromRank = (rank: unknown): PermissionLevel => {
 };
 
 const parseColumns = (raw: unknown) => {
-  const parsed = ColumnSpecSchema.array().safeParse(raw ?? []);
+  const parsed = FieldColumnSpecSchema.array().safeParse(raw ?? []);
   return parsed.success ? parsed.data : [];
 };
 
@@ -216,12 +217,6 @@ export const listForBase = async (params: {
 
   const tables = tableRows.map((row) => ({ ...mapTable(row), level: levelFromRank(row.level_rank) }));
   const tableLevels = Object.fromEntries(tables.map((table) => [table.id, table.level]));
-  const tableIds = tables.map((table) => table.id);
-  if (tableIds.length === 0) {
-    return { dashboards, tables, tableLevels, fieldsByTable: {}, viewsByTable: {}, formsByTable: {}, formLevels: {}, sidebarForms: [] };
-  }
-
-  const tableIdArray = () => sql.array(tableIds, "UUID");
   const formRanks = resourceRanks("grids.form_access", "fa", "form_id", sql`f.id`, params.userId, groups);
   const formTableRanks = resourceRanks("grids.table_access", "fta", "table_id", sql`f.table_id`, params.userId, groups);
   const formBaseRanks = resourceRanks("grids.base_access", "fba", "base_id", sql`t.base_id`, params.userId, groups);
@@ -232,43 +227,66 @@ export const listForBase = async (params: {
   const viewRanks = resourceRanks("grids.view_access", "va", "view_id", sql`v.id`, params.userId, groups);
   const viewWinning = sql`COALESCE(${viewRanks[0]}, ${viewRanks[1]}, ${viewRanks[2]}, ${viewRanks[3]})`;
 
-  const [fieldRows, viewRows, formRows] = await Promise.all([
-    sql<DbRow[]>`
-      SELECT f.*
-      FROM grids.fields f
+  const formRows = await sql<(DbRow & { level_rank: number; sidebar_visible: boolean })[]>`
+    WITH ranked AS (
+      SELECT f.*, ${formLevelExpr} AS level_rank
+      FROM grids.forms f
       JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
       JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-      WHERE f.table_id = ANY(${tableIdArray()}) AND f.deleted_at IS NULL
-      ORDER BY f.table_id, f.position, f.created_at
-    `,
-    sql<DbRow[]>`
-      WITH ranked AS (
-        SELECT v.*, ${viewWinning} AS winning_rank
-        FROM grids.views v
-        JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
-        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-        WHERE v.table_id = ANY(${tableIdArray()}) AND v.deleted_at IS NULL
-      )
-      SELECT *
-      FROM ranked
-      WHERE winning_rank >= 1
-         OR (winning_rank IS NULL AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid))
-      ORDER BY table_id, position, created_at
-    `,
-    sql<(DbRow & { level_rank: number; sidebar_visible: boolean })[]>`
-      WITH ranked AS (
-        SELECT f.*, ${formLevelExpr} AS level_rank
-        FROM grids.forms f
-        JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
-        JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
-        WHERE f.table_id = ANY(${tableIdArray()}) AND f.deleted_at IS NULL
-      )
-      SELECT *, (is_active = TRUE AND (public_token IS NOT NULL OR level_rank >= 2)) AS sidebar_visible
-      FROM ranked
-      ORDER BY table_id, position, created_at
-    `,
+      WHERE t.base_id = ${params.baseId}::uuid AND f.deleted_at IS NULL
+    )
+    SELECT *, (is_active = TRUE AND level_rank >= 2) AS sidebar_visible
+    FROM ranked
+    WHERE level_rank >= 2
+    ORDER BY table_id, position, created_at
+  `;
+
+  const readableTableIds = tables.map((table) => table.id);
+  const formTableIds = [...new Set(formRows.map((row) => row.table_id as string))];
+  const fieldTableIds = [...new Set([...readableTableIds, ...formTableIds])];
+  const readableTableIdArray = () => sql.array(readableTableIds, "UUID");
+  const fieldTableIdArray = () => sql.array(fieldTableIds, "UUID");
+
+  const [formOnlyTableRows, fieldRows, viewRows] = await Promise.all([
+    formTableIds.filter((id) => !tableLevels[id]).length === 0
+      ? Promise.resolve([] as DbRow[])
+      : sql<DbRow[]>`
+          SELECT t.*
+          FROM grids.tables t
+          JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+          WHERE t.id = ANY(${sql.array(formTableIds.filter((id) => !tableLevels[id]), "UUID")}) AND t.deleted_at IS NULL
+          ORDER BY position, created_at
+        `,
+    fieldTableIds.length === 0
+      ? Promise.resolve([] as DbRow[])
+      : sql<DbRow[]>`
+          SELECT f.*
+          FROM grids.fields f
+          JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+          JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+          WHERE f.table_id = ANY(${fieldTableIdArray()}) AND f.deleted_at IS NULL
+          ORDER BY f.table_id, f.position, f.created_at
+        `,
+    readableTableIds.length === 0
+      ? Promise.resolve([] as DbRow[])
+      : sql<DbRow[]>`
+          WITH ranked AS (
+            SELECT v.*, ${viewWinning} AS winning_rank
+            FROM grids.views v
+            JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+            JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+            WHERE v.table_id = ANY(${readableTableIdArray()}) AND v.deleted_at IS NULL
+          )
+          SELECT *
+          FROM ranked
+          WHERE winning_rank >= 1
+             OR (winning_rank IS NULL AND (owner_user_id IS NULL OR owner_user_id = ${params.userId}::uuid))
+          ORDER BY table_id, position, created_at
+        `,
   ]);
 
+  const formOnlyTables = formOnlyTableRows.map((row) => ({ ...mapTable(row), level: "none" as const }));
+  const tablesById = new Map([...tables, ...formOnlyTables].map((table) => [table.id, table]));
   const fieldsByTable = byTable(fieldRows.map(mapField));
   const viewsByTable = byTable(viewRows.map(mapView));
   const forms = formRows.map(mapForm);
@@ -280,9 +298,9 @@ export const listForBase = async (params: {
     formLevels[row.id as string] = levelFromRank(row.level_rank);
     if (row.sidebar_visible) {
       const form = formsById.get(row.id as string);
-      if (form) sidebarForms.push({ form, tableId: form.tableId });
+      if (form && tablesById.has(form.tableId)) sidebarForms.push({ form, tableId: form.tableId });
     }
   }
 
-  return { dashboards, tables, tableLevels, fieldsByTable, viewsByTable, formsByTable, formLevels, sidebarForms };
+  return { dashboards, tables, tableLevels, fieldsByTable, viewsByTable, formsByTable, formLevels, formTables: formOnlyTables, sidebarForms };
 };

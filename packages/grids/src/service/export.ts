@@ -149,7 +149,9 @@ const pickColumns = async (params: {
   const byId = new Map(params.fields.map((f) => [f.id, f]));
   const requested = params.specs?.length
     ? params.specs
-    : params.query.columns?.map((c) => ({ fieldId: c.fieldId }) satisfies ExportFieldSpec);
+    : params.query.columns
+        ?.filter((c): c is Extract<typeof c, { fieldId: string }> => "fieldId" in c)
+        .map((c) => ({ fieldId: c.fieldId }) satisfies ExportFieldSpec);
 
   const rawSelected = requested?.length
     ? requested.map((spec) => ({ field: byId.get(spec.fieldId), spec }))

@@ -1,4 +1,4 @@
-import type { ColumnSpec, FilterTree } from "../contracts";
+import type { FieldColumnSpec, FilterTree } from "../contracts";
 
 export type Base = {
   id: string;
@@ -31,7 +31,7 @@ export type Table = {
   /** Default table columns. Saved views can override this with their
    *  own ViewQuery.columns, but the renderer consumes the same
    *  ColumnSpec shape in both cases. */
-  columns: ColumnSpec[];
+  columns: FieldColumnSpec[];
   position: number;
   /** When true, records can only be added through a form (the
    *  authenticated `/forms/:formId/submit` and the public
@@ -242,12 +242,12 @@ export type UpdateBaseInput = {
   defaultDashboardId?: string | null;
 };
 
-export type CreateTableInput = { baseId: string; name: string; description?: string | null; icon?: string | null; columns?: ColumnSpec[] };
+export type CreateTableInput = { baseId: string; name: string; description?: string | null; icon?: string | null; columns?: FieldColumnSpec[] };
 export type UpdateTableInput = {
   name?: string;
   description?: string | null;
   icon?: string | null;
-  columns?: ColumnSpec[];
+  columns?: FieldColumnSpec[];
   disableDirectInsert?: boolean;
 };
 

@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { dates, type DateContext } from "@valentinkolb/stdlib";
+import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import { decimalResult, isNullish, toDecimalValue, toNumber } from "./numeric";
 import { formulaError, isFormulaError, type Literal } from "./types";
 
@@ -56,7 +57,7 @@ type FormulaDateValue = {
   instantBacked: boolean;
 };
 
-const formulaTimeZone = (ctx: FormulaRuntimeContext): string => dates.normalizeTimeZone(ctx.dateConfig?.timeZone, "UTC");
+const formulaTimeZone = (ctx: FormulaRuntimeContext): string => normalizeTimeZone(ctx.dateConfig?.timeZone, "UTC");
 
 const dateFromParts = (parts: FormulaDateParts): Date =>
   new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second));

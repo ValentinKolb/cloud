@@ -3,7 +3,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, on, Show, untrack } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ViewQuery } from "../../../contracts";
+import type { ColumnSpec, ViewQuery } from "../../../contracts";
 import type { Field, Form, GridRecord, View } from "../../../service";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { openFormModal } from "../records/FormSubmitModal";
@@ -25,6 +25,9 @@ type Props = {
   initialSort: SortRow[];
   initialGroupBy: GroupByRow[];
   initialAggregations: AggregationRow[];
+  columns?: ColumnSpec[];
+  onAddComputedColumn?: () => void;
+  onClearColumns?: () => void;
   currentSearch: { q: string; fieldIds: string[] };
   forms?: Form[];
   canWrite: boolean;
@@ -73,8 +76,9 @@ export default function GridToolbar(props: Props) {
   const hasSort = () => sortRows().length > 0;
   const hasGroupBy = () => groupByRows().length > 0;
   const hasAgg = () => aggRows().length > 0;
+  const hasCustomColumns = () => (props.columns ?? []).some((column) => "kind" in column && column.kind === "computed");
   const hasFilterableFields = () => filterableFields(props.fields).length > 0;
-  const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg();
+  const hasToolbarQuery = () => hasFilter() || hasSort() || hasGroupBy() || hasAgg() || hasCustomColumns();
   const hasSaveableQuery = () => hasToolbarQuery() || props.currentSearch.q.trim().length > 0;
   const activeForms = createMemo(() => (props.forms ?? []).filter((f) => f.isActive));
   const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -229,6 +233,7 @@ export default function GridToolbar(props: Props) {
         sort: s.length > 0 ? s : undefined,
         groupBy: g.length > 0 ? g : undefined,
         aggregations: a.length > 0 ? a : undefined,
+        columns: hasCustomColumns() ? props.columns : undefined,
       };
       const res = await apiClient.views["by-table"][":tableId"].$post({
         param: { tableId: props.tableId },
@@ -273,6 +278,7 @@ export default function GridToolbar(props: Props) {
     if (hasSort()) parts.push("sort");
     if (hasGroupBy()) parts.push("group");
     if (hasAgg()) parts.push("aggregations");
+    if (hasCustomColumns()) parts.push("columns");
     if (parts.length === 0) return "Clear";
     if (parts.length === 1) return `Clear ${parts[0]}`;
     return `Clear ${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}`;
@@ -285,6 +291,7 @@ export default function GridToolbar(props: Props) {
     setSortRows([]);
     setGroupByRows([]);
     setAggRows([]);
+    props.onClearColumns?.();
   };
 
   // GridToolbar is only rendered in live + non-view mode (RecordsView
@@ -380,6 +387,13 @@ export default function GridToolbar(props: Props) {
           Aggregate
         </button>
 
+        <Show when={props.onAddComputedColumn}>
+          <button type="button" class={`btn-input btn-input-sm ${hasCustomColumns() ? "btn-input-active" : ""}`} onClick={props.onAddComputedColumn}>
+            <i class="ti ti-calculator" />
+            Computed
+          </button>
+        </Show>
+
         {/* Smart Clear — appears when any query dimension is active.
             Label names exactly what goes away. */}
         <Show when={hasToolbarQuery()}>
@@ -398,7 +412,7 @@ export default function GridToolbar(props: Props) {
             class="btn-input btn-input-sm text-emerald-700 dark:text-emerald-300 ml-auto"
             onClick={handleSaveView}
             disabled={saveViewMut.loading()}
-            title="Save current filter / sort / group / aggregations as a view"
+            title="Save current setup as a view"
           >
             <i class="ti ti-bookmark-plus" />
             Save as view

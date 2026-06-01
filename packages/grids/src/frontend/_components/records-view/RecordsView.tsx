@@ -1,16 +1,26 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog, prompts } from "@valentinkolb/cloud/ui";
+import {
+  AutocompleteEditor,
+  Dropdown,
+  dialogCore,
+  MultiSelectInput,
+  panelDialogOptions,
+  PanelDialog,
+  prompts,
+  TextInput,
+} from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { AggregationSpec, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
-import type { ColumnSpec } from "../../../service/views";
+import type { ColumnSpec, FieldColumnSpec } from "../../../service/views";
 import { defaultTableAggregations } from "../../../table-defaults";
 import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../dialogs/TableAdminDialogs";
 import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
+import { buildFormulaCompletions, formulaFieldRefs, formulaHighlight } from "../fields/formula-authoring";
 import { openFieldEditDialog } from "../fields/TableFieldDialogs";
 import { openExportRecordsDialog } from "../records/ExportRecordsDialog";
 import RecordDetailPanel from "../records/RecordDetailPanel";
@@ -44,6 +54,99 @@ import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-u
 const UI_AGG_KINDS: ReadonlySet<AggKindUI> = new Set(["count", "countEmpty", "countUnique", "sum", "avg", "min", "max"]);
 
 const ADMIN_BUTTON_CLASS = "btn-input-success btn-input-sm";
+
+const isComputedColumn = (column: ColumnSpec): column is Extract<ColumnSpec, { kind: "computed" }> =>
+  "kind" in column && column.kind === "computed";
+
+const isFieldColumn = (column: ColumnSpec): column is FieldColumnSpec => !isComputedColumn(column);
+
+const columnId = (column: ColumnSpec): string => (isComputedColumn(column) ? column.id : column.fieldId);
+
+const randomComputedColumnId = (): string => {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = new Uint8Array(10);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return `computed_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
+};
+
+type ComputedColumnDialogResult =
+  | { action: "save"; column: Extract<ColumnSpec, { kind: "computed" }> }
+  | { action: "delete" };
+
+const openComputedColumnDialog = (args: {
+  fields: Field[];
+  column?: Extract<ColumnSpec, { kind: "computed" }>;
+}) =>
+  dialogCore.open<ComputedColumnDialogResult | null>((close) => {
+    const [label, setLabel] = createSignal(args.column?.label ?? "");
+    const [expression, setExpression] = createSignal(args.column?.expression ?? "");
+    const refs = () => formulaFieldRefs(args.fields);
+    const save = () => {
+      const nextLabel = label().trim();
+      const nextExpression = expression().trim();
+      if (!nextLabel) {
+        prompts.error("Name is required");
+        return;
+      }
+      if (!nextExpression) {
+        prompts.error("Expression is required");
+        return;
+      }
+      close({
+        action: "save",
+        column: {
+          kind: "computed",
+          id: args.column?.id ?? randomComputedColumnId(),
+          label: nextLabel,
+          expression: nextExpression,
+          ...(args.column?.format ? { format: args.column.format } : {}),
+        },
+      });
+    };
+    return (
+      <PanelDialog>
+        <PanelDialog.Header title={args.column ? "Edit computed column" : "Computed column"} icon="ti ti-calculator" close={() => close(null)} />
+        <PanelDialog.Body>
+          <div class="info-block-info text-xs">
+            Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view setup.
+          </div>
+          <TextInput label="Name" value={label} onInput={setLabel} icon="ti ti-typography" placeholder="e.g. Total with VAT" required />
+          <div class="flex flex-col gap-1.5">
+            <span class="text-label text-xs">Expression</span>
+            <AutocompleteEditor
+              value={expression}
+              onInput={setExpression}
+              placeholder="e.g. #price * 1.19"
+              completions={buildFormulaCompletions(refs())}
+              highlight={formulaHighlight}
+              restoreExpansionOnBackspace={false}
+              lines={4}
+              ariaLabel="Computed column expression"
+            />
+            <p class="text-xs leading-snug text-dimmed">
+              Search fields by name. Suggestions insert stable <code>#ref</code> values.
+            </p>
+          </div>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <Show when={args.column} fallback={<span />}>
+            <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
+              <i class="ti ti-trash" /> Delete column
+            </button>
+          </Show>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-simple btn-sm" onClick={() => close(null)}>
+              Cancel
+            </button>
+            <button type="button" class="btn-primary btn-sm" onClick={save}>
+              Save
+            </button>
+          </div>
+        </PanelDialog.Footer>
+      </PanelDialog>
+    );
+  }, panelDialogOptions);
 
 const toAggregationRows = (specs: AggregationSpec[] | undefined): AggregationRow[] =>
   (specs ?? [])
@@ -80,7 +183,7 @@ type Props = {
   tableName: string;
   tableDescription: string | null;
   tableIcon?: string | null;
-  tableColumns: ColumnSpec[];
+  tableColumns: FieldColumnSpec[];
   /** Table-level setting: when true, records should be created through forms. */
   disableDirectInsert: boolean;
   /** Short-id of the base — for the path-based URL builder. Threaded
@@ -147,7 +250,7 @@ export default function RecordsView(props: Props) {
   const [tableName, setTableName] = createSignal(props.tableName);
   const [tableDescription, setTableDescription] = createSignal(props.tableDescription);
   const [tableIcon, setTableIcon] = createSignal(props.tableIcon ?? null);
-  const [tableColumns, setTableColumns] = createSignal<ColumnSpec[]>(props.tableColumns);
+  const [tableColumns, setTableColumns] = createSignal<FieldColumnSpec[]>(props.tableColumns);
   const [disableDirectInsert, setDisableDirectInsert] = createSignal(props.disableDirectInsert);
   const [fields, setFields] = createSignal<Field[]>([...props.fields].sort((a, b) => a.position - b.position));
   const [forms, setForms] = createSignal<Form[]>(props.forms);
@@ -195,7 +298,7 @@ export default function RecordsView(props: Props) {
           .sort((a, b) => a.position - b.position)
           .map((field) => ({ fieldId: field.id }));
   const effectiveViewColumns = () =>
-    !isGrouped() ? (isSavedView() ? (viewColumns() ?? defaultViewColumns()) : defaultViewColumns()) : undefined;
+    !isGrouped() ? (viewColumns() ?? defaultViewColumns()) : undefined;
 
   // ── Resource over POST /tables/:id/query ──────────────────────────
   // Source signal carries everything that affects the response shape;
@@ -730,7 +833,7 @@ export default function RecordsView(props: Props) {
       tableId: props.tableId,
       fields: fields(),
       query: queryWithSearch(),
-      viewColumns: effectiveViewColumns(),
+      viewColumns: effectiveViewColumns()?.filter(isFieldColumn),
     });
   };
 
@@ -769,7 +872,7 @@ export default function RecordsView(props: Props) {
       tableShortId: props.tableShortId,
       otherTables: props.otherTables,
       fieldsByTable: { ...props.fieldsByTable, [props.tableId]: fields() },
-      tableColumns: effectiveViewColumns(),
+      tableColumns: tableColumns(),
       dateConfig: props.dateConfig,
       onSaved: (updated) => syncFields(fields().map((f) => (f.id === updated.id ? updated : f))),
       onTableColumnsSaved: setTableColumns,
@@ -859,6 +962,7 @@ export default function RecordsView(props: Props) {
       setViewColumns(view.query.columns);
       setQuery((prev) => ({
         ...prev,
+        columns: view.query.columns,
         groupBy: view.query.groupBy,
         aggregations: view.query.aggregations,
         groupedColumnOrder: view.query.groupedColumnOrder,
@@ -868,11 +972,11 @@ export default function RecordsView(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const patchTableColumnsMut = mutations.create<Table, ColumnSpec[]>({
+  const patchTableColumnsMut = mutations.create<Table, FieldColumnSpec[]>({
     mutation: async (columns) => {
       const res = await apiClient.tables[":tableId"].$patch({
         param: { tableId: props.tableId },
-        json: { columns: columns.map(cleanViewColumn) },
+        json: { columns: columns.map((column) => cleanViewColumn(column)).filter(isFieldColumn) },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save table columns"));
       return res.json();
@@ -881,21 +985,33 @@ export default function RecordsView(props: Props) {
     onError: (e) => prompts.error(e.message),
   });
 
-  const cleanViewColumn = (column: ColumnSpec): ColumnSpec => ({
-    fieldId: column.fieldId,
-    ...(column.label?.trim() ? { label: column.label.trim() } : {}),
-    ...(column.format ? { format: column.format } : {}),
-  });
+  const cleanViewColumn = (column: ColumnSpec): ColumnSpec =>
+    isComputedColumn(column)
+      ? {
+          kind: "computed",
+          id: column.id,
+          label: column.label.trim(),
+          expression: column.expression.trim(),
+          ...(column.format ? { format: column.format } : {}),
+        }
+      : {
+          fieldId: column.fieldId,
+          ...(column.label?.trim() ? { label: column.label.trim() } : {}),
+          ...(column.format ? { format: column.format } : {}),
+        };
 
   const persistFlatViewColumns = (columns: ColumnSpec[]) => {
-    if (isSavedView()) patchViewQueryMut.mutate({ columns: columns.map(cleanViewColumn) });
-    else patchTableColumnsMut.mutate(columns);
+    const cleaned = columns.map(cleanViewColumn);
+    setViewColumns(cleaned);
+    setQuery((prev) => ({ ...prev, columns: cleaned.some(isComputedColumn) || isSavedView() ? cleaned : undefined }));
+    if (isSavedView()) patchViewQueryMut.mutate({ columns: cleaned });
+    else if (!cleaned.some(isComputedColumn)) patchTableColumnsMut.mutate(cleaned.filter(isFieldColumn));
   };
 
-  const moveViewColumnInline = (field: Field, direction: -1 | 1) => {
+  const moveViewColumnInline = (column: ColumnSpec, direction: -1 | 1) => {
     const current = effectiveViewColumns();
     if (!current) return;
-    const index = current.findIndex((column) => column.fieldId === field.id);
+    const index = current.findIndex((item) => columnId(item) === columnId(column));
     const target = index + direction;
     if (index < 0 || target < 0 || target >= current.length) return;
     const next = [...current];
@@ -905,9 +1021,20 @@ export default function RecordsView(props: Props) {
     persistFlatViewColumns(next);
   };
 
-  const openViewColumnSettings = async (field: Field) => {
-    const current = effectiveViewColumns()?.find((column) => column.fieldId === field.id);
+  const openViewColumnSettings = async (column: ColumnSpec, field: Field | null) => {
+    const current = effectiveViewColumns()?.find((item) => columnId(item) === columnId(column));
     if (!current) return;
+    if (isComputedColumn(current)) {
+      const result = await openComputedColumnDialog({ fields: fields(), column: current });
+      if (!result) return;
+      if (result.action === "delete") {
+        persistFlatViewColumns((effectiveViewColumns() ?? []).filter((item) => columnId(item) !== current.id));
+        return;
+      }
+      persistFlatViewColumns((effectiveViewColumns() ?? []).map((item) => (columnId(item) === current.id ? result.column : item)));
+      return;
+    }
+    if (!field) return;
     const result = await openViewColumnSettingsDialog({
       title: field.name,
       labelPlaceholder: field.name,
@@ -918,12 +1045,12 @@ export default function RecordsView(props: Props) {
     });
     if (!result) return;
     if (result.action === "hide") {
-      persistFlatViewColumns((effectiveViewColumns() ?? []).filter((column) => column.fieldId !== field.id));
+      persistFlatViewColumns((effectiveViewColumns() ?? []).filter((column) => columnId(column) !== field.id));
       return;
     }
     persistFlatViewColumns(
       (effectiveViewColumns() ?? []).map((column) =>
-        column.fieldId === field.id ? cleanViewColumn({ ...column, label: result.label, format: result.format }) : column,
+        !isComputedColumn(column) && column.fieldId === field.id ? cleanViewColumn({ ...column, label: result.label, format: result.format }) : column,
       ),
     );
   };
@@ -1034,7 +1161,7 @@ export default function RecordsView(props: Props) {
   };
 
   const flatHiddenColumns = () => {
-    const visibleIds = new Set((effectiveViewColumns() ?? []).map((column) => column.fieldId));
+    const visibleIds = new Set((effectiveViewColumns() ?? []).filter(isFieldColumn).map((column) => column.fieldId));
     return fields()
       .filter((field) => !field.deletedAt && !visibleIds.has(field.id))
       .map((field) => ({
@@ -1104,7 +1231,7 @@ export default function RecordsView(props: Props) {
           });
         } else {
           const existing = effectiveViewColumns() ?? [];
-          const existingIds = new Set(existing.map((column) => column.fieldId));
+          const existingIds = new Set(existing.map(columnId));
           persistFlatViewColumns([...existing, ...selected.filter((id) => !existingIds.has(id)).map((fieldId) => ({ fieldId }))]);
         }
         close();
@@ -1113,21 +1240,21 @@ export default function RecordsView(props: Props) {
         <PanelDialog>
           <PanelDialog.Header title="Add columns" icon="ti ti-plus" close={() => close()} />
           <PanelDialog.Body>
-            <PanelDialog.Section title="Columns" subtitle="Choose one or more hidden columns to show." icon="ti ti-layout-columns">
-              <MultiSelectInput
-                placeholder="Choose columns"
-                icon="ti ti-columns"
-                value={selectedColumnIds}
-                onChange={setSelectedColumnIds}
-                options={columns.map((column) => ({
-                  id: column.id,
-                  label: column.label,
-                  description: column.description,
-                  icon: column.icon,
-                }))}
-                clearable
-              />
-            </PanelDialog.Section>
+            <MultiSelectInput
+              label="Columns"
+              description="Choose one or more hidden columns to show."
+              placeholder="Choose columns"
+              icon="ti ti-columns"
+              value={selectedColumnIds}
+              onChange={setSelectedColumnIds}
+              options={columns.map((column) => ({
+                id: column.id,
+                label: column.label,
+                description: column.description,
+                icon: column.icon,
+              }))}
+              clearable
+            />
           </PanelDialog.Body>
           <PanelDialog.Footer>
             <span />
@@ -1143,6 +1270,17 @@ export default function RecordsView(props: Props) {
         </PanelDialog>
       );
     }, panelDialogOptions);
+  };
+
+  const openAddComputedColumn = async () => {
+    const result = await openComputedColumnDialog({ fields: fields() });
+    if (!result || result.action !== "save") return;
+    persistFlatViewColumns([...(effectiveViewColumns() ?? defaultViewColumns()), result.column]);
+  };
+
+  const clearComputedColumns = () => {
+    const next = (effectiveViewColumns() ?? defaultViewColumns()).filter((column) => !isComputedColumn(column));
+    persistFlatViewColumns(next);
   };
 
   // ── Render ─────────────────────────────────────────────────────────
@@ -1260,6 +1398,9 @@ export default function RecordsView(props: Props) {
               initialSort={toolbarSortRows()}
               initialGroupBy={toolbarGroupByRows()}
               initialAggregations={toolbarAggregationRows()}
+              columns={effectiveViewColumns()}
+              onAddComputedColumn={openAddComputedColumn}
+              onClearColumns={clearComputedColumns}
               currentSearch={search()}
               forms={forms()}
               canWrite={props.canWrite}

@@ -38,25 +38,23 @@ function ViewColumnSettingsDialog(props: { args: Args; close: (result: ViewColum
     <PanelDialog>
       <PanelDialog.Header title={`Column — ${props.args.title}`} icon="ti ti-settings" close={() => props.close(null)} />
       <PanelDialog.Body>
-        <PanelDialog.Section title="Column" subtitle="Label and display format for this table or view." icon="ti ti-layout-columns">
-          <TextInput
-            label="Column name"
-            description="Shown in this view. Empty uses the generated name."
-            placeholder={props.args.labelPlaceholder}
-            icon="ti ti-heading"
-            value={label}
-            onInput={setLabel}
-            clearable
-          />
+        <TextInput
+          label="Column name"
+          description="Shown in this view. Empty uses the generated name."
+          placeholder={props.args.labelPlaceholder}
+          icon="ti ti-heading"
+          value={label}
+          onInput={setLabel}
+          clearable
+        />
 
-          <ColumnFormatControls
-            field={props.args.formatField}
-            currentFormat={props.args.currentFormat}
-            expose={(handle) => {
-              formatControls = handle;
-            }}
-          />
-        </PanelDialog.Section>
+        <ColumnFormatControls
+          field={props.args.formatField}
+          currentFormat={props.args.currentFormat}
+          expose={(handle) => {
+            formatControls = handle;
+          }}
+        />
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <button type="button" class="btn-danger btn-sm" onClick={() => props.close({ action: "hide" })}>

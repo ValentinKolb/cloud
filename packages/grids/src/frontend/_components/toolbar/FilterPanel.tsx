@@ -1,4 +1,4 @@
-import { DateTimeInput, MultiSelectInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
+import { DatePicker, DateRangePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
@@ -149,7 +149,7 @@ type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "relation" 
  *  - select fields (is / isNot): cloud Select over field options
  *  - select multi-value ops (one-of / none-of): MultiSelectInput
  *  - relation contains: RelationPicker over the target table
- *  - dates: cloud DateTimeInput dateOnly (or NumberInput for lastNDays)
+ *  - dates: cloud DatePicker / DateTimePicker (or NumberInput for lastNDays)
  *  - numeric fields: cloud NumberInput
  *  - text-shaped fallback: cloud TextInput
  *
@@ -195,7 +195,7 @@ function FilterValueInput(props: {
         {(() => {
           const range = () => (Array.isArray(props.value) ? (props.value as [unknown, unknown]) : ["", ""]);
           const isDate = () => props.field?.type === "date";
-          const dateOnly = () => !Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime);
+          const includeTime = () => Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime);
           const numAt = (i: 0 | 1) => {
             const v = range()[i];
             const n = typeof v === "number" ? v : Number(v);
@@ -207,31 +207,27 @@ function FilterValueInput(props: {
           };
           return (
             <span class="flex items-center gap-1">
-              <div class="w-44">
-                {isDate() ? (
-                  <DateTimeInput
-                    dateOnly={dateOnly()}
-                    dateConfig={dateOnly() ? undefined : props.dateConfig}
-                    value={() => dateAt(0)}
-                    onChange={(v) => props.onChange([v, range()[1]])}
+              {isDate() ? (
+                <div class="w-80">
+                  <DateRangePicker
+                    withTime={includeTime()}
+                    dateConfig={props.dateConfig}
+                    value={() => ({ start: dateAt(0) || null, end: dateAt(1) || null })}
+                    onChange={(v) => props.onChange([v.start ?? "", v.end ?? ""])}
+                    clearable
                   />
-                ) : (
-                  <NumberInput value={() => numAt(0)} onChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
-                )}
-              </div>
-              <span class="text-dimmed">to</span>
-              <div class="w-44">
-                {isDate() ? (
-                  <DateTimeInput
-                    dateOnly={dateOnly()}
-                    dateConfig={dateOnly() ? undefined : props.dateConfig}
-                    value={() => dateAt(1)}
-                    onChange={(v) => props.onChange([range()[0], v])}
-                  />
-                ) : (
-                  <NumberInput value={() => numAt(1)} onChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
-                )}
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div class="w-44">
+                    <NumberInput value={() => numAt(0)} onChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
+                  </div>
+                  <span class="text-dimmed">to</span>
+                  <div class="w-44">
+                    <NumberInput value={() => numAt(1)} onChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
+                  </div>
+                </>
+              )}
             </span>
           );
         })()}
@@ -324,12 +320,16 @@ function FilterValueInput(props: {
 
       <Match when={kind() === "date"}>
         <div class="w-44">
-          <DateTimeInput
-            dateOnly={!Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime)}
-            dateConfig={(props.field?.config as { includeTime?: boolean } | undefined)?.includeTime ? props.dateConfig : undefined}
-            value={() => (typeof props.value === "string" ? props.value : "")}
-            onChange={(v) => props.onChange(v)}
-          />
+          {(() => {
+            const includeTime = () => Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime);
+            const value = () => (typeof props.value === "string" && props.value ? props.value : null);
+            const onChange = (v: string | null) => props.onChange(v ?? "");
+            return includeTime() ? (
+              <DateTimePicker dateConfig={props.dateConfig} value={value} onChange={onChange} clearable />
+            ) : (
+              <DatePicker dateConfig={props.dateConfig} value={value} onChange={onChange} clearable />
+            );
+          })()}
         </div>
       </Match>
 

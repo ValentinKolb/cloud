@@ -23,8 +23,8 @@ type Props = {
  * configured.
  *
  * All field rendering lives in `form-fields.tsx` and uses platform
- * inputs only (TextInput / NumberInput / DateTimeInput / Checkbox /
- * SelectInput / CheckboxCards for select).
+ * inputs only (TextInput / NumberInput / DatePicker / DateTimePicker /
+ * Checkbox / SelectInput / CheckboxCards for select).
  */
 export default function PublicFormSubmit(props: Props) {
   const fieldsById = new Map(props.fields.map((f) => [f.id, f]));

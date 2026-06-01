@@ -12,6 +12,7 @@ import {
   TableQueryBodySchema,
   TableQueryResponseSchema,
   RelationLookupResponseSchema,
+  type ComputedColumnSpec,
 } from "../contracts";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import { validateViewQueryForTable } from "../service/query-validation";
@@ -257,6 +258,7 @@ const app = new Hono<AuthContext>()
         includeRelations: true,
         viewer,
         dateConfig,
+        computedColumns: query.columns?.filter((column): column is ComputedColumnSpec => "kind" in column && column.kind === "computed"),
       });
       if (!listResult.ok) return c.json({ message: listResult.error.message }, listResult.error.status);
 

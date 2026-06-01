@@ -196,16 +196,14 @@ export const openFormsDialog = (args: {
       <PanelDialog>
         <PanelDialog.Header title={`Forms — ${args.tableName}`} icon="ti ti-forms" close={() => close()} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Forms" subtitle="Manage custom forms for this table." icon="ti ti-forms">
-            <FormsManager
-              tableId={args.tableId}
-              fields={args.fields}
-              initialForms={args.initialForms}
-              initialFormAccessEntries={args.initialFormAccessEntries}
-              onFormsChanged={args.onFormsChanged}
-              canManage
-            />
-          </PanelDialog.Section>
+          <FormsManager
+            tableId={args.tableId}
+            fields={args.fields}
+            initialForms={args.initialForms}
+            initialFormAccessEntries={args.initialFormAccessEntries}
+            onFormsChanged={args.onFormsChanged}
+            canManage
+          />
         </PanelDialog.Body>
       </PanelDialog>
     ),

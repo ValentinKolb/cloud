@@ -15,7 +15,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec } from "../../../contracts";
+import type { FieldColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
@@ -38,7 +38,7 @@ export type TableHeader = {
   name: string;
   description: string | null;
   icon?: string | null;
-  columns: ColumnSpec[];
+  columns: FieldColumnSpec[];
   disableDirectInsert: boolean;
 };
 
@@ -63,10 +63,10 @@ type OpenFieldEditArgs = {
   tableShortId?: string;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
-  tableColumns?: ColumnSpec[];
+  tableColumns?: FieldColumnSpec[];
   dateConfig?: DateContext;
   onSaved: (next: Field) => void;
-  onTableColumnsSaved?: (columns: ColumnSpec[]) => void;
+  onTableColumnsSaved?: (columns: FieldColumnSpec[]) => void;
   onDeleted: () => Promise<void> | void;
 };
 
@@ -116,10 +116,10 @@ function FieldEditor(props: {
   tableShortId?: string;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
-  tableColumns?: ColumnSpec[];
+  tableColumns?: FieldColumnSpec[];
   dateConfig?: DateContext;
   onSaved: (next: Field) => void;
-  onTableColumnsSaved?: (columns: ColumnSpec[]) => void;
+  onTableColumnsSaved?: (columns: FieldColumnSpec[]) => void;
   onDeleted: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   /** Optional cancel handler — only set when the editor is rendered
@@ -166,13 +166,13 @@ function FieldEditor(props: {
       props.onDirtyChange?.(true);
     };
 
-  const cleanColumn = (column: ColumnSpec): ColumnSpec => ({
+  const cleanColumn = (column: FieldColumnSpec): FieldColumnSpec => ({
     fieldId: column.fieldId,
     ...(column.label?.trim() ? { label: column.label.trim() } : {}),
     ...(column.format ? { format: column.format } : {}),
   });
 
-  const buildNextTableColumns = (): ColumnSpec[] | undefined => {
+  const buildNextTableColumns = (): FieldColumnSpec[] | undefined => {
     if (!props.tableColumns) return undefined;
     const nextColumn = cleanColumn({
       fieldId: props.field.id,
@@ -188,7 +188,7 @@ function FieldEditor(props: {
     return next.map(cleanColumn);
   };
 
-  const updateMut = mutations.create<{ field: Field; tableColumns?: ColumnSpec[] }, void>({
+  const updateMut = mutations.create<{ field: Field; tableColumns?: FieldColumnSpec[] }, void>({
     mutation: async () => {
       const res = await apiClient.fields[":fieldId"].$patch({
         param: { fieldId: props.field.id },

@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import { createHmac } from "node:crypto";
 import { dates, ok, fail, err, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
+import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import {
   AutomationActionSchema,
   AutomationPayloadConfigSchema,
@@ -82,7 +83,7 @@ const RUN_RETENTION_SETTING = "grids.automation_run_retention_days";
 type AutomationWithSecret = Automation & { webhookSecret: string | null };
 
 const automationDateConfig = async (): Promise<DateContext> => ({
-  timeZone: dates.normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
+  timeZone: normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
   locale: "en",
   firstDayOfWeek: 1,
 });

@@ -134,35 +134,33 @@ const ExportDialogBody = (props: OpenArgs & { close: () => void }) => {
     <PanelDialog>
       <PanelDialog.Header title="Export records" icon="ti ti-download" close={props.close} />
       <PanelDialog.Body>
-        <PanelDialog.Section title="Format" subtitle="Choose file type and how special values should be written." icon="ti ti-file-export">
-          <div class="grid gap-3 sm:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="flex flex-col gap-1 text-xs font-medium text-primary">
+            Format
+            <select class="input" value={format()} onChange={(e) => setFormat(e.currentTarget.value as "csv" | "json")}>
+              <option value="csv">CSV</option>
+              <option value="json">JSON</option>
+            </select>
+          </label>
+          <Show when={format() === "csv"}>
             <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-              Format
-              <select class="input" value={format()} onChange={(e) => setFormat(e.currentTarget.value as "csv" | "json")}>
-                <option value="csv">CSV</option>
-                <option value="json">JSON</option>
+              Delimiter
+              <select class="input" value={delimiter()} onChange={(e) => setDelimiter(e.currentTarget.value as "," | ";" | "\t" | "|")}>
+                <option value=",">Comma</option>
+                <option value=";">Semicolon</option>
+                <option value={"\t"}>Tab</option>
+                <option value="|">Pipe</option>
               </select>
             </label>
-            <Show when={format() === "csv"}>
-              <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-                Delimiter
-                <select class="input" value={delimiter()} onChange={(e) => setDelimiter(e.currentTarget.value as "," | ";" | "\t" | "|")}>
-                  <option value=",">Comma</option>
-                  <option value=";">Semicolon</option>
-                  <option value={"\t"}>Tab</option>
-                  <option value="|">Pipe</option>
-                </select>
-              </label>
-            </Show>
-            <label class="flex flex-col gap-1 text-xs font-medium text-primary">
-              Markdown
-              <select class="input" value={markdown()} onChange={(e) => setMarkdown(e.currentTarget.value as "raw" | "html")}>
-                <option value="raw">Keep markdown</option>
-                <option value="html">Convert to HTML</option>
-              </select>
-            </label>
-          </div>
-        </PanelDialog.Section>
+          </Show>
+          <label class="flex flex-col gap-1 text-xs font-medium text-primary">
+            Markdown
+            <select class="input" value={markdown()} onChange={(e) => setMarkdown(e.currentTarget.value as "raw" | "html")}>
+              <option value="raw">Keep markdown</option>
+              <option value="html">Convert to HTML</option>
+            </select>
+          </label>
+        </div>
 
         <PanelDialog.Section title="Fields" subtitle="Pick exported columns and relation output." icon="ti ti-columns">
           <div class="flex max-h-[46vh] flex-col gap-2 overflow-y-auto">

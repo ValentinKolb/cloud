@@ -26,9 +26,7 @@ export const openFormModal = (form: Form, fields: Field[], options: { onSubmitte
       <PanelDialog>
         <PanelDialog.Header title={form.config.title ?? form.name} icon="ti ti-forms" close={() => close()} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Submit form" subtitle={form.name} icon="ti ti-forms">
-            <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} dateConfig={options.dateConfig} close={close} />
-          </PanelDialog.Section>
+          <FormSubmitBody form={form} fields={fields} onSubmitted={options.onSubmitted} dateConfig={options.dateConfig} close={close} />
         </PanelDialog.Body>
       </PanelDialog>
     ),

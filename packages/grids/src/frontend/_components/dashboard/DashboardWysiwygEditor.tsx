@@ -365,27 +365,25 @@ const chooseCellKind = () =>
       <PanelDialog>
         <PanelDialog.Header title="Add cell" icon="ti ti-plus" close={() => close(undefined)} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Widget type" subtitle="Choose what this dashboard cell should show." icon="ti ti-layout-grid-add">
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <For each={CELL_KIND_OPTIONS}>
-                {(opt) => (
-                  <button
-                    type="button"
-                    class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                    onClick={() => close(opt.id)}
-                  >
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-                      <i class={opt.icon} />
-                    </span>
-                    <span class="min-w-0">
-                      <span class="block font-semibold text-primary">{opt.label}</span>
-                      <span class="mt-0.5 block text-xs text-dimmed">{opt.description}</span>
-                    </span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </PanelDialog.Section>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <For each={CELL_KIND_OPTIONS}>
+              {(opt) => (
+                <button
+                  type="button"
+                  class="paper flex items-center gap-3 p-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                  onClick={() => close(opt.id)}
+                >
+                  <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+                    <i class={opt.icon} />
+                  </span>
+                  <span class="min-w-0">
+                    <span class="block font-semibold text-primary">{opt.label}</span>
+                    <span class="mt-0.5 block text-xs text-dimmed">{opt.description}</span>
+                  </span>
+                </button>
+              )}
+            </For>
+          </div>
         </PanelDialog.Body>
       </PanelDialog>
     ),
@@ -407,14 +405,13 @@ const openRowSettingsDialog = (current: DashboardRow["height"]) =>
       <PanelDialog>
         <PanelDialog.Header title="Row settings" icon="ti ti-settings" close={() => close(undefined)} />
         <PanelDialog.Body>
-          <PanelDialog.Section title="Layout" subtitle="Controls the minimum height of widgets in this row." icon="ti ti-line-height">
-            <Select
-              label="Row height"
-              value={height}
-              onChange={(value) => setHeight(value as DashboardRow["height"])}
-              options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
-            />
-          </PanelDialog.Section>
+          <Select
+            label="Row height"
+            description="Controls the minimum height of widgets in this row."
+            value={height}
+            onChange={(value) => setHeight(value as DashboardRow["height"])}
+            options={ROW_HEIGHT_OPTIONS.map((opt) => ({ id: opt.id, label: opt.label, description: opt.description }))}
+          />
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <button type="button" class="btn-danger btn-sm" onClick={() => close({ action: "delete" })}>
