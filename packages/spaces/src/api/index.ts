@@ -1,57 +1,57 @@
-import { Hono, type Context } from "hono";
-import { describeRoute } from "hono-openapi";
 import {
-  v,
-  jsonResponse,
-  requiresAuth,
-  auth,
   type AuthContext,
+  auth,
+  getDateConfig,
+  jsonResponse,
   rateLimit,
+  requiresAuth,
   respond,
   updateAccess,
-  getDateConfig,
+  v,
 } from "@valentinkolb/cloud/server";
+import { coreSettings } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { spacesService } from "../service";
-import { subscribeSpaceEvents } from "../service/events";
-import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
-import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
-import type { MutationResult, Space, PermissionLevel } from "@/contracts";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
+import type { MutationResult, PermissionLevel } from "@/contracts";
 import {
-  SpaceSchema,
-  SpaceDetailSchema,
-  SpaceColumnSchema,
-  SpaceTagSchema,
-  SpaceItemSchema,
-  SpaceCommentSchema,
-  CreateSpaceSchema,
-  UpdateSpaceSchema,
+  AccessEntrySchema,
+  CalendarItemSchema,
+  CalendarQuerySchema,
   CreateColumnSchema,
-  UpdateColumnSchema,
-  ReorderColumnsSchema,
-  CreateTagSchema,
-  UpdateTagSchema,
-  CreateItemSchema,
-  UpdateItemSchema,
-  MoveItemSchema,
-  SetCompletedSchema,
   CreateCommentSchema,
-  UpdateCommentSchema,
+  CreateItemSchema,
+  CreateSpaceSchema,
+  CreateTagSchema,
   ErrorResponseSchema,
-  MessageResponseSchema,
+  GrantAccessSchema,
+  hasRole,
   ItemFilterSchema,
   ItemListResultSchema,
-  AccessEntrySchema,
-  GrantAccessSchema,
-  UpdateAccessSchema,
-  CalendarItemSchema,
+  MessageResponseSchema,
+  MoveItemSchema,
   OverlapItemSchema,
-  CalendarQuerySchema,
   OverlapQuerySchema,
-  hasRole,
+  ReorderColumnsSchema,
+  SetCompletedSchema,
+  SpaceColumnSchema,
+  SpaceCommentSchema,
+  SpaceDetailSchema,
+  SpaceItemSchema,
+  SpaceSchema,
+  SpaceTagSchema,
+  UpdateAccessSchema,
+  UpdateColumnSchema,
+  UpdateCommentSchema,
+  UpdateItemSchema,
+  UpdateSpaceSchema,
+  UpdateTagSchema,
 } from "@/contracts";
-import { z } from "zod";
-import { coreSettings } from "@valentinkolb/cloud/services";
+import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
+import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
+import { spacesService } from "../service";
+import { subscribeSpaceEvents } from "../service/events";
 
 // ==========================
 // Spaces API
@@ -124,6 +124,22 @@ const requireItemInSpace = async (spaceId: string, itemId: string) => {
     return fail(err.notFound("Item"));
   }
   return ok(item);
+};
+
+const requireColumnInSpace = async (spaceId: string, columnId: string) => {
+  const column = await spacesService.column.get({ id: columnId });
+  if (!column || column.spaceId !== spaceId) {
+    return fail(err.notFound("Column"));
+  }
+  return ok(column);
+};
+
+const requireTagInSpace = async (spaceId: string, tagId: string) => {
+  const tag = await spacesService.tag.get({ id: tagId });
+  if (!tag || tag.spaceId !== spaceId) {
+    return fail(err.notFound("Tag"));
+  }
+  return ok(tag);
 };
 
 // Widgets mount BEFORE the auth middleware so they keep their own
@@ -416,6 +432,8 @@ const app = new Hono<AuthContext>()
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
+      const columnCheck = await requireColumnInSpace(spaceId, columnId);
+      if (!columnCheck.ok) return respond(c, columnCheck);
       return respond(c, spacesService.column.update({ id: columnId, data }));
     },
   )
@@ -441,6 +459,8 @@ const app = new Hono<AuthContext>()
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
+      const columnCheck = await requireColumnInSpace(spaceId, columnId);
+      if (!columnCheck.ok) return respond(c, columnCheck);
       return respondMessage(c, spacesService.column.remove({ id: columnId }), "Column deleted");
     },
   )
@@ -524,6 +544,8 @@ const app = new Hono<AuthContext>()
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
+      const tagCheck = await requireTagInSpace(spaceId, tagId);
+      if (!tagCheck.ok) return respond(c, tagCheck);
       return respond(c, spacesService.tag.update({ id: tagId, data }));
     },
   )
@@ -548,6 +570,8 @@ const app = new Hono<AuthContext>()
 
       const { error } = await checkSpaceAccess(c, spaceId, "write");
       if (error) return error;
+      const tagCheck = await requireTagInSpace(spaceId, tagId);
+      if (!tagCheck.ok) return respond(c, tagCheck);
       return respondMessage(c, spacesService.tag.remove({ id: tagId }), "Tag deleted");
     },
   )
@@ -652,7 +676,6 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
 
@@ -685,7 +708,6 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateItemSchema),
     async (c) => {
-      const user = c.get("user");
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const data = c.req.valid("json");
@@ -713,7 +735,6 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const user = c.get("user");
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
 
@@ -742,7 +763,6 @@ const app = new Hono<AuthContext>()
     }),
     v("json", MoveItemSchema),
     async (c) => {
-      const user = c.get("user");
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const { columnId, rank, completed } = c.req.valid("json");
@@ -771,7 +791,6 @@ const app = new Hono<AuthContext>()
     }),
     v("json", SetCompletedSchema),
     async (c) => {
-      const user = c.get("user");
       const spaceId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const { completed } = c.req.valid("json");
@@ -1132,6 +1151,7 @@ const calendarApp = new Hono<AuthContext>()
       const { from, to, excludeItemId } = c.req.valid("query");
 
       const result = await spacesService.item.calendar.checkOverlap({
+        userId: user.id,
         groups: user.memberofGroupIds,
         from,
         to,

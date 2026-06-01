@@ -222,23 +222,28 @@ export const CreateItemSchema = z
   });
 export type CreateItem = z.infer<typeof CreateItemSchema>;
 
-export const UpdateItemSchema = z.object({
-  columnId: SpaceUuidSchema.optional().describe("Target column UUID"),
-  title: z.string().min(1).max(200).optional().describe("Item title"),
-  description: z.string().max(5000).nullable().optional().describe("Item description (markdown)"),
-  location: z.string().max(500).nullable().optional().describe("Event location"),
-  url: z.string().url().max(2000).nullable().optional().describe("Event URL"),
-  startsAt: z.string().datetime().nullable().optional().describe("Event start time (ISO)"),
-  endsAt: z.string().datetime().nullable().optional().describe("Event end time (ISO)"),
-  allDay: z.boolean().optional().describe("Whether the item is an all-day event"),
-  deadline: z.string().datetime().nullable().optional().describe("Todo deadline (ISO)"),
-  priority: PrioritySchema.nullable().optional().describe("Item priority"),
-  recurrence: RecurrenceSchema.nullable().optional().describe("Recurring event series data"),
-  recurringEventId: SpaceUuidSchema.nullable().optional().describe("Parent recurring event UUID for overrides"),
-  recurrenceId: z.string().datetime().nullable().optional().describe("Original occurrence timestamp (ISO) for overrides"),
-  assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
-  tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
-});
+export const UpdateItemSchema = z
+  .object({
+    columnId: SpaceUuidSchema.optional().describe("Target column UUID"),
+    title: z.string().min(1).max(200).optional().describe("Item title"),
+    description: z.string().max(5000).nullable().optional().describe("Item description (markdown)"),
+    location: z.string().max(500).nullable().optional().describe("Event location"),
+    url: z.string().url().max(2000).nullable().optional().describe("Event URL"),
+    startsAt: z.string().datetime().nullable().optional().describe("Event start time (ISO)"),
+    endsAt: z.string().datetime().nullable().optional().describe("Event end time (ISO)"),
+    allDay: z.boolean().optional().describe("Whether the item is an all-day event"),
+    deadline: z.string().datetime().nullable().optional().describe("Todo deadline (ISO)"),
+    priority: PrioritySchema.nullable().optional().describe("Item priority"),
+    recurrence: RecurrenceSchema.nullable().optional().describe("Recurring event series data"),
+    recurringEventId: SpaceUuidSchema.nullable().optional().describe("Parent recurring event UUID for overrides"),
+    recurrenceId: z.string().datetime().nullable().optional().describe("Original occurrence timestamp (ISO) for overrides"),
+    assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
+    tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
+  })
+  .refine((data) => !data.startsAt || !data.endsAt || new Date(data.endsAt) > new Date(data.startsAt), {
+    message: "End time must be after start time",
+    path: ["endsAt"],
+  });
 export type UpdateItem = z.infer<typeof UpdateItemSchema>;
 
 export const MoveItemSchema = z.object({
@@ -266,17 +271,27 @@ export const UpdateCommentSchema = z.object({
 });
 export type UpdateComment = z.infer<typeof UpdateCommentSchema>;
 
-export const CalendarQuerySchema = z.object({
-  from: z.string().datetime().describe("Start of date range (ISO)"),
-  to: z.string().datetime().describe("End of date range (ISO)"),
-});
+export const CalendarQuerySchema = z
+  .object({
+    from: z.string().datetime().describe("Start of date range (ISO)"),
+    to: z.string().datetime().describe("End of date range (ISO)"),
+  })
+  .refine((data) => new Date(data.to) > new Date(data.from), {
+    message: "End time must be after start time",
+    path: ["to"],
+  });
 export type CalendarQuery = z.infer<typeof CalendarQuerySchema>;
 
-export const OverlapQuerySchema = z.object({
-  from: z.string().datetime().describe("Start of time range (ISO)"),
-  to: z.string().datetime().describe("End of time range (ISO)"),
-  excludeItemId: SpaceUuidSchema.optional().describe("Item to exclude from check"),
-});
+export const OverlapQuerySchema = z
+  .object({
+    from: z.string().datetime().describe("Start of time range (ISO)"),
+    to: z.string().datetime().describe("End of time range (ISO)"),
+    excludeItemId: SpaceUuidSchema.optional().describe("Item to exclude from check"),
+  })
+  .refine((data) => new Date(data.to) > new Date(data.from), {
+    message: "End time must be after start time",
+    path: ["to"],
+  });
 export type OverlapQuery = z.infer<typeof OverlapQuerySchema>;
 
 // === Item Filter/Sort/Pagination ===
@@ -333,16 +348,6 @@ export const ItemListResultSchema = z.object({
 });
 export type ItemListResult = z.infer<typeof ItemListResultSchema>;
 
-export {
-  AccessEntrySchema,
-  ErrorResponseSchema,
-  GrantAccessSchema,
-  MessageResponseSchema,
-  PermissionLevelSchema,
-  PrincipalSchema,
-  UpdateAccessSchema,
-  hasRole,
-} from "@valentinkolb/cloud/contracts";
 export type {
   AccessEntry,
   MessageResponse,
@@ -350,4 +355,14 @@ export type {
   PermissionLevel,
   Principal,
   User,
+} from "@valentinkolb/cloud/contracts";
+export {
+  AccessEntrySchema,
+  ErrorResponseSchema,
+  GrantAccessSchema,
+  hasRole,
+  MessageResponseSchema,
+  PermissionLevelSchema,
+  PrincipalSchema,
+  UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";

@@ -1,23 +1,23 @@
-import { sql } from "bun";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 import type {
-  MutationResult,
-  SpaceItem,
-  SpaceTag,
-  SpaceItemAssignee,
   CalendarItem,
-  OverlapItem,
   CreateItem,
-  UpdateItem,
-  Priority,
   ItemFilter,
   ItemListResult,
+  MutationResult,
+  OverlapItem,
+  Priority,
   Recurrence,
+  SpaceItem,
+  SpaceItemAssignee,
+  SpaceTag,
+  UpdateItem,
 } from "@/contracts";
 import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
-import { expandRecurringEvents, type ExpandedRecurringEvent, type RecurringEvent, type RecurringOverride } from "./recurrence";
+import { type ExpandedRecurringEvent, expandRecurringEvents, type RecurringEvent, type RecurringOverride } from "./recurrence";
 
 // ==========================
 // Items Service
@@ -146,6 +146,20 @@ const validateRecurrenceInput = async (params: {
     }
   }
 
+  return { ok: true, data: undefined };
+};
+
+const validateTagIdsInSpace = async (spaceId: string, tagIds: string[] | undefined): Promise<MutationResult<void>> => {
+  if (!tagIds || tagIds.length === 0) return { ok: true, data: undefined };
+  const uniqueTagIds = [...new Set(tagIds)];
+  const [row] = await sql<{ count: number }[]>`
+    SELECT COUNT(*)::int AS count
+    FROM spaces.tags
+    WHERE space_id = ${spaceId} AND id = ANY(${toPgUuidArray(uniqueTagIds)}::uuid[])
+  `;
+  if ((row?.count ?? 0) !== uniqueTagIds.length) {
+    return { ok: false, error: "Tag not found in space", status: 400 };
+  }
   return { ok: true, data: undefined };
 };
 
@@ -833,6 +847,8 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     recurrenceId: data.recurrenceId,
   });
   if (!recurrenceCheck.ok) return recurrenceCheck;
+  const tagCheck = await validateTagIdsInSpace(spaceId, data.tagIds);
+  if (!tagCheck.ok) return tagCheck;
 
   // Get next rank in column
   const [maxRow] = await sql<{ max: string | null }[]>`
@@ -935,6 +951,10 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   const recurrenceId = data.recurrenceId === undefined ? existing.recurrenceId : data.recurrenceId;
   const changingColumn = !!(data.columnId && data.columnId !== existing.columnId);
 
+  if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt)) {
+    return { ok: false, error: "End time must be after start time", status: 400 };
+  }
+
   // If moving to a different column, prepend item to the top of the target column.
   let targetRank: bigint | null = null;
   if (changingColumn && data.columnId) {
@@ -964,6 +984,8 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     recurrenceId,
   });
   if (!recurrenceCheck.ok) return recurrenceCheck;
+  const tagCheck = await validateTagIdsInSpace(existing.spaceId, data.tagIds);
+  if (!tagCheck.ok) return tagCheck;
   const recurrenceDb = recurrenceValues(recurrence);
 
   const [row] = changingColumn
@@ -1210,6 +1232,8 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
   if (!existing) {
     return { ok: false, error: "Item not found", status: 404 };
   }
+  const tagCheck = await validateTagIdsInSpace(existing.spaceId, tagIds);
+  if (!tagCheck.ok) return tagCheck;
 
   await sql`DELETE FROM spaces.item_tags WHERE item_id = ${id}`;
 
@@ -1403,22 +1427,40 @@ export const listMyTasks = async (params: {
 };
 
 /**
- * Check for overlapping items using PostgreSQL function
+ * Check for overlapping items across the spaces the current user can reach.
  */
 export const checkOverlap = async (params: {
+  userId: string;
   groups: string[];
   from: string;
   to: string;
   excludeItemId?: string;
 }): Promise<OverlapItem[]> => {
-  const { from, to, excludeItemId } = params;
+  const { userId, from, to, excludeItemId } = params;
   const groups = params.groups ?? [];
 
-  if (groups.length === 0) return [];
-
   const rows = await sql<DbOverlapItem[]>`
-    SELECT item_id, space_id, space_name, title, starts_at, ends_at
-    FROM spaces.check_overlap(${groups}, ${from}::timestamptz, ${to}::timestamptz, ${excludeItemId ?? null})
+    SELECT i.id AS item_id, i.space_id, s.name AS space_name, i.title, i.starts_at, i.ends_at
+    FROM spaces.items i
+    JOIN spaces.spaces s ON s.id = i.space_id
+    WHERE i.starts_at IS NOT NULL
+      AND i.ends_at IS NOT NULL
+      AND i.starts_at < ${to}::timestamptz
+      AND i.ends_at > ${from}::timestamptz
+      AND (${excludeItemId ?? null}::uuid IS NULL OR i.id <> ${excludeItemId ?? null}::uuid)
+      AND EXISTS (
+        SELECT 1
+        FROM spaces.space_access sa
+        JOIN auth.access a ON a.id = sa.access_id
+        WHERE sa.space_id = i.space_id
+          AND (
+            a.user_id = ${userId}::uuid
+            OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
+            OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+            OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+          )
+      )
+    ORDER BY i.starts_at ASC
   `;
 
   return rows.map((r) => ({
