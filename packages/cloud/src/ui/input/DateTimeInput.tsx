@@ -1,3 +1,4 @@
+import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { InputWrapper, createInputA11y } from "./util";
 
 type DateTimeInputProps = {
@@ -11,6 +12,10 @@ type DateTimeInputProps = {
   disabled?: boolean;
   /** Use date-only input instead of datetime-local */
   dateOnly?: boolean;
+  /** Optional stdlib date context. When set, datetime values are edited in this timezone. */
+  dateConfig?: DateContext;
+  /** Convenience override for dateConfig.timeZone. */
+  timeZone?: string;
 };
 
 /**
@@ -30,6 +35,11 @@ const DateTimeInput = (props: DateTimeInputProps) => {
   const dateOnly = () => props.dateOnly ?? false;
   const icon = () => (dateOnly() ? "ti ti-calendar" : "ti ti-calendar-time");
   const a11y = createInputA11y({ description: props.description, error: props.error });
+  const dateContext = (): DateContext => ({
+    ...props.dateConfig,
+    timeZone: props.timeZone ?? props.dateConfig?.timeZone,
+  });
+  const timezone = () => dateContext().timeZone;
 
   // Convert ISO string to input format if needed
   const inputValue = () => {
@@ -37,6 +47,10 @@ const DateTimeInput = (props: DateTimeInputProps) => {
     if (!v) return "";
     // If it's already in the right format, return as-is
     if (!v.includes("Z") && !v.includes("+")) return v;
+    if (timezone()) {
+      if (dateOnly()) return dates.formatDateKey(v, dateContext());
+      return dates.instantToZonedInput(v, timezone()!);
+    }
     // Convert ISO to local datetime-local format
     const d = new Date(v);
     if (dateOnly()) {
@@ -49,6 +63,11 @@ const DateTimeInput = (props: DateTimeInputProps) => {
     const hours = String(d.getHours()).padStart(2, "0");
     const minutes = String(d.getMinutes()).padStart(2, "0");
     return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  const outputValue = (value: string) => {
+    if (!value || dateOnly() || !timezone()) return value;
+    return dates.zonedDateTimeToInstant(value, timezone()!, { disambiguation: "compatible" });
   };
 
   return (
@@ -70,7 +89,7 @@ const DateTimeInput = (props: DateTimeInputProps) => {
           type={dateOnly() ? "date" : "datetime-local"}
           class={`input w-full pl-9 ${disabled() ? "cursor-not-allowed opacity-50" : ""}`}
           value={inputValue()}
-          onChange={(e) => props.onChange?.(e.currentTarget.value)}
+          onChange={(e) => props.onChange?.(outputValue(e.currentTarget.value))}
           disabled={disabled()}
           aria-label={!props.label ? props.placeholder : undefined}
           aria-describedby={a11y.ariaDescribedBy()}

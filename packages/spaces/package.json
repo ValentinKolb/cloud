@@ -5,11 +5,12 @@
   "type": "module",
   "module": "src/index.ts",
   "scripts": {
-    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.typecheck.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')",
+    "test": "bun test"
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
-    "@valentinkolb/stdlib": "^0.7.0",
+    "@valentinkolb/stdlib": "0.9.1",
     "dayjs": "^1.11.19",
     "hono": "^4.11.1",
     "hono-openapi": "^1.1.2",

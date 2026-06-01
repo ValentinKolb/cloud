@@ -1,5 +1,6 @@
 import { AppWorkspace, type LinkNavigateEvent, type NavigationScrollMode, navigate, Pagination, prompts } from "@valentinkolb/cloud/ui";
 import { streaming } from "@valentinkolb/stdlib";
+import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -24,6 +25,7 @@ import {
 
 type Props = {
   initialState: Extract<SpacesWorkspaceState, { kind: "ok" }>;
+  dateConfig?: DateContext;
 };
 
 type OkWorkspaceState = Extract<SpacesWorkspaceState, { kind: "ok" }>;
@@ -358,6 +360,7 @@ export default function SpacesWorkspace(props: Props) {
               date={new Date(state().calendarDate)}
               baseUrl={itemLinkBaseUrl()}
               weather={state().calendarWeather}
+              dateConfig={props.dateConfig}
             />
           )}
         </div>

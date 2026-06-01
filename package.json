@@ -9,6 +9,9 @@
   "exports": {
     ".": "./packages/cloud/src/index.ts",
     "./ui": "./packages/cloud/src/ui/index.ts",
+    "./ui/styles.css": "./packages/cloud/src/styles/global.css",
+    "./desktop": "./packages/cloud/src/desktop/index.ts",
+    "./desktop/solid": "./packages/cloud/src/desktop/solid.tsx",
     "./server": "./packages/cloud/src/server/index.ts",
     "./browser": "./packages/cloud/src/server/api-client.ts",
     "./shared": "./packages/cloud/src/shared/index.ts",
@@ -35,6 +38,10 @@
     "dev:logs": "bun run scripts/dev-logs.ts",
     "dev:status": "bun run scripts/dev-status.ts",
     "dev:help": "bun run scripts/dev-help.ts",
+    "desktop-lab:build": "bun run --filter @valentinkolb/cloud-desktop-lab build",
+    "desktop-lab:dev": "bun run --filter @valentinkolb/cloud-desktop-lab dev",
+    "desktop-lab:native": "bun run --filter @valentinkolb/cloud-desktop-lab native:dev",
+    "desktop-lab:native:build": "bun run --filter @valentinkolb/cloud-desktop-lab native:build",
     "format": "bun run scripts/run-biome.ts format",
     "format:check": "bun run scripts/run-biome.ts format:check",
     "lint": "bun run scripts/run-biome.ts lint",
@@ -50,6 +57,7 @@
     "check:service-api-contracts": "bun run scripts/check-service-api-contracts.ts"
   },
   "dependencies": {
+    "@valentinkolb/stdlib": "0.9.1",
     "bun-plugin-tailwind": "^0.1.2",
     "tailwindcss": "^4.1.18"
   },

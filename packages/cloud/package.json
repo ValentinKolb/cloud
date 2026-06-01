@@ -19,6 +19,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./ui": "./src/ui/index.ts",
+    "./ui/styles.css": "./src/styles/global.css",
+    "./desktop": "./src/desktop/index.ts",
+    "./desktop/solid": "./src/desktop/solid.tsx",
     "./server": "./src/server/index.ts",
     "./browser": "./src/server/api-client.ts",
     "./shared": "./src/shared/index.ts",
@@ -29,6 +32,7 @@
     "./config": "./src/config/index.ts",
     "./config/*": "./src/config/*",
     "./contracts": "./src/contracts/index.ts",
+    "./clients/core": "./src/clients/core.ts",
     "./styles/global.css": "./src/styles/global.css"
   },
   "scripts": {
@@ -41,7 +45,7 @@
     "@tabler/icons-webfont": "^3.36.1",
     "@tailwindcss/typography": "^0.5.19",
     "@valentinkolb/ssr": "0.9.0",
-    "@valentinkolb/stdlib": "^0.7.0",
+    "@valentinkolb/stdlib": "0.9.1",
     "@valentinkolb/sync": "^5.0.0",
     "bun-plugin-tailwind": "^0.1.2",
     "hono": "^4.11.1",
@@ -52,6 +56,7 @@
     "mustache": "^4.2.0",
     "nodemailer": "^7.0.12",
     "sanitize-html": "^2.17.0",
+    "seroval": "^1.5.4",
     "solid-js": "^1.9.10",
     "tailwindcss": "^4.1.18",
     "zod": "^4.3.4"

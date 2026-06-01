@@ -1,4 +1,5 @@
 import type { CalendarItem, SpaceColumn, SpaceTag } from "@/contracts";
+import type { DateContext } from "@valentinkolb/stdlib";
 
 export type CalendarView = "day" | "week" | "month" | "year";
 
@@ -19,6 +20,7 @@ export type CalendarProps = {
   view: CalendarView;
   date: Date;
   baseUrl: string;
+  dateConfig?: DateContext;
   /** Weather forecasts indexed by date string (YYYY-MM-DD) */
   weather?: Record<string, DayWeather>;
 };

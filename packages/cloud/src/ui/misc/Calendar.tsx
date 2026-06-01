@@ -1,4 +1,4 @@
-import { dates as calendar } from "@valentinkolb/stdlib";
+import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { Accessor, JSX } from "solid-js";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../input/SegmentedControl";
@@ -60,6 +60,10 @@ export type CalendarProps = {
   events: CalendarEvent[];
   view?: CalendarView;
   labels?: CalendarLabels;
+  /** stdlib date context used for timezone-aware rendering and calendar math. */
+  dateConfig?: DateContext;
+  /** Convenience override for dateConfig.timeZone. */
+  timeZone?: string;
   firstDayOfWeek?: 0 | 1;
   withWeekNumbers?: boolean;
   startHour?: number;
@@ -148,7 +152,14 @@ const dotClass: Record<CalendarEventColor, string> = {
   zinc: "bg-zinc-400",
 };
 
-const yearIndicatorClass = (date: Date, color: CalendarEventColor): string => (calendar.isToday(date) ? "bg-white" : dotClass[color]);
+const ownerDateConfig = (owner: CalendarProps): DateContext => ({
+  ...owner.dateConfig,
+  timeZone: owner.timeZone ?? owner.dateConfig?.timeZone,
+  firstDayOfWeek: owner.firstDayOfWeek ?? owner.dateConfig?.firstDayOfWeek ?? owner.dateConfig?.weekStartsOn ?? 1,
+});
+
+const yearIndicatorClass = (date: Date, color: CalendarEventColor, context?: DateContext): string =>
+  calendar.isToday(date, context) ? "bg-white" : dotClass[color];
 let activeDraggedEventId = "";
 
 const parseDate = (value: Date | string): Date => {
@@ -168,13 +179,24 @@ const weekNumber = (date: Date): number => {
   return Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
 };
 
-const formatTime = (date: Date): string => calendar.formatTime(date.toISOString());
-const formatDay = (date: Date): string => date.toLocaleDateString("en", { weekday: "short", day: "numeric" });
-const formatMonth = (date: Date): string => calendar.formatMonthYear(date);
+const formatTime = (date: Date, context?: DateContext): string => calendar.formatTime(date, context);
+const formatDay = (date: Date, context?: DateContext): string =>
+  date.toLocaleDateString(context?.locale ?? "en", { weekday: "short", day: "numeric", timeZone: context?.timeZone });
+const formatMonth = (date: Date, context?: DateContext): string => calendar.formatMonthYear(date, context);
 
-const startOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-const endOfDay = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+const startOfDay = (date: Date, context?: DateContext): Date => calendar.startOfDay(date, context);
+const endOfDay = (date: Date, context?: DateContext): Date => calendar.endOfDay(date, context);
 const addMinutes = (date: Date, minutes: number): Date => new Date(date.getTime() + minutes * 60 * 1000);
+const zonedHour = (date: Date, context?: DateContext): number => {
+  if (!context?.timeZone) return date.getHours() + date.getMinutes() / 60;
+  const value = calendar.instantToZonedInput(date, context.timeZone);
+  return Number(value.slice(11, 13)) + Number(value.slice(14, 16)) / 60;
+};
+const zonedSlot = (day: Date, hour: number, context?: DateContext): Date => {
+  const value = `${calendar.formatDateKey(day, context)}T${String(hour).padStart(2, "0")}:00`;
+  if (!context?.timeZone) return parseDate(value);
+  return new Date(calendar.zonedDateTimeToInstant(value, context.timeZone, { disambiguation: "compatible" }));
+};
 const roundToMinutes = (date: Date, minutes: number): Date => {
   const next = new Date(date);
   const rounded = Math.round(next.getMinutes() / minutes) * minutes;
@@ -182,7 +204,7 @@ const roundToMinutes = (date: Date, minutes: number): Date => {
   return next;
 };
 
-const normalizeEvents = (events: CalendarEvent[]): NormalizedEvent[] =>
+const normalizeEvents = (events: CalendarEvent[], context?: DateContext): NormalizedEvent[] =>
   events.flatMap((event) => {
     const startDate = parseDate(event.start);
     const endDate = event.end ? parseDate(event.end) : new Date(startDate.getTime() + 60 * 60 * 1000);
@@ -190,19 +212,19 @@ const normalizeEvents = (events: CalendarEvent[]): NormalizedEvent[] =>
     const rangeEnd = endDate > startDate ? endDate : new Date(startDate.getTime() + duration);
     const lastDay =
       event.allDay && rangeEnd.getHours() === 0 && rangeEnd.getMinutes() === 0 && rangeEnd.getSeconds() === 0
-        ? calendar.addDays(startOfDay(rangeEnd), -1)
-        : startOfDay(rangeEnd);
+        ? calendar.addDays(startOfDay(rangeEnd, context), -1, context)
+        : startOfDay(rangeEnd, context);
     const days: NormalizedEvent[] = [];
-    for (let day = startOfDay(startDate); day <= lastDay; day = calendar.addDays(day, 1)) {
-      const segmentStart = day.getTime() === startOfDay(startDate).getTime() ? startDate : startOfDay(day);
-      const segmentEnd = day.getTime() === startOfDay(rangeEnd).getTime() ? rangeEnd : endOfDay(day);
+    for (let day = startOfDay(startDate, context); day <= lastDay; day = calendar.addDays(day, 1, context)) {
+      const segmentStart = day.getTime() === startOfDay(startDate, context).getTime() ? startDate : startOfDay(day, context);
+      const segmentEnd = day.getTime() === startOfDay(rangeEnd, context).getTime() ? rangeEnd : endOfDay(day, context);
       days.push({
         ...event,
         startDate: segmentStart,
         endDate: segmentEnd,
         sourceStartDate: startDate,
         sourceEndDate: rangeEnd,
-        dayKey: calendar.formatDateKey(day),
+        dayKey: calendar.formatDateKey(day, context),
         allDay: event.allDay,
       });
     }
@@ -224,18 +246,21 @@ const moveEventTo = (event: NormalizedEvent, target: Date, allDay = false): Cale
   return { start, end: new Date(start.getTime() + duration), allDay };
 };
 
-const previewSegments = (preview: CalendarPreview | null, days: Date[]): NormalizedEvent[] =>
+const previewSegments = (preview: CalendarPreview | null, days: Date[], context?: DateContext): NormalizedEvent[] =>
   preview
-    ? normalizeEvents([
-        {
-          id: `preview-${preview.id}`,
-          title: "Preview",
-          start: preview.start,
-          end: preview.end,
-          allDay: preview.allDay,
-          color: "blue",
-        },
-      ]).filter((event) => days.some((day) => event.dayKey === calendar.formatDateKey(day)))
+    ? normalizeEvents(
+        [
+          {
+            id: `preview-${preview.id}`,
+            title: "Preview",
+            start: preview.start,
+            end: preview.end,
+            allDay: preview.allDay,
+            color: "blue",
+          },
+        ],
+        context,
+      ).filter((event) => days.some((day) => event.dayKey === calendar.formatDateKey(day, context)))
     : [];
 
 const timedEventLayouts = (events: NormalizedEvent[]): TimedEventLayout[] => {
@@ -279,6 +304,7 @@ const EventChip = (props: {
   compact?: boolean;
   fill?: boolean;
 }): JSX.Element => {
+  const dateConfig = () => ownerDateConfig(props.owner);
   const color = () => props.event.color ?? "blue";
   const style = () => (props.event.colorHex ? { "border-left-color": props.event.colorHex } : undefined);
   const selected = () => props.owner.selectedEventId === props.event.id;
@@ -307,7 +333,7 @@ const EventChip = (props: {
       <span class="block truncate text-[11px] font-semibold">{props.event.title}</span>
       <Show when={showTime()}>
         <span class="block truncate text-[10px] opacity-75">
-          {formatTime(props.event.startDate)} - {formatTime(props.event.endDate)}
+          {formatTime(props.event.startDate, dateConfig())} - {formatTime(props.event.endDate, dateConfig())}
         </span>
       </Show>
       <Show when={showLocation()}>
@@ -358,7 +384,7 @@ const EventChip = (props: {
       onClick={onClick}
       onDblClick={onDoubleClick}
       onKeyDown={onKeyDown}
-      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate)} to ${formatTime(props.event.endDate)}`}`}
+      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
       {...dragProps()}
     >
       {content}
@@ -373,7 +399,7 @@ const EventChip = (props: {
       onClick={onClick}
       onDblClick={onDoubleClick}
       onKeyDown={onKeyDown}
-      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate)} to ${formatTime(props.event.endDate)}`}`}
+      aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
       {...dragProps()}
     >
       {content}
@@ -440,23 +466,31 @@ const dropPreviewProps = (
 };
 
 const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Required<CalendarLabels>; owner: CalendarProps }): JSX.Element => {
+  const dateConfig = () => ownerDateConfig(props.owner);
   const previous = () => {
-    if (props.view === "year") return new Date(props.date.getFullYear() - 1, 0, 1);
-    if (props.view === "month" || props.view === "mobile-month") return new Date(props.date.getFullYear(), props.date.getMonth() - 1, 1);
-    return calendar.addDays(props.date, props.view === "day" ? -1 : -7);
+    if (props.view === "year") return calendar.addMonths(props.date, -12, dateConfig());
+    if (props.view === "month" || props.view === "mobile-month") return calendar.addMonths(props.date, -1, dateConfig());
+    return calendar.addDays(props.date, props.view === "day" ? -1 : -7, dateConfig());
   };
   const next = () => {
-    if (props.view === "year") return new Date(props.date.getFullYear() + 1, 0, 1);
-    if (props.view === "month" || props.view === "mobile-month") return new Date(props.date.getFullYear(), props.date.getMonth() + 1, 1);
-    return calendar.addDays(props.date, props.view === "day" ? 1 : 7);
+    if (props.view === "year") return calendar.addMonths(props.date, 12, dateConfig());
+    if (props.view === "month" || props.view === "mobile-month") return calendar.addMonths(props.date, 1, dateConfig());
+    return calendar.addDays(props.date, props.view === "day" ? 1 : 7, dateConfig());
   };
   const title = () => {
-    if (props.view === "year") return `${props.date.getFullYear()}`;
+    if (props.view === "year")
+      return new Intl.DateTimeFormat(dateConfig().locale ?? "en", { year: "numeric", timeZone: dateConfig().timeZone }).format(props.date);
     if (props.view === "day")
-      return props.date.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+      return props.date.toLocaleDateString(dateConfig().locale ?? "en", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        timeZone: dateConfig().timeZone,
+      });
     if (props.view === "week")
-      return `${formatDay(calendar.startOfWeek(props.date))} - ${formatDay(calendar.addDays(calendar.startOfWeek(props.date), 6))}`;
-    return formatMonth(props.date);
+      return `${formatDay(calendar.startOfWeek(props.date, dateConfig()), dateConfig())} - ${formatDay(calendar.addDays(calendar.startOfWeek(props.date, dateConfig()), 6, dateConfig()), dateConfig())}`;
+    return formatMonth(props.date, dateConfig());
   };
   const goDate = (date: Date) => props.owner.onDateChange?.(date, props.view);
   const goView = (view: CalendarView) => {
@@ -480,7 +514,7 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
     );
   };
   const todayButton = () => {
-    const today = new Date();
+    const today = calendar.today(dateConfig());
     const href = props.owner.getDateHref?.(today, props.view);
     return props.owner.onDateChange ? (
       <button type="button" class="btn-segment font-semibold" onClick={() => goDate(today)}>
@@ -524,15 +558,16 @@ const MonthView = (props: {
   events: NormalizedEvent[];
   labels: Required<CalendarLabels>;
 }): JSX.Element => {
-  const firstDay = () => props.owner.firstDayOfWeek ?? 1;
+  const dateConfig = () => ownerDateConfig(props.owner);
+  const firstDay = () => dateConfig().firstDayOfWeek ?? dateConfig().weekStartsOn ?? 1;
   const [dropPreview, setDropPreview] = createSignal("");
   const weeks = () =>
     firstDay() === 1
-      ? calendar.getMonthGrid(props.date.getFullYear(), props.date.getMonth())
+      ? calendar.getMonthGrid(props.date.getFullYear(), props.date.getMonth(), dateConfig())
       : calendar
-          .getMonthGrid(props.date.getFullYear(), props.date.getMonth())
-          .map((week) => [calendar.addDays(week[0]!, -1), ...week.slice(0, 6)]);
-  const weekdays = () => (firstDay() === 1 ? calendar.weekdays() : ["Sun", ...calendar.weekdays().slice(0, 6)]);
+          .getMonthGrid(props.date.getFullYear(), props.date.getMonth(), dateConfig())
+          .map((week) => [calendar.addDays(week[0]!, -1, dateConfig()), ...week.slice(0, 6)]);
+  const weekdays = () => (firstDay() === 1 ? calendar.weekdays(dateConfig()) : ["Sun", ...calendar.weekdays(dateConfig()).slice(0, 6)]);
   return (
     <div>
       <div
@@ -554,27 +589,28 @@ const MonthView = (props: {
               </Show>
               <For each={week}>
                 {(day) => {
-                  const events = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day));
+                  const dayKey = calendar.formatDateKey(day, dateConfig());
+                  const events = props.events.filter((event) => event.dayKey === dayKey);
                   const href = props.owner.getDateHref?.(day, "day");
-                  const dayBadge = props.owner.dayBadges?.[calendar.formatDateKey(day)];
+                  const dayBadge = props.owner.dayBadges?.[dayKey];
                   return (
                     <div
-                      class={`relative min-w-0 p-1.5 ${calendar.isSameMonth(day, props.date) ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
+                      class={`relative min-w-0 p-1.5 ${calendar.isSameMonth(day, props.date, dateConfig()) ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
                       classList={{
-                        "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === calendar.formatDateKey(day),
+                        "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === dayKey,
                         "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
                       }}
                       {...slotInteractionProps(props.owner, () => {
-                        const start = startOfDay(day);
-                        return { start, end: calendar.addDays(start, 1), allDay: true };
+                        const start = startOfDay(day, dateConfig());
+                        return { start, end: calendar.addDays(start, 1, dateConfig()), allDay: true };
                       })}
                       {...dropPreviewProps(
                         props.owner,
                         props.events,
                         dropPreview,
                         setDropPreview,
-                        calendar.formatDateKey(day),
-                        () => startOfDay(day),
+                        dayKey,
+                        () => startOfDay(day, dateConfig()),
                         true,
                       )}
                     >
@@ -582,9 +618,9 @@ const MonthView = (props: {
                         <a
                           href={href ?? "#"}
                           class={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold ${
-                            calendar.isToday(day)
+                            calendar.isToday(day, dateConfig())
                               ? "bg-blue-500 text-white"
-                              : calendar.isSameMonth(day, props.date)
+                              : calendar.isSameMonth(day, props.date, dateConfig())
                                 ? "text-primary"
                                 : "text-dimmed"
                           }`}
@@ -639,6 +675,7 @@ const TimeGridView = (props: {
   labels: Required<CalendarLabels>;
   days: Date[];
 }): JSX.Element => {
+  const dateConfig = () => ownerDateConfig(props.owner);
   const gridStartHour = () => props.owner.visibleStartHour ?? 0;
   const gridEndHour = () => props.owner.visibleEndHour ?? 23;
   const businessStartHour = () => props.owner.startHour ?? 8;
@@ -649,8 +686,8 @@ const TimeGridView = (props: {
   let scrollContainer: HTMLDivElement | undefined;
   let defaultHourMarker: HTMLDivElement | undefined;
   const slotEnd = (start: Date) => addMinutes(start, 60);
-  const allDayKey = (day: Date) => `${calendar.formatDateKey(day)}-all-day`;
-  const previewEvents = () => previewSegments(timePreview(), props.days);
+  const allDayKey = (day: Date) => `${calendar.formatDateKey(day, dateConfig())}-all-day`;
+  const previewEvents = () => previewSegments(timePreview(), props.days, dateConfig());
   const timeDropProps = (key: string, target: () => Date, allDay = false) => {
     if (!props.owner.onEventDrop) return {};
     return {
@@ -682,8 +719,8 @@ const TimeGridView = (props: {
     };
   };
   const eventLayout = (event: NormalizedEvent) => {
-    const start = event.startDate.getHours() + event.startDate.getMinutes() / 60;
-    const end = event.endDate.getHours() + event.endDate.getMinutes() / 60;
+    const start = zonedHour(event.startDate, dateConfig());
+    const end = zonedHour(event.endDate, dateConfig());
     const visibleStart = Math.max(gridStartHour(), start);
     const visibleEnd = Math.min(gridEndHour() + 1, end);
     return {
@@ -693,8 +730,8 @@ const TimeGridView = (props: {
   };
   const currentTimeLine = (day: Date) => {
     const now = new Date();
-    if (calendar.formatDateKey(day) !== calendar.formatDateKey(now)) return null;
-    const hour = now.getHours() + now.getMinutes() / 60;
+    if (calendar.formatDateKey(day, dateConfig()) !== calendar.formatDateKey(now, dateConfig())) return null;
+    const hour = zonedHour(now, dateConfig());
     if (hour < gridStartHour() || hour > gridEndHour() + 1) return null;
     return (hour - gridStartHour()) * 4;
   };
@@ -714,13 +751,13 @@ const TimeGridView = (props: {
         <div />
         <For each={props.days}>
           {(day) => {
-            const dayBadge = props.owner.dayBadges?.[calendar.formatDateKey(day)];
+            const dayBadge = props.owner.dayBadges?.[calendar.formatDateKey(day, dateConfig())];
             return (
               <a
                 href={props.owner.getDateHref?.(day, "day") ?? "#"}
                 class="px-2 py-2 text-center text-[11px] font-semibold text-primary hover:text-blue-500"
               >
-                <span>{formatDay(day)}</span>
+                <span>{formatDay(day, dateConfig())}</span>
                 <Show when={dayBadge}>
                   {(badge) => (
                     <span class="mt-0.5 flex items-center justify-center gap-0.5 text-[10px] font-medium text-dimmed">
@@ -746,8 +783,9 @@ const TimeGridView = (props: {
         </div>
         <For each={props.days}>
           {(day) => {
-            const allDay = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day) && event.allDay);
-            const previewAllDay = previewEvents().filter((event) => event.dayKey === calendar.formatDateKey(day) && event.allDay);
+            const dayKey = calendar.formatDateKey(day, dateConfig());
+            const allDay = props.events.filter((event) => event.dayKey === dayKey && event.allDay);
+            const previewAllDay = previewEvents().filter((event) => event.dayKey === dayKey && event.allDay);
             return (
               <div
                 class="min-h-10 border-r border-zinc-100 p-1 dark:border-zinc-800/70"
@@ -756,10 +794,18 @@ const TimeGridView = (props: {
                   "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
                 }}
                 {...slotInteractionProps(props.owner, () => {
-                  const start = startOfDay(day);
-                  return { start, end: calendar.addDays(start, 1), allDay: true };
+                  const start = startOfDay(day, dateConfig());
+                  return { start, end: calendar.addDays(start, 1, dateConfig()), allDay: true };
                 })}
-                {...dropPreviewProps(props.owner, props.events, dropPreview, setDropPreview, allDayKey(day), () => startOfDay(day), true)}
+                {...dropPreviewProps(
+                  props.owner,
+                  props.events,
+                  dropPreview,
+                  setDropPreview,
+                  allDayKey(day),
+                  () => startOfDay(day, dateConfig()),
+                  true,
+                )}
               >
                 <div class="flex flex-col gap-1">
                   <For each={previewAllDay}>
@@ -797,7 +843,8 @@ const TimeGridView = (props: {
           </div>
           <For each={props.days}>
             {(day) => {
-              const timed = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day) && !event.allDay);
+              const dayKey = calendar.formatDateKey(day, dateConfig());
+              const timed = props.events.filter((event) => event.dayKey === dayKey && !event.allDay);
               const layouts = () => timedEventLayouts(timed);
               return (
                 <div class="relative min-h-full border-r border-zinc-100 dark:border-zinc-800/70">
@@ -811,23 +858,19 @@ const TimeGridView = (props: {
                       <div
                         class="relative h-16 border-b border-zinc-100 dark:border-zinc-800/70"
                         classList={{
-                          "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === `${calendar.formatDateKey(day)}-${hour}`,
+                          "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === `${dayKey}-${hour}`,
                           "bg-zinc-50/70 dark:bg-zinc-900/30": hour < businessStartHour() || hour > businessEndHour(),
                           "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
                         }}
                         {...slotInteractionProps(props.owner, () => {
-                          const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0);
+                          const start = zonedSlot(day, hour, dateConfig());
                           return { start, end: slotEnd(start), allDay: false };
                         })}
-                        {...timeDropProps(
-                          `${calendar.formatDateKey(day)}-${hour}`,
-                          () => new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0),
-                          false,
-                        )}
+                        {...timeDropProps(`${dayKey}-${hour}`, () => zonedSlot(day, hour, dateConfig()), false)}
                       />
                     )}
                   </For>
-                  <For each={previewEvents().filter((event) => event.dayKey === calendar.formatDateKey(day) && !event.allDay)}>
+                  <For each={previewEvents().filter((event) => event.dayKey === dayKey && !event.allDay)}>
                     {(event) => {
                       const layout = eventLayout(event);
                       return (
@@ -836,7 +879,7 @@ const TimeGridView = (props: {
                           style={{ top: `${layout.top}rem`, height: `${layout.height}rem` }}
                         >
                           <div class="px-1.5 py-1 text-[10px] font-semibold text-blue-600">
-                            {formatTime(event.startDate)} - {formatTime(event.endDate)}
+                            {formatTime(event.startDate, dateConfig())} - {formatTime(event.endDate, dateConfig())}
                           </div>
                         </div>
                       );
@@ -899,7 +942,7 @@ const TimeGridView = (props: {
                                     }}
                                   />
                                   <div class="pointer-events-none absolute inset-x-0 top-full z-30 rounded-b border border-dashed border-blue-500 bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600 dark:bg-zinc-950/90">
-                                    until {formatTime(end())}
+                                    until {formatTime(end(), dateConfig())}
                                   </div>
                                 </>
                               )}
@@ -933,25 +976,39 @@ const TimeGridView = (props: {
 
 const YearView = (props: { owner: CalendarProps; date: Date; events: NormalizedEvent[] }): JSX.Element => (
   <div class="grid grid-cols-1 divide-y divide-zinc-100 dark:divide-zinc-800/70 md:grid-cols-3 md:divide-x md:divide-y-0">
-    <For each={Array.from({ length: 12 }, (_, month) => new Date(props.date.getFullYear(), month, 1))}>
+    <For
+      each={Array.from({ length: 12 }, (_, month) =>
+        calendar.addMonths(calendar.startOfMonth(props.date, ownerDateConfig(props.owner)), month, ownerDateConfig(props.owner)),
+      )}
+    >
       {(monthDate) => (
         <div class="p-3">
-          <div class="mb-2 text-xs font-semibold text-primary">{monthDate.toLocaleDateString("en", { month: "long" })}</div>
+          <div class="mb-2 text-xs font-semibold text-primary">
+            {monthDate.toLocaleDateString(ownerDateConfig(props.owner).locale ?? "en", {
+              month: "long",
+              timeZone: ownerDateConfig(props.owner).timeZone,
+            })}
+          </div>
           <div class="grid grid-cols-7 gap-1 text-center text-[10px]">
-            <For each={calendar.getMonthGrid(monthDate.getFullYear(), monthDate.getMonth()).flat().slice(0, 35)}>
+            <For
+              each={calendar.getMonthGrid(monthDate.getFullYear(), monthDate.getMonth(), ownerDateConfig(props.owner)).flat().slice(0, 35)}
+            >
               {(day) => {
-                const events = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day));
+                const dateConfig = ownerDateConfig(props.owner);
+                const events = props.events.filter((event) => event.dayKey === calendar.formatDateKey(day, dateConfig));
                 return (
                   <a
                     href={props.owner.getDateHref?.(day, "day") ?? "#"}
-                    class={`relative flex aspect-square items-center justify-center rounded ${calendar.isToday(day) ? "bg-blue-500 text-white" : calendar.isSameMonth(day, monthDate) ? "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800" : "text-zinc-300 dark:text-zinc-700"}`}
+                    class={`relative flex aspect-square items-center justify-center rounded ${calendar.isToday(day, dateConfig) ? "bg-blue-500 text-white" : calendar.isSameMonth(day, monthDate, dateConfig) ? "text-primary hover:bg-zinc-100 dark:hover:bg-zinc-800" : "text-zinc-300 dark:text-zinc-700"}`}
                   >
                     {day.getDate()}
                     <Show when={events.length > 0}>
                       <span
-                        class={`absolute bottom-1 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full ${events[0]!.colorHex ? "" : yearIndicatorClass(day, events[0]!.color ?? "blue")}`}
+                        class={`absolute bottom-1 left-1/2 h-0.5 w-3 -translate-x-1/2 rounded-full ${events[0]!.colorHex ? "" : yearIndicatorClass(day, events[0]!.color ?? "blue", dateConfig)}`}
                         style={
-                          events[0]!.colorHex ? { "background-color": calendar.isToday(day) ? "white" : events[0]!.colorHex } : undefined
+                          events[0]!.colorHex
+                            ? { "background-color": calendar.isToday(day, dateConfig) ? "white" : events[0]!.colorHex }
+                            : undefined
                         }
                       />
                     </Show>
@@ -973,13 +1030,19 @@ const MobileMonthView = (props: {
   events: NormalizedEvent[];
   labels: Required<CalendarLabels>;
 }): JSX.Element => {
-  const selectedEvents = () => props.events.filter((event) => event.dayKey === calendar.formatDateKey(props.selectedDate));
+  const dateConfig = () => ownerDateConfig(props.owner);
+  const selectedEvents = () => props.events.filter((event) => event.dayKey === calendar.formatDateKey(props.selectedDate, dateConfig()));
   return (
     <div class="mx-auto max-w-md p-3">
       <MonthView owner={{ ...props.owner, withWeekNumbers: false }} date={props.date} events={props.events} labels={props.labels} />
       <div class="mt-4 border-t border-zinc-100 pt-3 dark:border-zinc-800/70">
         <div class="mb-2 text-sm font-semibold text-primary">
-          {props.selectedDate.toLocaleDateString("en", { weekday: "long", month: "long", day: "numeric" })}
+          {props.selectedDate.toLocaleDateString(dateConfig().locale ?? "en", {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            timeZone: dateConfig().timeZone,
+          })}
         </div>
         <Show when={selectedEvents().length > 0} fallback={<div class="py-6 text-center text-xs text-dimmed">{props.labels.noEvents}</div>}>
           <div class="flex flex-col gap-1">
@@ -995,13 +1058,14 @@ const MobileMonthView = (props: {
 
 const Calendar = (props: CalendarProps): JSX.Element => {
   const view = () => props.view ?? "month";
+  const dateConfig = () => ownerDateConfig(props);
   const date = () => parseDate(props.date);
   const selectedDate = () => parseDate(props.selectedDate ?? props.date);
-  const normalizedEvents = () => normalizeEvents(props.events);
+  const normalizedEvents = () => normalizeEvents(props.events, dateConfig());
   const mergedLabels = () => ({ ...labels, ...props.labels });
   const days = () => {
     if (view() === "day") return [date()];
-    return calendar.getWeekDays(date());
+    return calendar.getWeekDays(date(), dateConfig());
   };
 
   return (

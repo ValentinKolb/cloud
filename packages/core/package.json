@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
-    "@valentinkolb/stdlib": "^0.7.0",
+    "@valentinkolb/stdlib": "0.9.1",
     "hono": "^4.11.1",
     "solid-js": "^1.9.10"
   },

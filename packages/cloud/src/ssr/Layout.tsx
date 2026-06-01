@@ -6,6 +6,7 @@ import ThemeToggleRail from "./ThemeToggleRail.island";
 import HotkeysHelpRail from "./HotkeysHelpRail.island";
 import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
 import Footer from "./Footer.island";
+import TimezoneCookie from "./TimezoneCookie.island";
 import { dates } from "../shared";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
@@ -203,6 +204,7 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     <div
       class={`grid min-h-screen w-screen relative md:h-screen md:overflow-hidden bg-zinc-50 dark:bg-zinc-950 ${gridClass}`}
     >
+      <TimezoneCookie />
       {" "}
       {/* ── Rail: logo cell (row 1, col 1) — grid gives it the same height as the header ── */}{" "}
       {showRail && (
