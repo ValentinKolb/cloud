@@ -37,11 +37,9 @@ export const app = defineApp({
     },
   },
   openapi: "/api/grids/openapi.json",
-  // `/share/grids` hosts anonymous-friendly pages (public forms etc).
-  // We don't use `/public/grids` because the SSR framework reserves
-  // `/public/*` for static-asset serving and 404s anything that doesn't
-  // match a real file on disk.
-  routes: ["/api/grids", "/app/grids", "/admin/grids", "/share/grids"],
+  // `/share/grids` hosts anonymous-friendly pages (public forms etc);
+  // `/public/grids` is reserved for this app's generated CSS/assets.
+  routes: ["/api/grids", "/app/grids", "/admin/grids", "/share/grids", "/public/grids"],
 });
 
 export const { ssr, plugin } = app;

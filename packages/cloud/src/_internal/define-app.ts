@@ -4,27 +4,22 @@
  * Merges SSR config, app meta, and server bootstrap into one call.
  * Returns `{ ssr, plugin, config, meta, start }`.
  */
+
+import type { SsrConfig } from "@valentinkolb/ssr";
 import { createConfig as createSsrConfig } from "@valentinkolb/ssr";
 import { createSSRHandler, routes } from "@valentinkolb/ssr/hono";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { generateSpecs } from "hono-openapi";
-import type { SsrConfig } from "@valentinkolb/ssr";
-import type {
-  AppMeta,
-  AppLifecycle,
-  AppCapabilities,
-  AppSearchContext,
-  CloudContext,
-} from "../contracts/app";
+import type { AppCapabilities, AppLifecycle, AppMeta, AppSearchContext, CloudContext } from "../contracts/app";
 import type { AppRegistryEntry } from "../contracts/registry";
-import type { Role } from "../contracts/shared";
 import type { AppSettingsMap, KindToType } from "../contracts/settings-types";
-import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
-import { registerSettings, type SettingDef } from "../services/settings/defaults";
+import type { Role } from "../contracts/shared";
 import { auth } from "../server/middleware/auth";
 import { logger } from "../services/logging";
-import { get, set, loadCache as loadSettingsCache } from "../services/settings";
+import { get, loadCache as loadSettingsCache, set } from "../services/settings";
+import { createSettingsAPI, type SettingsAPI } from "../services/settings/api";
+import { registerSettings, type SettingDef } from "../services/settings/defaults";
 import { createHeartbeat } from "./heartbeat";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 
@@ -252,8 +247,8 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     <meta name="theme-color" content="#09090b">
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="icon" href="/branding/favicon">
-    <link rel="stylesheet" href="/public/global.css?v=${v}">
     <link rel="stylesheet" href="/public/${opts.id}/app.css?v=${v}">
+    <link rel="stylesheet" href="/public/global.css?v=${v}">
     <script>
       (function() {
         var el = document.documentElement;
@@ -310,16 +305,17 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       description: meta.description,
       baseUrl,
       routes: [...meta.routes],
-      nav: (meta.nav || meta.adminHref)
-        ? {
-            href: meta.nav?.href ?? "",
-            match: meta.nav?.match,
-            section: meta.nav?.section ?? "hidden",
-            requiresAuth: meta.nav?.requiresAuth,
-            requiresRoles: meta.nav?.requiresRoles,
-            adminHref: meta.adminHref,
-          }
-        : undefined,
+      nav:
+        meta.nav || meta.adminHref
+          ? {
+              href: meta.nav?.href ?? "",
+              match: meta.nav?.match,
+              section: meta.nav?.section ?? "hidden",
+              requiresAuth: meta.nav?.requiresAuth,
+              requiresRoles: meta.nav?.requiresRoles,
+              adminHref: meta.adminHref,
+            }
+          : undefined,
       search: startOpts.capabilities?.search
         ? {
             tags: [...(startOpts.capabilities.search.tags ?? [])],
@@ -354,12 +350,15 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
 
     const server = new Hono()
       .route(ssrMountPath, routes(config))
-      .use("/public/*", serveStatic({
-        root: "./",
-        onFound: (_path, c) => {
-          c.header("Cache-Control", "public, max-age=31536000, immutable");
-        },
-      }))
+      .use(
+        "/public/*",
+        serveStatic({
+          root: "./",
+          onFound: (_path, c) => {
+            c.header("Cache-Control", "public, max-age=31536000, immutable");
+          },
+        }),
+      )
       // serveStatic calls next() on miss — terminate /public/* here so a
       // missing asset is a clean 404 instead of falling through to the app
       // fetch (which might render an HTML page for the missing path).
@@ -435,7 +434,9 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
       if (stopping) return;
       stopping = true;
       log.info(`Stopping: ${meta.id}`);
-      try { if (startOpts.lifecycle?.stop) await startOpts.lifecycle.stop(cloudCtx); } catch {}
+      try {
+        if (startOpts.lifecycle?.stop) await startOpts.lifecycle.stop(cloudCtx);
+      } catch {}
       await stopRuntimeWatcher();
       await heartbeat.stop();
     };
