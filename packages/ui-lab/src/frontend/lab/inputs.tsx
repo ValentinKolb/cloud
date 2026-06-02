@@ -828,13 +828,21 @@ export const DateRangePickerWithTimeDemo = () => {
       id="daterangepicker-time"
       chip={{ kind: "component", name: "DateRangePicker", from: FROM_UI }}
       variant="range + time"
-      description="`withTime` keeps one component for event ranges. Start/end values are UTC instants when `dateConfig` is set."
+      description="Timed ranges can use date presets that keep the picker open plus duration shortcuts that only update the end time."
       code={`<DateRangePicker
   withTime
   label="Schedule"
   value={schedule}
   onChange={setSchedule}
   dateConfig={dateConfig}
+  datePresets={[
+    { label: "Today", value: today },
+    { label: "Tomorrow", value: tomorrow },
+  ]}
+  durationPresets={[
+    { label: "30m", minutes: 30 },
+    { label: "1.5h", minutes: 90 },
+  ]}
 />`}
     >
       <DateRangePicker
@@ -844,19 +852,17 @@ export const DateRangePickerWithTimeDemo = () => {
         onChange={setV}
         clearable
         dateConfig={pickerDateConfig}
-        presets={[
-          {
-            label: "Morning",
-            value: { start: pickerDateTime(pickerToday, "09:00"), end: pickerDateTime(pickerToday, "12:00") },
-          },
-          {
-            label: "Afternoon",
-            value: { start: pickerDateTime(pickerToday, "13:00"), end: pickerDateTime(pickerToday, "17:00") },
-          },
-          {
-            label: "Tomorrow",
-            value: { start: pickerDateTime(pickerTomorrow, "09:00"), end: pickerDateTime(pickerTomorrow, "10:00") },
-          },
+        datePresets={[
+          { label: "Today", value: pickerToday },
+          { label: "Tomorrow", value: pickerTomorrow },
+          { label: "Next week", value: pickerNextWeek },
+        ]}
+        durationPresets={[
+          { label: "30m", minutes: 30 },
+          { label: "1h", minutes: 60 },
+          { label: "1.5h", minutes: 90 },
+          { label: "2h", minutes: 120 },
+          { label: "3h", minutes: 180 },
         ]}
       />
       <p class="mt-2 font-mono text-xs text-dimmed">{JSON.stringify(v())}</p>

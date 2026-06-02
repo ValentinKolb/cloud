@@ -1,5 +1,5 @@
 import { type DateContext, dates } from "@valentinkolb/stdlib";
-import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { createInputA11y, InputWrapper } from "./util";
 
 export type DateRangeValue = {
@@ -10,6 +10,11 @@ export type DateRangeValue = {
 export type DatePreset<T> = {
   label: string;
   value: T;
+};
+
+export type DurationPreset = {
+  label: string;
+  minutes: number;
 };
 
 type BasePickerProps<T> = {
@@ -30,6 +35,8 @@ export type DatePickerProps = BasePickerProps<string | null>;
 export type DateTimePickerProps = BasePickerProps<string | null>;
 export type DateRangePickerProps = BasePickerProps<DateRangeValue> & {
   withTime?: boolean;
+  datePresets?: DatePreset<string | null>[];
+  durationPresets?: DurationPreset[];
 };
 
 type PanelView = "days" | "months";
@@ -145,6 +152,7 @@ function PickerShell<T>(props: {
   timezoneInfo?: boolean;
   footerMeta?: () => JSX.Element | string | undefined;
   onOpen?: () => void;
+  wide?: boolean;
 }) {
   const disabled = () => props.owner.disabled ?? false;
   const clearable = () => props.owner.clearable ?? false;
@@ -176,10 +184,10 @@ function PickerShell<T>(props: {
     setIsOpen(true);
     if (dialogRef && triggerRef) {
       const rect = triggerRef.getBoundingClientRect();
-      const width = props.owner.presets?.length ? 520 : props.timezoneInfo ? 460 : 360;
+      const width = props.owner.presets?.length || props.wide ? 400 : props.timezoneInfo ? 380 : 320;
       const availableWidth = Math.max(280, window.innerWidth - 24);
       const panelWidth = Math.min(width, availableWidth);
-      const estimatedHeight = props.owner.presets?.length ? 430 : 380;
+      const estimatedHeight = props.owner.presets?.length || props.wide ? 380 : 340;
       const maxLeft = window.innerWidth - panelWidth - 12;
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
@@ -191,6 +199,12 @@ function PickerShell<T>(props: {
         dialogRef.style.bottom = "auto";
         dialogRef.style.top = `${rect.bottom + 8}px`;
       }
+      dialogRef.style.right = "auto";
+      dialogRef.style.margin = "0";
+      dialogRef.style.minWidth = "0";
+      dialogRef.style.boxSizing = "border-box";
+      dialogRef.style.inlineSize = `${panelWidth}px`;
+      dialogRef.style.maxInlineSize = "calc(100vw - 24px)";
       dialogRef.style.width = `${panelWidth}px`;
       dialogRef.style.maxWidth = "calc(100vw - 24px)";
       dialogRef.showModal();
@@ -280,7 +294,7 @@ function PickerShell<T>(props: {
         >
           {props.children(close)}
           <Show when={props.footerMeta !== undefined || (props.timezoneInfo && timezoneLabel(props.owner.dateConfig))}>
-            <div class="mx-3 mb-2 flex min-h-5 min-w-0 items-center justify-between gap-3 px-1 text-xs text-dimmed">
+            <div class="mx-2.5 mb-2 flex min-h-5 min-w-0 items-center justify-between gap-3 px-1 text-xs text-dimmed">
               <div class="min-w-0 truncate">{props.footerMeta?.()}</div>
               <Show when={props.timezoneInfo && timezoneLabel(props.owner.dateConfig)}>
                 <div class="ml-auto inline-flex shrink-0 items-center gap-1">
@@ -299,12 +313,12 @@ function PickerShell<T>(props: {
 function PresetRail<T>(props: { presets?: DatePreset<T>[]; onSelect: (value: T) => void }) {
   return (
     <Show when={props.presets?.length}>
-      <div class="m-2 mr-0 flex w-36 shrink-0 flex-col gap-1 rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900/70">
+      <div class="m-2 mr-0 flex w-28 shrink-0 self-stretch flex-col gap-1 overflow-y-auto rounded-md bg-zinc-50 p-1.5 dark:bg-zinc-900/70">
         <For each={props.presets}>
           {(preset) => (
             <button
               type="button"
-              class="rounded-md px-3 py-2 text-left text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              class="rounded px-2 py-1.5 text-left text-xs text-zinc-700 transition-colors hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
               onClick={() => props.onSelect(preset.value)}
             >
               {preset.label}
@@ -335,88 +349,95 @@ function DatePickerPanel(props: {
   const moveYear = (delta: number) => props.setVisibleMonth(monthDate(month().year + delta, month().month, context()));
 
   return (
-    <div class="min-w-0 flex-1 p-3">
-      <div class="mb-3 flex items-center justify-between">
-        <button type="button" class="icon-btn" onClick={() => (view() === "days" ? moveMonth(-1) : moveYear(-1))} aria-label="Previous">
-          <i class="ti ti-chevron-left" />
-        </button>
-        <button
-          type="button"
-          class="rounded-md px-3 py-1.5 text-sm font-semibold text-primary transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
-          onClick={() => setView(view() === "days" ? "months" : "days")}
-        >
-          <Show when={view() === "days"} fallback={month().year}>
-            {dates.formatMonthYear(props.visibleMonth(), context())}
-          </Show>
-        </button>
-        <button type="button" class="icon-btn" onClick={() => (view() === "days" ? moveMonth(1) : moveYear(1))} aria-label="Next">
-          <i class="ti ti-chevron-right" />
-        </button>
-      </div>
+    <div class="min-w-0 flex-1 p-2">
+      <div class="mx-auto w-full max-w-64">
+        <div class="mb-2 flex items-center justify-between">
+          <button
+            type="button"
+            class="icon-btn h-7 w-7"
+            onClick={() => (view() === "days" ? moveMonth(-1) : moveYear(-1))}
+            aria-label="Previous"
+          >
+            <i class="ti ti-chevron-left" />
+          </button>
+          <button
+            type="button"
+            class="rounded-md px-2 py-1 text-sm font-semibold text-primary transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            onClick={() => setView(view() === "days" ? "months" : "days")}
+          >
+            <Show when={view() === "days"} fallback={month().year}>
+              {dates.formatMonthYear(props.visibleMonth(), context())}
+            </Show>
+          </button>
+          <button type="button" class="icon-btn h-7 w-7" onClick={() => (view() === "days" ? moveMonth(1) : moveYear(1))} aria-label="Next">
+            <i class="ti ti-chevron-right" />
+          </button>
+        </div>
 
-      <Show
-        when={view() === "days"}
-        fallback={
-          <div class="grid grid-cols-3 gap-1">
-            <For each={monthNames}>
-              {(name, index) => {
-                const active = () => index() === month().month;
+        <Show
+          when={view() === "days"}
+          fallback={
+            <div class="grid grid-cols-3 gap-1">
+              <For each={monthNames}>
+                {(name, index) => {
+                  const active = () => index() === month().month;
+                  return (
+                    <button
+                      type="button"
+                      class={`h-8 rounded-md px-2 text-sm transition-colors ${
+                        active() ? "bg-blue-500 text-white" : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                      }`}
+                      onClick={() => {
+                        props.setVisibleMonth(monthDate(month().year, index(), context()));
+                        setView("days");
+                      }}
+                    >
+                      {name}
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          }
+        >
+          <div class="grid grid-cols-7 gap-1 text-center text-xs text-dimmed">
+            <For each={weekdays()}>{(day) => <div class="py-0.5">{day}</div>}</For>
+          </div>
+          <div class="mt-1 grid grid-cols-7 gap-1">
+            <For each={weeks().flat()}>
+              {(day) => {
+                const key = () => dateKey(day, context());
+                const selected = () => props.selected?.() === key();
+                const range = () => props.range?.() ?? { start: null, end: null };
+                const active = () => selected() || isRangeEdge(key(), range());
+                const muted = () => !dates.isSameMonth(day, props.visibleMonth(), context());
                 return (
                   <button
                     type="button"
-                    class={`rounded-md px-3 py-3 text-sm transition-colors ${
-                      active() ? "bg-blue-500 text-white" : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    class={`h-8 rounded-md text-sm transition-colors ${
+                      active()
+                        ? "bg-blue-500 text-white"
+                        : inRange(key(), range())
+                          ? "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"
+                          : muted()
+                            ? "text-zinc-300 hover:bg-zinc-100 dark:text-zinc-700 dark:hover:bg-zinc-800"
+                            : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     }`}
-                    onClick={() => {
-                      props.setVisibleMonth(monthDate(month().year, index(), context()));
-                      setView("days");
-                    }}
+                    onClick={() => props.onSelect(key())}
+                    onBlur={() => props.onDayPreview?.(null)}
+                    onFocus={() => props.onDayPreview?.(key())}
+                    onPointerEnter={() => props.onDayPreview?.(key())}
+                    onPointerLeave={() => props.onDayPreview?.(null)}
+                    aria-pressed={active()}
                   >
-                    {name}
+                    {dates.formatDayNumber(day, context())}
                   </button>
                 );
               }}
             </For>
           </div>
-        }
-      >
-        <div class="grid grid-cols-7 gap-1 text-center text-xs text-dimmed">
-          <For each={weekdays()}>{(day) => <div class="py-1">{day}</div>}</For>
-        </div>
-        <div class="mt-1 grid grid-cols-7 gap-1">
-          <For each={weeks().flat()}>
-            {(day) => {
-              const key = () => dateKey(day, context());
-              const selected = () => props.selected?.() === key();
-              const range = () => props.range?.() ?? { start: null, end: null };
-              const active = () => selected() || isRangeEdge(key(), range());
-              const muted = () => !dates.isSameMonth(day, props.visibleMonth(), context());
-              return (
-                <button
-                  type="button"
-                  class={`aspect-square rounded-md text-sm transition-colors ${
-                    active()
-                      ? "bg-blue-500 text-white"
-                      : inRange(key(), range())
-                        ? "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200"
-                        : muted()
-                          ? "text-zinc-300 hover:bg-zinc-100 dark:text-zinc-700 dark:hover:bg-zinc-800"
-                          : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                  }`}
-                  onClick={() => props.onSelect(key())}
-                  onBlur={() => props.onDayPreview?.(null)}
-                  onFocus={() => props.onDayPreview?.(key())}
-                  onPointerEnter={() => props.onDayPreview?.(key())}
-                  onPointerLeave={() => props.onDayPreview?.(null)}
-                  aria-pressed={active()}
-                >
-                  {dates.formatDayNumber(day, context())}
-                </button>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
+        </Show>
+      </div>
     </div>
   );
 }
@@ -438,7 +459,7 @@ function TimeRow(props: { time: string; onChange: (time: string) => void; label?
   return (
     <label class={`grid min-w-0 items-center gap-2 ${props.label ? "grid-cols-[auto_minmax(0,1fr)]" : "grid-cols-1"}`}>
       <Show when={props.label}>
-        <span class="min-w-0 text-xs text-dimmed">{props.label}</span>
+        <span class="min-w-0 text-[11px] text-dimmed">{props.label}</span>
       </Show>
       <div class="relative min-w-0 flex-1">
         <input
@@ -446,12 +467,12 @@ function TimeRow(props: { time: string; onChange: (time: string) => void; label?
           inputMode="numeric"
           value={props.time}
           placeholder="09:00"
-          class="input w-full min-w-0 pr-9 tabular-nums"
+          class="input h-8 w-full min-w-0 pr-8 text-sm tabular-nums"
           onInput={(event) => props.onChange(inputTime(event.currentTarget.value))}
           onBlur={() => props.onChange(normalizeTime(props.time))}
           aria-label={props.label ? `${props.label} time` : "Time"}
         />
-        <i class="ti ti-clock pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-sm text-zinc-500" />
+        <i class="ti ti-clock pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500" />
       </div>
     </label>
   );
@@ -564,6 +585,7 @@ export function DateTimePicker(props: DateTimePickerProps) {
 
 export function DateRangePicker(props: DateRangePickerProps) {
   const withTime = () => props.withTime ?? false;
+  const durationPresets = () => props.durationPresets ?? [];
   const range = () => props.value();
   const startParts = () => (withTime() ? splitDateTime(range().start, props.dateConfig) : { date: range().start ?? "", time: "09:00" });
   const endParts = () => (withTime() ? splitDateTime(range().end, props.dateConfig) : { date: range().end ?? "", time: "10:00" });
@@ -635,6 +657,17 @@ export function DateRangePicker(props: DateRangePickerProps) {
     close?.();
   };
 
+  const selectDatePreset = (value: string | null) => {
+    if (!value) {
+      setDraftRange({ start: null, end: null });
+      setPreviewDate(null);
+      return;
+    }
+    setDraftRange({ start: value, end: value });
+    setPreviewDate(null);
+    setVisibleMonth(parseDateValue(value, props.dateConfig));
+  };
+
   const selectDate = (value: string) => {
     const current = draftRange();
     if (!current.start || current.end) {
@@ -664,6 +697,27 @@ export function DateRangePicker(props: DateRangePickerProps) {
     return dates.formatDuration(start, end);
   };
 
+  const currentDurationMinutes = createMemo(() => {
+    const draft = displayRange();
+    if (!draft.start || !draft.end || !isCompleteTime(startTime()) || !isCompleteTime(endTime())) return null;
+    const start = toDateTimeValue(draft.start, startTime(), props.dateConfig);
+    const end = toDateTimeValue(draft.end, endTime(), props.dateConfig);
+    if (!start || !end) return null;
+    return Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60_000);
+  });
+
+  const applyDuration = (minutes: number) => {
+    const draft = draftRange();
+    if (!draft.start || !isCompleteTime(startTime())) return;
+    const start = toDateTimeValue(draft.start, startTime(), props.dateConfig);
+    if (!start) return;
+    const end = new Date(new Date(start).getTime() + minutes * 60_000).toISOString();
+    const next = splitDateTime(end, props.dateConfig);
+    setDraftRange({ start: draft.start, end: next.date || draft.end || draft.start });
+    setEndTime(next.time || endTime());
+    setPreviewDate(null);
+  };
+
   return (
     <PickerShell
       owner={props}
@@ -684,24 +738,34 @@ export function DateRangePicker(props: DateRangePickerProps) {
         );
       }}
       onOpen={syncDraft}
+      wide={!!(props.datePresets?.length || props.presets?.length)}
     >
       {(close) => (
         <div>
           <div class="flex">
-            <PresetRail
-              presets={props.presets}
-              onSelect={(value) => {
-                props.onChange(value);
-                const start = withTime() ? splitDateTime(value.start, props.dateConfig) : { date: value.start ?? "", time: startTime() };
-                const end = withTime() ? splitDateTime(value.end, props.dateConfig) : { date: value.end ?? "", time: endTime() };
-                setDraftRange({ start: start.date || null, end: end.date || null });
-                setPreviewDate(null);
-                setStartTime(start.time || "09:00");
-                setEndTime(end.time || "10:00");
-                if (start.date || end.date) setVisibleMonth(parseDateValue(start.date || end.date, props.dateConfig));
-                close();
-              }}
-            />
+            <Show
+              when={props.datePresets?.length}
+              fallback={
+                <PresetRail
+                  presets={props.presets}
+                  onSelect={(value) => {
+                    props.onChange(value);
+                    const start = withTime()
+                      ? splitDateTime(value.start, props.dateConfig)
+                      : { date: value.start ?? "", time: startTime() };
+                    const end = withTime() ? splitDateTime(value.end, props.dateConfig) : { date: value.end ?? "", time: endTime() };
+                    setDraftRange({ start: start.date || null, end: end.date || null });
+                    setPreviewDate(null);
+                    setStartTime(start.time || "09:00");
+                    setEndTime(end.time || "10:00");
+                    if (start.date || end.date) setVisibleMonth(parseDateValue(start.date || end.date, props.dateConfig));
+                    close();
+                  }}
+                />
+              }
+            >
+              <PresetRail presets={props.datePresets} onSelect={selectDatePreset} />
+            </Show>
             <DatePickerPanel
               visibleMonth={visibleMonth}
               setVisibleMonth={setVisibleMonth}
@@ -715,13 +779,56 @@ export function DateRangePicker(props: DateRangePickerProps) {
             />
           </div>
           <Show when={withTime()}>
-            <div class="grid min-w-0 grid-cols-1 gap-2 px-3 pb-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.75rem]">
-              <TimeRow label="Start" time={startTime()} onChange={setStartTime} />
-              <TimeRow label="End" time={endTime()} onChange={setEndTime} />
-              <button type="button" class="btn-primary btn-sm h-8" onClick={() => commitRange(close)} aria-label="Apply date range">
+            <div class={`flex min-w-0 items-end gap-2 px-2.5 ${durationPresets().length > 0 ? "pb-1.5" : "pb-2.5"}`}>
+              <div class="min-w-0 flex-1">
+                <TimeRow label="Start" time={startTime()} onChange={setStartTime} />
+              </div>
+              <div class="min-w-0 flex-1">
+                <TimeRow label="End" time={endTime()} onChange={setEndTime} />
+              </div>
+              <button
+                type="button"
+                class="btn-primary btn-sm h-8 w-9 shrink-0 px-0"
+                onClick={() => commitRange(close)}
+                aria-label="Apply date range"
+              >
                 <i class="ti ti-check" />
               </button>
             </div>
+            <Show when={durationPresets().length > 0}>
+              <div class="flex min-w-0 items-center gap-1.5 px-2.5 pb-2">
+                <div class="flex shrink-0 items-center gap-1 text-[11px] text-dimmed">
+                  <i class="ti ti-clock-hour-3" />
+                  <span>Duration</span>
+                </div>
+                <div class="flex min-w-0 flex-wrap gap-1">
+                  <For each={durationPresets()}>
+                    {(preset) => {
+                      const active = () => currentDurationMinutes() === preset.minutes;
+                      return (
+                        <button
+                          type="button"
+                          class={`btn-segment h-6 rounded-md px-2 text-[11px] ${
+                            active() ? "bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300" : ""
+                          }`}
+                          aria-pressed={active()}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            applyDuration(preset.minutes);
+                          }}
+                          onClick={(event) => {
+                            if (event.detail > 0) return;
+                            applyDuration(preset.minutes);
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    }}
+                  </For>
+                </div>
+              </div>
+            </Show>
           </Show>
           <Show when={!withTime()}>
             <div class="flex justify-end px-3 pb-3">

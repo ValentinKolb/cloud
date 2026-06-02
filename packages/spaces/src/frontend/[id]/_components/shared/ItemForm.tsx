@@ -1,8 +1,11 @@
 import {
   CheckboxCard,
   DatePicker,
+  type DatePreset,
   DateRangePicker,
+  type DateRangeValue,
   DateTimePicker,
+  type DurationPreset,
   EntitySearch,
   type EntitySearchPrincipal,
   NumberInput,
@@ -11,7 +14,7 @@ import {
   SelectInput,
   TextInput,
 } from "@valentinkolb/cloud/ui";
-import type { DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import type { Recurrence, SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
 import {
@@ -67,6 +70,75 @@ const PRIORITY_OPTIONS = [
   { id: "", label: "None", icon: "ti ti-minus" },
 ];
 
+const pickerContext = (dateConfig?: DateContext): DateContext => ({ weekStartsOn: 1, ...dateConfig });
+
+const dateKey = (date: Date | string, dateConfig?: DateContext) => dates.formatDateKey(date, pickerContext(dateConfig));
+
+const datePart = (value: string, dateConfig?: DateContext): string =>
+  /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : dateKey(value, dateConfig);
+
+const instantFromLocalDateTime = (date: string, time: string, dateConfig?: DateContext): string => {
+  const value = `${date}T${time}`;
+  if (dateConfig?.timeZone) {
+    return dates.zonedDateTimeToInstant(value, dateConfig.timeZone, { disambiguation: "compatible" });
+  }
+  return new Date(value).toISOString();
+};
+
+const allDayStart = (date: string, dateConfig?: DateContext): string => instantFromLocalDateTime(date, "00:00", dateConfig);
+
+const allDayEnd = (date: string, dateConfig?: DateContext): string => {
+  const nextDay = dates.addDays(dates.parseCalendarDate(date, pickerContext(dateConfig)), 1, pickerContext(dateConfig));
+  return allDayStart(dateKey(nextDay, dateConfig), dateConfig);
+};
+
+const dateOnlyEndKey = (end: string, dateConfig?: DateContext): string => {
+  const context = pickerContext(dateConfig);
+  const endDate = new Date(end);
+  const endKey = dateKey(endDate, context);
+  const dayStart = dates.startOfDay(endDate, context);
+  if (endDate.getTime() !== dayStart.getTime()) return endKey;
+  return dateKey(dates.addDays(dates.parseCalendarDate(endKey, context), -1, context), context);
+};
+
+const dateOnlyRange = (start: string, end: string, dateConfig?: DateContext): DateRangeValue => ({
+  start: start ? dateKey(start, dateConfig) : null,
+  end: end ? dateOnlyEndKey(end, dateConfig) : null,
+});
+
+const scheduleDatePresets = (dateConfig?: DateContext): DatePreset<string | null>[] => {
+  const context = pickerContext(dateConfig);
+  const today = dates.today(context);
+  const tomorrow = dates.addDays(today, 1, context);
+  const nextWeek = dates.addWeeks(today, 1, context);
+  return [
+    { label: "Today", value: dateKey(today, context) },
+    { label: "Tomorrow", value: dateKey(tomorrow, context) },
+    { label: "Next week", value: dateKey(nextWeek, context) },
+  ];
+};
+
+const EVENT_DURATION_PRESETS: DurationPreset[] = [
+  { label: "30m", minutes: 30 },
+  { label: "1h", minutes: 60 },
+  { label: "1.5h", minutes: 90 },
+  { label: "2h", minutes: 120 },
+  { label: "3h", minutes: 180 },
+];
+
+const deadlinePresets = (dateConfig?: DateContext): DatePreset<string | null>[] => {
+  const context = pickerContext(dateConfig);
+  const todayDate = dates.today(context);
+  const tomorrowDate = dates.addDays(todayDate, 1, context);
+  const weekStart = dates.startOfWeek(todayDate, context);
+  const friday = dates.addDays(weekStart, 4, context);
+  return [
+    { label: "Today", value: instantFromLocalDateTime(dateKey(todayDate, context), "17:00", context) },
+    { label: "Tomorrow", value: instantFromLocalDateTime(dateKey(tomorrowDate, context), "17:00", context) },
+    { label: "End of week", value: instantFromLocalDateTime(dateKey(friday, context), "17:00", context) },
+  ];
+};
+
 /**
  * Unified form for creating and editing items.
  * - Create mode: item is undefined, shows type selector and tags
@@ -107,7 +179,8 @@ export default function ItemForm(props: Props) {
   const showAdvanced = () => advancedOpen();
   const defaultTitle = () => (isEditMode() ? (isEvent() ? "Edit event" : "Edit task") : isEvent() ? "New event" : "New task");
   const defaultSubmitLabel = () => (isEditMode() ? (isEvent() ? "Save Event" : "Save Task") : isEvent() ? "Create Event" : "Create Task");
-  const eventRange = () => ({ start: startsAt() || null, end: endsAt() || null });
+  const eventRange = () =>
+    allDay() ? dateOnlyRange(startsAt(), endsAt(), props.dateConfig) : { start: startsAt() || null, end: endsAt() || null };
 
   const columnOptions = () =>
     props.columns.map((c) => ({
@@ -161,6 +234,33 @@ export default function ItemForm(props: Props) {
     }
   };
 
+  const handleAllDayChange = (enabled: boolean) => {
+    if (enabled === allDay()) return;
+    if (enabled) {
+      const nextRange = dateOnlyRange(startsAt(), endsAt(), props.dateConfig);
+      setStartsAt(nextRange.start ?? "");
+      setEndsAt(nextRange.end ?? nextRange.start ?? "");
+    } else if (startsAt()) {
+      const start = instantFromLocalDateTime(datePart(startsAt(), props.dateConfig), "09:00", props.dateConfig);
+      const end = instantFromLocalDateTime(datePart(endsAt() || startsAt(), props.dateConfig), "10:00", props.dateConfig);
+      setStartsAt(start);
+      setEndsAt(end);
+    }
+    setAllDay(enabled);
+    setError("");
+  };
+
+  const submitEventStart = () => {
+    if (!allDay()) return startsAt() ? new Date(startsAt()).toISOString() : undefined;
+    const range = eventRange();
+    return range.start ? allDayStart(range.start, props.dateConfig) : undefined;
+  };
+  const submitEventEnd = () => {
+    if (!allDay()) return endsAt() ? new Date(endsAt()).toISOString() : undefined;
+    const range = eventRange();
+    return range.end ? allDayEnd(range.end, props.dateConfig) : undefined;
+  };
+
   const handleSubmit = (e: Event) => {
     e.preventDefault();
     setError("");
@@ -175,12 +275,15 @@ export default function ItemForm(props: Props) {
       return;
     }
 
+    const eventStartsAt = submitEventStart();
+    const eventEndsAt = submitEventEnd();
+
     if (isEvent()) {
-      if (!startsAt() || !endsAt()) {
+      if (!eventStartsAt || !eventEndsAt) {
         setError("Events require both start and end time");
         return;
       }
-      if (new Date(endsAt()) <= new Date(startsAt())) {
+      if (new Date(eventEndsAt) <= new Date(eventStartsAt)) {
         setError("End time must be after start time");
         return;
       }
@@ -200,8 +303,8 @@ export default function ItemForm(props: Props) {
       description: description().trim() || undefined,
       location: isEvent() ? location().trim() || (isEditMode() ? null : undefined) : undefined,
       url: isEvent() ? url().trim() || (isEditMode() ? null : undefined) : undefined,
-      startsAt: isEvent() && startsAt() ? new Date(startsAt()).toISOString() : undefined,
-      endsAt: isEvent() && endsAt() ? new Date(endsAt()).toISOString() : undefined,
+      startsAt: isEvent() ? eventStartsAt : undefined,
+      endsAt: isEvent() ? eventEndsAt : undefined,
       allDay: isEvent() ? allDay() : false,
       recurrence:
         isEvent() && recurrenceEnabled()
@@ -277,23 +380,16 @@ export default function ItemForm(props: Props) {
                 value={() => deadline() || null}
                 onChange={(value) => setDeadline(value ?? "")}
                 dateConfig={props.dateConfig}
+                presets={deadlinePresets(props.dateConfig)}
                 clearable
               />
             </Show>
 
             <Show when={isEvent()}>
-              <CheckboxCard
-                label="All-day event"
-                description="Show this in the all-day calendar row"
-                icon="ti ti-calendar"
-                variant="input"
-                value={allDay}
-                onChange={setAllDay}
-              />
               <DateRangePicker
-                withTime
+                withTime={!allDay()}
                 label="Schedule"
-                description={!isEditMode() ? "Start and end time for the event" : undefined}
+                description={!isEditMode() ? (allDay() ? "Calendar days for the event" : "Start and end time for the event") : undefined}
                 value={eventRange}
                 onChange={(value) => {
                   setStartsAt(value.start ?? "");
@@ -301,8 +397,18 @@ export default function ItemForm(props: Props) {
                   setError("");
                 }}
                 dateConfig={props.dateConfig}
+                datePresets={scheduleDatePresets(props.dateConfig)}
+                durationPresets={allDay() ? undefined : EVENT_DURATION_PRESETS}
                 required
                 clearable
+              />
+              <CheckboxCard
+                label="All-day event"
+                description="Use dates only and show the event in the all-day calendar row"
+                icon="ti ti-calendar"
+                variant="input"
+                value={allDay}
+                onChange={handleAllDayChange}
               />
             </Show>
           </div>

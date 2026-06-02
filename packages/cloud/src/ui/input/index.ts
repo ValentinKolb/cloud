@@ -22,6 +22,7 @@ export {
   type DateRangeValue,
   DateTimePicker,
   type DateTimePickerProps,
+  type DurationPreset,
 } from "./DatePicker";
 export { default as DateTimeInput } from "./DateTimeInput";
 export { default as IconInput } from "./IconInput";
