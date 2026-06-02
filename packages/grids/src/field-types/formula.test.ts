@@ -3,14 +3,16 @@ import { formulaHandler } from "./formula";
 
 // =============================================================================
 // formulaHandler.configSchema — the save-time gate that catches typos.
-// userInput=false so .validate() is unreachable in normal flow; the
-// configSchema's superRefine does the real work, so that's where we
-// concentrate testing.
+// Formula values are computed at read time; there is no direct value validator.
 // =============================================================================
 
 const parse = (config: unknown) => formulaHandler.configSchema.safeParse(config);
 
 describe("formulaHandler config", () => {
+  test("is a computed field kind", () => {
+    expect(formulaHandler.kind).toBe("computed");
+  });
+
   test("accepts an empty config (field created before expression typed)", () => {
     const r = parse({});
     expect(r.success).toBe(true);
@@ -62,13 +64,5 @@ describe("formulaHandler config", () => {
   test("rejects a bare `#` (empty slug)", () => {
     const r = parse({ expression: "# + 1" });
     expect(r.success).toBe(false);
-  });
-});
-
-describe("formulaHandler.validate (defensive belt-and-suspenders)", () => {
-  test("returns fail — the formula type is read-only by design", () => {
-    const result = formulaHandler.validate("anything", {}, false);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toMatch(/read-only/i);
   });
 });

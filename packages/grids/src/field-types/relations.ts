@@ -1,13 +1,11 @@
 import { z } from "zod";
-import { fail, ok, type FieldTypeHandler } from "./types";
+import { fail, ok, type ComputedFieldKind, type LinkFieldType } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 4 — relation / lookup / rollup field types
 // ─────────────────────────────────────────────────────────────────
-// Relations store an array of target-record-ids inline in `data` (KISS:
-// no junction-table write path yet). Lookup + rollup are read-only:
-// they don't accept user input and the records service computes their
-// display values at list-time by following the configured relation.
+// Relations accept user-submitted target record ids, but storage happens
+// through `grids.record_links`. Lookup + rollup are read-only projections.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -65,10 +63,10 @@ const validateCardinality = (ids: string[], config: RelationConfig) =>
     ? fail("single-cardinality relation accepts at most one link")
     : ok(ids);
 
-export const relationHandler: FieldTypeHandler = {
+export const relationHandler: LinkFieldType = {
   type: "relation",
+  kind: "link",
   configSchema: RelationConfigSchema,
-  userInput: true,
   validate(raw, configRaw, required) {
     const config = parseRelationConfig(configRaw);
     if (!config.ok) return config;
@@ -87,8 +85,7 @@ export const relationHandler: FieldTypeHandler = {
 
 // ── lookup ────────────────────────────────────────────────────────
 // Read-only: pulls the configured display field from related records.
-// userInput is false; the value gets populated by the records service
-// at read time via batch-fetching the linked records.
+// The value gets populated by the records service at read time.
 const LookupConfigSchema = z.object({
   /** ID of the relation field on this table to follow. Optional so the
    *  field can be created first and wired up via the config editor. The
@@ -98,11 +95,10 @@ const LookupConfigSchema = z.object({
   targetFieldId: z.string().uuid().optional(),
 });
 
-export const lookupHandler: FieldTypeHandler = {
+export const lookupHandler: ComputedFieldKind = {
   type: "lookup",
+  kind: "computed",
   configSchema: LookupConfigSchema,
-  userInput: false,
-  validate: () => fail("lookup is read-only — set value via the relation"),
 };
 
 // ── rollup ────────────────────────────────────────────────────────
@@ -117,9 +113,8 @@ const RollupConfigSchema = z.object({
   agg: z.enum(["count", "sum", "avg", "min", "max"]).optional(),
 });
 
-export const rollupHandler: FieldTypeHandler = {
+export const rollupHandler: ComputedFieldKind = {
   type: "rollup",
+  kind: "computed",
   configSchema: RollupConfigSchema,
-  userInput: false,
-  validate: () => fail("rollup is read-only — derived from the relation"),
 };

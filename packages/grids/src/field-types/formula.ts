@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseFormula } from "../formula/parser";
-import { type FieldTypeHandler, fail } from "./types";
+import { type ComputedFieldKind } from "./types";
 
 // Expression is optional at create-time so a brand-new formula field
 // can be added before the user has typed the formula in. Once an
@@ -22,13 +22,10 @@ const FormulaConfigSchema = z.object({ expression: z.string().optional() }).supe
 
 /**
  * Formula field — read-only, computed at records.list time. Save-time
- * validation parses the expression via the config schema's superRefine
- * above. The handler's `validate()` is unreachable in normal flow
- * (userInput=false) but stays as a defensive belt-and-suspenders check.
+ * validation parses the expression via the config schema's superRefine.
  */
-export const formulaHandler: FieldTypeHandler = {
+export const formulaHandler: ComputedFieldKind = {
   type: "formula",
+  kind: "computed",
   configSchema: FormulaConfigSchema,
-  userInput: false,
-  validate: () => fail("formula is read-only — derived from the expression"),
 };

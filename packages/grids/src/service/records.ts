@@ -1,6 +1,6 @@
 import { err, fail, ok, type DateContext, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { getHandler } from "../field-types";
+import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
 import { logAudit } from "./audit";
@@ -147,7 +147,11 @@ const validateForCreate = async (
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
   for (const key of Object.keys(payload)) {
-    if (!fieldsById.has(key)) return fail(err.badInput("unknown field"));
+    const field = fieldsById.get(key);
+    if (!field) return fail(err.badInput("unknown field"));
+    if (!isRecordWritableFieldType(field.type)) {
+      return fail(err.badInput(`field "${field.name}" is not user-writable`));
+    }
   }
 
   const out: Record<string, unknown> = {};
@@ -159,8 +163,8 @@ const validateForCreate = async (
       out[field.id] = await nextAutonumberValue(field.id);
       continue;
     }
-    const handler = getHandler(field.type);
-    if (!handler || !handler.userInput) continue;
+    const handler = getRecordWritableFieldType(field.type);
+    if (!handler) continue;
 
     const provided = Object.prototype.hasOwnProperty.call(payload, field.id);
     const raw = provided ? payload[field.id] : materializeFieldDefault(field, { dateConfig: options.dateConfig });
@@ -189,8 +193,8 @@ const validateForUpdate = async (tableId: string, payload: Record<string, unknow
   const out: Record<string, unknown> = {};
   for (const [fieldId, raw] of Object.entries(payload)) {
     const field = fieldsById.get(fieldId)!;
-    const handler = getHandler(field.type);
-    if (!handler || !handler.userInput) {
+    const handler = getRecordWritableFieldType(field.type);
+    if (!handler) {
       return fail(err.badInput(`field "${field.name}" is not user-writable`));
     }
     const result = handler.validate(raw, field.config, field.required);

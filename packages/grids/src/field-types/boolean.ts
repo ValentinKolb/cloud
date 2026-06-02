@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { fail, ok, type FieldTypeHandler } from "./types";
+import { fail, ok, type ValueFieldType } from "./types";
 
 const BoolConfigSchema = z.object({});
 
-export const booleanHandler: FieldTypeHandler = {
+export const booleanHandler: ValueFieldType = {
   type: "boolean",
+  kind: "value",
   configSchema: BoolConfigSchema,
-  userInput: true,
   validate(raw, _config, required) {
     if (raw === null || raw === undefined) {
       return required ? fail("required") : ok(null);

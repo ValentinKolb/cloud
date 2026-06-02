@@ -4,9 +4,8 @@ import { relationHandler, lookupHandler, rollupHandler } from "./relations";
 // =============================================================================
 // Relation / lookup / rollup field-type handlers.
 //
-// relation is `userInput: true` and validates user-submitted target ids;
-// lookup and rollup are read-only — their handlers should reject any
-// direct write attempt with a clear "set via the relation" message.
+// relation is a link field and validates user-submitted target ids;
+// lookup and rollup are computed field kinds with config validation only.
 // =============================================================================
 
 // Real UUIDv4-shaped values — Zod's `.uuid()` rejects degenerate
@@ -128,20 +127,9 @@ describe("relationHandler.validate — cardinality", () => {
   });
 });
 
-describe("lookupHandler / rollupHandler — read-only", () => {
-  test("lookup.validate always fails", () => {
-    const r = lookupHandler.validate(UUID_A, {}, false);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/read-only/i);
-  });
-
-  test("rollup.validate always fails", () => {
-    const r = rollupHandler.validate(42, {}, false);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/read-only/i);
-  });
-
+describe("lookupHandler / rollupHandler — computed config only", () => {
   test("lookup configSchema accepts empty / partial config (UI lets users wire later)", () => {
+    expect(lookupHandler.kind).toBe("computed");
     expect(lookupHandler.configSchema.safeParse({}).success).toBe(true);
     expect(
       lookupHandler.configSchema.safeParse({ relationFieldId: UUID_A }).success,
@@ -149,6 +137,7 @@ describe("lookupHandler / rollupHandler — read-only", () => {
   });
 
   test("rollup configSchema accepts empty / partial config", () => {
+    expect(rollupHandler.kind).toBe("computed");
     expect(rollupHandler.configSchema.safeParse({}).success).toBe(true);
     expect(
       rollupHandler.configSchema.safeParse({ agg: "sum" }).success,

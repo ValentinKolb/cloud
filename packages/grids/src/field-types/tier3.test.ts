@@ -23,7 +23,7 @@ test("file: config accepts maxFiles and accept list", () => {
   }).success).toBe(true);
 });
 
-test("file: refuses direct record payload input", () => {
-  expect(fileHandler.userInput).toBe(false);
-  expect(fileHandler.validate("anything", {}, false).ok).toBe(false);
+test("file: is managed by the external file API", () => {
+  expect(fileHandler.kind).toBe("external");
+  expect("validate" in fileHandler).toBe(false);
 });

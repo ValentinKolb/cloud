@@ -12,7 +12,7 @@ import {
   dropAutonumberSequence,
 } from "./field-indexes";
 import { parseJsonbRow } from "./jsonb";
-import { getHandler, isKnownFieldType } from "../field-types";
+import { getFieldType, getRecordWritableFieldType, isKnownFieldType } from "../field-types";
 import { insertWithShortId } from "./short-id";
 import { ViewQuerySchema } from "../contracts";
 import type { Field, CreateFieldInput, UpdateFieldInput } from "./types";
@@ -116,9 +116,9 @@ export const get = async (id: string): Promise<Field | null> => {
 };
 
 const validateFieldConfig = (type: string, config: Record<string, unknown>): Result<unknown> => {
-  const handler = getHandler(type);
-  if (!handler) return fail(err.badInput(`unknown field type "${type}"`));
-  const parsed = handler.configSchema.safeParse(config);
+  const fieldType = getFieldType(type);
+  if (!fieldType) return fail(err.badInput(`unknown field type "${type}"`));
+  const parsed = fieldType.configSchema.safeParse(config);
   if (!parsed.success) {
     // Surface the first issue's message so users see WHY the config was
     // rejected (e.g. "decimal places cannot exceed precision") instead of a
@@ -149,13 +149,11 @@ export const validateDefaultValue = (type: string, config: Record<string, unknow
   if (typeof value === "object" && value !== null && "kind" in value) {
     return fail(err.badInput("invalid default"));
   }
-  const handler = getHandler(type);
-  if (handler && handler.userInput) {
-    const v = handler.validate(value, config, false);
-    if (!v.ok) return fail(err.badInput(`invalid default: ${v.error}`));
-    return ok(v.value);
-  }
-  return ok(value);
+  const fieldType = getRecordWritableFieldType(type);
+  if (!fieldType) return fail(err.badInput(`field type "${type}" does not support defaults`));
+  const v = fieldType.validate(value, config, false);
+  if (!v.ok) return fail(err.badInput(`invalid default: ${v.error}`));
+  return ok(v.value);
 };
 
 type FieldUpdateState = {

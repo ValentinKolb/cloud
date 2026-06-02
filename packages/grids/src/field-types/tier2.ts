@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fail, ok, type FieldTypeHandler } from "./types";
+import { fail, ok, type ValueFieldType } from "./types";
 
 // ─────────────────────────────────────────────────────────────────
 // Tier-2 field types with real non-text input semantics.
@@ -19,10 +19,10 @@ const PercentConfigSchema = z.object({
   decimals: z.number().int().min(0).max(8).optional(),
 });
 
-export const percentHandler: FieldTypeHandler = {
+export const percentHandler: ValueFieldType = {
   type: "percent",
+  kind: "value",
   configSchema: PercentConfigSchema,
-  userInput: true,
   validate(raw, configRaw, required) {
     const parsed = PercentConfigSchema.safeParse(configRaw ?? {});
     if (!parsed.success) return fail("invalid field config");
@@ -46,10 +46,10 @@ const DurationConfigSchema = z.object({
   unit: z.enum(["seconds", "minutes", "hours"]).optional(),
 });
 
-export const durationHandler: FieldTypeHandler = {
+export const durationHandler: ValueFieldType = {
   type: "duration",
+  kind: "value",
   configSchema: DurationConfigSchema,
-  userInput: true,
   validate(raw, _config, required) {
     if (raw === null || raw === undefined || raw === "") return required ? fail("required") : ok(null);
     if (typeof raw === "number") {

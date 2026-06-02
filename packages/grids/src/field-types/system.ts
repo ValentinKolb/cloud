@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { fail, type FieldTypeHandler } from "./types";
+import { type ServerGeneratedFieldKind, type SystemFieldKind } from "./types";
 
 /**
  * System fields are auto-populated by the platform on insert/update.
- * Users cannot submit values; validate() always rejects user input.
+ * Users cannot submit values.
  *
  * Storage in JSONB happens implicitly via the records table — system fields
  * are projected at read-time from the records row's columns (created_at,
@@ -11,42 +11,38 @@ import { fail, type FieldTypeHandler } from "./types";
  *
  * Autonumber is special: it's a stable integer-per-record sequence within
  * a table, written into `data` at insert time by the records service.
+ *
+ * Future server-generated field kinds, such as AI-generated fields, should
+ * share the same write policy: no direct record payload writes.
  */
 const Empty = z.object({});
 
-const refuseUserInput: FieldTypeHandler["validate"] = () => fail("system field, not user-writable");
-
-export const createdAtHandler: FieldTypeHandler = {
+export const createdAtHandler: SystemFieldKind = {
   type: "created_at",
+  kind: "system",
   configSchema: Empty,
-  userInput: false,
-  validate: refuseUserInput,
 };
 
-export const updatedAtHandler: FieldTypeHandler = {
+export const updatedAtHandler: SystemFieldKind = {
   type: "updated_at",
+  kind: "system",
   configSchema: Empty,
-  userInput: false,
-  validate: refuseUserInput,
 };
 
-export const createdByHandler: FieldTypeHandler = {
+export const createdByHandler: SystemFieldKind = {
   type: "created_by",
+  kind: "system",
   configSchema: Empty,
-  userInput: false,
-  validate: refuseUserInput,
 };
 
-export const updatedByHandler: FieldTypeHandler = {
+export const updatedByHandler: SystemFieldKind = {
   type: "updated_by",
+  kind: "system",
   configSchema: Empty,
-  userInput: false,
-  validate: refuseUserInput,
 };
 
-export const autonumberHandler: FieldTypeHandler = {
+export const autonumberHandler: ServerGeneratedFieldKind = {
   type: "autonumber",
+  kind: "serverGenerated",
   configSchema: Empty,
-  userInput: false,
-  validate: refuseUserInput,
 };

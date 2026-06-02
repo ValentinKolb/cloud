@@ -1,7 +1,20 @@
 import { expect, test } from "bun:test";
-import { fieldTypeRegistry, getHandler, isKnownFieldType, userWritableFieldTypes } from "./index";
+import {
+  COMPUTED_FIELD_TYPES,
+  EXTERNAL_FIELD_TYPES,
+  LINK_FIELD_TYPES,
+  SERVER_GENERATED_FIELD_TYPES,
+  SYSTEM_FIELD_TYPES,
+  VALUE_FIELD_TYPES,
+  fieldTypeRegistry,
+  getFieldType,
+  getRecordWritableFieldType,
+  isKnownFieldType,
+  isRecordWritableFieldType,
+  recordWritableFieldTypes,
+} from "./index";
 
-test("registry: covers all Tier-1 types", () => {
+test("registry: covers all field kinds", () => {
   const expected = [
     "text",
     "longtext",
@@ -14,12 +27,33 @@ test("registry: covers all Tier-1 types", () => {
     "created_by",
     "updated_at",
     "updated_by",
+    "percent",
+    "duration",
+    "json",
+    "file",
+    "relation",
+    "lookup",
+    "rollup",
+    "formula",
   ];
   for (const t of expected) expect(t in fieldTypeRegistry).toBe(true);
 });
 
-test("getHandler: returns null for unknown types", () => {
-  expect(getHandler("nonexistent")).toBeNull();
+test("field kind registries separate write policies", () => {
+  expect(VALUE_FIELD_TYPES.text?.kind).toBe("value");
+  expect(LINK_FIELD_TYPES.relation?.kind).toBe("link");
+  expect(SERVER_GENERATED_FIELD_TYPES.autonumber?.kind).toBe("serverGenerated");
+  expect(COMPUTED_FIELD_TYPES.formula?.kind).toBe("computed");
+  expect(SYSTEM_FIELD_TYPES.created_at?.kind).toBe("system");
+  expect(EXTERNAL_FIELD_TYPES.file?.kind).toBe("external");
+});
+
+test("getFieldType / getRecordWritableFieldType: discriminate by write policy", () => {
+  expect(getFieldType("formula")?.kind).toBe("computed");
+  expect(getFieldType("nonexistent")).toBeNull();
+  expect(getRecordWritableFieldType("text")?.kind).toBe("value");
+  expect(getRecordWritableFieldType("relation")?.kind).toBe("link");
+  expect(getRecordWritableFieldType("formula")).toBeNull();
 });
 
 test("isKnownFieldType: discriminates", () => {
@@ -29,19 +63,20 @@ test("isKnownFieldType: discriminates", () => {
   expect(isKnownFieldType("nonexistent")).toBe(false);
 });
 
-test("userWritableFieldTypes: excludes system fields", () => {
-  const writable = userWritableFieldTypes();
+test("recordWritableFieldTypes: includes value and link fields only", () => {
+  const writable = recordWritableFieldTypes();
   expect(writable).not.toContain("created_at");
   expect(writable).not.toContain("autonumber");
+  expect(writable).not.toContain("formula");
+  expect(writable).not.toContain("file");
   expect(writable).toContain("text");
   expect(writable).toContain("number");
+  expect(writable).toContain("relation");
 });
 
-test("system fields refuse user input", () => {
-  const sysTypes = ["created_at", "updated_at", "created_by", "updated_by", "autonumber"];
-  for (const t of sysTypes) {
-    const h = getHandler(t);
-    expect(h).not.toBeNull();
-    expect(h!.validate("anything", {}, false).ok).toBe(false);
-  }
+test("record writability is explicit", () => {
+  expect(isRecordWritableFieldType("select")).toBe(true);
+  expect(isRecordWritableFieldType("relation")).toBe(true);
+  expect(isRecordWritableFieldType("lookup")).toBe(false);
+  expect(isRecordWritableFieldType("updated_by")).toBe(false);
 });

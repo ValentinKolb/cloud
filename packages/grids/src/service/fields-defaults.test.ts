@@ -38,3 +38,18 @@ describe("date defaults", () => {
     expect(timed).toBe("2026-05-01T22:30:00.000Z");
   });
 });
+
+describe("default value write policy", () => {
+  test("rejects defaults for computed/system/external field kinds", () => {
+    expect(validateDefaultValue("formula", {}, "1 + 1").ok).toBe(false);
+    expect(validateDefaultValue("lookup", {}, "anything").ok).toBe(false);
+    expect(validateDefaultValue("autonumber", {}, 1).ok).toBe(false);
+    expect(validateDefaultValue("file", {}, "anything").ok).toBe(false);
+  });
+
+  test("allows relation defaults through the link validator", () => {
+    const target = "8d2fc223-a7af-4e77-80e8-35008033479d";
+    const config = { targetTableId: "7644cd04-e6c5-4b15-a86f-41f1c9f3598f", cardinality: "single" };
+    expect(validateDefaultValue("relation", config, target)).toEqual({ ok: true, data: [target] });
+  });
+});

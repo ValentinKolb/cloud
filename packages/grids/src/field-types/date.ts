@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fail, ok, type FieldTypeHandler } from "./types";
+import { fail, ok, type ValueFieldType } from "./types";
 
 const DateConfigSchema = z
   .object({
@@ -62,10 +62,10 @@ const parseAndCanonicalize = (raw: string, includeTime: boolean): string | null 
   return date && isValidDateOnly(date) ? date : null;
 };
 
-export const dateHandler: FieldTypeHandler = {
+export const dateHandler: ValueFieldType = {
   type: "date",
+  kind: "value",
   configSchema: DateConfigSchema,
-  userInput: true,
   validate(raw, configRaw, required) {
     const parsed = DateConfigSchema.safeParse(configRaw ?? {});
     if (!parsed.success) return fail("invalid field config");

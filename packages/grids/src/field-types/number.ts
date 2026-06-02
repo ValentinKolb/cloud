@@ -1,6 +1,6 @@
 import { z } from "zod";
 import Decimal from "decimal.js";
-import { fail, ok, type FieldTypeHandler } from "./types";
+import { fail, ok, type ValueFieldType } from "./types";
 
 type NumberConfigInput = {
   min?: string | number;
@@ -118,10 +118,10 @@ const rangeError = (dec: Decimal, config: NumberConfig): string | null => {
 const firstNumberError = (dec: Decimal, config: NumberConfig, places: number | undefined): string | null =>
   decimalPlacesError(dec, places) ?? integerOnlyError(dec, config) ?? precisionError(dec, config, places) ?? rangeError(dec, config);
 
-export const numberHandler: FieldTypeHandler = {
+export const numberHandler: ValueFieldType = {
   type: "number",
+  kind: "value",
   configSchema: NumberConfigSchema,
-  userInput: true,
   validate(raw, configRaw, required) {
     const parsed = NumberConfigSchema.safeParse(configRaw ?? {});
     if (!parsed.success) return fail("invalid field config");

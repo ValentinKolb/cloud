@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type FieldTypeHandler, fail, ok } from "./types";
+import { fail, ok, type ValueFieldType } from "./types";
 
 const BaseTextConfigSchema = z.object({
   minLength: z.number().int().min(0).optional(),
@@ -48,17 +48,17 @@ const validateText = (raw: unknown, configRaw: unknown, required: boolean) => {
   return validateTextValue(raw, parsed.data, required);
 };
 
-export const textHandler: FieldTypeHandler = {
+export const textHandler: ValueFieldType = {
   type: "text",
+  kind: "value",
   configSchema: TextConfigSchema,
-  userInput: true,
   validate: validateText,
 };
 
-export const longtextHandler: FieldTypeHandler = {
+export const longtextHandler: ValueFieldType = {
   type: "longtext",
+  kind: "value",
   configSchema: LongTextConfigSchema,
-  userInput: true,
   validate: (raw, configRaw, required) => {
     const parsed = LongTextConfigSchema.safeParse(configRaw ?? {});
     if (!parsed.success) return fail("invalid field config");

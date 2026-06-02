@@ -1,7 +1,7 @@
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { FormConfigSchema } from "../contracts";
-import { getHandler } from "../field-types";
+import { isRecordWritableFieldType } from "../field-types";
 import { logAudit } from "./audit";
 import { listByTable as listFields, validateDefaultValue } from "./fields";
 import { parseJsonbRow } from "./jsonb";
@@ -333,8 +333,7 @@ const validateFormConfig = async (tableId: string, config: unknown): Promise<Res
     }
     seen.add(entry.fieldId);
 
-    const handler = getHandler(field.type);
-    if (!handler?.userInput) {
+    if (!isRecordWritableFieldType(field.type)) {
       return fail(err.badInput(`field "${field.name}" cannot be used in a form`));
     }
 

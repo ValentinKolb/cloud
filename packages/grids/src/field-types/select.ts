@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type FieldTypeHandler, fail, ok } from "./types";
+import { fail, ok, type ValueFieldType } from "./types";
 
 const SelectOptionSchema = z.object({
   id: z.string().min(1),
@@ -57,10 +57,10 @@ const normalizeIds = (raw: unknown): string[] | null | "invalid" => {
   return Array.from(seen);
 };
 
-export const selectHandler: FieldTypeHandler = {
+export const selectHandler: ValueFieldType = {
   type: "select",
+  kind: "value",
   configSchema: SelectConfigSchema,
-  userInput: true,
   validate(raw, configRaw, required) {
     const parsed = SelectConfigSchema.safeParse(configRaw ?? {});
     if (!parsed.success) return fail("invalid field config");

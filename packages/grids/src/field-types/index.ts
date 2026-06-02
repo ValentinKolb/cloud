@@ -8,41 +8,104 @@ import { autonumberHandler, createdAtHandler, createdByHandler, updatedAtHandler
 import { longtextHandler, textHandler } from "./text";
 import { durationHandler, percentHandler } from "./tier2";
 import { fileHandler, jsonHandler } from "./tier3";
-import type { FieldTypeHandler } from "./types";
+import type {
+  ComputedFieldKind,
+  ExternalFieldKind,
+  FieldTypeDefinition,
+  LinkFieldType,
+  RecordWritableFieldType,
+  ServerGeneratedFieldKind,
+  SystemFieldKind,
+  ValueFieldType,
+} from "./types";
 
-const handlers: FieldTypeHandler[] = [
-  // Tier 1
-  textHandler,
-  longtextHandler,
-  numberHandler,
-  booleanHandler,
-  dateHandler,
-  selectHandler,
-  autonumberHandler,
-  createdAtHandler,
-  createdByHandler,
-  updatedAtHandler,
-  updatedByHandler,
-  // Tier 2
-  percentHandler,
-  durationHandler,
-  // Tier 3
-  jsonHandler,
-  fileHandler,
-  // Phase 4 — relations
-  relationHandler,
-  lookupHandler,
-  rollupHandler,
-  // Phase 5 — formula
-  formulaHandler,
-];
+export const VALUE_FIELD_TYPES: Record<string, ValueFieldType> = Object.fromEntries(
+  [
+    textHandler,
+    longtextHandler,
+    numberHandler,
+    booleanHandler,
+    dateHandler,
+    selectHandler,
+    percentHandler,
+    durationHandler,
+    jsonHandler,
+  ].map((fieldType) => [fieldType.type, fieldType]),
+);
 
-export const fieldTypeRegistry: Record<string, FieldTypeHandler> = Object.fromEntries(handlers.map((h) => [h.type, h]));
+export const LINK_FIELD_TYPES: Record<string, LinkFieldType> = {
+  relation: relationHandler,
+};
 
-export const getHandler = (type: string): FieldTypeHandler | null => fieldTypeRegistry[type] ?? null;
+export const SERVER_GENERATED_FIELD_TYPES: Record<string, ServerGeneratedFieldKind> = {
+  autonumber: autonumberHandler,
+};
+
+export const COMPUTED_FIELD_TYPES: Record<string, ComputedFieldKind> = Object.fromEntries(
+  [
+    formulaHandler,
+    lookupHandler,
+    rollupHandler,
+  ].map((fieldType) => [fieldType.type, fieldType]),
+);
+
+export const SYSTEM_FIELD_TYPES: Record<string, SystemFieldKind> = Object.fromEntries(
+  [
+    createdAtHandler,
+    createdByHandler,
+    updatedAtHandler,
+    updatedByHandler,
+  ].map((fieldType) => [fieldType.type, fieldType]),
+);
+
+export const EXTERNAL_FIELD_TYPES: Record<string, ExternalFieldKind> = {
+  file: fileHandler,
+};
+
+export const RECORD_WRITABLE_FIELD_TYPES: Record<string, RecordWritableFieldType> = {
+  ...VALUE_FIELD_TYPES,
+  ...LINK_FIELD_TYPES,
+};
+
+export const fieldTypeRegistry: Record<string, FieldTypeDefinition> = {
+  ...VALUE_FIELD_TYPES,
+  ...LINK_FIELD_TYPES,
+  ...SERVER_GENERATED_FIELD_TYPES,
+  ...COMPUTED_FIELD_TYPES,
+  ...SYSTEM_FIELD_TYPES,
+  ...EXTERNAL_FIELD_TYPES,
+};
+
+export const getFieldType = (type: string): FieldTypeDefinition | null => fieldTypeRegistry[type] ?? null;
+
+export const getRecordWritableFieldType = (type: string): RecordWritableFieldType | null => RECORD_WRITABLE_FIELD_TYPES[type] ?? null;
 
 export const isKnownFieldType = (type: string): boolean => type in fieldTypeRegistry;
 
-export const userWritableFieldTypes = (): string[] => handlers.filter((h) => h.userInput).map((h) => h.type);
+export const isRecordWritableFieldType = (type: string): boolean => type in RECORD_WRITABLE_FIELD_TYPES;
 
-export type { FieldTypeHandler, ValidateResult } from "./types";
+export const isValueFieldType = (type: string): boolean => type in VALUE_FIELD_TYPES;
+
+export const isLinkFieldType = (type: string): boolean => type in LINK_FIELD_TYPES;
+
+export const isComputedFieldType = (type: string): boolean => type in COMPUTED_FIELD_TYPES;
+
+export const isServerGeneratedFieldType = (type: string): boolean => type in SERVER_GENERATED_FIELD_TYPES;
+
+export const isSystemFieldType = (type: string): boolean => type in SYSTEM_FIELD_TYPES;
+
+export const isExternalFieldType = (type: string): boolean => type in EXTERNAL_FIELD_TYPES;
+
+export const recordWritableFieldTypes = (): string[] => Object.keys(RECORD_WRITABLE_FIELD_TYPES);
+
+export type {
+  ComputedFieldKind,
+  ExternalFieldKind,
+  FieldTypeDefinition,
+  LinkFieldType,
+  RecordWritableFieldType,
+  ServerGeneratedFieldKind,
+  SystemFieldKind,
+  ValidateResult,
+  ValueFieldType,
+} from "./types";
