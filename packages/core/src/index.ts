@@ -10,7 +10,6 @@ import { middleware, type AppContext, type AuthContext } from "@valentinkolb/clo
 import { createCoreApiRouter } from "@valentinkolb/cloud/api";
 import { createPagesRouter } from "./pages/create";
 import { runCoreSetup, startCoreServices, stopCoreServices } from "./runtime-helpers";
-import { coreSettingsRouter } from "./api/settings";
 
 /** Per-app Hono context: AuthContext + typed core settings snapshot. */
 export type CoreAppContext = AppContext<typeof app>;
@@ -18,11 +17,7 @@ export type CoreAppContext = AppContext<typeof app>;
 const { api } = createCoreApiRouter();
 const pages = createPagesRouter();
 
-// Order matters: more specific routes (coreSettingsRouter) must mount BEFORE
-// the api router which registers a catch-all "/*" 404 handler.
-const coreApi = new Hono()
-  .route("/admin/core/settings", coreSettingsRouter)
-  .route("/", api);
+const coreApi = new Hono().route("/", api);
 
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())

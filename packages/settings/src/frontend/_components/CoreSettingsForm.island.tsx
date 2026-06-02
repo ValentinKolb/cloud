@@ -24,6 +24,7 @@ import {
   sameSettingValue,
   readSettingsError,
 } from "@valentinkolb/cloud/ui";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
 
 export type SettingFieldDef = {
   key: string;
@@ -38,8 +39,6 @@ export type SettingFieldDef = {
 };
 
 type Props = { entries: SettingFieldDef[] };
-
-const ENDPOINT = "/api/admin/core/settings";
 
 export default function CoreSettingsForm(props: Props) {
   const [drafts, setDrafts] = createSignal<Record<string, unknown>>({});
@@ -86,11 +85,7 @@ export default function CoreSettingsForm(props: Props) {
       const updates: Record<string, unknown> = {};
       for (const k of changedKeys()) updates[k] = drafts()[k];
 
-      const response = await fetch(ENDPOINT, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
+      const response = await coreClient.admin.core.settings.$put({ json: updates });
 
       if (!response.ok) {
         const { message, fields } = await readSettingsError(response, `Save failed (HTTP ${response.status})`);
@@ -107,7 +102,7 @@ export default function CoreSettingsForm(props: Props) {
 
   const reset = mutations.create<void, string>({
     mutation: async (key) => {
-      const response = await fetch(`${ENDPOINT}/${encodeURIComponent(key)}`, { method: "DELETE" });
+      const response = await coreClient.admin.core.settings[":key{.+}"].$delete({ param: { key } });
       if (!response.ok) {
         const { message } = await readSettingsError(response, "Reset failed");
         throw new Error(message);
@@ -306,4 +301,3 @@ function FieldInput(props: {
     />
   );
 }
-

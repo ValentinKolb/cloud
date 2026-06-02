@@ -20,8 +20,7 @@ import {
   sameSettingValue,
   readSettingsError,
 } from "@valentinkolb/cloud/ui";
-
-const ENDPOINT = "/api/admin/core/settings";
+import { coreClient } from "@valentinkolb/cloud/clients/core";
 
 type LegalKind = "terms" | "privacy" | "imprint";
 type LegalMode = "local" | "external";
@@ -96,11 +95,7 @@ export default function LegalSettingsForm(props: { initial: LegalInitial }) {
     mutation: async () => {
       const updates: Record<string, unknown> = {};
       for (const k of changedKeys()) updates[k] = draft()[k];
-      const response = await fetch(ENDPOINT, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
+      const response = await coreClient.admin.core.settings.$put({ json: updates });
       if (!response.ok) {
         const { message, fields } = await readSettingsError(response, `Save failed (HTTP ${response.status})`);
         setFieldErrors(fields);
