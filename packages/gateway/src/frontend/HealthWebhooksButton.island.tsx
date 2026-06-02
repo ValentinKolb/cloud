@@ -1,6 +1,7 @@
 import { CheckboxCard, NumberInput, prompts, SelectInput, TextInput, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 
 type SettingEntry = { key: string; value: unknown; default: unknown; description: string };
 
@@ -30,15 +31,36 @@ type HealthWebhook = {
 
 type HealthWebhookInput = Omit<HealthWebhook, "id" | "lastStatus" | "lastSentAt" | "lastError">;
 
-const json = async <T,>(url: string): Promise<T> => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to load ${url}`);
-  return response.json() as Promise<T>;
-};
-
 const errorMessage = async (response: Response, fallback: string): Promise<string> => {
   const data = (await response.json().catch(() => null)) as { message?: string } | null;
   return data?.message ?? fallback;
+};
+
+const isHealthWebhook = (value: unknown): value is HealthWebhook =>
+  Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
+
+const readHealthWebhook = async (response: Response): Promise<HealthWebhook> => {
+  const body = await response.json();
+  if (isHealthWebhook(body)) return body;
+  throw new Error("Unexpected webhook response.");
+};
+
+const loadWebhooks = async (): Promise<HealthWebhook[]> => {
+  const response = await apiClient.health.webhooks.$get();
+  if (!response.ok) throw new Error(await errorMessage(response, "Failed to load health webhooks"));
+  return response.json();
+};
+
+const loadSettings = async (): Promise<SettingEntry[]> => {
+  const response = await apiClient.settings.$get();
+  if (!response.ok) throw new Error(await errorMessage(response, "Failed to load gateway settings"));
+  return response.json();
+};
+
+const loadHealth = async (): Promise<{ apps: HealthApp[] }> => {
+  const response = await apiClient.health.$get();
+  if (!response.ok) throw new Error(await errorMessage(response, "Failed to load gateway health"));
+  return response.json();
 };
 
 const defaultWebhook = (): HealthWebhookInput => ({
@@ -112,13 +134,11 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
   const save = mutation.create<HealthWebhook, void>({
     mutation: async () => {
       const input = data();
-      const response = await fetch(webhook ? `/api/gateway/health/webhooks/${webhook.id}` : "/api/gateway/health/webhooks", {
-        method: webhook ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      });
+      const response = webhook
+        ? await apiClient.health.webhooks[":id"].$put({ param: { id: webhook.id }, json: input })
+        : await apiClient.health.webhooks.$post({ json: input });
       if (!response.ok) throw new Error(await errorMessage(response, "Failed to save webhook"));
-      return response.json() as Promise<HealthWebhook>;
+      return readHealthWebhook(response);
     },
     onSuccess: () => {
       toast.success("Webhook saved");
@@ -251,19 +271,18 @@ const openWebhookEditor = (webhook: HealthWebhook | undefined, apps: HealthApp[]
   });
 
 const HealthWebhooksDialog = (props: { close: () => void }) => {
-  const [webhooks, { refetch }] = createResource(() => json<HealthWebhook[]>("/api/gateway/health/webhooks"));
-  const [settings, { refetch: refetchSettings }] = createResource(() => json<SettingEntry[]>("/api/gateway/settings"));
-  const [health] = createResource(() => json<{ apps: HealthApp[] }>("/health"));
+  const [webhooks, { refetch }] = createResource(loadWebhooks);
+  const [settings, { refetch: refetchSettings }] = createResource(loadSettings);
+  const [health] = createResource(loadHealth);
   const schedule = () => settings()?.find((entry) => entry.key === "gateway.health_check_schedule");
   const [scheduleValue, setScheduleValue] = createSignal("");
 
   const saveSchedule = mutation.create<void, void>({
     mutation: async () => {
       const value = scheduleValue() || String(schedule()?.value ?? schedule()?.default ?? "*/5 * * * *");
-      const response = await fetch("/api/gateway/settings/gateway.health_check_schedule", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value }),
+      const response = await apiClient.settings[":key{.+}"].$put({
+        param: { key: "gateway.health_check_schedule" },
+        json: { value },
       });
       if (!response.ok) throw new Error(await errorMessage(response, "Failed to save schedule"));
     },
@@ -278,7 +297,7 @@ const HealthWebhooksDialog = (props: { close: () => void }) => {
     mutation: async (webhook) => {
       const confirmed = await prompts.confirm(`Delete "${webhook.name}"?`, { title: "Delete webhook", variant: "danger" });
       if (!confirmed) return;
-      const response = await fetch(`/api/gateway/health/webhooks/${webhook.id}`, { method: "DELETE" });
+      const response = await apiClient.health.webhooks[":id"].$delete({ param: { id: webhook.id } });
       if (!response.ok) throw new Error(await errorMessage(response, "Failed to delete webhook"));
     },
     onSuccess: () => {
@@ -290,7 +309,7 @@ const HealthWebhooksDialog = (props: { close: () => void }) => {
 
   const test = mutation.create<void, HealthWebhook>({
     mutation: async (webhook) => {
-      const response = await fetch(`/api/gateway/health/webhooks/${webhook.id}/test`, { method: "POST" });
+      const response = await apiClient.health.webhooks[":id"].test.$post({ param: { id: webhook.id } });
       if (!response.ok) throw new Error(await errorMessage(response, "Failed to test webhook"));
     },
     onSuccess: () => toast.success("Webhook test submitted"),
@@ -377,7 +396,7 @@ const HealthWebhooksDialog = (props: { close: () => void }) => {
 };
 
 export default function HealthWebhooksButton() {
-  const [webhooks] = createResource(() => json<HealthWebhook[]>("/api/gateway/health/webhooks"));
+  const [webhooks] = createResource(loadWebhooks);
 
   return (
     <button

@@ -1,10 +1,14 @@
 import { prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
 import { mutation } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@/api/client";
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
   const body = (await response.json().catch(() => null)) as { message?: string } | null;
   return body?.message ?? fallback;
 };
+
+const isRemovedApp = (value: unknown): value is { id: string } =>
+  Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
 
 export default function RemoveRegisteredAppButton(props: { id: string; name: string; disabled?: boolean }) {
   const removeApp = mutation.create<{ id: string } | null, void>({
@@ -19,9 +23,11 @@ export default function RemoveRegisteredAppButton(props: { id: string; name: str
         },
       );
       if (!confirmed) return null;
-      const response = await fetch(`/api/gateway/apps/${encodeURIComponent(props.id)}`, { method: "DELETE" });
+      const response = await apiClient.apps[":id"].$delete({ param: { id: props.id } });
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to remove app"));
-      return (await response.json()) as { id: string };
+      const body = await response.json();
+      if (!isRemovedApp(body)) throw new Error("Unexpected remove response.");
+      return body;
     },
     onSuccess: (result) => {
       if (!result || result.id !== props.id) return;
