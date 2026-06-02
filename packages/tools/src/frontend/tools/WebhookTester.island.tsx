@@ -1,11 +1,10 @@
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import {
   AppWorkspace,
   CopyButton,
   DataTable,
-  FilterChip,
   type DataTableColumn,
   type DataTableRenderCell,
+  FilterChip,
   type FilterChipSection,
   navigate,
   prompts,
@@ -14,6 +13,8 @@ import {
   toast,
 } from "@valentinkolb/cloud/ui";
 import { timed } from "@valentinkolb/stdlib/solid";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 
 type Endpoint = {
   id: string;
@@ -64,6 +65,7 @@ const DEFAULT_STATE: WebhookTesterInitialState = {
   requestId: null,
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const parseMethod = (value: string): Method | null => METHODS.find((method) => method === value.toUpperCase()) ?? null;
 
 const MODE_OPTIONS: FilterChipSection[] = [
   {
@@ -88,30 +90,30 @@ const METHOD_OPTIONS: FilterChipSection[] = [
 
 export const parseWebhookTesterState = (url: URL): WebhookTesterInitialState => {
   const mode = url.searchParams.get("mode") === "send" ? "send" : "receive";
-  const methodParam = url.searchParams.get("method")?.toUpperCase() ?? "";
   return {
     mode,
     endpointId: UUID_RE.test(url.searchParams.get("endpoint") ?? "") ? url.searchParams.get("endpoint") : null,
-    method: METHODS.includes(methodParam as Method) ? (methodParam as Method) : null,
+    method: parseMethod(url.searchParams.get("method") ?? ""),
     query: url.searchParams.get("q") ?? "",
     requestId: url.searchParams.get("request") || null,
   };
 };
 
-const apiJson = async <T,>(url: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+const assertOk = async (response: Response): Promise<void> => {
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.message || `HTTP ${response.status}`);
+    const message =
+      body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : `HTTP ${response.status}`;
+    throw new Error(message);
   }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+};
+
+const isWebhookLog = (value: unknown): value is WebhookLog =>
+  Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
+
+const assertWebhookLog = (value: unknown): WebhookLog => {
+  if (isWebhookLog(value)) return value;
+  throw new Error("Unexpected webhook response.");
 };
 
 const formatDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
@@ -129,7 +131,7 @@ const parseJsonLike = (value: unknown): { ok: true; value: unknown } | { ok: fal
   for (let i = 0; i < 2; i++) {
     if (typeof current !== "string") return { ok: true, value: current };
     const trimmed = current.trim();
-    if (!trimmed || !["{", "[", "\""].includes(trimmed[0] ?? "")) break;
+    if (!trimmed || !["{", "[", '"'].includes(trimmed[0] ?? "")) break;
     try {
       current = JSON.parse(trimmed);
     } catch {
@@ -176,12 +178,12 @@ const statusClass = (status: number | null, error: string | null) => {
 };
 
 const buildLogQuery = (state: WebhookTesterInitialState) => {
-  const params = new URLSearchParams();
-  if (state.endpointId && state.mode === "receive") params.set("endpointId", state.endpointId);
-  if (state.method) params.set("method", state.method);
-  if (state.query.trim()) params.set("q", state.query.trim());
-  const query = params.toString();
-  return query ? `?${query}` : "";
+  const query: { endpointId?: string; method?: Method; q?: string } = {};
+  if (state.endpointId && state.mode === "receive") query.endpointId = state.endpointId;
+  if (state.method) query.method = state.method;
+  const q = state.query.trim();
+  if (q) query.q = q;
+  return query;
 };
 
 function RequestSearchInput(props: { value: string; onSearch: (value: string) => Promise<void> | void }) {
@@ -224,7 +226,9 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   const [busy, setBusy] = createSignal(false);
 
   const [endpoints, { refetch: refetchEndpoints }] = createResource(async () => {
-    const data = await apiJson<{ items: Endpoint[] }>("/tools/api/webhooks/endpoints");
+    const response = await apiClient.webhooks.endpoints.$get();
+    await assertOk(response);
+    const data = await response.json();
     return data.items;
   });
 
@@ -241,7 +245,6 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
     },
   ];
 
-  const activeEndpoint = createMemo(() => endpoints()?.find((endpoint) => endpoint.id === routeState().endpointId) ?? null);
   const requestQuery = createMemo(
     () => ({
       mode: routeState().mode,
@@ -258,8 +261,13 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   );
 
   const [logs, { refetch: refetchLogs }] = createResource(requestQuery, async (state) => {
-    const path = state.mode === "receive" ? "/tools/api/webhooks/incoming-logs" : "/tools/api/webhooks/outgoing-logs";
-    const data = await apiJson<{ items: WebhookLog[] }>(`${path}${buildLogQuery(state)}`);
+    const query = buildLogQuery(state);
+    const response =
+      state.mode === "receive"
+        ? await apiClient.webhooks["incoming-logs"].$get({ query })
+        : await apiClient.webhooks["outgoing-logs"].$get({ query });
+    await assertOk(response);
+    const data = await response.json();
     return data.items;
   });
 
@@ -302,10 +310,9 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
     }
     setBusy(true);
     try {
-      const endpoint = await apiJson<Endpoint>("/tools/api/webhooks/endpoints", {
-        method: "POST",
-        body: JSON.stringify({ name }),
-      });
+      const response = await apiClient.webhooks.endpoints.$post({ json: { name } });
+      await assertOk(response);
+      const endpoint = await response.json();
       await refetchEndpoints();
       commitRoute({ mode: "receive", endpointId: endpoint.id, requestId: null });
       toast.success("Endpoint created.");
@@ -332,7 +339,8 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   const deleteEndpoint = async (endpoint: Endpoint) => {
     setBusy(true);
     try {
-      await apiJson<void>(`/tools/api/webhooks/endpoints/${endpoint.id}`, { method: "DELETE" });
+      const response = await apiClient.webhooks.endpoints[":endpointId"].$delete({ param: { endpointId: endpoint.id } });
+      await assertOk(response);
       await refetchEndpoints();
       if (routeState().endpointId === endpoint.id) commitRoute({ endpointId: null, requestId: null });
       await refetchLogs();
@@ -347,15 +355,16 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   const sendRequest = async () => {
     setBusy(true);
     try {
-      const log = await apiJson<WebhookLog>("/tools/api/webhooks/send", {
-        method: "POST",
-        body: JSON.stringify({
+      const response = await apiClient.webhooks.send.$post({
+        json: {
           url: targetUrl(),
           method: sendMethod(),
           headers: parseHeaders(headers()),
           body: body(),
-        }),
+        },
       });
+      await assertOk(response);
+      const log = assertWebhookLog(await response.json());
       await refetchLogs();
       commitRoute({ mode: "send", requestId: log.id });
       toast.success("Request sent.");

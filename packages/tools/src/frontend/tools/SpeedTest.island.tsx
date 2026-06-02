@@ -1,5 +1,6 @@
-import { createSignal, Show, onCleanup, batch, createMemo, For } from "solid-js";
-import { CopyButton, Chart } from "@valentinkolb/cloud/ui";
+import { Chart, CopyButton } from "@valentinkolb/cloud/ui";
+import { batch, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 
 type Phase = "idle" | "ping" | "download" | "upload" | "done" | "error";
 
@@ -97,13 +98,13 @@ export default function SpeedTest(props: SpeedTestProps) {
     // setup, JIT warmup, settings cache fill, etc.
     for (let i = 0; i < PING_WARMUP; i++) {
       if (signal.aborted) throw new DOMException("aborted", "AbortError");
-      await fetch("/tools/api/speedtest/ping", { method: "GET", cache: "no-store", signal });
+      await apiClient.speedtest.ping.$get({}, { init: { cache: "no-store", signal } });
     }
     const samples: number[] = [];
     for (let i = 0; i < PING_SAMPLES; i++) {
       if (signal.aborted) throw new DOMException("aborted", "AbortError");
       const t0 = performance.now();
-      await fetch("/tools/api/speedtest/ping", { method: "GET", cache: "no-store", signal });
+      await apiClient.speedtest.ping.$get({}, { init: { cache: "no-store", signal } });
       samples.push(performance.now() - t0);
       setPingHistory([...samples]);
     }
@@ -120,10 +121,10 @@ export default function SpeedTest(props: SpeedTestProps) {
     let lastUpdate = t0;
 
     const streams = Array.from({ length: DOWNLOAD_PARALLEL }, async () => {
-      const res = await fetch(`/tools/api/speedtest/download?size=${DOWNLOAD_PER_STREAM}`, {
-        cache: "no-store",
-        signal,
-      });
+      const res = await apiClient.speedtest.download.$get(
+        { query: { size: String(DOWNLOAD_PER_STREAM) } },
+        { init: { cache: "no-store", signal } },
+      );
       if (!res.body) throw new Error("download: no response body");
       const reader = res.body.getReader();
       while (true) {
@@ -277,8 +278,8 @@ export default function SpeedTest(props: SpeedTestProps) {
       <div class="info-block-warning flex items-center gap-2">
         <i class="ti ti-cloud-upload shrink-0" />
         <span>
-          This tool sends random test data to the cloud server to measure your connection. The data is generated in your browser and discarded
-          server-side — nothing is stored.
+          This tool sends random test data to the cloud server to measure your connection. The data is generated in your browser and
+          discarded server-side — nothing is stored.
         </span>
       </div>
 
@@ -311,13 +312,7 @@ export default function SpeedTest(props: SpeedTestProps) {
             series={pingHistory()}
             seriesColor="text-amber-500 dark:text-amber-400"
           />
-          <Metric
-            label="Jitter"
-            value={formatMs(jitter())}
-            unit="ms"
-            icon="ti ti-wave-square"
-            active={phase() === "ping"}
-          />
+          <Metric label="Jitter" value={formatMs(jitter())} unit="ms" icon="ti ti-wave-square" active={phase() === "ping"} />
         </div>
 
         <div class="flex items-center gap-3">
@@ -382,7 +377,9 @@ export default function SpeedTest(props: SpeedTestProps) {
           </div>
 
           <div class="relative">
-            <pre class="text-xs bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 pr-12 overflow-x-auto select-all font-mono">{cliSnippet()}</pre>
+            <pre class="text-xs bg-zinc-50 dark:bg-zinc-800/50 rounded-lg p-3 pr-12 overflow-x-auto select-all font-mono">
+              {cliSnippet()}
+            </pre>
             <div class="absolute top-2 right-2">
               <CopyButton text={cliSnippet()} class="btn-simple text-xs px-2 py-1" />
             </div>

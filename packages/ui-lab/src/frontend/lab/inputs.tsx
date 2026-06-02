@@ -546,16 +546,12 @@ export const AutocompleteEditorAsync = () => {
       chip={{ kind: "component", name: "AutocompleteEditor", from: FROM_UI }}
       variant="async suggest with debounce + abort + retry"
       description="Suggest returns a Promise. Editor debounces ~180ms after last keystroke, aborts in-flight requests on every new char, shows a Loading spinner, surfaces errors with a Retry button (this mock errors ~15% of the time)."
-      code={`<AutocompleteEditor
+      code={`const suggestPackages = (query, _ctx, signal) =>
+  lookupPackages(query, signal);
+
+<AutocompleteEditor
   value={v} onInput={setV} singleLine
-  completions={[{
-    dropdown: true,
-    suggest: async (query, ctx, signal) => {
-      const res = await fetch(\`/api/packages?q=\${query}\`, { signal });
-      if (!res.ok) throw new Error("Lookup failed");
-      return await res.json();
-    },
-  }]}
+  completions={[{ dropdown: true, suggest: suggestPackages }]}
 />`}
     >
       <AutocompleteEditor
