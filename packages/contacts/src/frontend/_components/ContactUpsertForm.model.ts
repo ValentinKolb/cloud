@@ -1,4 +1,5 @@
 import type { Contact, ContactRef, CreateContactInput } from "../../service";
+import { isSafeWebsiteUrl } from "../../shared";
 
 export type EditableEmail = { label: string; email: string };
 export type EditablePhone = { label: string; phone: string };
@@ -166,6 +167,12 @@ export const buildContactPayload = (draft: ContactUpsertDraft): CreateContactInp
       url: website.url.trim(),
     }))
     .filter((website) => website.url.length > 0);
+
+  for (const website of websites) {
+    if (!isSafeWebsiteUrl(website.url)) {
+      throw new Error("Website URL must start with http:// or https://");
+    }
+  }
 
   const addresses = draft.addresses
     .map((address) => ({

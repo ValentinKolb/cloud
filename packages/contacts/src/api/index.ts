@@ -11,17 +11,7 @@ import {
   parsePagination,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import {
-  type AuthContext,
-  auth,
-  jsonResponse,
-  rateLimit,
-  requiresAuth,
-  respond,
-  respondMessage,
-  updateAccess,
-  v,
-} from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { err, fail, ok } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import { type Context, Hono, type MiddlewareHandler, type TypedResponse } from "hono";
@@ -29,10 +19,33 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { contactsService } from "../service";
 import * as vcard from "../service/vcard";
+import { isSafeWebsiteUrl } from "../shared";
 
 const documentRoute = (options: Parameters<typeof describeRoute>[0]) => describeRoute(options) as MiddlewareHandler<AuthContext>;
 
 type ApiErrorResponse = TypedResponse<{ message: string; code?: string }, 400 | 401 | 403 | 404 | 409 | 500, "json">;
+
+const MAX_IMPORT_CONTACTS = 1_000;
+const MAX_IMPORT_CONTENT_CHARS = 10_000_000;
+const MAX_IMPORT_BODY_BYTES = 12_000_000;
+const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
+
+const requireImportBodySize: MiddlewareHandler<AuthContext> = async (c, next) => {
+  const rawLength = c.req.header("content-length");
+  if (!rawLength) {
+    return respond(c, fail(err.badInput("Import request requires Content-Length"))) as unknown as Response;
+  }
+
+  const length = Number(rawLength);
+  if (!Number.isSafeInteger(length) || length < 0) {
+    return respond(c, fail(err.badInput("Invalid Content-Length"))) as unknown as Response;
+  }
+  if (length > MAX_IMPORT_BODY_BYTES) {
+    return respond(c, fail(err.badInput("Import request is too large"))) as unknown as Response;
+  }
+
+  return next();
+};
 
 const ContactBookSchema = z.object({
   id: z.string(),
@@ -89,7 +102,7 @@ const ContactBankAccountSchema = z.object({
 
 const ContactWebsiteInputSchema = z.object({
   label: z.string().max(100).nullable().optional(),
-  url: z.string().min(1).max(500),
+  url: z.string().trim().min(1).max(500).refine(isSafeWebsiteUrl, "Website URL must start with http:// or https://"),
 });
 
 const ContactBankAccountInputSchema = z.object({
@@ -175,7 +188,7 @@ const ContactSchema = z.object({
       id: z.string(),
       bookId: z.string(),
       name: z.string(),
-      color: z.string(),
+      color: HexColorSchema,
       createdAt: z.string(),
       updatedAt: z.string(),
     }),
@@ -200,22 +213,19 @@ const ContactTagSchema = z.object({
   id: z.string(),
   bookId: z.string(),
   name: z.string(),
-  color: z.string(),
+  color: HexColorSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 const ContactTagCreateInputSchema = z.object({
   name: z.string().min(1).max(50),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value"),
+  color: HexColorSchema,
 });
 
 const ContactTagUpdateInputSchema = z.object({
   name: z.string().min(1).max(50).optional(),
-  color: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/)
-    .optional(),
+  color: HexColorSchema.optional(),
 });
 
 const ContactEmailInputSchema = z.object({
@@ -400,12 +410,7 @@ const adminApi = new Hono<AuthContext>()
     const book = await contactsService.book.get({ id: bookId });
     if (!book) return respond(c, fail(err.notFound("Book")));
 
-    const guard = await contactsService.book.access.guard({ bookId, accessId });
-    if (!guard.currentPermission) return respond(c, fail(err.notFound("Access entry")));
-    if (guard.currentPermission === "admin" && permission !== "admin" && guard.otherAdmins <= 0) {
-      return respond(c, fail(err.badInput("Cannot remove the last admin")));
-    }
-    return respondMessage(c, updateAccess({ id: accessId, permission }), "Access updated");
+    return respondMessage(c, contactsService.book.access.update({ bookId, accessId, permission }), "Access updated");
   })
   .delete("/books/:bookId/access/:accessId", async (c) => {
     const bookId = c.req.param("bookId") ?? "";
@@ -414,12 +419,6 @@ const adminApi = new Hono<AuthContext>()
     const book = await contactsService.book.get({ id: bookId });
     if (!book) return respond(c, fail(err.notFound("Book")));
 
-    const guard = await contactsService.book.access.guard({ bookId, accessId });
-    if (!guard.currentPermission) return respond(c, fail(err.notFound("Access entry")));
-    if (guard.total <= 1) return respond(c, fail(err.badInput("Cannot remove the last access entry")));
-    if (guard.currentPermission === "admin" && guard.otherAdmins <= 0) {
-      return respond(c, fail(err.badInput("Cannot remove the last admin")));
-    }
     return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
   });
 
@@ -651,16 +650,7 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
-      const guard = await contactsService.book.access.guard({ bookId, accessId });
-      if (!guard.currentPermission) {
-        return respond(c, fail(err.notFound("Access entry")));
-      }
-
-      if (guard.currentPermission === "admin" && permission !== "admin" && guard.otherAdmins <= 0) {
-        return respond(c, fail(err.badInput("Cannot remove the last admin")));
-      }
-
-      return respondMessage(c, updateAccess({ id: accessId, permission }), "Access updated");
+      return respondMessage(c, contactsService.book.access.update({ bookId, accessId, permission }), "Access updated");
     },
   )
 
@@ -688,19 +678,6 @@ const app = new Hono<AuthContext>()
 
       const { error } = await requireBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
-
-      const guard = await contactsService.book.access.guard({ bookId, accessId });
-      if (!guard.currentPermission) {
-        return respond(c, fail(err.notFound("Access entry")));
-      }
-
-      if (guard.total <= 1) {
-        return respond(c, fail(err.badInput("Cannot remove the last access entry")));
-      }
-
-      if (guard.currentPermission === "admin" && guard.otherAdmins <= 0) {
-        return respond(c, fail(err.badInput("Cannot remove the last admin")));
-      }
 
       return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
     },
@@ -1193,11 +1170,12 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(z.object({ candidates: z.array(z.unknown()) }), "Preview"),
       },
     }),
+    requireImportBodySize,
     v(
       "json",
       z.object({
         format: z.enum(["vcard"]),
-        content: z.string().min(1).max(10_000_000),
+        content: z.string().min(1).max(MAX_IMPORT_CONTENT_CHARS),
       }),
     ),
     async (c) => {
@@ -1206,6 +1184,9 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       const body = c.req.valid("json");
       const candidates = vcard.parse(body.content);
+      if (candidates.length > MAX_IMPORT_CONTACTS) {
+        return respond(c, fail(err.badInput(`Import is limited to ${MAX_IMPORT_CONTACTS} contacts at a time`)));
+      }
 
       // Match heuristic — one DB hop, then in-memory set lookups. Returns
       // existingId + display name when a candidate likely duplicates an
@@ -1270,10 +1251,11 @@ const app = new Hono<AuthContext>()
         200: jsonResponse(ImportCommitResponseSchema, "Created count with per-contact failures"),
       },
     }),
+    requireImportBodySize,
     v(
       "json",
       z.object({
-        contacts: z.array(z.unknown()),
+        contacts: z.array(z.unknown()).max(MAX_IMPORT_CONTACTS),
       }),
     ),
     async (c) => {

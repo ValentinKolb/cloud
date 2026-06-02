@@ -158,4 +158,10 @@ describe("ContactUpsertForm model", () => {
     );
     expect(() => buildContactPayload({ ...baseDraft, birthday: "12/10/1815" })).toThrow("Birthday must use format YYYY-MM-DD");
   });
+
+  test("rejects unsafe website URLs", () => {
+    expect(() => buildContactPayload({ ...baseDraft, websites: [{ label: "Website", url: "javascript:alert(1)" }] })).toThrow(
+      "Website URL must start with http:// or https://",
+    );
+  });
 });

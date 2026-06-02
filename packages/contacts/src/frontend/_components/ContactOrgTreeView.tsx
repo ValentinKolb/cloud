@@ -102,7 +102,7 @@ export default function ContactOrgTreeView(props: Props) {
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
             <h2 class="truncate text-lg font-semibold leading-tight text-primary">Org Tree</h2>
-            <p class="mt-1 text-xs text-dimmed">Hierarchy in this contact book.</p>
+            <p class="mt-1 text-xs text-dimmed">Hierarchy of this contact.</p>
           </div>
           <button type="button" class="btn-secondary btn-sm" onClick={props.onBack}>
             <i class="ti ti-arrow-left" /> Details

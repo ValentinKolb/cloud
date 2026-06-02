@@ -3,6 +3,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
+import { safeTagColor } from "../../shared";
 import { readErrorMessage } from "./api";
 
 type Props = {
@@ -55,7 +56,7 @@ function TagForm(props: {
 function TagRow(props: { tag: ContactTag; onEdit: () => void; onDelete: () => void }) {
   return (
     <div class="group/tag flex items-center gap-2 py-0.5 pl-3">
-      <span class="h-4 w-4 shrink-0 rounded-full" style={`background-color: ${props.tag.color}`} />
+      <span class="h-4 w-4 shrink-0 rounded-full" style={`background-color: ${safeTagColor(props.tag.color)}`} />
       <span class="flex-1 truncate text-sm">{props.tag.name}</span>
       <div class="flex items-center gap-1 opacity-0 transition-opacity group-hover/tag:opacity-100">
         <button

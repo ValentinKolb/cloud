@@ -2,6 +2,7 @@ import { Dropdown, type DropdownItem } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactTag } from "../../service";
+import { safeTagColor } from "../../shared";
 
 type Props = {
   bookId: string;
@@ -101,7 +102,7 @@ export default function ContactTagsPicker(props: Props) {
               <i class="ti ti-check text-[10px]" />
             </Show>
           </div>
-          <span class="h-3 w-3 shrink-0 rounded-full" style={`background-color: ${tag.color}`} />
+          <span class="h-3 w-3 shrink-0 rounded-full" style={`background-color: ${safeTagColor(tag.color)}`} />
           <span class="truncate text-primary">{tag.name}</span>
         </button>
       ),
@@ -137,9 +138,9 @@ export default function ContactTagsPicker(props: Props) {
           {(tag) => (
             <span
               class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium"
-              style={`background-color: ${tag.color}1f; color: ${tag.color}`}
+              style={`background-color: ${safeTagColor(tag.color)}1f; color: ${safeTagColor(tag.color)}`}
             >
-              <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+              <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${safeTagColor(tag.color)}`} />
               {tag.name}
             </span>
           )}

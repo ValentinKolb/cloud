@@ -4,6 +4,7 @@ import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { AppWorkspace, Pagination } from "@valentinkolb/cloud/ui";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
+import { safeTagColor } from "../../shared";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
 import ContactsList from "../_components/ContactsList.island";
 import ContactsSidebar from "../_components/ContactsSidebar";
@@ -116,6 +117,7 @@ export default ssr<AuthContext>(async (c) => {
               </a>
               {bookTags.map((tag) => {
                 const active = activeTagId === tag.id;
+                const color = safeTagColor(tag.color);
                 const params = new URLSearchParams();
                 if (search.trim()) params.set("search", search.trim());
                 params.set("tag_id", tag.id);
@@ -124,9 +126,9 @@ export default ssr<AuthContext>(async (c) => {
                   <a
                     href={href}
                     class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-opacity"
-                    style={`background-color: ${tag.color}${active ? "33" : "1f"}; color: ${tag.color}${active ? "" : "cc"}; ${active ? "outline: 1.5px solid " + tag.color + ";" : ""}`}
+                    style={`background-color: ${color}${active ? "33" : "1f"}; color: ${color}${active ? "" : "cc"}; ${active ? "outline: 1.5px solid " + color + ";" : ""}`}
                   >
-                    <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+                    <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${color}`} />
                     {tag.name}
                   </a>
                 );

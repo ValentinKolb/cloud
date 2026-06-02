@@ -10,6 +10,7 @@ import {
   grantBookAccess,
   listBookAccessPaginated,
   removeBookAccess,
+  updateBookAccessPermission,
 } from "./access";
 import { isUuid, toPgUuidArray } from "./shared";
 import type { ContactBook, ContactBookAdminListItem, CreateBookInput, UpdateBookInput } from "./types";
@@ -55,10 +56,13 @@ export const list = async (config: { userId: string | null; groups: string[] }):
     JOIN contacts.book_access ba ON ba.book_id = b.id
     JOIN auth.access a ON a.id = ba.access_id
     WHERE
-      a.user_id = ${config.userId}::uuid
-      OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
-      OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-      OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+      a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+      AND (
+        a.user_id = ${config.userId}::uuid
+        OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
+        OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+      )
     ORDER BY b.name ASC
   `;
 
@@ -270,6 +274,7 @@ export const canAccess = async (config: {
 export const access = {
   list: listBookAccessPaginated,
   grant: grantBookAccess,
+  update: updateBookAccessPermission,
   remove: (config: { bookId: string; accessId: string }) => removeBookAccess(config.bookId, config.accessId),
   add: (config: { bookId: string; accessId: string }) => addBookAccess(config.bookId, config.accessId),
   count: (config: { bookId: string }) => countBookAccess(config.bookId),

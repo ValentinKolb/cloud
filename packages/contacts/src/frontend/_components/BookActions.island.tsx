@@ -17,6 +17,8 @@ type ImportCandidate = {
   match: { existingId: string; existingName: string } | null;
 };
 
+const MAX_IMPORT_FILE_BYTES = 10_000_000;
+
 /** Inline preview + commit for a vCard import. Lives inside a prompts.dialog. */
 function ImportDialog(props: { bookId: string; close: (created: number) => void }) {
   const [stage, setStage] = createSignal<"upload" | "preview" | "committing">("upload");
@@ -69,6 +71,11 @@ function ImportDialog(props: { bookId: string; close: (created: number) => void 
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      prompts.error("vCard files are limited to 10 MB");
+      input.value = "";
+      return;
+    }
     setFilename(file.name);
     const reader = new FileReader();
     reader.onload = () => {

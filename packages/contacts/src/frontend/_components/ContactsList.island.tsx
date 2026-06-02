@@ -1,7 +1,7 @@
 import { DataTable, type DataTableColumn } from "@valentinkolb/cloud/ui";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Contact } from "../../service";
-import { resolveContactName } from "../../shared";
+import { resolveContactName, safeTagColor } from "../../shared";
 import { CONTACT_DETAIL_EVENT, type ContactDetailPayload, getSelectedContactFromUrl, setSelectedContactInUrl } from "./context";
 
 type Props = {
@@ -98,9 +98,9 @@ export default function ContactsList(props: Props) {
                       {(tag) => (
                         <span
                           class="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-normal"
-                          style={`background-color: ${tag.color}1f; color: ${tag.color}`}
+                          style={`background-color: ${safeTagColor(tag.color)}1f; color: ${safeTagColor(tag.color)}`}
                         >
-                          <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${tag.color}`} />
+                          <span class="h-1.5 w-1.5 rounded-full" style={`background-color: ${safeTagColor(tag.color)}`} />
                           {tag.name}
                         </span>
                       )}

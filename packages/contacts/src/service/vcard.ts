@@ -94,13 +94,13 @@ export const serializeContact = (contact: Contact): string => {
   for (const email of contact.emails ?? []) {
     const type = sanitiseType(email.label);
     const params = type ? `;TYPE=${type}` : "";
-    lines.push(`EMAIL${params}:${email.email}`);
+    lines.push(`EMAIL${params}:${escapeValue(email.email)}`);
   }
 
   for (const phone of contact.phones ?? []) {
     const type = sanitiseType(phone.label);
     const params = type ? `;TYPE=${type}` : "";
-    lines.push(`TEL${params}:${phone.phone}`);
+    lines.push(`TEL${params}:${escapeValue(phone.phone)}`);
   }
 
   for (const address of contact.addresses ?? []) {
@@ -342,7 +342,8 @@ export const parse = (raw: string): CreateContactInput[] => {
 // --- CSV export (flat, lossy) ----------------------------------------------
 
 const csvCell = (value: string | null | undefined): string => {
-  const v = value ?? "";
+  const raw = value ?? "";
+  const v = /^[\s]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
   if (v.includes(",") || v.includes('"') || v.includes("\n") || v.includes("\r")) {
     return `"${v.replace(/"/g, '""')}"`;
   }

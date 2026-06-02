@@ -103,6 +103,7 @@ export const contactsService = {
         };
       }): Promise<Paginated<AccessEntry>> => books.access.list(config),
       grant: (config: { bookId: string; principal: AccessEntry["principal"]; permission: PermissionLevel }) => books.access.grant(config),
+      update: (config: { bookId: string; accessId: string; permission: PermissionLevel }) => books.access.update(config),
       remove: (config: { bookId: string; accessId: string }) => books.access.remove(config),
       add: (config: { bookId: string; accessId: string }) => books.access.add(config),
       count: (config: { bookId: string }) => books.access.count(config),

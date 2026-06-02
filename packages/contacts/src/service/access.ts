@@ -194,17 +194,106 @@ export const removeBookAccess = async (bookId: string, accessId: string): Promis
     return fail(err.notFound("Book or access entry"));
   }
 
-  const [exists] = await sql<{ access_id: string }[]>`
-    SELECT access_id
-    FROM contacts.book_access
-    WHERE book_id = ${bookId}::uuid
-      AND access_id = ${accessId}::uuid
-  `;
-  if (!exists) {
-    return fail(err.notFound("Access entry for this book"));
+  return sql.begin(async (tx) => {
+    const [guard] = await tx<
+      {
+        total: number;
+        other_admins: number;
+        current_permission: PermissionLevel | null;
+      }[]
+    >`
+      WITH locked AS (
+        SELECT a.id, a.permission
+        FROM contacts.book_access ba
+        JOIN auth.access a ON ba.access_id = a.id
+        WHERE ba.book_id = ${bookId}::uuid
+        FOR UPDATE OF ba, a
+      )
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (
+          WHERE permission = 'admin'::auth.permission_level
+            AND id <> ${accessId}::uuid
+        )::int AS other_admins,
+        MAX(CASE WHEN id = ${accessId}::uuid THEN permission END) AS current_permission
+      FROM locked
+    `;
+
+    if (!guard?.current_permission) {
+      return fail(err.notFound("Access entry for this book"));
+    }
+    if (guard.total <= 1) {
+      return fail(err.badInput("Cannot remove the last access entry"));
+    }
+    if (guard.current_permission === "admin" && guard.other_admins <= 0) {
+      return fail(err.badInput("Cannot remove the last admin"));
+    }
+
+    const result = await tx`
+      DELETE FROM auth.access
+      WHERE id = ${accessId}::uuid
+    `;
+    if (result.count === 0) {
+      return fail(err.notFound("Access entry for this book"));
+    }
+
+    return ok();
+  });
+};
+
+/**
+ * Updates one access entry permission while holding the book ACL rows locked.
+ */
+export const updateBookAccessPermission = async (config: {
+  bookId: string;
+  accessId: string;
+  permission: PermissionLevel;
+}): Promise<Result<void>> => {
+  if (!isUuid(config.bookId) || !isUuid(config.accessId)) {
+    return fail(err.notFound("Book or access entry"));
   }
 
-  return deleteAccess({ id: accessId });
+  return sql.begin(async (tx) => {
+    const [guard] = await tx<
+      {
+        other_admins: number;
+        current_permission: PermissionLevel | null;
+      }[]
+    >`
+      WITH locked AS (
+        SELECT a.id, a.permission
+        FROM contacts.book_access ba
+        JOIN auth.access a ON ba.access_id = a.id
+        WHERE ba.book_id = ${config.bookId}::uuid
+        FOR UPDATE OF ba, a
+      )
+      SELECT
+        COUNT(*) FILTER (
+          WHERE permission = 'admin'::auth.permission_level
+            AND id <> ${config.accessId}::uuid
+        )::int AS other_admins,
+        MAX(CASE WHEN id = ${config.accessId}::uuid THEN permission END) AS current_permission
+      FROM locked
+    `;
+
+    if (!guard?.current_permission) {
+      return fail(err.notFound("Access entry for this book"));
+    }
+    if (guard.current_permission === "admin" && config.permission !== "admin" && guard.other_admins <= 0) {
+      return fail(err.badInput("Cannot remove the last admin"));
+    }
+
+    const result = await tx`
+      UPDATE auth.access
+      SET permission = ${config.permission}::auth.permission_level
+      WHERE id = ${config.accessId}::uuid
+    `;
+    if (result.count === 0) {
+      return fail(err.notFound("Access entry for this book"));
+    }
+
+    return ok();
+  });
 };
 
 /**

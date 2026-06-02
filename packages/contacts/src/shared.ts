@@ -27,3 +27,19 @@ export const resolveContactName = (contact: NameLike): string => {
 export const resolveStoredContactLabel = (contact: NameLike): string | null => {
   return trimOrNull(contact.label);
 };
+
+export const safeWebsiteHref = (value: string): string | null => {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "http:" || url.protocol === "https:" ? trimmed : null;
+  } catch {
+    return null;
+  }
+};
+
+export const isSafeWebsiteUrl = (value: string): boolean => safeWebsiteHref(value) !== null;
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+export const safeTagColor = (value: string): string => (HEX_COLOR.test(value) ? value : "#6b7280");

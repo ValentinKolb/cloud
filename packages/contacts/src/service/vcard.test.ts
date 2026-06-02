@@ -112,6 +112,38 @@ describe("vCard serialization", () => {
     expect(output).toContain(`NICKNAME:${"A".repeat(66)}\r\n ${"A".repeat(34)}`);
     expect(output.endsWith("\r\n")).toBe(true);
   });
+
+  test("escapes phone and email values so they cannot add vCard properties", () => {
+    const output = serializeContact(
+      contact({
+        emails: [
+          {
+            id: "email-1",
+            contactId: "contact-1",
+            label: "Work",
+            email: "ada@example.test",
+            position: 0,
+            createdAt: stamp,
+            updatedAt: stamp,
+          },
+        ],
+        phones: [
+          {
+            id: "phone-1",
+            contactId: "contact-1",
+            label: "Mobile",
+            phone: "+49 123\r\nX-INJECTED:yes",
+            position: 0,
+            createdAt: stamp,
+            updatedAt: stamp,
+          },
+        ],
+      }),
+    );
+
+    expect(output).toContain("TEL;TYPE=mobile:+49 123\\nX-INJECTED:yes");
+    expect(output).not.toContain("\r\nX-INJECTED:yes");
+  });
 });
 
 describe("vCard parsing", () => {
@@ -201,5 +233,19 @@ describe("CSV serialization", () => {
     expect(output).toContain('"Needs ""quotes"""');
     expect(output).toContain('"Line 1\nLine 2"');
     expect(output.endsWith("\r\n")).toBe(true);
+  });
+
+  test("neutralizes spreadsheet formula cells", () => {
+    const output = serializeBookCsv([
+      contact({
+        firstName: "=cmd|' /C calc'!A0",
+        lastName: "+SUM(1,1)",
+        companyName: ' @HYPERLINK("https://example.test")',
+      }),
+    ]);
+
+    expect(output).toContain("'=cmd|' /C calc'!A0");
+    expect(output).toContain(`"'+SUM(1,1)"`);
+    expect(output).toContain(`"' @HYPERLINK(""https://example.test"")"`);
   });
 });

@@ -1071,18 +1071,28 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
   //   * own parent_contact_id → NULL (same reason)
   //   * own tag assignments → DELETE (tags are book-scoped vocabulary)
   // The user sees a warning in the UI before confirming.
-  const [row] = await sql.begin(async (tx) => {
+  const row = await sql.begin(async (tx) => {
+    const [existing] = await tx<{ id: string }[]>`
+      SELECT id
+      FROM contacts.contacts
+      WHERE id = ${config.id}::uuid
+        AND book_id = ${config.sourceBookId}::uuid
+      FOR UPDATE
+    `;
+    if (!existing) return null;
+
     await tx`
       UPDATE contacts.contacts
       SET parent_contact_id = NULL,
           updated_at = now()
       WHERE parent_contact_id = ${config.id}::uuid
+        AND book_id = ${config.sourceBookId}::uuid
     `;
     await tx`
       DELETE FROM contacts.contact_tag_assignments
       WHERE contact_id = ${config.id}::uuid
     `;
-    return await tx<{ id: string }[]>`
+    const [moved] = await tx<{ id: string }[]>`
       UPDATE contacts.contacts
       SET
         book_id = ${config.targetBookId}::uuid,
@@ -1092,6 +1102,7 @@ export const move = async (config: { sourceBookId: string; targetBookId: string;
         AND book_id = ${config.sourceBookId}::uuid
       RETURNING id
     `;
+    return moved ?? null;
   });
 
   if (!row) return fail(err.notFound("Contact"));
@@ -1166,12 +1177,13 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE (
-        a.user_id = ${config.userId}::uuid
-        OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
-        OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
-      )
+      WHERE a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+      AND (
+          a.user_id = ${config.userId}::uuid
+          OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
+          OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        )
       AND ${mapManualSearchCondition(searchPattern)}
     ),
     system_matches AS (
@@ -1225,12 +1237,13 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE (
-        a.user_id = ${config.userId}::uuid
-        OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
-        OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-        OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
-      )
+      WHERE a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+      AND (
+          a.user_id = ${config.userId}::uuid
+          OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
+          OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+        )
       AND ${mapManualSearchCondition(searchPattern)}
     ),
     system_matches AS (
