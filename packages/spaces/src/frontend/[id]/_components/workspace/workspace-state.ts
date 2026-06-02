@@ -90,6 +90,7 @@ export const loadSpacesWorkspaceState = async (params: {
         pageSize: listPageSize,
       },
       currentUserId: params.user.id,
+      dateConfig: params.dateConfig,
     });
   }
 
@@ -123,6 +124,7 @@ export const loadSpacesWorkspaceState = async (params: {
           pageSize: KANBAN_PAGE_SIZE,
         },
         currentUserId: params.user.id,
+        dateConfig: params.dateConfig,
       });
       return { ...config, items: result.items, page: result.page, totalPages: result.totalPages, total: result.total };
     };

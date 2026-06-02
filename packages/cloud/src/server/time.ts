@@ -1,5 +1,5 @@
-import { dates, type DateContext } from "@valentinkolb/stdlib";
-import { TIMEZONE_COOKIE } from "../shared/time";
+import type { DateContext } from "@valentinkolb/stdlib";
+import { normalizeTimeZone, TIMEZONE_COOKIE } from "../shared/time";
 
 export { TIMEZONE_COOKIE };
 
@@ -28,8 +28,8 @@ const readCookie = (headers: Headers, name: string): string | undefined => {
 
 export const getTimeZone = (c: TimeContext): string => {
   const settingsTimeZone = c.get("settings")?.app?.timezone;
-  const fallback = dates.normalizeTimeZone(typeof settingsTimeZone === "string" ? settingsTimeZone : undefined, "UTC");
-  return dates.normalizeTimeZone(readCookie(c.req.raw.headers, TIMEZONE_COOKIE), fallback);
+  const fallback = normalizeTimeZone(typeof settingsTimeZone === "string" ? settingsTimeZone : undefined, "UTC");
+  return normalizeTimeZone(readCookie(c.req.raw.headers, TIMEZONE_COOKIE), fallback);
 };
 
 export const getDateConfig = (c: TimeContext): DateContext => ({

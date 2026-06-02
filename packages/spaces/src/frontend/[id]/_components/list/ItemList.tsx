@@ -1,6 +1,6 @@
-import type { SpaceItem, SpaceColumn, SpaceTag, ItemGroupBy } from "@/contracts";
-import type { DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { createMemo } from "solid-js";
+import type { ItemGroupBy, SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemRow from "./ItemRow";
 
 // =============================================================================
@@ -72,22 +72,22 @@ const DEADLINE_GROUPS: GroupConfig[] = [
 // =============================================================================
 
 /** Get deadline group key for an item */
-function getDeadlineGroupKey(item: SpaceItem): string {
+function getDeadlineGroupKey(item: SpaceItem, dateConfig?: DateContext): string {
   if (!item.deadline) return "none";
 
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
-  const weekEnd = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-  const deadline = new Date(item.deadline);
-  const deadlineDate = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const today = dates.today(dateConfig);
+  const tomorrow = dates.addDays(today, 1, dateConfig);
+  const weekEnd = dates.addDays(today, 7, dateConfig);
+  const todayKey = dates.formatDateKey(today, dateConfig);
+  const tomorrowKey = dates.formatDateKey(tomorrow, dateConfig);
+  const weekEndKey = dates.formatDateKey(weekEnd, dateConfig);
+  const deadlineKey = dates.formatDateKey(item.deadline, dateConfig);
 
   const isCompleted = !!item.completedAt;
-  if (deadlineDate < today && !isCompleted) return "overdue";
-  if (deadlineDate.getTime() === today.getTime()) return "today";
-  if (deadlineDate.getTime() === tomorrow.getTime()) return "tomorrow";
-  if (deadlineDate < weekEnd) return "thisWeek";
+  if (deadlineKey < todayKey && !isCompleted) return "overdue";
+  if (deadlineKey === todayKey) return "today";
+  if (deadlineKey === tomorrowKey) return "tomorrow";
+  if (deadlineKey < weekEndKey) return "thisWeek";
   return "later";
 }
 
@@ -97,6 +97,7 @@ function groupItems(
   groupBy: ItemGroupBy,
   columns: SpaceColumn[],
   tags: SpaceTag[],
+  dateConfig?: DateContext,
 ): { groups: GroupConfig[]; itemsByGroup: Record<string, SpaceItem[]> } {
   const itemsByGroup: Record<string, SpaceItem[]> = {};
 
@@ -171,7 +172,7 @@ function groupItems(
         itemsByGroup[g.key] = [];
       }
       for (const item of items) {
-        const key = getDeadlineGroupKey(item);
+        const key = getDeadlineGroupKey(item, dateConfig);
         itemsByGroup[key]?.push(item);
       }
       return { groups: DEADLINE_GROUPS, itemsByGroup };
@@ -214,7 +215,7 @@ function GroupHeader(props: { config: GroupConfig; count: number }) {
  * Renders items grouped by column, priority, tag, deadline, or flat.
  */
 export default function ItemList(props: ItemListProps) {
-  const grouped = createMemo(() => groupItems(props.items, props.groupBy, props.columns, props.tags));
+  const grouped = createMemo(() => groupItems(props.items, props.groupBy, props.columns, props.tags, props.dateConfig));
   const nonEmptyGroups = createMemo(() => {
     const current = grouped();
     return current.groups.filter((group) => (current.itemsByGroup[group.key] || []).length > 0);

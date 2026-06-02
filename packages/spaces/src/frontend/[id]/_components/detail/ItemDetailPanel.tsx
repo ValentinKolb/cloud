@@ -1,23 +1,23 @@
-import { Show, For, createSignal, onCleanup } from "solid-js";
-import { apiClient } from "@/api/client";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { dates, type DateContext } from "@valentinkolb/stdlib";
 import { markdown } from "@valentinkolb/cloud/shared";
 import {
   Dropdown,
+  type DropdownItem,
   EntitySearch,
+  type EntitySearchPrincipal,
   MarkdownView,
   prompts,
   toast,
-  type DropdownItem,
-  type EntitySearchPrincipal,
 } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, onCleanup, Show } from "solid-js";
+import { apiClient } from "@/api/client";
+import type { SpaceColumn, SpaceComment, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
-import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
-import CommentsSection from "./CommentsSection";
-import type { SpaceColumn, SpaceItem, SpaceTag, SpaceItemAssignee, SpaceComment } from "@/contracts";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 import { summarizeRecurrence } from "../shared/recurrence";
+import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
+import CommentsSection from "./CommentsSection";
 
 type Props = {
   item: SpaceItem;
@@ -767,6 +767,7 @@ export default function ItemDetailPanel(props: Props) {
           comments={comments()}
           currentUserId={props.currentUserId}
           onUpdate={refreshComments}
+          dateConfig={props.dateConfig}
         />
       </section>
     </div>

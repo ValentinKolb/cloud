@@ -1,5 +1,5 @@
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
-import type { DateContext } from "@valentinkolb/stdlib";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
 import type {
   CalendarItem,
@@ -273,13 +273,22 @@ const hydrateRelations = async (items: SpaceItem[]): Promise<SpaceItem[]> => {
   return items;
 };
 
+const deadlineWindow = (dateConfig?: DateContext) => {
+  const todayStart = dates.today(dateConfig);
+  return {
+    todayStart: todayStart.toISOString(),
+    tomorrowStart: dates.addDays(todayStart, 1, dateConfig).toISOString(),
+    weekEnd: dates.addDays(todayStart, 7, dateConfig).toISOString(),
+  };
+};
+
 /**
  * Dashboard widget query: today's events and the next deadlines, across
  * every space the user can reach (direct user grant, group grant,
  * authenticated_only, or fully public). One SQL roundtrip.
  *
- * - "Events today" = items with `starts_at` or `deadline` falling between
- *   the start and end of `now()`'s local day, ignoring already-completed.
+ * - "Events today" = items with `starts_at` or `deadline` falling inside
+ *   the current day in the caller's date context, ignoring already-completed.
  * - "Next deadlines" = open items (not in is_done columns and not
  *   completed) ordered by deadline ASC NULLS LAST, then created_at.
  */
@@ -300,8 +309,10 @@ export const dashboardSnapshot = async (params: {
   userId: string;
   groups: string[];
   todoLimit: number;
+  dateConfig?: DateContext;
 }): Promise<{ openTodoCount: number; urgentCount: number; events: DashboardItem[]; todos: DashboardItem[] }> => {
   const groupsArr = `{${params.groups.map((g) => `"${g}"`).join(",")}}`;
+  const { todayStart, tomorrowStart } = deadlineWindow(params.dateConfig);
 
   // Open-todo aggregate (count + urgent-count) across all reachable spaces.
   const [agg] = await sql<{ open_count: number; urgent_count: number }[]>`
@@ -346,8 +357,8 @@ export const dashboardSnapshot = async (params: {
     JOIN spaces.spaces s ON s.id = i.space_id
     WHERE i.completed_at IS NULL
       AND (
-        (i.starts_at IS NOT NULL AND i.starts_at >= date_trunc('day', now()) AND i.starts_at < date_trunc('day', now()) + interval '1 day')
-        OR (i.deadline IS NOT NULL AND i.deadline >= date_trunc('day', now()) AND i.deadline < date_trunc('day', now()) + interval '1 day')
+        (i.starts_at IS NOT NULL AND i.starts_at >= ${todayStart}::timestamptz AND i.starts_at < ${tomorrowStart}::timestamptz)
+        OR (i.deadline IS NOT NULL AND i.deadline >= ${todayStart}::timestamptz AND i.deadline < ${tomorrowStart}::timestamptz)
       )
       AND EXISTS (
         SELECT 1 FROM spaces.space_access sa
@@ -374,7 +385,7 @@ export const dashboardSnapshot = async (params: {
     JOIN spaces.spaces s ON s.id = i.space_id
     WHERE i.completed_at IS NULL
       AND c.is_done = false
-      AND (i.starts_at IS NULL OR i.starts_at < date_trunc('day', now()) OR i.starts_at >= date_trunc('day', now()) + interval '1 day')
+      AND (i.starts_at IS NULL OR i.starts_at < ${todayStart}::timestamptz OR i.starts_at >= ${tomorrowStart}::timestamptz)
       AND EXISTS (
         SELECT 1 FROM spaces.space_access sa
         JOIN auth.access a ON a.id = sa.access_id
@@ -451,7 +462,12 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
  * List items with full filtering, sorting, and pagination
  * Uses parameterized queries to prevent SQL injection
  */
-export const listFiltered = async (params: { spaceId: string; filter: ItemFilter; currentUserId?: string }): Promise<ItemListResult> => {
+export const listFiltered = async (params: {
+  spaceId: string;
+  filter: ItemFilter;
+  currentUserId?: string;
+  dateConfig?: DateContext;
+}): Promise<ItemListResult> => {
   const { spaceId, filter, currentUserId } = params;
   const { type, status, priority, tagIds, assigneeIds, assignedTo, columnIds, deadlineFilter, search, sort, sortDesc, page, pageSize } =
     filter;
@@ -486,11 +502,14 @@ export const listFiltered = async (params: { spaceId: string; filter: ItemFilter
 
   // Deadline filter
   if (deadlineFilter === "overdue") {
-    conditions = sql`${conditions} AND i.deadline IS NOT NULL AND i.deadline < NOW()`;
+    const { todayStart } = deadlineWindow(params.dateConfig);
+    conditions = sql`${conditions} AND i.deadline IS NOT NULL AND i.deadline < ${todayStart}::timestamptz`;
   } else if (deadlineFilter === "today") {
-    conditions = sql`${conditions} AND i.deadline IS NOT NULL AND i.deadline::date = CURRENT_DATE`;
+    const { todayStart, tomorrowStart } = deadlineWindow(params.dateConfig);
+    conditions = sql`${conditions} AND i.deadline IS NOT NULL AND i.deadline >= ${todayStart}::timestamptz AND i.deadline < ${tomorrowStart}::timestamptz`;
   } else if (deadlineFilter === "week") {
-    conditions = sql`${conditions} AND i.deadline IS NOT NULL AND i.deadline >= CURRENT_DATE AND i.deadline < CURRENT_DATE + INTERVAL '7 days'`;
+    const { todayStart, weekEnd } = deadlineWindow(params.dateConfig);
+    conditions = sql`${conditions} AND i.deadline IS NOT NULL AND i.deadline >= ${todayStart}::timestamptz AND i.deadline < ${weekEnd}::timestamptz`;
   } else if (deadlineFilter === "none") {
     conditions = sql`${conditions} AND i.deadline IS NULL`;
   }
@@ -920,7 +939,7 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
     return { ok: false, error: "Failed to load created item", status: 500 };
   }
 
-  publishSpaceEvent({ type: "item.created", spaceId, itemId: item.id });
+  await publishSpaceEvent({ type: "item.created", spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -1065,7 +1084,7 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
     return { ok: false, error: "Failed to load updated item", status: 500 };
   }
 
-  publishSpaceEvent({ type: "item.updated", spaceId: item.spaceId, itemId: item.id });
+  await publishSpaceEvent({ type: "item.updated", spaceId: item.spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -1083,7 +1102,7 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
     return { ok: false, error: "Item not found", status: 404 };
   }
 
-  if (existing) publishSpaceEvent({ type: "item.deleted", spaceId: existing.spaceId, itemId: existing.id });
+  if (existing) await publishSpaceEvent({ type: "item.deleted", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
 };
 
@@ -1163,7 +1182,7 @@ export const move = async (params: {
     return { ok: false, error: "Failed to load moved item", status: 500 };
   }
 
-  publishSpaceEvent({ type: "item.moved", spaceId: item.spaceId, itemId: item.id });
+  await publishSpaceEvent({ type: "item.moved", spaceId: item.spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -1191,7 +1210,7 @@ export const setCompleted = async (params: { id: string; completed: boolean }): 
     return { ok: false, error: "Failed to load item", status: 500 };
   }
 
-  publishSpaceEvent({ type: "item.completed", spaceId: item.spaceId, itemId: item.id });
+  await publishSpaceEvent({ type: "item.completed", spaceId: item.spaceId, itemId: item.id });
   return { ok: true, data: item };
 };
 
@@ -1217,7 +1236,7 @@ export const setAssignees = async (params: { id: string; userIds: string[] }): P
     `;
   }
 
-  publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
+  await publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
 };
 
@@ -1245,7 +1264,7 @@ export const setTags = async (params: { id: string; tagIds: string[] }): Promise
     `;
   }
 
-  publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
+  await publishSpaceEvent({ type: "item.updated", spaceId: existing.spaceId, itemId: existing.id });
   return { ok: true, data: undefined };
 };
 

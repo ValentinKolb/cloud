@@ -1,6 +1,6 @@
 import { AppWorkspace, type LinkNavigateEvent, type NavigationScrollMode, navigate, Pagination, prompts } from "@valentinkolb/cloud/ui";
-import { streaming } from "@valentinkolb/stdlib";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { streaming } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -195,26 +195,43 @@ export default function SpacesWorkspace(props: Props) {
   onMount(() => {
     const abortController = new AbortController();
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastEventCursor: string | null = null;
     const scheduleRefresh = () => {
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
         void openRoute(currentHref(), { replace: true, scroll: "preserve" });
       }, 120);
     };
+    const waitForReconnect = () =>
+      new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timeout);
+          abortController.signal.removeEventListener("abort", done);
+          resolve();
+        };
+        const timeout = setTimeout(done, 2_000);
+        abortController.signal.addEventListener("abort", done, { once: true });
+      });
 
     void (async () => {
-      try {
-        const response = await fetch(`/api/spaces/${spaceId()}/events`, {
-          headers: { Accept: "text/event-stream" },
-          signal: abortController.signal,
-        });
-        if (!response.ok || !response.body) return;
-        for await (const event of streaming.parseSSE(response.body)) {
-          if (abortController.signal.aborted) return;
-          if (event.event?.startsWith("item.")) scheduleRefresh();
+      while (!abortController.signal.aborted) {
+        try {
+          const url = new URL(`/api/spaces/${spaceId()}/events`, window.location.origin);
+          if (lastEventCursor) url.searchParams.set("after", lastEventCursor);
+          const response = await fetch(url, {
+            headers: { Accept: "text/event-stream" },
+            signal: abortController.signal,
+          });
+          if (!response.ok || !response.body) return;
+          for await (const event of streaming.parseSSE(response.body)) {
+            if (abortController.signal.aborted) return;
+            if (event.id) lastEventCursor = event.id;
+            if (event.event?.startsWith("item.")) scheduleRefresh();
+          }
+        } catch {
+          // Best-effort refresh: normal navigation still works if the stream drops.
         }
-      } catch {
-        // Best-effort refresh: normal navigation still works if the stream drops.
+        if (!abortController.signal.aborted) await waitForReconnect();
       }
     })();
 

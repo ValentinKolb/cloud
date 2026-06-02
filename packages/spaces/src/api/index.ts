@@ -51,7 +51,7 @@ import {
 import { loadSpacesWorkspaceState } from "../frontend/[id]/_components/workspace/workspace-state";
 import { parseSpacesWorkspaceHref } from "../frontend/[id]/_components/workspace/workspace-types";
 import { spacesService } from "../service";
-import { subscribeSpaceEvents } from "../service/events";
+import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
 
 // ==========================
 // Spaces API
@@ -199,21 +199,37 @@ const app = new Hono<AuthContext>()
       if (error) return error;
 
       const encoder = new TextEncoder();
-      let unsubscribe: (() => void) | undefined;
       let keepalive: ReturnType<typeof setInterval> | undefined;
+      const streamAbort = new AbortController();
       const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          const send = (event: string, data: unknown) => {
-            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        async start(controller) {
+          const send = (event: string, data: unknown, id?: string) => {
+            controller.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
           };
-          send("ready", { spaceId });
-          unsubscribe = subscribeSpaceEvents((event) => {
-            if (event.spaceId === spaceId) send(event.type, event);
-          });
+          const requestedCursor = c.req.query("after") || null;
+          const startCursor = requestedCursor ?? (await latestSpaceEventCursor(spaceId)) ?? "0-0";
+          send("ready", { spaceId, cursor: startCursor }, startCursor);
           keepalive = setInterval(() => send("ping", { at: new Date().toISOString() }), 25_000);
+          try {
+            for await (const event of liveSpaceEvents({ spaceId, after: startCursor, signal: streamAbort.signal })) {
+              if (streamAbort.signal.aborted) break;
+              send(event.data.type, event.data, event.cursor);
+            }
+          } catch (streamError) {
+            if (!streamAbort.signal.aborted) {
+              send("error", { message: streamError instanceof Error ? streamError.message : "Space event stream failed" });
+            }
+          } finally {
+            if (keepalive) clearInterval(keepalive);
+            try {
+              controller.close();
+            } catch {
+              // Client disconnects are normal for long-lived event streams.
+            }
+          }
         },
         cancel() {
-          unsubscribe?.();
+          streamAbort.abort();
           if (keepalive) clearInterval(keepalive);
         },
       });
@@ -629,7 +645,7 @@ const app = new Hono<AuthContext>()
       const { error } = await checkSpaceAccess(c, spaceId);
       if (error) return error;
 
-      const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user.id });
+      const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user.id, dateConfig: getDateConfig(c) });
       return respond(c, ok(result));
     },
   )
@@ -1196,6 +1212,7 @@ const icalApp = new Hono().get(
     const content = await spacesService.ical.generate({
       spaceId: space.id,
       baseUrl: await coreSettings.get<string>("app.url"),
+      dateConfig: getDateConfig(c),
     });
 
     return c.text(content, 200, {

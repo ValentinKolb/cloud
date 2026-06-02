@@ -1,8 +1,9 @@
-import { Show, For, createSignal } from "solid-js";
-import { apiClient } from "@/api/client";
-import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { markdown } from "@valentinkolb/cloud/shared";
-import { MarkdownView, TextInput, prompts, toast } from "@valentinkolb/cloud/ui";
+import { MarkdownView, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { type DateContext, dates } from "@valentinkolb/stdlib";
+import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { createSignal, For, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
   comments: SpaceComment[];
   currentUserId: string;
   onUpdate: () => void;
+  dateConfig?: DateContext;
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
@@ -97,7 +99,7 @@ export default function CommentsSection(props: Props) {
     if (diffMins < 60) return `${diffMins}m`;
     if (diffHours < 24) return `${diffHours}h`;
     if (diffDays < 7) return `${diffDays}d`;
-    return date.toLocaleDateString();
+    return dates.formatDate(date, props.dateConfig);
   };
 
   const sortedComments = () => [...props.comments].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());

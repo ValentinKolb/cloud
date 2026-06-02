@@ -21,11 +21,11 @@ import {
   emptyRecurrenceState,
   type RecurrenceEndMode,
   type RecurrenceFrequency,
-  type RecurrencePreset,
   recurrenceEndOptions,
   recurrenceFrequencyOptions,
   recurrenceFromFormState,
   recurrenceToFormState,
+  summarizeRecurrence,
   weekdayOptions,
 } from "./recurrence";
 
@@ -164,7 +164,6 @@ export default function ItemForm(props: Props) {
   const [allDay, setAllDay] = createSignal(props.item?.allDay ?? props.defaults?.allDay ?? false);
   const initialRecurrence = recurrenceToFormState(props.item?.recurrence ?? props.defaults?.recurrence, props.dateConfig);
   const [recurrenceEnabled, setRecurrenceEnabled] = createSignal(initialRecurrence.preset !== "never");
-  const [recurrencePreset] = createSignal<RecurrencePreset>(initialRecurrence.preset === "never" ? "custom" : initialRecurrence.preset);
   const [recurrenceFrequency, setRecurrenceFrequency] = createSignal<RecurrenceFrequency>(initialRecurrence.frequency);
   const [recurrenceInterval, setRecurrenceInterval] = createSignal<number | null>(initialRecurrence.interval);
   const [recurrenceByDay, setRecurrenceByDay] = createSignal<string[]>(initialRecurrence.byDay);
@@ -183,6 +182,22 @@ export default function ItemForm(props: Props) {
   const defaultSubmitLabel = () => (isEditMode() ? (isEvent() ? "Save Event" : "Save Task") : isEvent() ? "Create Event" : "Create Task");
   const eventRange = () =>
     allDay() ? dateOnlyRange(startsAt(), endsAt(), props.dateConfig) : { start: startsAt() || null, end: endsAt() || null };
+  const currentRecurrence = () =>
+    recurrenceEnabled()
+      ? recurrenceFromFormState(
+          {
+            preset: "custom",
+            frequency: recurrenceFrequency(),
+            interval: recurrenceInterval() ?? 1,
+            byDay: recurrenceByDay(),
+            endMode: recurrenceEndMode(),
+            until: recurrenceUntil(),
+            count: recurrenceCount(),
+          },
+          startsAt(),
+          props.dateConfig,
+        )
+      : null;
 
   const columnOptions = () =>
     props.columns.map((c) => ({
@@ -312,7 +327,7 @@ export default function ItemForm(props: Props) {
         isEvent() && recurrenceEnabled()
           ? recurrenceFromFormState(
               {
-                preset: recurrencePreset(),
+                preset: "custom",
                 frequency: recurrenceFrequency(),
                 interval: recurrenceInterval() ?? 1,
                 byDay: recurrenceByDay(),
@@ -412,6 +427,19 @@ export default function ItemForm(props: Props) {
                 value={allDay}
                 onChange={handleAllDayChange}
               />
+              <Show when={recurrenceEnabled() && !showAdvanced()}>
+                <button
+                  type="button"
+                  class="flex items-center justify-between gap-3 rounded-md bg-zinc-50 px-3 py-2 text-sm text-secondary transition-colors hover:bg-zinc-100 dark:bg-zinc-900/70 dark:hover:bg-zinc-800"
+                  onClick={() => setAdvancedOpen(true)}
+                >
+                  <span class="flex min-w-0 items-center gap-2">
+                    <i class="ti ti-repeat text-dimmed" />
+                    <span class="truncate">{summarizeRecurrence(currentRecurrence()) ?? "Repeats"}</span>
+                  </span>
+                  <span class="shrink-0 text-xs text-blue-600 dark:text-blue-300">Edit repeat</span>
+                </button>
+              </Show>
             </Show>
           </div>
 
