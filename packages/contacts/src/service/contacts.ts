@@ -122,6 +122,35 @@ type SearchRow = {
   source_kind: "manual" | "system";
 };
 
+type ContactCollectionInput = {
+  emails?: ContactEmailInput[];
+  phones?: ContactPhoneInput[];
+  addresses?: ContactAddressInput[];
+  websites?: ContactWebsiteInput[];
+  bankAccounts?: ContactBankAccountInput[];
+  tagIds?: string[];
+};
+
+type ContactWritePreparation = {
+  parentContactId: string | null;
+  tagIds: string[] | null;
+};
+
+type ContactCreateFields = {
+  label: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  companyName: string | null;
+  department: string | null;
+  jobTitle: string | null;
+  vatId: string | null;
+  birthday: string | null;
+  source: string;
+  salutation: string | null;
+  pronouns: string | null;
+  preferredLanguage: string | null;
+};
+
 /**
  * Converts one manual contact row into API shape with supplied child rows.
  * Parent + members are resolved on the DB side (single query) and passed in.
@@ -609,6 +638,140 @@ const mapManualSearchCondition = (searchPattern: string | null) => sql`
   )
 `;
 
+const mapManualReadableAccessCondition = (userId: string, groups: string[]) => sql`
+  a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
+  AND (
+    a.user_id = ${userId}::uuid
+    OR a.group_id = ANY(${toPgUuidArray(groups)}::uuid[])
+    OR (${userId}::uuid IS NOT NULL AND a.authenticated_only = true)
+    OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
+  )
+`;
+
+const mapSystemSearchCondition = (searchPattern: string | null) => sql`
+  (
+    ${searchPattern}::text IS NULL
+    OR LOWER(u.uid) LIKE ${searchPattern}
+    OR LOWER(u.display_name) LIKE ${searchPattern}
+    OR LOWER(u.given_name) LIKE ${searchPattern}
+    OR LOWER(u.sn) LIKE ${searchPattern}
+    OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
+    OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
+  )
+`;
+
+const validateContactTagIds = async (bookId: string, tagIds: string[] | undefined): Promise<Result<string[] | null>> => {
+  if (tagIds === undefined) return ok(null);
+  const tagResult = await tags.validateTagsInBook({ bookId, tagIds });
+  if (!tagResult.ok) return tagResult;
+  return ok(tagResult.data);
+};
+
+const buildCreateLabel = (data: CreateContactInput): string | null =>
+  resolveStoredContactLabel({
+    label: data.label,
+    firstName: data.firstName,
+    lastName: data.lastName,
+    companyName: data.companyName,
+    emails: data.emails,
+    phones: data.phones,
+  });
+
+const buildUpdateLabel = (existing: DbContact, data: UpdateContactInput): string | null =>
+  resolveStoredContactLabel({
+    label: data.label === undefined ? existing.label : data.label,
+    firstName: data.firstName === undefined ? existing.first_name : data.firstName,
+    lastName: data.lastName === undefined ? existing.last_name : data.lastName,
+    companyName: data.companyName === undefined ? existing.company_name : data.companyName,
+  });
+
+const optionalText = (existing: string | null, next: string | null | undefined): string | null =>
+  next === undefined ? existing : emptyToNull(next);
+
+const optionalBirthday = (existing: Date | string | null, next: string | null | undefined): string | null =>
+  next === undefined ? toDateOnly(existing) : next;
+
+const buildCreateFields = (data: CreateContactInput): ContactCreateFields => ({
+  label: buildCreateLabel(data),
+  firstName: emptyToNull(data.firstName) ?? null,
+  lastName: emptyToNull(data.lastName) ?? null,
+  companyName: emptyToNull(data.companyName) ?? null,
+  department: emptyToNull(data.department) ?? null,
+  jobTitle: emptyToNull(data.jobTitle) ?? null,
+  vatId: emptyToNull(data.vatId) ?? null,
+  birthday: data.birthday ?? null,
+  source: emptyToNull(data.source) ?? "manual",
+  salutation: emptyToNull(data.salutation) ?? null,
+  pronouns: emptyToNull(data.pronouns) ?? null,
+  preferredLanguage: emptyToNull(data.preferredLanguage) ?? null,
+});
+
+const prepareContactCreate = async (config: { bookId: string; data: CreateContactInput }): Promise<Result<ContactWritePreparation>> => {
+  const parentResult = await resolveParentContactId({
+    contactId: null,
+    bookId: config.bookId,
+    desiredParentId: config.data.parentContactId,
+  });
+  if (!parentResult.ok) return parentResult;
+
+  const tagResult = await validateContactTagIds(config.bookId, config.data.tagIds);
+  if (!tagResult.ok) return tagResult;
+
+  return ok({ parentContactId: parentResult.data, tagIds: tagResult.data });
+};
+
+const prepareContactUpdate = async (config: {
+  bookId: string;
+  contactId: string;
+  existingParentContactId: string | null;
+  data: UpdateContactInput;
+}): Promise<Result<ContactWritePreparation>> => {
+  let parentContactId = config.existingParentContactId;
+  if (config.data.parentContactId !== undefined) {
+    const parentResult = await resolveParentContactId({
+      contactId: config.contactId,
+      bookId: config.bookId,
+      desiredParentId: config.data.parentContactId,
+    });
+    if (!parentResult.ok) return parentResult;
+    parentContactId = parentResult.data;
+  }
+
+  const tagResult = await validateContactTagIds(config.bookId, config.data.tagIds);
+  if (!tagResult.ok) return tagResult;
+
+  return ok({ parentContactId, tagIds: tagResult.data });
+};
+
+const replaceContactCollections = async (contactId: string, data: ContactCollectionInput): Promise<void> => {
+  if (data.emails !== undefined) {
+    await replaceEmails(contactId, data.emails);
+  }
+  if (data.phones !== undefined) {
+    await replacePhones(contactId, data.phones);
+  }
+  if (data.addresses !== undefined) {
+    await replaceAddresses(contactId, data.addresses);
+  }
+  if (data.websites !== undefined) {
+    await replaceWebsites(contactId, data.websites);
+  }
+  if (data.bankAccounts !== undefined) {
+    await replaceBankAccounts(contactId, data.bankAccounts);
+  }
+};
+
+const loadWrittenContact = async (config: { bookId: string; id: string; action: "created" | "updated" }): Promise<Result<Contact>> => {
+  const contact = await get({ bookId: config.bookId, id: config.id });
+  if (!contact) return fail(err.internal(`Failed to load ${config.action} contact`));
+  return ok(contact);
+};
+
 /**
  * Resolves a desired `parentContactId` against book + cycle rules.
  *
@@ -857,32 +1020,13 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
 
   if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
 
-  const label = resolveStoredContactLabel({
-    label: config.data.label,
-    firstName: config.data.firstName,
-    lastName: config.data.lastName,
-    companyName: config.data.companyName,
-    emails: config.data.emails,
-    phones: config.data.phones,
-  });
+  const fields = buildCreateFields(config.data);
 
   // Validate parent + tags BEFORE inserting the contact row. Anything that
   // can fail because of bad input must be caught here so we never persist a
   // contact that ends up half-set-up.
-  const parentResult = await resolveParentContactId({
-    contactId: null,
-    bookId: config.bookId,
-    desiredParentId: config.data.parentContactId,
-  });
-  if (!parentResult.ok) return parentResult;
-  const parentContactId = parentResult.data;
-
-  let validatedTagIds: string[] | null = null;
-  if (config.data.tagIds !== undefined) {
-    const tagResult = await tags.validateTagsInBook({ bookId: config.bookId, tagIds: config.data.tagIds });
-    if (!tagResult.ok) return tagResult;
-    validatedTagIds = tagResult.data;
-  }
+  const prepared = await prepareContactCreate({ bookId: config.bookId, data: config.data });
+  if (!prepared.ok) return prepared;
 
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO contacts.contacts (
@@ -902,38 +1046,37 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       parent_contact_id
     ) VALUES (
       ${config.bookId}::uuid,
-      ${label},
-      ${emptyToNull(config.data.firstName) ?? null},
-      ${emptyToNull(config.data.lastName) ?? null},
-      ${emptyToNull(config.data.companyName) ?? null},
-      ${emptyToNull(config.data.department) ?? null},
-      ${emptyToNull(config.data.jobTitle) ?? null},
-      ${emptyToNull(config.data.vatId) ?? null},
-      ${config.data.birthday ?? null},
-      ${emptyToNull(config.data.source) ?? "manual"},
-      ${emptyToNull(config.data.salutation) ?? null},
-      ${emptyToNull(config.data.pronouns) ?? null},
-      ${emptyToNull(config.data.preferredLanguage) ?? null},
-      ${parentContactId}
+      ${fields.label},
+      ${fields.firstName},
+      ${fields.lastName},
+      ${fields.companyName},
+      ${fields.department},
+      ${fields.jobTitle},
+      ${fields.vatId},
+      ${fields.birthday},
+      ${fields.source},
+      ${fields.salutation},
+      ${fields.pronouns},
+      ${fields.preferredLanguage},
+      ${prepared.data.parentContactId}
     )
     RETURNING id
   `;
 
   if (!row) return fail(err.internal("Failed to create contact"));
 
-  await replaceEmails(row.id, config.data.emails ?? []);
-  await replacePhones(row.id, config.data.phones ?? []);
-  await replaceAddresses(row.id, config.data.addresses ?? []);
-  await replaceWebsites(row.id, config.data.websites ?? []);
-  await replaceBankAccounts(row.id, config.data.bankAccounts ?? []);
-  if (validatedTagIds !== null) {
-    await tags.replaceAssignments({ contactId: row.id, tagIds: validatedTagIds });
+  await replaceContactCollections(row.id, {
+    emails: config.data.emails ?? [],
+    phones: config.data.phones ?? [],
+    addresses: config.data.addresses ?? [],
+    websites: config.data.websites ?? [],
+    bankAccounts: config.data.bankAccounts ?? [],
+  });
+  if (prepared.data.tagIds !== null) {
+    await tags.replaceAssignments({ contactId: row.id, tagIds: prepared.data.tagIds });
   }
 
-  const created = await get({ bookId: config.bookId, id: row.id });
-  if (!created) return fail(err.internal("Failed to load created contact"));
-
-  return ok(created);
+  return loadWrittenContact({ bookId: config.bookId, id: row.id, action: "created" });
 };
 
 /**
@@ -974,53 +1117,32 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
 
   if (!existing) return fail(err.notFound("Contact"));
 
-  const nextLabel = resolveStoredContactLabel({
-    label: config.data.label === undefined ? existing.label : config.data.label,
-    firstName: config.data.firstName === undefined ? existing.first_name : config.data.firstName,
-    lastName: config.data.lastName === undefined ? existing.last_name : config.data.lastName,
-    companyName: config.data.companyName === undefined ? existing.company_name : config.data.companyName,
+  const nextLabel = buildUpdateLabel(existing, config.data);
+
+  const prepared = await prepareContactUpdate({
+    bookId: config.bookId,
+    contactId: config.id,
+    existingParentContactId: existing.parent_contact_id,
+    data: config.data,
   });
-
-  // Resolve the new parent only when the caller actually passed the field.
-  // `undefined` means "leave unchanged"; explicit `null` means "clear parent".
-  let nextParentContactId: string | null = existing.parent_contact_id;
-  if (config.data.parentContactId !== undefined) {
-    const parentResult = await resolveParentContactId({
-      contactId: config.id,
-      bookId: config.bookId,
-      desiredParentId: config.data.parentContactId,
-    });
-    if (!parentResult.ok) return parentResult;
-    nextParentContactId = parentResult.data;
-  }
-
-  // Validate tag assignments BEFORE writing anything so a bad tag list does
-  // not leave the contact partly updated.
-  let validatedTagIds: string[] | null = null;
-  if (config.data.tagIds !== undefined) {
-    const tagResult = await tags.validateTagsInBook({ bookId: config.bookId, tagIds: config.data.tagIds });
-    if (!tagResult.ok) return tagResult;
-    validatedTagIds = tagResult.data;
-  }
+  if (!prepared.ok) return prepared;
 
   const [row] = await sql<{ id: string }[]>`
     UPDATE contacts.contacts
     SET
       label = ${nextLabel},
-      first_name = ${config.data.firstName === undefined ? existing.first_name : emptyToNull(config.data.firstName)},
-      last_name = ${config.data.lastName === undefined ? existing.last_name : emptyToNull(config.data.lastName)},
-      company_name = ${config.data.companyName === undefined ? existing.company_name : emptyToNull(config.data.companyName)},
-      department = ${config.data.department === undefined ? existing.department : emptyToNull(config.data.department)},
-      job_title = ${config.data.jobTitle === undefined ? existing.job_title : emptyToNull(config.data.jobTitle)},
-      vat_id = ${config.data.vatId === undefined ? existing.vat_id : emptyToNull(config.data.vatId)},
-      birthday = ${config.data.birthday === undefined ? toDateOnly(existing.birthday) : config.data.birthday},
-      salutation = ${config.data.salutation === undefined ? existing.salutation : emptyToNull(config.data.salutation)},
-      pronouns = ${config.data.pronouns === undefined ? existing.pronouns : emptyToNull(config.data.pronouns)},
-      preferred_language = ${
-        config.data.preferredLanguage === undefined ? existing.preferred_language : emptyToNull(config.data.preferredLanguage)
-      },
-      source = ${config.data.source === undefined ? existing.source : emptyToNull(config.data.source)},
-      parent_contact_id = ${nextParentContactId},
+      first_name = ${optionalText(existing.first_name, config.data.firstName)},
+      last_name = ${optionalText(existing.last_name, config.data.lastName)},
+      company_name = ${optionalText(existing.company_name, config.data.companyName)},
+      department = ${optionalText(existing.department, config.data.department)},
+      job_title = ${optionalText(existing.job_title, config.data.jobTitle)},
+      vat_id = ${optionalText(existing.vat_id, config.data.vatId)},
+      birthday = ${optionalBirthday(existing.birthday, config.data.birthday)},
+      salutation = ${optionalText(existing.salutation, config.data.salutation)},
+      pronouns = ${optionalText(existing.pronouns, config.data.pronouns)},
+      preferred_language = ${optionalText(existing.preferred_language, config.data.preferredLanguage)},
+      source = ${optionalText(existing.source, config.data.source)},
+      parent_contact_id = ${prepared.data.parentContactId},
       updated_at = now()
     WHERE id = ${config.id}::uuid
       AND book_id = ${config.bookId}::uuid
@@ -1029,29 +1151,12 @@ export const update = async (config: { bookId: string; id: string; data: UpdateC
 
   if (!row) return fail(err.internal("Failed to update contact"));
 
-  if (config.data.emails !== undefined) {
-    await replaceEmails(row.id, config.data.emails);
-  }
-  if (config.data.phones !== undefined) {
-    await replacePhones(row.id, config.data.phones);
-  }
-  if (config.data.addresses !== undefined) {
-    await replaceAddresses(row.id, config.data.addresses);
-  }
-  if (config.data.websites !== undefined) {
-    await replaceWebsites(row.id, config.data.websites);
-  }
-  if (config.data.bankAccounts !== undefined) {
-    await replaceBankAccounts(row.id, config.data.bankAccounts);
-  }
-  if (validatedTagIds !== null) {
-    await tags.replaceAssignments({ contactId: row.id, tagIds: validatedTagIds });
+  await replaceContactCollections(row.id, config.data);
+  if (prepared.data.tagIds !== null) {
+    await tags.replaceAssignments({ contactId: row.id, tagIds: prepared.data.tagIds });
   }
 
-  const updated = await get({ bookId: config.bookId, id: row.id });
-  if (!updated) return fail(err.internal("Failed to load updated contact"));
-
-  return ok(updated);
+  return loadWrittenContact({ bookId: config.bookId, id: row.id, action: "updated" });
 };
 
 /**
@@ -1177,14 +1282,8 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
-      AND (
-          a.user_id = ${config.userId}::uuid
-          OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
-          OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
-        )
-      AND ${mapManualSearchCondition(searchPattern)}
+      WHERE ${mapManualReadableAccessCondition(config.userId, config.groups)}
+        AND ${mapManualSearchCondition(searchPattern)}
     ),
     system_matches AS (
       SELECT
@@ -1195,20 +1294,7 @@ export const search = async (config: {
       LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
       WHERE ${includeSystem}::boolean
         AND u.provider = 'ipa'
-        AND (
-          ${searchPattern}::text IS NULL
-          OR LOWER(u.uid) LIKE ${searchPattern}
-          OR LOWER(u.display_name) LIKE ${searchPattern}
-          OR LOWER(u.given_name) LIKE ${searchPattern}
-          OR LOWER(u.sn) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
-        )
+        AND ${mapSystemSearchCondition(searchPattern)}
     ),
     combined AS (
       SELECT * FROM manual_matches
@@ -1237,14 +1323,8 @@ export const search = async (config: {
       LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
       LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
       LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE a.permission IN ('read'::auth.permission_level, 'write'::auth.permission_level, 'admin'::auth.permission_level)
-      AND (
-          a.user_id = ${config.userId}::uuid
-          OR a.group_id = ANY(${toPgUuidArray(config.groups)}::uuid[])
-          OR (${config.userId}::uuid IS NOT NULL AND a.authenticated_only = true)
-          OR (a.user_id IS NULL AND a.group_id IS NULL AND a.authenticated_only = false)
-        )
-      AND ${mapManualSearchCondition(searchPattern)}
+      WHERE ${mapManualReadableAccessCondition(config.userId, config.groups)}
+        AND ${mapManualSearchCondition(searchPattern)}
     ),
     system_matches AS (
       SELECT
@@ -1256,20 +1336,7 @@ export const search = async (config: {
       LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
       WHERE ${includeSystem}::boolean
         AND u.provider = 'ipa'
-        AND (
-          ${searchPattern}::text IS NULL
-          OR LOWER(u.uid) LIKE ${searchPattern}
-          OR LOWER(u.display_name) LIKE ${searchPattern}
-          OR LOWER(u.given_name) LIKE ${searchPattern}
-          OR LOWER(u.sn) LIKE ${searchPattern}
-          OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
-          OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
-        )
+        AND ${mapSystemSearchCondition(searchPattern)}
     ),
     combined AS (
       SELECT * FROM manual_matches

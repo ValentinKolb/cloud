@@ -146,44 +146,50 @@ export const initialBankAccountRows = (contact: Contact | null): EditableBankAcc
   }));
 };
 
-export const buildContactPayload = (draft: ContactUpsertDraft): CreateContactInput => {
-  const emails = draft.emails
+const cleanText = (value: string): string | null => value.trim() || null;
+const cleanUpperCompact = (value: string): string => value.replace(/\s+/g, "").toUpperCase();
+
+const normalizeEmails = (rows: EditableEmail[]) =>
+  rows
     .map((email) => ({
-      label: email.label.trim() || null,
+      label: cleanText(email.label),
       email: email.email.trim(),
     }))
     .filter((email) => email.email.length > 0);
 
-  const phones = draft.phones
+const normalizePhones = (rows: EditablePhone[]) =>
+  rows
     .map((phone) => ({
-      label: phone.label.trim() || null,
+      label: cleanText(phone.label),
       phone: phone.phone.trim(),
     }))
     .filter((phone) => phone.phone.length > 0);
 
-  const websites = draft.websites
+const normalizeWebsites = (rows: EditableWebsite[]) =>
+  rows
     .map((website) => ({
-      label: website.label.trim() || null,
+      label: cleanText(website.label),
       url: website.url.trim(),
     }))
     .filter((website) => website.url.length > 0);
 
+const validateWebsites = (websites: ReturnType<typeof normalizeWebsites>) => {
   for (const website of websites) {
-    if (!isSafeWebsiteUrl(website.url)) {
-      throw new Error("Website URL must start with http:// or https://");
-    }
+    if (!isSafeWebsiteUrl(website.url)) throw new Error("Website URL must start with http:// or https://");
   }
+};
 
-  const addresses = draft.addresses
+const normalizeAddresses = (rows: EditableAddress[]) =>
+  rows
     .map((address) => ({
-      label: address.label.trim() || null,
-      recipientName: address.recipientName.trim() || null,
-      companyName: address.companyName.trim() || null,
+      label: cleanText(address.label),
+      recipientName: cleanText(address.recipientName),
+      companyName: cleanText(address.companyName),
       line1: address.line1.trim(),
-      line2: address.line2.trim() || null,
+      line2: cleanText(address.line2),
       postalCode: address.postalCode.trim(),
       city: address.city.trim(),
-      stateRegion: address.stateRegion.trim() || null,
+      stateRegion: cleanText(address.stateRegion),
       countryCode: address.countryCode.trim().toUpperCase(),
     }))
     .filter(
@@ -195,49 +201,62 @@ export const buildContactPayload = (draft: ContactUpsertDraft): CreateContactInp
         address.companyName !== null,
     );
 
-  const bankAccounts = draft.bankAccounts
+const validateAddresses = (addresses: ReturnType<typeof normalizeAddresses>) => {
+  for (const address of addresses) {
+    if (!address.line1 || !address.postalCode || !address.city) throw new Error("Addresses need line1, postal code, and city");
+    if (address.countryCode.length !== 2) throw new Error("Address country code must be 2 letters");
+  }
+};
+
+const normalizeBankAccounts = (rows: EditableBankAccount[]) =>
+  rows
     .map((account) => ({
-      label: account.label.trim() || null,
+      label: cleanText(account.label),
       accountHolderName: account.accountHolderName.trim(),
-      iban: account.iban.replace(/\s+/g, "").toUpperCase(),
-      bic: account.bic.replace(/\s+/g, "").toUpperCase() || null,
-      bankName: account.bankName.trim() || null,
-      note: account.note.trim() || null,
+      iban: cleanUpperCompact(account.iban),
+      bic: cleanUpperCompact(account.bic) || null,
+      bankName: cleanText(account.bankName),
+      note: cleanText(account.note),
     }))
     .filter((account) => account.accountHolderName.length > 0 || account.iban.length > 0 || account.bic || account.bankName);
 
+const validateBankAccounts = (bankAccounts: ReturnType<typeof normalizeBankAccounts>) => {
   for (const account of bankAccounts) {
-    if (!account.accountHolderName || !account.iban) {
-      throw new Error("Bank details need account holder name and IBAN");
-    }
+    if (!account.accountHolderName || !account.iban) throw new Error("Bank details need account holder name and IBAN");
   }
+};
 
-  for (const address of addresses) {
-    if (!address.line1 || !address.postalCode || !address.city) {
-      throw new Error("Addresses need line1, postal code, and city");
-    }
-    if (address.countryCode.length !== 2) {
-      throw new Error("Address country code must be 2 letters");
-    }
-  }
-
-  const birthday = draft.birthday.trim();
+const normalizeBirthday = (value: string): string | null => {
+  const birthday = value.trim();
   if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
     throw new Error("Birthday must use format YYYY-MM-DD");
   }
+  return birthday || null;
+};
+
+export const buildContactPayload = (draft: ContactUpsertDraft): CreateContactInput => {
+  const emails = normalizeEmails(draft.emails);
+  const phones = normalizePhones(draft.phones);
+  const websites = normalizeWebsites(draft.websites);
+  const addresses = normalizeAddresses(draft.addresses);
+  const bankAccounts = normalizeBankAccounts(draft.bankAccounts);
+
+  validateWebsites(websites);
+  validateAddresses(addresses);
+  validateBankAccounts(bankAccounts);
 
   return {
-    label: draft.label.trim() || null,
-    firstName: draft.firstName.trim() || null,
-    lastName: draft.lastName.trim() || null,
-    companyName: draft.companyName.trim() || null,
-    department: draft.department.trim() || null,
-    jobTitle: draft.jobTitle.trim() || null,
-    vatId: draft.vatId.trim() || null,
-    birthday: birthday || null,
-    salutation: draft.salutation.trim() || null,
-    pronouns: draft.pronouns.trim() || null,
-    preferredLanguage: draft.preferredLanguage.trim() || null,
+    label: cleanText(draft.label),
+    firstName: cleanText(draft.firstName),
+    lastName: cleanText(draft.lastName),
+    companyName: cleanText(draft.companyName),
+    department: cleanText(draft.department),
+    jobTitle: cleanText(draft.jobTitle),
+    vatId: cleanText(draft.vatId),
+    birthday: normalizeBirthday(draft.birthday),
+    salutation: cleanText(draft.salutation),
+    pronouns: cleanText(draft.pronouns),
+    preferredLanguage: cleanText(draft.preferredLanguage),
     parentContactId: draft.parentRef?.id ?? null,
     tagIds: draft.tagIds,
     emails,

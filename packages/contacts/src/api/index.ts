@@ -24,6 +24,13 @@ import { isSafeWebsiteUrl } from "../shared";
 const documentRoute = (options: Parameters<typeof describeRoute>[0]) => describeRoute(options) as MiddlewareHandler<AuthContext>;
 
 type ApiErrorResponse = TypedResponse<{ message: string; code?: string }, 400 | 401 | 403 | 404 | 409 | 500, "json">;
+type ImportCandidate = ReturnType<typeof vcard.parse>[number];
+type ImportMatch = { existingId: string; existingName: string } | null;
+type ImportMatchHit = { id: string; name: string };
+type ImportMatchIndex = {
+  email: Map<string, ImportMatchHit>;
+  name: Map<string, ImportMatchHit>;
+};
 
 const MAX_IMPORT_CONTACTS = 1_000;
 const MAX_IMPORT_CONTENT_CHARS = 10_000_000;
@@ -384,40 +391,125 @@ const requireBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: strin
   return requireBookAccess(c, bookId, "admin");
 };
 
+const requireManualBookAdminOrAppAdmin = async (c: Context<AuthContext>, bookId: string) => {
+  if (contactsService.system.isBookId(bookId)) {
+    return {
+      book: null,
+      error: await respond(c, fail(err.forbidden("System book is read-only"))),
+    };
+  }
+
+  return requireBookAdminOrAppAdmin(c, bookId);
+};
+
+const safeExportFilename = (name: string | null | undefined, extension: "csv" | "vcf"): string => {
+  const basename = (name ?? "contacts").replace(/[^a-z0-9-_]+/gi, "_");
+  return `${basename}.${extension}`;
+};
+
+const loadBookContactsForExport = (bookId: string) => contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
+
+const loadImportMatchIndex = async (bookId: string): Promise<ImportMatchIndex> => {
+  const rows = await sql<{ id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]>`
+    SELECT
+      c.id,
+      c.first_name,
+      c.last_name,
+      c.label,
+      COALESCE(
+        (SELECT array_agg(LOWER(ce.email)) FROM contacts.contact_emails ce WHERE ce.contact_id = c.id),
+        '{}'::text[]
+      ) AS emails
+    FROM contacts.contacts c
+    WHERE c.book_id = ${bookId}::uuid
+  `;
+
+  const email = new Map<string, ImportMatchHit>();
+  const name = new Map<string, ImportMatchHit>();
+  for (const row of rows) {
+    const display = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.label || row.id;
+    for (const address of row.emails) {
+      if (address) email.set(address, { id: row.id, name: display });
+    }
+    const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim().toLowerCase();
+    if (fullName) name.set(fullName, { id: row.id, name: display });
+  }
+
+  return { email, name };
+};
+
+const findImportMatch = (candidate: ImportCandidate, index: ImportMatchIndex): ImportMatch => {
+  for (const email of candidate.emails ?? []) {
+    const hit = index.email.get(email.email.toLowerCase());
+    if (hit) return { existingId: hit.id, existingName: hit.name };
+  }
+
+  const fullName = [candidate.firstName, candidate.lastName].filter(Boolean).join(" ").trim().toLowerCase();
+  const hit = fullName ? index.name.get(fullName) : null;
+  return hit ? { existingId: hit.id, existingName: hit.name } : null;
+};
+
+const previewImportCandidates = async (bookId: string, content: string) => {
+  const candidates = vcard.parse(content);
+  if (candidates.length > MAX_IMPORT_CONTACTS) {
+    return fail(err.badInput(`Import is limited to ${MAX_IMPORT_CONTACTS} contacts at a time`));
+  }
+
+  const index = await loadImportMatchIndex(bookId);
+  return ok({
+    candidates: candidates.map((candidate) => ({
+      candidate,
+      match: findImportMatch(candidate, index),
+    })),
+  });
+};
+
+const commitImportContacts = async (bookId: string, candidates: unknown[]): Promise<{ created: number; failures: string[] }> => {
+  let created = 0;
+  const failures: string[] = [];
+  for (const raw of candidates) {
+    const parsed = CreateContactSchema.safeParse(raw);
+    if (!parsed.success) {
+      failures.push(parsed.error.message);
+      continue;
+    }
+    const result = await contactsService.contact.create({ bookId, data: parsed.data });
+    if (result.ok) created++;
+    else failures.push(result.error.message);
+  }
+  return { created, failures };
+};
+
 const adminApi = new Hono<AuthContext>()
   .use(auth.requireRole("admin"))
   .get("/books/:bookId/access", async (c) => {
     const bookId = c.req.param("bookId") ?? "";
-    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
-    const book = await contactsService.book.get({ id: bookId });
-    if (!book) return respond(c, fail(err.notFound("Book")));
+    const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+    if (error) return error;
     const entries = await contactsService.book.access.list({ bookId });
     return respond(c, ok(entries.items));
   })
   .post("/books/:bookId/access", v("json", GrantAccessSchema), async (c) => {
     const bookId = c.req.param("bookId") ?? "";
     const { principal, permission } = c.req.valid("json");
-    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
-    const book = await contactsService.book.get({ id: bookId });
-    if (!book) return respond(c, fail(err.notFound("Book")));
+    const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+    if (error) return error;
     return respond(c, contactsService.book.access.grant({ bookId, principal, permission }));
   })
   .patch("/books/:bookId/access/:accessId", v("json", UpdateAccessSchema), async (c) => {
     const bookId = c.req.param("bookId") ?? "";
     const accessId = c.req.param("accessId") ?? "";
     const { permission } = c.req.valid("json");
-    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
-    const book = await contactsService.book.get({ id: bookId });
-    if (!book) return respond(c, fail(err.notFound("Book")));
+    const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+    if (error) return error;
 
     return respondMessage(c, contactsService.book.access.update({ bookId, accessId, permission }), "Access updated");
   })
   .delete("/books/:bookId/access/:accessId", async (c) => {
     const bookId = c.req.param("bookId") ?? "";
     const accessId = c.req.param("accessId") ?? "";
-    if (contactsService.system.isBookId(bookId)) return respond(c, fail(err.forbidden("System book is read-only")));
-    const book = await contactsService.book.get({ id: bookId });
-    if (!book) return respond(c, fail(err.notFound("Book")));
+    const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
+    if (error) return error;
 
     return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
   });
@@ -581,11 +673,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const bookId = c.req.param("bookId") ?? "";
 
-      if (contactsService.system.isBookId(bookId)) {
-        return respond(c, fail(err.forbidden("System book is read-only")));
-      }
-
-      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
+      const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       const entries = await contactsService.book.access.list({ bookId });
@@ -612,11 +700,7 @@ const app = new Hono<AuthContext>()
       const bookId = c.req.param("bookId") ?? "";
       const { principal, permission } = c.req.valid("json");
 
-      if (contactsService.system.isBookId(bookId)) {
-        return respond(c, fail(err.forbidden("System book is read-only")));
-      }
-
-      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
+      const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       return respond(c, contactsService.book.access.grant({ bookId, principal, permission }));
@@ -643,11 +727,7 @@ const app = new Hono<AuthContext>()
       const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
 
-      if (contactsService.system.isBookId(bookId)) {
-        return respond(c, fail(err.forbidden("System book is read-only")));
-      }
-
-      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
+      const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       return respondMessage(c, contactsService.book.access.update({ bookId, accessId, permission }), "Access updated");
@@ -672,11 +752,7 @@ const app = new Hono<AuthContext>()
       const bookId = c.req.param("bookId") ?? "";
       const accessId = c.req.param("accessId") ?? "";
 
-      if (contactsService.system.isBookId(bookId)) {
-        return respond(c, fail(err.forbidden("System book is read-only")));
-      }
-
-      const { error } = await requireBookAdminOrAppAdmin(c, bookId);
+      const { error } = await requireManualBookAdminOrAppAdmin(c, bookId);
       if (error) return error;
 
       return respondMessage(c, contactsService.book.access.remove({ bookId, accessId }), "Access revoked");
@@ -1126,13 +1202,11 @@ const app = new Hono<AuthContext>()
       const bookId = c.req.param("bookId") ?? "";
       const { book, error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
-      // Pull all manual contacts in one go. The current list endpoint paginates,
-      // but for export we need every contact regardless of search/tag filters.
-      const result = await contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
+      const result = await loadBookContactsForExport(bookId);
       const body = vcard.serializeBook(result.items);
       return c.body(body, 200, {
         "Content-Type": "text/vcard; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${(book?.name ?? "contacts").replace(/[^a-z0-9-_]+/gi, "_")}.vcf"`,
+        "Content-Disposition": `attachment; filename="${safeExportFilename(book?.name, "vcf")}"`,
       });
     },
   )
@@ -1150,11 +1224,11 @@ const app = new Hono<AuthContext>()
       const bookId = c.req.param("bookId") ?? "";
       const { book, error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
-      const result = await contactsService.contact.list({ bookId, pagination: { page: 1, perPage: 100_000 } });
+      const result = await loadBookContactsForExport(bookId);
       const body = vcard.serializeBookCsv(result.items);
       return c.body(body, 200, {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${(book?.name ?? "contacts").replace(/[^a-z0-9-_]+/gi, "_")}.csv"`,
+        "Content-Disposition": `attachment; filename="${safeExportFilename(book?.name, "csv")}"`,
       });
     },
   )
@@ -1183,60 +1257,7 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const body = c.req.valid("json");
-      const candidates = vcard.parse(body.content);
-      if (candidates.length > MAX_IMPORT_CONTACTS) {
-        return respond(c, fail(err.badInput(`Import is limited to ${MAX_IMPORT_CONTACTS} contacts at a time`)));
-      }
-
-      // Match heuristic — one DB hop, then in-memory set lookups. Returns
-      // existingId + display name when a candidate likely duplicates an
-      // existing contact (by any of its emails OR exact first+last name).
-      const matchRows = await sql<
-        { id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]
-      >`
-        SELECT
-          c.id,
-          c.first_name,
-          c.last_name,
-          c.label,
-          COALESCE(
-            (SELECT array_agg(LOWER(ce.email)) FROM contacts.contact_emails ce WHERE ce.contact_id = c.id),
-            '{}'::text[]
-          ) AS emails
-        FROM contacts.contacts c
-        WHERE c.book_id = ${bookId}::uuid
-      `;
-      const emailIndex = new Map<string, { id: string; name: string }>();
-      const nameIndex = new Map<string, { id: string; name: string }>();
-      for (const row of matchRows) {
-        const display = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.label || row.id;
-        for (const email of row.emails) {
-          if (email) emailIndex.set(email, { id: row.id, name: display });
-        }
-        const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim().toLowerCase();
-        if (fullName) nameIndex.set(fullName, { id: row.id, name: display });
-      }
-
-      const enriched = candidates.map((candidate) => {
-        let match: { existingId: string; existingName: string } | null = null;
-        for (const email of candidate.emails ?? []) {
-          const hit = emailIndex.get(email.email.toLowerCase());
-          if (hit) {
-            match = { existingId: hit.id, existingName: hit.name };
-            break;
-          }
-        }
-        if (!match) {
-          const fullName = [candidate.firstName, candidate.lastName].filter(Boolean).join(" ").trim().toLowerCase();
-          if (fullName) {
-            const hit = nameIndex.get(fullName);
-            if (hit) match = { existingId: hit.id, existingName: hit.name };
-          }
-        }
-        return { candidate, match };
-      });
-
-      return c.json({ candidates: enriched });
+      return respond(c, await previewImportCandidates(bookId, body.content));
     },
   )
   .post(
@@ -1263,20 +1284,7 @@ const app = new Hono<AuthContext>()
       const { error } = await requireBookAccess(c, bookId, "admin");
       if (error) return error;
       const body = c.req.valid("json");
-      let created = 0;
-      const failures: string[] = [];
-      for (const raw of body.contacts) {
-        // Validate via the same schema we use for the manual create endpoint.
-        const parsed = CreateContactSchema.safeParse(raw);
-        if (!parsed.success) {
-          failures.push(parsed.error.message);
-          continue;
-        }
-        const result = await contactsService.contact.create({ bookId, data: parsed.data });
-        if (result.ok) created++;
-        else failures.push(result.error.message);
-      }
-      return c.json({ created, failures });
+      return c.json(await commitImportContacts(bookId, body.contacts));
     },
   )
 

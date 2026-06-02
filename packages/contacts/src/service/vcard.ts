@@ -64,17 +64,20 @@ const formatAdr = (a: ContactAddressInput): string => {
   return parts.join(";");
 };
 
-/** Serialises one contact to a single VCARD entry. */
-export const serializeContact = (contact: Contact): string => {
-  const lines: string[] = ["BEGIN:VCARD", "VERSION:3.0"];
+const typeParams = (label: string | null | undefined): string => {
+  const type = sanitiseType(label);
+  return type ? `;TYPE=${type}` : "";
+};
 
+const appendContactIdentity = (lines: string[], contact: Contact) => {
   const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.label || contact.companyName || "Unnamed";
   lines.push(`FN:${escapeValue(fullName)}`);
   // N: family;given;additional;prefix;suffix
   lines.push(`N:${escapeValue(contact.lastName ?? "")};${escapeValue(contact.firstName ?? "")};;;`);
-
   if (contact.label) lines.push(`NICKNAME:${escapeValue(contact.label)}`);
+};
 
+const appendContactWork = (lines: string[], contact: Contact) => {
   if (contact.companyName) {
     const orgValue = contact.department
       ? `${escapeValue(contact.companyName)};${escapeValue(contact.department)}`
@@ -84,31 +87,29 @@ export const serializeContact = (contact: Contact): string => {
   if (contact.jobTitle) lines.push(`TITLE:${escapeValue(contact.jobTitle)}`);
   if (contact.birthday) lines.push(`BDAY:${contact.birthday}`);
   if (contact.vatId) lines.push(`X-VAT-ID:${escapeValue(contact.vatId)}`);
+};
 
+const appendContactChannels = (lines: string[], contact: Contact) => {
   for (const website of contact.websites ?? []) {
-    const type = sanitiseType(website.label);
-    const params = type ? `;TYPE=${type}` : "";
-    lines.push(`URL${params}:${escapeValue(website.url)}`);
+    lines.push(`URL${typeParams(website.label)}:${escapeValue(website.url)}`);
   }
-
   for (const email of contact.emails ?? []) {
-    const type = sanitiseType(email.label);
-    const params = type ? `;TYPE=${type}` : "";
-    lines.push(`EMAIL${params}:${escapeValue(email.email)}`);
+    lines.push(`EMAIL${typeParams(email.label)}:${escapeValue(email.email)}`);
   }
-
   for (const phone of contact.phones ?? []) {
-    const type = sanitiseType(phone.label);
-    const params = type ? `;TYPE=${type}` : "";
-    lines.push(`TEL${params}:${escapeValue(phone.phone)}`);
+    lines.push(`TEL${typeParams(phone.label)}:${escapeValue(phone.phone)}`);
   }
-
   for (const address of contact.addresses ?? []) {
-    const type = sanitiseType(address.label);
-    const params = type ? `;TYPE=${type}` : "";
-    lines.push(`ADR${params}:${formatAdr(address)}`);
+    lines.push(`ADR${typeParams(address.label)}:${formatAdr(address)}`);
   }
+};
 
+/** Serialises one contact to a single VCARD entry. */
+export const serializeContact = (contact: Contact): string => {
+  const lines: string[] = ["BEGIN:VCARD", "VERSION:3.0"];
+  appendContactIdentity(lines, contact);
+  appendContactWork(lines, contact);
+  appendContactChannels(lines, contact);
   lines.push("END:VCARD");
   return lines.map(foldLine).join(CRLF);
 };
@@ -122,6 +123,49 @@ type ParsedLine = {
   field: string;
   params: Record<string, string>;
   value: string;
+};
+
+type ParseState = {
+  current: CreateContactInput | null;
+  emails: ContactEmailInput[];
+  phones: ContactPhoneInput[];
+  addresses: ContactAddressInput[];
+  websites: ContactWebsiteInput[];
+  candidates: CreateContactInput[];
+};
+
+type FieldHandler = (state: ParseState, parsed: ParsedLine) => void;
+
+const createParseState = (): ParseState => ({
+  current: null,
+  emails: [],
+  phones: [],
+  addresses: [],
+  websites: [],
+  candidates: [],
+});
+
+const resetCollections = (state: ParseState) => {
+  state.emails = [];
+  state.phones = [];
+  state.addresses = [];
+  state.websites = [];
+};
+
+const beginCard = (state: ParseState) => {
+  state.current = {};
+  resetCollections(state);
+};
+
+const finishCard = (state: ParseState) => {
+  if (!state.current) return;
+  if (state.emails.length > 0) state.current.emails = state.emails;
+  if (state.phones.length > 0) state.current.phones = state.phones;
+  if (state.addresses.length > 0) state.current.addresses = state.addresses;
+  if (state.websites.length > 0) state.current.websites = state.websites;
+  state.candidates.push(state.current);
+  state.current = null;
+  resetCollections(state);
 };
 
 const unfoldLines = (raw: string): string[] => {
@@ -194,149 +238,127 @@ const labelFromParams = (params: Record<string, string>): string | null => {
   return first.length > 0 ? first.toLowerCase() : null;
 };
 
+const applyName = (current: CreateContactInput, parsed: ParsedLine) => {
+  const parts = splitParts(parsed.value);
+  current.lastName = parts[0]?.trim() || null;
+  current.firstName = parts[1]?.trim() || null;
+  if (current.label && current.label === [current.firstName, current.lastName].filter(Boolean).join(" ")) {
+    current.label = null;
+  }
+};
+
+const applyBirthday = (current: CreateContactInput, value: string) => {
+  const isoLike = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(unescapeValue(value).trim());
+  if (isoLike) current.birthday = `${isoLike[1]}-${isoLike[2]}-${isoLike[3]}`;
+};
+
+const parseAddress = (parsed: ParsedLine): ContactAddressInput | null => {
+  const parts = splitParts(parsed.value);
+  const part = (index: number) => parts[index]?.trim() ?? "";
+  const line1 = part(2);
+  const line2 = part(1);
+  const city = part(3);
+  const stateRegion = part(4);
+  const postalCode = part(5);
+  const countryCode = part(6).toUpperCase();
+  if (!line1 || !postalCode || !city || countryCode.length !== 2) return null;
+  return {
+    label: labelFromParams(parsed.params),
+    recipientName: null,
+    companyName: null,
+    line1,
+    line2: line2 || null,
+    postalCode,
+    city,
+    stateRegion: stateRegion || null,
+    countryCode,
+  };
+};
+
+const currentOrNull = (state: ParseState): CreateContactInput | null => state.current;
+
+const fieldHandlers: Record<string, FieldHandler> = {
+  VERSION: () => {},
+  FN: (state, parsed) => {
+    const current = currentOrNull(state);
+    if (!current || current.firstName || current.lastName || current.label) return;
+    current.label = unescapeValue(parsed.value);
+  },
+  N: (state, parsed) => {
+    const current = currentOrNull(state);
+    if (current) applyName(current, parsed);
+  },
+  NICKNAME: (state, parsed) => {
+    const current = currentOrNull(state);
+    if (current) current.label = unescapeValue(parsed.value).trim() || null;
+  },
+  ORG: (state, parsed) => {
+    const current = currentOrNull(state);
+    if (!current) return;
+    const parts = splitParts(parsed.value);
+    current.companyName = parts[0]?.trim() || null;
+    if (parts[1]) current.department = parts[1].trim() || null;
+  },
+  TITLE: (state, parsed) => {
+    const current = currentOrNull(state);
+    if (current) current.jobTitle = unescapeValue(parsed.value).trim() || null;
+  },
+  BDAY: (state, parsed) => {
+    const current = currentOrNull(state);
+    if (current) applyBirthday(current, parsed.value);
+  },
+  URL: (state, parsed) => {
+    const url = unescapeValue(parsed.value).trim();
+    if (url.length > 0) state.websites.push({ label: labelFromParams(parsed.params), url });
+  },
+  "X-VAT-ID": (state, parsed) => {
+    const current = currentOrNull(state);
+    if (current) current.vatId = unescapeValue(parsed.value).trim() || null;
+  },
+  EMAIL: (state, parsed) => {
+    const email = unescapeValue(parsed.value).trim();
+    if (email.length > 0) state.emails.push({ label: labelFromParams(parsed.params), email });
+  },
+  TEL: (state, parsed) => {
+    const phone = unescapeValue(parsed.value).trim();
+    if (phone.length > 0) state.phones.push({ label: labelFromParams(parsed.params), phone });
+  },
+  ADR: (state, parsed) => {
+    const address = parseAddress(parsed);
+    if (address) state.addresses.push(address);
+  },
+};
+
+const applyParsedLine = (state: ParseState, parsed: ParsedLine) => {
+  const handler = fieldHandlers[parsed.field];
+  if (handler) {
+    handler(state, parsed);
+  }
+};
+
+const parseLogicalLine = (state: ParseState, line: string) => {
+  const trimmed = line.trim();
+  const upper = trimmed.toUpperCase();
+  if (upper === "BEGIN:VCARD") {
+    beginCard(state);
+    return;
+  }
+  if (upper === "END:VCARD") {
+    finishCard(state);
+    return;
+  }
+  if (!state.current) return;
+
+  const parsed = parseLine(trimmed);
+  if (parsed) applyParsedLine(state, parsed);
+};
+
 /** Best-effort parse of a vCard payload into draft contacts ready for create. */
 export const parse = (raw: string): CreateContactInput[] => {
-  const lines = unfoldLines(raw);
-  const candidates: CreateContactInput[] = [];
-  let current: CreateContactInput | null = null;
-  let currentEmails: ContactEmailInput[] = [];
-  let currentPhones: ContactPhoneInput[] = [];
-  let currentAddresses: ContactAddressInput[] = [];
-  let currentWebsites: ContactWebsiteInput[] = [];
-
-  const finishCurrent = () => {
-    if (!current) return;
-    if (currentEmails.length > 0) current.emails = currentEmails;
-    if (currentPhones.length > 0) current.phones = currentPhones;
-    if (currentAddresses.length > 0) current.addresses = currentAddresses;
-    if (currentWebsites.length > 0) current.websites = currentWebsites;
-    candidates.push(current);
-    current = null;
-    currentEmails = [];
-    currentPhones = [];
-    currentAddresses = [];
-    currentWebsites = [];
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.toUpperCase() === "BEGIN:VCARD") {
-      current = {};
-      currentEmails = [];
-      currentPhones = [];
-      currentAddresses = [];
-      currentWebsites = [];
-      continue;
-    }
-    if (trimmed.toUpperCase() === "END:VCARD") {
-      finishCurrent();
-      continue;
-    }
-    if (!current) continue;
-
-    const parsed = parseLine(trimmed);
-    if (!parsed) continue;
-
-    switch (parsed.field) {
-      case "VERSION":
-        // The vCard version header carries no contact data; older code
-        // accidentally fell through to the FN handler and stamped `3.0`
-        // into the label of every entry.
-        break;
-      case "FN":
-        // FN is denormalised — ignored if N comes through.
-        if (!current.firstName && !current.lastName) {
-          const value = unescapeValue(parsed.value);
-          // Treat single-token FN as label/company guess; let later N override.
-          if (!current.label) current.label = value;
-        }
-        break;
-      case "N": {
-        const parts = splitParts(parsed.value);
-        current.lastName = parts[0]?.trim() || null;
-        current.firstName = parts[1]?.trim() || null;
-        // After we have a real N, drop the FN guess if it now duplicates.
-        if (current.label && current.label === [current.firstName, current.lastName].filter(Boolean).join(" ")) {
-          current.label = null;
-        }
-        break;
-      }
-      case "NICKNAME":
-        current.label = unescapeValue(parsed.value).trim() || null;
-        break;
-      case "ORG": {
-        const parts = splitParts(parsed.value);
-        current.companyName = parts[0]?.trim() || null;
-        if (parts[1]) current.department = parts[1].trim() || null;
-        break;
-      }
-      case "TITLE":
-        current.jobTitle = unescapeValue(parsed.value).trim() || null;
-        break;
-      case "BDAY": {
-        const value = unescapeValue(parsed.value).trim();
-        // Accept both YYYY-MM-DD and YYYYMMDD.
-        const isoLike = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(value);
-        if (isoLike) current.birthday = `${isoLike[1]}-${isoLike[2]}-${isoLike[3]}`;
-        break;
-      }
-      case "URL": {
-        const url = unescapeValue(parsed.value).trim();
-        if (url.length > 0) {
-          currentWebsites.push({ label: labelFromParams(parsed.params), url });
-        }
-        break;
-      }
-      case "X-VAT-ID":
-        current.vatId = unescapeValue(parsed.value).trim() || null;
-        break;
-      case "EMAIL": {
-        const email = unescapeValue(parsed.value).trim();
-        if (email.length > 0) {
-          currentEmails.push({ label: labelFromParams(parsed.params), email });
-        }
-        break;
-      }
-      case "TEL": {
-        const phone = unescapeValue(parsed.value).trim();
-        if (phone.length > 0) {
-          currentPhones.push({ label: labelFromParams(parsed.params), phone });
-        }
-        break;
-      }
-      case "ADR": {
-        const parts = splitParts(parsed.value);
-        // [po, ext, street, locality, region, postal, country]
-        const line1 = parts[2]?.trim() ?? "";
-        const line2 = parts[1]?.trim() ?? "";
-        const city = parts[3]?.trim() ?? "";
-        const stateRegion = parts[4]?.trim() ?? "";
-        const postalCode = parts[5]?.trim() ?? "";
-        const countryCode = (parts[6]?.trim() ?? "").toUpperCase();
-        // Service requires line1, postalCode, city. If any is missing, skip
-        // this ADR — the candidate keeps its other fields.
-        if (line1 && postalCode && city && countryCode.length === 2) {
-          currentAddresses.push({
-            label: labelFromParams(parsed.params),
-            recipientName: null,
-            companyName: null,
-            line1,
-            line2: line2 || null,
-            postalCode,
-            city,
-            stateRegion: stateRegion || null,
-            countryCode,
-          });
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  finishCurrent();
-  return candidates;
+  const state = createParseState();
+  for (const line of unfoldLines(raw)) parseLogicalLine(state, line);
+  finishCard(state);
+  return state.candidates;
 };
 
 // --- CSV export (flat, lossy) ----------------------------------------------
