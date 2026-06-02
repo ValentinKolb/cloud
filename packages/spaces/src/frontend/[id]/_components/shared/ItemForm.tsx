@@ -155,7 +155,9 @@ export default function ItemForm(props: Props) {
   const [location, setLocation] = createSignal(props.item?.location ?? "");
   const [url, setUrl] = createSignal(props.item?.url ?? "");
   const [columnId, setColumnId] = createSignal(props.item?.columnId ?? props.defaults?.columnId ?? props.columns[0]?.id ?? "");
-  const [itemType, setItemType] = createSignal<ItemType>(initialIsEvent() ? "event" : (props.defaults?.type ?? "task"));
+  const [itemType, setItemType] = createSignal<ItemType>(
+    initialIsEvent() ? "event" : isEditMode() ? "task" : (props.defaults?.type ?? "event"),
+  );
   const [deadline, setDeadline] = createSignal(dateTimeInitial(props.item?.deadline ?? props.defaults?.deadline));
   const [startsAt, setStartsAt] = createSignal(dateTimeInitial(props.item?.startsAt ?? props.defaults?.startsAt));
   const [endsAt, setEndsAt] = createSignal(dateTimeInitial(props.item?.endsAt ?? props.defaults?.endsAt));
