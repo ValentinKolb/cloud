@@ -1,29 +1,22 @@
-import { ssr } from "../config";
-import { type AuthContext } from "@valentinkolb/cloud/server";
-import { Layout } from "@valentinkolb/cloud/ssr";
-import { listWidgets, type DashboardWidget } from "@valentinkolb/cloud";
+import { type DashboardWidget, listWidgets } from "@valentinkolb/cloud";
+import type { WidgetBlock, WidgetResponse } from "@valentinkolb/cloud/contracts";
+import type { AuthContext } from "@valentinkolb/cloud/server";
 import { logger } from "@valentinkolb/cloud/services";
+import { Layout } from "@valentinkolb/cloud/ssr";
+import { Widget, WidgetHero, WidgetList, WidgetPills, WidgetStat, WidgetStatus } from "@valentinkolb/cloud/ui";
 import { gradients } from "@valentinkolb/stdlib";
-import {
-  Widget,
-  WidgetHero,
-  WidgetList,
-  WidgetPills,
-  WidgetStat,
-  WidgetStatus,
-} from "@valentinkolb/cloud/ui";
-import type {
-  WidgetResponse,
-  WidgetBlock,
-} from "@valentinkolb/cloud/contracts";
 import type { JSX } from "solid-js";
-import EditDashboard, {
-  DASHBOARD_COOKIE,
-  type DashboardSettings,
-  type DashboardWidgetSummary,
-} from "./EditDashboard.island";
+import { ssr } from "../config";
+import EditDashboard, { DASHBOARD_COOKIE, type DashboardSettings, type DashboardWidgetSummary } from "./EditDashboard.island";
 
 const log = logger("dashboard");
+const WIDGET_TIMEOUT_MS = 500;
+const SLOW_WIDGET_MS = 250;
+
+type WidgetFetchResult =
+  | { source: DashboardWidget; status: 200; data: WidgetResponse }
+  | { source: DashboardWidget; status: 403 }
+  | { source: DashboardWidget; status: "error"; data: WidgetResponse };
 
 /**
  * Status code semantics (kept in sync with every widget endpoint):
@@ -31,36 +24,84 @@ const log = logger("dashboard");
  *           states the endpoint returns a hero/status block with a hint.
  *   - 403 → user lacks the access level. Listed under "not available at your
  *           access level" in the edit modal.
- *   - other → log + skip silently (transient error).
+ *   - 204 → no content; skip silently.
+ *   - other / timeout → render a small error placeholder so one bad widget
+ *           does not block or disappear from the dashboard.
  */
-const fetchWidget = async (
-  widget: DashboardWidget,
-  cookie: string,
-): Promise<
-  | { source: DashboardWidget; status: 200; data: WidgetResponse }
-  | { source: DashboardWidget; status: 403 }
-  | null
-> => {
+const widgetErrorResponse = (widget: DashboardWidget, message: string): WidgetResponse => ({
+  title: widget.appName,
+  icon: widget.appIcon,
+  blocks: [
+    {
+      kind: "status",
+      tone: "error",
+      title: "Widget unavailable",
+      message,
+      icon: "ti ti-alert-circle",
+      grow: true,
+    },
+  ],
+});
+
+const logSlowWidget = (widget: DashboardWidget, durationMs: number, status: number | "timeout" | "error") => {
+  if (durationMs < SLOW_WIDGET_MS) return;
+  log.warn("Slow dashboard widget", {
+    appId: widget.appId,
+    widgetId: widget.widgetId,
+    status,
+    durationMs,
+    thresholdMs: SLOW_WIDGET_MS,
+  });
+};
+
+const fetchWidget = async (widget: DashboardWidget, cookie: string): Promise<WidgetFetchResult | null> => {
+  const controller = new AbortController();
+  const startedAt = performance.now();
+  const timeout = setTimeout(() => controller.abort(), WIDGET_TIMEOUT_MS);
+
   try {
-    const resp = await fetch(widget.url, { headers: cookie ? { Cookie: cookie } : {} });
+    const resp = await fetch(widget.url, {
+      headers: cookie ? { Cookie: cookie } : {},
+      signal: controller.signal,
+    });
+    const durationMs = Math.round(performance.now() - startedAt);
+    logSlowWidget(widget, durationMs, resp.status);
+
     if (resp.status === 403) return { source: widget, status: 403 };
+    if (resp.status === 204) return null;
     if (!resp.ok) {
       log.warn("Widget fetch failed", {
         appId: widget.appId,
         widgetId: widget.widgetId,
         status: resp.status,
+        durationMs,
       });
-      return null;
+      return {
+        source: widget,
+        status: "error",
+        data: widgetErrorResponse(widget, "The widget endpoint returned an error."),
+      };
     }
     const data = (await resp.json()) as WidgetResponse;
     return { source: widget, status: 200, data };
   } catch (err) {
+    const durationMs = Math.round(performance.now() - startedAt);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    logSlowWidget(widget, durationMs, isTimeout ? "timeout" : "error");
     log.warn("Widget fetch threw", {
       appId: widget.appId,
       widgetId: widget.widgetId,
       error: err instanceof Error ? err.message : String(err),
+      durationMs,
+      timeoutMs: WIDGET_TIMEOUT_MS,
     });
-    return null;
+    return {
+      source: widget,
+      status: "error",
+      data: widgetErrorResponse(widget, isTimeout ? "The widget took too long to respond." : "The widget could not be loaded."),
+    };
+  } finally {
+    clearTimeout(timeout);
   }
 };
 
@@ -78,25 +119,13 @@ const renderBlock = (block: WidgetBlock): JSX.Element => {
         />
       );
     case "list":
-      return (
-        <WidgetList items={block.items} emptyMessage={block.emptyMessage} grow={block.grow} />
-      );
+      return <WidgetList items={block.items} emptyMessage={block.emptyMessage} grow={block.grow} />;
     case "status":
-      return (
-        <WidgetStatus
-          tone={block.tone}
-          title={block.title}
-          message={block.message}
-          icon={block.icon}
-          grow={block.grow}
-        />
-      );
+      return <WidgetStatus tone={block.tone} title={block.title} message={block.message} icon={block.icon} grow={block.grow} />;
     case "pills":
       return <WidgetPills pills={block.pills} grow={block.grow} />;
     case "hero":
-      return (
-        <WidgetHero title={block.title} subtitle={block.subtitle} icon={block.icon} tone={block.tone} />
-      );
+      return <WidgetHero title={block.title} subtitle={block.subtitle} icon={block.icon} tone={block.tone} />;
     default: {
       const _exhaustive: never = block;
       void _exhaustive;
@@ -134,24 +163,35 @@ export default ssr<AuthContext>(async (c) => {
   const settings = readDashboardSettings(cookie);
   const gradient = gradients.getGradientById(settings.gradient);
 
-  // Pull every widget endpoint, fetch in parallel, classify by status.
   const widgets = await listWidgets();
-  const results = await Promise.all(widgets.map((w) => fetchWidget(w, cookie)));
+  const hiddenSet = new Set(settings.hiddenWidgets);
+  const widgetsToFetch = widgets.filter((w) => !hiddenSet.has(widgetKey(w)));
+  const hiddenSummaries: DashboardWidgetSummary[] = widgets
+    .filter((w) => hiddenSet.has(widgetKey(w)))
+    .map((w) => ({
+      key: widgetKey(w),
+      title: w.appName,
+      icon: w.appIcon,
+    }));
+
+  // Pull visible widget endpoints, fetch in parallel, classify by status.
+  const results = await Promise.all(widgetsToFetch.map((w) => fetchWidget(w, cookie)));
 
   const visible = results.filter((r): r is Extract<typeof r, { status: 200 }> => r?.status === 200);
-  const inaccessible = results.filter(
-    (r): r is Extract<typeof r, { status: 403 }> => r?.status === 403,
-  );
+  const inaccessible = results.filter((r): r is Extract<typeof r, { status: 403 }> => r?.status === 403);
+  const failed = results.filter((r): r is Extract<typeof r, { status: "error" }> => r?.status === "error");
 
-  const hiddenSet = new Set(settings.hiddenWidgets);
-  const rendered = visible.filter((r) => !hiddenSet.has(widgetKey(r.source)));
+  const rendered = [...visible, ...failed].filter((r) => !hiddenSet.has(widgetKey(r.source)));
 
   // Summaries for the EditDashboard island — title/icon match what the user sees.
-  const availableSummaries: DashboardWidgetSummary[] = visible.map((r) => ({
-    key: widgetKey(r.source),
-    title: r.data.title,
-    icon: r.data.icon ?? r.source.appIcon,
-  }));
+  const availableSummaries: DashboardWidgetSummary[] = [
+    ...[...visible, ...failed].map((r) => ({
+      key: widgetKey(r.source),
+      title: r.data.title,
+      icon: r.data.icon ?? r.source.appIcon,
+    })),
+    ...hiddenSummaries,
+  ];
   const inaccessibleSummaries: DashboardWidgetSummary[] = inaccessible.map((r) => ({
     key: widgetKey(r.source),
     title: r.source.appName,

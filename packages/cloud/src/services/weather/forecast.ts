@@ -1,11 +1,12 @@
 import { redis } from "bun";
-import { coreSettings } from "../settings/api";
 import { logger } from "../logging";
+import { coreSettings } from "../settings/api";
 import type { CurrentWeather, DailyForecast, HourlyForecast, WeatherData, WeatherIcon } from "./types";
 
 const log = logger("weather");
 
 const BRIGHTSKY_API = "https://api.brightsky.dev";
+const BRIGHTSKY_TIMEOUT_MS = 400;
 
 export type ForecastLocationConfig = {
   lat?: string;
@@ -81,9 +82,12 @@ const getCacheKey = (lat: string, lon: string): string => {
 
 /** Fetch current weather from Brightsky API. */
 const fetchCurrentFromApi = async (lat: string, lon: string): Promise<CurrentWeather | null> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BRIGHTSKY_TIMEOUT_MS);
+
   try {
     const url = `${BRIGHTSKY_API}/current_weather?lat=${lat}&lon=${lon}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: controller.signal });
 
     if (!response.ok) {
       log.error("Brightsky API error", { status: response.status });
@@ -119,8 +123,11 @@ const fetchCurrentFromApi = async (lat: string, lon: string): Promise<CurrentWea
   } catch (error) {
     log.error("Failed to fetch from Brightsky", {
       error: error instanceof Error ? error.message : String(error),
+      timeoutMs: BRIGHTSKY_TIMEOUT_MS,
     });
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 };
 

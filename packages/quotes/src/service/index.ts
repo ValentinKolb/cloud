@@ -3,11 +3,12 @@
  * Fetches a new quote every hour.
  */
 
-import { redis } from "bun";
-import { logger, coreSettings } from "@valentinkolb/cloud/services";
+import { coreSettings, logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { redis } from "bun";
 
 const log = logger("quotes");
+const QUOTE_FETCH_TIMEOUT_MS = 400;
 
 export type Quote = {
   text: string;
@@ -51,11 +52,15 @@ type ZenQuotesResponse = Array<{
  * Fetches one quote from ZenQuotes and maps transport errors into `Result` failures.
  */
 const fetchQuote = async (): Promise<Result<Quote>> => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), QUOTE_FETCH_TIMEOUT_MS);
+
   try {
     const response = await fetch("https://zenquotes.io/api/random", {
       headers: {
         "User-Agent": `${((await coreSettings.get<string>("app.name")) || "App").replace(/\s+/g, "-")}/1.0`,
       },
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -76,8 +81,11 @@ const fetchQuote = async (): Promise<Result<Quote>> => {
   } catch (error) {
     log.error("Failed to fetch quote", {
       error: error instanceof Error ? error.message : String(error),
+      timeoutMs: QUOTE_FETCH_TIMEOUT_MS,
     });
     return fail(err.internal("Failed to fetch quote"));
+  } finally {
+    clearTimeout(timeout);
   }
 };
 
