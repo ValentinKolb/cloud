@@ -428,6 +428,15 @@ The base URL must match how routes are mounted: `app.start()` mounts API routes 
 
 **Always use the typed client in frontend code.** It provides full type inference for all endpoints.
 
+For app-internal JSON APIs, do not use raw `fetch()`. Do not hide weak route
+types with `any`, `response.json() as Type`, or broad `unknown` casts. If the
+client returns `unknown`, `JSONValue`, or a too-broad union, fix the API route
+typing root cause: export the final chained Hono router, validate inputs with
+`v(...)`, return service `Result<T>` values through `respond(...)`, and keep all
+normal JSON branches typed. Allowed raw-fetch exceptions are external URLs,
+WebSocket/EventSource/SSE transports, true file/blob/stream upload or download
+flows, and smoke/test scripts.
+
 ---
 
 ## Frontend
@@ -643,7 +652,7 @@ const createThing = mutation.create<Thing | null, void>({
     // 2. Make the API call
     const res = await apiClient.things.$post({ json: data });
     if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create thing"));
-    return (await res.json()) as Thing;
+    return await res.json();
   },
   onSuccess: (created) => {
     if (!created) return;

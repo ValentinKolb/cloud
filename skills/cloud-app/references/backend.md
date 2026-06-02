@@ -412,6 +412,39 @@ const create = async (data: Input): Promise<Result<Item>> => {
 // Or manual: fail({ code: "NOT_FOUND", message: "...", status: 404 })
 ```
 
+### Hono Client Type Inference
+
+Frontend API types come from the app router:
+
+```typescript
+const app = new Hono<AuthContext>()
+  .get("/", ...)
+  .post("/", ...);
+
+export default app;
+export type ApiType = typeof app;
+```
+
+Export the final chained router. If you split routes into sub-routers, mount
+them before exporting the API router type. Exporting an earlier base router
+silently removes endpoints from the generated client.
+
+For typed client responses:
+- Use `v("json" | "query" | "param" | "header", Schema)` for inputs.
+- Use `respond(c, result)` or `respond(c, () => service.create(input), 201)`
+  for service functions returning `Result<T>`.
+- Use `c.json(...)` for normal JSON branches.
+- Use `jsonResponse(...)` in OpenAPI metadata so docs match the route.
+
+Avoid broad `Response` branches in JSON APIs. A single
+`new Response(JSON.stringify(...))` or untyped mixed branch can widen the
+generated client body to `unknown`, `JSONValue`, or an unusable union. Raw
+`Response` is fine for real streams, blobs, downloads, proxying, and other
+non-JSON contracts.
+
+If a frontend migration to `apiClient` requires `any` or
+`response.json() as Type`, stop and fix the route typing root cause instead.
+
 ### OpenAPI Documentation
 
 Every API route should have `describeRoute()` (re-exported as

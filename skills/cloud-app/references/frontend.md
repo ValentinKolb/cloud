@@ -636,7 +636,7 @@ Canonical callback shape:
       json: { principal, permission },
     });
     if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to grant access."));
-    return (await res.json()) as AccessEntry;
+    return await res.json();
   }}
   updateAccess={async (accessId, permission) => {
     const res = await apiClient[":id"].access[":accessId"].$patch({
@@ -1003,7 +1003,7 @@ function NotebookSettingsBody(props: SettingsProps & { close: () => void }) {
                 json: { principal, permission },
               });
               if (!res.ok) throw new Error("Failed to grant access.");
-              return (await res.json()) as AccessEntry;
+              return await res.json();
             }}
             updateAccess={async (accessId, permission) => {
               const res = await apiClient[":id"].access[":accessId"].$patch({
@@ -1043,7 +1043,7 @@ const saveSettings = mutations.create<Notebook, void>({
       json: { name: name().trim(), icon: icon() || null },
     });
     if (!res.ok) throw new Error("Failed to save notebook settings.");
-    return (await res.json()) as Notebook;
+    return await res.json();
   },
   onSuccess: (next) => {
     setNotebook(next);
@@ -1466,7 +1466,7 @@ const createItem = mutation.create<Item | null, void>({
     // 2. Make the API call
     const res = await apiClient.items.$post({ json: data });
     if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create item"));
-    return (await res.json()) as Item;
+    return await res.json();
   },
   onSuccess: (created) => {
     if (!created) return; // prompt was cancelled
@@ -1545,7 +1545,7 @@ const renameItem = mutation.create<Item | null, Item>({
       json: { title: input.title },
     });
     if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to rename item"));
-    return (await res.json()) as Item;
+    return await res.json();
   },
   onSuccess: (updated) => {
     if (!updated) return;
@@ -1567,7 +1567,7 @@ const saveSettings = mutation.create<Settings, void>({
       json: { name: name().trim(), enabled: enabled() },
     });
     if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to save settings"));
-    return (await res.json()) as Settings;
+    return await res.json();
   },
   onSuccess: (next) => {
     setSettings(next);
@@ -1618,6 +1618,39 @@ const res = await apiClient.items[":id"].$delete({ param: { id } });
 // Always check res.ok and throw on failure (mutation catches it)
 if (!res.ok) throw new Error(await readErrorMessage(res, "Request failed"));
 ```
+
+### Raw Fetch Migration Checklist
+
+Use the typed Hono client for app-internal JSON APIs. This is not just a style
+rule: the client preserves route response types across the SSR/client boundary,
+so frontend code can stop guessing response shapes.
+
+```typescript
+const res = await apiClient.items[":id"].$patch({
+  param: { id },
+  json: { title },
+});
+if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to save item"));
+const saved = await res.json(); // inferred from the route
+```
+
+Rules:
+- No new `fetch("/api/...")` for app-internal JSON APIs.
+- No new `any`.
+- No `await res.json() as DomainType` or broad `unknown`-to-domain casts.
+- Keep island network calls inside `mutation.create()`.
+- Pass query values as strings in the client call; let route validators coerce
+  with Zod when the service needs numbers or booleans.
+
+Allowed raw-fetch exceptions:
+- External URLs outside the current app.
+- WebSocket, EventSource, and SSE transports.
+- Blob/File/stream downloads where native `Response.blob()`, response headers,
+  or streaming semantics are the contract.
+- Binary/chunk upload flows when the Hono client would obscure the body
+  contract. Keep these exceptions explicit and local.
+- Smoke tests, browser scripts, generated CLI clients, and helper methods named
+  `fetch` that are not global HTTP fetch calls.
 
 ## Common UI Patterns
 
