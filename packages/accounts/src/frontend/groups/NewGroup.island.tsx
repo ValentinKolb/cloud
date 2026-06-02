@@ -2,7 +2,7 @@ import { Checkbox, CopyButton, prompts, refreshCurrentPath, TextInput } from "@v
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { BaseGroup } from "@/contracts";
+import { BaseGroupSchema, ErrorResponseSchema, type BaseGroup } from "@/contracts";
 
 type ProviderChoice = "ipa" | "local";
 
@@ -217,11 +217,11 @@ export default function NewGroup(props: { freeIpaEnabled?: boolean }) {
 
       const res = await apiClient.groups.$post({ json: payload });
       if (!res.ok) {
-        const data = (await res.json()) as { message?: string };
-        throw new Error(data.message ?? "Failed to create group.");
+        const data = ErrorResponseSchema.safeParse(await res.json());
+        throw new Error(data.success ? data.data.message : "Failed to create group.");
       }
 
-      const data = (await res.json()) as BaseGroup;
+      const data = BaseGroupSchema.parse(await res.json());
       return {
         group: data,
         command: data.gidnumber ? `sudo nfsctl groupadd ${data.name}` : undefined,

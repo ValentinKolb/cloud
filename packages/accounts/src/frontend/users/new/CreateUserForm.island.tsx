@@ -3,13 +3,7 @@ import { dates } from "@valentinkolb/stdlib";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createEffect, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-
-type CreateUserResult = {
-  id: string;
-  uid: string;
-  accountExpires: string | null;
-  notificationSent: boolean;
-};
+import { CreateUserResponseSchema, ErrorResponseSchema, type CreateUserResponse } from "@/contracts";
 
 type PrefillData = {
   requestId: string;
@@ -47,7 +41,7 @@ type CreateUserPayload =
 
 type CreateFlowResult = {
   payload: CreateUserPayload;
-  data: CreateUserResult;
+  data: CreateUserResponse;
 };
 
 type Props = {
@@ -331,7 +325,7 @@ function CreateUserDialog(props: { provider: ProviderChoice; prefill?: PrefillDa
   );
 }
 
-const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResult) => {
+const buildSuccessDialog = (payload: CreateUserPayload, data: CreateUserResponse) => {
   const nfsCommands = `sudo nfsctl useradd ${data.uid}`;
   const isIpa = payload.provider === "ipa";
   const notificationMessage = data.notificationSent
@@ -471,11 +465,11 @@ export default function CreateUserForm(props: Props) {
 
       const res = await apiClient.users.$post({ json: payload });
       if (!res.ok) {
-        const data = (await res.json()) as { message?: string };
-        throw new Error("message" in data ? data.message : "Failed to create account.");
+        const data = ErrorResponseSchema.safeParse(await res.json());
+        throw new Error(data.success ? data.data.message : "Failed to create account.");
       }
 
-      const data = (await res.json()) as CreateUserResult;
+      const data = CreateUserResponseSchema.parse(await res.json());
       return { payload, data };
     },
     onSuccess: async (result) => {

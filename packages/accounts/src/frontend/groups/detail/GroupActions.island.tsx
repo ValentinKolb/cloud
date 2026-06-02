@@ -3,6 +3,7 @@ import { CopyButton } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
+import { ErrorResponseSchema } from "@/contracts";
 import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 type GroupActionsProps = {
@@ -20,8 +21,8 @@ export default function GroupActions(props: GroupActionsProps) {
     mutation: async (id) => {
       const res = await apiClient.groups[":id"].$delete({ param: { id } });
       if (!res.ok) {
-        const data = (await res.json()) as { message?: string };
-        throw new Error(data.message ?? "Failed to delete group.");
+        const data = ErrorResponseSchema.safeParse(await res.json());
+        throw new Error(data.success ? data.data.message : "Failed to delete group.");
       }
     },
     onSuccess: async () => {
@@ -85,8 +86,8 @@ export default function GroupActions(props: GroupActionsProps) {
         json: vars,
       });
       if (!res.ok) {
-        const data = (await res.json()) as { message?: string };
-        throw new Error(data.message ?? "Failed to update group.");
+        const data = ErrorResponseSchema.safeParse(await res.json());
+        throw new Error(data.success ? data.data.message : "Failed to update group.");
       }
     },
     onSuccess: () => refreshCurrentPath(),

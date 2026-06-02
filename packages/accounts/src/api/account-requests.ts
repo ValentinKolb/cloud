@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { ok } from "@valentinkolb/stdlib";
+import { err, fail, ok } from "@valentinkolb/stdlib";
 import { accountsAppService as accountsService } from "@valentinkolb/cloud/services";
 import {
   ErrorResponseSchema,
@@ -102,6 +102,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing account request ID")));
 
       return respond(
         c,
@@ -135,6 +136,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing account request ID")));
       const { reason } = c.req.valid("json");
 
       return respond(c, async () => {

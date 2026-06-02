@@ -95,12 +95,12 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
         json: { kind: JOB_KIND_BY_OPERATION[operation.key] },
       });
 
-      const data = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) {
+        const data = await response.json();
         throw new Error(data.message ?? "Failed to start job.");
       }
 
-      return data;
+      return await response.json();
     },
   });
 

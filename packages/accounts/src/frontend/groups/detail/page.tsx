@@ -44,6 +44,31 @@ export default ssr<AuthContext>(async (c) => {
   });
   const groupsBackLabel = listState.scope === "managed" ? "Managed Groups" : listState.scope === "member" ? "My Groups" : "All Groups";
 
+  if (!groupId) {
+    return () => (
+      <Layout
+        c={c}
+        fullWidth
+        title={[
+          { title: "Start", href: "/" },
+          { title: "Accounts", href: "/app/accounts" },
+          { title: "Groups", href: "/app/accounts/groups" },
+          { title: "Not Found" },
+        ]}
+      >
+        <div class="flex-1 flex items-center justify-center">
+          <div class="text-center text-dimmed flex flex-col items-center gap-2">
+            <i class="ti ti-alert-circle text-4xl" />
+            <p class="text-sm">Group not found.</p>
+            <a href={groupsListHref} class="text-xs hover:text-primary">
+              Back to Groups
+            </a>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   const group = await accountsService.group.get({ id: groupId });
 
   if (!group) {

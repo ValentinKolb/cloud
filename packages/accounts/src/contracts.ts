@@ -32,6 +32,14 @@ export const GroupMemberInputSchema = z.discriminatedUnion("type", [
 ]);
 export type GroupMemberInput = z.infer<typeof GroupMemberInputSchema>;
 
+export const CreateUserResponseSchema = z.object({
+  id: z.string(),
+  uid: z.string(),
+  accountExpires: z.string().nullable(),
+  notificationSent: z.boolean(),
+});
+export type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>;
+
 const CreateUserSharedSchema = {
   email: z.email(),
   givenname: z.string().min(1),

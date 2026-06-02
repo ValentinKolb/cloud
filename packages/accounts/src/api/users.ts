@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { v, jsonResponse, requiresAdmin, auth, type AuthContext, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { accountsAppService as accountsService, logger, notifications, getFreeIpaConfig } from "@valentinkolb/cloud/services";
 import { parsePagination, createPagination } from "@/contracts";
 import {
@@ -13,6 +13,7 @@ import {
   ErrorResponseSchema,
   MessageResponseSchema,
   CreateUserSchema,
+  CreateUserResponseSchema,
 } from "@/contracts";
 import { UserSchema, IpaProfileFieldsSchema } from "@valentinkolb/cloud/contracts";
 const log = logger("accounts:admin:users");
@@ -53,12 +54,7 @@ const UsersListResponseSchema = z.object({
   pagination: PaginationResponseSchema,
 });
 
-const CreateUserResponseSchema = z.object({
-  id: z.string().describe("Created user's UUID"),
-  uid: z.string().describe("Created user's UID"),
-  accountExpires: z.string().nullable().describe("Account expiration date (ISO timestamp)"),
-  notificationSent: z.boolean().describe("Whether the welcome email was sent immediately"),
-});
+type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>;
 
 const ResetPasswordResponseSchema = z.object({
   message: z.string().describe("Human-readable success message"),
@@ -191,12 +187,15 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "User not found"),
       },
     }),
-    async (c) =>
-      respond(c, async () => {
-        const user = await accountsService.user.get({ id: c.req.param("id") });
+    async (c) => {
+      const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
+      return respond(c, async () => {
+        const user = await accountsService.user.get({ id });
         if (!user) return fail(err.notFound("User not found"));
         return ok(user);
-      }),
+      });
+    },
   )
   .post(
     "/",
@@ -223,7 +222,7 @@ const app = new Hono<AuthContext>()
       return respond(
         c,
         async () => {
-          const result = await accountsService.user.create({
+          const result: Result<CreateUserResponse> = await accountsService.user.create({
             ipaSession: ipaSessionResult?.ipaSession ?? null,
             data,
             processedBy: adminUser.id,
@@ -265,6 +264,7 @@ const app = new Hono<AuthContext>()
     v("json", AdminUpdateUserSchema),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const data = c.req.valid("json");
       const token = c.get("sessionToken");
       const ipaSession = await auth.session.getIpaSession(token);
@@ -293,6 +293,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
@@ -339,6 +340,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -374,6 +376,7 @@ const app = new Hono<AuthContext>()
     v("json", SetAdminSchema),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
       return respond(c, async () => {
         const targetUser = await accountsService.user.getMinimal({ id });
@@ -408,6 +411,7 @@ const app = new Hono<AuthContext>()
     v("json", SwitchProviderSchema),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { provider } = c.req.valid("json");
       const selfActionError = await preventSelfDestructiveAction(c, {
         targetUserId: id,
@@ -461,6 +465,7 @@ const app = new Hono<AuthContext>()
     ),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { expiryDate } = c.req.valid("json");
       // Guard fires for any self-targeted change, including `null` (remove expiry)
       // — otherwise an admin could bypass account-lifecycle controls on their own
@@ -503,6 +508,7 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ profile: z.enum(["user", "guest"]) })),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const { profile } = c.req.valid("json");
       if (profile === "guest") {
         const selfActionError = await preventSelfDestructiveAction(c, {
@@ -550,6 +556,7 @@ const app = new Hono<AuthContext>()
     v("json", NotifyUserSchema),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
       const { subject, rawHtml } = c.req.valid("json");
       return respond(c, async () => {
@@ -580,6 +587,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       return respond(c, async () => {
         const result = await accountsService.user.sendLoginLink({ id });
         if (!result.ok) return result;
@@ -606,6 +614,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
       const selfActionError = await preventSelfDestructiveAction(c, {
         targetUserId: id,
@@ -643,6 +652,7 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing user ID")));
       const actor = c.get("user");
       const selfActionError = await preventSelfDestructiveAction(c, {
         targetUserId: id,

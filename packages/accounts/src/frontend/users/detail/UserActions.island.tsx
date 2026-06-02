@@ -108,14 +108,11 @@ export default function UserActions(props: UserActionsProps) {
       const res = await apiClient.users[":id"]["password-reset"].$post({
         param: { id: props.user.id },
       });
-      const data = (await res.json()) as { message?: string; password?: string; code?: string };
       if (!res.ok) {
+        const data = await res.json();
         throw new Error(data.message ?? "Failed to reset password.");
       }
-      return {
-        message: data.message ?? "Password reset.",
-        password: data.password ?? "",
-      };
+      return await res.json();
     },
     onSuccess: (data) =>
       openCredentialDialog({
@@ -235,21 +232,11 @@ export default function UserActions(props: UserActionsProps) {
       const res = await apiClient.users[":id"]["login-token"].$post({
         param: { id: props.user.id },
       });
-      const data = (await res.json()) as {
-        message?: string;
-        token?: string;
-        magicLink?: string;
-        expiresInSeconds?: number;
-        code?: string;
-      };
       if (!res.ok) {
+        const data = await res.json();
         throw new Error(data.message ?? "Failed to create login token.");
       }
-      return {
-        token: data.token ?? "",
-        magicLink: data.magicLink ?? "",
-        expiresInSeconds: data.expiresInSeconds ?? 300,
-      };
+      return await res.json();
     },
     onSuccess: (data) =>
       openCredentialDialog({
