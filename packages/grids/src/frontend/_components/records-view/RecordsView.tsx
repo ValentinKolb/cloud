@@ -1,6 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
-  AutocompleteEditor,
   Dropdown,
   dialogCore,
   MultiSelectInput,
@@ -20,7 +19,7 @@ import { defaultTableAggregations } from "../../../table-defaults";
 import { createFieldFromPrompt, deleteFieldWithChecks, openFormsDialog, openTableSettingsDialog } from "../dialogs/TableAdminDialogs";
 import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
-import { buildFormulaCompletions, formulaFieldRefs, formulaHighlight } from "../fields/formula-authoring";
+import { FormulaExpressionEditor } from "../fields/FormulaExpressionEditor";
 import { openFieldEditDialog } from "../fields/TableFieldDialogs";
 import { openExportRecordsDialog } from "../records/ExportRecordsDialog";
 import RecordDetailPanel from "../records/RecordDetailPanel";
@@ -76,12 +75,14 @@ type ComputedColumnDialogResult =
 
 const openComputedColumnDialog = (args: {
   fields: Field[];
+  currentTableId: string;
+  baseShortId: string;
+  tableShortId: string;
   column?: Extract<ColumnSpec, { kind: "computed" }>;
 }) =>
   dialogCore.open<ComputedColumnDialogResult | null>((close) => {
     const [label, setLabel] = createSignal(args.column?.label ?? "");
     const [expression, setExpression] = createSignal(args.column?.expression ?? "");
-    const refs = () => formulaFieldRefs(args.fields);
     const save = () => {
       const nextLabel = label().trim();
       const nextExpression = expression().trim();
@@ -112,22 +113,15 @@ const openComputedColumnDialog = (args: {
             Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view setup.
           </div>
           <TextInput label="Name" value={label} onInput={setLabel} icon="ti ti-typography" placeholder="e.g. Total with VAT" required />
-          <div class="flex flex-col gap-1.5">
-            <span class="text-label text-xs">Expression</span>
-            <AutocompleteEditor
-              value={expression}
-              onInput={setExpression}
-              placeholder="e.g. #price * 1.19"
-              completions={buildFormulaCompletions(refs())}
-              highlight={formulaHighlight}
-              restoreExpansionOnBackspace={false}
-              lines={4}
-              ariaLabel="Computed column expression"
-            />
-            <p class="text-xs leading-snug text-dimmed">
-              Search fields by name. Suggestions insert stable <code>#ref</code> values.
-            </p>
-          </div>
+          <FormulaExpressionEditor
+            value={expression}
+            onInput={setExpression}
+            fields={args.fields}
+            currentTableId={args.currentTableId}
+            baseShortId={args.baseShortId}
+            tableShortId={args.tableShortId}
+            ariaLabel="Computed column expression"
+          />
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <Show when={args.column} fallback={<span />}>
@@ -1025,7 +1019,13 @@ export default function RecordsView(props: Props) {
     const current = effectiveViewColumns()?.find((item) => columnId(item) === columnId(column));
     if (!current) return;
     if (isComputedColumn(current)) {
-      const result = await openComputedColumnDialog({ fields: fields(), column: current });
+      const result = await openComputedColumnDialog({
+        fields: fields(),
+        currentTableId: props.tableId,
+        baseShortId: props.baseShortId,
+        tableShortId: props.tableShortId,
+        column: current,
+      });
       if (!result) return;
       if (result.action === "delete") {
         persistFlatViewColumns((effectiveViewColumns() ?? []).filter((item) => columnId(item) !== current.id));
@@ -1273,7 +1273,12 @@ export default function RecordsView(props: Props) {
   };
 
   const openAddComputedColumn = async () => {
-    const result = await openComputedColumnDialog({ fields: fields() });
+    const result = await openComputedColumnDialog({
+      fields: fields(),
+      currentTableId: props.tableId,
+      baseShortId: props.baseShortId,
+      tableShortId: props.tableShortId,
+    });
     if (!result || result.action !== "save") return;
     persistFlatViewColumns([...(effectiveViewColumns() ?? defaultViewColumns()), result.column]);
   };
