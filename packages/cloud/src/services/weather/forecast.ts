@@ -13,6 +13,28 @@ export type ForecastLocationConfig = {
   lon?: string;
 };
 
+type ResolvedForecastLocation = {
+  lat: string;
+  lon: string;
+};
+
+const resolveForecastLocation = async (config?: ForecastLocationConfig): Promise<ResolvedForecastLocation | null> => {
+  const lat = (config?.lat ?? (await coreSettings.get<string>("weather.default_lat"))).trim();
+  const lon = (config?.lon ?? (await coreSettings.get<string>("weather.default_lon"))).trim();
+
+  if (!lat || !lon) {
+    log.error("Weather default coordinates are not configured", {
+      missing: [
+        !lat ? "weather.default_lat" : null,
+        !lon ? "weather.default_lon" : null,
+      ].filter(Boolean),
+    });
+    return null;
+  }
+
+  return { lat, lon };
+};
+
 /** Brightsky current_weather API response */
 type BrightskyCurrentResponse = {
   weather: {
@@ -133,8 +155,10 @@ const fetchCurrentFromApi = async (lat: string, lon: string): Promise<CurrentWea
 
 /** Get current weather, using Redis cache. */
 export const getCurrentWeather = async (config?: ForecastLocationConfig): Promise<CurrentWeather | null> => {
-  const lat = config?.lat ?? (await coreSettings.get<string>("weather.default_lat"));
-  const lon = config?.lon ?? (await coreSettings.get<string>("weather.default_lon"));
+  const location = await resolveForecastLocation(config);
+  if (!location) return null;
+
+  const { lat, lon } = location;
   const cacheKey = getCacheKey(lat, lon);
 
   const cached = await redis.get(cacheKey);
@@ -264,8 +288,10 @@ const fetchForecastFromApi = async (lat: string, lon: string): Promise<{ hourly:
 
 /** Get full weather data including forecasts. */
 export const getWeatherData = async (config?: ForecastLocationConfig): Promise<WeatherData | null> => {
-  const lat = config?.lat ?? (await coreSettings.get<string>("weather.default_lat"));
-  const lon = config?.lon ?? (await coreSettings.get<string>("weather.default_lon"));
+  const location = await resolveForecastLocation(config);
+  if (!location) return null;
+
+  const { lat, lon } = location;
   const cacheKey = `weather:full:${lat}:${lon}`;
 
   const cached = await redis.get(cacheKey);
@@ -277,7 +303,7 @@ export const getWeatherData = async (config?: ForecastLocationConfig): Promise<W
     }
   }
 
-  const [current, forecast] = await Promise.all([getCurrentWeather(config), fetchForecastFromApi(lat, lon)]);
+  const [current, forecast] = await Promise.all([getCurrentWeather(location), fetchForecastFromApi(lat, lon)]);
 
   if (!current) return null;
 
