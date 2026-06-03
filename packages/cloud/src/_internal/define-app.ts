@@ -247,6 +247,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     <meta name="theme-color" content="#09090b">
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="icon" href="/branding/favicon">
+    <style data-cloud-css-layers>@layer theme, base, components, utilities;</style>
     <link rel="stylesheet" href="/public/${opts.id}/app.css?v=${v}">
     <link rel="stylesheet" href="/public/global.css?v=${v}">
     <script>
