@@ -6,7 +6,6 @@ import {
   IconInput,
   panelDialogOptions,
   PanelDialog,
-  PermissionEditor,
   prompts,
   Select,
   TextInput,
@@ -19,10 +18,11 @@ import type { FieldColumnSpec } from "../../../contracts";
 import type { Field } from "../../../service";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
+import { RECORD_INPUT_FIELD_TYPES } from "./field-render";
 import { FIELD_TYPE_DESCRIPTIONS, FieldConfigEditor, type FieldConfigState, TYPE_LABELS } from "./field-config-editor";
 
-const RECORD_INPUT_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json", "relation"]);
 const PRESENTABLE_TYPES = new Set(["text", "number", "boolean", "date", "select", "autonumber", "percent", "duration"]);
 const INDEXABLE_TYPES = new Set(["text", "longtext", "number", "autonumber", "percent", "duration", "date", "boolean", "select"]);
 const UNIQUE_TYPES = new Set(["text", "longtext", "number", "percent", "date", "boolean", "autonumber"]);
@@ -151,8 +151,8 @@ function FieldEditor(props: {
   const [columnLabel, setColumnLabel] = createSignal(initialColumn()?.label ?? "");
   let formatControls: ColumnFormatControlsHandle | undefined;
   const [dirty, setDirty] = createSignal(false);
-  const supportsRequired = () => RECORD_INPUT_TYPES.has(props.field.type);
-  const supportsDefaultValue = () => RECORD_INPUT_TYPES.has(props.field.type);
+  const supportsRequired = () => RECORD_INPUT_FIELD_TYPES.has(props.field.type);
+  const supportsDefaultValue = () => RECORD_INPUT_FIELD_TYPES.has(props.field.type);
   const supportsPresentable = () => PRESENTABLE_TYPES.has(props.field.type);
   const supportsIndexed = () => INDEXABLE_TYPES.has(props.field.type);
   const supportsUnique = () => UNIQUE_TYPES.has(props.field.type);
@@ -482,48 +482,15 @@ function FieldEditor(props: {
 // =============================================================================
 
 export function TablePermissions(props: { tableId: string; initialEntries: AccessEntry[] }) {
-  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   return (
-    <PermissionEditor
-      initialEntries={entries()}
+    <ScopedPermissionEditor
+      scope={{ type: "table", id: props.tableId }}
+      initialEntries={props.initialEntries}
       canEdit
-      // Tables only carry read/write — admin (now: base-admin) is
-      // managed from the Base settings page. Without this cap the
-      // editor would offer 'Manage' which the API now rejects.
       allowedLevels={[
         { level: "read", label: "View" },
         { level: "write", label: "Edit" },
       ]}
-      grantAccess={async (principal, permission) => {
-        const res = await apiClient.access["by-table"][":tableId"].$post({
-          param: { tableId: props.tableId },
-          json: { principal, permission },
-        });
-        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = await res.json();
-        // Re-fetch the canonical list so the new entry has its displayName etc.
-        const listRes = await apiClient.access["by-table"][":tableId"].$get({
-          param: { tableId: props.tableId },
-        });
-        const list = listRes.ok ? await listRes.json() : entries();
-        setEntries(list);
-        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
-      }}
-      updateAccess={async (accessId, permission) => {
-        const res = await apiClient.access[":accessId"].$patch({
-          param: { accessId },
-          json: { permission },
-        });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
-        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
-      }}
-      revokeAccess={async (accessId) => {
-        const res = await apiClient.access[":accessId"].$delete({
-          param: { accessId },
-        });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
-        setEntries(entries().filter((e) => e.id !== accessId));
-      }}
     />
   );
 }

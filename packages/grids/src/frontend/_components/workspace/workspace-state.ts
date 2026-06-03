@@ -317,6 +317,7 @@ const resolveInitialQuery = (recordsState: RecordsState, activeView: View | null
   const effective = resolveEffectiveQuery(recordsState, activeView);
   const effectiveFilter = effective.filter ?? null;
   const effectiveSort = effective.sort ?? [];
+  const effectiveRecordMeta = effective.recordMeta ?? null;
   const effectiveIncludeDeleted = effective.includeDeleted ?? false;
   const effectiveSearch = effective.search
     ? { q: effective.search.q, fieldIds: effective.search.fieldIds ?? [], override: recordsState.search.override }
@@ -333,6 +334,7 @@ const resolveInitialQuery = (recordsState: RecordsState, activeView: View | null
     effective,
     effectiveFilter,
     effectiveSort,
+    effectiveRecordMeta,
     effectiveIncludeDeleted,
     effectiveSearch,
     effectiveGroupBy,
@@ -368,6 +370,7 @@ const loadGroupedInitialRecords = async (
     aggregations: query.effectiveAggregations,
     groupSort: query.effectiveGroupSort,
     filter: query.effectiveFilter,
+    recordMeta: query.effectiveRecordMeta,
     search: query.effectiveSearch.q ? { q: query.effectiveSearch.q, fieldIds: query.effectiveSearch.fieldIds } : null,
     limit: 1000,
     viewer,
@@ -398,6 +401,7 @@ const loadListedInitialRecords = async (
     deletedOnly: args.trashMode,
     filter: query.effectiveFilter,
     search: query.searchSpec,
+    recordMeta: query.effectiveRecordMeta,
     sort: query.effectiveSort,
     cursor: args.recordsState.cursor,
     includeRelations: true,
@@ -416,6 +420,7 @@ const loadListedInitialRecords = async (
     tableId: args.activeTable.id,
     filter: query.effectiveFilter,
     search: query.searchSpec,
+    recordMeta: query.effectiveRecordMeta,
     includeDeleted: query.effectiveIncludeDeleted,
     deletedOnly: args.trashMode,
     requests: query.effectiveAggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
@@ -488,9 +493,11 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
       initialState: {
         query: {
           filter: initial.effectiveFilter ?? undefined,
+          recordMeta: initial.effectiveRecordMeta ?? undefined,
           sort: initial.effectiveSort,
           groupBy: initial.effectiveGroupBy,
           aggregations: initial.effectiveAggregations,
+          columns: initial.effective.columns,
           includeDeleted: initial.effectiveIncludeDeleted,
           deletedOnly: common.chrome.trashMode,
         },
@@ -507,7 +514,7 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
       },
       initialSelectedRecord: selectedRecord,
       relationLabels: initial.relationLabels,
-      activeViewColumns: activeView?.query.columns,
+      activeViewColumns: initial.effective.columns,
       searchableFields: filterSearchableFields(fields),
       groupedExplode: initial.groupedExplode,
       activeViewQuery: activeView?.query ?? null,

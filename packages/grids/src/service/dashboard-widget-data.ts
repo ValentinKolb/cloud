@@ -425,6 +425,7 @@ const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: 
       tableId: view.tableId,
       filter: view.query.filter ?? null,
       search: view.query.search ?? null,
+      recordMeta: view.query.recordMeta ?? null,
       groupBy,
       aggregations: aggregations.map((a) => ({
         fieldId: a.fieldId,
@@ -491,6 +492,7 @@ const resolveSavedView = async (
     tableId: view.tableId,
     filter: view.query.filter ?? null,
     search: view.query.search ?? null,
+    recordMeta: view.query.recordMeta ?? null,
     sort: view.query.sort ?? [],
     includeDeleted: view.query.includeDeleted,
     deletedOnly: view.query.deletedOnly,
@@ -617,6 +619,7 @@ const resolveUngroupedViewStats = async (
     tableId: view.tableId,
     filter: view.query.filter ?? null,
     search: view.query.search ?? null,
+    recordMeta: view.query.recordMeta ?? null,
     sort: view.query.sort ?? [],
     includeDeleted: view.query.includeDeleted,
     deletedOnly: view.query.deletedOnly,
@@ -675,6 +678,7 @@ const resolveGroupedViewStats = async (
     tableId: view.tableId,
     filter: view.query.filter ?? null,
     search: view.query.search ?? null,
+    recordMeta: view.query.recordMeta ?? null,
     groupBy: view.query.groupBy ?? [],
     aggregations: aggs.map((a) => ({
       fieldId: a.fieldId,

@@ -14,7 +14,9 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form, Table } from "../../../service";
+import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
+import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
 import { type TableHeader, TablePermissions } from "../fields/TableFieldDialogs";
 import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
@@ -76,24 +78,6 @@ export const createFieldFromPrompt = async (args: { table: TableHeader }): Promi
     return null;
   }
   return res.json();
-};
-
-const FIELD_TYPE_ICONS: Record<string, string> = {
-  text: "ti ti-typography",
-  longtext: "ti ti-align-left",
-  number: "ti ti-number",
-  boolean: "ti ti-toggle-left",
-  date: "ti ti-calendar",
-  select: "ti ti-list-details",
-  autonumber: "ti ti-sort-ascending-numbers",
-  percent: "ti ti-percentage",
-  duration: "ti ti-clock-hour-4",
-  json: "ti ti-braces",
-  file: "ti ti-paperclip",
-  relation: "ti ti-hierarchy",
-  lookup: "ti ti-arrow-up-right",
-  rollup: "ti ti-math-function",
-  formula: "ti ti-function",
 };
 
 const FIELD_TYPE_EXAMPLES: Record<string, string> = {
@@ -245,18 +229,20 @@ function TableSettingsBody(props: {
   onDirtyChange?: (dirty: boolean) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = createSignal(props.table.name);
-  const [description, setDescription] = createSignal(props.table.description ?? "");
-  const [icon, setIcon] = createSignal(props.table.icon ?? "");
-  const [disableDirectInsert, setDisableDirectInsert] = createSignal(props.table.disableDirectInsert);
-  const [dirty, setDirty] = createSignal(false);
-  const wrap =
-    <T,>(setter: (v: T) => void) =>
-    (v: T) => {
-      setter(v);
-      setDirty(true);
-      props.onDirtyChange?.(true);
-    };
+  const draft = createDraft({
+    name: props.table.name,
+    description: props.table.description ?? "",
+    icon: props.table.icon ?? "",
+    disableDirectInsert: props.table.disableDirectInsert,
+  });
+  const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
+    draft.patch(partial);
+    props.onDirtyChange?.(true);
+  };
+  const name = () => draft.draft().name;
+  const description = () => draft.draft().description;
+  const icon = () => draft.draft().icon;
+  const disableDirectInsert = () => draft.draft().disableDirectInsert;
 
   const saveMut = mutations.create<Table, void>({
     mutation: async () => {
@@ -275,7 +261,12 @@ function TableSettingsBody(props: {
       return res.json();
     },
     onSuccess: (next) => {
-      setDirty(false);
+      draft.markSaved({
+        name: next.name,
+        description: next.description ?? "",
+        icon: next.icon ?? "",
+        disableDirectInsert: next.disableDirectInsert,
+      });
       props.onDirtyChange?.(false);
       props.onSaved(next);
     },
@@ -307,12 +298,12 @@ function TableSettingsBody(props: {
     <>
       <PanelDialog.Body>
         <PanelDialog.Section title="Identity" subtitle="Name and description shown around this table." icon="ti ti-id">
-          <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
-          <IconInput label="Icon" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
+          <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} icon="ti ti-typography" required />
+          <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
           <TextInput
             label="Description"
             value={description}
-            onInput={wrap(setDescription)}
+            onInput={(v) => patch({ description: v })}
             icon="ti ti-align-left"
             multiline
             lines={2}
@@ -322,7 +313,7 @@ function TableSettingsBody(props: {
             label="Add records through forms"
             description="New records use forms by default. Admins can still edit the table directly."
             value={disableDirectInsert}
-            onChange={wrap(setDisableDirectInsert)}
+            onChange={(v) => patch({ disableDirectInsert: v })}
           />
         </PanelDialog.Section>
 
@@ -347,7 +338,7 @@ function TableSettingsBody(props: {
             type="button"
             class="btn-primary btn-sm"
             onClick={() => saveMut.mutate(undefined)}
-            disabled={!dirty() || saveMut.loading()}
+            disabled={!draft.dirty() || saveMut.loading()}
           >
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>

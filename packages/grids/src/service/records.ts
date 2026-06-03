@@ -13,6 +13,12 @@ import { parseJsonbRow } from "./jsonb";
 import { requireTableAlive } from "./parent-checks";
 import { type GridsRecordEvent, publishRecordEvent } from "./record-events";
 import {
+  cleanRecordMeta,
+  compileRecordMetaFilter,
+  listRecordActors,
+  recordMetaRequiresDeletedRows,
+} from "./record-metadata";
+import {
   attachRelationExpansion,
   type ExpansionViewer,
   enrichRecordsWithComputedColumns,
@@ -24,7 +30,7 @@ import {
 import { compileSearchClause, type SearchSpec } from "./search";
 import { compileSort, decodeCursor, type SortSpec } from "./sort-compiler";
 import type { Field, GridRecord, RecordList } from "./types";
-import type { ComputedColumnSpec } from "../contracts";
+import type { ComputedColumnSpec, RecordMetaQuery } from "../contracts";
 
 type DbRow = Record<string, unknown>;
 
@@ -211,6 +217,7 @@ export const list = async (params: {
   includeDeleted?: boolean;
   filter?: FilterTree | null;
   search?: SearchSpec | null;
+  recordMeta?: RecordMetaQuery | null;
   sort?: SortSpec[];
   /**
    * When true, populate each returned record's `expanded` field with
@@ -247,16 +254,19 @@ export const list = async (params: {
     viewer: params.viewer,
   });
   const searchClause = searchCompiled.clause;
+  const recordMetaClause = compileRecordMetaFilter(params.recordMeta ?? null);
+  const needsDeletedRows = recordMetaRequiresDeletedRows(params.recordMeta ?? null);
 
   // Sort compilation (with cursor decoding when present). Cursor length
   // is validated against the active sort spec — a stale cursor from a
   // different sort length now returns 400 instead of misaligning page 2.
-  const expectedCursorLength = params.sort?.length ?? 0;
+  const effectiveSort = params.sort ?? [];
+  const expectedCursorLength = effectiveSort.length;
   const decodedCursor = params.cursor ? decodeCursor(params.cursor, expectedCursorLength) : null;
   if (params.cursor && !decodedCursor) {
     return fail(err.badInput("invalid cursor"));
   }
-  const sortCompiled = compileSort(params.sort ?? [], fields, decodedCursor);
+  const sortCompiled = compileSort(effectiveSort, fields, decodedCursor);
   if (!sortCompiled.ok) return fail(err.badInput(`sort: ${sortCompiled.error}`));
   const { orderBy, cursorWhere, cursorSelect, encodeCursorFromRow } = sortCompiled.result;
 
@@ -265,10 +275,11 @@ export const list = async (params: {
   // column names. An unqualified ref raises 42702 (chunk: 1.2 JOIN
   // regression).
   const conditions: any[] = [sql`r.table_id = ${params.tableId}::uuid`];
-  if (params.deletedOnly) conditions.push(sql`r.deleted_at IS NOT NULL`);
+  if (params.deletedOnly || needsDeletedRows) conditions.push(sql`r.deleted_at IS NOT NULL`);
   else if (!params.includeDeleted) conditions.push(sql`r.deleted_at IS NULL`);
   conditions.push(filterClause);
   conditions.push(searchClause);
+  conditions.push(recordMetaClause);
   if (cursorWhere) conditions.push(cursorWhere);
   const where = conditions.reduce((acc, cond) => sql`${acc} AND ${cond}`);
 
@@ -330,6 +341,7 @@ export const list = async (params: {
         tableId: params.tableId,
         filter: params.filter ?? null,
         search: params.search ?? null,
+        recordMeta: cleanRecordMeta(params.recordMeta),
         includeDeleted: params.includeDeleted,
         deletedOnly: params.deletedOnly,
         requests: defaultListAggregates(fields),
@@ -360,6 +372,7 @@ export const group = async (params: {
   groupSort?: GroupSortSpec[];
   filter?: FilterTree | null;
   search?: SearchSpec | null;
+  recordMeta?: RecordMetaQuery | null;
   cursor?: string | null;
   limit?: number;
   fromEnd?: boolean;
@@ -390,6 +403,8 @@ export const group = async (params: {
     viewer: params.viewer,
   });
   const searchClause = searchCompiled.clause;
+  const recordMetaClause = compileRecordMetaFilter(params.recordMeta ?? null);
+  const needsDeletedRows = recordMetaRequiresDeletedRows(params.recordMeta ?? null);
   const compiled = compileGroupQuery({
     tableId: params.tableId,
     groupBy: params.groupBy,
@@ -397,12 +412,13 @@ export const group = async (params: {
     groupSort: params.groupSort,
     filter: params.filter,
     searchClause,
+    extraWhere: recordMetaClause,
     fields,
     cursor: cursorKeys,
     limit,
     fromEnd: params.fromEnd,
     includeDeleted: params.includeDeleted,
-    deletedOnly: params.deletedOnly,
+    deletedOnly: params.deletedOnly || needsDeletedRows,
     timeZone: params.dateConfig?.timeZone,
   });
   if (!compiled.ok) return fail(err.badInput(compiled.error));
@@ -458,6 +474,7 @@ export const aggregate = async (params: {
   tableId: string;
   filter?: FilterTree | null;
   search?: SearchSpec | null;
+  recordMeta?: RecordMetaQuery | null;
   requests: AggregateRequest[];
   includeDeleted?: boolean;
   deletedOnly?: boolean;
@@ -476,6 +493,8 @@ export const aggregate = async (params: {
     viewer: params.viewer,
   });
   const searchClause = searchCompiled.clause;
+  const recordMetaClause = compileRecordMetaFilter(params.recordMeta ?? null);
+  const needsDeletedRows = recordMetaRequiresDeletedRows(params.recordMeta ?? null);
 
   const aggCompiled = compileAggregates(params.requests, fields);
   if (!aggCompiled.ok) return fail(err.badInput(`aggregate: ${aggCompiled.error}`));
@@ -497,9 +516,10 @@ export const aggregate = async (params: {
     JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE r.table_id = ${params.tableId}::uuid
-      AND ${params.deletedOnly ? sql`r.deleted_at IS NOT NULL` : params.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`}
+      AND ${params.deletedOnly || needsDeletedRows ? sql`r.deleted_at IS NOT NULL` : params.includeDeleted ? sql`TRUE` : sql`r.deleted_at IS NULL`}
       AND ${filterClause}
       AND ${searchClause}
+      AND ${recordMetaClause}
   `;
   return ok(parseJsonbRow<Record<string, unknown>>(rows[0]?.result, {}));
 };
@@ -822,3 +842,5 @@ export const restore = async (tableId: string, recordId: string, actorId: string
   }
   return ok();
 };
+
+export const listActors = listRecordActors;

@@ -5,6 +5,10 @@ export type FilterOp = {
   id: string;
   /** Human label shown in the dropdown. */
   label: string;
+  /** Icon shown in rich select dropdowns. */
+  icon?: string;
+  /** Short help text shown under the label. */
+  description?: string;
   /** True if this op needs a value input. `between` needs two; we render them inline. */
   needsValue: boolean;
   /** True if this op needs two value inputs (`between`). */
@@ -15,61 +19,68 @@ export type FilterOp = {
 // because the filter row already reads "where {field} {op} {value}", so the
 // implicit "is" is obvious from context. Backend op `id`s stay the same.
 const TEXT_OPS: FilterOp[] = [
-  { id: "equals", label: "is", needsValue: true },
-  { id: "notEquals", label: "is not", needsValue: true },
-  { id: "contains", label: "contains", needsValue: true },
-  { id: "notContains", label: "not contains", needsValue: true },
-  { id: "startsWith", label: "starts with", needsValue: true },
-  { id: "endsWith", label: "ends with", needsValue: true },
-  { id: "regex", label: "regex", needsValue: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
+  { id: "equals", label: "is", icon: "ti ti-equal", description: "Exact text match", needsValue: true },
+  { id: "notEquals", label: "is not", icon: "ti ti-equal-not", description: "Different text", needsValue: true },
+  { id: "contains", label: "contains", icon: "ti ti-search", description: "Includes this text", needsValue: true },
+  { id: "notContains", label: "not contains", icon: "ti ti-search-off", description: "Does not include this text", needsValue: true },
+  { id: "startsWith", label: "starts with", icon: "ti ti-arrow-bar-right", description: "Begins with this text", needsValue: true },
+  { id: "endsWith", label: "ends with", icon: "ti ti-arrow-bar-left", description: "Ends with this text", needsValue: true },
+  { id: "regex", label: "regex", icon: "ti ti-regex", description: "Matches a regex pattern", needsValue: true },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No stored value", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a stored value", needsValue: false },
 ];
 
 const NUMBER_OPS: FilterOp[] = [
-  { id: "=", label: "=", needsValue: true },
-  { id: "!=", label: "≠", needsValue: true },
-  { id: "<", label: "<", needsValue: true },
-  { id: "<=", label: "≤", needsValue: true },
-  { id: ">", label: ">", needsValue: true },
-  { id: ">=", label: "≥", needsValue: true },
-  { id: "between", label: "between", needsValue: true, needsRange: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
+  { id: "=", label: "equals", icon: "ti ti-equal", needsValue: true },
+  { id: "!=", label: "not equal", icon: "ti ti-equal-not", needsValue: true },
+  { id: "<", label: "less than", icon: "ti ti-math-lower", needsValue: true },
+  { id: "<=", label: "less than or equal", icon: "ti ti-math-equal-lower", needsValue: true },
+  { id: ">", label: "greater than", icon: "ti ti-math-greater", needsValue: true },
+  { id: ">=", label: "greater than or equal", icon: "ti ti-math-equal-greater", needsValue: true },
+  {
+    id: "between",
+    label: "between",
+    icon: "ti ti-circle-plus-minus",
+    description: "Inside a value range",
+    needsValue: true,
+    needsRange: true,
+  },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No stored value", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a stored value", needsValue: false },
 ];
 
 const DATE_OPS: FilterOp[] = [
-  { id: "=", label: "is", needsValue: true },
-  { id: "before", label: "before", needsValue: true },
-  { id: "after", label: "after", needsValue: true },
-  { id: "between", label: "between", needsValue: true, needsRange: true },
-  { id: "today", label: "today", needsValue: false },
-  { id: "thisWeek", label: "this week", needsValue: false },
-  { id: "thisMonth", label: "this month", needsValue: false },
-  { id: "lastNDays", label: "last N days", needsValue: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
+  { id: "=", label: "is", icon: "ti ti-calendar", description: "Same date", needsValue: true },
+  { id: "before", label: "before", icon: "ti ti-calendar-minus", description: "Earlier than this date", needsValue: true },
+  { id: "after", label: "after", icon: "ti ti-calendar-plus", description: "Later than this date", needsValue: true },
+  { id: "between", label: "between", icon: "ti ti-calendar-stats", description: "Inside a date range", needsValue: true, needsRange: true },
+  { id: "today", label: "today", icon: "ti ti-calendar-event", description: "Falls on today", needsValue: false },
+  { id: "thisWeek", label: "this week", icon: "ti ti-calendar-week", description: "Falls in this week", needsValue: false },
+  { id: "thisMonth", label: "this month", icon: "ti ti-calendar-month", description: "Falls in this month", needsValue: false },
+  { id: "lastNDays", label: "last N days", icon: "ti ti-history", description: "Within the last N days", needsValue: true },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No stored value", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a stored value", needsValue: false },
 ];
 
 const BOOL_OPS: FilterOp[] = [
-  { id: "=", label: "is", needsValue: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
+  { id: "=", label: "is", icon: "ti ti-checkbox", description: "True or false", needsValue: true },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No stored value", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a stored value", needsValue: false },
 ];
 
 const SELECT_OPS: FilterOp[] = [
-  { id: "is", label: "is", needsValue: true },
-  { id: "isNot", label: "is not", needsValue: true },
-  { id: "isAnyOf", label: "one of", needsValue: true },
-  { id: "isNoneOf", label: "none of", needsValue: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
+  { id: "is", label: "is", icon: "ti ti-tag", description: "Selected option", needsValue: true },
+  { id: "isNot", label: "is not", icon: "ti ti-tag-off", description: "Any other option", needsValue: true },
+  { id: "isAnyOf", label: "one of", icon: "ti ti-list-check", description: "Any selected option matches", needsValue: true },
+  { id: "isNoneOf", label: "none of", icon: "ti ti-tags-off", description: "No selected option matches", needsValue: true },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No selected option", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a selected option", needsValue: false },
 ];
 
 const RELATION_OPS: FilterOp[] = [
-  { id: "containsAny", label: "contains", needsValue: true },
-  { id: "isEmpty", label: "empty", needsValue: false },
-  { id: "isNotEmpty", label: "not empty", needsValue: false },
+  { id: "containsAny", label: "contains", icon: "ti ti-link", description: "Links to any selected record", needsValue: true },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No linked record", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a linked record", needsValue: false },
 ];
 
 export const opsForType = (type: string): FilterOp[] => {

@@ -1,10 +1,11 @@
 import { markdown } from "@valentinkolb/cloud/shared";
 import { DataTable, type DataTableColumn, MarkdownView, ProgressBar } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, Show } from "solid-js";
+import { For, Show, type JSX } from "solid-js";
 import type { AggregationSpec } from "../../../contracts";
 import type { Field, GridRecord, RecordList } from "../../../service";
 import type { ColumnSpec } from "../../../service/views";
+import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
 import { formatCell, progressRatio } from "./format-cell";
 import { RecordLink } from "./RecordLink";
 import { SelectValueBadges } from "./select-badges";
@@ -269,7 +270,11 @@ export default function DatabaseTable(props: Props) {
       const ratio = progressRatio(record.data[field.id], field.type, field.config);
       const percent = Math.round(ratio * 100);
       const label =
-        fmt.label === "none" ? "" : fmt.label === "value" ? formatCell(record.data[field.id], field.type, field.config, undefined, props.dateConfig) : `${percent}%`;
+        fmt.label === "none"
+          ? ""
+          : fmt.label === "value"
+            ? formatCell(record.data[field.id], field.type, field.config, undefined, props.dateConfig)
+            : `${percent}%`;
       return (
         <span class="flex min-w-36 items-center gap-3">
           <ProgressBar value={percent} size="sm" class="w-32 shrink-0" />
@@ -282,21 +287,42 @@ export default function DatabaseTable(props: Props) {
     return formatCell(record.data[field.id], field.type, field.config, columnFormat(field.id), props.dateConfig);
   };
 
+  const headerLabel = (field: Field, computed: boolean) => (
+    <span class={`inline-flex min-w-0 items-center gap-1.5 ${computed ? "text-blue-600 dark:text-blue-300" : ""}`}>
+      <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-[13px] ${computed ? "" : "text-dimmed"}`} />
+      <span class="truncate">{columnLabel(field.id, field.name)}</span>
+    </span>
+  );
+
   const columns = (): DataTableColumn<GridRecord>[] =>
-    visibleColumns().map(({ field }) => ({
-      id: field.id,
-      header: columnLabel(field.id, field.name),
-      subtitle: props.showColumnSubtitles === false ? undefined : field.type,
-      value: (record) => record.data[field.id],
-    }));
+    visibleColumns().map(({ column, field }) => {
+      const computed = isComputedColumn(column);
+      return {
+        id: field.id,
+        header: headerLabel(field, computed),
+        subtitle: props.showColumnSubtitles === false ? undefined : computed ? "computed" : fieldTypeLabel(field.type).toLowerCase(),
+        value: (record) => record.data[field.id],
+        headerClass: computed ? "bg-blue-50/40 dark:bg-blue-950/15" : undefined,
+      };
+    });
 
   const shellClass = () => undefined;
 
-  const renderAdminHeader = (field: Field, subtitle: DataTableColumn<GridRecord>["subtitle"]) => (
+  const renderAdminHeader = (field: Field, subtitle: JSX.Element | undefined, computed: boolean) => (
     <div class="flex flex-col gap-0.5 leading-tight">
-      <span class="font-semibold text-emerald-700 dark:text-emerald-300">{columnLabel(field.id, field.name)}</span>
+      <span class={computed ? "font-semibold text-blue-600 dark:text-blue-300" : "font-semibold text-emerald-700 dark:text-emerald-300"}>
+        {headerLabel(field, computed)}
+      </span>
       <Show when={subtitle !== undefined}>
-        <span class="text-[10px] font-normal text-emerald-600/80 dark:text-emerald-300/80">{field.type}</span>
+        <span
+          class={
+            computed
+              ? "text-[10px] font-normal text-blue-500/80 dark:text-blue-300/80"
+              : "text-[10px] font-normal text-emerald-600/80 dark:text-emerald-300/80"
+          }
+        >
+          {subtitle}
+        </span>
       </Show>
     </div>
   );
@@ -308,7 +334,9 @@ export default function DatabaseTable(props: Props) {
         {(spec) => {
           const value = () => (props.aggregates ?? {})[`${spec.fieldId}__${spec.agg}`];
           const displayValue = () =>
-            spec.fieldId === "*" ? String(value()) : formatCell(value(), field.type, field.config, columnFormat(field.id), props.dateConfig);
+            spec.fieldId === "*"
+              ? String(value())
+              : formatCell(value(), field.type, field.config, columnFormat(field.id), props.dateConfig);
           const fallbackLabel = AGG_LABELS[spec.agg] ?? spec.agg;
           const label = spec.label?.trim() || fallbackLabel;
           return (
@@ -351,6 +379,8 @@ export default function DatabaseTable(props: Props) {
         renderHeader={({ col, render }) => {
           const entry = visibleColumns().find((item) => item.field.id === col.id);
           const field = entry?.field;
+          const computed = entry ? isComputedColumn(entry.column) : false;
+          const subtitle = typeof col.subtitle === "function" ? undefined : col.subtitle;
           const isColumnOrderEdit = !!props.viewColumns && !!props.onViewColumnMove;
           const isViewColumnEdit = !!props.onViewColumnSettings;
           const isFieldEdit = !!props.onFieldSettings;
@@ -363,7 +393,7 @@ export default function DatabaseTable(props: Props) {
             "icon-btn h-6 w-6 shrink-0 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300";
           return (
             <div class="flex min-w-0 items-start gap-2">
-              <div class="min-w-0 flex-1">{renderAdminHeader(field, col.subtitle)}</div>
+              <div class="min-w-0 flex-1">{renderAdminHeader(field, subtitle, computed)}</div>
               <div class="flex shrink-0 items-center gap-0">
                 <button
                   type="button"
@@ -398,7 +428,8 @@ export default function DatabaseTable(props: Props) {
                   class={adminIconClass}
                   onClick={(event) => {
                     event.stopPropagation();
-                    if (isViewColumnEdit && entry) props.onViewColumnSettings?.(entry.column, isComputedColumn(entry.column) ? null : field);
+                    if (isViewColumnEdit && entry)
+                      props.onViewColumnSettings?.(entry.column, isComputedColumn(entry.column) ? null : field);
                     else props.onFieldSettings?.(field);
                   }}
                   title={isViewColumnEdit ? "Column settings" : "Field settings"}

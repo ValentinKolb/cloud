@@ -2,6 +2,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
+import { sanitizeFieldValues } from "../fields/field-render";
 import { errorMessage } from "../utils/api-helpers";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-fields";
 
@@ -54,17 +55,12 @@ export default function PublicFormSubmit(props: Props) {
           payload[key] = value;
         }
       }
-      for (const [k, v] of Object.entries(payload)) {
-        if (v === "" || v === undefined || v === null) {
-          delete payload[k];
-          continue;
-        }
-        if (Array.isArray(v) && v.length === 0) {
-          delete payload[k];
-          continue;
-        }
-        payload[k] = v;
-      }
+      const submitFields = entries
+        .map((entry) => fieldsById.get(entry.fieldId))
+        .filter((field): field is Field => Boolean(field && !field.deletedAt));
+      const sanitized = sanitizeFieldValues(submitFields, payload, { omitEmpty: true });
+      for (const key of Object.keys(payload)) delete payload[key];
+      Object.assign(payload, sanitized);
       const res = await apiClient.forms.public[":token"].submit.$post({
         param: { token: props.publicToken },
         json: payload,

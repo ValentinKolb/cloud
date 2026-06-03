@@ -3,6 +3,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
+import { sanitizeFieldValues } from "../fields/field-render";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
 
@@ -49,12 +50,11 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
     setError(null);
     setSubmitting(true);
     try {
-      const payload: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(values())) {
-        if (v === "" || v === undefined || v === null) continue;
-        if (Array.isArray(v) && v.length === 0) continue;
-        payload[k] = v;
-      }
+      const payload = sanitizeFieldValues(
+        entries.map((entry) => fieldsById.get(entry.fieldId)).filter((field): field is Field => Boolean(field && !field.deletedAt)),
+        values(),
+        { omitEmpty: true },
+      );
       const res = await apiClient.forms[":formId"].submit.$post({
         param: { formId: props.form.id },
         json: payload,

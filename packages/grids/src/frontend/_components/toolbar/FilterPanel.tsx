@@ -2,6 +2,7 @@ import { DatePicker, DateRangePicker, DateTimePicker, MultiSelectInput, NumberIn
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createMemo, Index, Match, Switch } from "solid-js";
 import type { Field } from "../../../service";
+import { fieldOption } from "../fields/field-type-meta";
 import RelationPicker from "../records/RelationPicker";
 import { type FilterOp, filterableFields, opsForType } from "./filter-ops";
 
@@ -95,19 +96,19 @@ export default function FilterPanel(props: Props) {
                   and "and" (3 chars) sit in the same column → the field
                   Select below stays vertically aligned across rows. */}
               <span class="w-12 shrink-0 text-dimmed">{index === 0 ? "where" : "and"}</span>
-              <div class="w-40 shrink-0">
+              <div class="w-64 shrink-0">
                 <Select
                   value={() => leaf().fieldId}
                   onChange={(v) => updateLeaf(index, { fieldId: v })}
-                  options={fields().map((f) => ({ id: f.id, label: f.name }))}
+                  options={fields().map((f) => fieldOption(f))}
                   placeholder="Field"
                 />
               </div>
-              <div class="w-40 shrink-0">
+              <div class="w-56 shrink-0">
                 <Select
                   value={() => leaf().op}
                   onChange={(v) => updateLeaf(index, { op: v, value: "" })}
-                  options={ops().map((o) => ({ id: o.id, label: o.label }))}
+                  options={ops().map((o) => ({ id: o.id, label: o.label, description: o.description, icon: o.icon }))}
                   placeholder="Operator"
                 />
               </div>
@@ -208,7 +209,7 @@ function FilterValueInput(props: {
           return (
             <span class="flex items-center gap-1">
               {isDate() ? (
-                <div class="w-80">
+                <div class="w-96">
                   <DateRangePicker
                     withTime={includeTime()}
                     dateConfig={props.dateConfig}
@@ -219,11 +220,11 @@ function FilterValueInput(props: {
                 </div>
               ) : (
                 <>
-                  <div class="w-44">
+                  <div class="w-52">
                     <NumberInput value={() => numAt(0)} onChange={(v) => props.onChange([v, range()[1]])} decimalPlaces={10} />
                   </div>
                   <span class="text-dimmed">to</span>
-                  <div class="w-44">
+                  <div class="w-52">
                     <NumberInput value={() => numAt(1)} onChange={(v) => props.onChange([range()[0], v])} decimalPlaces={10} />
                   </div>
                 </>
@@ -234,20 +235,21 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "select"}>
-        <div class="w-44">
+        <div class="w-80">
           <Select
             value={() => (typeof props.value === "string" ? props.value : "")}
             onChange={(v) => props.onChange(v)}
-            options={((props.field?.config as { options?: Array<{ id: string; label: string; description?: string }> })?.options ?? []).map(
-              (o) => ({ id: o.id, label: o.label, description: o.description }),
-            )}
+            options={(
+              (props.field?.config as { options?: Array<{ id: string; label: string; description?: string; icon?: string }> } | undefined)
+                ?.options ?? []
+            ).map((o) => ({ id: o.id, label: o.label, description: o.description, icon: o.icon }))}
             placeholder="—"
           />
         </div>
       </Match>
 
       <Match when={kind() === "multi"}>
-        <div class="w-72">
+        <div class="w-96">
           <MultiSelectInput
             placeholder="Options"
             value={() => (Array.isArray(props.value) ? props.value.filter((item): item is string => typeof item === "string") : [])}
@@ -271,13 +273,13 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "boolean"}>
-        <div class="w-32">
+        <div class="w-44">
           <Select
             value={() => (props.value === true ? "true" : props.value === false ? "false" : "")}
             onChange={(v) => props.onChange(v === "" ? "" : v === "true")}
             options={[
-              { id: "true", label: "true" },
-              { id: "false", label: "false" },
+              { id: "true", label: "true", description: "Value is checked", icon: "ti ti-check" },
+              { id: "false", label: "false", description: "Value is unchecked", icon: "ti ti-x" },
             ]}
             placeholder="—"
             clearable
@@ -286,7 +288,7 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "relation"}>
-        <div class="w-64">
+        <div class="w-80">
           {(() => {
             const targetTableId = (props.field?.config as { targetTableId?: string } | undefined)?.targetTableId;
             if (!targetTableId) return <span class="text-xs text-amber-600 dark:text-amber-400">Pick a target table first.</span>;
@@ -304,7 +306,7 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "number-days"}>
-        <div class="w-44">
+        <div class="w-56">
           <NumberInput
             min={1}
             placeholder="days"
@@ -319,7 +321,7 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "date"}>
-        <div class="w-44">
+        <div class="w-80">
           {(() => {
             const includeTime = () => Boolean((props.field?.config as { includeTime?: boolean } | undefined)?.includeTime);
             const value = () => (typeof props.value === "string" && props.value ? props.value : null);
@@ -334,7 +336,7 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "number"}>
-        <div class="w-44">
+        <div class="w-56">
           <NumberInput
             value={() => {
               const v = props.value;
@@ -348,7 +350,7 @@ function FilterValueInput(props: {
       </Match>
 
       <Match when={kind() === "text"}>
-        <div class="w-44">
+        <div class="w-80">
           <TextInput value={() => (typeof props.value === "string" ? props.value : "")} onChange={(v) => props.onChange(v)} />
         </div>
       </Match>

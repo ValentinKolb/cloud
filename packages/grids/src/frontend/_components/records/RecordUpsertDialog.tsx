@@ -2,7 +2,7 @@ import { dialogCore, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import type { Field, GridRecord } from "../../../service";
-import { isUserEditable } from "../fields/field-prompt-schema";
+import { initialFieldInputValue, isRecordInputField, sanitizeFieldValues } from "../fields/field-render";
 import { FieldInput, type UserInputEntry } from "../forms/form-fields";
 
 /**
@@ -22,11 +22,6 @@ import { FieldInput, type UserInputEntry } from "../forms/form-fields";
  * via field-type handlers — so a malicious / racy client can't sneak
  * through.
  */
-
-/** Fields the dialog skips entirely — server-managed (autonumber,
- *  created_*, updated_*) or computed (formula, lookup, rollup). */
-const isComputedOrSystem = (type: string): boolean =>
-  ["autonumber", "formula", "lookup", "rollup", "created_at", "created_by", "updated_at", "updated_by"].includes(type);
 
 type OpenArgs = {
   mode: "create" | "edit";
@@ -53,9 +48,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
       // Each editable field gets its own signal. Storing them in an
       // object keyed by field id keeps the gather-on-submit step
       // trivial: just walk the fields array and read the signal.
-      const editableFields = args.fields.filter(
-        (f) => !f.deletedAt && (f.type === "relation" || isUserEditable(f.type)) && !isComputedOrSystem(f.type),
-      );
+      const editableFields = args.fields.filter((f) => !f.deletedAt && isRecordInputField(f.type));
 
       // values: per-field, lazily initialised. Use a single signal on a
       // record so any update triggers all dependents (cheap — small
@@ -63,28 +56,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
       // from field defaults.
       const initial: Record<string, unknown> = {};
       for (const f of editableFields) {
-        if (args.mode === "edit" && args.record) {
-          const current = args.record.data[f.id];
-          if ((f.type === "relation" || f.type === "select") && !Array.isArray(current)) {
-            initial[f.id] = typeof current === "string" && current.length > 0 ? [current] : [];
-          } else if (current !== undefined && current !== null) {
-            initial[f.id] = current;
-          } else {
-            initial[f.id] = f.type === "relation" || f.type === "select" ? [] : "";
-          }
-          continue;
-        }
-        if (f.type === "relation" || f.type === "select") initial[f.id] = [];
-        else if (f.type === "boolean") initial[f.id] = false;
-        else if (
-          f.type === "date" &&
-          typeof f.defaultValue === "object" &&
-          f.defaultValue !== null &&
-          (f.defaultValue as { kind?: unknown }).kind === "now"
-        )
-          initial[f.id] = "";
-        else if (f.defaultValue !== null && f.defaultValue !== undefined) initial[f.id] = f.defaultValue;
-        else initial[f.id] = "";
+        initial[f.id] = initialFieldInputValue(f, args.mode === "edit" && args.record ? args.record.data[f.id] : undefined);
       }
       const [values, setValues] = createSignal<Record<string, unknown>>(initial);
       const [errors, setErrors] = createSignal<Record<string, string>>({});
@@ -126,13 +98,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
         // Create omits empties so server-side defaults/nulls apply.
         // Edit sends explicit nulls so users can clear a field. The
         // server validates and normalises every value again.
-        const out: Record<string, unknown> = {};
-        for (const f of editableFields) {
-          const v = values()[f.id];
-          const empty = v === "" || v === undefined || v === null || (Array.isArray(v) && v.length === 0);
-          if (args.mode === "create" && empty) continue;
-          out[f.id] = empty ? null : v;
-        }
+        const out = sanitizeFieldValues(editableFields, values(), { omitEmpty: args.mode === "create" });
         close(out);
       };
 

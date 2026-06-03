@@ -58,6 +58,19 @@ describe("compileSort — validation", () => {
     expect(r.ok).toBe(true);
   });
 
+  test("accepts record metadata sort", () => {
+    const r = compileSort(
+      [
+        { source: "record", key: "createdAt", direction: "desc" },
+        { fieldId: "fld_a", direction: "asc" },
+      ],
+      fields,
+      null,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.result.fieldIds).toEqual(["record:createdAt", "fld_a"]);
+  });
+
   test("succeeds with empty sort spec (no cursor)", () => {
     const r = compileSort([], fields, null);
     expect(r.ok).toBe(true);

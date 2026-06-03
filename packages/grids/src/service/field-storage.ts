@@ -293,6 +293,17 @@ const STORAGE: Record<string, StorageDescriptor> = {
     cursorable: true,
     searchable: false,
   },
+  deleted_at: {
+    kind: "system",
+    project: (_, a) => sql.unsafe(`${a}.deleted_at`),
+    formatKind: "datetime",
+    sortable: true,
+    filterable: true,
+    groupable: true,
+    aggregatable: true,
+    cursorable: true,
+    searchable: false,
+  },
   created_by: {
     kind: "system",
     project: (_, a) => sql.unsafe(`${a}.created_by`),

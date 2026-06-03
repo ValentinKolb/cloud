@@ -1,10 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import {
-  parseRecordsState,
-  buildRecordsUrl,
-  type RecordsState,
-  type UrlPathContext,
-} from "./query-url";
+import { parseRecordsState, buildRecordsUrl, type RecordsState, type UrlPathContext } from "./query-url";
+import type { ColumnSpec, RecordMetaQuery } from "../../../contracts";
 
 // =============================================================================
 // query-url tests — URL ↔ RecordsState round-trip + path-based emit.
@@ -29,17 +25,34 @@ const empty: RecordsState = {
   search: { q: "", fieldIds: [], override: false },
 };
 
+const fieldId = "11111111-1111-4111-8111-111111111111";
+const computedColumns: ColumnSpec[] = [
+  { fieldId },
+  {
+    kind: "computed",
+    id: "computed_total1",
+    label: "Total",
+    expression: "#price * #qty",
+  },
+];
+
 describe("parseRecordsState", () => {
   test("empty params → empty state", () => {
     expect(parseRecordsState(params(""))).toEqual(empty);
   });
 
   test("filter param parsed", () => {
-    const url = params(
-      "filter=" + encodeURIComponent('{"op":"AND","filters":[]}'),
-    );
+    const url = params("filter=" + encodeURIComponent('{"op":"AND","filters":[]}'));
     const r = parseRecordsState(url);
     expect(r.query.filter).toEqual({ op: "AND", filters: [] });
+  });
+
+  test("record metadata param parsed", () => {
+    const meta: RecordMetaQuery = {
+      users: { createdBy: ["11111111-1111-4111-8111-111111111111"] },
+    };
+    const r = parseRecordsState(params("meta=" + encodeURIComponent(JSON.stringify(meta))));
+    expect(r.query.recordMeta).toEqual(meta);
   });
 
   test("malformed filter → silently dropped (no throw)", () => {
@@ -48,19 +61,33 @@ describe("parseRecordsState", () => {
   });
 
   test("sort param parsed (array shape)", () => {
-    const url = params(
-      "sort=" + encodeURIComponent('[{"fieldId":"f1","direction":"asc"}]'),
-    );
+    const url = params("sort=" + encodeURIComponent('[{"fieldId":"f1","direction":"asc"}]'));
     const r = parseRecordsState(url);
     expect(r.query.sort).toEqual([{ fieldId: "f1", direction: "asc" }]);
   });
 
+  test("record metadata sort param parsed", () => {
+    const url = params("sort=" + encodeURIComponent('[{"source":"record","key":"updatedAt","direction":"desc"}]'));
+    const r = parseRecordsState(url);
+    expect(r.query.sort).toEqual([{ source: "record", key: "updatedAt", direction: "desc" }]);
+  });
+
   test("groupSort param parsed", () => {
-    const url = params(
-      "groupSort=" + encodeURIComponent('[{"fieldId":"*","agg":"count","direction":"desc"}]'),
-    );
+    const url = params("groupSort=" + encodeURIComponent('[{"fieldId":"*","agg":"count","direction":"desc"}]'));
     const r = parseRecordsState(url);
     expect(r.query.groupSort).toEqual([{ fieldId: "*", agg: "count", direction: "desc" }]);
+  });
+
+  test("columns param parsed for ad-hoc computed columns", () => {
+    const r = parseRecordsState(params("columns=" + encodeURIComponent(JSON.stringify(computedColumns))));
+    expect(r.query.columns).toEqual(computedColumns);
+  });
+
+  test("malformed columns entries are dropped", () => {
+    const r = parseRecordsState(
+      params("columns=" + encodeURIComponent(JSON.stringify([{ fieldId }, { kind: "computed", id: "bad", label: "", expression: "" }]))),
+    );
+    expect(r.query.columns).toEqual([{ fieldId }]);
   });
 
   test("trash=1 → deletedOnly: true", () => {
@@ -81,24 +108,18 @@ describe("parseRecordsState", () => {
   test("table / view / dashboard NOT read from query (path-based now)", () => {
     // These would resolve via c.req.param() at the SSR handler; the URL
     // parser is purely UI state on top of the resource the path identifies.
-    const r = parseRecordsState(
-      params("table=foo&view=bar&dashboard=baz"),
-    );
+    const r = parseRecordsState(params("table=foo&view=bar&dashboard=baz"));
     expect(r).toEqual(empty);
   });
 });
 
 describe("buildRecordsUrl", () => {
   test("table-only path", () => {
-    expect(buildRecordsUrl(path, empty)).toBe(
-      "/app/grids/BASE0/table/TBL00",
-    );
+    expect(buildRecordsUrl(path, empty)).toBe("/app/grids/BASE0/table/TBL00");
   });
 
   test("view path when viewShortId is set", () => {
-    expect(
-      buildRecordsUrl({ ...path, viewShortId: "VW000" }, empty),
-    ).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+    expect(buildRecordsUrl({ ...path, viewShortId: "VW000" }, empty)).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
   });
 
   test("filter serialized as query param on top of the path", () => {
@@ -108,9 +129,21 @@ describe("buildRecordsUrl", () => {
     };
     const url = buildRecordsUrl(path, state);
     expect(url).toContain("/app/grids/BASE0/table/TBL00?");
-    expect(url).toContain(
-      "filter=" + encodeURIComponent('{"op":"AND","filters":[]}'),
-    );
+    expect(url).toContain("filter=" + encodeURIComponent('{"op":"AND","filters":[]}'));
+  });
+
+  test("record metadata serialized as meta query param", () => {
+    const state: RecordsState = {
+      ...empty,
+      query: {
+        recordMeta: {
+          users: { updatedBy: ["11111111-1111-4111-8111-111111111111"] },
+        },
+      },
+    };
+    const url = buildRecordsUrl(path, state);
+    expect(url).toContain("meta=");
+    expect(parseRecordsState(new URLSearchParams(url.split("?")[1])).query.recordMeta).toEqual(state.query.recordMeta);
   });
 
   test("groupSort serialized as query param", () => {
@@ -119,9 +152,16 @@ describe("buildRecordsUrl", () => {
       query: { groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }] },
     };
     const url = buildRecordsUrl(path, state);
-    expect(url).toContain(
-      "groupSort=" + encodeURIComponent('[{"fieldId":"*","agg":"count","direction":"desc"}]'),
-    );
+    expect(url).toContain("groupSort=" + encodeURIComponent('[{"fieldId":"*","agg":"count","direction":"desc"}]'));
+  });
+
+  test("columns serialized as query param", () => {
+    const state: RecordsState = {
+      ...empty,
+      query: { columns: computedColumns },
+    };
+    const url = buildRecordsUrl(path, state);
+    expect(parseRecordsState(new URLSearchParams(url.split("?")[1])).query.columns).toEqual(computedColumns);
   });
 
   test("view-matching fields are suppressed from the URL", () => {
@@ -130,13 +170,16 @@ describe("buildRecordsUrl", () => {
     // view's stored value can flow through next render.
     const filter = { op: "AND" as const, filters: [] };
     const state: RecordsState = { ...empty, query: { filter } };
-    const url = buildRecordsUrl(
-      { ...path, viewShortId: "VW000" },
-      state,
-      { filter },
-    );
+    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { filter });
     expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
     expect(url).not.toContain("filter=");
+  });
+
+  test("view-matching record metadata is suppressed from the URL", () => {
+    const recordMeta = { users: { deletedBy: ["11111111-1111-4111-8111-111111111111"] } };
+    const state: RecordsState = { ...empty, query: { recordMeta } };
+    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { recordMeta });
+    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
   });
 
   test("view-matching search is suppressed from the URL", () => {
@@ -148,11 +191,13 @@ describe("buildRecordsUrl", () => {
       ...empty,
       search: { ...search, override: false },
     };
-    const url = buildRecordsUrl(
-      { ...path, viewShortId: "VW000" },
-      state,
-      { search },
-    );
+    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { search });
+    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+  });
+
+  test("view-matching columns are suppressed from the URL", () => {
+    const state: RecordsState = { ...empty, query: { columns: computedColumns } };
+    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { columns: computedColumns });
     expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
   });
 

@@ -16,8 +16,9 @@ import type { RecordsState } from "./query-url";
  * the client island both flow through this merge.
  *
  * Saved-view-only state:
- * - `limit` and `columns` come exclusively from the view. When no view
- *   is active, both are undefined.
+ * - `limit` comes exclusively from the view. `columns` normally comes
+ *   from the view, but URL columns can override it for ad-hoc computed
+ *   columns.
  * - Search is URL-owned when `?q`/`?qFields` is present. Otherwise it
  *   falls through to the saved view's search.
  *
@@ -50,6 +51,7 @@ export const resolveEffectiveQuery = (state: RecordsState, view: View | null): E
   // overrides.)
   const merged: ViewQuery = {
     filter: state.query.filter ?? view.query.filter,
+    recordMeta: state.query.recordMeta ?? view.query.recordMeta,
     search: state.search.override
       ? state.search.q.trim()
         ? { q: state.search.q.trim(), fieldIds: state.search.fieldIds }
@@ -61,7 +63,7 @@ export const resolveEffectiveQuery = (state: RecordsState, view: View | null): E
     aggregations: isNonEmpty(state.query.aggregations) ? state.query.aggregations : view.query.aggregations,
     includeDeleted: state.query.includeDeleted ?? view.query.includeDeleted,
     deletedOnly: state.query.deletedOnly ?? view.query.deletedOnly,
-    columns: view.query.columns,
+    columns: isNonEmpty(state.query.columns) ? state.query.columns : view.query.columns,
     limit: view.query.limit,
   };
 
@@ -69,10 +71,12 @@ export const resolveEffectiveQuery = (state: RecordsState, view: View | null): E
   // overrode the view's value. Ad-hoc cursor/selection don't count.
   const customized =
     state.query.filter !== undefined ||
+    state.query.recordMeta !== undefined ||
     isNonEmpty(state.query.sort) ||
     isNonEmpty(state.query.groupBy) ||
     isNonEmpty(state.query.groupSort) ||
     isNonEmpty(state.query.aggregations) ||
+    isNonEmpty(state.query.columns) ||
     state.search.override === true ||
     state.query.includeDeleted !== undefined ||
     state.query.deletedOnly !== undefined;

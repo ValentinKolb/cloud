@@ -11,6 +11,8 @@ import {
   UpdateTableSchema,
   TableQueryBodySchema,
   TableQueryResponseSchema,
+  RecordActorListResponseSchema,
+  RecordMetaUserKeySchema,
   RelationLookupResponseSchema,
   type ComputedColumnSpec,
 } from "../contracts";
@@ -61,13 +63,17 @@ const app = new Hono<AuthContext>()
       const body = c.req.valid("json");
       return respond(
         c,
-        () => gridsService.table.create({
-          baseId,
-          name: body.name,
-          description: body.description ?? null,
-          icon: body.icon ?? null,
-          columns: body.columns,
-        }, user.id),
+        () =>
+          gridsService.table.create(
+            {
+              baseId,
+              name: body.name,
+              description: body.description ?? null,
+              icon: body.icon ?? null,
+              columns: body.columns,
+            },
+            user.id,
+          ),
         201,
       );
     },
@@ -200,9 +206,7 @@ const app = new Hono<AuthContext>()
       // in group-by mode). Reject unsupported group aggregations instead
       // of silently dropping them from a saved view.
       if (query.groupBy && query.groupBy.length > 0) {
-        const unsupported = (query.aggregations ?? []).filter(
-          (a) => a.agg === "median" || a.agg === "earliest" || a.agg === "latest",
-        );
+        const unsupported = (query.aggregations ?? []).filter((a) => a.agg === "median" || a.agg === "earliest" || a.agg === "latest");
         if (unsupported.length > 0) {
           return c.json({ message: "grouped queries support count, countEmpty, countUnique, sum, avg, min, and max only" }, 400);
         }
@@ -214,6 +218,7 @@ const app = new Hono<AuthContext>()
           groupSort: query.groupSort,
           filter: query.filter ?? null,
           search: query.search ?? null,
+          recordMeta: query.recordMeta ?? null,
           cursor: cursor ?? null,
           limit: query.limit,
           includeDeleted: query.includeDeleted,
@@ -254,6 +259,7 @@ const app = new Hono<AuthContext>()
         deletedOnly: query.deletedOnly,
         filter: query.filter ?? null,
         search: query.search ?? null,
+        recordMeta: query.recordMeta ?? null,
         sort: query.sort,
         includeRelations: true,
         viewer,
@@ -271,6 +277,7 @@ const app = new Hono<AuthContext>()
           tableId,
           filter: query.filter ?? null,
           search: query.search ?? null,
+          recordMeta: query.recordMeta ?? null,
           includeDeleted: query.includeDeleted,
           deletedOnly: query.deletedOnly,
           requests: query.aggregations.map((a) => ({ fieldId: a.fieldId, agg: a.agg })),
@@ -285,6 +292,52 @@ const app = new Hono<AuthContext>()
         aggregates,
         nextCursor: listResult.data.nextCursor,
       });
+    },
+  )
+
+  .get(
+    "/:tableId/record-actors",
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Search users available for record metadata filters",
+      responses: {
+        200: jsonResponse(RecordActorListResponseSchema, "Record actors"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Table not found"),
+      },
+    }),
+    v(
+      "query",
+      z.object({
+        kind: z
+          .union([RecordMetaUserKeySchema, z.literal("any")])
+          .optional()
+          .default("any"),
+        q: z.string().optional().default(""),
+        ids: z
+          .string()
+          .optional()
+          .default("")
+          .transform((s) =>
+            s
+              .split(",")
+              .map((p) => p.trim())
+              .filter(Boolean),
+          )
+          .pipe(z.array(z.string().uuid()).max(50)),
+        limit: z.coerce.number().int().min(1).max(50).optional().default(12),
+      }),
+    ),
+    async (c) => {
+      const tableId = c.req.param("tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId, tableId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+
+      const { kind, q, ids, limit } = c.req.valid("query");
+      const items = await gridsService.record.listActors({ tableId, kind, q, ids, limit });
+      return c.json({ items });
     },
   )
 
@@ -316,7 +369,12 @@ const app = new Hono<AuthContext>()
           .string()
           .optional()
           .default("")
-          .transform((s) => s.split(",").map((p) => p.trim()).filter(Boolean))
+          .transform((s) =>
+            s
+              .split(",")
+              .map((p) => p.trim())
+              .filter(Boolean),
+          )
           .pipe(z.array(z.string().uuid())),
       }),
     ),

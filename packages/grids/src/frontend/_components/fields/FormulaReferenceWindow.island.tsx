@@ -2,6 +2,7 @@ import { fuzzy } from "@valentinkolb/stdlib";
 import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, createSignal } from "solid-js";
 import type { Field } from "../../../service";
+import { FIELD_TYPE_LABELS, fieldTypeIcon, fieldTypeLabel } from "./field-type-meta";
 import { formulaFieldRefs, formulaFieldToken, GRID_FORMULA_FUNCTIONS } from "./formula-authoring";
 
 type RefField = ReturnType<typeof formulaFieldRefs>[number];
@@ -14,48 +15,6 @@ type FunctionRow = {
 };
 type ReferenceItem = { kind: "field"; field: RefField; search: string } | FunctionRow;
 
-const FIELD_TYPE_ICONS: Record<string, string> = {
-  text: "ti ti-typography",
-  longtext: "ti ti-align-left",
-  number: "ti ti-123",
-  percent: "ti ti-percentage",
-  duration: "ti ti-clock",
-  boolean: "ti ti-checkbox",
-  date: "ti ti-calendar",
-  select: "ti ti-list-check",
-  autonumber: "ti ti-sort-ascending-numbers",
-  relation: "ti ti-link",
-  lookup: "ti ti-corner-down-right",
-  rollup: "ti ti-sum",
-  formula: "ti ti-function",
-  json: "ti ti-braces",
-  file: "ti ti-paperclip",
-};
-
-const FIELD_TYPE_LABELS: Record<string, string> = {
-  text: "Text",
-  longtext: "Long text",
-  number: "Number",
-  percent: "Percent",
-  duration: "Duration",
-  boolean: "Boolean",
-  date: "Date",
-  select: "Select",
-  autonumber: "Auto-number",
-  relation: "Relation",
-  lookup: "Lookup",
-  rollup: "Rollup",
-  formula: "Formula",
-  json: "JSON",
-  file: "File",
-  created_at: "Created at",
-  updated_at: "Updated at",
-  created_by: "Created by",
-  updated_by: "Updated by",
-};
-
-const fieldIcon = (type: string) => FIELD_TYPE_ICONS[type] ?? "ti ti-columns";
-
 const FUNCTION_CATEGORY_META: Record<
   FunctionCategory,
   {
@@ -66,7 +25,7 @@ const FUNCTION_CATEGORY_META: Record<
 > = {
   number: {
     label: "Number",
-    icon: "ti ti-123",
+    icon: "ti ti-number",
     class: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
   },
   text: {
@@ -157,7 +116,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
     const rows = fields().map((field) => ({
       kind: "field" as const,
       field,
-      search: `${field.name} ${field.type} ${formulaFieldToken(field)} ${FIELD_TYPE_LABELS[field.type] ?? field.type}`,
+      search: `${field.name} ${field.type} ${formulaFieldToken(field)} ${fieldTypeLabel(field.type)}`,
     }));
     const q = query().trim();
     if (!q) return rows;
@@ -263,7 +222,7 @@ export default function FormulaReferenceWindow(props: { tableName: string; field
                 if (col.id === "field") {
                   return (
                     <span class="flex min-w-0 items-center gap-2">
-                      <i class={`${fieldIcon(row.field.type)} text-sm text-dimmed`} />
+                      <i class={`${fieldTypeIcon(row.field.type)} text-sm text-dimmed`} />
                       <span class="truncate text-secondary">{row.field.name}</span>
                     </span>
                   );

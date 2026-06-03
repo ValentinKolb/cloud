@@ -4,6 +4,7 @@ import type { View } from "../../../service";
 import type { RecordsState } from "./query-url";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
+const columns = [{ fieldId }, { kind: "computed" as const, id: "computed_total1", label: "Total", expression: "#price * #qty" }];
 
 const state = (overrides: Partial<RecordsState> = {}): RecordsState => ({
   query: {},
@@ -28,10 +29,7 @@ const view = (query: View["query"]): View => ({
 
 describe("resolveEffectiveQuery", () => {
   test("inherits saved view search when URL has no search override", () => {
-    const effective = resolveEffectiveQuery(
-      state(),
-      view({ search: { q: "needle", fieldIds: [fieldId] } }),
-    );
+    const effective = resolveEffectiveQuery(state(), view({ search: { q: "needle", fieldIds: [fieldId] } }));
     expect(effective.search).toEqual({ q: "needle", fieldIds: [fieldId] });
     expect(effective.source).toBe("view");
   });
@@ -72,6 +70,12 @@ describe("resolveEffectiveQuery", () => {
       view({ groupSort: [{ fieldId: "*", agg: "count", direction: "desc" }] }),
     );
     expect(effective.groupSort).toEqual([{ fieldId, agg: "sum", direction: "asc" }]);
+    expect(effective.source).toBe("view-customized");
+  });
+
+  test("URL columns override saved view columns", () => {
+    const effective = resolveEffectiveQuery(state({ query: { columns } }), view({ columns: [{ fieldId }] }));
+    expect(effective.columns).toEqual(columns);
     expect(effective.source).toBe("view-customized");
   });
 });

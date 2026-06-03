@@ -7,7 +7,6 @@ import {
   navigateTo,
   panelDialogOptions,
   PanelDialog,
-  PermissionEditor,
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";
@@ -16,6 +15,8 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, View } from "../../../service";
 import type { ViewQuery } from "../../../service/views";
+import { createDraft } from "../editor-draft";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
 
@@ -90,18 +91,18 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
 // =============================================================================
 
 function GeneralSection(props: { viewId: string; initial: View; tableName: string; onDirtyChange?: (dirty: boolean) => void }) {
-  const [name, setName] = createSignal(props.initial.name);
-  const [icon, setIcon] = createSignal(props.initial.icon ?? "");
-  const [shared, setShared] = createSignal(props.initial.ownerUserId === null);
-  const [dirty, setDirty] = createSignal(false);
-
-  const wrap =
-    <T,>(setter: (v: T) => void) =>
-    (v: T) => {
-      setter(v);
-      setDirty(true);
-      props.onDirtyChange?.(true);
-    };
+  const draft = createDraft({
+    name: props.initial.name,
+    icon: props.initial.icon ?? "",
+    shared: props.initial.ownerUserId === null,
+  });
+  const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
+    draft.patch(partial);
+    props.onDirtyChange?.(true);
+  };
+  const name = () => draft.draft().name;
+  const icon = () => draft.draft().icon;
+  const shared = () => draft.draft().shared;
 
   const mut = mutations.create<View, void>({
     mutation: async () => {
@@ -112,8 +113,12 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
       return res.json();
     },
-    onSuccess: () => {
-      setDirty(false);
+    onSuccess: (saved) => {
+      draft.markSaved({
+        name: saved.name,
+        icon: saved.icon ?? "",
+        shared: saved.ownerUserId === null,
+      });
       props.onDirtyChange?.(false);
     },
     onError: (e) => prompts.error(e.message),
@@ -121,15 +126,15 @@ function GeneralSection(props: { viewId: string; initial: View; tableName: strin
 
   return (
     <SectionCard title="General" subtitle="Name and visibility scope.">
-      <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
-      <IconInput label="Icon" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
+      <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} icon="ti ti-typography" required />
+      <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
       <Checkbox
         label="Shared view"
         description={`Visible to users who can read ${props.tableName}. Permissions below can narrow access.`}
         value={shared}
-        onChange={wrap(setShared)}
+        onChange={(v) => patch({ shared: v })}
       />
-      <Show when={dirty()}>
+      <Show when={draft.dirty()}>
         <button
           type="button"
           class="btn-primary btn-sm self-start"
@@ -257,6 +262,9 @@ const joinNames = (values: string[], empty: string) => {
   return `${values.slice(0, 3).join(", ")} +${values.length - 3}`;
 };
 
+const recordSortName = (key: string) =>
+  key === "createdAt" ? "Created time" : key === "updatedAt" ? "Modified time" : key === "deletedAt" ? "Deleted time" : "Record info";
+
 const querySnapshotItems = (query: ViewQuery, fields: Field[]): SnapshotItem[] => {
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
   const filterFields = [...collectFilterFieldIds(query.filter)].map((id) => fieldName(fieldsById, id));
@@ -281,7 +289,7 @@ const querySnapshotItems = (query: ViewQuery, fields: Field[]): SnapshotItem[] =
     {
       label: "Sort",
       value: joinNames(
-        sort.map((s) => `${fieldName(fieldsById, s.fieldId)} ${s.direction}`),
+        sort.map((s) => `${s.source === "record" ? recordSortName(s.key) : fieldName(fieldsById, s.fieldId)} ${s.direction}`),
         "No sort",
       ),
       icon: "ti ti-arrows-sort",
@@ -323,40 +331,12 @@ const querySnapshotItems = (query: ViewQuery, fields: Field[]): SnapshotItem[] =
 // for a view, the API caps every grant at "read" or "none".
 
 function ViewPermissions(props: { viewId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
-  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   return (
-    <PermissionEditor
-      initialEntries={entries()}
+    <ScopedPermissionEditor
+      scope={{ type: "view", id: props.viewId }}
+      initialEntries={props.initialEntries}
       canEdit={props.canEdit}
       allowedLevels={[{ level: "read", label: "View" }]}
-      grantAccess={async (principal, permission) => {
-        const res = await apiClient.access["by-view"][":viewId"].$post({
-          param: { viewId: props.viewId },
-          json: { principal, permission },
-        });
-        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = await res.json();
-        // Refetch the canonical list so the new entry has displayName etc.
-        const listRes = await apiClient.access["by-view"][":viewId"].$get({
-          param: { viewId: props.viewId },
-        });
-        const list = listRes.ok ? await listRes.json() : entries();
-        setEntries(list);
-        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
-      }}
-      updateAccess={async (accessId, permission) => {
-        const res = await apiClient.access[":accessId"].$patch({
-          param: { accessId },
-          json: { permission },
-        });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
-        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
-      }}
-      revokeAccess={async (accessId) => {
-        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
-        setEntries(entries().filter((e) => e.id !== accessId));
-      }}
     />
   );
 }

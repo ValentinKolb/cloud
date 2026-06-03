@@ -56,7 +56,7 @@ Expected behavior:
 | `groupBy` | grouped mode | grouped mode | grouped mode | not exported as groups | chart/view-stats yes |
 | `groupSort` | grouped mode | grouped mode | grouped mode | not exported as groups | chart/view-stats yes |
 | `aggregations` | footer/group columns | footer/group columns | footer/group columns | not exported as aggregate rows | chart/view-stats yes |
-| `columns` | table columns | table columns | ignored by data API | default export fields | embedded view + view-stats |
+| `columns` | table columns + computed display columns | table columns + computed display columns | field columns ignored by data API; computed columns evaluated after records load | default export fields | embedded view + view-stats |
 | `includeDeleted` | yes | yes | yes | yes | saved-view widgets yes |
 | `limit` | backend/export cap | backend/export cap | page cap | export max rows | chart widget has own bucket cap |
 
@@ -69,3 +69,4 @@ Expected behavior:
 - Dashboard raw-table widgets intentionally do not use `ViewQuery`; only saved-view widgets do.
 - Derived dashboard stats support `ratio`, `percent`, `difference`, `sum`, and `product` over two aggregate operands. Each operand can have its own filter.
 - `columns.format` affects table rendering/export formatting where supported. View-stats uses field/aggregate-level format inference for now.
+- Computed view columns are display columns. They can reference the visible record's fields and are evaluated after the SQL record query returns. They are not filter, sort, search, group, or aggregate sources in v1.

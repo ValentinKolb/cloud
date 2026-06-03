@@ -15,10 +15,12 @@
  *   /app/grids/<base>/table/<table>/view/<view>     — saved-view page
  *
  *   ?filter=<FilterTree JSON>
+ *   ?meta=<RecordMetaQuery JSON>
  *   ?sort=<SortSpec[] JSON>
  *   ?groupBy=<GroupBySpec[] JSON>
  *   ?groupSort=<GroupSortSpec[] JSON>
  *   ?aggregations=<AggregationSpec[] JSON>
+ *   ?columns=<ColumnSpec[] JSON>            — ad-hoc computed/view columns
  *   ?cursor=<JSON-encoded keyset cursor token>
  *   ?record=<UUID — selected detail-panel record>
  *   ?trash=1                                — trash mode
@@ -28,16 +30,20 @@
  * in the path.
  */
 
-import type { ViewQuery } from "../../../contracts";
+import { ColumnSpecSchema, type ViewQuery } from "../../../contracts";
 
 /**
  * URL-owned subset of ViewQuery. The full ViewQuery additionally
- * includes `limit`, `columns`, and `search` — those are NEVER URL state:
- * `limit`/`columns` are saved-view metadata only, `search` lives on the
- * sibling `search` field. Narrowing the type makes the round-trip
- * `parse(build(s)) === s` actually hold for every well-formed state.
+ * includes `limit` and `search` — `limit` is saved-view metadata only,
+ * `search` lives on the sibling `search` field. `columns` is URL state
+ * only for ad-hoc column overrides, mainly in-place computed columns.
+ * Narrowing the type makes the round-trip `parse(build(s)) === s`
+ * actually hold for every well-formed state.
  */
-type RecordsUrlQuery = Pick<ViewQuery, "filter" | "sort" | "groupBy" | "groupSort" | "aggregations" | "includeDeleted" | "deletedOnly">;
+type RecordsUrlQuery = Pick<
+  ViewQuery,
+  "filter" | "recordMeta" | "sort" | "groupBy" | "groupSort" | "aggregations" | "columns" | "includeDeleted" | "deletedOnly"
+>;
 
 export type RecordsState = {
   query: RecordsUrlQuery;
@@ -68,35 +74,81 @@ const tryParseArray = <T extends Record<string, unknown>>(raw: string | null | u
 const entryOf = <K extends string, V>(key: K, value: V | undefined): Array<[K, V]> => (value === undefined ? [] : [[key, value]]);
 
 const nonEmptyArray = <T>(items: T[]): T[] | undefined => (items.length > 0 ? items : undefined);
+const isDirection = (value: unknown): value is "asc" | "desc" => value === "asc" || value === "desc";
 
 const parseFilterParam = (params: URLSearchParams): ViewQuery["filter"] | undefined =>
   tryParseJson<ViewQuery["filter"]>(params.get("filter")) ?? undefined;
 
-const parseSortParam = (params: URLSearchParams): RecordsUrlQuery["sort"] | undefined =>
-  nonEmptyArray(tryParseArray<{ fieldId: string; direction: "asc" | "desc" }>(params.get("sort"), ["fieldId", "direction"]));
+const parseRecordMetaParam = (params: URLSearchParams): RecordsUrlQuery["recordMeta"] | undefined => {
+  const parsed = tryParseJson<unknown>(params.get("meta"));
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const users = (parsed as { users?: unknown }).users;
+  if (!users || typeof users !== "object") return undefined;
+  const out: NonNullable<RecordsUrlQuery["recordMeta"]>["users"] = {};
+  for (const key of ["createdBy", "updatedBy", "deletedBy"] as const) {
+    const ids = (users as Record<string, unknown>)[key];
+    if (Array.isArray(ids)) {
+      const clean = ids.filter((id): id is string => typeof id === "string");
+      if (clean.length > 0) out[key] = clean;
+    }
+  }
+  return out && Object.keys(out).length > 0 ? { users: out } : undefined;
+};
+
+const parseSortParam = (params: URLSearchParams): RecordsUrlQuery["sort"] | undefined => {
+  const parsed = tryParseJson<unknown>(params.get("sort"));
+  if (!Array.isArray(parsed)) return undefined;
+  const rows: NonNullable<RecordsUrlQuery["sort"]> = [];
+  for (const raw of parsed) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    if (!isDirection(item.direction)) continue;
+    if (item.source === "record" && typeof item.key === "string") {
+      if (!["createdAt", "updatedAt", "deletedAt"].includes(item.key)) continue;
+      rows.push({ source: "record", key: item.key as "createdAt" | "updatedAt" | "deletedAt", direction: item.direction });
+      continue;
+    }
+    if (typeof item.fieldId === "string") {
+      rows.push({ ...(item.source === "field" ? { source: "field" as const } : {}), fieldId: item.fieldId, direction: item.direction });
+    }
+  }
+  return nonEmptyArray(rows);
+};
 
 const parseGroupByParam = (params: URLSearchParams): RecordsUrlQuery["groupBy"] | undefined =>
   nonEmptyArray(tryParseArray<{ fieldId: string }>(params.get("groupBy"), ["fieldId"])) as RecordsUrlQuery["groupBy"] | undefined;
 
 const parseGroupSortParam = (params: URLSearchParams): RecordsUrlQuery["groupSort"] | undefined =>
-  nonEmptyArray(
-    tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(params.get("groupSort"), ["fieldId", "agg"]),
-  ) as RecordsUrlQuery["groupSort"] | undefined;
+  nonEmptyArray(tryParseArray<{ fieldId: string; agg: string; direction?: "asc" | "desc" }>(params.get("groupSort"), ["fieldId", "agg"])) as
+    | RecordsUrlQuery["groupSort"]
+    | undefined;
 
 const parseAggregationsParam = (params: URLSearchParams): RecordsUrlQuery["aggregations"] | undefined =>
   nonEmptyArray(tryParseArray<{ fieldId: string; agg: string }>(params.get("aggregations"), ["fieldId", "agg"])) as
     | RecordsUrlQuery["aggregations"]
     | undefined;
 
+const parseColumnsParam = (params: URLSearchParams): RecordsUrlQuery["columns"] | undefined => {
+  const parsed = tryParseJson<unknown>(params.get("columns"));
+  if (!Array.isArray(parsed)) return undefined;
+  const columns = parsed.flatMap((item) => {
+    const result = ColumnSpecSchema.safeParse(item);
+    return result.success ? [result.data] : [];
+  });
+  return nonEmptyArray(columns);
+};
+
 const parseDeletedOnlyParam = (params: URLSearchParams): true | undefined => (params.get("trash") === "1" ? true : undefined);
 
 const parseRecordsQuery = (params: URLSearchParams): RecordsUrlQuery =>
   Object.fromEntries([
     ...entryOf("filter", parseFilterParam(params)),
+    ...entryOf("recordMeta", parseRecordMetaParam(params)),
     ...entryOf("sort", parseSortParam(params)),
     ...entryOf("groupBy", parseGroupByParam(params)),
     ...entryOf("groupSort", parseGroupSortParam(params)),
     ...entryOf("aggregations", parseAggregationsParam(params)),
+    ...entryOf("columns", parseColumnsParam(params)),
     ...entryOf("deletedOnly", parseDeletedOnlyParam(params)),
   ]) as RecordsUrlQuery;
 
@@ -155,12 +207,7 @@ const matchesViewQuery = (query: RecordsUrlQuery, viewQuery: ViewQuery | null | 
 
 const hasUrlValue = (value: unknown): boolean => Boolean(value) && (!Array.isArray(value) || value.length > 0);
 
-const appendJsonOverride = (
-  url: URL,
-  query: RecordsUrlQuery,
-  viewQuery: ViewQuery | null | undefined,
-  key: keyof RecordsUrlQuery,
-) => {
+const appendJsonOverride = (url: URL, query: RecordsUrlQuery, viewQuery: ViewQuery | null | undefined, key: keyof RecordsUrlQuery) => {
   const value = query[key];
   if (hasUrlValue(value) && !matchesViewQuery(query, viewQuery, key)) url.searchParams.set(key, JSON.stringify(value));
 };
@@ -211,10 +258,14 @@ export const buildRecordsUrl = (path: UrlPathContext, state: RecordsState, viewQ
 
   const { query, search } = state;
   appendJsonOverride(url, query, viewQuery, "filter");
+  const recordMeta = query.recordMeta;
+  if (hasUrlValue(recordMeta) && !matchesViewQuery(query, viewQuery, "recordMeta"))
+    url.searchParams.set("meta", JSON.stringify(recordMeta));
   appendJsonOverride(url, query, viewQuery, "sort");
   appendJsonOverride(url, query, viewQuery, "groupBy");
   appendJsonOverride(url, query, viewQuery, "groupSort");
   appendJsonOverride(url, query, viewQuery, "aggregations");
+  appendJsonOverride(url, query, viewQuery, "columns");
   if (query.deletedOnly) url.searchParams.set("trash", "1");
 
   appendSearchOverride(url, search, viewQuery);

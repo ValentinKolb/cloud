@@ -193,11 +193,24 @@ export const FilterTreeSchema: z.ZodType<FilterTree> = z.lazy(() =>
   ]),
 );
 
-export const SortSpecSchema = z.object({
+export const RecordMetaSortKeySchema = z.enum(["createdAt", "updatedAt", "deletedAt"]);
+export type RecordMetaSortKey = z.infer<typeof RecordMetaSortKeySchema>;
+
+const FieldSortSpecSchema = z.object({
+  source: z.literal("field").optional(),
   fieldId: z.string(),
   direction: z.enum(["asc", "desc"]),
   nullsFirst: z.boolean().optional(),
 });
+
+const RecordSortSpecSchema = z.object({
+  source: z.literal("record"),
+  key: RecordMetaSortKeySchema,
+  direction: z.enum(["asc", "desc"]),
+  nullsFirst: z.boolean().optional(),
+});
+
+export const SortSpecSchema = z.union([RecordSortSpecSchema, FieldSortSpecSchema]);
 
 export const RecordListQuerySchema = z.object({
   cursor: z.string().optional(),
@@ -409,6 +422,32 @@ export const SearchSpecSchema = z.object({
 });
 export type SearchSpec = z.infer<typeof SearchSpecSchema>;
 
+export const RecordMetaUserKeySchema = z.enum(["createdBy", "updatedBy", "deletedBy"]);
+export type RecordMetaUserKey = z.infer<typeof RecordMetaUserKeySchema>;
+
+export const RecordMetaQuerySchema = z.object({
+  users: z
+    .object({
+      createdBy: z.array(z.string().uuid()).max(50).optional(),
+      updatedBy: z.array(z.string().uuid()).max(50).optional(),
+      deletedBy: z.array(z.string().uuid()).max(50).optional(),
+    })
+    .optional(),
+});
+export type RecordMetaQuery = z.infer<typeof RecordMetaQuerySchema>;
+
+export const RecordActorSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  subtitle: z.string().nullable(),
+});
+export type RecordActor = z.infer<typeof RecordActorSchema>;
+
+export const RecordActorListResponseSchema = z.object({
+  items: z.array(RecordActorSchema),
+});
+export type RecordActorListResponse = z.infer<typeof RecordActorListResponseSchema>;
+
 /**
  * Canonical query for a table. Used by:
  *  - saved Views (stored as `view.query`)
@@ -422,6 +461,9 @@ export type SearchSpec = z.infer<typeof SearchSpecSchema>;
 export const ViewQuerySchema = z.object({
   filter: FilterTreeSchema.optional(),
   search: SearchSpecSchema.optional(),
+  /** Record/system metadata criteria. Kept separate from field filters
+   *  because these predicates target `records.*` columns, not table data. */
+  recordMeta: RecordMetaQuerySchema.optional(),
   sort: z.array(SortSpecSchema).optional(),
   groupBy: z.array(GroupBySpecSchema).max(3).optional(),
   /** Bucket ordering for grouped queries. When set, groups are ordered

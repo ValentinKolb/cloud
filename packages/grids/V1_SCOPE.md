@@ -8,7 +8,7 @@ This document freezes the Grids v1 product scope so remaining work can focus on 
 | --- | --- | --- |
 | Base/table app shell | Keep | AppWorkspace navigation, last-opened routing, admin-only edit actions, dashboards/forms/tables/views ordering. |
 | Tables and records | Keep | Typed fields, record list/detail, create/edit/delete, direct table editing, form-first create mode where configured. |
-| Views | Keep | Saved filters, sort, search, group, aggregations, limits, columns, column formats, permissions, dashboard embeds. |
+| Views | Keep | Saved filters, sort, search, group, aggregations, limits, columns, computed display columns, column formats, permissions, dashboard embeds. |
 | Forms | Keep | Form builder, public/private submit, submit permissions, fixed values, markdown longtext editing, dashboard form embeds. |
 | Dashboards | Keep | Base dashboards, WYSIWYG rows/cells, stat/view/chart/view-stats/form/markdown/link widgets, icons, permissions. |
 | Files | Keep | File field v1 with Postgres-backed storage and record detail/table display. |
@@ -36,11 +36,11 @@ This document freezes the Grids v1 product scope so remaining work can focus on 
 
 | Area | Post-v1 direction |
 | --- | --- |
-| Advanced computed-field querying | Defer formula-backed filters/sorts/search unless backed by generated SQL/materialized storage with clear semantics. |
+| Advanced computed-field querying | Defer formula-backed filters/sorts/search unless backed by generated SQL/materialized storage with clear semantics. V1 computed view columns are display-only. |
 | Full workflow builder | Defer branches, multi-step actions, scripts, incoming webhooks, retries UI, and non-webhook actions. |
 | Runtime widget rendering | Defer dynamic/custom widget runtime beyond the supported widget set. |
 | Field-level ACL | Defer per-field read/write, default grants, grant audit enhancements, and row ownership rules. |
-| Views v2 | Defer computed view columns and broader table-level metadata redesign. |
+| Views v2 | Defer broader table-level metadata redesign and arbitrary relation-following view joins. Use relation, lookup, and rollup fields instead. |
 | Formula authoring redesign | Defer name-based formulas and formula rewrite-on-rename until after `#shortId` v1 is stable. |
 | Formula-result search | Defer until the query model can keep SQL as source of truth. |
 | Import builders | Defer rich CSV/Excel import builders beyond the scoped Excel/VBA mapping decision. |

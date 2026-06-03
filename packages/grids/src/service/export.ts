@@ -39,6 +39,7 @@ const fetchAllForExport = async (params: {
       deletedOnly: params.query.deletedOnly,
       filter: params.query.filter ?? null,
       search: (params.query.search as SearchSpec | undefined) ?? null,
+      recordMeta: params.query.recordMeta ?? null,
       sort: params.query.sort ?? [],
       includeRelations: false,
       viewer: params.viewer,
@@ -338,6 +339,7 @@ export const exportRecords = async (params: {
     tableId: params.tableId,
     query,
     viewer: params.viewer,
+    dateConfig: params.dateConfig,
   });
   if (!fetched.ok) return fail(fetched.error);
   const { items, truncated } = fetched.data;

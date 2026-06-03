@@ -1,6 +1,7 @@
 import { Select } from "@valentinkolb/cloud/ui";
 import { createMemo, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
+import { fieldOption } from "../fields/field-type-meta";
 
 export type GroupByRow = {
   fieldId: string;
@@ -40,6 +41,19 @@ const GROUPABLE_TYPES = new Set([
 
 const groupableFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt && GROUPABLE_TYPES.has(f.type));
 
+const DIRECTION_OPTIONS = [
+  { id: "asc", label: "A → Z", description: "Ascending bucket order", icon: "ti ti-sort-ascending" },
+  { id: "desc", label: "Z → A", description: "Descending bucket order", icon: "ti ti-sort-descending" },
+];
+
+const DATE_GRANULARITY_OPTIONS = [
+  { id: "day", label: "by day", description: "One group per day", icon: "ti ti-calendar-event" },
+  { id: "week", label: "by week", description: "One group per week", icon: "ti ti-calendar-week" },
+  { id: "month", label: "by month", description: "One group per month", icon: "ti ti-calendar-month" },
+  { id: "quarter", label: "by quarter", description: "One group per quarter", icon: "ti ti-calendar-stats" },
+  { id: "year", label: "by year", description: "One group per year", icon: "ti ti-calendar" },
+];
+
 export const blankGroupByRow = (fields: Field[]): GroupByRow | null => {
   const usable = groupableFields(fields);
   const first = usable[0];
@@ -77,26 +91,23 @@ export default function GroupByPanel(props: Props) {
           return (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
               <span class="w-16 shrink-0 text-dimmed">{index === 0 ? "group by" : "then by"}</span>
-              <div class="w-40 shrink-0">
+              <div class="w-64 shrink-0">
                 <Select
                   value={() => rowSignal().fieldId}
                   onChange={(v) => updateRow(index, { fieldId: v })}
-                  options={fields().map((fld) => ({ id: fld.id, label: fld.name }))}
+                  options={fields().map((fld) => fieldOption(fld))}
                   placeholder="Field"
                 />
               </div>
-              <div class="w-32 shrink-0">
+              <div class="w-44 shrink-0">
                 <Select
                   value={() => rowSignal().direction ?? "asc"}
                   onChange={(v) => updateRow(index, { direction: v as "asc" | "desc" })}
-                  options={[
-                    { id: "asc", label: "A → Z" },
-                    { id: "desc", label: "Z → A" },
-                  ]}
+                  options={DIRECTION_OPTIONS}
                 />
               </div>
               <Show when={isDate()}>
-                <div class="w-32 shrink-0">
+                <div class="w-48 shrink-0">
                   <Select
                     value={() => rowSignal().granularity ?? "day"}
                     onChange={(v) =>
@@ -104,13 +115,7 @@ export default function GroupByPanel(props: Props) {
                         granularity: v as GroupByRow["granularity"],
                       })
                     }
-                    options={[
-                      { id: "day", label: "by day" },
-                      { id: "week", label: "by week" },
-                      { id: "month", label: "by month" },
-                      { id: "quarter", label: "by quarter" },
-                      { id: "year", label: "by year" },
-                    ]}
+                    options={DATE_GRANULARITY_OPTIONS}
                   />
                 </div>
               </Show>

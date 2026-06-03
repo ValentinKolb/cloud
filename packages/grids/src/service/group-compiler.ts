@@ -388,6 +388,7 @@ const buildWhereClause = (params: CompileGroupParams): { ok: true; where: any } 
   else if (!params.includeDeleted) whereParts.push(sql`r.deleted_at IS NULL`);
   whereParts.push(renderClause(filterCompiled.clause));
   if (params.searchClause) whereParts.push(params.searchClause);
+  if (params.extraWhere) whereParts.push(params.extraWhere);
 
   return { ok: true, where: whereParts.reduce((acc, cur) => sql`${acc} AND ${cur}`) };
 };
@@ -454,6 +455,7 @@ type CompileGroupParams = {
   groupSort?: GroupSortSpec[];
   filter?: FilterTree | null;
   searchClause?: any;
+  extraWhere?: any;
   fields: Field[];
   cursor?: { keys: unknown[] } | null;
   limit?: number;

@@ -25,6 +25,7 @@ type Props = {
   initialSort: SortRow[];
   initialGroupBy: GroupByRow[];
   initialAggregations: AggregationRow[];
+  recordMeta?: ViewQuery["recordMeta"];
   columns?: ColumnSpec[];
   onAddComputedColumn?: () => void;
   onClearColumns?: () => void;
@@ -230,6 +231,7 @@ export default function GridToolbar(props: Props) {
       const query = {
         filter: f.length > 0 ? { op: "AND" as const, filters: f } : undefined,
         search: props.currentSearch.q.trim() ? { q: props.currentSearch.q.trim(), fieldIds: props.currentSearch.fieldIds } : undefined,
+        recordMeta: props.recordMeta,
         sort: s.length > 0 ? s : undefined,
         groupBy: g.length > 0 ? g : undefined,
         aggregations: a.length > 0 ? a : undefined,

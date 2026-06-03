@@ -7,7 +7,6 @@ import {
   ImageInput,
   panelDialogOptions,
   PanelDialog,
-  PermissionEditor,
   prompts,
   SegmentedControl,
   Select,
@@ -20,11 +19,12 @@ import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import type { FormConfig, FormFieldEntry } from "../../../service/forms";
 import { TYPE_LABELS } from "../fields/field-config-editor";
-import { isUserEditable } from "../fields/field-prompt-schema";
+import { isRecordInputField } from "../fields/field-render";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { FieldInput } from "./form-fields";
 
-const canBeFormInput = (field: Field) => isUserEditable(field.type) || field.type === "relation";
+const canBeFormInput = (field: Field) => isRecordInputField(field.type);
 
 const publicFormUrl = (token: string) => `${typeof window === "undefined" ? "" : window.location.origin}/share/grids/forms/${token}`;
 
@@ -799,39 +799,12 @@ function FormEditorSection(props: { title: string; subtitle?: string; icon: stri
 // there's only one meaningful level for forms.
 
 function FormPermissions(props: { formId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
-  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   return (
-    <PermissionEditor
-      initialEntries={entries()}
+    <ScopedPermissionEditor
+      scope={{ type: "form", id: props.formId }}
+      initialEntries={props.initialEntries}
       canEdit={props.canEdit}
       allowedLevels={[{ level: "write", label: "Use", icon: "ti-cursor-text" }]}
-      grantAccess={async (principal, permission) => {
-        const res = await apiClient.access["by-form"][":formId"].$post({
-          param: { formId: props.formId },
-          json: { principal, permission },
-        });
-        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = await res.json();
-        const listRes = await apiClient.access["by-form"][":formId"].$get({
-          param: { formId: props.formId },
-        });
-        const list = listRes.ok ? await listRes.json() : entries();
-        setEntries(list);
-        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
-      }}
-      updateAccess={async (accessId, permission) => {
-        const res = await apiClient.access[":accessId"].$patch({
-          param: { accessId },
-          json: { permission },
-        });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
-        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
-      }}
-      revokeAccess={async (accessId) => {
-        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
-        setEntries(entries().filter((e) => e.id !== accessId));
-      }}
     />
   );
 }

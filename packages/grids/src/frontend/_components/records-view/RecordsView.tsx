@@ -1,13 +1,5 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import {
-  Dropdown,
-  dialogCore,
-  MultiSelectInput,
-  panelDialogOptions,
-  PanelDialog,
-  prompts,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
+import { Dropdown, dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -45,6 +37,7 @@ import {
   visibleIdsFromResult,
 } from "./live-refresh";
 import { buildRecordsUrl, parseRecordsState, type RecordsState } from "./query-url";
+import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
 
 /** UI-supported agg kinds — narrower than the contract's AggregateKind
  *  (which also has median/earliest/latest, currently SQL-only). When a
@@ -69,9 +62,7 @@ const randomComputedColumnId = (): string => {
   return `computed_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")}`;
 };
 
-type ComputedColumnDialogResult =
-  | { action: "save"; column: Extract<ColumnSpec, { kind: "computed" }> }
-  | { action: "delete" };
+type ComputedColumnDialogResult = { action: "save"; column: Extract<ColumnSpec, { kind: "computed" }> } | { action: "delete" };
 
 const openComputedColumnDialog = (args: {
   fields: Field[];
@@ -107,10 +98,15 @@ const openComputedColumnDialog = (args: {
     };
     return (
       <PanelDialog>
-        <PanelDialog.Header title={args.column ? "Edit computed column" : "Computed column"} icon="ti ti-calculator" close={() => close(null)} />
+        <PanelDialog.Header
+          title={args.column ? "Edit computed column" : "Computed column"}
+          icon="ti ti-calculator"
+          close={() => close(null)}
+        />
         <PanelDialog.Body>
           <div class="info-block-info text-xs">
-            Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view setup.
+            Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view
+            setup.
           </div>
           <TextInput label="Name" value={label} onInput={setLabel} icon="ti ti-typography" placeholder="e.g. Total with VAT" required />
           <FormulaExpressionEditor
@@ -251,7 +247,7 @@ export default function RecordsView(props: Props) {
   const isSavedView = () => props.viewMode || !!props.activeView || !!props.viewShortId;
   const canUseEditMode = () => (isSavedView() ? !!props.canEditActiveView : props.canManageTable);
   const [adminMode, setAdminMode] = createSignal(props.initialAdminMode && canUseEditMode());
-  const [viewColumns, setViewColumns] = createSignal<ColumnSpec[] | undefined>(props.viewColumns);
+  const [viewColumns, setViewColumns] = createSignal<ColumnSpec[] | undefined>(props.viewColumns ?? props.initialState.query.columns);
   const [query, setQuery] = createSignal<ViewQuery>(props.initialState.query);
   const [cursor, setCursor] = createSignal<string | null>(props.initialState.cursor);
   const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(props.initialState.selectedRecordId);
@@ -270,14 +266,10 @@ export default function RecordsView(props: Props) {
   const groupBy = () => (query().groupBy ?? []) as GroupBySpec[];
   const aggregations = () => (query().aggregations ?? []) as AggregationSpec[];
   const toolbarFilterRows = createMemo(() => filterRowsFromQuery(query().filter));
-  const toolbarSortRows = createMemo(() =>
-    (query().sort ?? []).map((s) => ({
-      fieldId: s.fieldId,
-      direction: s.direction,
-    })),
-  );
+  const toolbarSortRows = createMemo(() => query().sort ?? []);
   const toolbarGroupByRows = createMemo(() => groupBy());
   const toolbarAggregationRows = createMemo(() => toAggregationRows(aggregations()));
+  const activeRecordMetaCount = createMemo(() => recordMetaActiveCount(query().recordMeta));
   const isGrouped = () => groupBy().length > 0;
   const customForms = () => forms().filter((form) => !form.isDefault);
   const formsButtonLabel = () => {
@@ -291,8 +283,7 @@ export default function RecordsView(props: Props) {
           .filter((f) => !f.deletedAt && !f.hideInTable)
           .sort((a, b) => a.position - b.position)
           .map((field) => ({ fieldId: field.id }));
-  const effectiveViewColumns = () =>
-    !isGrouped() ? (viewColumns() ?? defaultViewColumns()) : undefined;
+  const effectiveViewColumns = () => (!isGrouped() ? (viewColumns() ?? defaultViewColumns()) : undefined);
 
   // ── Resource over POST /tables/:id/query ──────────────────────────
   // Source signal carries everything that affects the response shape;
@@ -531,6 +522,16 @@ export default function RecordsView(props: Props) {
     syncUrl({ replace: true });
   };
 
+  const openRecordMetaDialog = async () => {
+    const next = await openRecordMetadataDialog({ tableId: props.tableId, initial: query().recordMeta });
+    if (next === null) return;
+    invalidateLiveRefreshes();
+    setQuery((prev) => ({ ...prev, recordMeta: cleanRecordMetaQuery(next) }));
+    setSelectedGroup(null);
+    setCursor(null);
+    syncUrl({ replace: true });
+  };
+
   const loadNextFlatPage = () => {
     const next = flatNextCursor();
     if (!next || data.loading || isGrouped()) return;
@@ -723,6 +724,7 @@ export default function RecordsView(props: Props) {
       // Update every URL-derived signal — filter / sort / group / agg
       // can change too if the user navigated to/from a saved view.
       setQuery(parsed.query);
+      setViewColumns(parsed.query.columns ?? props.viewColumns);
       setCursor(parsed.cursor);
       setSelectedRecordId(parsed.selectedRecordId);
       setSelectedGroup(null);
@@ -999,7 +1001,10 @@ export default function RecordsView(props: Props) {
     setViewColumns(cleaned);
     setQuery((prev) => ({ ...prev, columns: cleaned.some(isComputedColumn) || isSavedView() ? cleaned : undefined }));
     if (isSavedView()) patchViewQueryMut.mutate({ columns: cleaned });
-    else if (!cleaned.some(isComputedColumn)) patchTableColumnsMut.mutate(cleaned.filter(isFieldColumn));
+    else {
+      syncUrl({ replace: true });
+      if (!cleaned.some(isComputedColumn)) patchTableColumnsMut.mutate(cleaned.filter(isFieldColumn));
+    }
   };
 
   const moveViewColumnInline = (column: ColumnSpec, direction: -1 | 1) => {
@@ -1050,7 +1055,9 @@ export default function RecordsView(props: Props) {
     }
     persistFlatViewColumns(
       (effectiveViewColumns() ?? []).map((column) =>
-        !isComputedColumn(column) && column.fieldId === field.id ? cleanViewColumn({ ...column, label: result.label, format: result.format }) : column,
+        !isComputedColumn(column) && column.fieldId === field.id
+          ? cleanViewColumn({ ...column, label: result.label, format: result.format })
+          : column,
       ),
     );
   };
@@ -1351,6 +1358,12 @@ export default function RecordsView(props: Props) {
               </a>
             }
           >
+            <Show when={activeRecordMetaCount() > 0}>
+              <button type="button" class="btn-input btn-input-active btn-input-sm" onClick={openRecordMetaDialog}>
+                <i class="ti ti-user-search" />
+                Record info · {activeRecordMetaCount()}
+              </button>
+            </Show>
             <Dropdown
               // bottom-LEFT = drop below, right-edge aligned with the
               // trigger. The trigger lives at the far right of row 1
@@ -1364,6 +1377,11 @@ export default function RecordsView(props: Props) {
                 </span>
               }
               elements={[
+                {
+                  icon: "ti ti-user-search",
+                  label: "Record metadata",
+                  action: openRecordMetaDialog,
+                },
                 {
                   icon: "ti ti-download",
                   label: "Export records",
@@ -1403,6 +1421,7 @@ export default function RecordsView(props: Props) {
               initialSort={toolbarSortRows()}
               initialGroupBy={toolbarGroupByRows()}
               initialAggregations={toolbarAggregationRows()}
+              recordMeta={query().recordMeta}
               columns={effectiveViewColumns()}
               onAddComputedColumn={openAddComputedColumn}
               onClearColumns={clearComputedColumns}

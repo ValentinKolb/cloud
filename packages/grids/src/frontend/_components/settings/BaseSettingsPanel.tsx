@@ -1,9 +1,11 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo, prompts, refreshCurrentPath, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Base, Dashboard, Field, Form, Table } from "../../../service";
+import { createDraft } from "../editor-draft";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 
 type TrashResponse = {
@@ -239,14 +241,15 @@ function TrashRow(props: { icon: string; name: string; deletedAt: string; onRest
 }
 
 function GeneralForm(props: { base: { id: string; name: string; description: string | null } }) {
-  const [name, setName] = createSignal(props.base.name);
-  const [description, setDescription] = createSignal(props.base.description ?? "");
-  const [hasChanges, setHasChanges] = createSignal(false);
-
-  const update = (setter: (v: string) => void) => (v: string) => {
-    setter(v);
-    setHasChanges(true);
+  const draft = createDraft({
+    name: props.base.name,
+    description: props.base.description ?? "",
+  });
+  const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
+    draft.patch(partial);
   };
+  const name = () => draft.draft().name;
+  const description = () => draft.draft().description;
 
   const mutation = mutations.create<Base, void>({
     mutation: async () => {
@@ -257,8 +260,11 @@ function GeneralForm(props: { base: { id: string; name: string; description: str
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
       return res.json();
     },
-    onSuccess: () => {
-      setHasChanges(false);
+    onSuccess: (next) => {
+      draft.markSaved({
+        name: next.name,
+        description: next.description ?? "",
+      });
       refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
@@ -275,16 +281,16 @@ function GeneralForm(props: { base: { id: string; name: string; description: str
 
   return (
     <form onSubmit={handleSubmit} class="flex flex-col gap-3">
-      <TextInput label="Name" placeholder="My Base" icon="ti ti-typography" value={name} onInput={update(setName)} required />
+      <TextInput label="Name" placeholder="My Base" icon="ti ti-typography" value={name} onInput={(v) => patch({ name: v })} required />
       <TextInput
         label="Description"
         placeholder="Optional description..."
         icon="ti ti-align-left"
         value={description}
-        onInput={update(setDescription)}
+        onInput={(v) => patch({ description: v })}
         multiline
       />
-      <Show when={hasChanges()}>
+      <Show when={draft.dirty()}>
         <button type="submit" disabled={mutation.loading()} class="btn-primary btn-sm self-start mt-2">
           {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
         </button>
@@ -341,39 +347,11 @@ function DefaultDashboardSelect(props: { baseId: string; initial: string | null;
 }
 
 function PermissionsSection(props: { baseId: string; initialEntries: AccessEntry[] }) {
-  const [entries, setEntries] = createSignal(props.initialEntries);
-
   return (
-    <PermissionEditor
-      initialEntries={entries()}
+    <ScopedPermissionEditor
+      scope={{ type: "base", id: props.baseId }}
+      initialEntries={props.initialEntries}
       canEdit
-      grantAccess={async (principal, permission) => {
-        const res = await apiClient.access["by-base"][":baseId"].$post({
-          param: { baseId: props.baseId },
-          json: { principal, permission },
-        });
-        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const created = await res.json();
-        const listRes = await apiClient.access["by-base"][":baseId"].$get({
-          param: { baseId: props.baseId },
-        });
-        const list = listRes.ok ? await listRes.json() : entries();
-        setEntries(list);
-        return list.find((e) => e.id === created.accessId) ?? list[list.length - 1]!;
-      }}
-      updateAccess={async (accessId, permission) => {
-        const res = await apiClient.access[":accessId"].$patch({
-          param: { accessId },
-          json: { permission },
-        });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
-        setEntries(entries().map((e) => (e.id === accessId ? { ...e, permission } : e)));
-      }}
-      revokeAccess={async (accessId) => {
-        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
-        setEntries(entries().filter((e) => e.id !== accessId));
-      }}
     />
   );
 }

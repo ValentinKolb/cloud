@@ -1,19 +1,30 @@
 import { sql } from "bun";
+import type { RecordMetaSortKey } from "../contracts";
 import { type ProjectionKind, storageOf } from "./field-storage";
 import type { Field } from "./types";
 
-export type SortSpec = {
+export type FieldSortSpec = {
+  source?: "field";
   fieldId: string;
   direction: "asc" | "desc";
   nullsFirst?: boolean;
 };
+
+export type RecordSortSpec = {
+  source: "record";
+  key: RecordMetaSortKey;
+  direction: "asc" | "desc";
+  nullsFirst?: boolean;
+};
+
+export type SortSpec = FieldSortSpec | RecordSortSpec;
 
 type CompiledSort = {
   /** ORDER BY fragments ready to be embedded after a WHERE clause. */
   orderBy: any;
   /** Cursor predicate fragment for keyset pagination, or null if no cursor. */
   cursorWhere: any | null;
-  /** Names of fields used in the sort, in order — input for cursor formatting. */
+  /** Stable identifiers used in the sort, in order — input for cursor length checks. */
   fieldIds: string[];
   /**
    * SQL SELECT-list extras: the sort projections aliased as `__sort_<i>`
@@ -68,10 +79,27 @@ const projectionForField = (field: Field): { sql: any; cast: CastKind } | null =
   if (!desc.sortable) return null;
   const projected = desc.project(field, "r");
   if (!projected) return null;
-  const cast = cursorCastFor(desc.kind);
+  const cast = desc.kind === "system" && field.type.endsWith("_at") ? "timestamptz" : cursorCastFor(desc.kind);
   if (!cast) return null;
   return { sql: projected as any, cast };
 };
+
+const isRecordSort = (spec: SortSpec): spec is RecordSortSpec => spec.source === "record";
+
+const recordProjectionFor = (key: RecordMetaSortKey): { sql: any; cast: CastKind; label: string } | null => {
+  switch (key) {
+    case "createdAt":
+      return { sql: sql`r.created_at`, cast: "timestamptz", label: "Created time" };
+    case "updatedAt":
+      return { sql: sql`r.updated_at`, cast: "timestamptz", label: "Modified time" };
+    case "deletedAt":
+      return { sql: sql`r.deleted_at`, cast: "timestamptz", label: "Deleted time" };
+    default:
+      return null;
+  }
+};
+
+const sortIdentity = (spec: SortSpec): string => (isRecordSort(spec) ? `record:${spec.key}` : spec.fieldId);
 
 const castedValue = (cast: CastKind, value: unknown): any => {
   if (value === null || value === undefined) {
@@ -168,6 +196,10 @@ export const compileSort = (
   // and we reject them with a clean compile error rather than silently
   // sorting all rows to NULL via a text fallback.
   for (const s of effective) {
+    if (isRecordSort(s)) {
+      if (!recordProjectionFor(s.key)) return { ok: false, error: "unknown record sort field" };
+      continue;
+    }
     const f = fieldsById.get(s.fieldId);
     if (!f) return { ok: false, error: "unknown sort field" };
     if (f.deletedAt) return { ok: false, error: `sort field "${f.name}" is deleted` };
@@ -177,18 +209,20 @@ export const compileSort = (
   }
 
   // Resolve effective nullsFirst per column (default = nulls-first asc, last desc).
-  const resolved = effective.map((s) => ({
-    spec: s,
-    field: fieldsById.get(s.fieldId)!,
-    nullsFirst: s.nullsFirst ?? s.direction === "asc",
-  }));
+  const resolved = effective.map((s) => {
+    const projection = isRecordSort(s) ? recordProjectionFor(s.key)! : projectionForField(fieldsById.get(s.fieldId)!)!;
+    return {
+      spec: s,
+      projection,
+      nullsFirst: s.nullsFirst ?? s.direction === "asc",
+    };
+  });
 
   // Build ORDER BY parts.
-  const orderParts = resolved.map(({ spec, field, nullsFirst }) => {
-    const proj = projectionForField(field)!;
+  const orderParts = resolved.map(({ spec, projection, nullsFirst }) => {
     const dir = spec.direction === "desc" ? sql`DESC` : sql`ASC`;
     const nulls = nullsFirst ? sql`NULLS FIRST` : sql`NULLS LAST`;
-    return sql`${proj.sql} ${dir} ${nulls}`;
+    return sql`${projection.sql} ${dir} ${nulls}`;
   });
 
   // Tiebreaker on id uses the first sort column's direction. Any
@@ -220,13 +254,13 @@ export const compileSort = (
 
       const branches: any[] = [];
       for (let i = 0; i < resolved.length; i++) {
-        const proj = projectionForField(resolved[i]!.field)!;
+        const proj = resolved[i]!.projection;
         const value = cursor.values[i];
         const gt = orderGt(proj.sql, proj.cast, resolved[i]!.spec.direction, resolved[i]!.nullsFirst, value);
         // Equality prefix: all earlier columns equal.
         let prefix: any = sql`TRUE`;
         for (let j = 0; j < i; j++) {
-          const pj = projectionForField(resolved[j]!.field)!;
+          const pj = resolved[j]!.projection;
           const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
           prefix = sql`${prefix} AND ${eq}`;
         }
@@ -235,7 +269,7 @@ export const compileSort = (
       // Final branch: all sort cols equal AND id past cursor_id.
       let allEqPrefix: any = sql`TRUE`;
       for (let j = 0; j < resolved.length; j++) {
-        const pj = projectionForField(resolved[j]!.field)!;
+        const pj = resolved[j]!.projection;
         const eq = nullSafeEq(pj.sql, pj.cast, cursor.values[j]);
         allEqPrefix = sql`${allEqPrefix} AND ${eq}`;
       }
@@ -258,9 +292,8 @@ export const compileSort = (
     resolved.length === 0
       ? sql``
       : resolved
-          .map(({ field }, i) => {
-            const proj = projectionForField(field)!.sql;
-            return sql`, ${proj} AS ${sql.unsafe(`__sort_${i}`)}`;
+          .map(({ projection }, i) => {
+            return sql`, ${projection.sql} AS ${sql.unsafe(`__sort_${i}`)}`;
           })
           .reduce((acc, cur) => sql`${acc}${cur}`);
 
@@ -277,7 +310,7 @@ export const compileSort = (
     result: {
       orderBy,
       cursorWhere,
-      fieldIds: effective.map((s) => s.fieldId),
+      fieldIds: effective.map(sortIdentity),
       cursorSelect,
       encodeCursorFromRow,
     },

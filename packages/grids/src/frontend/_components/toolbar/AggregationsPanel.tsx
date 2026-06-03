@@ -1,6 +1,7 @@
 import { Select, TextInput } from "@valentinkolb/cloud/ui";
 import { createMemo, Index } from "solid-js";
 import type { Field } from "../../../service";
+import { fieldOption } from "../fields/field-type-meta";
 
 export type AggKindUI = "count" | "countEmpty" | "countUnique" | "sum" | "avg" | "min" | "max";
 
@@ -49,6 +50,16 @@ const AGG_LABELS: Record<AggKindUI, string> = {
   max: "max",
 };
 
+const AGG_META: Record<AggKindUI, { description: string; icon: string }> = {
+  count: { description: "Records with a value", icon: "ti ti-hash" },
+  countEmpty: { description: "Records without a value", icon: "ti ti-circle-dashed" },
+  countUnique: { description: "Distinct values", icon: "ti ti-fingerprint" },
+  sum: { description: "Total value", icon: "ti ti-sum" },
+  avg: { description: "Mean value", icon: "ti ti-divide" },
+  min: { description: "Smallest value", icon: "ti ti-arrow-down" },
+  max: { description: "Largest value", icon: "ti ti-arrow-up" },
+};
+
 /** Per-field-type readability — exclude relation/lookup/rollup which
  *  the compiler can't aggregate well; include "*" as a special record-
  *  count entry. */
@@ -81,10 +92,12 @@ export default function AggregationsPanel(props: Props) {
       <Index each={props.rows()}>
         {(rowSignal, index) => {
           const fld = () => (rowSignal().fieldId === "*" ? null : (fieldsById().get(rowSignal().fieldId as string) ?? null));
-          const aggOptions = createMemo(() => aggsForField(fld()).map((k) => ({ id: k, label: AGG_LABELS[k] })));
+          const aggOptions = createMemo(() =>
+            aggsForField(fld()).map((k) => ({ id: k, label: AGG_LABELS[k], description: AGG_META[k].description, icon: AGG_META[k].icon })),
+          );
           return (
             <div class="flex flex-wrap items-center gap-1.5 text-xs">
-              <div class="w-40 shrink-0">
+              <div class="w-64 shrink-0">
                 <Select
                   value={() => rowSignal().fieldId}
                   onChange={(v) => {
@@ -92,19 +105,18 @@ export default function AggregationsPanel(props: Props) {
                     updateRow(index, { fieldId: v, agg: "count" });
                   }}
                   options={[
-                    { id: "*", label: "All records" },
+                    { id: "*", label: "All records", description: "Count rows in each group", icon: "ti ti-database" },
                     ...eligibleFields().map((f) => ({
-                      id: f.id,
-                      label: f.name,
+                      ...fieldOption(f),
                     })),
                   ]}
                   placeholder="Field"
                 />
               </div>
-              <div class="w-32 shrink-0">
+              <div class="w-56 shrink-0">
                 <Select value={() => rowSignal().agg} onChange={(v) => updateRow(index, { agg: v as AggKindUI })} options={aggOptions()} />
               </div>
-              <div class="w-40 shrink-0">
+              <div class="w-64 shrink-0">
                 {/* Optional column-header override. Empty → renderer uses
                     the auto-derived "<agg> <fieldName>" string. */}
                 <TextInput

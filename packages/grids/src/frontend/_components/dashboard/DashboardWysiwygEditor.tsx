@@ -1,4 +1,4 @@
-import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts/shared";
+import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
   confirmDiscardIfDirty,
@@ -6,7 +6,6 @@ import {
   IconInput,
   panelDialogOptions,
   PanelDialog,
-  PermissionEditor,
   prompts,
   refreshCurrentPath,
   Select,
@@ -29,6 +28,8 @@ import {
   isChartReadyView,
   openCellEditDialog,
 } from "../dialogs/DashboardWidgetDialogs";
+import { createDraft } from "../editor-draft";
+import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { SectionCard } from "../utils/SectionCard";
 import DashboardLayout from "./DashboardLayout";
@@ -469,18 +470,20 @@ function DashboardGeneralBody(props: {
   close: () => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
-  const [name, setName] = createSignal(props.dashboard.name);
-  const [description, setDescription] = createSignal(props.dashboard.description ?? "");
-  const [icon, setIcon] = createSignal(props.dashboard.icon ?? "");
-  const [shared, setShared] = createSignal(props.dashboard.ownerUserId === null);
-  const [dirty, setDirty] = createSignal(false);
-  const wrap =
-    <T,>(setter: (value: T) => void) =>
-    (value: T) => {
-      setter(value);
-      setDirty(true);
-      props.onDirtyChange?.(true);
-    };
+  const draft = createDraft({
+    name: props.dashboard.name,
+    description: props.dashboard.description ?? "",
+    icon: props.dashboard.icon ?? "",
+    shared: props.dashboard.ownerUserId === null,
+  });
+  const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
+    draft.patch(partial);
+    props.onDirtyChange?.(true);
+  };
+  const name = () => draft.draft().name;
+  const description = () => draft.draft().description;
+  const icon = () => draft.draft().icon;
+  const shared = () => draft.draft().shared;
 
   const saveMut = mutations.create<Dashboard, void>({
     mutation: async () => {
@@ -492,8 +495,13 @@ function DashboardGeneralBody(props: {
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save dashboard"));
       return res.json();
     },
-    onSuccess: () => {
-      setDirty(false);
+    onSuccess: (saved) => {
+      draft.markSaved({
+        name: saved.name,
+        description: saved.description ?? "",
+        icon: saved.icon ?? "",
+        shared: saved.ownerUserId === null,
+      });
       props.onDirtyChange?.(false);
       toast.success("Dashboard settings saved");
       refreshCurrentPath();
@@ -506,15 +514,15 @@ function DashboardGeneralBody(props: {
       <PanelDialog.Body>
         <SectionCard title="General" subtitle="Name, description, and sharing.">
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <TextInput label="Name" value={name} onInput={wrap(setName)} required />
-            <TextInput label="Description" value={description} onInput={wrap(setDescription)} />
-            <IconInput label="Icon" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
+            <TextInput label="Name" value={name} onInput={(v) => patch({ name: v })} required />
+            <TextInput label="Description" value={description} onInput={(v) => patch({ description: v })} />
+            <IconInput label="Icon" value={icon} onChange={(v) => patch({ icon: v })} placeholder="Search icons..." />
           </div>
           <Checkbox
             label="Shared dashboard"
             description="Visible to users who can open this base. Permissions below can narrow access."
             value={shared}
-            onChange={wrap(setShared)}
+            onChange={(v) => patch({ shared: v })}
           />
           <Show when={props.isBaseDefault}>
             <p class="text-xs text-blue-700 dark:text-blue-300">This dashboard is the base default.</p>
@@ -539,7 +547,7 @@ function DashboardGeneralBody(props: {
             type="button"
             class="btn-primary btn-sm"
             onClick={() => saveMut.mutate(undefined)}
-            disabled={!dirty() || saveMut.loading()}
+            disabled={!draft.dirty() || saveMut.loading()}
           >
             {saveMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : "Save"}
           </button>
@@ -550,33 +558,12 @@ function DashboardGeneralBody(props: {
 }
 
 function DashboardPermissions(props: { dashboardId: string; initialEntries: AccessEntry[]; canEdit: boolean }) {
-  const [entries, setEntries] = createSignal<AccessEntry[]>(props.initialEntries);
   if (!props.canEdit) return <p class="text-xs text-dimmed">You can view these permissions, but not change them.</p>;
   return (
-    <PermissionEditor
-      initialEntries={entries()}
+    <ScopedPermissionEditor
+      scope={{ type: "dashboard", id: props.dashboardId }}
+      initialEntries={props.initialEntries}
       allowedLevels={["read"]}
-      grantAccess={async (principal: Principal, permission: PermissionLevel) => {
-        const res = await apiClient.access["by-dashboard"][":dashboardId"].$post({
-          param: { dashboardId: props.dashboardId },
-          json: { principal, permission },
-        });
-        if (!res.ok) throw new Error(await errorMessage(res, "Failed to grant access"));
-        const listRes = await apiClient.access["by-dashboard"][":dashboardId"].$get({ param: { dashboardId: props.dashboardId } });
-        const list = listRes.ok ? await listRes.json() : entries();
-        setEntries(list);
-        return list[list.length - 1]!;
-      }}
-      updateAccess={async (accessId, permission) => {
-        const res = await apiClient.access[":accessId"].$patch({ param: { accessId }, json: { permission } });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to update access"));
-        setEntries(entries().map((entry) => (entry.id === accessId ? { ...entry, permission } : entry)));
-      }}
-      revokeAccess={async (accessId) => {
-        const res = await apiClient.access[":accessId"].$delete({ param: { accessId } });
-        if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to revoke access"));
-        setEntries(entries().filter((entry) => entry.id !== accessId));
-      }}
     />
   );
 }

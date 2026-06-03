@@ -66,6 +66,7 @@ export const gridsService = {
     update: records.update,
     softDelete: records.softDelete,
     restore: records.restore,
+    listActors: records.listActors,
     aggregate: records.aggregate,
     group: records.group,
   },
