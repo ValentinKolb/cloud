@@ -1,16 +1,17 @@
-import { Hono, type Context } from "hono";
-import { describeRoute } from "hono-openapi";
-import { z } from "zod";
-import { v, jsonResponse, requiresAuth, requiresAdmin, auth, type AuthContext, rateLimit, respond } from "@valentinkolb/cloud/server";
-import { err, fail, ok } from "@valentinkolb/stdlib";
-import { notificationsService } from "../service";
 import {
+  createPagination,
   ErrorResponseSchema,
   MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
+  parsePagination,
 } from "@valentinkolb/cloud/contracts";
-import { parsePagination, createPagination } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, rateLimit, requiresAdmin, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { err, fail, ok } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
+import { describeRoute } from "hono-openapi";
+import { z } from "zod";
+import { notificationsService } from "../service";
 
 const SendNotificationSchema = z.object({
   userId: z.uuid().describe("Target user's database ID"),
@@ -169,6 +170,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing notification ID")));
       const notificationCheck = await requireNotificationAccess(c, { id, user });
       if (notificationCheck.error || !notificationCheck.notification) {
         return notificationCheck.error!;
@@ -232,6 +234,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing notification ID")));
       const notificationCheck = await requireNotificationAccess(c, { id, user });
       if (notificationCheck.error || !notificationCheck.notification) {
         return notificationCheck.error!;
@@ -312,6 +315,7 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const user = c.get("user");
       const id = c.req.param("id");
+      if (!id) return respond(c, fail(err.badInput("Missing notification ID")));
       const notificationCheck = await requireNotificationAccess(c, { id, user });
       if (notificationCheck.error || !notificationCheck.notification) {
         return notificationCheck.error!;

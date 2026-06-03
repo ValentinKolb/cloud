@@ -1,14 +1,13 @@
-import { Hono, type Context } from "hono";
+import { type AuthContext, auth, jsonResponse, rateLimit, respond, v } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
-import { auth, jsonResponse, rateLimit, respond, type AuthContext, v } from "@valentinkolb/cloud/server";
-import { ipaHostsService } from "../service";
 import {
   createPagination,
   ErrorResponseSchema,
-  IpaHostSchema,
   IpaHostgroupSchema,
+  IpaHostSchema,
   MessageResponseSchema,
   PaginationQuerySchema,
   PaginationResponseSchema,
@@ -18,6 +17,7 @@ import {
   UpdateHostgroupSchema,
   UpdateHostSchema,
 } from "@/contracts";
+import { ipaHostsService } from "../service";
 
 const isServiceResult = (value: unknown): value is Result<unknown> => {
   return Boolean(value && typeof value === "object" && "ok" in value);
@@ -41,7 +41,7 @@ const respondMessage = async (
   c: Context,
   resultPromise: Promise<Result<unknown> | void>,
   message: string,
-  successStatus = 200,
+  successStatus: 200 | 201 = 200,
 ) => {
   return respond(
     c,
@@ -107,6 +107,7 @@ const app = new Hono<AuthContext>()
     v("json", UpdateHostSchema),
     async (c) => {
       const fqdn = c.req.param("fqdn");
+      if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const data = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
@@ -145,6 +146,7 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ hostgroup: z.string().min(1) })),
     async (c) => {
       const fqdn = c.req.param("fqdn");
+      if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
@@ -165,6 +167,7 @@ const app = new Hono<AuthContext>()
     v("json", z.object({ hostgroup: z.string().min(1) })),
     async (c) => {
       const fqdn = c.req.param("fqdn");
+      if (!fqdn) return respond(c, fail(err.badInput("Missing host FQDN")));
       const { hostgroup } = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;
@@ -244,6 +247,7 @@ const app = new Hono<AuthContext>()
     v("json", UpdateHostgroupSchema),
     async (c) => {
       const cn = c.req.param("cn");
+      if (!cn) return respond(c, fail(err.badInput("Missing hostgroup name")));
       const data = c.req.valid("json");
       const { ipaSession, error } = await requireIpaSession(c);
       if (error || !ipaSession) return error!;

@@ -1,10 +1,8 @@
-import { For, Index, Show, createSignal } from "solid-js";
-import { Dropdown, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
 import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
-import { prompts } from "@valentinkolb/cloud/ui";
+import { createSignal, For, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { normalizeMacAddress } from "@/contracts";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
 
 const MAC_ADDRESS_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
 
@@ -316,8 +314,7 @@ const HostgroupSearch = (props: { exclude: string[]; adding?: boolean; onSelect:
     try {
       const res = await apiClient.hostgroups.search.$get({ query: { q, exclude: props.exclude.join(",") } });
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message ?? "Failed to search hostgroups.");
+        throw new Error("Failed to search hostgroups.");
       }
       const data = await res.json();
       setResults(data.hostgroups);
