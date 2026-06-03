@@ -8,9 +8,11 @@ _old/
 # Local tooling state (skill task tracking, lint cache)
 .dex/
 .fallow/
+/.playwright-cli/
 
 # Local scratch notes (todos, draft reviews)
 todo/
+/tmp/
 
 # Per-developer seed scripts (hardcoded user UUIDs etc.)
 scripts/seed-dashboard-demo.ts
@@ -41,3 +43,4 @@ _ssr
 *.log
 .cache
 **/.cache
+**/.local
