@@ -48,7 +48,9 @@ const lineFromIndex = (source: string, index: number): number => source.slice(0,
 
 // Allowed @valentinkolb/cloud subpath imports from apps
 const allowedCloudSubpath = (specifier: string): boolean =>
-  /^@valentinkolb\/cloud(?:$|\/(ui|server|browser|shared|services|ssr|config|contracts|api|clients)(?:\/|$))/.test(specifier);
+  /^@valentinkolb\/cloud(?:$|\/(ui|desktop|server|browser|shared|services|ssr|config|contracts|api|clients)(?:\/|$))/.test(specifier);
+
+const allowedSubpathList = "/ui, /desktop, /server, /browser, /shared, /services, /ssr, /config, /contracts, /api, /clients";
 
 const APP_PACKAGE_NAMES = readdirSync(join(workspaceRoot, "packages")).filter(
   (name) => name !== "cloud" && existsSync(join(workspaceRoot, "packages", name, "src")),
@@ -113,12 +115,16 @@ const checkAppsBoundaries = (): Violation[] => {
         }
 
         // Validate @valentinkolb/cloud subpaths
-        if (specifier.startsWith("@valentinkolb/cloud") && !specifier.startsWith("@valentinkolb/cloud-") && !allowedCloudSubpath(specifier)) {
+        if (
+          specifier.startsWith("@valentinkolb/cloud") &&
+          !specifier.startsWith("@valentinkolb/cloud-") &&
+          !allowedCloudSubpath(specifier)
+        ) {
           violations.push({
             file,
             line,
             specifier,
-            message: "Invalid @valentinkolb/cloud subpath. Allowed: /ui, /server, /browser, /shared, /services, /ssr, /config, /contracts, /api, /clients.",
+            message: `Invalid @valentinkolb/cloud subpath. Allowed: ${allowedSubpathList}.`,
           });
         }
       }

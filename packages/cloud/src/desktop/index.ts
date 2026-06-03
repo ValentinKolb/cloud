@@ -44,6 +44,71 @@ export type DesktopNotificationOptions = {
 
 export type DesktopContextMenuItem = { type: "divider" } | { label: string; action?: string; role?: string; enabled?: boolean };
 
+export type DesktopLogger = {
+  debug: (message: string, metadata?: Record<string, unknown>) => void;
+  info: (message: string, metadata?: Record<string, unknown>) => void;
+  warn: (message: string, metadata?: Record<string, unknown>) => void;
+  error: (message: string, metadata?: Record<string, unknown>) => void;
+};
+
+export type DesktopTaskState = "idle" | "running" | "scheduled" | "error" | "stopped";
+
+export type DesktopTaskStatus = {
+  id: string;
+  state: DesktopTaskState;
+  runCount: number;
+  failureCount: number;
+  lastStartedAt?: string;
+  lastFinishedAt?: string;
+  lastError?: string;
+  nextRunAt?: string;
+};
+
+export type DesktopTaskRetryOptions = {
+  attempts?: number;
+  baseMs?: number;
+  maxMs?: number;
+};
+
+export type DesktopTaskRunContext = {
+  id: string;
+  app: DesktopAppConfig;
+  sql: DesktopSql;
+  logger: DesktopLogger;
+  signal: AbortSignal;
+};
+
+export type DesktopTaskDefinition = {
+  intervalMs?: number;
+  runOnStart?: boolean;
+  retry?: DesktopTaskRetryOptions;
+  run: (ctx: DesktopTaskRunContext) => void | Promise<void>;
+};
+
+export type DesktopTaskSupervisor = {
+  register: (id: string, definition: DesktopTaskDefinition) => void;
+  every: (id: string, definition: DesktopTaskDefinition & { intervalMs: number }) => void;
+  submit: (id: string) => Promise<DesktopTaskStatus>;
+  status: (id: string) => DesktopTaskStatus | null;
+  list: () => DesktopTaskStatus[];
+  stop: () => Promise<void>;
+};
+
+export type DesktopLifecycleContext = {
+  app: DesktopAppConfig;
+  desktop: typeof desktop;
+  sql: DesktopSql;
+  logger: DesktopLogger;
+  signal: AbortSignal;
+  tasks: DesktopTaskSupervisor;
+};
+
+export type DesktopLifecycle = {
+  setup?: (ctx: DesktopLifecycleContext) => void | Promise<void>;
+  start?: (ctx: DesktopLifecycleContext) => void | Promise<void>;
+  stop?: (ctx: DesktopLifecycleContext) => void | Promise<void>;
+};
+
 export const desktopWindowDescriptorKind = "cloud-desktop-window" as const;
 export const desktopWindowSearchParams = {
   name: "__cloudDesktopWindow",
@@ -105,6 +170,9 @@ export type DesktopBridge = {
   closeWindowById?: (input: DesktopWindowIdInput) => Promise<DesktopResult<void>>;
   focusWindow?: (input: DesktopWindowIdInput) => Promise<DesktopResult<void>>;
   setWindowTitle?: (input: DesktopWindowSetTitleInput) => Promise<DesktopResult<void>>;
+  submitTask?: (id: string) => Promise<DesktopResult<DesktopTaskStatus>>;
+  getTaskStatus?: (id: string) => Promise<DesktopResult<DesktopTaskStatus | null>>;
+  listTasks?: () => Promise<DesktopResult<DesktopTaskStatus[]>>;
 };
 
 export type DesktopAppMenuItem =
@@ -128,6 +196,7 @@ export type DesktopAppConfig = {
     titleBar?: "default" | "hidden-inset" | "hidden" | "custom";
   };
   menu?: DesktopAppMenu;
+  lifecycle?: DesktopLifecycle;
 };
 
 export type DesktopActionContext = {
@@ -163,6 +232,14 @@ const unwrap = async <T>(result: Promise<DesktopResult<T>>): Promise<T> => {
   const value = await result;
   if (!value.ok) throw new Error(value.error);
   return value.data;
+};
+
+const result = async <T>(fn: () => T | Promise<T>): Promise<DesktopResult<T>> => {
+  try {
+    return { ok: true, data: await fn() };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  }
 };
 
 const emitNavigation = () => {
@@ -225,10 +302,6 @@ const runtimeRequire = (): ((id: string) => unknown) | null => {
 
 let sqlInstance: DesktopSql | null = null;
 
-const sqlUnavailable = (): never => {
-  throw new Error("desktop.sql is only available in the Bun desktop process.");
-};
-
 const getSql = (): DesktopSql => {
   if (sqlInstance) return sqlInstance;
   const req = runtimeRequire();
@@ -256,6 +329,269 @@ const getSql = (): DesktopSql => {
   sqlInstance = sql;
   return sql;
 };
+
+const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+
+const chainAbort = (source: AbortSignal, target: AbortController): (() => void) => {
+  if (source.aborted) {
+    target.abort();
+    return () => {};
+  }
+  const abort = () => target.abort();
+  source.addEventListener("abort", abort, { once: true });
+  return () => source.removeEventListener("abort", abort);
+};
+
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+const createConsoleLogger = (source: string): DesktopLogger => {
+  const write =
+    (level: "debug" | "info" | "warn" | "error") =>
+    (message: string, metadata?: Record<string, unknown>): void => {
+      const prefix = `[desktop:${source}] ${message}`;
+      if (metadata) console[level](prefix, metadata);
+      else console[level](prefix);
+    };
+  return {
+    debug: write("debug"),
+    info: write("info"),
+    warn: write("warn"),
+    error: write("error"),
+  };
+};
+
+const snapshotTaskStatus = (status: DesktopTaskStatus): DesktopTaskStatus => ({ ...status });
+
+export const createDesktopTaskSupervisor = (options: {
+  app: DesktopAppConfig;
+  sql?: DesktopSql;
+  logger?: DesktopLogger;
+  signal?: AbortSignal;
+}): DesktopTaskSupervisor => {
+  const parentSignal = options.signal ?? new AbortController().signal;
+  const sql = options.sql ?? getSql();
+  const logger = options.logger ?? createConsoleLogger(options.app.identifier);
+  let stopped = false;
+  type TaskRecord = {
+    definition: DesktopTaskDefinition;
+    status: DesktopTaskStatus;
+    timer: ReturnType<typeof setTimeout> | null;
+    runController: AbortController | null;
+    currentRun: Promise<DesktopTaskStatus> | null;
+  };
+  const records = new Map<string, TaskRecord>();
+
+  const scheduleNext = (id: string, record: TaskRecord): void => {
+    if (!record.definition.intervalMs || stopped || parentSignal.aborted || record.status.state === "stopped") return;
+    const dueAt = Date.now() + record.definition.intervalMs;
+    record.status.nextRunAt = new Date(dueAt).toISOString();
+    record.status.state = record.status.lastError ? "error" : "scheduled";
+    record.timer = setTimeout(() => {
+      record.timer = null;
+      void runTask(id, record).catch((error) => {
+        logger.error(`Task "${id}" failed`, { error: errorMessage(error) });
+      });
+    }, record.definition.intervalMs);
+  };
+
+  const runTask = async (id: string, record: TaskRecord): Promise<DesktopTaskStatus> => {
+    if (record.currentRun) return record.currentRun;
+    if (stopped || parentSignal.aborted) throw new Error("Desktop app is stopping.");
+    if (record.timer) {
+      clearTimeout(record.timer);
+      record.timer = null;
+    }
+
+    const run = async (): Promise<DesktopTaskStatus> => {
+      const controller = new AbortController();
+      const unchainAbort = chainAbort(parentSignal, controller);
+      record.runController = controller;
+      record.status.state = "running";
+      record.status.lastStartedAt = new Date().toISOString();
+      record.status.nextRunAt = undefined;
+
+      const retry = record.definition.retry;
+      const attempts = Math.max(1, retry?.attempts ?? 1);
+      const baseMs = Math.max(0, retry?.baseMs ?? 0);
+      const maxMs = Math.max(baseMs, retry?.maxMs ?? baseMs);
+      let lastError: unknown;
+
+      try {
+        for (let attempt = 1; attempt <= attempts; attempt += 1) {
+          if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          try {
+            await record.definition.run({ id, app: options.app, sql, logger, signal: controller.signal });
+            record.status.runCount += 1;
+            record.status.failureCount = 0;
+            record.status.lastError = undefined;
+            record.status.lastFinishedAt = new Date().toISOString();
+            record.status.state = "idle";
+            return snapshotTaskStatus(record.status);
+          } catch (error) {
+            lastError = error;
+            if (controller.signal.aborted || attempt >= attempts) break;
+            const delay = Math.min(maxMs, baseMs * 2 ** (attempt - 1));
+            if (delay > 0) await sleep(delay, controller.signal);
+          }
+        }
+
+        record.status.failureCount += 1;
+        record.status.lastError = errorMessage(lastError);
+        record.status.lastFinishedAt = new Date().toISOString();
+        record.status.state = "error";
+        throw lastError instanceof Error ? lastError : new Error(errorMessage(lastError));
+      } finally {
+        unchainAbort();
+        record.runController = null;
+        record.currentRun = null;
+        if (!stopped && !parentSignal.aborted) scheduleNext(id, record);
+      }
+    };
+
+    record.currentRun = run();
+    return record.currentRun;
+  };
+
+  const register = (id: string, definition: DesktopTaskDefinition): void => {
+    if (stopped) throw new Error("Desktop task supervisor is stopped.");
+    const existing = records.get(id);
+    if (existing) {
+      if (existing.timer) clearTimeout(existing.timer);
+      existing.runController?.abort();
+      existing.definition = definition;
+      existing.status.state = "idle";
+      existing.status.nextRunAt = undefined;
+      if (definition.intervalMs) scheduleNext(id, existing);
+      if (definition.runOnStart) void runTask(id, existing).catch(() => {});
+      return;
+    }
+
+    const record: TaskRecord = {
+      definition,
+      timer: null,
+      runController: null,
+      currentRun: null,
+      status: {
+        id,
+        state: "idle",
+        runCount: 0,
+        failureCount: 0,
+      },
+    };
+    records.set(id, record);
+    if (definition.intervalMs) scheduleNext(id, record);
+    if (definition.runOnStart) void runTask(id, record).catch(() => {});
+  };
+
+  const supervisor: DesktopTaskSupervisor = {
+    register,
+    every: (id, definition) => register(id, definition),
+    submit: async (id) => {
+      if (stopped) throw new Error("Desktop task supervisor is stopped.");
+      const record = records.get(id);
+      if (!record) throw new Error(`Unknown desktop task "${id}".`);
+      return runTask(id, record);
+    },
+    status: (id) => {
+      const record = records.get(id);
+      return record ? snapshotTaskStatus(record.status) : null;
+    },
+    list: () => Array.from(records.values(), (record) => snapshotTaskStatus(record.status)),
+    stop: async () => {
+      stopped = true;
+      for (const record of records.values()) {
+        if (record.timer) clearTimeout(record.timer);
+        record.timer = null;
+        record.status.nextRunAt = undefined;
+        record.status.state = "stopped";
+        record.runController?.abort();
+      }
+      await Promise.allSettled(Array.from(records.values(), (record) => record.currentRun));
+    },
+  };
+
+  parentSignal.addEventListener("abort", () => void supervisor.stop(), { once: true });
+  return supervisor;
+};
+
+export type DesktopAppHandle = {
+  tasks: DesktopTaskSupervisor;
+  bridge: Pick<DesktopBridge, "submitTask" | "getTaskStatus" | "listTasks">;
+  signal: AbortSignal;
+  stop: () => Promise<void>;
+};
+
+export type StartDesktopAppOptions = {
+  sql?: DesktopSql;
+  logger?: DesktopLogger;
+  signal?: AbortSignal;
+  shutdownSignals?: boolean;
+};
+
+export const startDesktopApp = async <Config extends DesktopAppConfig>(
+  config: Config,
+  options: StartDesktopAppOptions = {},
+): Promise<DesktopAppHandle> => {
+  const controller = new AbortController();
+  const externalSignal = options.signal;
+  const unchainExternalAbort = externalSignal ? chainAbort(externalSignal, controller) : () => {};
+  const sql = options.sql ?? getSql();
+  const logger = options.logger ?? createConsoleLogger(config.identifier);
+  const tasks = createDesktopTaskSupervisor({ app: config, sql, logger, signal: controller.signal });
+  const ctx: DesktopLifecycleContext = { app: config, desktop, sql, logger, signal: controller.signal, tasks };
+  let stopped = false;
+
+  const stop = async (): Promise<void> => {
+    if (stopped) return;
+    stopped = true;
+    controller.abort();
+    try {
+      await config.lifecycle?.stop?.(ctx);
+    } finally {
+      await tasks.stop();
+      unchainExternalAbort();
+    }
+  };
+
+  if (options.shutdownSignals ?? true) {
+    const runtimeProcess = typeof process !== "undefined" ? process : null;
+    if (runtimeProcess?.on) {
+      const shutdown = () => {
+        void stop().then(() => runtimeProcess.exit(0));
+      };
+      runtimeProcess.on("SIGTERM", shutdown);
+      runtimeProcess.on("SIGINT", shutdown);
+    }
+  }
+
+  await config.lifecycle?.setup?.(ctx);
+  await config.lifecycle?.start?.(ctx);
+
+  return { tasks, bridge: createDesktopTaskBridge(tasks), signal: controller.signal, stop };
+};
+
+export const createDesktopTaskBridge = (
+  tasks: DesktopTaskSupervisor,
+): Pick<DesktopBridge, "submitTask" | "getTaskStatus" | "listTasks"> => ({
+  submitTask: (id) => result(() => tasks.submit(id)),
+  getTaskStatus: (id) => result(() => tasks.status(id)),
+  listTasks: () => result(() => tasks.list()),
+});
 
 export const defineDesktopApp = <Config extends DesktopAppConfig>(config: Config): Config => config;
 
@@ -350,6 +686,13 @@ export const desktop = {
       if (!child) throw new Error("The browser blocked the new window.");
       return windowRef({ id: "browser" }, child);
     },
+  },
+
+  tasks: {
+    submit: (id: string): Promise<DesktopTaskStatus> => unwrap(bridge()?.submitTask?.(id) ?? unsupported("Desktop background tasks")),
+    status: (id: string): Promise<DesktopTaskStatus | null> =>
+      unwrap(bridge()?.getTaskStatus?.(id) ?? unsupported("Desktop background tasks")),
+    list: (): Promise<DesktopTaskStatus[]> => unwrap(bridge()?.listTasks?.() ?? unsupported("Desktop background tasks")),
   },
 };
 

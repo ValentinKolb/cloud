@@ -26,6 +26,7 @@ Keep the API KISS:
 - `desktop.sql` is the local SQLite access point.
 - `desktop.dialog`, `desktop.message`, `desktop.notification`, `desktop.clipboard`, and `desktop.external` are imperative native actions.
 - `desktop.window` contains native window actions.
+- `desktop.tasks` triggers and inspects main-process background tasks from renderer code.
 - `desktop.navigate`, `desktop.back`, and `desktop.forward` handle path navigation.
 - Do not add repository/ORM wrappers unless a real second caller proves the abstraction.
 
@@ -59,6 +60,53 @@ export const desktopApp = defineDesktopApp({
 ```
 
 The top application menu is app-shell config. Context menus are UI/runtime behavior.
+
+## Background Tasks
+
+Use desktop lifecycle hooks for background work. They run in the Bun/native main process, not in a renderer window:
+
+```typescript
+import { defineDesktopApp } from "@valentinkolb/cloud/desktop";
+
+export const desktopApp = defineDesktopApp({
+  name: "Notes",
+  identifier: "dev.stuve.notes",
+  lifecycle: {
+    setup: async ({ sql }) => {
+      sql`create table if not exists sync_state (key text primary key, value text)`;
+    },
+    start: async ({ tasks }) => {
+      tasks.every("sync", {
+        intervalMs: 60_000,
+        runOnStart: true,
+        retry: { attempts: 3, baseMs: 1_000 },
+        run: async ({ signal, logger }) => {
+          if (signal.aborted) return;
+          logger.info("Sync tick");
+        },
+      });
+    },
+  },
+});
+```
+
+Native main code starts the lifecycle once:
+
+```typescript
+import { startDesktopApp } from "@valentinkolb/cloud/desktop";
+import { desktopApp } from "./desktop-app";
+
+const appHandle = await startDesktopApp(desktopApp);
+```
+
+Expose `appHandle.bridge` in the app's native bridge. Renderer code calls:
+
+```typescript
+await desktop.tasks.submit("sync");
+const status = await desktop.tasks.status("sync");
+```
+
+Keep it KISS: no renderer timers for reliable sync, no hidden queue abstraction. If crash-resume is required, persist pending work in `desktop.sql` and drain it from a lifecycle task.
 
 ## Local Data
 

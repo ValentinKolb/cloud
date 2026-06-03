@@ -125,6 +125,7 @@ bunx skills add github.com/ValentinKolb/cloud
 
 - [`cloud`](skills/cloud/SKILL.md) — architecture overview
 - [`cloud-app`](skills/cloud-app/SKILL.md) — building apps (frontend + backend reference)
+- [`cloud-desktop-app`](skills/cloud-desktop-app/SKILL.md) — building native desktop apps
 - [`cloud-ops`](skills/cloud-ops/SKILL.md) — dev, deploy, compose
 
 ## License
