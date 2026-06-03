@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@valentinkolb/cloud": "workspace:*",
+    "@valentinkolb/ssr": "0.10.0",
     "@valentinkolb/stdlib": "0.9.1",
     "dayjs": "^1.11.19",
     "hono": "^4.11.1",
