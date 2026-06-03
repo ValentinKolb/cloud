@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import { dirname, extname, join, normalize, relative, resolve, sep } from "node:path";
 import type { ScriptTypeFile } from "../src/frontend/lib/editor/script-intelligence-protocol";
 
-const TS_LIB_ROOT = resolve("node_modules/typescript/lib");
-const STDLIB_SRC_ROOT = resolve("node_modules/@valentinkolb/stdlib/src");
+const REPO_ROOT = resolve(import.meta.dir, "../../..");
+const TS_LIB_ROOT = resolve(REPO_ROOT, "node_modules/typescript/lib");
+const STDLIB_SRC_ROOT = resolve(REPO_ROOT, "node_modules/@valentinkolb/stdlib/src");
 const VIRTUAL_STDLIB_ROOT = "/node_modules/@valentinkolb/stdlib/src";
 
 const TS_LIB_ENTRY = "lib.es2022.full.d.ts";
