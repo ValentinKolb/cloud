@@ -35,6 +35,7 @@ import {
   OverlapQuerySchema,
   ReorderColumnsSchema,
   SetCompletedSchema,
+  SpaceAssignableUserSchema,
   SpaceColumnSchema,
   SpaceCommentSchema,
   SpaceDetailSchema,
@@ -60,6 +61,25 @@ import { latestSpaceEventCursor, liveSpaceEvents } from "../service/events";
 const SpaceListSchema = z.array(SpaceSchema);
 const SpaceItemListSchema = z.array(SpaceItemSchema);
 const SpaceCommentListSchema = z.array(SpaceCommentSchema);
+const SpaceAssignableUserListSchema = z.array(SpaceAssignableUserSchema);
+const AssignableUsersQuerySchema = z.object({
+  search: z.string().optional(),
+  exclude_user_ids: z.string().optional(),
+});
+
+const parseCsv = (value?: string) =>
+  value
+    ?.split(",")
+    .map((part) => part.trim())
+    .filter(Boolean) ?? [];
+
+const parseUuidCsv = (value: string | undefined, label: string): Result<string[]> => {
+  const ids = parseCsv(value);
+  if (ids.length === 0) return ok([]);
+  const parsed = z.array(z.uuid()).safeParse(ids);
+  if (!parsed.success) return fail(err.badInput(`Invalid ${label} query parameter.`));
+  return ok(parsed.data);
+};
 
 /**
  * Middleware to check space access with permission level.
@@ -647,6 +667,40 @@ const app = new Hono<AuthContext>()
 
       const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user.id, dateConfig: getDateConfig(c) });
       return respond(c, ok(result));
+    },
+  )
+
+  // List assignable users for assignee pickers
+  .get(
+    "/:id/assignable-users",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List assignable users",
+      description: "List concrete users that currently have effective access to this space and can be assigned to items.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(SpaceAssignableUserListSchema, "Assignable users"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Space not found"),
+      },
+    }),
+    v("query", AssignableUsersQuerySchema),
+    async (c) => {
+      const spaceId = c.req.param("id") ?? "";
+      const query = c.req.valid("query");
+
+      const { error } = await checkSpaceAccess(c, spaceId);
+      if (error) return error;
+      const excludeUserIds = parseUuidCsv(query.exclude_user_ids, "exclude_user_ids");
+      if (!excludeUserIds.ok) return respond(c, excludeUserIds);
+
+      const users = await spacesService.item.listAssignableUsers({
+        spaceId,
+        search: query.search,
+        excludeUserIds: excludeUserIds.data,
+      });
+      return respond(c, ok(users));
     },
   )
 

@@ -1,7 +1,7 @@
-import { apiClient } from "@/api/client";
 import { AppWorkspace, dialogCore, panelDialogOptions, prompts, toast } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
+import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemForm, { type ItemFormData } from "../shared/ItemForm";
 import { requestCurrentSpacesRouteRefresh } from "../workspace/workspace-events";
@@ -20,6 +20,7 @@ export default function CreateItemButton(props: Props) {
       const result = await dialogCore.open<ItemFormData | null>(
         (close) => (
           <ItemForm
+            spaceId={props.spaceId}
             columns={props.columns}
             tags={props.tags}
             onSubmit={(data) => close(data)}

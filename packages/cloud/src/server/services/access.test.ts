@@ -1,0 +1,158 @@
+import { describe, expect, test } from "bun:test";
+import { sql } from "bun";
+import { listUsersWithAccess } from "./access";
+
+type Fixture = {
+  accessIds: string[];
+  userIds: {
+    direct: string;
+    group: string;
+    nested: string;
+    outside: string;
+  };
+  groupIds: {
+    parent: string;
+    child: string;
+  };
+};
+
+const canUseDatabase = async () => {
+  try {
+    const [row] = await sql<{ users: string | null; groups: string | null; access: string | null }[]>`
+      SELECT
+        to_regclass('auth.users')::text AS users,
+        to_regclass('auth.groups')::text AS groups,
+        to_regclass('auth.access')::text AS access
+    `;
+    return Boolean(row?.users && row.groups && row.access);
+  } catch {
+    return false;
+  }
+};
+
+const insertUser = async (suffix: string, label: string) => {
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO auth.users (uid, provider, profile, display_name, mail)
+    VALUES (${`access-helper-${label}-${suffix}`}, 'local', 'user', ${`Access ${label}`}, ${`${label}.${suffix}@example.test`})
+    RETURNING id
+  `;
+  return row!.id;
+};
+
+const insertGroup = async (suffix: string, label: string) => {
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO auth.groups (cn, provider, name, description)
+    VALUES (${`access-helper-${label}-${suffix}`}, 'local', ${`Access ${label}`}, ${`Access ${label} test group`})
+    RETURNING id
+  `;
+  return row!.id;
+};
+
+const createFixture = async (): Promise<Fixture> => {
+  const suffix = crypto.randomUUID();
+  const directUserId = await insertUser(suffix, "direct");
+  const groupUserId = await insertUser(suffix, "group");
+  const nestedUserId = await insertUser(suffix, "nested");
+  const outsideUserId = await insertUser(suffix, "outside");
+  const parentGroupId = await insertGroup(suffix, "parent");
+  const childGroupId = await insertGroup(suffix, "child");
+
+  await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${groupUserId}::uuid, ${parentGroupId}::uuid)`;
+  await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${nestedUserId}::uuid, ${childGroupId}::uuid)`;
+  await sql`INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id) VALUES (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
+
+  const [directAccess] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, permission)
+    VALUES (${directUserId}::uuid, 'read')
+    RETURNING id
+  `;
+  const [groupAccess] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (group_id, permission)
+    VALUES (${parentGroupId}::uuid, 'write')
+    RETURNING id
+  `;
+  const [publicAccess] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (permission)
+    VALUES ('admin')
+    RETURNING id
+  `;
+  const [authenticatedAccess] = await sql<{ id: string }[]>`
+    INSERT INTO auth.access (authenticated_only, permission)
+    VALUES (TRUE, 'admin')
+    RETURNING id
+  `;
+
+  return {
+    accessIds: [directAccess!.id, groupAccess!.id, publicAccess!.id, authenticatedAccess!.id],
+    userIds: {
+      direct: directUserId,
+      group: groupUserId,
+      nested: nestedUserId,
+      outside: outsideUserId,
+    },
+    groupIds: {
+      parent: parentGroupId,
+      child: childGroupId,
+    },
+  };
+};
+
+const cleanupFixture = async (fixture: Fixture) => {
+  for (const accessId of fixture.accessIds) {
+    await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
+  }
+  for (const groupId of Object.values(fixture.groupIds)) {
+    await sql`DELETE FROM auth.group_groups_v2 WHERE parent_group_id = ${groupId}::uuid OR child_group_id = ${groupId}::uuid`;
+    await sql`DELETE FROM auth.user_groups_v2 WHERE group_id = ${groupId}::uuid`;
+  }
+  for (const groupId of Object.values(fixture.groupIds)) {
+    await sql`DELETE FROM auth.groups WHERE id = ${groupId}::uuid`;
+  }
+  for (const userId of Object.values(fixture.userIds)) {
+    await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+  }
+};
+
+describe("listUsersWithAccess", () => {
+  test("expands direct and recursive group access without exposing mail", async () => {
+    if (!(await canUseDatabase())) {
+      console.warn("Skipping access helper DB test: auth tables are not available.");
+      return;
+    }
+
+    const fixture = await createFixture();
+    try {
+      const users = await listUsersWithAccess({ accessIds: fixture.accessIds, limit: 20 });
+      const byId = new Map(users.map((user) => [user.id, user]));
+
+      expect(byId.has(fixture.userIds.direct)).toBe(true);
+      expect(byId.has(fixture.userIds.group)).toBe(true);
+      expect(byId.has(fixture.userIds.nested)).toBe(true);
+      expect(byId.has(fixture.userIds.outside)).toBe(false);
+
+      expect(byId.get(fixture.userIds.direct)?.source).toEqual({ type: "direct" });
+      expect(byId.get(fixture.userIds.nested)?.source).toEqual({
+        type: "group",
+        groupId: fixture.groupIds.parent,
+        groupName: "Access parent",
+      });
+      expect(byId.get(fixture.userIds.nested)?.permission).toBe("write");
+      expect("mail" in byId.get(fixture.userIds.nested)!).toBe(false);
+
+      const groupSearch = await listUsersWithAccess({ accessIds: fixture.accessIds, search: "parent", limit: 20 });
+      expect(groupSearch.map((user) => user.id)).toContain(fixture.userIds.nested);
+
+      const explicitUsers = await listUsersWithAccess({
+        accessIds: fixture.accessIds,
+        userIds: [fixture.userIds.nested, fixture.userIds.outside],
+      });
+      expect(explicitUsers.map((user) => user.id)).toEqual([fixture.userIds.nested]);
+
+      const writers = await listUsersWithAccess({ accessIds: fixture.accessIds, minimumPermission: "write", limit: 20 });
+      expect(writers.map((user) => user.id)).not.toContain(fixture.userIds.direct);
+      expect(writers.map((user) => user.id)).toContain(fixture.userIds.group);
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+});

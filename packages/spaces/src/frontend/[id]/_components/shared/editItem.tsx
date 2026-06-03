@@ -34,6 +34,7 @@ export const editItemWithDialog = async (params: EditItemParams): Promise<boolea
   const result = await dialogCore.open<ItemFormData | null>(
     (close) => (
       <ItemForm
+        spaceId={params.spaceId}
         item={params.item}
         columns={params.columns}
         tags={params.tags}

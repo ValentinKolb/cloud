@@ -187,9 +187,11 @@ type ResourceAccessAdapter<TResourceId = string> = {
 };
 ```
 
-The server package provides helpers: `createAccess`, `getAccess`, `updateAccess`, `deleteAccess`, `getEffectivePermission` — all importable from `@valentinkolb/cloud/server`.
+The server package provides helpers: `createAccess`, `getAccess`, `updateAccess`, `deleteAccess`, `getEffectivePermission`, `listUsersWithAccess` — all importable from `@valentinkolb/cloud/server`.
 
 `getEffectivePermission()` resolves the highest permission level across all matching principals (direct user, group memberships, authenticated-only, public).
+
+`listUsersWithAccess()` is for bounded "people with access" tasks such as assignee pickers. Apps pass the relevant `auth.access` IDs from their own `ResourceAccessAdapter`; the helper expands direct users and recursive group memberships, returns the top-level source group for group-derived users, and deliberately does not expand `public` or `authenticated` entries. Its return shape omits `mail`; use `uid`, `displayName`, `permission`, and `source` for UI labels and validation.
 
 See the `contacts` app for a real-world permissions implementation.
 

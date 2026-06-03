@@ -1,21 +1,14 @@
 import { markdown } from "@valentinkolb/cloud/shared";
-import {
-  Dropdown,
-  type DropdownItem,
-  EntitySearch,
-  type EntitySearchPrincipal,
-  MarkdownView,
-  prompts,
-  toast,
-} from "@valentinkolb/cloud/ui";
+import { Dropdown, type DropdownItem, MarkdownView, prompts, toast } from "@valentinkolb/cloud/ui";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceComment, SpaceItem, SpaceItemAssignee, SpaceTag } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
 import { summarizeRecurrence } from "../shared/recurrence";
+import SpaceAssigneePicker from "../shared/SpaceAssigneePicker";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CommentsSection from "./CommentsSection";
 
@@ -310,56 +303,20 @@ function TagsDropdown(props: { tags: SpaceTag[]; selectedIds: string[]; onChange
 
 /** Assignees section with add/remove functionality */
 function AssigneesSection(props: {
+  spaceId: string;
   assignees: SpaceItemAssignee[];
   onUpdate: (ids: string[]) => void;
-  onAdd: (currentIds: string[]) => void;
   loading?: boolean;
 }) {
-  const currentIds = () => props.assignees.map((a) => a.id);
-
-  const handleRemove = (id: string) => {
-    props.onUpdate(currentIds().filter((i) => i !== id));
-  };
-
   return (
-    <div class="flex flex-col gap-2">
-      {/* Current assignees list */}
-      <Show when={props.assignees.length > 0}>
-        <div class="flex flex-col gap-1">
-          <For each={props.assignees}>
-            {(assignee) => (
-              <div class="group flex items-center gap-2">
-                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs dark:bg-zinc-700">
-                  {assignee.displayName.charAt(0).toUpperCase()}
-                </div>
-                <div class="min-w-0 flex-1">
-                  <span class="block truncate text-sm">{assignee.displayName}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemove(assignee.id)}
-                  disabled={props.loading}
-                  class="p-1 text-zinc-400 opacity-0 transition-all hover:text-red-500 group-hover:opacity-100 disabled:opacity-50"
-                  aria-label={`Remove ${assignee.displayName}`}
-                >
-                  <i class="ti ti-x text-sm" />
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      <button
-        type="button"
-        onClick={() => props.onAdd(currentIds())}
-        disabled={props.loading}
-        class="btn-simple btn-sm w-fit text-xs text-dimmed hover:text-primary disabled:opacity-50"
-      >
-        <i class={props.loading ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} />
-        Add assignee
-      </button>
-    </div>
+    <SpaceAssigneePicker
+      spaceId={props.spaceId}
+      value={() => props.assignees}
+      onChange={(next) => props.onUpdate(next.map((assignee) => assignee.id))}
+      disabled={props.loading}
+      variant="rows"
+      placeholder="Search people with access..."
+    />
   );
 }
 
@@ -511,30 +468,12 @@ export default function ItemDetailPanel(props: Props) {
     onError: (err) => prompts.error(err.message),
   });
 
-  const addAssigneeMutation = mutations.create<SpaceItem | null, string[]>({
-    mutation: async (currentIds) => {
-      const result = await prompts.dialog<EntitySearchPrincipal | null>(
-        (close) => (
-          <div class="min-h-70">
-            <EntitySearch includeUsers excludeUserIds={currentIds} onSelect={(result) => close(result)} placeholder="Search users..." />
-          </div>
-        ),
-        { title: "Add Assignee", icon: "ti ti-user-plus" },
-      );
-      if (result?.type !== "user") return null;
-      return patchItem({ assigneeIds: [...currentIds, result.userId] });
-    },
-    onSuccess: handleItemUpdated,
-    onError: (err) => prompts.error(err.message),
-  });
-
   const isLoading = () =>
     updateMutation.loading() ||
     completeMutation.loading() ||
     duplicateMutation.loading() ||
     deleteMutation.loading() ||
-    editItemMutation.loading() ||
-    addAssigneeMutation.loading();
+    editItemMutation.loading();
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
@@ -723,9 +662,9 @@ export default function ItemDetailPanel(props: Props) {
       <section class="detail-section">
         <h3 class="detail-section-label">Assignees</h3>
         <AssigneesSection
+          spaceId={props.spaceId}
           assignees={props.item.assignees ?? []}
           onUpdate={(ids) => updateMutation.mutate({ assigneeIds: ids })}
-          onAdd={(currentIds) => addAssigneeMutation.mutate(currentIds)}
           loading={isLoading()}
         />
       </section>

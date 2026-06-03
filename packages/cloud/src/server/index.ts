@@ -1,64 +1,66 @@
 export { api, respond, respondMessage } from "./api";
-export { api as apiClient } from "./api-client";
 export type { CreateApiClientConfig } from "./api-client";
-export { time, getDateConfig, getTimeZone, TIMEZONE_COOKIE } from "./time";
-
+export { api as apiClient } from "./api-client";
+export type { AppContext } from "./app-context";
+export type { AuthContext, RateLimitConfig, RateLimitRouteOverride } from "./middleware";
 export {
-  middleware,
   auth,
-  jsonResponse,
   imageResponse,
+  jsonResponse,
+  middleware,
   openApiMeta,
-  requiresAuth,
+  rateLimit,
+  requestLogger,
   requiresAdmin,
+  requiresAuth,
   requiresIpa,
   requiresIpaUser,
   requiresUser,
-  rateLimit,
-  requestLogger,
-  validator,
   v,
+  validator,
 } from "./middleware";
-export type { AuthContext, RateLimitConfig, RateLimitRouteOverride } from "./middleware";
-export type { AppContext } from "./app-context";
-
-export {
-  services,
-  freeipa,
-  images,
-  password,
-  generatePassword,
-  geo,
-  geoService,
-  PERMISSION_LEVELS,
-  hasPermission,
-  createAccess,
-  getAccess,
-  updateAccess,
-  deleteAccess,
-  getEffectivePermission,
-  resolveDisplayNames,
-  ok,
-  okMany,
-  fail,
-  err,
-  unwrap,
-  paginate,
-  paginateItems,
-  tryCatch,
-  isServiceError,
-} from "./services";
 export type {
   AccessEntry,
-  PermissionLevel,
-  PrincipalType,
-  Principal,
-  ResourceAccessAdapter,
-  GeoService,
+  AccessUser,
+  AccessUserSource,
   GeoPlace,
-  Result,
-  Paginated,
+  GeoService,
   PageParams,
+  Paginated,
+  PermissionLevel,
+  Principal,
+  PrincipalType,
+  ResourceAccessAdapter,
+  Result,
   ServiceError,
   ServiceErrorCode,
 } from "./services";
+
+export {
+  createAccess,
+  deleteAccess,
+  err,
+  fail,
+  freeipa,
+  generatePassword,
+  geo,
+  geoService,
+  getAccess,
+  getEffectivePermission,
+  hasPermission,
+  images,
+  isServiceError,
+  listUsersWithAccess,
+  ok,
+  okMany,
+  PERMISSION_LEVELS,
+  paginate,
+  paginateItems,
+  password,
+  resolveDisplayNames,
+  services,
+  tryCatch,
+  unwrap,
+  updateAccess,
+} from "./services";
+export { getDateConfig, getTimeZone, TIMEZONE_COOKIE, time } from "./time";

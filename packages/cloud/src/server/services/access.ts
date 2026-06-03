@@ -1,5 +1,5 @@
-import { sql } from "bun";
 import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
 
 // ==========================
 // Permission Levels
@@ -39,6 +39,23 @@ export type AccessEntry = {
   displayName?: string;
 };
 
+export type AccessUserSource =
+  | { type: "direct" }
+  | {
+      type: "group";
+      /** Top-level group from the access grant, not the nested membership group. */
+      groupId: string;
+      groupName: string;
+    };
+
+export type AccessUser = {
+  id: string;
+  uid: string;
+  displayName: string;
+  permission: Exclude<PermissionLevel, "none">;
+  source: AccessUserSource;
+};
+
 type DbAccess = {
   id: string;
   user_id: string | null;
@@ -46,6 +63,16 @@ type DbAccess = {
   authenticated_only: boolean;
   permission: PermissionLevel;
   created_at: Date;
+};
+
+type DbAccessUser = {
+  id: string;
+  uid: string;
+  display_name: string;
+  permission: Exclude<PermissionLevel, "none">;
+  direct: boolean;
+  source_group_id: string | null;
+  source_group_name: string | null;
 };
 
 // ==========================
@@ -58,6 +85,17 @@ type DbAccess = {
 const toPgUuidArray = (values: string[] | null | undefined): string => {
   if (!Array.isArray(values) || values.length === 0) return "{}";
   return `{${values.join(",")}}`;
+};
+
+const uniqueIds = (values: string[] | null | undefined): string[] => [...new Set((values ?? []).filter(Boolean))];
+
+const escapeLikePattern = (value: string): string => value.replace(/[\\%_]/g, (match) => `\\${match}`);
+
+const PERMISSION_RANK: Record<PermissionLevel, number> = {
+  none: 1,
+  read: 2,
+  write: 3,
+  admin: 4,
 };
 
 /**
@@ -235,6 +273,172 @@ export const getEffectivePermission = async (params: {
   `;
 
   return rows[0]?.permission ?? "none";
+};
+
+/**
+ * Lists concrete users reachable from auth.access entries.
+ *
+ * Apps stay responsible for collecting the relevant access entry IDs from their
+ * own junction tables. This helper expands direct user grants and recursive
+ * group grants only. It intentionally does not expand public or
+ * authenticated-only grants into "all users", because those scopes are not
+ * bounded, predictable assignee/member lists.
+ */
+export const listUsersWithAccess = async (params: {
+  accessIds: string[];
+  search?: string;
+  userIds?: string[];
+  excludeUserIds?: string[];
+  minimumPermission?: Exclude<PermissionLevel, "none">;
+  limit?: number;
+}): Promise<AccessUser[]> => {
+  const accessIds = uniqueIds(params.accessIds);
+  if (accessIds.length === 0) return [];
+
+  const requestedUserIds = uniqueIds(params.userIds);
+  const excludeUserIds = uniqueIds(params.excludeUserIds);
+  const query = params.search?.trim().toLowerCase();
+  const pattern = query ? `%${escapeLikePattern(query)}%` : null;
+  const minimumRank = PERMISSION_RANK[params.minimumPermission ?? "read"];
+  const defaultLimit = requestedUserIds.length > 0 ? requestedUserIds.length : 20;
+  const limit = Math.min(Math.max(params.limit ?? defaultLimit, 1), 500);
+  const userFilter = requestedUserIds.length > 0 ? sql`AND id = ANY(${toPgUuidArray(requestedUserIds)}::uuid[])` : sql``;
+
+  const rows = await sql<DbAccessUser[]>`
+    WITH RECURSIVE
+      root_groups(root_group_id, root_group_name, group_id, group_ids, permission, permission_rank) AS (
+        SELECT
+          a.group_id,
+          COALESCE(NULLIF(g.name, ''), g.cn),
+          a.group_id,
+          ARRAY[a.group_id]::uuid[],
+          a.permission,
+          CASE a.permission
+            WHEN 'admin' THEN 4
+            WHEN 'write' THEN 3
+            WHEN 'read' THEN 2
+            ELSE 1
+          END
+        FROM auth.access a
+        JOIN auth.groups g ON g.id = a.group_id
+        WHERE a.id = ANY(${toPgUuidArray(accessIds)}::uuid[])
+          AND a.group_id IS NOT NULL
+          AND CASE a.permission
+            WHEN 'admin' THEN 4
+            WHEN 'write' THEN 3
+            WHEN 'read' THEN 2
+            ELSE 1
+          END >= ${minimumRank}
+
+        UNION ALL
+
+        SELECT
+          rg.root_group_id,
+          rg.root_group_name,
+          gg.child_group_id,
+          rg.group_ids || gg.child_group_id,
+          rg.permission,
+          rg.permission_rank
+        FROM auth.group_groups_v2 gg
+        JOIN root_groups rg ON rg.group_id = gg.parent_group_id
+        WHERE NOT gg.child_group_id = ANY(rg.group_ids)
+      ),
+      candidate_users AS (
+        SELECT
+          u.id,
+          u.uid,
+          COALESCE(NULLIF(u.display_name, ''), u.uid, u.id::text) AS display_name,
+          TRUE AS direct,
+          NULL::uuid AS source_group_id,
+          NULL::text AS source_group_name,
+          a.permission,
+          CASE a.permission
+            WHEN 'admin' THEN 4
+            WHEN 'write' THEN 3
+            WHEN 'read' THEN 2
+            ELSE 1
+          END AS permission_rank
+        FROM auth.access a
+        JOIN auth.users u ON u.id = a.user_id
+        WHERE a.id = ANY(${toPgUuidArray(accessIds)}::uuid[])
+          AND a.user_id IS NOT NULL
+          AND CASE a.permission
+            WHEN 'admin' THEN 4
+            WHEN 'write' THEN 3
+            WHEN 'read' THEN 2
+            ELSE 1
+          END >= ${minimumRank}
+
+        UNION ALL
+
+        SELECT
+          u.id,
+          u.uid,
+          COALESCE(NULLIF(u.display_name, ''), u.uid, u.id::text) AS display_name,
+          FALSE AS direct,
+          rg.root_group_id AS source_group_id,
+          rg.root_group_name AS source_group_name,
+          rg.permission,
+          rg.permission_rank
+        FROM root_groups rg
+        JOIN auth.user_groups_v2 ug ON ug.group_id = rg.group_id
+        JOIN auth.users u ON u.id = ug.user_id
+      ),
+      access_users AS (
+        SELECT
+          id,
+          uid,
+          display_name,
+          CASE MAX(permission_rank)
+            WHEN 4 THEN 'admin'
+            WHEN 3 THEN 'write'
+            ELSE 'read'
+          END AS permission,
+          BOOL_OR(direct) AS direct,
+          (
+            ARRAY_AGG(source_group_id ORDER BY permission_rank DESC, source_group_name)
+            FILTER (WHERE NOT direct AND source_group_id IS NOT NULL)
+          )[1] AS source_group_id,
+          (
+            ARRAY_AGG(source_group_name ORDER BY permission_rank DESC, source_group_name)
+            FILTER (WHERE NOT direct AND source_group_name IS NOT NULL)
+          )[1] AS source_group_name,
+          COALESCE(
+            STRING_AGG(source_group_name, ' ')
+            FILTER (WHERE NOT direct AND source_group_name IS NOT NULL),
+            ''
+          ) AS group_names
+        FROM candidate_users
+        GROUP BY id, uid, display_name
+      )
+    SELECT id, uid, display_name, permission, direct, source_group_id, source_group_name
+    FROM access_users
+    WHERE id <> ALL(${toPgUuidArray(excludeUserIds)}::uuid[])
+      AND (direct OR (source_group_id IS NOT NULL AND source_group_name IS NOT NULL))
+      ${userFilter}
+      AND (
+        ${pattern}::text IS NULL
+        OR LOWER(display_name) LIKE ${pattern} ESCAPE '\\'
+        OR LOWER(uid) LIKE ${pattern} ESCAPE '\\'
+        OR LOWER(group_names) LIKE ${pattern} ESCAPE '\\'
+      )
+    ORDER BY LOWER(display_name), id
+    LIMIT ${limit}
+  `;
+
+  return rows.map((row) => ({
+    id: row.id,
+    uid: row.uid,
+    displayName: row.display_name,
+    permission: row.permission,
+    source: row.direct
+      ? { type: "direct" }
+      : {
+          type: "group",
+          groupId: row.source_group_id as string,
+          groupName: row.source_group_name as string,
+        },
+  }));
 };
 
 /**

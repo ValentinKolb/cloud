@@ -308,7 +308,7 @@ If your app needs fine-grained permissions, use the platform's principal-based a
 ```typescript
 import {
   createAccess, getAccess, updateAccess, deleteAccess,
-  getEffectivePermission, hasPermission,
+  getEffectivePermission, hasPermission, listUsersWithAccess,
   type ResourceAccessAdapter, type Principal, type PermissionLevel,
 } from "@valentinkolb/cloud/server";
 ```
@@ -360,6 +360,27 @@ See `packages/contacts/src/service/access.ts` for a complete real-world implemen
 ### Permission Levels
 
 `'none'` < `'read'` < `'write'` < `'admin'` — `getEffectivePermission()` returns the highest level across all matching principals (direct user, group memberships, authenticated-only entries).
+
+### Concrete Users With Access
+
+When an app needs a bounded list of assignable people or member candidates, use `listUsersWithAccess()` after collecting the relevant `auth.access` IDs from the app's own junction table. Do **not** query `auth.users`, `auth.user_groups_v2`, or `auth.group_groups_v2` directly in app code for this pattern.
+
+```typescript
+import { listUsersWithAccess } from "@valentinkolb/cloud/server";
+
+const entries = await itemAccess.list(itemId);
+const users = await listUsersWithAccess({
+  accessIds: entries.map((entry) => entry.id),
+  search: query.search,
+  excludeUserIds: currentAssigneeIds,
+  minimumPermission: "read",
+  limit: 20,
+});
+```
+
+`listUsersWithAccess()` expands direct user grants and group grants recursively through nested groups. The returned `source` is deterministic and user-facing: direct grants return `{ type: "direct" }`; group-derived users return the top-level group from the access grant (`{ type: "group", groupId, groupName }`), not the nested child group that happened to contain the user.
+
+The helper intentionally does **not** expand `public` or `authenticated` grants into all users. Those scopes are valid for permission checks, but they are not predictable candidate lists. The return shape includes `id`, `uid`, `displayName`, `permission`, and `source`; it does not expose `mail`.
 
 ## Hono API Patterns
 

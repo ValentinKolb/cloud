@@ -1,12 +1,12 @@
-import * as spaces from "./spaces";
-import * as columns from "./columns";
-import * as tags from "./tags";
-import * as items from "./items";
-import * as comments from "./comments";
-import * as access from "./access";
-import * as ical from "./ical";
-import { paginate, type PageParams, type Paginated } from "@valentinkolb/stdlib";
+import { type PageParams, type Paginated, paginate } from "@valentinkolb/stdlib";
 import type { AccessEntry, Space, SpaceColumn, SpaceComment, SpaceItem, SpaceTag } from "@/contracts";
+import * as access from "./access";
+import * as columns from "./columns";
+import * as comments from "./comments";
+import * as ical from "./ical";
+import * as items from "./items";
+import * as spaces from "./spaces";
+import * as tags from "./tags";
 
 const paginateItems = <T>(items: T[], pagination?: PageParams): Paginated<T> => {
   if (!pagination) {
@@ -81,8 +81,7 @@ export const spacesService = {
           hasNext: page * perPage < result.total,
         };
       },
-      summary: async (config: { filter?: { query?: string } }) =>
-        spaces.adminSummary({ search: config.filter?.query }),
+      summary: async (config: { filter?: { query?: string } }) => spaces.adminSummary({ search: config.filter?.query }),
     },
   },
   column: {
@@ -133,6 +132,7 @@ export const spacesService = {
       return paginateItems(filtered, config.pagination);
     },
     listFiltered: items.listFiltered,
+    listAssignableUsers: items.listAssignableUsers,
     /** Single-query cross-space search used by the global search dialog. */
     searchAcross: items.searchAcross,
     get: items.get,
@@ -218,8 +218,7 @@ export const spacesService = {
   },
 };
 
-export { spaces, columns, tags, items, comments, access, ical };
-
 // Re-export types needed by widgets
-export type { TaskItem, ItemAcrossKind, ItemAcrossResult } from "./items";
+export type { ItemAcrossKind, ItemAcrossResult, TaskItem } from "./items";
 export type { SpaceAdminListItem } from "./spaces";
+export { access, columns, comments, ical, items, spaces, tags };

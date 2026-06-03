@@ -1,7 +1,7 @@
 import {
   type CalendarEvent,
-  Calendar as CoreCalendar,
   type CalendarEventTimeChange,
+  Calendar as CoreCalendar,
   type CalendarView as CoreCalendarView,
   dialogCore,
   PanelDialog,
@@ -9,17 +9,17 @@ import {
   prompts,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { dates as calendar } from "@valentinkolb/stdlib";
 import type { DateContext } from "@valentinkolb/stdlib";
+import { dates as calendar } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { CalendarItem, Recurrence, SpaceItem } from "@/contracts";
+import type { CalendarItem, SpaceItem } from "@/contracts";
+import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
+import ItemForm, { type ItemFormData } from "../shared/ItemForm";
+import { recurrenceUntilBefore } from "../shared/recurrence";
 import { requestCurrentSpacesRouteRefresh, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import CalendarDetailNavigation from "./CalendarDetailNavigation";
-import ItemForm, { type ItemFormData } from "../shared/ItemForm";
-import { editItemWithDialog, handleEditItemSuccess } from "../shared/editItem";
-import { recurrenceUntilBefore } from "../shared/recurrence";
 import type { CalendarProps, CalendarView } from "./types";
 
 const eventStart = (item: CalendarItem) => item.startsAt ?? item.deadline ?? calendar.today().toISOString();
@@ -313,6 +313,7 @@ export default function Calendar(props: CalendarProps) {
       const result = await dialogCore.open<ItemFormData | null>(
         (close) => (
           <ItemForm
+            spaceId={props.spaceId}
             columns={props.columns}
             tags={props.tags}
             defaults={{
@@ -384,6 +385,7 @@ export default function Calendar(props: CalendarProps) {
       const result = await dialogCore.open<ItemFormData | null>(
         (close) => (
           <ItemForm
+            spaceId={props.spaceId}
             item={formItem}
             columns={props.columns}
             tags={props.tags}

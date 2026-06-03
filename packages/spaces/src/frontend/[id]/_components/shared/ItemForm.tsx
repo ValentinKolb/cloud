@@ -6,8 +6,6 @@ import {
   type DateRangeValue,
   DateTimePicker,
   type DurationPreset,
-  EntitySearch,
-  type EntitySearchPrincipal,
   NumberInput,
   PanelDialog,
   SegmentedControl,
@@ -28,6 +26,7 @@ import {
   summarizeRecurrence,
   weekdayOptions,
 } from "./recurrence";
+import SpaceAssigneePicker from "./SpaceAssigneePicker";
 
 type Priority = "low" | "medium" | "high" | "urgent";
 type ItemType = "task" | "event";
@@ -49,6 +48,7 @@ export type ItemFormData = {
 };
 
 type Props = {
+  spaceId: string;
   /** Existing item for edit mode, undefined for create mode */
   item?: SpaceItem;
   defaults?: Partial<ItemFormData> & { type?: ItemType };
@@ -227,18 +227,6 @@ export default function ItemForm(props: Props) {
       setRecurrenceUntil(empty.until);
       setRecurrenceCount(empty.count);
     }
-  };
-
-  const addAssignee = (principal: EntitySearchPrincipal) => {
-    if (principal.type !== "user") return;
-    setAssignees((prev) => {
-      if (prev.some((assignee) => assignee.id === principal.userId)) return prev;
-      return [...prev, { id: principal.userId, displayName: principal.displayName }];
-    });
-  };
-
-  const removeAssignee = (id: string) => {
-    setAssignees((prev) => prev.filter((assignee) => assignee.id !== id));
   };
 
   const handleTypeChange = (type: ItemType) => {
@@ -623,29 +611,11 @@ export default function ItemForm(props: Props) {
                   <p class="mb-1 block text-sm font-medium">Assignees</p>
                   <p class="text-xs text-dimmed">Assign initial owners or leave unassigned</p>
                 </div>
-                <Show when={assignees().length > 0}>
-                  <div class="flex flex-wrap gap-2">
-                    <For each={assignees()}>
-                      {(assignee) => (
-                        <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
-                          <span class="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-200 text-[10px] dark:bg-zinc-700">
-                            {assignee.displayName.charAt(0).toUpperCase()}
-                          </span>
-                          <span>{assignee.displayName}</span>
-                          <button type="button" onClick={() => removeAssignee(assignee.id)} class="text-dimmed hover:text-red-500">
-                            <i class="ti ti-x text-xs" />
-                          </button>
-                        </span>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-                <EntitySearch
-                  includeUsers
-                  excludeUserIds={assignees().map((assignee) => assignee.id)}
-                  onSelect={addAssignee}
-                  placeholder="Search users to assign..."
-                  resultsHeightClass="h-36"
+                <SpaceAssigneePicker
+                  spaceId={props.spaceId}
+                  value={assignees}
+                  onChange={(next) => setAssignees(next)}
+                  placeholder="Search people with access..."
                 />
               </div>
             </PanelDialog.Section>

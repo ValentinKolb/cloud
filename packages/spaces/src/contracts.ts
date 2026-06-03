@@ -48,6 +48,11 @@ export const SpaceItemAssigneeSchema = z.object({
 });
 export type SpaceItemAssignee = z.infer<typeof SpaceItemAssigneeSchema>;
 
+export const SpaceAssignableUserSchema = SpaceItemAssigneeSchema.extend({
+  description: z.string().optional().describe("Short source hint for the picker"),
+});
+export type SpaceAssignableUser = z.infer<typeof SpaceAssignableUserSchema>;
+
 export const SpaceItemSchema = z.object({
   id: SpaceUuidSchema.describe("Item UUID"),
   spaceId: SpaceUuidSchema.describe("Parent space UUID"),

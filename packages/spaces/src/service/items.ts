@@ -1,3 +1,4 @@
+import { type AccessUser, listUsersWithAccess } from "@valentinkolb/cloud/server";
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { type DateContext, dates } from "@valentinkolb/stdlib";
 import { sql } from "bun";
@@ -10,6 +11,7 @@ import type {
   OverlapItem,
   Priority,
   Recurrence,
+  SpaceAssignableUser,
   SpaceItem,
   SpaceItemAssignee,
   SpaceTag,
@@ -108,6 +110,66 @@ const recurrenceValues = (recurrence: Recurrence | null | undefined) => ({
   dtstart: recurrence?.dtstart ?? null,
   exdate: recurrence?.exdate && recurrence.exdate.length > 0 ? toPgTimestampArray(recurrence.exdate) : null,
 });
+
+const listSpaceAccessIds = async (spaceId: string): Promise<string[]> => {
+  const rows = await sql<{ access_id: string }[]>`
+    SELECT access_id
+    FROM spaces.space_access
+    WHERE space_id = ${spaceId}::uuid
+  `;
+  return rows.map((row) => row.access_id);
+};
+
+const assignableUserDescription = (user: AccessUser): string => {
+  const source = user.source.type === "direct" ? "direct access" : `via ${user.source.groupName}`;
+  return `${user.uid} · ${source}`;
+};
+
+const uniqueIds = (ids: string[] | undefined): string[] => [...new Set(ids ?? [])];
+
+export const listAssignableUsers = async (params: {
+  spaceId: string;
+  search?: string;
+  excludeUserIds?: string[];
+  limit?: number;
+}): Promise<SpaceAssignableUser[]> => {
+  const accessIds = await listSpaceAccessIds(params.spaceId);
+  const users = await listUsersWithAccess({
+    accessIds,
+    search: params.search,
+    excludeUserIds: params.excludeUserIds,
+    limit: params.limit,
+  });
+
+  return users.map((user) => ({
+    id: user.id,
+    displayName: user.displayName,
+    description: assignableUserDescription(user),
+  }));
+};
+
+const validateAssigneeIdsInSpace = async (spaceId: string, assigneeIds: string[] | undefined): Promise<MutationResult<void>> => {
+  const ids = uniqueIds(assigneeIds);
+  if (ids.length === 0) return { ok: true, data: undefined };
+
+  const accessIds = await listSpaceAccessIds(spaceId);
+  const users = await listUsersWithAccess({
+    accessIds,
+    userIds: ids,
+    limit: ids.length,
+  });
+  const validIds = new Set(users.map((user) => user.id));
+  const invalidCount = ids.filter((id) => !validIds.has(id)).length;
+
+  if (invalidCount > 0) {
+    return {
+      ok: false,
+      error: invalidCount === 1 ? "Assignee must have access to this space" : "Assignees must have access to this space",
+      status: 400,
+    };
+  }
+  return { ok: true, data: undefined };
+};
 
 const validateRecurrenceInput = async (params: {
   spaceId: string;
@@ -868,6 +930,8 @@ export const create = async (params: { spaceId: string; data: CreateItem; create
   if (!recurrenceCheck.ok) return recurrenceCheck;
   const tagCheck = await validateTagIdsInSpace(spaceId, data.tagIds);
   if (!tagCheck.ok) return tagCheck;
+  const assigneeCheck = await validateAssigneeIdsInSpace(spaceId, data.assigneeIds);
+  if (!assigneeCheck.ok) return assigneeCheck;
 
   // Get next rank in column
   const [maxRow] = await sql<{ max: string | null }[]>`
@@ -1005,6 +1069,8 @@ export const update = async (params: { id: string; data: UpdateItem }): Promise<
   if (!recurrenceCheck.ok) return recurrenceCheck;
   const tagCheck = await validateTagIdsInSpace(existing.spaceId, data.tagIds);
   if (!tagCheck.ok) return tagCheck;
+  const assigneeCheck = await validateAssigneeIdsInSpace(existing.spaceId, data.assigneeIds);
+  if (!assigneeCheck.ok) return assigneeCheck;
   const recurrenceDb = recurrenceValues(recurrence);
 
   const [row] = changingColumn
@@ -1225,6 +1291,9 @@ export const setAssignees = async (params: { id: string; userIds: string[] }): P
   if (!existing) {
     return { ok: false, error: "Item not found", status: 404 };
   }
+
+  const assigneeCheck = await validateAssigneeIdsInSpace(existing.spaceId, userIds);
+  if (!assigneeCheck.ok) return assigneeCheck;
 
   await sql`DELETE FROM spaces.item_assignees WHERE item_id = ${id}`;
 
