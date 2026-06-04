@@ -1950,8 +1950,14 @@ prefer a route-owning island with server-computed route data:
    is fully handleable, set the visible state, then call `nav.push()` or
    `nav.replaceWith()`. Call `nav.fallback()` for anything outside that
    workspace.
+6. If the route state changes the Cloud header breadcrumbs, publish the same
+   server-computed breadcrumb array through `layout.update(...)`. This keeps
+   the outer SSR `Layout` chrome in sync without wrapping `@valentinkolb/ssr/nav`
+   or inventing a client router.
 
 ```tsx
+import { layout } from "@valentinkolb/cloud/ui";
+
 <AppWorkspace.SidebarItem
   href={`/app/my-app/${workspaceId}/items/${itemId}`}
   scroll="top"
@@ -1968,12 +1974,23 @@ prefer a route-owning island with server-computed route data:
     if (next.kind !== "ok") return nav.fallback();
 
     setWorkspaceState(next);
+    layout.update({
+      breadcrumbs: next.title,
+      title: next.title.at(-1)?.title,
+    });
     nav.push();
   }}
 >
   Item
 </AppWorkspace.SidebarItem>
 ```
+
+`layout.update(...)` is only for progressive enhancement. The SSR page must
+still pass the same breadcrumbs to `<Layout title={...}>` for reloads, sharing,
+back/forward restoration after a hard load, and no-JavaScript fallback.
+Route-data endpoints should return a `title`/breadcrumb array when the enhanced
+route can change the header. Source: `packages/cloud/src/ui/layout.ts` and
+`packages/cloud/src/ssr/LayoutBreadcrumbs.island.tsx`.
 
 Do not duplicate permission checks, active-entity resolution, saved-view query
 merging, widget resolution, or other SSR data logic in the browser. The client
