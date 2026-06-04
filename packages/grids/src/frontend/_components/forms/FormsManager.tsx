@@ -649,7 +649,6 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
               {(entry, idx) => {
                 const field = () => fieldById().get(entry().fieldId);
                 const selected = () => selectedIndex() === idx;
-                const customized = () => isFormFieldEntryCustomized(entry(), field());
                 return (
                   <li>
                     <div
@@ -674,11 +673,6 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
                           </span>
                         </span>
                       </button>
-                      <Show when={customized()}>
-                        <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                          Modified
-                        </span>
-                      </Show>
                       <Show when={entry().kind === "form_value"}>
                         <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-secondary dark:bg-zinc-800">Fixed</span>
                       </Show>
@@ -886,16 +880,6 @@ const cloneFormFieldEntry = (entry: FormFieldEntry): FormFieldEntry => {
         }
       : undefined,
   };
-};
-
-const isFormFieldEntryCustomized = (entry: FormFieldEntry, field?: Field) => {
-  if (!field) return false;
-  if (entry.kind === "form_value") return false;
-  const required = Boolean(entry.required ?? field.required);
-  const defaultRequired = Boolean(field.required);
-  return Boolean(
-    required !== defaultRequired || (entry.label?.trim() ?? "") || (entry.helpText?.trim() ?? "") || entry.inlineCreate?.enabled,
-  );
 };
 
 const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field: Field }) =>
