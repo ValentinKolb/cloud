@@ -29,6 +29,7 @@ export { default as IconInput } from "./IconInput";
 export { default as ImageInput } from "./ImageInput";
 export {
   default as MultiSelectInput,
+  type MultiSelectFetchDataFn,
   MultiSelectInput as MultiSelect,
   type MultiSelectInputProps,
   type MultiSelectOption,

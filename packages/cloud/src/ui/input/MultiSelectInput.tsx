@@ -1,6 +1,7 @@
+import { mutation, timed } from "@valentinkolb/stdlib/solid";
 import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import { InputWrapper, createInputA11y } from "./util";
+import { createInputA11y, InputWrapper } from "./util";
 
 export type MultiSelectOption =
   | string
@@ -20,6 +21,8 @@ type NormalizedOption = {
   color?: string;
 };
 
+export type MultiSelectFetchDataFn = (query: string, signal: AbortSignal) => Promise<MultiSelectOption[]>;
+
 export type MultiSelectInputProps = {
   label?: string;
   description?: string;
@@ -30,6 +33,9 @@ export type MultiSelectInputProps = {
   onChange?: (value: string[]) => void;
   error?: () => string | undefined;
   options?: MultiSelectOption[];
+  fetchData?: MultiSelectFetchDataFn;
+  selectedOptions?: () => MultiSelectOption[];
+  fetchDebounceMs?: number;
   required?: boolean;
   clearable?: boolean;
   disabled?: boolean;
@@ -73,12 +79,40 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
   const clearable = () => props.clearable ?? false;
   const value = () => props.value?.() ?? [];
   const a11y = createInputA11y({ description: props.description, error: props.error });
+  const isSearchable = () => Boolean(props.fetchData);
 
   const normalize = (option: MultiSelectOption): NormalizedOption =>
     typeof option === "object" ? { ...option, label: option.label || option.id } : { id: option, label: option };
 
-  const options = createMemo(() => (props.options ?? []).map(normalize));
-  const optionById = createMemo(() => new Map(options().map((option) => [option.id, option])));
+  const [optionCache, setOptionCache] = createSignal<Record<string, NormalizedOption>>({});
+  const fetchMut = mutation.create<NormalizedOption[], string>({
+    mutation: async (query, { abortSignal }) => {
+      if (!props.fetchData) return [];
+      const raw = await props.fetchData(query, abortSignal);
+      return raw.map(normalize);
+    },
+  });
+
+  const triggerFetch = (query: string) => {
+    if (!props.fetchData) return;
+    fetchMut.abort();
+    void fetchMut.mutate(query);
+  };
+
+  const debounce = timed.debounce((q: string) => triggerFetch(q), props.fetchDebounceMs ?? 200);
+
+  const options = createMemo(() => {
+    if (isSearchable()) return fetchMut.data() ?? [];
+    return (props.options ?? []).map(normalize);
+  });
+  const selectedOptionHints = createMemo(() => (props.selectedOptions?.() ?? []).map(normalize));
+  const optionById = createMemo(() => {
+    const map = new Map<string, NormalizedOption>();
+    for (const option of Object.values(optionCache())) map.set(option.id, option);
+    for (const option of selectedOptionHints()) map.set(option.id, option);
+    for (const option of options()) map.set(option.id, option);
+    return map;
+  });
   const selectedOptions = createMemo(() => value().map((id) => optionById().get(id) ?? { id, label: id }));
 
   const [isOpen, setIsOpen] = createSignal(false);
@@ -92,10 +126,13 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
   let optionRefs: HTMLDivElement[] = [];
 
   const filteredOptions = createMemo(() => {
+    if (isSearchable()) return options();
     const q = query().trim().toLowerCase();
     if (!q) return options();
     return options().filter((option) => [option.label, option.description, option.id].some((part) => part?.toLowerCase().includes(q)));
   });
+  const waitingForRemoteOptions = () => isSearchable() && (fetchMut.loading() || Boolean(fetchMut.error()));
+  const visibleOptions = () => (waitingForRemoteOptions() ? [] : filteredOptions());
 
   const isSelected = (id: string) => value().includes(id);
   const nextWithout = (id: string) => value().filter((item) => item !== id);
@@ -144,16 +181,22 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
       dialogRef?.close();
       setFocusedIndex(-1);
       setQuery("");
+      if (isSearchable()) {
+        debounce.cancel();
+        fetchMut.abort();
+      }
       triggerRef?.focus();
       return;
     }
     setFocusedIndex(filteredOptions().length > 0 ? 0 : -1);
     positionDialog();
     dialogRef?.showModal();
+    if (isSearchable()) triggerFetch("");
     queueMicrotask(() => searchInputRef?.focus());
   };
 
   const toggleOption = (option: NormalizedOption) => {
+    setOptionCache({ ...optionCache(), [option.id]: option });
     const next = isSelected(option.id) ? nextWithout(option.id) : [...value(), option.id];
     emit(next);
   };
@@ -303,8 +346,14 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
             placeholder="Search..."
             value={query()}
             onInput={(event) => {
-              setQuery(event.currentTarget.value);
-              setFocusedIndex(filteredOptions().length > 0 ? 0 : -1);
+              const next = event.currentTarget.value;
+              setQuery(next);
+              setFocusedIndex(0);
+              if (isSearchable()) {
+                debounce.debouncedFn(next);
+              } else {
+                setFocusedIndex(filteredOptions().length > 0 ? 0 : -1);
+              }
             }}
             class="w-full border-0 bg-transparent px-3 py-1.5 text-sm text-zinc-700 outline-none placeholder:text-zinc-400 focus:ring-0 dark:text-zinc-300 dark:placeholder:text-zinc-500"
             aria-label="Search options"
@@ -315,9 +364,33 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
             aria-label={props.label || "Options"}
             aria-multiselectable="true"
           >
+            <Show when={isSearchable() && fetchMut.loading()}>
+              <div class="flex items-center gap-1.5 px-3 py-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <i class="ti ti-loader-2 animate-spin" /> Loading...
+              </div>
+            </Show>
+            <Show when={isSearchable() && !fetchMut.loading() && fetchMut.error()}>
+              <div class="flex items-center gap-2 px-3 py-1.5 text-xs text-red-500">
+                <i class="ti ti-alert-triangle shrink-0" />
+                <span class="flex-1 truncate">{fetchMut.error()?.message ?? "Failed to load"}</span>
+                <button
+                  type="button"
+                  class="text-zinc-500 underline hover:text-zinc-700 dark:hover:text-zinc-300"
+                  onClick={() => fetchMut.retry()}
+                >
+                  Retry
+                </button>
+              </div>
+            </Show>
             <For
-              each={filteredOptions()}
-              fallback={<div class="px-3 py-1.5 text-xs text-zinc-400 dark:text-zinc-500">No options available</div>}
+              each={visibleOptions()}
+              fallback={
+                <Show when={!waitingForRemoteOptions()}>
+                  <div class="px-3 py-1.5 text-xs text-zinc-400 dark:text-zinc-500">
+                    {isSearchable() ? "No results" : "No options available"}
+                  </div>
+                </Show>
+              }
             >
               {(option, index) => {
                 const selected = () => isSelected(option.id);
@@ -330,6 +403,12 @@ const MultiSelectInput = (props: MultiSelectInputProps) => {
                       focused() ? "bg-blue-50 dark:bg-blue-950/35" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     }`}
                     onClick={() => toggleOption(option)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleOption(option);
+                      }
+                    }}
                     onMouseEnter={() => setFocusedIndex(index())}
                     role="option"
                     aria-label={option.label}
