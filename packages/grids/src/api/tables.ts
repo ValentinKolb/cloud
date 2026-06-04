@@ -235,6 +235,7 @@ const app = new Hono<AuthContext>()
           result.data.buckets,
           query.groupBy.map((g) => g.fieldId),
           tableFields,
+          viewer,
         );
         return c.json({
           buckets: result.data.buckets,

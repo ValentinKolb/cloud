@@ -9,6 +9,7 @@ import {
   isUnsafeWebhookAddress,
   isUnsafeWebhookHost,
   isValidCronPart,
+  isWebhookRedirectStatus,
   parseAutomationTriggerInput,
   sanitizeRunError,
   validateSchedule,
@@ -51,6 +52,15 @@ describe("automations", () => {
     expect(isTrustedInternalWebhookTarget(new URL("http://app-tools:3000/tools/api/webhooks/send"))).toBe(false);
     expect(isTrustedInternalWebhookTarget(new URL("http://localhost:3000/tools/api/webhooks/receive/token"))).toBe(false);
     expect(isTrustedInternalWebhookTarget(new URL("https://app-tools/tools/api/webhooks/receive/token"))).toBe(false);
+  });
+
+  test("webhook delivery treats redirects as blocked targets", () => {
+    expect(isWebhookRedirectStatus(301)).toBe(true);
+    expect(isWebhookRedirectStatus(302)).toBe(true);
+    expect(isWebhookRedirectStatus(307)).toBe(true);
+    expect(isWebhookRedirectStatus(308)).toBe(true);
+    expect(isWebhookRedirectStatus(200)).toBe(false);
+    expect(isWebhookRedirectStatus(500)).toBe(false);
   });
 
   test("filterRecordData treats undefined as all fields and [] as no fields", () => {

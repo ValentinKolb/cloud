@@ -201,11 +201,20 @@ const startStream = (ctx: WsContext, afterCursor: string | null) => {
         for await (const event of liveRecordEvents({ baseId, after: afterCursor, signal: abort.signal })) {
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (event.data.tableId !== tableId) continue;
-          send(ctx.socket, WS_TYPE.recordsEvent, {
-            tableId,
-            cursor: event.cursor,
-            event: event.data,
-          });
+          send(
+            ctx.socket,
+            WS_TYPE.recordsEvent,
+            subscription.dashboardId
+              ? {
+                  tableId,
+                  cursor: event.cursor,
+                }
+              : {
+                  tableId,
+                  cursor: event.cursor,
+                  event: event.data,
+                },
+          );
         }
       } else {
         send(ctx.socket, WS_TYPE.metadataReady, { baseId });

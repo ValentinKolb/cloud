@@ -726,9 +726,9 @@ if [[ -n "${RELATION_FIELD_ID:-}" ]]; then
 fi
 
 # ────────────────────────────────────────────────────────────────────
-# Path-based SSR routes — verify Hono dispatches `/table/<x>`,
-# `/dashboard/<x>` etc. without 404. We don't follow redirects /
-# render HTML; a 200 is enough to confirm the route is registered.
+# Path-based SSR routes — verify Hono dispatches live Grids routes.
+# The old settings route was intentionally removed; settings now open
+# as a prompt from the workspace sidebar.
 # ────────────────────────────────────────────────────────────────────
 
 echo ""
@@ -754,7 +754,7 @@ http GET /app/grids/$BASE_SHORT_ID/dashboard/$DASHBOARD_SHORT_ID?edit=true
 expect_status 200 "GET /app/grids/<base>/dashboard/<dashboard>?edit=true"
 
 http GET /app/grids/$BASE_SHORT_ID/settings
-expect_status 200 "GET /app/grids/<base>/settings"
+expect_status 404 "GET /app/grids/<base>/settings stays removed"
 
 # ────────────────────────────────────────────────────────────────────
 # Cleanup

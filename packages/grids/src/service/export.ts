@@ -222,7 +222,7 @@ const buildRelationContext = async (params: {
   if (relationSpecs.length === 0 || params.records.length === 0) return { labels: {}, expanded: {} };
 
   const labelsNeeded = relationSpecs.some((s) => (s.spec?.relation?.mode ?? "ids") === "labels");
-  const labels = labelsNeeded ? await buildRelationLabelCache(params.records, params.fields) : {};
+  const labels = labelsNeeded ? await buildRelationLabelCache(params.records, params.fields, params.viewer) : {};
 
   const idsByTargetTable = new Map<string, Set<string>>();
   const fieldsByTargetTable = new Map<string, Set<string>>();

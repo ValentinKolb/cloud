@@ -3,7 +3,7 @@ import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { FieldColumnSpecSchema, type View, ViewQuerySchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
-import type { Form, FormConfig, FormFieldEntry } from "./forms";
+import { toRenderableForm, type Form, type FormConfig, type FormFieldEntry } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import type { Field, Table } from "./types";
 
@@ -289,7 +289,10 @@ export const listForBase = async (params: {
   const tablesById = new Map([...tables, ...formOnlyTables].map((table) => [table.id, table]));
   const fieldsByTable = byTable(fieldRows.map(mapField));
   const viewsByTable = byTable(viewRows.map(mapView));
-  const forms = formRows.map(mapForm);
+  const forms = formRows.map((row) => {
+    const form = mapForm(row);
+    return levelFromRank(row.level_rank) === "admin" ? form : toRenderableForm(form);
+  });
   const formsByTable = byTable(forms);
   const formLevels: Record<string, PermissionLevel> = {};
   const formsById = new Map(forms.map((form) => [form.id, form]));

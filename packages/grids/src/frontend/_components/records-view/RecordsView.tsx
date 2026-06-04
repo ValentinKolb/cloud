@@ -762,6 +762,7 @@ export default function RecordsView(props: Props) {
         void refreshVisibleRecords();
       },
       onEvent: (event, cursor) => {
+        if (!event) return;
         if (cursor) pendingLiveCursor = cursor;
         pendingLiveRecordIds.add(event.recordId);
         if (event.type === "record.deleted" && shouldOptimisticallyRemoveDeletedRecord(query())) {
@@ -812,6 +813,12 @@ export default function RecordsView(props: Props) {
   // saved views and in trash mode) — these need to live next to the
   // search bar, not inside the optional editing toolbar.
   const recordCountText = (): string => {
+    if (isGrouped()) {
+      const n = buckets().length;
+      if (n === 0) return "No groups";
+      if (n === 1) return "1 group";
+      return `${n} groups`;
+    }
     const n = items().length;
     if (n === 0) return "No records";
     if (n === 1) return "1 record";

@@ -1,7 +1,8 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
-import type { Field, Form } from "../../../service";
+import type { Field } from "../../../service";
+import type { PublicRenderableForm } from "../../../service/forms";
 import { sanitizeFieldValues } from "../fields/field-render";
 import { errorMessage } from "../utils/api-helpers";
 import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-fields";
@@ -10,7 +11,7 @@ type Props = {
   /** Public token from the URL — submitted to the public endpoint. */
   publicToken: string;
   /** Form config (fields, labels, defaults) — server-trusted. */
-  form: Form;
+  form: PublicRenderableForm;
   /** Resolved table fields so we know each entry's type + options. */
   fields: Field[];
   dateConfig?: DateContext;

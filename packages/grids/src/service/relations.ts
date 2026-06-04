@@ -349,7 +349,11 @@ export const enrichRecordsWithComputedColumns = (
  * Single SQL round-trip per target table — `WHERE id = ANY(uuid[])`.
  * Empty input → empty map; non-relation fields are skipped.
  */
-export const buildRelationLabelCache = async (records: GridRecord[], fields: Field[]): Promise<Record<string, string>> => {
+export const buildRelationLabelCache = async (
+  records: GridRecord[],
+  fields: Field[],
+  viewer?: ExpansionViewer,
+): Promise<Record<string, string>> => {
   const idsByTargetTable = new Map<string, Set<string>>();
 
   const relationFields = fields.filter((f) => f.type === "relation" && !f.deletedAt);
@@ -373,7 +377,8 @@ export const buildRelationLabelCache = async (records: GridRecord[], fields: Fie
     idsByTargetTable.set(cfg.targetTableId, set);
   }
 
-  return resolveLabelsByTargetTable(idsByTargetTable);
+  const gated = viewer ? await filterTargetsByViewerPermission(idsByTargetTable, viewer) : idsByTargetTable;
+  return resolveLabelsByTargetTable(gated);
 };
 
 /**
@@ -436,6 +441,7 @@ export const buildLabelCacheForGroupedKeys = async (
   buckets: Array<{ keys: unknown[] }>,
   groupByFieldIds: string[],
   fields: Field[],
+  viewer?: ExpansionViewer,
 ): Promise<Record<string, string>> => {
   if (buckets.length === 0) return {};
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
@@ -452,7 +458,8 @@ export const buildLabelCacheForGroupedKeys = async (
     }
     idsByTargetTable.set(cfg.targetTableId, set);
   }
-  return resolveLabelsByTargetTable(idsByTargetTable);
+  const gated = viewer ? await filterTargetsByViewerPermission(idsByTargetTable, viewer) : idsByTargetTable;
+  return resolveLabelsByTargetTable(gated);
 };
 
 // =============================================================================

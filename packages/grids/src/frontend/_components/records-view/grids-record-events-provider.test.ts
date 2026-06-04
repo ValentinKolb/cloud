@@ -181,12 +181,39 @@ describe("createGridsRecordEventsProvider", () => {
     provider.dispose();
   });
 
+  test("accepts coarse dashboard record invalidations without record payload", () => {
+    installFakeBrowser();
+    const seen: Array<{ event: unknown; cursor: string | null }> = [];
+    const provider = createGridsRecordEventsProvider({
+      tableId: TABLE_ID,
+      dashboardId: DASHBOARD_ID,
+      onEvent: (event, cursor) => seen.push({ event, cursor }),
+    });
+
+    provider.connect();
+    FakeWebSocket.instances[0]!.open();
+    FakeWebSocket.instances[0]!.message({
+      type: "grids.records.event",
+      payload: { tableId: TABLE_ID, cursor: "8-1" },
+    });
+    FakeWebSocket.instances[0]!.message({
+      type: "grids.records.event",
+      payload: { tableId: OTHER_TABLE_ID, cursor: "8-2" },
+    });
+
+    expect(seen).toEqual([{ event: null, cursor: "8-1" }]);
+
+    provider.dispose();
+  });
+
   test("filters unrelated table and malformed events", () => {
     installFakeBrowser();
     const seen: string[] = [];
     const provider = createGridsRecordEventsProvider({
       tableId: TABLE_ID,
-      onEvent: (event) => seen.push(event.recordId),
+      onEvent: (event) => {
+        if (event) seen.push(event.recordId);
+      },
     });
 
     provider.connect();

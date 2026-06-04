@@ -127,23 +127,29 @@ export const upload = async (params: {
     return fail(err.badInput("file type is not accepted by this field"));
   }
   const maxFiles = target.data.config.maxFiles;
-  if (typeof maxFiles === "number" && Number.isInteger(maxFiles) && maxFiles > 0) {
-    const [countRow] = await sql<{ count: number }[]>`
-      SELECT COUNT(*)::int AS count
-      FROM grids.files
-      WHERE record_id = ${params.recordId}::uuid AND field_id = ${params.fieldId}::uuid
+
+  return sql.begin(async (tx) => {
+    await tx`
+      SELECT pg_advisory_xact_lock(hashtext(${params.recordId}), hashtext(${params.fieldId}))
     `;
-    if ((countRow?.count ?? 0) >= maxFiles) {
-      return fail(err.badInput(`file field already has the maximum of ${maxFiles} file(s)`));
+
+    if (typeof maxFiles === "number" && Number.isInteger(maxFiles) && maxFiles > 0) {
+      const [countRow] = await tx<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM grids.files
+        WHERE record_id = ${params.recordId}::uuid AND field_id = ${params.fieldId}::uuid
+      `;
+      if ((countRow?.count ?? 0) >= maxFiles) {
+        return fail(err.badInput(`file field already has the maximum of ${maxFiles} file(s)`));
+      }
     }
-  }
-  const nextPosition = await sql.begin(async () => {
-    const [pos] = await sql<{ position: number }[]>`
+
+    const [pos] = await tx<{ position: number }[]>`
       SELECT COALESCE(MAX(position) + 1, 0)::int AS position
       FROM grids.files
       WHERE record_id = ${params.recordId}::uuid AND field_id = ${params.fieldId}::uuid
     `;
-    const [row] = await sql<DbRow[]>`
+    const [row] = await tx<DbRow[]>`
       INSERT INTO grids.files (
         record_id, field_id, position, filename, mime_type,
         size_bytes, sha256, bytes, created_by
@@ -164,9 +170,8 @@ export const upload = async (params: {
                 created_by::text AS created_by, created_at
     `;
     if (!row) throw new Error("insert returned no row");
-    return row;
+    return ok(mapRow(row));
   });
-  return ok(mapRow(nextPosition));
 };
 
 export const getContent = async (params: {

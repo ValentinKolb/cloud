@@ -56,19 +56,9 @@ export default ssr<AuthContext>(async (c) => {
   c.get("page").description = form.config.description ?? undefined;
   const dateConfig = await getDateConfig(c);
 
-  // Sanitize the form object before hydration: strip form_value entries
-  // (their `value` is server-only) and drop ownerUserId / publicToken
-  // so they don't leak into anonymous HTML. Mirrors the public DTO
-  // returned from /api/grids/forms/public/:token.
-  const safeForm = {
-    ...form,
-    config: {
-      ...form.config,
-      fields: form.config.fields.filter((e) => e.kind === "user_input"),
-    },
-    ownerUserId: null,
-    publicToken: null,
-  };
+  // Mirrors the public API DTO: only form render config, no table ids,
+  // share tokens, owner metadata, timestamps, or server-applied values.
+  const safeForm = gridsService.form.toPublicRenderableForm(form);
 
   return () => (
     <PublicShell legalLinks={legalLinks}>

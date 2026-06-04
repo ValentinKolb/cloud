@@ -572,6 +572,9 @@ export const create = async (
     dateConfig?: DateContext;
   } = {},
 ): Promise<Result<GridRecord>> => {
+  const parentAlive = await requireTableAlive(tableId);
+  if (!parentAlive.ok) return parentAlive;
+
   // Per-table QoL gate: a "submission inbox" table can mark
   // disable_direct_insert=true so records only flow in via a form.
   // The form-submit handler explicitly opts out of this check

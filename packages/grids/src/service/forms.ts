@@ -87,6 +87,33 @@ export type Form = {
   updatedAt: string;
 };
 
+export type PublicRenderableForm = Pick<Form, "id" | "name" | "config">;
+
+const renderConfig = (config: FormConfig): FormConfig => ({
+  ...config,
+  fields: config.fields.filter((entry): entry is Extract<FormFieldEntry, { kind: "user_input" }> => entry.kind === "user_input"),
+});
+
+/**
+ * Form shape safe for render/submit clients. It keeps labels, defaults,
+ * title/description, and redirect config, but removes server-applied
+ * fixed values and share tokens. Admin/editor flows must use the full
+ * Form returned by the normal service/API paths.
+ */
+export const toRenderableForm = (form: Form): Form => ({
+  ...form,
+  publicToken: null,
+  ownerUserId: null,
+  config: renderConfig(form.config),
+});
+
+/** Minimal anonymous SSR/DTO shape for public form hydration. */
+export const toPublicRenderableForm = (form: Form): PublicRenderableForm => ({
+  id: form.id,
+  name: form.name,
+  config: renderConfig(form.config),
+});
+
 const COLS = sql`id, short_id, table_id, name, config, public_token, is_active, owner_user_id, position, deleted_at, created_at, updated_at`;
 
 /**

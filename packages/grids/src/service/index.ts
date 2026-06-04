@@ -129,6 +129,8 @@ export const gridsService = {
     remove: forms.remove,
     restore: forms.restore,
     buildDefault: forms.buildDefaultForm,
+    toRenderableForm: forms.toRenderableForm,
+    toPublicRenderableForm: forms.toPublicRenderableForm,
   },
   file: {
     listForRecordField: files.listForRecordField,

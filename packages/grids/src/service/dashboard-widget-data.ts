@@ -264,7 +264,13 @@ const resolveFormLink = async (widget: LinkWidget, base: LinkDataBase, viewer: V
     ...base,
     title: linkTitle(widget, form.name),
     description: linkDescription(widget, form.config.description),
-    target: { kind: "form", form, fields: formFields, tableName: table.name, canSubmit },
+    target: {
+      kind: "form",
+      form: forms.toRenderableForm(form),
+      fields: renderableFormFields(form, formFields),
+      tableName: table.name,
+      canSubmit,
+    },
   };
 };
 
@@ -342,6 +348,11 @@ const iconForLinkTarget = (kind: Extract<Widget, { kind: "link" }>["target"]["ki
   if (kind === "view") return "ti ti-table-spark";
   if (kind === "form") return "ti ti-forms";
   return "ti ti-external-link";
+};
+
+const renderableFormFields = (form: Form, formFields: Field[]): Field[] => {
+  const userInputIds = new Set(form.config.fields.filter((entry) => entry.kind === "user_input").map((entry) => entry.fieldId));
+  return formFields.filter((field) => userInputIds.has(field.id));
 };
 
 // =============================================================================
@@ -452,6 +463,7 @@ const resolveChart = async (widget: Extract<Widget, { kind: "chart" }>, viewer: 
     buckets,
     groupBy.map((g) => g.fieldId),
     sourceFields,
+    viewer,
   );
   return {
     kind: "chart",
@@ -745,7 +757,7 @@ const resolveForm = async (widget: Extract<Widget, { kind: "form" }>, viewer: Vi
   // extra client-side network calls.
   const canSubmit = viewer.isAdmin ? true : await resolveSubmitPermission(viewer, table.baseId, form.tableId, form.id);
 
-  return { kind: "form", form, fields: formFields, canSubmit };
+  return { kind: "form", form: forms.toRenderableForm(form), fields: renderableFormFields(form, formFields), canSubmit };
 };
 
 /** Loads the viewer's grants for the form-target chain (base → table →

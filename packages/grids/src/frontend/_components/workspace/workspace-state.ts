@@ -384,6 +384,7 @@ const loadGroupedInitialRecords = async (
     data.groupedBuckets,
     query.effectiveGroupBy.map((g) => g.fieldId),
     args.fields,
+    viewer,
   );
   return data;
 };

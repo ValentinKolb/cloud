@@ -324,6 +324,8 @@ const validateWebhookTarget = async (rawUrl: string): Promise<Result<URL>> => {
   return ok(url);
 };
 
+export const isWebhookRedirectStatus = (status: number): boolean => status >= 300 && status < 400;
+
 export const filterRecordData = (record: GridRecord, payload: AutomationPayloadConfig): GridRecord => {
   if (!payload.fieldIds) return record;
   const allowed = new Set(payload.fieldIds);
@@ -705,7 +707,12 @@ const webhookHeaders = (args: {
   return headers;
 };
 
-const postWebhook = async (automation: AutomationWithSecret, headers: Record<string, string>, body: string): Promise<WebhookAttempt> => {
+const postWebhook = async (
+  automation: AutomationWithSecret,
+  targetUrl: URL,
+  headers: Record<string, string>,
+  body: string,
+): Promise<WebhookAttempt> => {
   const started = Date.now();
   let status: AutomationRun["status"] = "succeeded";
   let httpStatus: number | null = null;
@@ -716,14 +723,18 @@ const postWebhook = async (automation: AutomationWithSecret, headers: Record<str
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       // External webhook target; typed Hono client only covers Grids API calls.
-      const response = await fetch(automation.action.url, {
+      const response = await fetch(targetUrl.href, {
         method: "POST",
         headers,
         body,
         signal: controller.signal,
+        redirect: "manual",
       });
       httpStatus = response.status;
-      if (response.status < 200 || response.status >= 300) {
+      if (isWebhookRedirectStatus(response.status)) {
+        status = "failed";
+        errorMessage = "Webhook returned a redirect; redirects are not followed";
+      } else if (response.status < 200 || response.status >= 300) {
         status = "failed";
         errorMessage = `Webhook returned HTTP ${response.status}`;
       }
@@ -828,7 +839,7 @@ export const execute = async (params: ExecuteAutomationParams): Promise<Result<A
   );
   const timestamp = new Date().toISOString();
   const headers = webhookHeaders({ automation, runId, event, triggerKind: params.triggerKind, slotTs: params.slotTs, timestamp, body });
-  const attempt = await postWebhook(automation, headers, body);
+  const attempt = await postWebhook(automation, target.data, headers, body);
   const run = await finishAutomationRun({
     automation,
     runRow,

@@ -11,7 +11,7 @@ type GridsRecordEventsProviderOptions = {
   tableId: string;
   dashboardId?: string;
   onReady?: () => void;
-  onEvent?: (event: LiveRecordEvent, cursor: string | null) => void;
+  onEvent?: (event: LiveRecordEvent | null, cursor: string | null) => void;
   onError?: (error: LiveProviderError) => void;
   onRevoked?: (error: LiveProviderError) => void;
   onFatal?: (error: LiveProviderError) => void;
@@ -132,7 +132,11 @@ export const createGridsRecordEventsProvider = (opts: GridsRecordEventsProviderO
     }
 
     if (message.type !== gridsWorkspace.wsType.recordsEvent || !message.payload || typeof message.payload !== "object") return;
-    const payload = message.payload as { cursor?: unknown; event?: unknown };
+    const payload = message.payload as { tableId?: unknown; cursor?: unknown; event?: unknown };
+    if (opts.dashboardId && payload.tableId === opts.tableId && payload.event === undefined) {
+      opts.onEvent?.(null, typeof payload.cursor === "string" ? payload.cursor : null);
+      return;
+    }
     if (!isLiveRecordEventForTable(payload.event, opts.tableId)) return;
     opts.onEvent?.(payload.event, typeof payload.cursor === "string" ? payload.cursor : null);
   };
