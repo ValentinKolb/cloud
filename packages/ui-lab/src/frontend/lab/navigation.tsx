@@ -309,6 +309,11 @@ const overviewRows = [
   { icon: "ti ti-lock", title: "Security review", meta: "Ops", status: "Needs owner" },
 ];
 
+const overviewStarters = [
+  { icon: "ti ti-list-check", title: "Project notes", description: "Notes, decisions, tasks, and reusable prompts." },
+  { icon: "ti ti-users", title: "Team handbook", description: "Shared docs, onboarding pages, and operating notes." },
+];
+
 export const AppOverviewDemo = () => {
   const [query, setQuery] = createSignal("");
   const filteredRows = () => overviewRows.filter((row) => row.title.toLowerCase().includes(query().toLowerCase()));
@@ -320,32 +325,33 @@ export const AppOverviewDemo = () => {
       description="Generic overview shell for app landing pages. It provides the app header, responsive main/aside columns, panels, toolbars, and empty states."
       code={`<AppOverview title="Notebooks" subtitle="Shared notes and prompts" icon="ti ti-notebook">
   <AppOverview.Main
-    title="Recent notes"
-    description="Continue where your team left off."
+    title="Your notebooks"
+    description="3 notebooks available"
     toolbar={<TextInput value={query} onInput={setQuery} placeholder="Search notes" clearable />}
   >
     …
   </AppOverview.Main>
-  <AppOverview.Aside title="Shortcuts">
-    …
+  <AppOverview.Aside title="Create" description="Choose a starter, or start blank.">
+    <button class="paper p-4 text-left flex items-start gap-3">Project notes</button>
+    <button class="paper p-4 text-left flex items-start gap-3">Blank notebook</button>
   </AppOverview.Aside>
 </AppOverview>`}
     >
       <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <AppOverview title="Notebooks" subtitle="Shared notes and prompts" icon="ti ti-notebook">
           <AppOverview.Main
-            title="Recent notes"
-            description="Continue where your team left off."
+            title="Your notebooks"
+            description={`${overviewRows.length} notebooks available`}
             toolbar={<TextInput value={query} onInput={setQuery} placeholder="Search notes" clearable icon="ti ti-search" />}
           >
-            <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {filteredRows().map((row) => (
-                <div class="flex items-center gap-3 px-3 py-2">
-                  <span class="thumbnail h-9 w-9 text-blue-500">
-                    <i class={row.icon} />
+                <div class="paper flex items-center gap-4 p-4">
+                  <span class="thumbnail flex h-10 w-10 shrink-0 items-center justify-center bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
+                    <i class={`${row.icon} text-lg`} />
                   </span>
                   <div class="min-w-0 flex-1">
-                    <p class="truncate text-sm font-medium text-primary">{row.title}</p>
+                    <p class="truncate text-sm font-semibold text-primary">{row.title}</p>
                     <p class="text-xs text-dimmed">{row.meta}</p>
                   </div>
                   <span class="text-xs text-dimmed">{row.status}</span>
@@ -357,15 +363,27 @@ export const AppOverviewDemo = () => {
             </div>
           </AppOverview.Main>
 
-          <AppOverview.Aside title="Shortcuts" description="Small supporting panels sit beside the main overview.">
-            <div class="grid gap-2">
-              <button type="button" class="btn-input justify-start">
-                <i class="ti ti-plus" />
-                New note
-              </button>
-              <button type="button" class="btn-input justify-start">
-                <i class="ti ti-users" />
-                Shared with me
+          <AppOverview.Aside title="Create" description="Choose a useful starter, or start blank.">
+            <div class="grid grid-cols-1 gap-2">
+              {overviewStarters.map((starter) => (
+                <button type="button" class="paper flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted">
+                  <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-800">
+                    <i class={`${starter.icon} text-lg text-primary`} />
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-sm font-semibold text-primary">{starter.title}</span>
+                    <span class="line-clamp-2 block text-xs leading-snug text-dimmed">{starter.description}</span>
+                  </span>
+                </button>
+              ))}
+              <button type="button" class="paper flex items-start gap-3 p-4 text-left transition-all hover:paper-highlighted">
+                <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-blue-100 dark:bg-blue-900/50">
+                  <i class="ti ti-plus text-lg text-blue-600 dark:text-blue-400" />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-semibold text-primary">Blank notebook</span>
+                  <span class="block text-xs leading-snug text-dimmed">Create an empty notebook with the standard welcome note.</span>
+                </span>
               </button>
             </div>
           </AppOverview.Aside>

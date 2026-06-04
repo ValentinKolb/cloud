@@ -421,8 +421,10 @@ export default function Calendar(props: CalendarProps) {
     onError: (error) => prompts.error(error.message),
   });
 
+  const yearView = () => props.view === "year";
+
   return (
-    <div id={rootId} class="flex min-h-0 flex-1 flex-col gap-2">
+    <div id={rootId} class={`flex min-h-0 flex-1 flex-col gap-2 ${yearView() ? "overflow-y-auto" : ""}`}>
       <CalendarDetailNavigation rootId={rootId} />
       <Show when={props.tags.length > 0}>
         <div class="flex flex-wrap items-center gap-1.5 px-1">
@@ -448,7 +450,7 @@ export default function Calendar(props: CalendarProps) {
         </div>
       </Show>
       <CoreCalendar
-        class="flex-1"
+        class={yearView() ? "shrink-0" : "flex-1"}
         view={props.view}
         date={props.date}
         events={events()}
