@@ -12,6 +12,7 @@ import {
   SegmentedControl,
   Select,
   TextInput,
+  toast,
 } from "@valentinkolb/cloud/ui";
 import { img } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
@@ -271,6 +272,13 @@ const bannerTransform = async (file: File): Promise<string> => {
   return img.toBase64("webp", 0.85)(transformed);
 };
 
+type SaveFormRequest = {
+  fields?: FormFieldEntry[];
+  closeMainDialog: boolean;
+  toastMessage?: string;
+  resolve?: (next: Form | null) => void;
+};
+
 function FormEditor(props: {
   form: Form;
   tableFields: Field[];
@@ -303,14 +311,12 @@ function FormEditor(props: {
       props.onDirtyChange?.(true);
     };
 
-  // Fields available to ADD — i.e. on the table, user-editable, not in the
-  // form yet. Computed memo so the picker shrinks as the user adds rows.
-  const includedIds = createMemo(() => new Set(entries().map((e) => e.fieldId)));
-  const addable = createMemo(() => props.tableFields.filter((f) => !f.deletedAt && canBeFormInput(f) && !includedIds().has(f.id)));
-  const fieldById = createMemo(() => new Map(props.tableFields.map((f) => [f.id, f])));
+  const userInputCount = createMemo(() => entries().filter((entry) => entry.kind === "user_input").length);
+  const fixedValueCount = createMemo(() => entries().filter((entry) => entry.kind === "form_value").length);
 
-  const updateMut = mutations.create<Form, void>({
-    mutation: async () => {
+  const updateMut = mutations.create<Form, SaveFormRequest, SaveFormRequest>({
+    onBefore: (request) => request,
+    mutation: async (request) => {
       const res = await apiClient.forms[":formId"].$patch({
         param: { formId: props.form.id },
         json: {
@@ -325,25 +331,31 @@ function FormEditor(props: {
             successMessage: successMessage().trim() || undefined,
             redirectUrl: redirectUrl().trim() || null,
             titleImage: titleImage() ?? undefined,
-            fields: entries(),
+            fields: request.fields ?? entries(),
           },
         },
       });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save form"));
       return res.json();
     },
-    onSuccess: (next) => {
+    onSuccess: (next, request) => {
+      setEntries(next.config.fields.map((entry) => ({ ...entry })));
       setDirty(false);
       props.onDirtyChange?.(false);
-      props.onSaved(next);
+      if (request?.toastMessage) toast.success(request.toastMessage);
+      request?.resolve?.(next);
+      if (request?.closeMainDialog) props.onSaved(next);
     },
-    onError: (e) => prompts.error(e.message),
+    onError: (e, request) => {
+      request?.resolve?.(null);
+      prompts.error(e.message);
+    },
   });
 
-  const handleSave = async () => {
+  const saveForm = async (request: Omit<SaveFormRequest, "resolve">) => {
     if (!name().trim()) {
       prompts.error("Name is required");
-      return;
+      return null;
     }
     // Schema/config changes on a publicly-shared form take effect for
     // new submissions immediately. Surface that explicitly before save
@@ -353,69 +365,41 @@ function FormEditor(props: {
         "This public form is live. Saved changes affect new submissions immediately. Existing submissions stay as-is. Continue?",
         { title: "Save live form?", confirmText: "Save" },
       );
+      if (!confirmed) return null;
+    }
+    return new Promise<Form | null>((resolve) => {
+      void updateMut.mutate({ ...request, resolve });
+    });
+  };
+
+  const handleSave = () => {
+    void saveForm({ closeMainDialog: true });
+  };
+
+  const openFieldsEditor = async () => {
+    if (dirty()) {
+      const confirmed = await prompts.confirm("Save form details before editing fields?", {
+        title: "Save changes?",
+        confirmText: "Save",
+      });
       if (!confirmed) return;
+      const saved = await saveForm({ closeMainDialog: false });
+      if (!saved) return;
     }
-    updateMut.mutate(undefined);
-  };
-
-  // What kind of entry the next "Add field" pick creates. user_input
-  // is the default (renders an input the visitor fills); form_value
-  // is the power-user mode (the form supplies a fixed hidden
-  // value, not editable by the visitor).
-  const [addKind, setAddKind] = createSignal<"user_input" | "form_value">("user_input");
-
-  const addEntry = (fieldId: string) => {
-    const f = fieldById().get(fieldId);
-    if (!f) return;
-    if (addKind() === "form_value") {
-      setEntries([...entries(), { kind: "form_value", fieldId, value: null }]);
-    } else {
-      setEntries([...entries(), { kind: "user_input", fieldId, required: f.required }]);
-    }
-    setDirty(true);
-    props.onDirtyChange?.(true);
-  };
-
-  const removeEntry = (index: number) => {
-    setEntries(entries().filter((_, i) => i !== index));
-    setDirty(true);
-    props.onDirtyChange?.(true);
-  };
-
-  /** Patch a user_input entry. */
-  const updateEntry = (index: number, patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => {
-    setEntries(
-      entries().map((e, i) => {
-        if (i !== index) return e;
-        if (e.kind !== "user_input") return e;
-        return { ...e, ...patch };
-      }),
-    );
-    setDirty(true);
-    props.onDirtyChange?.(true);
-  };
-
-  /** Patch a form_value entry's hidden fixed value. */
-  const updateFormValue = (index: number, value: unknown) => {
-    setEntries(
-      entries().map((e, i) => {
-        if (i !== index) return e;
-        if (e.kind !== "form_value") return e;
-        return { ...e, value };
-      }),
-    );
-    setDirty(true);
-    props.onDirtyChange?.(true);
-  };
-
-  const moveEntry = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= entries().length) return;
-    const next = [...entries()];
-    [next[index], next[target]] = [next[target]!, next[index]!];
-    setEntries(next);
-    setDirty(true);
-    props.onDirtyChange?.(true);
+    await openFormFieldsEditorDialog({
+      formName: name().trim() || props.form.name,
+      tableFields: props.tableFields,
+      entries: entries(),
+      saving: updateMut.loading,
+      onSave: async (nextEntries) => {
+        const saved = await saveForm({
+          fields: nextEntries,
+          closeMainDialog: false,
+          toastMessage: "Fields saved",
+        });
+        return Boolean(saved);
+      },
+    });
   };
 
   const handleCopyPublicUrl = async () => {
@@ -448,8 +432,7 @@ function FormEditor(props: {
   return (
     <>
       <PanelDialog.Body>
-        {/* General */}
-        <FormEditorSection title="Identity" subtitle="Name, public page copy, and visual header." icon="ti ti-id">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <TextInput label="Name" value={name} onInput={wrap(setName)} icon="ti ti-typography" required />
           <TextInput
             label="Title"
@@ -459,32 +442,28 @@ function FormEditor(props: {
             icon="ti ti-heading"
             placeholder={name()}
           />
-          <TextInput
-            label="Description"
-            description="Optional subtitle shown under the title on the form page."
-            value={description}
-            onInput={wrap(setDescription)}
-            icon="ti ti-align-left"
-            multiline
-            lines={2}
-          />
-          {/* Title image — banner displayed at the top of the form,
-            above title and description. Stored inline as a base64
-            WebP data-URL in form.config.titleImage. The transform
-            preserves the source aspect ratio (no forced square),
-            caps the longest side at 1600 px, and never upscales —
-            so a phone photo (4032 × 3024) becomes ~1600 × 1200
-            (~120 KB at q=0.85), while a small icon stays untouched.
-            Rendered in submit surfaces as `w-full` with a height
-            cap so a wide banner fills the form width naturally. */}
-          <ImageInput
-            label="Title image (optional)"
-            description="Shown as a banner at the top of the form. Free aspect ratio; capped at 1600 px on the longest side."
-            value={titleImage}
-            onChange={wrap(setTitleImage)}
-            transform={bannerTransform}
-          />
-        </FormEditorSection>
+        </div>
+        <TextInput
+          label="Description"
+          description="Optional subtitle shown under the title on the form page."
+          value={description}
+          onInput={wrap(setDescription)}
+          icon="ti ti-align-left"
+          multiline
+          lines={2}
+        />
+        {/* Title image — banner displayed at the top of the form,
+          above title and description. Stored inline as a base64
+          WebP data-URL in form.config.titleImage. The transform
+          preserves the source aspect ratio (no forced square),
+          caps the longest side at 1600 px, and never upscales. */}
+        <ImageInput
+          label="Title image (optional)"
+          description="Shown as a banner at the top of the form. Free aspect ratio; capped at 1600 px on the longest side."
+          value={titleImage}
+          onChange={wrap(setTitleImage)}
+          transform={bannerTransform}
+        />
 
         <FormEditorSection title="Access" subtitle="Who can submit, and whether the public link is live." icon="ti ti-world">
           <Checkbox
@@ -567,187 +546,18 @@ function FormEditor(props: {
           />
         </FormEditorSection>
 
-        {/* Fields */}
-        <FormEditorSection title="Fields" subtitle="Inputs shown to visitors, plus optional fixed values." icon="ti ti-forms">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-secondary">Fields in this form</span>
-            <span class="text-[10px] text-dimmed">{entries().length} field(s)</span>
+        <div class="flex items-center justify-between gap-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-primary">Fields</p>
+            <p class="mt-0.5 text-[11px] text-dimmed">
+              {entries().length} total · {userInputCount()} user input · {fixedValueCount()} fixed value
+              {fixedValueCount() === 1 ? "" : "s"}
+            </p>
           </div>
-          <Show
-            when={entries().length > 0}
-            fallback={<p class="text-xs text-dimmed py-1">No fields included. Pick one from the list below to start.</p>}
-          >
-            <ul class="flex flex-col gap-2">
-              {/* Index (not For) — keys by position. Each keystroke in
-                label/help-text writes a fresh entries array with a
-                replaced entry object at idx, which a reference-keyed
-                For interprets as "row replaced", remounting the inputs
-                and stealing focus. Index keeps the row stable. */}
-              <Index each={entries()}>
-                {(entry, idx) => {
-                  const f = () => fieldById().get(entry().fieldId);
-                  // Narrow accessors per kind. The actual `entry().kind`
-                  // doesn't toggle during a typing session (the kind is
-                  // chosen at add-time), so the Show branch below is
-                  // stable enough to avoid focus loss inside it.
-                  const valueEntry = () =>
-                    entry().kind === "form_value" ? (entry() as Extract<FormFieldEntry, { kind: "form_value" }>) : null;
-                  const userEntry = () =>
-                    entry().kind === "user_input" ? (entry() as Extract<FormFieldEntry, { kind: "user_input" }>) : null;
-                  const required = () => userEntry()?.required ?? f()?.required ?? false;
-                  return (
-                    <Show when={f()}>
-                      {(field) => (
-                        <Show
-                          when={valueEntry()}
-                          fallback={
-                            <li class="paper p-4 flex flex-col gap-2">
-                              <div class="flex items-center gap-2">
-                                {/* Compact arrows (h-3 each = 24 px column)
-                                  so the first row's height is close to
-                                  the surrounding text height — keeps the
-                                  paper's perceived top padding equal to
-                                  left / right / bottom. Hover lands on
-                                  blue (was text-primary, too close to
-                                  the dimmed default to read as a state
-                                  change). */}
-                                <div class="flex flex-col shrink-0">
-                                  <button
-                                    type="button"
-                                    class="h-3 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
-                                    onClick={() => moveEntry(idx, -1)}
-                                    disabled={idx === 0}
-                                    title="Move up"
-                                    aria-label="Move up"
-                                  >
-                                    <i class="ti ti-chevron-up text-xs" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="h-3 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
-                                    onClick={() => moveEntry(idx, 1)}
-                                    disabled={idx === entries().length - 1}
-                                    title="Move down"
-                                    aria-label="Move down"
-                                  >
-                                    <i class="ti ti-chevron-down text-xs" />
-                                  </button>
-                                </div>
-                                <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                                  <span class="text-sm font-medium text-primary truncate">{field().name}</span>
-                                  <span class="text-[10px] text-dimmed">{TYPE_LABELS[field().type] ?? field().type}</span>
-                                </span>
-                                <Checkbox label="Required" value={required} onChange={(v) => updateEntry(idx, { required: v })} />
-                                <button
-                                  type="button"
-                                  class="text-dimmed hover:text-red-500 px-1"
-                                  onClick={() => removeEntry(idx)}
-                                  title="Remove from form"
-                                  aria-label="Remove from form"
-                                >
-                                  <i class="ti ti-x" />
-                                </button>
-                              </div>
-                              <TextInput
-                                label="Label override (optional)"
-                                icon="ti ti-tag"
-                                value={() => userEntry()?.label ?? ""}
-                                onInput={(v) => updateEntry(idx, { label: v.trim() === "" ? undefined : v })}
-                                placeholder={field().name}
-                              />
-                              <TextInput
-                                label="Help text (optional)"
-                                icon="ti ti-info-circle"
-                                value={() => userEntry()?.helpText ?? ""}
-                                onInput={(v) => updateEntry(idx, { helpText: v.trim() === "" ? undefined : v })}
-                                placeholder="Shown under the input in the form"
-                                multiline
-                                lines={2}
-                              />
-                              <InlineCreateEditor field={field()} entry={userEntry()} onChange={(patch) => updateEntry(idx, patch)} />
-                            </li>
-                          }
-                        >
-                          {(ve) => (
-                            // Fixed value tile — the visitor never sees
-                            // this field but every submission gets stamped with
-                            // the configured value (e.g. "source = website" on a
-                            // public lead form). FieldInput renders the platform
-                            // input matching the field type with a synthetic
-                            // entry; we don't want overrides for label/help on a
-                            // hidden value.
-                            <li class="paper p-4 flex flex-col gap-2">
-                              <div class="flex items-center gap-2">
-                                <i class="ti ti-lock text-dimmed shrink-0" />
-                                <span class="flex-1 min-w-0 flex items-baseline gap-2">
-                                  <span class="text-sm font-medium text-primary truncate">{field().name}</span>
-                                  <span class="text-[10px] text-dimmed shrink-0">
-                                    {TYPE_LABELS[field().type] ?? field().type} · fixed value
-                                  </span>
-                                </span>
-                                <button
-                                  type="button"
-                                  class="text-dimmed hover:text-red-500 px-1"
-                                  onClick={() => removeEntry(idx)}
-                                  title="Remove from form"
-                                  aria-label="Remove from form"
-                                >
-                                  <i class="ti ti-x" />
-                                </button>
-                              </div>
-                              <FieldInput
-                                field={field()}
-                                entry={{ kind: "user_input", fieldId: field().id, required: false }}
-                                value={ve().value}
-                                onChange={(v) => updateFormValue(idx, v)}
-                              />
-                              <p class="text-[11px] text-dimmed leading-snug">
-                                Every submission gets this value. Visitors don't see this field.
-                              </p>
-                            </li>
-                          )}
-                        </Show>
-                      )}
-                    </Show>
-                  );
-                }}
-              </Index>
-            </ul>
-          </Show>
-
-          <Show when={addable().length > 0}>
-            <div class="flex flex-col gap-2">
-              <SegmentedControl
-                options={[
-                  { value: "user_input", label: "User input", icon: "ti ti-pencil" },
-                  { value: "form_value", label: "Fixed value", icon: "ti ti-lock" },
-                ]}
-                value={addKind}
-                onChange={(v) => setAddKind(v as "user_input" | "form_value")}
-              />
-              <p class="text-[11px] text-dimmed leading-snug">
-                <Show when={addKind() === "form_value"} fallback="User-input fields show as inputs the visitor fills out.">
-                  Fixed values don't show in the form. Every submission gets the configured value, such as source = website.
-                </Show>
-              </p>
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-dimmed">Add field:</span>
-                <div class="min-w-[14rem]">
-                  <Select
-                    value={() => ""}
-                    onChange={(v) => v && addEntry(v)}
-                    options={addable().map((f) => ({
-                      id: f.id,
-                      label: f.name,
-                      description: TYPE_LABELS[f.type] ?? f.type,
-                    }))}
-                    placeholder="Pick a field..."
-                  />
-                </div>
-              </div>
-            </div>
-          </Show>
-        </FormEditorSection>
+          <button type="button" class="btn-input btn-sm shrink-0" onClick={openFieldsEditor} disabled={updateMut.loading()}>
+            <i class="ti ti-forms" /> Edit fields
+          </button>
+        </div>
 
         {/* Permissions — grants `write` on this form to specific users
           or groups. Form-write = "can submit this form even when it
@@ -781,6 +591,283 @@ function FormEditor(props: {
           </button>
         </div>
       </PanelDialog.Footer>
+    </>
+  );
+}
+
+const openFormFieldsEditorDialog = (args: {
+  formName: string;
+  tableFields: Field[];
+  entries: FormFieldEntry[];
+  saving: () => boolean;
+  onSave: (entries: FormFieldEntry[]) => Promise<boolean>;
+}) =>
+  dialogCore.open<void>(
+    (close) => <FormFieldsEditorDialog args={args} close={close} />,
+    panelDialogOptions,
+  );
+
+function FormFieldsEditorDialog(props: {
+  args: {
+    formName: string;
+    tableFields: Field[];
+    entries: FormFieldEntry[];
+    saving: () => boolean;
+    onSave: (entries: FormFieldEntry[]) => Promise<boolean>;
+  };
+  close: () => void;
+}) {
+  const [entries, setEntries] = createSignal<FormFieldEntry[]>(props.args.entries.map((entry) => ({ ...entry })));
+  const [dirty, setDirty] = createSignal(false);
+  const closeIfClean = async () => {
+    if (await confirmDiscardIfDirty(dirty)) props.close();
+  };
+  const handleSave = async () => {
+    const saved = await props.args.onSave(entries());
+    if (!saved) return;
+    setDirty(false);
+    props.close();
+  };
+
+  return (
+    <PanelDialog>
+      <PanelDialog.Header title={`Edit fields — ${props.args.formName}`} icon="ti ti-forms" close={closeIfClean} />
+      <PanelDialog.Body>
+        <FormFieldsEditor
+          tableFields={props.args.tableFields}
+          entries={entries}
+          setEntries={setEntries}
+          markDirty={() => setDirty(true)}
+        />
+      </PanelDialog.Body>
+      <PanelDialog.Footer>
+        <span class="text-[11px] text-dimmed">Field changes are saved immediately from this dialog.</span>
+        <div class="flex items-center gap-2">
+          <button type="button" class="btn-input btn-sm" onClick={closeIfClean}>
+            Cancel
+          </button>
+          <button type="button" class="btn-primary btn-sm" onClick={handleSave} disabled={!dirty() || props.args.saving()}>
+            {props.args.saving() ? <i class="ti ti-loader-2 animate-spin" /> : "Save fields"}
+          </button>
+        </div>
+      </PanelDialog.Footer>
+    </PanelDialog>
+  );
+}
+
+function FormFieldsEditor(props: {
+  tableFields: Field[];
+  entries: () => FormFieldEntry[];
+  setEntries: (next: FormFieldEntry[]) => void;
+  markDirty: () => void;
+}) {
+  const [addKind, setAddKind] = createSignal<"user_input" | "form_value">("user_input");
+  const includedIds = createMemo(() => new Set(props.entries().map((entry) => entry.fieldId)));
+  const addable = createMemo(() => props.tableFields.filter((field) => !field.deletedAt && canBeFormInput(field) && !includedIds().has(field.id)));
+  const fieldById = createMemo(() => new Map(props.tableFields.map((field) => [field.id, field])));
+
+  const replaceEntries = (next: FormFieldEntry[]) => {
+    props.setEntries(next);
+    props.markDirty();
+  };
+
+  const addEntry = (fieldId: string) => {
+    const field = fieldById().get(fieldId);
+    if (!field) return;
+    replaceEntries([
+      ...props.entries(),
+      addKind() === "form_value"
+        ? { kind: "form_value", fieldId, value: null }
+        : { kind: "user_input", fieldId, required: field.required },
+    ]);
+  };
+
+  const removeEntry = (index: number) => {
+    replaceEntries(props.entries().filter((_, i) => i !== index));
+  };
+
+  const updateEntry = (index: number, patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => {
+    replaceEntries(
+      props.entries().map((entry, i) => {
+        if (i !== index || entry.kind !== "user_input") return entry;
+        return { ...entry, ...patch };
+      }),
+    );
+  };
+
+  const updateFormValue = (index: number, value: unknown) => {
+    replaceEntries(
+      props.entries().map((entry, i) => {
+        if (i !== index || entry.kind !== "form_value") return entry;
+        return { ...entry, value };
+      }),
+    );
+  };
+
+  const moveEntry = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= props.entries().length) return;
+    const next = [...props.entries()];
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    replaceEntries(next);
+  };
+
+  return (
+    <>
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-secondary">Fields in this form</span>
+        <span class="text-[10px] text-dimmed">{props.entries().length} field(s)</span>
+      </div>
+      <Show
+        when={props.entries().length > 0}
+        fallback={<p class="text-xs text-dimmed py-1">No fields included. Pick one from the list below to start.</p>}
+      >
+        <ul class="flex flex-col gap-2">
+          <Index each={props.entries()}>
+            {(entry, idx) => {
+              const field = () => fieldById().get(entry().fieldId);
+              const valueEntry = () =>
+                entry().kind === "form_value" ? (entry() as Extract<FormFieldEntry, { kind: "form_value" }>) : null;
+              const userEntry = () =>
+                entry().kind === "user_input" ? (entry() as Extract<FormFieldEntry, { kind: "user_input" }>) : null;
+              const required = () => userEntry()?.required ?? field()?.required ?? false;
+              return (
+                <Show when={field()}>
+                  {(f) => (
+                    <Show
+                      when={valueEntry()}
+                      fallback={
+                        <li class="paper p-4 flex flex-col gap-2">
+                          <div class="flex items-center gap-2">
+                            <div class="flex flex-col shrink-0">
+                              <button
+                                type="button"
+                                class="h-3 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
+                                onClick={() => moveEntry(idx, -1)}
+                                disabled={idx === 0}
+                                title="Move up"
+                                aria-label="Move up"
+                              >
+                                <i class="ti ti-chevron-up text-xs" />
+                              </button>
+                              <button
+                                type="button"
+                                class="h-3 flex items-center justify-center text-dimmed hover:text-blue-500 disabled:opacity-30 transition-colors"
+                                onClick={() => moveEntry(idx, 1)}
+                                disabled={idx === props.entries().length - 1}
+                                title="Move down"
+                                aria-label="Move down"
+                              >
+                                <i class="ti ti-chevron-down text-xs" />
+                              </button>
+                            </div>
+                            <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                              <span class="text-sm font-medium text-primary truncate">{f().name}</span>
+                              <span class="text-[10px] text-dimmed">{TYPE_LABELS[f().type] ?? f().type}</span>
+                            </span>
+                            <Checkbox label="Required" value={required} onChange={(v) => updateEntry(idx, { required: v })} />
+                            <button
+                              type="button"
+                              class="text-dimmed hover:text-red-500 px-1"
+                              onClick={() => removeEntry(idx)}
+                              title="Remove from form"
+                              aria-label="Remove from form"
+                            >
+                              <i class="ti ti-x" />
+                            </button>
+                          </div>
+                          <TextInput
+                            label="Label override (optional)"
+                            icon="ti ti-tag"
+                            value={() => userEntry()?.label ?? ""}
+                            onInput={(v) => updateEntry(idx, { label: v.trim() === "" ? undefined : v })}
+                            placeholder={f().name}
+                          />
+                          <TextInput
+                            label="Help text (optional)"
+                            icon="ti ti-info-circle"
+                            value={() => userEntry()?.helpText ?? ""}
+                            onInput={(v) => updateEntry(idx, { helpText: v.trim() === "" ? undefined : v })}
+                            placeholder="Shown under the input in the form"
+                            multiline
+                            lines={2}
+                          />
+                          <InlineCreateEditor field={f()} entry={userEntry()} onChange={(patch) => updateEntry(idx, patch)} />
+                        </li>
+                      }
+                    >
+                      {(ve) => (
+                        <li class="paper p-4 flex flex-col gap-2">
+                          <div class="flex items-center gap-2">
+                            <i class="ti ti-lock text-dimmed shrink-0" />
+                            <span class="flex-1 min-w-0 flex items-baseline gap-2">
+                              <span class="text-sm font-medium text-primary truncate">{f().name}</span>
+                              <span class="text-[10px] text-dimmed shrink-0">
+                                {TYPE_LABELS[f().type] ?? f().type} · fixed value
+                              </span>
+                            </span>
+                            <button
+                              type="button"
+                              class="text-dimmed hover:text-red-500 px-1"
+                              onClick={() => removeEntry(idx)}
+                              title="Remove from form"
+                              aria-label="Remove from form"
+                            >
+                              <i class="ti ti-x" />
+                            </button>
+                          </div>
+                          <FieldInput
+                            field={f()}
+                            entry={{ kind: "user_input", fieldId: f().id, required: false }}
+                            value={ve().value}
+                            onChange={(v) => updateFormValue(idx, v)}
+                          />
+                          <p class="text-[11px] text-dimmed leading-snug">
+                            Every submission gets this value. Visitors don't see this field.
+                          </p>
+                        </li>
+                      )}
+                    </Show>
+                  )}
+                </Show>
+              );
+            }}
+          </Index>
+        </ul>
+      </Show>
+
+      <Show when={addable().length > 0}>
+        <div class="flex flex-col gap-2">
+          <SegmentedControl
+            options={[
+              { value: "user_input", label: "User input", icon: "ti ti-pencil" },
+              { value: "form_value", label: "Fixed value", icon: "ti ti-lock" },
+            ]}
+            value={addKind}
+            onChange={(v) => setAddKind(v as "user_input" | "form_value")}
+          />
+          <p class="text-[11px] text-dimmed leading-snug">
+            <Show when={addKind() === "form_value"} fallback="User-input fields show as inputs the visitor fills out.">
+              Fixed values don't show in the form. Every submission gets the configured value, such as source = website.
+            </Show>
+          </p>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-dimmed">Add field:</span>
+            <div class="min-w-[14rem]">
+              <Select
+                value={() => ""}
+                onChange={(value) => value && addEntry(value)}
+                options={addable().map((field) => ({
+                  id: field.id,
+                  label: field.name,
+                  description: TYPE_LABELS[field.type] ?? field.type,
+                }))}
+                placeholder="Pick a field..."
+              />
+            </div>
+          </div>
+        </div>
+      </Show>
     </>
   );
 }

@@ -20,25 +20,12 @@ type Props = {
 const chooseEditModeAction = (formName: string) =>
   prompts.dialog<"use" | "edit">(
     (close) => (
-      <div class="flex flex-col gap-2">
-        <section class="paper p-4">
-          <div class="flex items-center gap-3">
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-              <i class="ti ti-forms" />
-            </span>
-            <div class="min-w-0">
-              <p class="font-semibold text-primary">Form in edit mode</p>
-              <p class="mt-1 text-sm text-dimmed">You are in edit mode. What do you want to do with "{formName}"?</p>
-            </div>
-            <button type="button" class="icon-btn ml-auto shrink-0" onClick={() => close()} aria-label="Close">
-              <i class="ti ti-x" />
-            </button>
-          </div>
-        </section>
+      <div class="flex flex-col gap-4">
+        <p class="text-sm text-dimmed">You are in edit mode. What do you want to do with "{formName}"?</p>
         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button
             type="button"
-            class="paper flex items-center justify-start gap-3 border-blue-400 p-4 text-left text-blue-700 transition hover:bg-blue-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-blue-500/70 dark:text-blue-300 dark:hover:bg-blue-950/30"
+            class="btn-input h-auto justify-start gap-3 border-blue-400 p-4 text-left text-blue-700 hover:bg-blue-50/70 dark:border-blue-500/70 dark:text-blue-300 dark:hover:bg-blue-950/30"
             onClick={() => close("use")}
           >
             <i class="ti ti-send shrink-0" />
@@ -49,7 +36,7 @@ const chooseEditModeAction = (formName: string) =>
           </button>
           <button
             type="button"
-            class="paper flex items-center justify-start gap-3 border-emerald-400 p-4 text-left text-emerald-700 transition hover:bg-emerald-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-emerald-500/70 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+            class="btn-input h-auto justify-start gap-3 border-emerald-400 p-4 text-left text-emerald-700 hover:bg-emerald-50/70 dark:border-emerald-500/70 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
             onClick={() => close("edit")}
           >
             <i class="ti ti-pencil shrink-0" />
@@ -61,7 +48,7 @@ const chooseEditModeAction = (formName: string) =>
         </div>
       </div>
     ),
-    { surface: "bare", header: false, size: "small" },
+    { title: "Form in edit mode", icon: "ti ti-forms", size: "small" },
   );
 
 /**

@@ -251,38 +251,36 @@ function FieldEditor(props: {
           </div>
         </Show>
 
-        <PanelDialog.Section title="Identity" subtitle="How this field appears in tables, forms, and detail panels." icon="ti ti-id">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <TextInput
-              label="Name"
-              description="Used as the column header and default form label."
-              value={name}
-              onInput={wrap(setName)}
-              icon="ti ti-typography"
-              required
-            />
-            <TextInput
-              label="Datatype"
-              description="Field types can't be changed after creation."
-              icon="ti ti-category"
-              value={() => typeLabel}
-              disabled
-            />
-          </div>
-
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <TextInput
-            label="Description (optional)"
-            description="Shown in forms and record details."
-            value={description}
-            onInput={wrap(setDescription)}
-            icon="ti ti-info-circle"
-            multiline
-            lines={2}
-            placeholder="e.g. Use the ISO-639-1 language code"
+            label="Name"
+            description="Used as the column header and default form label."
+            value={name}
+            onInput={wrap(setName)}
+            icon="ti ti-typography"
+            required
           />
+          <TextInput
+            label="Datatype"
+            description="Field types can't be changed after creation."
+            icon="ti ti-category"
+            value={() => typeLabel}
+            disabled
+          />
+        </div>
 
-          <IconInput label="Icon (optional)" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
-        </PanelDialog.Section>
+        <TextInput
+          label="Description (optional)"
+          description="Shown in forms and record details."
+          value={description}
+          onInput={wrap(setDescription)}
+          icon="ti ti-info-circle"
+          multiline
+          lines={2}
+          placeholder="e.g. Use the ISO-639-1 language code"
+        />
+
+        <IconInput label="Icon (optional)" value={icon} onChange={wrap(setIcon)} placeholder="Search icons..." />
 
         <PanelDialog.Section
           title="Record behavior"
