@@ -25,6 +25,7 @@
     "packages/spaces",
     "packages/tools",
     "packages/ui-lab",
+    "packages/venue",
     "packages/weather"
   ],
   "exports": {

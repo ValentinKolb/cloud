@@ -1,0 +1,22 @@
+import { defineApp } from "@valentinkolb/cloud";
+
+export const app = defineApp({
+  id: "venue",
+  name: "Venues",
+  icon: "ti ti-building-carousel",
+  description: "Venues, opening hours, staffing shifts, public status pages, and anonymous feedback.",
+  basePath: "/app/venue",
+  baseUrl: "http://app-venue:3000",
+  nav: {
+    href: "/app/venue",
+    match: "/app/venue",
+    section: "primary",
+    requiresAuth: true,
+    requiresRoles: ["user"],
+  },
+  widgets: [{ id: "today", path: "/api/venue/widget/today" }],
+  openapi: "/api/venue/openapi.json",
+  routes: ["/api/venue", "/app/venue", "/public/venue"],
+});
+
+export const { ssr, plugin } = app;

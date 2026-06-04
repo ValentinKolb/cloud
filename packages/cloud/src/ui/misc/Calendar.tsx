@@ -55,10 +55,21 @@ export type CalendarLabels = Partial<{
   next: string;
 }>;
 
+export type CalendarEventRenderContext = {
+  compact: boolean;
+  fill: boolean;
+  start: Date;
+  end: Date;
+  allDay: boolean;
+  durationHours: number;
+  timeLabel: string;
+};
+
 export type CalendarProps = {
   date: Date | string;
   events: CalendarEvent[];
   view?: CalendarView;
+  views?: CalendarView[];
   labels?: CalendarLabels;
   /** stdlib date context used for timezone-aware rendering and calendar math. */
   dateConfig?: DateContext;
@@ -77,6 +88,7 @@ export type CalendarProps = {
   getViewHref?: (view: CalendarView) => string;
   getDateHref?: (date: Date, view: CalendarView) => string;
   getEventHref?: (event: CalendarEvent) => string | undefined;
+  renderEvent?: (event: CalendarEvent, context: CalendarEventRenderContext) => JSX.Element;
   onViewChange?: (view: CalendarView) => void;
   onDateChange?: (date: Date, view: CalendarView) => void;
   onEventClick?: (event: CalendarEvent) => void;
@@ -326,6 +338,17 @@ const EventChip = (props: {
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
   const isInteractive = () => Boolean(props.owner.onEventClick || props.owner.onEventDoubleClick);
+  const timeLabel = () => `${formatTime(props.event.startDate, dateConfig())} - ${formatTime(props.event.endDate, dateConfig())}`;
+  const renderedEvent = () =>
+    props.owner.renderEvent?.(props.event, {
+      compact: props.compact ?? false,
+      fill: props.fill ?? false,
+      start: props.event.startDate,
+      end: props.event.endDate,
+      allDay: props.event.allDay ?? false,
+      durationHours: durationHours(),
+      timeLabel: timeLabel(),
+    });
   const dragProps = () =>
     props.owner.onEventDrop
       ? {
@@ -340,19 +363,18 @@ const EventChip = (props: {
           },
         }
       : {};
-  const content = (
+  const defaultContent = (
     <>
       <span class="block truncate text-[11px] font-semibold">{props.event.title}</span>
       <Show when={showTime()}>
-        <span class="block truncate text-[10px] opacity-75">
-          {formatTime(props.event.startDate, dateConfig())} - {formatTime(props.event.endDate, dateConfig())}
-        </span>
+        <span class="block truncate text-[10px] opacity-75">{timeLabel()}</span>
       </Show>
       <Show when={showLocation()}>
         <span class="block truncate text-[10px] opacity-75">{props.event.location}</span>
       </Show>
     </>
   );
+  const content = () => renderedEvent() ?? defaultContent;
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => {
     if (clickTimer) clearTimeout(clickTimer);
@@ -399,14 +421,14 @@ const EventChip = (props: {
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
       {...dragProps()}
     >
-      {content}
+      {content()}
     </a>
   ) : (
     <div
       class={className()}
       data-calendar-event=""
       style={style()}
-      role={isInteractive() ? "button" : undefined}
+      role="button"
       tabIndex={isInteractive() ? 0 : undefined}
       onClick={onClick}
       onDblClick={onDoubleClick}
@@ -414,7 +436,7 @@ const EventChip = (props: {
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
       {...dragProps()}
     >
-      {content}
+      {content()}
     </div>
   );
 };
@@ -538,6 +560,15 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
       </a>
     );
   };
+  const viewOptions = () =>
+    (
+      [
+        { value: "day", label: props.labels.day },
+        { value: "week", label: props.labels.week },
+        { value: "month", label: props.labels.month },
+        { value: "year", label: props.labels.year },
+      ] satisfies Array<{ value: CalendarView; label: string }>
+    ).filter((option) => !props.owner.views || props.owner.views.includes(option.value));
 
   return (
     <header class="flex flex-col gap-2 border-b border-zinc-100 p-2 dark:border-zinc-800/70 sm:flex-row sm:items-center sm:justify-between">
@@ -552,12 +583,7 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
           value={() => (props.view === "mobile-month" ? "month" : props.view)}
           onChange={goView}
           ariaLabel="Calendar view"
-          options={[
-            { value: "day", label: props.labels.day },
-            { value: "week", label: props.labels.week },
-            { value: "month", label: props.labels.month },
-            { value: "year", label: props.labels.year },
-          ]}
+          options={viewOptions()}
         />
       </div>
     </header>
