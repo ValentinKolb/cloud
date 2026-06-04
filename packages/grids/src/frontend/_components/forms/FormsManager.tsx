@@ -15,7 +15,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { img } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Index, onMount, type JSX, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import type { FormConfig, FormFieldEntry } from "../../../service/forms";
@@ -481,6 +481,16 @@ function FormEditor(props: {
               <i class="ti ti-copy" />
             </button>
           </div>
+          <div class="rounded-md border border-zinc-200 bg-white/70 p-3 dark:border-zinc-800 dark:bg-zinc-950/35">
+            <p class="text-xs font-semibold text-primary">Submit access</p>
+            <p class="mt-1 text-[11px] leading-snug text-dimmed">
+              Grant Write to specific users or groups when this form should be private or internal. Public forms still accept anyone with
+              the link.
+            </p>
+            <div class="mt-3">
+              <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
+            </div>
+          </div>
         </FormEditorSection>
 
         {/* Submission */}
@@ -523,21 +533,6 @@ function FormEditor(props: {
               markDirty();
             }}
           />
-        </FormEditorSection>
-
-        {/* Permissions — grants `write` on this form to specific users
-          or groups. Form-write = "can submit this form even when it
-          has no public token". The PermissionEditor renders as inline
-          badges (no dropdown) because allowedLevels=["write"] is the
-          single-pick case. Read+Admin on a form don't apply: read is
-          implied by being granted access; admin == form CRUD which
-          lives at table-admin (this whole panel). */}
-        <FormEditorSection title="Permissions" subtitle="Extra submit access for private or internal forms." icon="ti ti-lock-access">
-          <p class="text-[11px] text-dimmed leading-snug">
-            Grant Write to let specific users or groups submit this form even without the public link. They won't see other submissions
-            unless they also have table read.
-          </p>
-          <FormPermissions formId={props.form.id} initialEntries={props.initialAccessEntries} canEdit={props.canManageAccess} />
         </FormEditorSection>
       </PanelDialog.Body>
 
@@ -838,7 +833,7 @@ function FormFieldSettings(props: {
               value={() => entry().required}
               onChange={(required) => props.updateEntry({ required })}
             />
-            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div class="flex flex-col gap-3">
               <TextInput
                 label="Label override (optional)"
                 description="Use a different label on this form."
@@ -896,12 +891,10 @@ const cloneFormFieldEntry = (entry: FormFieldEntry): FormFieldEntry => {
 const isFormFieldEntryCustomized = (entry: FormFieldEntry, field?: Field) => {
   if (!field) return false;
   if (entry.kind === "form_value") return false;
+  const required = Boolean(entry.required ?? field.required);
+  const defaultRequired = Boolean(field.required);
   return Boolean(
-    (entry.required ?? field.required) !== field.required ||
-      entry.label ||
-      entry.helpText ||
-      entry.inlineCreate?.enabled ||
-      (entry.inlineCreate?.fields?.length ?? 0) > 0,
+    required !== defaultRequired || (entry.label?.trim() ?? "") || (entry.helpText?.trim() ?? "") || entry.inlineCreate?.enabled,
   );
 };
 
@@ -929,16 +922,14 @@ const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field: Field
           close={() => close(null)}
         />
         <PanelDialog.Body>
-          <div class="paper flex flex-col gap-3 p-4">
-            <FormFieldSettings
-              entry={draft}
-              field={() => args.field}
-              userEntry={userEntry}
-              valueEntry={valueEntry}
-              updateEntry={updateEntry}
-              updateFormValue={updateFormValue}
-            />
-          </div>
+          <FormFieldSettings
+            entry={draft}
+            field={() => args.field}
+            userEntry={userEntry}
+            valueEntry={valueEntry}
+            updateEntry={updateEntry}
+            updateFormValue={updateFormValue}
+          />
         </PanelDialog.Body>
         <PanelDialog.Footer>
           <span class="text-[11px] text-dimmed">Confirm stages the field settings. Use the main form Save to persist.</span>
@@ -996,17 +987,33 @@ function InlineCreateEditor(props: {
     props.field.type === "relation" ? (props.field.config as { targetTableId?: string }).targetTableId : undefined;
   const [targetFields, setTargetFields] = createSignal<Field[]>([]);
 
-  onMount(async () => {
+  createEffect(() => {
     const tableId = targetTableId();
+    setTargetFields([]);
     if (!tableId) return;
-    const res = await apiClient.fields["by-table"][":tableId"].$get({ param: { tableId } });
-    if (res.ok) setTargetFields(await res.json());
+    void (async () => {
+      const res = await apiClient.fields["by-table"][":tableId"].$get({ param: { tableId } });
+      if (res.ok && targetTableId() === tableId) setTargetFields(await res.json());
+    })();
   });
 
   const enabled = () => Boolean(props.entry?.inlineCreate?.enabled);
   const selectedFieldIds = () => (props.entry?.inlineCreate?.fields ?? []).map((entry) => entry.fieldId);
   const candidateFields = createMemo(() =>
     targetFields().filter((field) => !field.deletedAt && isRecordInputField(field.type) && field.type !== "relation"),
+  );
+  const fieldOption = (field: Field) => ({
+    id: field.id,
+    label: field.name,
+    description: TYPE_LABELS[field.type] ?? field.type,
+    icon: fieldTypeIcon(field.type, field.icon),
+  });
+  const candidateOptions = createMemo(() => candidateFields().map(fieldOption));
+  const selectedInlineOptions = createMemo(() =>
+    selectedFieldIds()
+      .map((fieldId) => targetFields().find((field) => field.id === fieldId))
+      .filter((field): field is Field => Boolean(field))
+      .map(fieldOption),
   );
 
   const setEnabled = (next: boolean) => {
@@ -1058,12 +1065,8 @@ function InlineCreateEditor(props: {
             icon="ti ti-columns"
             value={selectedFieldIds}
             onChange={setInlineFieldIds}
-            options={candidateFields().map((field) => ({
-              id: field.id,
-              label: field.name,
-              description: TYPE_LABELS[field.type] ?? field.type,
-              icon: fieldTypeIcon(field.type, field.icon),
-            }))}
+            options={candidateOptions()}
+            selectedOptions={selectedInlineOptions}
             clearable
           />
         </Show>
