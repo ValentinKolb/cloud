@@ -42,6 +42,7 @@ export type DataTableProps<T> = {
   empty?: JSX.Element;
   density?: "compact" | "normal";
   stickyHeader?: boolean;
+  highlightColumns?: boolean;
   cellContentClass?: string;
   fillHeight?: boolean;
   class?: string;
@@ -82,7 +83,7 @@ export default function DataTable<T>(props: DataTableProps<T>) {
   const cellContentClass = () => props.cellContentClass ?? "truncate";
   const tableClass = () => props.tableClass ?? `w-full text-xs ${props.fillHeight ? "h-full" : ""}`;
   const columnHoverClass = (index: number) =>
-    shouldHoverRows() && hoveredColumn() === index ? "bg-zinc-950/[0.015] dark:bg-black/[0.12]" : "";
+    props.highlightColumns !== false && shouldHoverRows() && hoveredColumn() === index ? "bg-zinc-950/[0.015] dark:bg-black/[0.12]" : "";
   const setHoveredColumnIfEnabled = (index: number) => {
     if (shouldHoverRows()) setHoveredColumn(index);
   };

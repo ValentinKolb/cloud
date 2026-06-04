@@ -6,6 +6,8 @@ import { venueService } from "../../service";
 import VenueWorkspace from "../_components/VenueWorkspace.island";
 
 const calendarViews: CalendarView[] = ["week", "month"];
+const feedbackDaysOptions = [7, 14, 30] as const;
+type FeedbackDays = (typeof feedbackDaysOptions)[number];
 
 const parseCalendarDate = (value: string | null): string => {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date().toISOString().slice(0, 10);
@@ -24,6 +26,10 @@ const slotWindow = (view: CalendarView, date: string): { startDate: string; days
 };
 
 const viewPath = (id: string, view: "shifts" | "my-shifts" | "feedback") => `/app/venue/${id}/${view}`;
+const parseFeedbackDays = (value: string | null): FeedbackDays => {
+  const parsed = Number(value);
+  return feedbackDaysOptions.includes(parsed as FeedbackDays) ? (parsed as FeedbackDays) : 30;
+};
 
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id");
@@ -63,6 +69,8 @@ export default ssr<AuthContext>(async (c) => {
   const calendarViewParam = url.searchParams.get("cv") as CalendarView | null;
   const initialCalendarView = calendarViewParam && calendarViews.includes(calendarViewParam) ? calendarViewParam : "week";
   const initialCalendarDate = parseCalendarDate(url.searchParams.get("cd"));
+  const initialFeedbackDays = parseFeedbackDays(url.searchParams.get("days"));
+  const initialFeedbackSearch = (url.searchParams.get("search") ?? "").trim();
   const slots =
     initialView === "shifts" ? slotWindow(initialCalendarView, initialCalendarDate) : { startDate: initialCalendarDate, days: 14 };
   const [dashboard, icalToken, accessEntries] = await Promise.all([
@@ -70,6 +78,8 @@ export default ssr<AuthContext>(async (c) => {
       slotStartDate: slots.startDate,
       slotDays: slots.days,
       includeFeedbackEntries: initialView === "feedback",
+      feedbackDays: initialFeedbackDays,
+      feedbackSearch: initialFeedbackSearch || undefined,
     }),
     venueService.ical.getOrCreateToken(user.id),
     venue.permission === "admin" ? venueService.access.list(venue.id) : Promise.resolve([]),
@@ -91,6 +101,8 @@ export default ssr<AuthContext>(async (c) => {
         initialSectionId={initialSectionId}
         initialCalendarView={initialCalendarView}
         initialCalendarDate={initialCalendarDate}
+        initialFeedbackDays={initialFeedbackDays}
+        initialFeedbackSearch={initialFeedbackSearch}
       />
     </Layout>
   );

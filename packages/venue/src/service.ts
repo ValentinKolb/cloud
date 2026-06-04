@@ -756,6 +756,7 @@ export const signupTemplate = async (
 
   const start = instantFor(input.date, toTime(template.start_time) ?? "00:00", venue.timezone);
   const end = instantFor(input.date, toTime(template.end_time) ?? "00:00", venue.timezone);
+  if (end < new Date()) return fail(err.badInput("This shift has already ended"));
 
   const [row] = await sql<DbShiftAssignment[]>`
     INSERT INTO venue.shift_assignments (venue_id, template_id, user_id, starts_at, ends_at)
@@ -804,6 +805,7 @@ export const signupFree = async (
   const start = new Date(input.startsAt);
   const end = new Date(input.endsAt);
   if (!(start < end)) return fail(err.badInput("Start must be before end"));
+  if (end < new Date()) return fail(err.badInput("This shift has already ended"));
 
   const [row] = await sql<DbShiftAssignment[]>`
     INSERT INTO venue.shift_assignments (venue_id, user_id, starts_at, ends_at, note)
@@ -877,7 +879,7 @@ export const createFeedback = async (venueId: string, input: z.infer<typeof Feed
 
 export const feedbackSummary = async (
   venueId: string,
-  options: { includeEntries?: boolean } = {},
+  options: { includeEntries?: boolean; entryDays?: number; entrySearch?: string } = {},
 ): Promise<{ summary: FeedbackSummary; entries: FeedbackEntry[] }> => {
   const [summary] = await sql<{ count: number; average_rating: number | null }[]>`
     SELECT COUNT(*)::int AS count, ROUND(AVG(rating)::numeric, 2)::float AS average_rating
@@ -892,12 +894,24 @@ export const feedbackSummary = async (
     GROUP BY created_at::date
     ORDER BY created_at::date
   `;
+  const entryDays = Math.max(1, Math.min(30, options.entryDays ?? 30));
+  const entrySearch = options.entrySearch?.trim();
   const entries = options.includeEntries
-    ? await sql<DbFeedbackEntry[]>`
+    ? entrySearch
+      ? await sql<DbFeedbackEntry[]>`
       SELECT * FROM venue.feedback_entries
       WHERE venue_id = ${venueId}::uuid
+        AND created_at >= now() - (${entryDays}::text || ' days')::interval
+        AND COALESCE(comment, '') ILIKE ${`%${entrySearch}%`}
       ORDER BY created_at DESC
-      LIMIT 20
+      LIMIT 200
+    `
+      : await sql<DbFeedbackEntry[]>`
+      SELECT * FROM venue.feedback_entries
+      WHERE venue_id = ${venueId}::uuid
+        AND created_at >= now() - (${entryDays}::text || ' days')::interval
+      ORDER BY created_at DESC
+      LIMIT 200
     `
     : [];
   return {
@@ -958,19 +972,31 @@ type VenueDashboardOptions = {
   slotStartDate?: string;
   slotDays?: number;
   includeFeedbackEntries?: boolean;
+  feedbackDays?: number;
+  feedbackSearch?: string;
 };
 
 export const dashboard = async (venue: Venue, user: UserLike, options: VenueDashboardOptions = {}): Promise<VenueDashboard> => {
   const start = new Date();
   const end = new Date(start.getTime() + 30 * 86_400_000);
   const slotDays = Math.max(0, options.slotDays ?? 14);
-  const [openingRules, overrides, templates, assignments, sections, feedback] = await Promise.all([
+  const [openingRules, overrides, templates, assignments, sections, feedback, myShiftCount] = await Promise.all([
     listOpeningRules(venue.id),
     listOverrides(venue.id),
     listTemplates(venue.id),
     assignmentsForRange(venue.id, start, end),
     listSections(venue.id),
-    feedbackSummary(venue.id, { includeEntries: options.includeFeedbackEntries ?? false }),
+    feedbackSummary(venue.id, {
+      includeEntries: options.includeFeedbackEntries ?? false,
+      entryDays: options.feedbackDays,
+      entrySearch: options.feedbackSearch,
+    }),
+    sql<{ count: number }[]>`
+      SELECT COUNT(*)::int AS count
+      FROM venue.shift_assignments
+      WHERE venue_id = ${venue.id}::uuid
+        AND user_id = ${user.id}::uuid
+    `.then((rows) => rows[0]?.count ?? 0),
   ]);
   const [slots] = await Promise.all([
     slotDays > 0 ? upcomingSlots(venue, { startDate: options.slotStartDate, days: slotDays, templates }) : Promise.resolve([]),
@@ -984,6 +1010,7 @@ export const dashboard = async (venue: Venue, user: UserLike, options: VenueDash
     slots,
     assignments,
     myUpcomingShifts: assignments.filter((assignment) => assignment.userId === user.id),
+    myShiftCount,
     sections,
     feedback: feedback.summary,
     feedbackEntries: feedback.entries,

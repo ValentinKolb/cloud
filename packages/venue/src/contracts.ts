@@ -249,6 +249,7 @@ export const VenueDashboardSchema = z.object({
   slots: z.array(UpcomingSlotSchema),
   assignments: z.array(ShiftAssignmentSchema),
   myUpcomingShifts: z.array(ShiftAssignmentSchema),
+  myShiftCount: z.number().int().min(0),
   sections: z.array(PublicSectionSchema),
   feedback: FeedbackSummarySchema,
   feedbackEntries: z.array(FeedbackEntrySchema),

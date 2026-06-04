@@ -1,16 +1,22 @@
 import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/contracts";
 import { markdown } from "@valentinkolb/cloud/shared";
+import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import {
   AppWorkspace,
   Calendar,
   type CalendarEvent,
   type CalendarView,
+  Chart,
   CheckboxCardInput,
   ColorInput,
+  DataTable,
+  type DataTableColumn,
   DatePicker,
   DateRangePicker,
   type DateRangeValue,
   dialogCore,
+  FilterChip,
+  type FilterChipSection,
   IconInput,
   ImageInput,
   MarkdownView,
@@ -21,17 +27,20 @@ import {
   SegmentedControl,
   SelectInput,
   SettingsModal,
+  StatCell,
+  StatGrid,
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
-import { img } from "@valentinkolb/stdlib/browser";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
+import { cookies, img } from "@valentinkolb/stdlib/browser";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type {
   DateOverride,
   DateOverrideInput,
+  FeedbackEntry,
   OpeningRule,
   OpeningRuleInput,
   PublicSection,
@@ -53,25 +62,40 @@ type Props = {
   initialSectionId?: string | null;
   initialCalendarView: CalendarView;
   initialCalendarDate: string;
+  initialFeedbackDays: FeedbackRange;
+  initialFeedbackSearch: string;
 };
 
 type VenueView = "shifts" | "my-shifts" | "feedback";
+type FeedbackRange = 7 | 14 | 30;
+type FeedbackBucket = VenueDashboard["feedback"]["buckets"][number];
 
 const views: Array<{ id: VenueView; label: string; icon: string }> = [
   { id: "shifts", label: "Shifts", icon: "ti ti-calendar-event" },
   { id: "my-shifts", label: "My shifts", icon: "ti ti-user-check" },
   { id: "feedback", label: "Feedback", icon: "ti ti-message-star" },
 ];
+const feedbackRangeOptions: FilterChipSection[] = [
+  {
+    options: [
+      { value: "7", label: "Last 7 days", icon: "ti ti-calendar-week" },
+      { value: "14", label: "Last 14 days", icon: "ti ti-calendar" },
+      { value: "30", label: "Last 30 days", icon: "ti ti-calendar-month" },
+    ],
+  },
+];
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const weekdayOptions = weekdays.map((label, id) => ({ id: String(id), label }));
 const timeZoneDateConfig = (timeZone: string) => ({ timeZone, weekStartsOn: 1 as const });
+const DAY_MS = 86_400_000;
 const defaultShiftRange = (): DateRangeValue => ({
   start: new Date(Date.now() + 60 * 60_000).toISOString(),
   end: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
 });
 const todayDateKey = (): string => new Date().toISOString().slice(0, 10);
 const MAX_BANNER_LONGEST_SIDE = 1600;
+const DOUBLE_CLICK_CONFIRM_COOKIE = "venue_skip_shift_double_click_confirm";
 
 const readError = async (res: Response, fallback: string): Promise<string> => {
   const body = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -80,10 +104,24 @@ const readError = async (res: Response, fallback: string): Promise<string> => {
 
 const canWrite = (venue: Venue): boolean => venue.permission === "write" || venue.permission === "admin";
 const canAdmin = (venue: Venue): boolean => venue.permission === "admin";
+const isSlotActive = (slot: UpcomingSlot): boolean => new Date(slot.endsAt) >= new Date();
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString("en", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const fmtTime = (iso: string, timeZone: string) => new Date(iso).toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", timeZone });
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en", { day: "2-digit", month: "short" });
 const dateKey = (date: Date): string => date.toISOString().slice(0, 10);
+const withinLastDays = (isoOrDateKey: string, days: number): boolean => {
+  const date = isoOrDateKey.length === 10 ? new Date(`${isoOrDateKey}T12:00:00Z`) : new Date(isoOrDateKey);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getTime() >= Date.now() - (days - 1) * DAY_MS;
+};
+const feedbackBucketCount = (buckets: FeedbackBucket[]): number => buckets.reduce((sum, bucket) => sum + bucket.count, 0);
+const feedbackBucketAverage = (buckets: FeedbackBucket[]): number | null => {
+  const count = feedbackBucketCount(buckets);
+  if (count === 0) return null;
+  const weighted = buckets.reduce((sum, bucket) => sum + (bucket.averageRating ?? 0) * bucket.count, 0);
+  return Math.round((weighted / count) * 10) / 10;
+};
 const parseDateKey = (value: string): Date => {
   const parsed = new Date(`${value}T12:00:00Z`);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
@@ -594,7 +632,7 @@ function SignupDialog(props: { dashboard: VenueDashboard; close: (changed: boole
             }
           >
             <div class="flex flex-col gap-2">
-              <For each={props.dashboard.slots.filter((slot) => new Date(slot.startsAt) >= new Date()).slice(0, 16)}>
+              <For each={props.dashboard.slots.filter(isSlotActive).slice(0, 16)}>
                 {(slot) => (
                   <div class="paper p-3">
                     <div class="flex items-start justify-between gap-3">
@@ -617,7 +655,7 @@ function SignupDialog(props: { dashboard: VenueDashboard; close: (changed: boole
                       <button
                         type="button"
                         class="btn-primary btn-sm"
-                        disabled={slot.full || signup.loading()}
+                        disabled={slot.full || !isSlotActive(slot) || signup.loading()}
                         onClick={() => signup.mutate({ slot })}
                       >
                         Join
@@ -625,7 +663,7 @@ function SignupDialog(props: { dashboard: VenueDashboard; close: (changed: boole
                       <button
                         type="button"
                         class="btn-secondary btn-sm"
-                        disabled={slot.full || signup.loading()}
+                        disabled={slot.full || !isSlotActive(slot) || signup.loading()}
                         onClick={() => signup.mutate({ slot, weeks: 4 })}
                       >
                         Join next 4 weeks
@@ -645,6 +683,43 @@ function SignupDialog(props: { dashboard: VenueDashboard; close: (changed: boole
         </PanelDialog.Footer>
       </div>
     </PanelDialog>
+  );
+}
+
+function ConfirmShiftSignupDialog(props: { slot: UpcomingSlot; timezone: string; close: (confirmed: boolean) => void }) {
+  const [skipConfirm, setSkipConfirm] = createSignal(false);
+  const confirm = () => {
+    if (skipConfirm()) cookies.writeJsonCookie(DOUBLE_CLICK_CONFIRM_COOKIE, true);
+    props.close(true);
+  };
+  return (
+    <div class="grid gap-4">
+      <div class="rounded-xl bg-zinc-50 p-3 text-sm dark:bg-zinc-900">
+        <p class="font-semibold text-primary">{props.slot.template.title}</p>
+        <p class="mt-1 text-dimmed">
+          {fmt(props.slot.startsAt)} · {fmtTime(props.slot.startsAt, props.timezone)}-{fmtTime(props.slot.endsAt, props.timezone)}
+        </p>
+        <div class="mt-3">
+          <ProgressBar slot={props.slot} />
+        </div>
+      </div>
+      <CheckboxCardInput
+        label="Don't show this confirmation again"
+        description="Future calendar double-clicks will join shifts directly."
+        icon="ti ti-click"
+        value={skipConfirm}
+        onChange={setSkipConfirm}
+        variant="input"
+      />
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn-secondary btn-sm" onClick={() => props.close(false)}>
+          Cancel
+        </button>
+        <button type="button" class="btn-primary btn-sm" onClick={confirm}>
+          Join shift
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1203,7 +1278,44 @@ export default function VenueWorkspace(props: Props) {
   const [selectedSectionId, setSelectedSectionId] = createSignal(props.initialSectionId ?? null);
   const [calendarView] = createSignal<CalendarView>(props.initialCalendarView);
   const [calendarDate] = createSignal(parseDateKey(props.initialCalendarDate));
-  const feedbackTrend = createMemo(() => props.dashboard.feedback.buckets.slice(-7));
+  const viewHref = (next: VenueView) => `/app/venue/${venue().id}/${next}`;
+  const feedbackRangeDays = createMemo(() => props.initialFeedbackDays);
+  const feedbackSearchAction = createMemo(() => {
+    const url = new URL(viewHref("feedback"), "http://venue.local");
+    if (props.initialFeedbackDays !== 30) url.searchParams.set("days", String(props.initialFeedbackDays));
+    return `${url.pathname}${url.search}`;
+  });
+  const feedbackFilterUrl = (days: FeedbackRange) => {
+    const url = new URL(viewHref("feedback"), "http://venue.local");
+    if (days !== 30) url.searchParams.set("days", String(days));
+    if (props.initialFeedbackSearch) url.searchParams.set("search", props.initialFeedbackSearch);
+    return `${url.pathname}${url.search}`;
+  };
+  const setFeedbackDays = (value: string[]) => {
+    const next = Number(value[0] ?? 30);
+    navigateTo(feedbackFilterUrl(next === 7 || next === 14 ? next : 30));
+  };
+  const feedbackBucketsForDays = (days: number) => props.dashboard.feedback.buckets.filter((bucket) => withinLastDays(bucket.date, days));
+  const feedbackThirtyDayBuckets = createMemo(() => feedbackBucketsForDays(30));
+  const feedbackThirtyDayCount = createMemo(() => feedbackBucketCount(feedbackThirtyDayBuckets()));
+  const feedbackThirtyDayAverage = createMemo(() => feedbackBucketAverage(feedbackThirtyDayBuckets()));
+  const feedbackBuckets = createMemo(() => feedbackBucketsForDays(feedbackRangeDays()));
+  const feedbackChartLabels = createMemo(() => feedbackBuckets().map((bucket) => fmtDate(bucket.date)));
+  const feedbackChartData = createMemo(() =>
+    feedbackBuckets()
+      .map((bucket, index) => ({ bucket, index }))
+      .filter(({ bucket }) => bucket.averageRating !== null)
+      .map(({ bucket, index }) => ({ x: index + 1, y: bucket.averageRating ?? 0 })),
+  );
+  const filteredFeedbackEntries = createMemo(() =>
+    props.dashboard.feedbackEntries.filter((entry) => withinLastDays(entry.createdAt, feedbackRangeDays())),
+  );
+  const openRegistrationCount = createMemo(() => props.dashboard.slots.reduce((sum, slot) => sum + slot.missingPeople, 0));
+  const feedbackColumns: DataTableColumn<FeedbackEntry>[] = [
+    { id: "rating", header: "Rating", value: (entry) => entry.rating, cellClass: "w-px" },
+    { id: "comment", header: "Comment", value: (entry) => entry.comment, cellClass: "min-w-64" },
+    { id: "created", header: "Submitted", value: (entry) => entry.createdAt, headerClass: "w-px", cellClass: "w-px whitespace-nowrap" },
+  ];
   const selectedSection = createMemo(() => props.dashboard.sections.find((section) => section.id === selectedSectionId()) ?? null);
   const slotByKey = createMemo(() => new Map(props.dashboard.slots.map((slot) => [slot.key, slot])));
   const shiftEvents = createMemo<CalendarEvent[]>(() =>
@@ -1212,12 +1324,11 @@ export default function VenueWorkspace(props: Props) {
       title: slot.template.title,
       start: slot.startsAt,
       end: slot.endsAt,
-      color: slot.full ? "zinc" : slot.missingPeople > 0 ? "amber" : "emerald",
+      color: !isSlotActive(slot) || slot.full ? "zinc" : slot.missingPeople > 0 ? "amber" : "emerald",
       meta: slot.assignments.map((entry) => entry.userDisplayName).join(", ") || "No one yet",
       description: `${slot.assignedCount}/${slot.minPeople}${slot.maxPeople ? ` · max ${slot.maxPeople}` : ""}`,
     })),
   );
-  const viewHref = (next: VenueView) => `/app/venue/${venue().id}/${next}`;
   const sectionHref = (section: PublicSection) => `/app/venue/${venue().id}/public-sections/${section.id}`;
   const calendarHref = (nextView: CalendarView, nextDate: Date) => {
     const normalizedView = nextView === "month" ? "month" : "week";
@@ -1234,6 +1345,7 @@ export default function VenueWorkspace(props: Props) {
   const calendarSignup = mutation.create<void, UpcomingSlot>({
     mutation: async (slot) => {
       if (slot.full) throw new Error("This shift is already full.");
+      if (!isSlotActive(slot)) throw new Error("This shift has already ended.");
       const res = await apiClient.venues[":id"].templates[":templateId"].signup.$post({
         param: { id: venue().id, templateId: slot.template.id },
         json: { date: slot.date },
@@ -1246,6 +1358,26 @@ export default function VenueWorkspace(props: Props) {
     },
     onError: (err) => prompts.error(err.message),
   });
+
+  const signupFromCalendar = async (slot: UpcomingSlot) => {
+    if (slot.full) {
+      prompts.error("This shift is already full.");
+      return;
+    }
+    if (!isSlotActive(slot)) {
+      prompts.error("This shift has already ended.");
+      return;
+    }
+    const skipConfirm = cookies.readJsonCookie(DOUBLE_CLICK_CONFIRM_COOKIE, false);
+    const confirmed = skipConfirm
+      ? true
+      : await prompts.dialog<boolean>((close) => <ConfirmShiftSignupDialog slot={slot} timezone={venue().timezone} close={close} />, {
+          title: "Join this shift?",
+          icon: "ti ti-user-plus",
+          size: "small",
+        });
+    if (confirmed) calendarSignup.mutate(slot);
+  };
 
   const openSettings = async () => {
     await prompts.dialog<void>(
@@ -1498,25 +1630,34 @@ export default function VenueWorkspace(props: Props) {
       <AppWorkspace.Main>
         <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-preserve={`venue-main-${venue().id}`} style="scrollbar-gutter: stable">
           <div class="flex flex-col gap-2">
-            <section class="grid gap-2 md:grid-cols-3" style="view-transition-name: venue-stats">
-              <div class="paper p-4">
-                <p class="text-xs font-medium uppercase tracking-wide text-dimmed">Feedback</p>
-                <p class="mt-2 text-2xl font-semibold text-primary">{props.dashboard.feedback.averageRating ?? "-"}</p>
-                <p class="text-xs text-dimmed">{props.dashboard.feedback.count} ratings</p>
-              </div>
-              <div class="paper p-4">
-                <p class="text-xs font-medium uppercase tracking-wide text-dimmed">Open slots</p>
-                <p class="mt-2 text-2xl font-semibold text-primary">
-                  {props.dashboard.slots.reduce((sum, slot) => sum + slot.missingPeople, 0)}
-                </p>
-                <p class="text-xs text-dimmed">people missing in upcoming slots</p>
-              </div>
-              <div class="paper p-4">
-                <p class="text-xs font-medium uppercase tracking-wide text-dimmed">My shifts</p>
-                <p class="mt-2 text-2xl font-semibold text-primary">{props.dashboard.myUpcomingShifts.length}</p>
-                <p class="text-xs text-dimmed">upcoming assignments</p>
-              </div>
-            </section>
+            <StatGrid columns={3} class="shrink-0">
+              <StatCell
+                label="Customer satisfaction"
+                value={feedbackThirtyDayAverage() === null ? "-" : `${feedbackThirtyDayAverage()!.toFixed(1)}/5`}
+                sub={`${feedbackThirtyDayCount()} rating${feedbackThirtyDayCount() === 1 ? "" : "s"} · Last 30 days`}
+                accent={{
+                  tone: feedbackThirtyDayAverage() !== null && feedbackThirtyDayAverage()! >= 4 ? "emerald" : "amber",
+                  icon: "ti ti-star",
+                }}
+              />
+              <StatCell
+                label="Open registrations"
+                value={openRegistrationCount()}
+                sub="still needed in visible shift window"
+                accent={{
+                  tone: openRegistrationCount() > 0 ? "amber" : "emerald",
+                  icon: openRegistrationCount() > 0 ? "ti ti-user-plus" : "ti ti-check",
+                }}
+              />
+              <StatCell
+                label="My shifts"
+                value={props.dashboard.myShiftCount}
+                sub={`${props.dashboard.myUpcomingShifts.length} upcoming assignment${
+                  props.dashboard.myUpcomingShifts.length === 1 ? "" : "s"
+                }`}
+                accent={{ tone: "blue", icon: "ti ti-user-check" }}
+              />
+            </StatGrid>
 
             <Show when={selectedSection()}>
               {(section) => (
@@ -1594,19 +1735,25 @@ export default function VenueWorkspace(props: Props) {
                     getDateHref={(nextDate, nextView) => calendarHref(nextView, nextDate)}
                     onEventDoubleClick={(event) => {
                       const slot = slotByKey().get(event.id);
-                      if (slot) calendarSignup.mutate(slot);
+                      if (slot) void signupFromCalendar(slot);
                     }}
                     renderEvent={(event, context) => {
                       const slot = slotByKey().get(event.id);
                       const slotProgress = !context.compact ? slot : undefined;
                       const slotAttendees = context.durationHours >= 1.5 ? slot : undefined;
+                      const ended = slot ? !isSlotActive(slot) : false;
                       return (
                         <div class="flex min-h-0 min-w-0 flex-col gap-1">
                           <span class="block truncate text-[11px] font-semibold">{event.title}</span>
                           <span class="block truncate text-[10px] opacity-75">
                             {fmtTime(context.start.toISOString(), venue().timezone)}-{fmtTime(context.end.toISOString(), venue().timezone)}
                           </span>
-                          <Show when={slotProgress}>{(currentSlot) => <ProgressBar slot={currentSlot()} compact />}</Show>
+                          <Show
+                            when={ended}
+                            fallback={<Show when={slotProgress}>{(currentSlot) => <ProgressBar slot={currentSlot()} compact />}</Show>}
+                          >
+                            <span class="block truncate text-[10px] font-semibold opacity-75">Ended</span>
+                          </Show>
                           <Show when={slotAttendees}>
                             {(currentSlot) => (
                               <span class="block truncate text-[10px] opacity-75">
@@ -1653,31 +1800,75 @@ export default function VenueWorkspace(props: Props) {
             </Show>
 
             <Show when={!selectedSection() && view() === "feedback"}>
-              <section class="paper p-4">
-                <h2 class="section-label">Feedback</h2>
-                <div class="mb-3 flex gap-1">
-                  <For each={feedbackTrend()}>
-                    {(bucket) => (
-                      <div
-                        class="flex h-14 flex-1 items-end rounded bg-zinc-100 p-1 dark:bg-zinc-900"
-                        title={`${bucket.date}: ${bucket.averageRating ?? "-"} (${bucket.count})`}
-                      >
-                        <div
-                          class="w-full rounded bg-blue-500"
-                          style={{ height: `${Math.max(8, ((bucket.averageRating ?? 0) / 5) * 100)}%` }}
-                        />
-                      </div>
-                    )}
-                  </For>
+              <section class="flex flex-col gap-3 px-1 py-2">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div class="min-w-0">
+                    <h2 class="section-label mb-1">Feedback</h2>
+                    <p class="text-sm text-dimmed">Average customer rating over the last {feedbackRangeDays()} days.</p>
+                  </div>
                 </div>
-                <For each={props.dashboard.feedbackEntries} fallback={<p class="text-sm text-dimmed">No feedback yet.</p>}>
-                  {(entry) => (
-                    <div class="border-b border-zinc-100 py-2 text-sm last:border-0 dark:border-zinc-800">
-                      <span class="font-medium">{entry.rating}/5</span>
-                      <span class="ml-2 text-dimmed">{entry.comment || "No comment"}</span>
-                    </div>
-                  )}
-                </For>
+
+                <div class="h-64 rounded-xl px-1 py-2 text-dimmed">
+                  <Chart
+                    kind="line"
+                    class="h-full min-h-0"
+                    series={[{ label: "Average rating", data: feedbackChartData() }]}
+                    xAxis={{ format: (value) => feedbackChartLabels()[Math.max(0, Math.round(value) - 1)] ?? "" }}
+                    yAxis={{ format: (value) => `${value}/5` }}
+                    smooth
+                  />
+                </div>
+
+                <div class="flex items-stretch gap-2">
+                  <div class="min-w-0 flex-1">
+                    <SearchBar
+                      action={feedbackSearchAction()}
+                      value={props.initialFeedbackSearch}
+                      placeholder="Search comments..."
+                      ariaLabel="Search feedback comments"
+                    />
+                  </div>
+                  <FilterChip
+                    label={`Last ${feedbackRangeDays()} days`}
+                    icon="ti ti-calendar"
+                    options={feedbackRangeOptions}
+                    value={[String(feedbackRangeDays())]}
+                    onChange={setFeedbackDays}
+                    isActive={feedbackRangeDays() !== 30}
+                    defaultValue={["30"]}
+                    position="bottom-right"
+                  />
+                </div>
+
+                <div class="paper overflow-hidden">
+                  <DataTable
+                    rows={filteredFeedbackEntries()}
+                    columns={feedbackColumns}
+                    getRowId={(entry) => entry.id}
+                    hoverRows
+                    highlightColumns={false}
+                    class="overflow-x-auto"
+                    empty={`No feedback in the last ${feedbackRangeDays()} days.`}
+                    renderCell={({ row: entry, col, value, render }) => {
+                      if (col.id === "rating") {
+                        return (
+                          <span class="inline-flex items-center gap-0.5 whitespace-nowrap text-amber-500 dark:text-amber-400">
+                            <For each={[1, 2, 3, 4, 5]}>
+                              {(star) => (
+                                <i class={`ti ti-star text-sm ${star <= entry.rating ? "" : "text-zinc-300 dark:text-zinc-600"}`} />
+                              )}
+                            </For>
+                          </span>
+                        );
+                      }
+                      if (col.id === "comment") {
+                        return <span class={entry.comment ? "text-primary" : "italic text-dimmed"}>{entry.comment || "No comment"}</span>;
+                      }
+                      if (col.id === "created") return fmt(entry.createdAt);
+                      return render(value);
+                    }}
+                  />
+                </div>
               </section>
             </Show>
           </div>

@@ -390,6 +390,7 @@ const EventChip = (props: {
     </>
   );
   const content = () => renderedEvent() ?? defaultContent;
+  let eventElement: HTMLAnchorElement | HTMLDivElement | undefined;
   let clickTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => {
     if (clickTimer) clearTimeout(clickTimer);
@@ -417,6 +418,12 @@ const EventChip = (props: {
     }
     props.owner.onEventDoubleClick(props.event);
   };
+  onMount(() => {
+    if (!props.owner.onEventDoubleClick || !eventElement) return;
+    const onNativeDoubleClick = (event: Event) => onDoubleClick(event as MouseEvent);
+    eventElement.addEventListener("dblclick", onNativeDoubleClick);
+    onCleanup(() => eventElement?.removeEventListener("dblclick", onNativeDoubleClick));
+  });
   const onKeyDown = (event: KeyboardEvent) => {
     if (!isInteractive() || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault();
@@ -425,13 +432,15 @@ const EventChip = (props: {
 
   return props.href ? (
     <a
+      ref={(element) => {
+        eventElement = element;
+      }}
       href={props.href}
       class={className()}
       data-calendar-event=""
       data-space-item-id={props.event.dataSpaceItemId}
       style={style()}
       onClick={onClick}
-      onDblClick={onDoubleClick}
       onKeyDown={onKeyDown}
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
       {...dragProps()}
@@ -440,13 +449,15 @@ const EventChip = (props: {
     </a>
   ) : (
     <div
+      ref={(element) => {
+        eventElement = element;
+      }}
       class={className()}
       data-calendar-event=""
       style={style()}
       role="button"
       tabIndex={isInteractive() ? 0 : undefined}
       onClick={onClick}
-      onDblClick={onDoubleClick}
       onKeyDown={onKeyDown}
       aria-label={`${props.event.title}${props.event.allDay ? "" : `, ${formatTime(props.event.startDate, dateConfig())} to ${formatTime(props.event.endDate, dateConfig())}`}`}
       {...dragProps()}
