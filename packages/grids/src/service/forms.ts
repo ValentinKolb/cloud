@@ -10,6 +10,9 @@ import { insertWithShortId } from "./short-id";
 import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
+type InlineCreateFieldEntry = NonNullable<Extract<FormFieldEntry, { kind: "user_input" }>["inlineCreate"]>["fields"] extends Array<infer T>
+  ? T
+  : never;
 
 /**
  * A grids form. Stored forms live in grids.forms; the per-table "default
@@ -40,6 +43,16 @@ export type FormFieldEntry =
       /** Tightens the field's own required flag for THIS form (cannot loosen). */
       required?: boolean;
       defaultValue?: unknown;
+      inlineCreate?: {
+        enabled?: boolean;
+        fields?: Array<{
+          fieldId: string;
+          label?: string;
+          helpText?: string;
+          required?: boolean;
+          defaultValue?: unknown;
+        }>;
+      };
     }
   | {
       kind: "form_value";
@@ -138,6 +151,31 @@ const normalizeFieldEntry = (raw: unknown): FormFieldEntry | null => {
     helpText: typeof obj.helpText === "string" ? obj.helpText : undefined,
     required: typeof obj.required === "boolean" ? obj.required : undefined,
     defaultValue: obj.defaultValue,
+    inlineCreate:
+      obj.inlineCreate && typeof obj.inlineCreate === "object"
+        ? {
+            enabled: typeof (obj.inlineCreate as Record<string, unknown>).enabled === "boolean"
+              ? ((obj.inlineCreate as Record<string, unknown>).enabled as boolean)
+              : undefined,
+            fields: Array.isArray((obj.inlineCreate as Record<string, unknown>).fields)
+              ? ((obj.inlineCreate as Record<string, unknown>).fields as unknown[])
+                  .map((raw) => {
+                    if (!raw || typeof raw !== "object") return null;
+                    const nested = raw as Record<string, unknown>;
+                    return typeof nested.fieldId === "string"
+                      ? {
+                          fieldId: nested.fieldId,
+                          label: typeof nested.label === "string" ? nested.label : undefined,
+                          helpText: typeof nested.helpText === "string" ? nested.helpText : undefined,
+                          required: typeof nested.required === "boolean" ? nested.required : undefined,
+                          defaultValue: nested.defaultValue,
+                        }
+                      : null;
+                  })
+                  .filter((entry): entry is InlineCreateFieldEntry => entry !== null)
+              : undefined,
+          }
+        : undefined,
   };
 };
 
@@ -371,6 +409,48 @@ const validateFormConfig = async (tableId: string, config: unknown): Promise<Res
       normalized.fields[i] = { ...entry, value: validated.data };
     } else if (entry.defaultValue !== undefined) {
       normalized.fields[i] = { ...entry, defaultValue: validated.data };
+    }
+
+    if (entry.kind === "user_input" && entry.inlineCreate?.enabled) {
+      if (field.type !== "relation") {
+        return fail(err.badInput(`field "${field.name}" cannot create related records because it is not a relation`));
+      }
+      const targetTableId = (field.config as { targetTableId?: unknown }).targetTableId;
+      if (typeof targetTableId !== "string") {
+        return fail(err.badInput(`field "${field.name}" cannot create related records because it has no target table`));
+      }
+      const inlineFields = entry.inlineCreate.fields ?? [];
+      if (inlineFields.length === 0) {
+        return fail(err.badInput(`field "${field.name}" inline creation needs at least one target field`));
+      }
+      const targetFields = await listFields(targetTableId);
+      const targetById = new Map(targetFields.filter((f) => !f.deletedAt).map((f) => [f.id, f]));
+      const seenTargetFields = new Set<string>();
+      const normalizedInlineFields: NonNullable<Extract<FormFieldEntry, { kind: "user_input" }>["inlineCreate"]>["fields"] = [];
+      for (const inlineField of inlineFields) {
+        const targetField = targetById.get(inlineField.fieldId);
+        if (!targetField) return fail(err.badInput(`field "${field.name}" inline creation references an unknown target field`));
+        if (seenTargetFields.has(inlineField.fieldId)) {
+          return fail(err.badInput(`field "${field.name}" inline creation references "${targetField.name}" more than once`));
+        }
+        seenTargetFields.add(inlineField.fieldId);
+        if (!isRecordWritableFieldType(targetField.type) || targetField.type === "relation") {
+          return fail(err.badInput(`field "${field.name}" inline creation cannot edit target field "${targetField.name}"`));
+        }
+        const inlineDefault = validateDefaultValue(targetField.type, targetField.config, inlineField.defaultValue);
+        if (!inlineDefault.ok) {
+          return fail(err.badInput(`invalid inline form value for "${targetField.name}": ${inlineDefault.error.message}`));
+        }
+        normalizedInlineFields.push(
+          inlineField.defaultValue !== undefined ? { ...inlineField, defaultValue: inlineDefault.data } : inlineField,
+        );
+      }
+      normalized.fields[i] = {
+        ...(normalized.fields[i] as Extract<FormFieldEntry, { kind: "user_input" }>),
+        inlineCreate: { enabled: true, fields: normalizedInlineFields },
+      };
+    } else if (entry.kind === "user_input" && entry.inlineCreate) {
+      normalized.fields[i] = { ...(normalized.fields[i] as Extract<FormFieldEntry, { kind: "user_input" }>), inlineCreate: undefined };
     }
   }
 

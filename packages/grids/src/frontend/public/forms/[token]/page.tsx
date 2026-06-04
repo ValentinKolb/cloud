@@ -51,6 +51,18 @@ export default ssr<AuthContext>(async (c) => {
   const userInputIds = new Set(form.config.fields.filter((e) => e.kind === "user_input").map((e) => e.fieldId));
   const liveFields = await gridsService.field.listByTable(form.tableId);
   const fields = liveFields.filter((f) => userInputIds.has(f.id));
+  const fieldsById = new Map(liveFields.map((field) => [field.id, field]));
+  const inlineTargetFields: Record<string, typeof fields> = {};
+  for (const entry of form.config.fields) {
+    if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
+    const relationField = fieldsById.get(entry.fieldId);
+    if (relationField?.type !== "relation") continue;
+    const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
+    if (typeof targetTableId !== "string") continue;
+    const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((inlineField) => inlineField.fieldId));
+    const targetFields = await gridsService.field.listByTable(targetTableId);
+    inlineTargetFields[targetTableId] = targetFields.filter((field) => allowedIds.has(field.id));
+  }
 
   c.get("page").title = form.config.title ?? form.name;
   c.get("page").description = form.config.description ?? undefined;
@@ -62,7 +74,13 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <PublicShell legalLinks={legalLinks}>
-      <PublicFormSubmit publicToken={token} form={safeForm} fields={fields} dateConfig={dateConfig} />
+      <PublicFormSubmit
+        publicToken={token}
+        form={safeForm}
+        fields={fields}
+        inlineTargetFields={inlineTargetFields}
+        dateConfig={dateConfig}
+      />
     </PublicShell>
   );
 });

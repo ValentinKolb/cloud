@@ -1,6 +1,7 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
+  CheckboxCard,
   confirmDiscardIfDirty,
   CopyButton,
   dialogCore,
@@ -14,7 +15,7 @@ import {
 } from "@valentinkolb/cloud/ui";
 import { img } from "@valentinkolb/stdlib/browser";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createMemo, createSignal, For, Index, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, Index, onMount, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
 import type { FormConfig, FormFieldEntry } from "../../../service/forms";
@@ -663,6 +664,7 @@ function FormEditor(props: {
                                 multiline
                                 lines={2}
                               />
+                              <InlineCreateEditor field={field()} entry={userEntry()} onChange={(patch) => updateEntry(idx, patch)} />
                             </li>
                           }
                         >
@@ -788,6 +790,84 @@ function FormEditorSection(props: { title: string; subtitle?: string; icon: stri
     <PanelDialog.Section title={props.title} subtitle={props.subtitle} icon={props.icon}>
       {props.children}
     </PanelDialog.Section>
+  );
+}
+
+function InlineCreateEditor(props: {
+  field: Field;
+  entry: Extract<FormFieldEntry, { kind: "user_input" }> | null;
+  onChange: (patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => void;
+}) {
+  const targetTableId = () =>
+    props.field.type === "relation" ? (props.field.config as { targetTableId?: string }).targetTableId : undefined;
+  const [targetFields, setTargetFields] = createSignal<Field[]>([]);
+
+  onMount(async () => {
+    const tableId = targetTableId();
+    if (!tableId) return;
+    const res = await apiClient.fields["by-table"][":tableId"].$get({ param: { tableId } });
+    if (res.ok) setTargetFields(await res.json());
+  });
+
+  const enabled = () => Boolean(props.entry?.inlineCreate?.enabled);
+  const selectedIds = () => new Set((props.entry?.inlineCreate?.fields ?? []).map((entry) => entry.fieldId));
+  const candidateFields = createMemo(() =>
+    targetFields().filter((field) => !field.deletedAt && isRecordInputField(field.type) && field.type !== "relation"),
+  );
+
+  const setEnabled = (next: boolean) => {
+    props.onChange(
+      next
+        ? {
+            inlineCreate: {
+              enabled: true,
+              fields:
+                props.entry?.inlineCreate?.fields ??
+                candidateFields()
+                  .slice(0, 1)
+                  .map((field) => ({ fieldId: field.id, required: field.required })),
+            },
+          }
+        : { inlineCreate: undefined },
+    );
+  };
+
+  const toggleField = (field: Field, checked: boolean) => {
+    const current = props.entry?.inlineCreate?.fields ?? [];
+    const nextFields = checked
+      ? current.some((entry) => entry.fieldId === field.id)
+        ? current
+        : [...current, { fieldId: field.id, required: field.required }]
+      : current.filter((entry) => entry.fieldId !== field.id);
+    props.onChange({ inlineCreate: { enabled: true, fields: nextFields } });
+  };
+
+  return (
+    <Show when={targetTableId()}>
+      <div class="mt-1 flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+        <Checkbox
+          label="Create related records inline"
+          description="Let this form create the linked record together with the main record. Nothing is saved until submit."
+          value={enabled}
+          onChange={setEnabled}
+        />
+        <Show when={enabled()}>
+          <div class="grid grid-cols-1 gap-2">
+            <p class="text-[11px] text-dimmed">Fields allowed in the inline record:</p>
+            <For each={candidateFields()}>
+              {(field) => (
+                <CheckboxCard
+                  label={field.name}
+                  description={TYPE_LABELS[field.type] ?? field.type}
+                  value={() => selectedIds().has(field.id)}
+                  onChange={(checked) => toggleField(field, checked)}
+                />
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+    </Show>
   );
 }
 

@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import { defaultTableAggregations } from "../table-defaults";
 import { type AggregateRequest, compileAggregates } from "./aggregate-compiler";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { applyComputedProjections, buildComputedProjections } from "./computed-projections";
 import { nextAutonumberValue } from "./field-indexes";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
@@ -70,6 +70,25 @@ const emitRecordEvent = async (event: Omit<GridsRecordEvent, "v" | "occurredAt">
   await publishRecordEvent(payload);
 };
 
+export const emitCreatedRecordEvent = async (
+  tableId: string,
+  record: GridRecord,
+  changedFieldIds: string[],
+  actorId: string | null,
+): Promise<void> => {
+  const baseId = await baseIdForTable(tableId);
+  if (!baseId) return;
+  await emitRecordEvent({
+    type: "record.created",
+    baseId,
+    tableId,
+    recordId: record.id,
+    version: record.version,
+    changedFieldIds,
+    actorId,
+  });
+};
+
 /**
  * Splits a validated payload into (a) JSONB-storable scalar/array data
  * and (b) the relation-link map keyed by fieldId. Relation values stop
@@ -110,6 +129,7 @@ const splitRelationsFromData = (
 const preflightRelationTargets = async (
   relations: Map<string, string[]>, // fieldId -> toIds
   fieldsById: Map<string, Field>,
+  client: SqlClient = sql,
 ): Promise<Result<void>> => {
   // Group all (fieldId, toIds) by their relation field's targetTableId.
   // Track which fields contributed to each group so we can attribute
@@ -128,7 +148,7 @@ const preflightRelationTargets = async (
   for (const [targetTableId, group] of groups) {
     const ids = [...group.ids];
     if (ids.length === 0) continue;
-    const check = await validateRelationTargets(targetTableId, ids);
+    const check = await validateRelationTargets(targetTableId, ids, client);
     if (!check.ok) {
       const fieldNamePart =
         group.fieldNames.length === 1 ? `field "${group.fieldNames[0]}"` : `fields [${group.fieldNames.map((n) => `"${n}"`).join(", ")}]`;
@@ -208,6 +228,81 @@ const validateForUpdate = async (tableId: string, payload: Record<string, unknow
     out[fieldId] = result.value;
   }
   return ok(out);
+};
+
+export type CreateRecordInTransactionResult = {
+  record: GridRecord;
+  changedFieldIds: string[];
+};
+
+export const createInTransaction = async (
+  client: SqlClient,
+  tableId: string,
+  payload: Record<string, unknown>,
+  actorId: string | null,
+  opts: {
+    bypassDirectInsertCheck?: boolean;
+    dateConfig?: DateContext;
+  } = {},
+): Promise<Result<CreateRecordInTransactionResult>> => {
+  const parentAlive = await requireTableAlive(tableId);
+  if (!parentAlive.ok) return parentAlive;
+
+  if (!opts.bypassDirectInsertCheck) {
+    const [row] = await client<{ disable_direct_insert: boolean }[]>`
+      SELECT disable_direct_insert FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
+    `;
+    if (row?.disable_direct_insert) {
+      return fail(err.forbidden("Direct insert is disabled for this table; records can only be added via a form."));
+    }
+  }
+
+  const validated = await validateForCreate(tableId, payload, { dateConfig: opts.dateConfig });
+  if (!validated.ok) return validated;
+
+  const fields = await listFields(tableId);
+  const split = splitRelationsFromData(validated.data, fields);
+  const fieldsById = new Map(fields.map((f) => [f.id, f]));
+  const preflight = await preflightRelationTargets(split.relations, fieldsById, client);
+  if (!preflight.ok) return preflight;
+
+  const id = Bun.randomUUIDv7();
+  const [row] = await client<DbRow[]>`
+    INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
+    VALUES (
+      ${id}::uuid,
+      ${tableId}::uuid,
+      ${split.data}::jsonb,
+      1,
+      ${actorId}::uuid,
+      ${actorId}::uuid
+    )
+    RETURNING *
+  `;
+  if (!row) throw new Error("insert returned no row");
+
+  for (const [fieldId, toIds] of split.relations) {
+    await writeRecordLinks(id, fieldId, toIds, client);
+  }
+
+  await logAudit(
+    {
+      tableId,
+      recordId: id,
+      userId: actorId,
+      action: "created",
+      diff: Object.fromEntries(Object.entries(validated.data).map(([k, v]) => [k, { old: null, new: v }])),
+    },
+    client,
+  );
+
+  const record = mapRow(row);
+  for (const [fieldId, toIds] of split.relations) {
+    record.data[fieldId] = toIds;
+  }
+  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
+
+  return ok({ record, changedFieldIds: Object.keys(validated.data) });
 };
 
 export const list = async (params: {
@@ -572,102 +667,19 @@ export const create = async (
     dateConfig?: DateContext;
   } = {},
 ): Promise<Result<GridRecord>> => {
-  const parentAlive = await requireTableAlive(tableId);
-  if (!parentAlive.ok) return parentAlive;
-
-  // Per-table QoL gate: a "submission inbox" table can mark
-  // disable_direct_insert=true so records only flow in via a form.
-  // The form-submit handler explicitly opts out of this check
-  // (bypassDirectInsertCheck=true). Direct API + records-grid inserts
-  // don't pass the flag and so get rejected here.
-  if (!opts.bypassDirectInsertCheck) {
-    const [row] = await sql<{ disable_direct_insert: boolean }[]>`
-      SELECT disable_direct_insert FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
-    `;
-    if (row?.disable_direct_insert) {
-      return fail(err.forbidden("Direct insert is disabled for this table; records can only be added via a form."));
-    }
-  }
-
-  const validated = await validateForCreate(tableId, payload, { dateConfig: opts.dateConfig });
-  if (!validated.ok) return validated;
-
-  const fields = await listFields(tableId);
-  // v3: relation values DON'T go into the JSONB blob. Split them out
-  // before INSERT, write them to record_links after the record exists
-  // (FK requires the records row to be present first).
-  const split = splitRelationsFromData(validated.data, fields);
-
-  // Pre-flight: every relation-target must exist in the configured
-  // target table. Batched per target table so 50 relation fields pointing
-  // at <5 distinct tables make 5 round-trips, not 50. This sits OUTSIDE
-  // the transaction; the inner FK is the actual safety net — the
-  // preflight just gives a friendlier "missing target" 400 instead of
-  // the FK failure message.
-  const fieldsById = new Map(fields.map((f) => [f.id, f]));
-  const preflight = await preflightRelationTargets(split.relations, fieldsById);
-  if (!preflight.ok) return preflight;
-
-  // ATOMIC: record-row INSERT + per-field record_links writes + audit
-  // run in one transaction. A FK race (target deleted between preflight
-  // and link write) or a transient DB hiccup either commits the whole
-  // record or none of it — no orphan records, no half-written links.
-  const id = Bun.randomUUIDv7();
-  const row = await sql.begin(async (tx) => {
-    const [r] = await tx<DbRow[]>`
-      INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
-      VALUES (
-        ${id}::uuid,
-        ${tableId}::uuid,
-        ${split.data}::jsonb,
-        1,
-        ${actorId}::uuid,
-        ${actorId}::uuid
-      )
-      RETURNING *
-    `;
-    if (!r) throw new Error("insert returned no row");
-
-    // Write each relation field's link list. Empty list = no links (the
-    // helper does nothing in that case but the round-trip is preserved
-    // for diff/audit consistency).
-    for (const [fieldId, toIds] of split.relations) {
-      await writeRecordLinks(id, fieldId, toIds, tx);
-    }
-
-    await logAudit(
-      {
-        tableId,
-        recordId: id,
-        userId: actorId,
-        action: "created",
-        diff: Object.fromEntries(Object.entries(validated.data).map(([k, v]) => [k, { old: null, new: v }])),
-      },
-      tx,
-    );
-    return r;
-  });
-
-  const record = mapRow(row);
-  // Hydrate so the returned record carries the relation arrays the
-  // caller just sent — keeps the API contract stable.
-  await hydrateRelationsFromLinks([record], fields);
-  enrichRecordsWithFormulas([record], fields, { dateConfig: opts.dateConfig });
+  const created = await sql.begin((tx) =>
+    createInTransaction(tx, tableId, payload, actorId, {
+      bypassDirectInsertCheck: opts.bypassDirectInsertCheck,
+      dateConfig: opts.dateConfig,
+    }),
+  );
+  if (!created.ok) return created;
+  const record = created.data.record;
   if (opts.includeRelations) {
+    const fields = await listFields(tableId);
     await attachRelationExpansion([record], fields, opts.viewer);
   }
-  const baseId = await baseIdForTable(tableId);
-  if (baseId) {
-    await emitRecordEvent({
-      type: "record.created",
-      baseId,
-      tableId,
-      recordId: record.id,
-      version: record.version,
-      changedFieldIds: Object.keys(validated.data),
-      actorId,
-    });
-  }
+  await emitCreatedRecordEvent(tableId, record, created.data.changedFieldIds, actorId);
   return ok(record);
 };
 

@@ -1,8 +1,8 @@
 import { createSignal, For, Show } from "solid-js";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
-import type { FormWidget } from "../../../service";
-import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
+import type { Field, FormWidget } from "../../../service";
+import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
 import type { WidgetData } from "./widget-data";
 
@@ -91,22 +91,25 @@ function FormBody(props: {
   const entries = userInputEntriesOf(props.form.config.fields);
 
   const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
+  const [inlineCreates, setInlineCreates] = createSignal<InlineCreateState>({});
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
 
   const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
+  const setInlineDrafts = (fieldId: string, drafts: InlineCreateState[string]) =>
+    setInlineCreates((current) => ({ ...current, [fieldId]: drafts }));
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const payload: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(values())) {
-        if (v === "" || v === undefined || v === null) continue;
-        if (Array.isArray(v) && v.length === 0) continue;
-        payload[k] = v;
-      }
+      const payload = buildFormSubmitPayload(
+        entries.map((entry) => fieldsById.get(entry.fieldId)).filter((field): field is Field => Boolean(field && !field.deletedAt)),
+        values(),
+        inlineCreates(),
+        { omitEmpty: true },
+      );
       const res = await apiClient.forms[":formId"].submit.$post({
         param: { formId: props.form.id },
         json: payload,
@@ -116,6 +119,7 @@ function FormBody(props: {
         return;
       }
       setValues(buildInitialValues(entries));
+      setInlineCreates({});
       props.onSubmitted?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Submit failed");
@@ -146,6 +150,8 @@ function FormBody(props: {
                 entry={entry}
                 value={values()[entry.fieldId]}
                 onChange={(v) => setValue(entry.fieldId, v)}
+                inlineCreates={inlineCreates}
+                onInlineCreatesChange={setInlineDrafts}
                 dateConfig={props.dateConfig}
               />
             );

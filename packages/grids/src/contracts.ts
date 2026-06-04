@@ -586,6 +586,19 @@ export const ViewListSchema = z.array(ViewSchema);
 //
 // Stored form config is JSONB. Keep the write contract here so API and
 // service boundaries validate the same shape before anything reaches DB.
+export const InlineCreateFormFieldSchema = z.object({
+  fieldId: z.string().uuid(),
+  label: z.string().optional(),
+  helpText: z.string().optional(),
+  required: z.boolean().optional(),
+  defaultValue: z.unknown().optional(),
+});
+
+export const InlineCreateConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  fields: z.array(InlineCreateFormFieldSchema).optional(),
+});
+
 export const UserInputFormFieldEntrySchema = z.object({
   kind: z.literal("user_input"),
   fieldId: z.string().uuid(),
@@ -593,6 +606,7 @@ export const UserInputFormFieldEntrySchema = z.object({
   helpText: z.string().optional(),
   required: z.boolean().optional(),
   defaultValue: z.unknown().optional(),
+  inlineCreate: InlineCreateConfigSchema.optional(),
 });
 
 export const FormValueFieldEntrySchema = z.object({

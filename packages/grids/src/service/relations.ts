@@ -44,12 +44,13 @@ export const relationLabelFields = (fields: Field[]): Field[] => {
 export const validateRelationTargets = async (
   targetTableId: string,
   targetIds: string[],
+  client: SqlClient = sql,
 ): Promise<{ ok: true } | { ok: false; missing: string[] }> => {
   if (targetIds.length === 0) return { ok: true };
-  const rows = await sql<{ id: string }[]>`
+  const rows = await client<{ id: string }[]>`
     SELECT id::text AS id
     FROM grids.records
-    WHERE id = ANY(${sql.array(targetIds, "UUID")})
+    WHERE id = ANY(${client.array(targetIds, "UUID")})
       AND table_id = ${targetTableId}::uuid
       AND deleted_at IS NULL
   `;

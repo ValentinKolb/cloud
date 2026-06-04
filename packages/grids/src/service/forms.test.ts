@@ -10,6 +10,15 @@ const form = (): Form => ({
     title: "Contact us",
     fields: [
       { kind: "user_input", fieldId: "00000000-0000-0000-0000-000000000003", label: "Email" },
+      {
+        kind: "user_input",
+        fieldId: "00000000-0000-0000-0000-000000000006",
+        label: "Company",
+        inlineCreate: {
+          enabled: true,
+          fields: [{ fieldId: "00000000-0000-0000-0000-000000000007", label: "Company name", required: true }],
+        },
+      },
       { kind: "form_value", fieldId: "00000000-0000-0000-0000-000000000004", value: "website" },
     ],
     successMessage: "Thanks",
@@ -30,13 +39,35 @@ describe("form render DTOs", () => {
 
     expect(dto.publicToken).toBe(null);
     expect(dto.ownerUserId).toBe(null);
-    expect(dto.config.fields).toEqual([{ kind: "user_input", fieldId: "00000000-0000-0000-0000-000000000003", label: "Email" }]);
+    expect(dto.config.fields).toEqual([
+      { kind: "user_input", fieldId: "00000000-0000-0000-0000-000000000003", label: "Email" },
+      {
+        kind: "user_input",
+        fieldId: "00000000-0000-0000-0000-000000000006",
+        label: "Company",
+        inlineCreate: {
+          enabled: true,
+          fields: [{ fieldId: "00000000-0000-0000-0000-000000000007", label: "Company name", required: true }],
+        },
+      },
+    ]);
   });
 
   test("public render forms expose only the minimal anonymous shape", () => {
     const dto = toPublicRenderableForm(form());
 
     expect(Object.keys(dto).sort()).toEqual(["config", "id", "name"]);
-    expect(dto.config.fields).toEqual([{ kind: "user_input", fieldId: "00000000-0000-0000-0000-000000000003", label: "Email" }]);
+    expect(dto.config.fields).toEqual([
+      { kind: "user_input", fieldId: "00000000-0000-0000-0000-000000000003", label: "Email" },
+      {
+        kind: "user_input",
+        fieldId: "00000000-0000-0000-0000-000000000006",
+        label: "Company",
+        inlineCreate: {
+          enabled: true,
+          fields: [{ fieldId: "00000000-0000-0000-0000-000000000007", label: "Company name", required: true }],
+        },
+      },
+    ]);
   });
 });

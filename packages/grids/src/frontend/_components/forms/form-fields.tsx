@@ -1,8 +1,11 @@
 import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { For, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { apiClient } from "@/api/client";
 import type { Field, FormFieldEntry } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
+import type { InlineCreateDraft, InlineCreateState } from "./form-submit-payload";
+export { buildFormSubmitPayload, type InlineCreateDraft, type InlineCreateState } from "./form-submit-payload";
 
 /** A user_input form-field entry — `form_value` entries don't render. */
 export type UserInputEntry = Extract<FormFieldEntry, { kind: "user_input" }>;
@@ -78,6 +81,9 @@ export function FieldInput(props: {
   /** Existing record id in edit mode. Excluded from self-relation pickers. */
   currentRecordId?: string;
   dateConfig?: DateContext;
+  inlineCreates?: () => InlineCreateState;
+  onInlineCreatesChange?: (fieldId: string, drafts: InlineCreateDraft[]) => void;
+  inlineTargetFields?: Record<string, Field[]>;
 }) {
   const label = props.entry.label || props.field.name;
   const required = props.entry.required ?? props.field.required;
@@ -347,9 +353,25 @@ export function FieldInput(props: {
             multi={multi}
             value={() => arrayValue()}
             labels={() => props.relationLabels ?? {}}
-            onChange={(v) => props.onChange(v)}
+            onChange={(v) => {
+              props.onChange(v);
+              if (!multi && v.length > 0) props.onInlineCreatesChange?.(props.field.id, []);
+            }}
             excludeIds={() => (props.currentRecordId ? [props.currentRecordId] : [])}
           />
+          <Show when={props.entry.inlineCreate?.enabled}>
+            <InlineRelationCreate
+              field={props.field}
+              entry={props.entry}
+              targetTableId={cfg.targetTableId}
+              multi={multi}
+              drafts={() => props.inlineCreates?.()[props.field.id] ?? []}
+              onDraftsChange={(drafts) => props.onInlineCreatesChange?.(props.field.id, drafts)}
+              onRelationChange={props.onChange}
+              targetFields={props.inlineTargetFields?.[cfg.targetTableId]}
+              dateConfig={props.dateConfig}
+            />
+          </Show>
           <Show when={error()}>
             <p class="text-[11px] text-red-500">{error()}</p>
           </Show>
@@ -372,4 +394,117 @@ export function FieldInput(props: {
         />
       );
   }
+}
+
+function InlineRelationCreate(props: {
+  field: Field;
+  entry: UserInputEntry;
+  targetTableId: string;
+  multi: boolean;
+  drafts: () => InlineCreateDraft[];
+  onDraftsChange?: (drafts: InlineCreateDraft[]) => void;
+  onRelationChange: (value: unknown) => void;
+  targetFields?: Field[];
+  dateConfig?: DateContext;
+}) {
+  const allowedIds = createMemo(() => new Set((props.entry.inlineCreate?.fields ?? []).map((entry) => entry.fieldId)));
+  const [loadedFields, setLoadedFields] = createSignal<Field[]>(props.targetFields ?? []);
+
+  onMount(async () => {
+    if (props.targetFields) return;
+    const res = await apiClient.fields["by-table"][":tableId"].$get({ param: { tableId: props.targetTableId } });
+    if (res.ok) setLoadedFields(await res.json());
+  });
+
+  const inlineFields = createMemo(() => {
+    const orderById = new Map((props.entry.inlineCreate?.fields ?? []).map((entry, index) => [entry.fieldId, index]));
+    return loadedFields()
+      .filter((field) => !field.deletedAt && allowedIds().has(field.id))
+      .sort((a, b) => (orderById.get(a.id) ?? 9999) - (orderById.get(b.id) ?? 9999) || a.position - b.position);
+  });
+
+  const emptyDraft = (): InlineCreateDraft => ({ tempId: `tmp_${crypto.randomUUID()}`, data: {} });
+  const visibleDrafts = createMemo(() => {
+    const drafts = props.drafts();
+    return drafts.length > 0 ? drafts : [emptyDraft()];
+  });
+
+  const setDraftField = (index: number, fieldId: string, value: unknown) => {
+    const next = [...visibleDrafts()].map((draft) => ({ ...draft, data: { ...draft.data } }));
+    const draft = next[index] ?? emptyDraft();
+    draft.data[fieldId] = value;
+    next[index] = draft;
+    props.onDraftsChange?.(props.multi ? next : [draft]);
+    props.onRelationChange(props.multi ? next.map((item) => item.tempId) : [draft.tempId]);
+  };
+
+  const addDraft = () => {
+    const next = [...props.drafts(), emptyDraft()];
+    props.onDraftsChange?.(next);
+    props.onRelationChange(next.map((item) => item.tempId));
+  };
+
+  const removeDraft = (index: number) => {
+    const next = props.drafts().filter((_, i) => i !== index);
+    props.onDraftsChange?.(next);
+    props.onRelationChange(next.map((item) => item.tempId));
+  };
+
+  const inlineEntryFor = (field: Field): UserInputEntry => {
+    const config = props.entry.inlineCreate?.fields?.find((entry) => entry.fieldId === field.id);
+    return {
+      kind: "user_input",
+      fieldId: field.id,
+      label: config?.label,
+      helpText: config?.helpText,
+      required: config?.required ?? field.required,
+      defaultValue: config?.defaultValue,
+    };
+  };
+
+  return (
+    <div class="mt-2 flex flex-col gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <p class="text-xs font-semibold text-primary">Create new</p>
+          <p class="text-[11px] text-dimmed">Saved together with this form. Nothing is created until submit.</p>
+        </div>
+        <Show when={props.multi}>
+          <button type="button" class="btn-simple btn-xs" onClick={addDraft}>
+            <i class="ti ti-plus" />
+            Another
+          </button>
+        </Show>
+      </div>
+      <Show
+        when={inlineFields().length > 0}
+        fallback={<p class="text-[11px] text-dimmed">No inline fields configured.</p>}
+      >
+        <For each={visibleDrafts()}>
+          {(draft, index) => (
+            <div class="flex flex-col gap-2 rounded-md bg-white/80 p-2 dark:bg-zinc-950/60">
+              <Show when={props.multi && props.drafts().length > 0}>
+                <div class="flex justify-end">
+                  <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index())} aria-label="Remove draft">
+                    <i class="ti ti-x" />
+                  </button>
+                </div>
+              </Show>
+              <For each={inlineFields()}>
+                {(field) => (
+                  <FieldInput
+                    field={field}
+                    entry={inlineEntryFor(field)}
+                    value={draft.data[field.id]}
+                    onChange={(value) => setDraftField(index(), field.id, value)}
+                    dateConfig={props.dateConfig}
+                  />
+                )}
+              </For>
+            </div>
+          )}
+        </For>
+      </Show>
+    </div>
+  );
 }

@@ -3,8 +3,7 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, Form } from "../../../service";
-import { sanitizeFieldValues } from "../fields/field-render";
-import { buildInitialValues, FieldInput, userInputEntriesOf } from "../forms/form-fields";
+import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
 
 /**
@@ -39,20 +38,24 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
   const entries = userInputEntriesOf(props.form.config.fields);
 
   const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
+  const [inlineCreates, setInlineCreates] = createSignal<InlineCreateState>({});
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
 
   const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
+  const setInlineDrafts = (fieldId: string, drafts: InlineCreateState[string]) =>
+    setInlineCreates((current) => ({ ...current, [fieldId]: drafts }));
 
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const payload = sanitizeFieldValues(
+      const payload = buildFormSubmitPayload(
         entries.map((entry) => fieldsById.get(entry.fieldId)).filter((field): field is Field => Boolean(field && !field.deletedAt)),
         values(),
+        inlineCreates(),
         { omitEmpty: true },
       );
       const res = await apiClient.forms[":formId"].submit.$post({
@@ -74,6 +77,7 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
 
   const handleAddAnother = () => {
     setValues(buildInitialValues(entries));
+    setInlineCreates({});
     setError(null);
     setDone(false);
   };
@@ -112,6 +116,8 @@ function FormSubmitBody(props: { form: Form; fields: Field[]; onSubmitted?: () =
                 entry={entry}
                 value={values()[entry.fieldId]}
                 onChange={(v) => setValue(entry.fieldId, v)}
+                inlineCreates={inlineCreates}
+                onInlineCreatesChange={setInlineDrafts}
                 dateConfig={props.dateConfig}
               />
             );

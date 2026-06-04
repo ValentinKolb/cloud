@@ -63,6 +63,8 @@ export const gridsService = {
     list: records.list,
     get: records.get,
     create: records.create,
+    createInTransaction: records.createInTransaction,
+    emitCreatedEvent: records.emitCreatedRecordEvent,
     update: records.update,
     softDelete: records.softDelete,
     restore: records.restore,

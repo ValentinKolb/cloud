@@ -3,9 +3,8 @@ import type { DateContext } from "@valentinkolb/stdlib";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
 import type { PublicRenderableForm } from "../../../service/forms";
-import { sanitizeFieldValues } from "../fields/field-render";
 import { errorMessage } from "../utils/api-helpers";
-import { buildInitialValues, FieldInput, userInputEntriesOf } from "./form-fields";
+import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "./form-fields";
 
 type Props = {
   /** Public token from the URL — submitted to the public endpoint. */
@@ -14,6 +13,7 @@ type Props = {
   form: PublicRenderableForm;
   /** Resolved table fields so we know each entry's type + options. */
   fields: Field[];
+  inlineTargetFields?: Record<string, Field[]>;
   dateConfig?: DateContext;
 };
 
@@ -34,12 +34,16 @@ export default function PublicFormSubmit(props: Props) {
   let formRef: HTMLFormElement | undefined;
 
   const [values, setValues] = createSignal<Record<string, unknown>>(buildInitialValues(entries));
+  const [inlineCreates, setInlineCreates] = createSignal<InlineCreateState>({});
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
   const [clientReady, setClientReady] = createSignal(false);
 
   const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
+  const setInlineDrafts = (fieldId: string, drafts: InlineCreateState[string]) =>
+    setInlineCreates((current) => ({ ...current, [fieldId]: drafts }));
+  const hasInlineCreate = () => entries.some((entry) => entry.inlineCreate?.enabled);
 
   onMount(() => setClientReady(true));
 
@@ -59,12 +63,10 @@ export default function PublicFormSubmit(props: Props) {
       const submitFields = entries
         .map((entry) => fieldsById.get(entry.fieldId))
         .filter((field): field is Field => Boolean(field && !field.deletedAt));
-      const sanitized = sanitizeFieldValues(submitFields, payload, { omitEmpty: true });
-      for (const key of Object.keys(payload)) delete payload[key];
-      Object.assign(payload, sanitized);
+      const submitPayload = buildFormSubmitPayload(submitFields, payload, inlineCreates(), { omitEmpty: true });
       const res = await apiClient.forms.public[":token"].submit.$post({
         param: { token: props.publicToken },
-        json: payload,
+        json: submitPayload,
       });
       if (!res.ok) {
         setError(await errorMessage(res, "Submit failed"));
@@ -114,6 +116,12 @@ export default function PublicFormSubmit(props: Props) {
           data-grids-public-form-ready={clientReady() ? "true" : "false"}
           onSubmit={handleSubmit}
         >
+          <Show when={hasInlineCreate()}>
+            <div class="info-block-warning flex items-start gap-2 text-xs">
+              <i class="ti ti-alert-triangle mt-0.5 shrink-0" />
+              <span>This form can create linked records too. Everything is saved together when you submit.</span>
+            </div>
+          </Show>
           <For each={entries}>
             {(entry) => {
               const field = fieldsById.get(entry.fieldId);
@@ -124,6 +132,9 @@ export default function PublicFormSubmit(props: Props) {
                   entry={entry}
                   value={values()[entry.fieldId]}
                   onChange={(v) => setValue(entry.fieldId, v)}
+                  inlineCreates={inlineCreates}
+                  onInlineCreatesChange={setInlineDrafts}
+                  inlineTargetFields={props.inlineTargetFields}
                   dateConfig={props.dateConfig}
                 />
               );
