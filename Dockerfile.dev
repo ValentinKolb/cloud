@@ -15,6 +15,7 @@ COPY packages/files/package.json packages/files/
 COPY packages/grids/package.json packages/grids/
 COPY packages/gateway/package.json packages/gateway/
 COPY packages/ipa-hosts/package.json packages/ipa-hosts/
+COPY packages/invoices/package.json packages/invoices/
 COPY packages/logging/package.json packages/logging/
 COPY packages/notebooks/package.json packages/notebooks/
 COPY packages/notifications/package.json packages/notifications/
@@ -25,6 +26,7 @@ COPY packages/settings/package.json packages/settings/
 COPY packages/spaces/package.json packages/spaces/
 COPY packages/tools/package.json packages/tools/
 COPY packages/ui-lab/package.json packages/ui-lab/
+COPY packages/venue/package.json packages/venue/
 COPY packages/weather/package.json packages/weather/
 
 # --ignore-scripts: skip postinstall hooks. The base image (oven/bun:1) already

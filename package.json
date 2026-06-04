@@ -15,6 +15,7 @@
     "packages/gateway",
     "packages/grids",
     "packages/ipa-hosts",
+    "packages/invoices",
     "packages/logging",
     "packages/notebooks",
     "packages/notifications",

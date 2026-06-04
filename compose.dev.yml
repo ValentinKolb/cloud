@@ -219,6 +219,18 @@ services:
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/quotes/src/index.ts
 
+  app-invoices:
+    <<: *app
+    container_name: app-invoices
+    environment: { <<: *env, APP_ID: invoices }
+    profiles: [extra]
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
+      - ./packages/invoices/src:/app/packages/invoices/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/invoices/src/index.ts
+
   app-spaces:
     <<: *app
     container_name: app-spaces
@@ -254,6 +266,18 @@ services:
       - ./packages/ui-lab/src:/app/packages/ui-lab/src
       - ./styles.css:/app/styles.css
     command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/ui-lab/src/index.ts
+
+  app-venue:
+    <<: *app
+    container_name: app-venue
+    environment: { <<: *env, APP_ID: venue }
+    profiles: [extra]
+    volumes:
+      - ./packages/cloud/src:/app/packages/cloud/src
+      - ./packages/cloud/scripts:/app/packages/cloud/scripts
+      - ./packages/venue/src:/app/packages/venue/src
+      - ./styles.css:/app/styles.css
+    command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/venue/src/index.ts
 
   app-weather:
     <<: *app
