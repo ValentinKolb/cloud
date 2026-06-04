@@ -1,6 +1,6 @@
 import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, SelectInput, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, Index, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, FormFieldEntry } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
@@ -335,6 +335,22 @@ export function FieldInput(props: {
         );
       }
       const multi = cfg.cardinality !== "single";
+      const inlineDrafts = () => props.inlineCreates?.()[props.field.id] ?? [];
+      const inlineTempIds = () => inlineDrafts().map((draft) => draft.tempId);
+      const existingRelationIds = () => arrayValue().filter((id) => !id.startsWith("tmp_"));
+      const syncInlineDrafts = (drafts: InlineCreateDraft[]) => {
+        props.onInlineCreatesChange?.(props.field.id, drafts);
+        props.onChange(multi ? [...existingRelationIds(), ...drafts.map((draft) => draft.tempId)] : drafts[0] ? [drafts[0].tempId] : []);
+      };
+      const createInlineDraft = () => {
+        const draft: InlineCreateDraft = { tempId: `tmp_${crypto.randomUUID()}`, data: {} };
+        syncInlineDrafts(multi ? [...inlineDrafts(), draft] : [draft]);
+      };
+      const useExistingRecord = () => {
+        props.onInlineCreatesChange?.(props.field.id, []);
+        props.onChange(multi ? existingRelationIds() : []);
+      };
+      const showRelationPicker = () => !props.entry.inlineCreate?.enabled || multi || inlineDrafts().length === 0;
       return (
         <div class="flex flex-col gap-0.5">
           <span class="text-xs font-medium text-secondary">
@@ -348,26 +364,39 @@ export function FieldInput(props: {
           <Show when={helpText}>
             <p class="text-[11px] text-dimmed leading-snug">{helpText}</p>
           </Show>
-          <RelationPicker
-            targetTableId={cfg.targetTableId}
-            multi={multi}
-            value={() => arrayValue()}
-            labels={() => props.relationLabels ?? {}}
-            onChange={(v) => {
-              props.onChange(v);
-              if (!multi && v.length > 0) props.onInlineCreatesChange?.(props.field.id, []);
-            }}
-            excludeIds={() => (props.currentRecordId ? [props.currentRecordId] : [])}
-          />
+          <Show when={showRelationPicker()}>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <div class="min-w-0 flex-1">
+                <RelationPicker
+                  targetTableId={cfg.targetTableId}
+                  multi={multi}
+                  value={existingRelationIds}
+                  labels={() => props.relationLabels ?? {}}
+                  onChange={(v) => {
+                    props.onChange(multi ? [...v, ...inlineTempIds()] : v);
+                    if (!multi && v.length > 0) props.onInlineCreatesChange?.(props.field.id, []);
+                  }}
+                  excludeIds={() => (props.currentRecordId ? [props.currentRecordId] : [])}
+                />
+              </div>
+              <Show when={props.entry.inlineCreate?.enabled}>
+                <button type="button" class="btn-simple btn-sm shrink-0" onClick={createInlineDraft}>
+                  <i class="ti ti-plus" />
+                  Create new
+                </button>
+              </Show>
+            </div>
+          </Show>
           <Show when={props.entry.inlineCreate?.enabled}>
             <InlineRelationCreate
               field={props.field}
               entry={props.entry}
               targetTableId={cfg.targetTableId}
               multi={multi}
-              drafts={() => props.inlineCreates?.()[props.field.id] ?? []}
-              onDraftsChange={(drafts) => props.onInlineCreatesChange?.(props.field.id, drafts)}
-              onRelationChange={props.onChange}
+              drafts={inlineDrafts}
+              onDraftsChange={syncInlineDrafts}
+              onCreateDraft={createInlineDraft}
+              onUseExisting={useExistingRecord}
               targetFields={props.inlineTargetFields?.[cfg.targetTableId]}
               dateConfig={props.dateConfig}
             />
@@ -403,7 +432,8 @@ function InlineRelationCreate(props: {
   multi: boolean;
   drafts: () => InlineCreateDraft[];
   onDraftsChange?: (drafts: InlineCreateDraft[]) => void;
-  onRelationChange: (value: unknown) => void;
+  onCreateDraft: () => void;
+  onUseExisting: () => void;
   targetFields?: Field[];
   dateConfig?: DateContext;
 }) {
@@ -423,31 +453,16 @@ function InlineRelationCreate(props: {
       .sort((a, b) => (orderById.get(a.id) ?? 9999) - (orderById.get(b.id) ?? 9999) || a.position - b.position);
   });
 
-  const emptyDraft = (): InlineCreateDraft => ({ tempId: `tmp_${crypto.randomUUID()}`, data: {} });
-  const visibleDrafts = createMemo(() => {
-    const drafts = props.drafts();
-    return drafts.length > 0 ? drafts : [emptyDraft()];
-  });
-
   const setDraftField = (index: number, fieldId: string, value: unknown) => {
-    const next = [...visibleDrafts()].map((draft) => ({ ...draft, data: { ...draft.data } }));
-    const draft = next[index] ?? emptyDraft();
-    draft.data[fieldId] = value;
-    next[index] = draft;
-    props.onDraftsChange?.(props.multi ? next : [draft]);
-    props.onRelationChange(props.multi ? next.map((item) => item.tempId) : [draft.tempId]);
-  };
-
-  const addDraft = () => {
-    const next = [...props.drafts(), emptyDraft()];
-    props.onDraftsChange?.(next);
-    props.onRelationChange(next.map((item) => item.tempId));
+    const next = props.drafts().map((draft, i) =>
+      i === index ? { ...draft, data: { ...draft.data, [fieldId]: value } } : draft,
+    );
+    props.onDraftsChange?.(props.multi ? next : next.slice(0, 1));
   };
 
   const removeDraft = (index: number) => {
     const next = props.drafts().filter((_, i) => i !== index);
     props.onDraftsChange?.(next);
-    props.onRelationChange(next.map((item) => item.tempId));
   };
 
   const inlineEntryFor = (field: Field): UserInputEntry => {
@@ -463,48 +478,57 @@ function InlineRelationCreate(props: {
   };
 
   return (
-    <div class="mt-2 flex flex-col gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
-      <div class="flex items-start justify-between gap-2">
-        <div>
-          <p class="text-xs font-semibold text-primary">Create new</p>
-          <p class="text-[11px] text-dimmed">Saved together with this form. Nothing is created until submit.</p>
+    <Show when={props.drafts().length > 0}>
+      <div class="mt-2 flex flex-col gap-2 rounded-md border border-dashed border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+        <div class="flex items-start justify-between gap-2">
+          <div>
+            <p class="text-xs font-semibold text-primary">New related record</p>
+            <p class="text-[11px] text-dimmed">Saved together with this form.</p>
+          </div>
+          <div class="flex items-center gap-1">
+            <Show when={props.multi}>
+              <button type="button" class="btn-simple btn-xs" onClick={props.onCreateDraft}>
+                <i class="ti ti-plus" />
+                Another
+              </button>
+            </Show>
+            <Show when={!props.multi}>
+              <button type="button" class="btn-simple btn-xs" onClick={props.onUseExisting}>
+                Use existing
+              </button>
+            </Show>
+          </div>
         </div>
-        <Show when={props.multi}>
-          <button type="button" class="btn-simple btn-xs" onClick={addDraft}>
-            <i class="ti ti-plus" />
-            Another
-          </button>
+        <Show
+          when={inlineFields().length > 0}
+          fallback={<p class="text-[11px] text-dimmed">No inline fields configured.</p>}
+        >
+          <Index each={props.drafts()}>
+            {(draft, index) => (
+              <div class="flex flex-col gap-2 rounded-md bg-white/80 p-2 dark:bg-zinc-950/60">
+                <Show when={props.multi}>
+                  <div class="flex justify-end">
+                    <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index)} aria-label="Remove draft">
+                      <i class="ti ti-x" />
+                    </button>
+                  </div>
+                </Show>
+                <For each={inlineFields()}>
+                  {(field) => (
+                    <FieldInput
+                      field={field}
+                      entry={inlineEntryFor(field)}
+                      value={draft().data[field.id]}
+                      onChange={(value) => setDraftField(index, field.id, value)}
+                      dateConfig={props.dateConfig}
+                    />
+                  )}
+                </For>
+              </div>
+            )}
+          </Index>
         </Show>
       </div>
-      <Show
-        when={inlineFields().length > 0}
-        fallback={<p class="text-[11px] text-dimmed">No inline fields configured.</p>}
-      >
-        <For each={visibleDrafts()}>
-          {(draft, index) => (
-            <div class="flex flex-col gap-2 rounded-md bg-white/80 p-2 dark:bg-zinc-950/60">
-              <Show when={props.multi && props.drafts().length > 0}>
-                <div class="flex justify-end">
-                  <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index())} aria-label="Remove draft">
-                    <i class="ti ti-x" />
-                  </button>
-                </div>
-              </Show>
-              <For each={inlineFields()}>
-                {(field) => (
-                  <FieldInput
-                    field={field}
-                    entry={inlineEntryFor(field)}
-                    value={draft.data[field.id]}
-                    onChange={(value) => setDraftField(index(), field.id, value)}
-                    dateConfig={props.dateConfig}
-                  />
-                )}
-              </For>
-            </div>
-          )}
-        </For>
-      </Show>
-    </div>
+    </Show>
   );
 }
