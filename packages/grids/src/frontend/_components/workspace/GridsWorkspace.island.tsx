@@ -1,4 +1,4 @@
-import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, layout, prompts } from "@valentinkolb/cloud/ui";
 import { createEffect, createSignal, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { apiClient } from "../../../api/client";
 import AutomationsPage from "../automations/AutomationsPage";
@@ -73,6 +73,7 @@ export default function GridsWorkspace(props: Props) {
     const next = await loadWorkspaceState(href);
     if (requestId !== routeRequest) return false;
     setState(next);
+    layout.update({ breadcrumbs: next.title, title: next.title.at(-1)?.title });
     return true;
   };
 

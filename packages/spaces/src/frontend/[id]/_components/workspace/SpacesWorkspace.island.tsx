@@ -1,4 +1,4 @@
-import { AppWorkspace, Pagination, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, layout, Pagination, prompts } from "@valentinkolb/cloud/ui";
 import { type LinkNavigateEvent, type NavigationScrollMode, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { streaming } from "@valentinkolb/stdlib";
@@ -45,6 +45,7 @@ type RouteStateResult = {
 const KANBAN_PAGE_SIZE = 30;
 
 const currentHref = () => `${window.location.pathname}${window.location.search}`;
+const updateLayout = (next: OkWorkspaceState) => layout.update({ breadcrumbs: next.title, title: next.title.at(-1)?.title });
 
 export default function SpacesWorkspace(props: Props) {
   const [state, setState] = createSignal(props.initialState);
@@ -155,6 +156,7 @@ export default function SpacesWorkspace(props: Props) {
       return;
     }
     setState(next);
+    updateLayout(next);
     navigate(href, { replace: options.replace, scroll: options.scroll ?? "top" });
     if (next.isSettingsMode) openSettingsDialog(next);
   };
@@ -171,6 +173,7 @@ export default function SpacesWorkspace(props: Props) {
       return;
     }
     setState(next);
+    updateLayout(next);
     nav.push(target, { scroll: nav.scroll });
     if (next.isSettingsMode) openSettingsDialog(next);
   };

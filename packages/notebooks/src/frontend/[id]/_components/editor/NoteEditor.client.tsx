@@ -5,7 +5,7 @@ import { clipboard, files } from "@valentinkolb/stdlib/browser";
 import { editor } from "../../../lib/editor";
 import { getNotebookPresenceColor } from "../../../lib/yjs";
 import { yjs } from "../../../lib/yjs";
-import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { layout, prompts, toast } from "@valentinkolb/cloud/ui";
 import { createCodeMirror } from "solid-codemirror";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { dropzone } from "@valentinkolb/stdlib/solid";
@@ -182,6 +182,15 @@ export default function NoteEditor(props: Props) {
       if (seq !== navigationSeq) return true;
       if (!loaded) return false;
       setCurrent(loaded.props);
+      layout.update({
+        breadcrumbs: [
+          { title: "Start", href: "/" },
+          { title: "Notebooks", href: "/app/notebooks" },
+          { title: loaded.props.notebookName, href: `/app/notebooks/${props.notebookId}` },
+          { title: loaded.props.noteTitle },
+        ],
+        title: loaded.props.noteTitle,
+      });
       window.dispatchEvent(new CustomEvent(NOTE_SOFT_NAVIGATED_EVENT, { detail: loaded.eventDetail }));
       if (push) window.history.pushState({}, "", loaded.href);
       return true;
