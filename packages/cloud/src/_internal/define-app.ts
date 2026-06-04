@@ -167,6 +167,7 @@ export type StartOptions = {
 
 export type StartResult = {
   port: number;
+  development: boolean;
   fetch: Hono["fetch"];
 };
 
@@ -199,6 +200,8 @@ export type AppDefinition<S extends AppSettingsMap = {}> = {
 // ── Implementation ──────────────────────────────────────────────────────────
 
 export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<S>): AppDefinition<S> => {
+  const isDevelopment = process.env.NODE_ENV !== "production";
+
   // ── 0. Register declared settings into the runtime registry ──────────
   // SETTINGS_MAP is the single source of truth for validation in store.ts
   // (writeKey checks SETTINGS_MAP.get(key)) and for snapshot.ts (allKnownKeys
@@ -232,7 +235,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
 
   // ── 1. SSR config ─────────────────────────────────────────────────────
   const { config, plugin, html } = createSsrConfig<PageOptions>({
-    dev: process.env.NODE_ENV !== "production",
+    dev: isDevelopment,
     verbose: true,
     rootDir: opts.appRoot ?? process.cwd(),
     basePath: opts.basePath,
@@ -445,7 +448,7 @@ export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<
     process.on("SIGTERM", () => void shutdown().then(() => process.exit(0)));
     process.on("SIGINT", () => void shutdown().then(() => process.exit(0)));
 
-    return { port, fetch: server.fetch };
+    return { port, development: isDevelopment, fetch: server.fetch };
   };
 
   return {
