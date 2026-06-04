@@ -36,6 +36,32 @@ describe("built-in grid templates", () => {
     assertUnique(templates.map((template) => template.id), "template ids");
   });
 
+  test("form input entries include help text", () => {
+    for (const template of templates) {
+      for (const form of template.forms ?? []) {
+        const fields = (form.config as { fields?: unknown }).fields;
+        expect(Array.isArray(fields), `${template.id}.${form.key} fields`).toBe(true);
+
+        for (const entry of fields as Array<Record<string, unknown>>) {
+          if (entry.kind !== "user_input") continue;
+          expect(
+            typeof entry.helpText === "string" && entry.helpText.trim().length > 0,
+            `${template.id}.${form.key}.${String(entry.fieldId)} helpText`,
+          ).toBe(true);
+
+          const inlineFields = (entry.inlineCreate as { fields?: unknown } | undefined)?.fields;
+          if (!Array.isArray(inlineFields)) continue;
+          for (const inlineEntry of inlineFields as Array<Record<string, unknown>>) {
+            expect(
+              typeof inlineEntry.helpText === "string" && inlineEntry.helpText.trim().length > 0,
+              `${template.id}.${form.key}.${String(entry.fieldId)} inline ${String(inlineEntry.fieldId)} helpText`,
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
   test("all internal references resolve", () => {
     for (const template of templates) {
       const index = indexTemplate(template);

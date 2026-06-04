@@ -329,7 +329,7 @@ export function FieldInput(props: {
       if (!cfg.targetTableId) {
         return (
           <div class="flex flex-col gap-0.5">
-            <span class="text-xs font-medium text-secondary">{label}</span>
+            <p class="block text-sm font-medium">{label}</p>
             <p class="text-xs text-amber-600 dark:text-amber-400">Relation has no target table configured — skipping.</p>
           </div>
         );
@@ -353,16 +353,16 @@ export function FieldInput(props: {
       const showRelationPicker = () => !props.entry.inlineCreate?.enabled || multi || inlineDrafts().length === 0;
       return (
         <div class="flex flex-col gap-0.5">
-          <span class="text-xs font-medium text-secondary">
+          <p class="block text-sm font-medium">
             {label}
             <Show when={required}>
               <span class="ml-0.5 text-red-500" aria-hidden="true">
                 *
               </span>
             </Show>
-          </span>
+          </p>
           <Show when={helpText}>
-            <p class="text-[11px] text-dimmed leading-snug">{helpText}</p>
+            <p class="text-xs text-dimmed leading-snug">{helpText}</p>
           </Show>
           <Show when={showRelationPicker()}>
             <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
@@ -380,7 +380,7 @@ export function FieldInput(props: {
                 />
               </div>
               <Show when={props.entry.inlineCreate?.enabled}>
-                <button type="button" class="btn-simple btn-sm shrink-0" onClick={createInlineDraft}>
+                <button type="button" class="btn-input btn-input-sm shrink-0" onClick={createInlineDraft}>
                   <i class="ti ti-plus" />
                   Create new
                 </button>
@@ -487,13 +487,13 @@ function InlineRelationCreate(props: {
           </div>
           <div class="flex items-center gap-1">
             <Show when={props.multi}>
-              <button type="button" class="btn-simple btn-xs" onClick={props.onCreateDraft}>
+              <button type="button" class="btn-input btn-input-sm" onClick={props.onCreateDraft}>
                 <i class="ti ti-plus" />
                 Another
               </button>
             </Show>
             <Show when={!props.multi}>
-              <button type="button" class="btn-simple btn-xs" onClick={props.onUseExisting}>
+              <button type="button" class="btn-input btn-input-sm" onClick={props.onUseExisting}>
                 Use existing
               </button>
             </Show>
@@ -505,7 +505,7 @@ function InlineRelationCreate(props: {
         >
           <Index each={props.drafts()}>
             {(draft, index) => (
-              <div class="flex flex-col gap-2 rounded-md bg-white/80 p-2 dark:bg-zinc-950/60">
+              <div class="flex flex-col gap-2">
                 <Show when={props.multi}>
                   <div class="flex justify-end">
                     <button type="button" class="icon-btn h-7 w-7" onClick={() => removeDraft(index)} aria-label="Remove draft">
