@@ -1,15 +1,14 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import {
   Checkbox,
-  CheckboxCard,
   confirmDiscardIfDirty,
   CopyButton,
   dialogCore,
   ImageInput,
+  MultiSelectInput,
   panelDialogOptions,
   PanelDialog,
   prompts,
-  SegmentedControl,
   Select,
   TextInput,
   toast,
@@ -22,6 +21,7 @@ import type { Field, Form } from "../../../service";
 import type { FormConfig, FormFieldEntry } from "../../../service/forms";
 import { TYPE_LABELS } from "../fields/field-config-editor";
 import { isRecordInputField } from "../fields/field-render";
+import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { FieldInput } from "./form-fields";
@@ -661,7 +661,6 @@ function FormFieldsEditor(props: {
   setEntries: (next: FormFieldEntry[]) => void;
   markDirty: () => void;
 }) {
-  const [addKind, setAddKind] = createSignal<"user_input" | "form_value">("user_input");
   const includedIds = createMemo(() => new Set(props.entries().map((entry) => entry.fieldId)));
   const addable = createMemo(() => props.tableFields.filter((field) => !field.deletedAt && canBeFormInput(field) && !includedIds().has(field.id)));
   const fieldById = createMemo(() => new Map(props.tableFields.map((field) => [field.id, field])));
@@ -671,12 +670,14 @@ function FormFieldsEditor(props: {
     props.markDirty();
   };
 
-  const addEntry = (fieldId: string) => {
+  const addEntry = async (fieldId: string) => {
     const field = fieldById().get(fieldId);
     if (!field) return;
+    const kind = await chooseFormFieldEntryKind(field);
+    if (!kind) return;
     replaceEntries([
       ...props.entries(),
-      addKind() === "form_value"
+      kind === "form_value"
         ? { kind: "form_value", fieldId, value: null }
         : { kind: "user_input", fieldId, required: field.required },
     ]);
@@ -761,6 +762,7 @@ function FormFieldsEditor(props: {
                                 <i class="ti ti-chevron-down text-xs" />
                               </button>
                             </div>
+                            <i class={`${fieldTypeIcon(f().type, f().icon)} shrink-0 text-dimmed`} />
                             <span class="flex-1 min-w-0 flex items-baseline gap-2">
                               <span class="text-sm font-medium text-primary truncate">{f().name}</span>
                               <span class="text-[10px] text-dimmed">{TYPE_LABELS[f().type] ?? f().type}</span>
@@ -799,7 +801,7 @@ function FormFieldsEditor(props: {
                       {(ve) => (
                         <li class="paper p-4 flex flex-col gap-2">
                           <div class="flex items-center gap-2">
-                            <i class="ti ti-lock text-dimmed shrink-0" />
+                            <i class={`${fieldTypeIcon(f().type, f().icon)} text-dimmed shrink-0`} />
                             <span class="flex-1 min-w-0 flex items-baseline gap-2">
                               <span class="text-sm font-medium text-primary truncate">{f().name}</span>
                               <span class="text-[10px] text-dimmed shrink-0">
@@ -837,40 +839,48 @@ function FormFieldsEditor(props: {
       </Show>
 
       <Show when={addable().length > 0}>
-        <div class="flex flex-col gap-2">
-          <SegmentedControl
-            options={[
-              { value: "user_input", label: "User input", icon: "ti ti-pencil" },
-              { value: "form_value", label: "Fixed value", icon: "ti ti-lock" },
-            ]}
-            value={addKind}
-            onChange={(v) => setAddKind(v as "user_input" | "form_value")}
+        <div class="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <Select
+            label="Add field"
+            description="Pick a table field, then choose whether visitors edit it or the form writes a fixed value."
+            value={() => ""}
+            onChange={(value) => {
+              if (value) void addEntry(value);
+            }}
+            options={addable().map((field) => ({
+              id: field.id,
+              label: field.name,
+              description: fieldTypeLabel(field.type),
+              icon: fieldTypeIcon(field.type, field.icon),
+            }))}
+            placeholder="Pick a field..."
           />
-          <p class="text-[11px] text-dimmed leading-snug">
-            <Show when={addKind() === "form_value"} fallback="User-input fields show as inputs the visitor fills out.">
-              Fixed values don't show in the form. Every submission gets the configured value, such as source = website.
-            </Show>
-          </p>
-          <div class="flex items-center gap-2">
-            <span class="text-xs text-dimmed">Add field:</span>
-            <div class="min-w-[14rem]">
-              <Select
-                value={() => ""}
-                onChange={(value) => value && addEntry(value)}
-                options={addable().map((field) => ({
-                  id: field.id,
-                  label: field.name,
-                  description: TYPE_LABELS[field.type] ?? field.type,
-                }))}
-                placeholder="Pick a field..."
-              />
-            </div>
-          </div>
         </div>
       </Show>
     </>
   );
 }
+
+const chooseFormFieldEntryKind = (field: Field) =>
+  prompts.dialog<"user_input" | "form_value">(
+    (close) => (
+      <div class="flex flex-col gap-4">
+        <div class="info-block-info text-xs">
+          <p class="font-semibold">How should "{field.name}" be used?</p>
+          <p class="mt-1">Form field means the visitor fills it in. Fixed value means the visitor never sees it; every submission stores the value you configure next.</p>
+        </div>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button type="button" class="btn-input btn-sm" onClick={() => close("form_value")}>
+            <i class="ti ti-lock" /> Add fixed value
+          </button>
+          <button type="button" class="btn-primary btn-sm" onClick={() => close("user_input")}>
+            <i class="ti ti-pencil" /> Add form field
+          </button>
+        </div>
+      </div>
+    ),
+    { title: "Add field", icon: fieldTypeIcon(field.type, field.icon), size: "small" },
+  );
 
 function FormEditorSection(props: { title: string; subtitle?: string; icon: string; children: JSX.Element }) {
   return (
@@ -897,7 +907,7 @@ function InlineCreateEditor(props: {
   });
 
   const enabled = () => Boolean(props.entry?.inlineCreate?.enabled);
-  const selectedIds = () => new Set((props.entry?.inlineCreate?.fields ?? []).map((entry) => entry.fieldId));
+  const selectedFieldIds = () => (props.entry?.inlineCreate?.fields ?? []).map((entry) => entry.fieldId);
   const candidateFields = createMemo(() =>
     targetFields().filter((field) => !field.deletedAt && isRecordInputField(field.type) && field.type !== "relation"),
   );
@@ -919,19 +929,24 @@ function InlineCreateEditor(props: {
     );
   };
 
-  const toggleField = (field: Field, checked: boolean) => {
-    const current = props.entry?.inlineCreate?.fields ?? [];
-    const nextFields = checked
-      ? current.some((entry) => entry.fieldId === field.id)
-        ? current
-        : [...current, { fieldId: field.id, required: field.required }]
-      : current.filter((entry) => entry.fieldId !== field.id);
-    props.onChange({ inlineCreate: { enabled: true, fields: nextFields } });
+  const setInlineFieldIds = (ids: string[]) => {
+    const fieldById = new Map(candidateFields().map((field) => [field.id, field]));
+    props.onChange({
+      inlineCreate: {
+        enabled: true,
+        fields: ids
+          .map((fieldId) => {
+            const field = fieldById.get(fieldId);
+            return field ? { fieldId, required: field.required } : null;
+          })
+          .filter((entry): entry is { fieldId: string; required: boolean } => Boolean(entry)),
+      },
+    });
   };
 
   return (
     <Show when={targetTableId()}>
-      <div class="mt-1 flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <div class="mt-1 flex flex-col gap-2 border-l border-zinc-200 pl-3 dark:border-zinc-800">
         <Checkbox
           label="Create related records inline"
           description="Let this form create the linked record together with the main record. Nothing is saved until submit."
@@ -939,19 +954,21 @@ function InlineCreateEditor(props: {
           onChange={setEnabled}
         />
         <Show when={enabled()}>
-          <div class="grid grid-cols-1 gap-2">
-            <p class="text-[11px] text-dimmed">Fields allowed in the inline record:</p>
-            <For each={candidateFields()}>
-              {(field) => (
-                <CheckboxCard
-                  label={field.name}
-                  description={TYPE_LABELS[field.type] ?? field.type}
-                  value={() => selectedIds().has(field.id)}
-                  onChange={(checked) => toggleField(field, checked)}
-                />
-              )}
-            </For>
-          </div>
+          <MultiSelectInput
+            label="Inline fields"
+            description="Fields shown for the new linked record."
+            placeholder="Pick fields..."
+            icon="ti ti-columns"
+            value={selectedFieldIds}
+            onChange={setInlineFieldIds}
+            options={candidateFields().map((field) => ({
+              id: field.id,
+              label: field.name,
+              description: TYPE_LABELS[field.type] ?? field.type,
+              icon: fieldTypeIcon(field.type, field.icon),
+            }))}
+            clearable
+          />
         </Show>
       </div>
     </Show>

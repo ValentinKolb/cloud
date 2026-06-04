@@ -22,28 +22,20 @@ const chooseEditModeAction = (formName: string) =>
     (close) => (
       <div class="flex flex-col gap-4">
         <p class="text-sm text-dimmed">You are in edit mode. What do you want to do with "{formName}"?</p>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div class="flex justify-end gap-2">
           <button
             type="button"
-            class="btn-input h-auto justify-start gap-3 border-blue-400 p-4 text-left text-blue-700 hover:bg-blue-50/70 dark:border-blue-500/70 dark:text-blue-300 dark:hover:bg-blue-950/30"
+            class="btn-input btn-sm"
             onClick={() => close("use")}
           >
-            <i class="ti ti-send shrink-0" />
-            <span class="flex min-w-0 flex-col items-start">
-              <span class="font-semibold">Use form</span>
-              <span class="text-xs font-normal text-dimmed">Create a record.</span>
-            </span>
+            <i class="ti ti-send" /> Use form
           </button>
           <button
             type="button"
-            class="btn-input h-auto justify-start gap-3 border-emerald-400 p-4 text-left text-emerald-700 hover:bg-emerald-50/70 dark:border-emerald-500/70 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+            class="btn-primary btn-sm"
             onClick={() => close("edit")}
           >
-            <i class="ti ti-pencil shrink-0" />
-            <span class="flex min-w-0 flex-col items-start">
-              <span class="font-semibold">Edit form</span>
-              <span class="text-xs font-normal text-dimmed">Change settings.</span>
-            </span>
+            <i class="ti ti-pencil" /> Edit form
           </button>
         </div>
       </div>
