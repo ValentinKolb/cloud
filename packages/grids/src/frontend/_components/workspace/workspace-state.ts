@@ -2,7 +2,7 @@ import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { ComputedColumnSpec, GroupSortSpec, ViewQuery } from "../../../contracts";
-import type { Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
+import type { Automation, Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
 import { filterSearchableFields } from "../../../service/search";
@@ -83,6 +83,7 @@ export type WorkspaceDashboardRoute = {
   activeDashboardAccessEntries: AccessEntry[];
   canEditActiveDashboard: boolean;
   isBaseDefault: boolean;
+  manualAutomations: Automation[];
 };
 
 export type WorkspaceEmptyRoute = {
@@ -291,6 +292,9 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
   const widgetData = Object.fromEntries(results);
   const canEditActiveDashboard =
     dashboard.ownerUserId === common.params.user.id || (dashboard.ownerUserId === null && common.canManageBase);
+  const manualAutomations = common.canManageBase && common.chrome.adminModeRequested
+    ? (await gridsService.automation.listForBase(common.base.id)).filter((automation) => automation.trigger.kind === "manual")
+    : [];
 
   return okState(common, {
     kind: "dashboard",
@@ -300,6 +304,7 @@ const loadDashboardState = async (common: WorkspaceCommon, dashboard: Dashboard)
     activeDashboardAccessEntries: canEditActiveDashboard ? await gridsService.access.listForDashboard(dashboard.id) : [],
     canEditActiveDashboard,
     isBaseDefault: common.base.defaultDashboardId === dashboard.id,
+    manualAutomations,
   });
 };
 

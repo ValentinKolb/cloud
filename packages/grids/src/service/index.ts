@@ -188,6 +188,7 @@ export type {
   FormWidget,
   MarkdownWidget,
   LinkWidget,
+  AutomationButtonWidget,
   ViewWidgetSource,
   StatSource,
   StatTrend,

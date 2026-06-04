@@ -2,6 +2,7 @@ import { dnd, type DndBuildIntentContext } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { For, Show, onCleanup } from "solid-js";
 import type { Dashboard, DashboardRow, Widget } from "../../../service";
+import AutomationButtonWidget from "./AutomationButtonWidget";
 import ChartWidget from "./ChartWidget";
 import FormCell from "./FormCell";
 import LinkWidget from "./LinkWidget";
@@ -172,6 +173,7 @@ export default function DashboardLayout(props: Props) {
                 row={row}
                 rowIdx={rowIdx()}
                 rowCount={props.dashboard.config.rows.length}
+                dashboardId={props.dashboard.id}
                 widgetData={props.widgetData}
                 baseShortId={props.baseShortId}
                 onWidgetRecordsChanged={props.onWidgetRecordsChanged}
@@ -205,6 +207,7 @@ function RowRenderer(props: {
   row: DashboardRow;
   rowIdx: number;
   rowCount: number;
+  dashboardId: string;
   widgetData: Record<string, WidgetData>;
   baseShortId: string;
   onWidgetRecordsChanged?: () => void;
@@ -218,6 +221,7 @@ function RowRenderer(props: {
       row={props.row}
       rowIdx={props.rowIdx}
       rowCount={props.rowCount}
+      dashboardId={props.dashboardId}
       widgetData={props.widgetData}
       baseShortId={props.baseShortId}
       onWidgetRecordsChanged={props.onWidgetRecordsChanged}
@@ -233,6 +237,7 @@ function DashboardRowGrid(props: {
   row: DashboardRow;
   rowIdx: number;
   rowCount: number;
+  dashboardId: string;
   widgetData: Record<string, WidgetData>;
   baseShortId: string;
   onWidgetRecordsChanged?: () => void;
@@ -304,6 +309,7 @@ function DashboardRowGrid(props: {
                 <CellRenderer
                   widget={cell}
                   data={props.widgetData[cell.id]}
+                  dashboardId={props.dashboardId}
                   baseShortId={props.baseShortId}
                   onWidgetRecordsChanged={props.onWidgetRecordsChanged}
                   dateConfig={props.dateConfig}
@@ -481,6 +487,7 @@ function EditCellControls(props: { rowIdx: number; cellIdx: number; cell: Widget
 function CellRenderer(props: {
   widget: Widget;
   data: WidgetData | undefined;
+  dashboardId: string;
   baseShortId: string;
   onWidgetRecordsChanged?: () => void;
   dateConfig?: DateContext;
@@ -521,6 +528,8 @@ function CellRenderer(props: {
           dateConfig={props.dateConfig}
         />
       );
+    case "automation-button":
+      return <AutomationButtonWidget dashboardId={props.dashboardId} widget={props.widget} data={data()} />;
   }
 }
 

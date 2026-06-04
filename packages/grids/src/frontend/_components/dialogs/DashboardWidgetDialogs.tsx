@@ -2,6 +2,8 @@ import { dialogCore, IconInput, MarkdownEditor, panelDialogOptions, PanelDialog,
 import { createMemo, createSignal, type JSX, Show } from "solid-js";
 import type { AggregationSpec } from "../../../contracts";
 import type {
+  Automation,
+  AutomationButtonWidget,
   ChartWidget,
   Dashboard,
   Field,
@@ -86,6 +88,16 @@ export const defaultLinkWidget = (): LinkWidget => ({
   target: { kind: "url", url: "https://example.com" },
 });
 
+export const defaultAutomationButtonWidget = (): AutomationButtonWidget => ({
+  id: newId("w"),
+  kind: "automation-button",
+  span: 4,
+  automationId: "",
+  title: "Run automation",
+  description: "Start a saved manual automation from this dashboard.",
+  buttonLabel: "Run",
+});
+
 type CellEditDialogResult = { action: "save"; widget: Widget } | { action: "delete" };
 
 export const openCellEditDialog = (
@@ -93,6 +105,7 @@ export const openCellEditDialog = (
   ctx: {
     tables: Array<{ id: string; name: string; slug: string }>;
     dashboards: Dashboard[];
+    manualAutomations: Automation[];
     fieldsByTable: Record<string, Field[]>;
     viewsByTable: Record<string, View[]>;
     formsByTable: Record<string, Form[]>;
@@ -107,6 +120,7 @@ export const openCellEditDialog = (
     form: "Form widget",
     markdown: "Markdown widget",
     link: "Link widget",
+    "automation-button": "Automation widget",
   };
   const icon: Record<Widget["kind"], string> = {
     stat: "ti ti-number",
@@ -116,6 +130,7 @@ export const openCellEditDialog = (
     form: "ti ti-forms",
     markdown: "ti ti-markdown",
     link: "ti ti-link",
+    "automation-button": "ti ti-player-play",
   };
 
   return dialogCore.open<CellEditDialogResult>((close) => {
@@ -132,6 +147,7 @@ export const openCellEditDialog = (
             onUpdate={(next) => setDraft(next)}
             tables={ctx.tables}
             dashboards={ctx.dashboards}
+            manualAutomations={ctx.manualAutomations}
             fieldsByTable={ctx.fieldsByTable}
             viewsByTable={ctx.viewsByTable}
             formsByTable={ctx.formsByTable}
@@ -186,6 +202,7 @@ function CellEditorBody(props: {
   onUpdate: (w: Widget) => void;
   tables: Array<{ id: string; name: string; slug: string }>;
   dashboards: Dashboard[];
+  manualAutomations: Automation[];
   fieldsByTable: Record<string, Field[]>;
   viewsByTable: Record<string, View[]>;
   formsByTable: Record<string, Form[]>;
@@ -248,6 +265,14 @@ function CellEditorBody(props: {
           dashboards={props.dashboards}
           viewsByTable={props.viewsByTable}
           formsByTable={props.formsByTable}
+        />
+      );
+    case "automation-button":
+      return (
+        <AutomationButtonCellBody
+          widget={props.widget}
+          onUpdate={props.onUpdate as (w: AutomationButtonWidget) => void}
+          manualAutomations={props.manualAutomations}
         />
       );
   }
@@ -1009,6 +1034,64 @@ function MarkdownCellBody(props: { widget: MarkdownWidget; onUpdate: (w: Markdow
   );
 }
 
+function AutomationButtonCellBody(props: {
+  widget: AutomationButtonWidget;
+  onUpdate: (w: AutomationButtonWidget) => void;
+  manualAutomations: Automation[];
+}) {
+  return (
+    <WidgetEditorSection title="Action" subtitle="Run one manual automation from this dashboard." icon="ti ti-player-play">
+      <WidgetInfoBlock
+        title="Automation button"
+        body="Shows a button that starts one manual automation."
+        detail="Anyone who can open this dashboard can press this button. Automation settings stay admin-only."
+      />
+      <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <TextInput
+          label="Title"
+          value={() => props.widget.title ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, title: v || undefined })}
+          placeholder="Defaults to automation name"
+        />
+        <TextInput
+          label="Button text"
+          value={() => props.widget.buttonLabel ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, buttonLabel: v || undefined })}
+          placeholder="Run"
+        />
+        <TextInput
+          label="Description"
+          value={() => props.widget.description ?? ""}
+          onInput={(v) => props.onUpdate({ ...props.widget, description: v || undefined })}
+          placeholder="Optional context shown above the button"
+        />
+        <Select
+          label="Automation"
+          description="Only manual automations are listed."
+          value={() => props.widget.automationId}
+          onChange={(v) => {
+            const automation = props.manualAutomations.find((candidate) => candidate.id === v);
+            props.onUpdate({
+              ...props.widget,
+              automationId: v,
+              title: props.widget.title || automation?.name || undefined,
+            });
+          }}
+          options={[
+            { id: "", label: "(pick an automation)" },
+            ...props.manualAutomations.map((automation) => ({
+              id: automation.id,
+              label: automation.name,
+              description: automation.enabled ? (automation.description ?? "Manual automation") : "Disabled",
+              icon: automation.enabled ? "ti ti-player-play" : "ti ti-player-pause",
+            })),
+          ]}
+        />
+      </div>
+    </WidgetEditorSection>
+  );
+}
+
 function WidgetEditorSection(props: { title: string; subtitle?: string; icon: string; children: JSX.Element }) {
   return (
     <PanelDialog.Section title={props.title} subtitle={props.subtitle} icon={props.icon}>
@@ -1073,5 +1156,6 @@ function validateWidgetDraft(widget: Widget, viewsByTable: Record<string, View[]
     if (widget.target.kind === "view" && !widget.target.viewId) return "Pick a view.";
     if (widget.target.kind === "form" && !widget.target.formId) return "Pick a form.";
   }
+  if (widget.kind === "automation-button" && !widget.automationId) return "Pick an automation.";
   return null;
 }

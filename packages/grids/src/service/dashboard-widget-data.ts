@@ -10,6 +10,7 @@ import * as relations from "./relations";
 import * as tables from "./tables";
 import * as views from "./views";
 import * as dashboards from "./dashboards";
+import * as automations from "./automations";
 import { hasAtLeast, hasGrantsForResource, loadGrantsForUser, resolveEffectivePermission } from "./permission-resolver";
 
 const isComputedColumn = (column: ColumnSpec): column is ComputedColumnSpec => "kind" in column && column.kind === "computed";
@@ -99,6 +100,16 @@ export type WidgetData =
         | { kind: "url"; url: string }
         | { kind: "blocked"; reason: string };
     }
+  | {
+      kind: "automation-button";
+      automationId: string;
+      automationName: string;
+      title: string;
+      description: string | null;
+      buttonLabel: string;
+      canRun: boolean;
+      disabledReason: string | null;
+    }
   | { kind: "error"; reason: string };
 
 /** Cells produced by the view-stats resolver — one entry per derived
@@ -131,6 +142,7 @@ type ResolveOptions = {
 
 type SavedView = NonNullable<Awaited<ReturnType<typeof views.get>>>;
 type LinkWidget = Extract<Widget, { kind: "link" }>;
+type AutomationButtonWidget = Extract<Widget, { kind: "automation-button" }>;
 type LinkDataBase = {
   kind: "link";
   title: string;
@@ -167,6 +179,8 @@ export const resolveWidgetData = async (widget: Widget, viewer: ViewerContext, o
         return resolveMarkdown(widget);
       case "link":
         return await resolveLink(widget, viewer);
+      case "automation-button":
+        return await resolveAutomationButton(widget);
     }
   } catch (e) {
     return { kind: "error", reason: e instanceof Error ? e.message : "unknown error" };
@@ -353,6 +367,25 @@ const iconForLinkTarget = (kind: Extract<Widget, { kind: "link" }>["target"]["ki
 const renderableFormFields = (form: Form, formFields: Field[]): Field[] => {
   const userInputIds = new Set(form.config.fields.filter((entry) => entry.kind === "user_input").map((entry) => entry.fieldId));
   return formFields.filter((field) => userInputIds.has(field.id));
+};
+
+const resolveAutomationButton = async (widget: AutomationButtonWidget): Promise<WidgetData> => {
+  const automation = await automations.get(widget.automationId);
+  if (!automation) return { kind: "error", reason: "automation not found" };
+  const title = widget.title?.trim() || automation.name;
+  const description = widget.description?.trim() || automation.description;
+  const manual = automation.trigger.kind === "manual";
+  const enabled = automation.enabled;
+  return {
+    kind: "automation-button",
+    automationId: automation.id,
+    automationName: automation.name,
+    title,
+    description,
+    buttonLabel: widget.buttonLabel?.trim() || "Run",
+    canRun: manual && enabled,
+    disabledReason: !manual ? "Only manual automations can run from dashboards" : !enabled ? "Automation is disabled" : null,
+  };
 };
 
 // =============================================================================

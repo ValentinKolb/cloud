@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { describeRoute } from "hono-openapi";
 import { auth, v, respond, jsonResponse, getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
@@ -8,6 +8,9 @@ import {
   CreateDashboardSchema,
   UpdateDashboardSchema,
   WidgetSchema,
+  AutomationRunSchema,
+  type Automation,
+  type Dashboard,
 } from "../contracts";
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import { gridsService } from "../service";
@@ -26,6 +29,21 @@ import { gateAt, resolveWithGrants, hasExplicitGrant } from "./permissions";
 //     personal dashboards to owner-or-explicit-grant. The direct GET
 //     handler enforces this; listForBase mirrors it in SQL.
 // =============================================================================
+
+const canReadDashboardForRequest = async (c: Context<AuthContext>, dashboard: Dashboard): Promise<boolean> => {
+  const user = c.get("user");
+  const { level, grants } = await resolveWithGrants(c, {
+    baseId: dashboard.baseId,
+    dashboardId: dashboard.id,
+  });
+  if (!gridsService.permission.hasAtLeast(level, "read")) return false;
+
+  const isAdmin = hasRole(user, "admin");
+  const isOwner = dashboard.ownerUserId === user.id;
+  const explicitGrant = hasExplicitGrant(grants, isAdmin, "dashboard", dashboard.id);
+  if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) return false;
+  return true;
+};
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -114,24 +132,7 @@ const app = new Hono<AuthContext>()
       // Gate at the dashboard scope (most specific). The Wave 2.1
       // resolver honours dashboard-level deny grants. Failures land as
       // 404 rather than 403 to avoid leaking the resource's existence.
-      const user = c.get("user");
-      const { level, grants } = await resolveWithGrants(c, {
-        baseId: dashboard.baseId,
-        dashboardId: dashboard.id,
-      });
-      if (!gridsService.permission.hasAtLeast(level, "read")) {
-        return c.json({ message: "Dashboard not found" }, 404);
-      }
-
-      // Personal dashboards: visible to the owner OR via an explicit
-      // dashboard-level grant. Inherited base-read alone does NOT make
-      // a personal dashboard visible to a non-owner.
-      const isAdmin = hasRole(user, "admin");
-      const isOwner = dashboard.ownerUserId === user.id;
-      const explicitGrant = hasExplicitGrant(grants, isAdmin, "dashboard", dashboard.id);
-      if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) {
-        return c.json({ message: "Dashboard not found" }, 404);
-      }
+      if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
       return c.json(dashboard);
     },
   )
@@ -152,24 +153,12 @@ const app = new Hono<AuthContext>()
       const dashboard = await gridsService.dashboard.get(dashboardId);
       if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
 
-      const user = c.get("user");
       const writeGate = await gateAt(c, { baseId: dashboard.baseId }, "admin");
       if (!writeGate.ok) return respond(c, () => Promise.resolve(writeGate));
 
-      const { level, grants } = await resolveWithGrants(c, {
-        baseId: dashboard.baseId,
-        dashboardId: dashboard.id,
-      });
-      if (!gridsService.permission.hasAtLeast(level, "read")) {
-        return c.json({ message: "Dashboard not found" }, 404);
-      }
-
+      const user = c.get("user");
+      if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
       const isAdmin = hasRole(user, "admin");
-      const isOwner = dashboard.ownerUserId === user.id;
-      const explicitGrant = hasExplicitGrant(grants, isAdmin, "dashboard", dashboard.id);
-      if (dashboard.ownerUserId !== null && !isOwner && !explicitGrant) {
-        return c.json({ message: "Dashboard not found" }, 404);
-      }
 
       const data = await resolveWidgetData(c.req.valid("json"), {
         userId: user.id,
@@ -179,6 +168,50 @@ const app = new Hono<AuthContext>()
         dateConfig: await getDateConfig(c),
       });
       return c.json(data);
+    },
+  )
+
+  .post(
+    "/:dashboardId/widgets/:widgetId/run",
+    describeRoute({
+      tags: ["Grids:Dashboard"],
+      summary: "Run a dashboard automation button",
+      responses: {
+        200: jsonResponse(AutomationRunSchema, "Run"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const dashboardId = c.req.param("dashboardId")!;
+      const widgetId = c.req.param("widgetId")!;
+      const dashboard = await gridsService.dashboard.get(dashboardId);
+      if (!dashboard) return c.json({ message: "Dashboard not found" }, 404);
+      if (!(await canReadDashboardForRequest(c, dashboard))) return c.json({ message: "Dashboard not found" }, 404);
+
+      const widget = dashboard.config.rows.flatMap((row) => row.cells).find((cell) => cell.id === widgetId);
+      if (!widget || widget.kind !== "automation-button") return c.json({ message: "Widget not found" }, 404);
+
+      const automation = (await gridsService.automation.get(widget.automationId)) as Automation | null;
+      if (!automation || automation.baseId !== dashboard.baseId) return c.json({ message: "Automation not found" }, 404);
+      if (automation.trigger.kind !== "manual") return c.json({ message: "Only manual automations can run from dashboards" }, 400);
+      if (!automation.enabled) return c.json({ message: "Automation is disabled" }, 400);
+
+      const user = c.get("user");
+      return respond(c, () =>
+        gridsService.automation.execute({
+          automationId: automation.id,
+          triggerKind: "manual",
+          reason: "dashboard",
+          actorId: user.id,
+          subject: { type: "base" },
+          triggerDetails: {
+            dashboardId: dashboard.id,
+            dashboardWidgetId: widget.id,
+          },
+        }),
+      );
     },
   )
 

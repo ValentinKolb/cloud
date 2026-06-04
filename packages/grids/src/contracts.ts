@@ -620,7 +620,7 @@ export type FormConfig = z.infer<typeof FormConfigSchema>;
 // ── Dashboards ────────────────────────────────────────────────────────────
 //
 // A dashboard is a per-base composition of widgets that pull data from
-// any table in the base. Five widget kinds:
+// any table in the base. Widget kinds:
 //
 //   - "stat"  : single number from records.aggregate(source) — e.g.
 //               "1,247 orders this month". One aggregation, no groupBy.
@@ -629,6 +629,7 @@ export type FormConfig = z.infer<typeof FormConfigSchema>;
 //               island scoped to a fixed view id with pagesize 25.
 //   - "view-stats": derives compact stat cells from a saved View.
 //   - "form"  : embeds a saved Form for inline record creation.
+//   - "automation-button": runs one manual Automation from a button.
 //
 // The data source for stat / chart widgets is a thin wrapper over the
 // existing aggregate/group/filter compilers — there is no new query DSL
@@ -817,6 +818,23 @@ export const LinkWidgetSchema = z.object({
   target: LinkWidgetTargetSchema,
 });
 
+/**
+ * Automation button widget — explicit dashboard-scoped capability to
+ * trigger one manual automation. Dashboard readers may press this
+ * button, but this does not grant general automation list/edit/run
+ * access. The backend re-checks the saved dashboard config before each
+ * run.
+ */
+export const AutomationButtonWidgetSchema = z.object({
+  id: z.string().min(1),
+  kind: z.literal("automation-button"),
+  span: z.number().int().min(1).max(12).optional(),
+  automationId: z.string().uuid(),
+  title: z.string().max(200).optional(),
+  description: z.string().max(1000).optional(),
+  buttonLabel: z.string().max(80).optional(),
+});
+
 /** Embedded-table source for a `view` widget. Two kinds:
  *
  *  - `view`: read records via a saved View (filter / sort / columns
@@ -858,6 +876,7 @@ export const WidgetSchema = z.discriminatedUnion("kind", [
   FormWidgetSchema,
   MarkdownWidgetSchema,
   LinkWidgetSchema,
+  AutomationButtonWidgetSchema,
 ]);
 export type Widget = z.infer<typeof WidgetSchema>;
 export type StatWidget = z.infer<typeof StatWidgetSchema>;
@@ -867,6 +886,7 @@ export type ViewStatsWidget = z.infer<typeof ViewStatsWidgetSchema>;
 export type FormWidget = z.infer<typeof FormWidgetSchema>;
 export type MarkdownWidget = z.infer<typeof MarkdownWidgetSchema>;
 export type LinkWidget = z.infer<typeof LinkWidgetSchema>;
+export type AutomationButtonWidget = z.infer<typeof AutomationButtonWidgetSchema>;
 
 // Unified row — one type with any mix of cell kinds. Replaces the
 // previous three-row-type discriminated union (stats / view-stats /

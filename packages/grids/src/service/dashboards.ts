@@ -124,6 +124,24 @@ const ensureDashboardInBase = async (
   return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive dashboard in this base`));
 };
 
+const ensureAutomationInBase = async (
+  automationId: string,
+  baseId: string,
+  label: string,
+): Promise<Result<void>> => {
+  const [row] = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS(
+      SELECT 1
+      FROM grids.automations a
+      JOIN grids.bases b ON b.id = a.base_id AND b.deleted_at IS NULL
+      WHERE a.id = ${automationId}::uuid
+        AND a.base_id = ${baseId}::uuid
+        AND a.deleted_at IS NULL
+    ) AS exists
+  `;
+  return row?.exists ? ok() : fail(err.badInput(`${label} must reference an alive automation in this base`));
+};
+
 const widgetsOf = (config: DashboardConfig): Widget[] =>
   config.rows.flatMap((row) => row.cells);
 
@@ -215,6 +233,8 @@ const validateWidgetRefs = async (
       return ensureFormInBase(widget.formId, baseId, "form widget source");
     case "markdown":
       return ok();
+    case "automation-button":
+      return ensureAutomationInBase(widget.automationId, baseId, "automation button");
     case "link":
       if (widget.target.kind === "dashboard") return ensureDashboardInBase(widget.target.dashboardId, baseId, "link target");
       if (widget.target.kind === "table") return ensureTableInBase(widget.target.tableId, baseId, "link target");

@@ -331,6 +331,7 @@ export default function GridsWorkspace(props: Props) {
           isBaseDefault={route.isBaseDefault}
           tables={state().catalog.tables.map((t) => ({ id: t.id, name: t.name, slug: t.shortId }))}
           dashboards={state().catalog.dashboards}
+          manualAutomations={route.manualAutomations}
           fieldsByTable={state().catalog.fieldsByTable}
           viewsByTable={state().catalog.viewsByTable}
           formsByTable={state().catalog.formsByTable}

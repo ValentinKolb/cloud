@@ -64,6 +64,13 @@ describe("dashboardRecordTableIds", () => {
         widget({ id: "form", kind: "form", formId: FORM_C }),
         widget({ id: "markdown", kind: "markdown", markdown: "# Notes" }),
         widget({ id: "link", kind: "link", target: { kind: "table", tableId: TABLE_A } }),
+        widget({
+          id: "automation",
+          kind: "automation-button",
+          automationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          title: "Run sync",
+          buttonLabel: "Run",
+        }),
       ]),
     );
 
