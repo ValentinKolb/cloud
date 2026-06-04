@@ -4,6 +4,7 @@ export type { DialogClose, DialogCore, DialogRender, OpenDialogOptions } from ".
 export { createDialogCore, dialogCore } from "./dialog-core";
 export * from "./filter";
 export * from "./input";
+export { layout, LAYOUT_UPDATE_EVENT, type LayoutBreadcrumb, type LayoutUpdate } from "./layout";
 export * from "./misc";
 export type { PromptSearchInput, PromptSearchItem, PromptSearchOptions } from "./prompts";
 export { createFormState, DialogHeader, prompts } from "./prompts";

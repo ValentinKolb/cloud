@@ -7,12 +7,14 @@ import HotkeysHelpRail from "./HotkeysHelpRail.island";
 import GlobalSearchTrigger from "./GlobalSearchTrigger.island";
 import Footer from "./Footer.island";
 import TimezoneCookie from "./TimezoneCookie.island";
+import LayoutBreadcrumbs from "./LayoutBreadcrumbs.island";
 import { dates } from "../shared";
 import { getRuntimeContext, type RuntimeContext } from "./runtime";
 import { resolveNavMatch } from "../contracts/app"; // ==========================
 import type { GlobalSearchHelpApp } from "./GlobalSearchHelpDialog";
+import type { LayoutBreadcrumb } from "../ui/layout";
 // Types
-type Breadcrumb = { title: string; href?: string };
+type Breadcrumb = LayoutBreadcrumb;
 type AppLink = { iconClass: string; label: string; href: string; match: string };
 type LayoutContext = {
   get(key: "user"): User | undefined;
@@ -123,30 +125,7 @@ function ExpiryWarnings({ user }: { user: User }) {
   );
 } // ==========================
 // Sub-Components
-function BreadcrumbNav({ breadcrumbs }: { breadcrumbs: Breadcrumb[] }) {
-  return (
-    <nav class="flex items-center gap-1 sm:gap-2 min-w-0 text-sm md:text-xs">
-      {" "}
-      {breadcrumbs.map((crumb, i) => {
-        const isLast = i === breadcrumbs.length - 1;
-        return (
-          <>
-            {" "}
-            {i > 0 && <span class="text-zinc-400 dark:text-zinc-600 text-xs">/</span>}{" "}
-            {crumb.href && !isLast ? (
-              <a href={crumb.href} class="text-dimmed hover:text-primary truncate">
-                {" "}
-                {crumb.title}{" "}
-              </a>
-            ) : (
-              <span class="font-semibold text-primary truncate">{crumb.title}</span>
-            )}{" "}
-          </>
-        );
-      })}{" "}
-    </nav>
-  );
-} // ==========================
+// ==========================
 // Main Layout
 export default function Layout({ children, c, title, fullPage, fullWidth }: LayoutProps) {
   const runtime = getRuntimeContext(c);
@@ -192,7 +171,8 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
     return [...seen.values()];
   })();
   const page = c.get("page") as Record<string, unknown>;
-  if (!page.title) page.title = typeof title === "string" ? title : appName;
+  const pageTitle = typeof title === "string" ? title : (title?.at(-1)?.title ?? appName);
+  if (!page.title) page.title = pageTitle;
   const breadcrumbs: Breadcrumb[] = !title ? [{ title: appName }] : typeof title === "string" ? [{ title }] : title;
   const showRail =
     !!user; /* * Grid layout: * Rail mode: [rail | content] * No rail: [content] * * Rows: [header] [main] [footer?] * The rail spans rows 1+2 via grid-row, so logo aligns with the header. */
@@ -243,12 +223,12 @@ export default function Layout({ children, c, title, fullPage, fullWidth }: Layo
           {/* Breadcrumbs — desktop, rail mode only */}{" "}
           <div class="hidden md:flex items-center min-w-0">
             {" "}
-            <BreadcrumbNav breadcrumbs={breadcrumbs} />{" "}
+            <LayoutBreadcrumbs breadcrumbs={breadcrumbs} />{" "}
           </div>{" "}
           {/* Mobile breadcrumb */}{" "}
           <div class="md:hidden flex items-center min-w-0">
             {" "}
-            <BreadcrumbNav breadcrumbs={breadcrumbs.slice(-1)} />{" "}
+            <LayoutBreadcrumbs breadcrumbs={breadcrumbs} mobile />{" "}
           </div>{" "}
         </div>{" "}
         <div class="flex items-center shrink-0 gap-1">
