@@ -1,13 +1,7 @@
+import type { AccessEntry, PermissionLevel, Principal } from "@valentinkolb/cloud/server";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
 import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
-import {
-  createAccess,
-  deleteAccess as platformDeleteAccess,
-  updateAccess as platformUpdateAccess,
-  type Principal,
-  type PermissionLevel,
-  type AccessEntry,
-} from "@valentinkolb/cloud/server";
+import { logAudit, type SqlClient } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 
 const TABLE_BY_RESOURCE = {
@@ -28,7 +22,25 @@ type DbAccessRow = {
   display_name: string | null;
 };
 
-const emitAccessChanged = async (binding: AccessBinding | null, accessId: string): Promise<void> => {
+type DbAccessSnapshot = {
+  id: string;
+  user_id: string | null;
+  group_id: string | null;
+  authenticated_only: boolean;
+  permission: PermissionLevel;
+};
+
+type AccessResourceType = keyof typeof TABLE_BY_RESOURCE;
+
+type AccessAuditSnapshot = {
+  id: string;
+  resourceType: AccessResourceType;
+  resourceId: string;
+  principal: Principal;
+  permission: PermissionLevel;
+};
+
+const emitAccessChanged = async (binding: AccessBinding | null, accessId: string, actorId: string | null = null): Promise<void> => {
   if (!binding) return;
   await emitMetadataEvent({
     type: "access.changed",
@@ -38,11 +50,11 @@ const emitAccessChanged = async (binding: AccessBinding | null, accessId: string
       id: accessId,
       tableId: "tableId" in binding ? binding.tableId : undefined,
     },
-    actorId: null,
+    actorId,
   });
 };
 
-const principalFromRow = (row: DbAccessRow): Principal => {
+const principalFromRow = (row: Pick<DbAccessRow, "user_id" | "group_id" | "authenticated_only">): Principal => {
   if (row.user_id) return { type: "user", userId: row.user_id };
   if (row.group_id) return { type: "group", groupId: row.group_id };
   if (row.authenticated_only) return { type: "authenticated" };
@@ -57,37 +69,163 @@ const mapAccessRow = (row: DbAccessRow): AccessEntry => ({
   displayName: row.display_name ?? undefined,
 });
 
+const resourceIdFromBinding = (binding: AccessBinding): string => {
+  if (binding.resourceType === "base") return binding.baseId;
+  if (binding.resourceType === "table") return binding.tableId;
+  if (binding.resourceType === "view") return binding.viewId;
+  if (binding.resourceType === "form") return binding.formId;
+  return binding.dashboardId;
+};
+
+const auditScopeFromBinding = (binding: AccessBinding): { baseId: string; tableId: string | null } => ({
+  baseId: binding.baseId,
+  tableId: "tableId" in binding ? binding.tableId : null,
+});
+
+export const buildAccessAuditDiff = (
+  action: "access.granted" | "access.updated" | "access.revoked",
+  binding: AccessBinding,
+  access: Pick<DbAccessSnapshot, "id" | "permission" | "user_id" | "group_id" | "authenticated_only">,
+  nextPermission: PermissionLevel | null,
+): { access: { old: AccessAuditSnapshot | null; new: AccessAuditSnapshot | null } } => {
+  const snapshot: AccessAuditSnapshot = {
+    id: access.id,
+    resourceType: binding.resourceType,
+    resourceId: resourceIdFromBinding(binding),
+    principal: principalFromRow({
+      user_id: access.user_id,
+      group_id: access.group_id,
+      authenticated_only: access.authenticated_only,
+    }),
+    permission: access.permission,
+  };
+
+  return {
+    access: {
+      old: action === "access.granted" ? null : snapshot,
+      new: nextPermission === null ? null : { ...snapshot, permission: nextPermission },
+    },
+  };
+};
+
+const getAccessSnapshot = async (accessId: string, client: SqlClient = sql): Promise<DbAccessSnapshot | null> => {
+  const [row] = await client<DbAccessSnapshot[]>`
+    SELECT id, user_id, group_id, authenticated_only, permission
+    FROM auth.access
+    WHERE id = ${accessId}::uuid
+  `;
+  return row ?? null;
+};
+
+const insertAccessRow = async (
+  params: { principal: Principal; permission: PermissionLevel },
+  client: SqlClient,
+): Promise<Result<{ id: string }>> => {
+  const { principal, permission } = params;
+
+  let userId: string | null = null;
+  let groupId: string | null = null;
+  let authenticatedOnly = false;
+
+  if (principal.type === "user") {
+    userId = principal.userId;
+    const [user] = await client<{ id: string }[]>`
+      SELECT id FROM auth.users WHERE id = ${userId}::uuid
+    `;
+    if (!user) return fail(err.notFound("User"));
+  } else if (principal.type === "group") {
+    groupId = principal.groupId;
+    const [group] = await client<{ id: string }[]>`
+      SELECT id FROM auth.groups WHERE id = ${groupId}::uuid
+    `;
+    if (!group) return fail(err.notFound("Group"));
+  } else if (principal.type === "authenticated") {
+    authenticatedOnly = true;
+  }
+
+  const [row] = await client<{ id: string }[]>`
+    INSERT INTO auth.access (user_id, group_id, authenticated_only, permission)
+    VALUES (${userId}::uuid, ${groupId}::uuid, ${authenticatedOnly}, ${permission}::auth.permission_level)
+    RETURNING id
+  `;
+  return row ? ok({ id: row.id }) : fail(err.internal("Failed to create access entry"));
+};
+
+const insertAccessBinding = async (
+  resourceType: AccessResourceType,
+  resourceId: string,
+  accessId: string,
+  client: SqlClient,
+): Promise<void> => {
+  // Bun's `sql` template tag doesn't support identifier interpolation; we hand-pick
+  // the table+column name from the literal map above to keep the path safe.
+  if (resourceType === "base") {
+    await client`INSERT INTO grids.base_access (base_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  } else if (resourceType === "table") {
+    await client`INSERT INTO grids.table_access (table_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  } else if (resourceType === "view") {
+    await client`INSERT INTO grids.view_access (view_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  } else if (resourceType === "form") {
+    await client`INSERT INTO grids.form_access (form_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  } else {
+    await client`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${resourceId}::uuid, ${accessId}::uuid)`;
+  }
+};
+
+const logAccessAudit = async (params: {
+  action: "access.granted" | "access.updated" | "access.revoked";
+  binding: AccessBinding;
+  access: DbAccessSnapshot;
+  actorId: string | null;
+  nextPermission: PermissionLevel | null;
+  client: SqlClient;
+}): Promise<void> => {
+  const scope = auditScopeFromBinding(params.binding);
+  await logAudit(
+    {
+      ...scope,
+      userId: params.actorId,
+      action: params.action,
+      diff: buildAccessAuditDiff(params.action, params.binding, params.access, params.nextPermission),
+    },
+    params.client,
+  );
+};
+
 /**
- * Creates an access entry on the platform `auth.access` table and binds it
- * to a grids resource via the matching junction. Mirrors the pattern other
- * apps (contacts, spaces) use, scoped to grids' three resource types.
+ * Creates an access entry on the platform `auth.access` table, binds it to a
+ * grids resource via the matching junction, and writes the ACL audit entry in
+ * the same DB transaction.
  */
 export const grantAccess = async (params: {
-  resourceType: keyof typeof TABLE_BY_RESOURCE;
+  resourceType: AccessResourceType;
   resourceId: string;
   principal: Principal;
   permission: PermissionLevel;
+  actorId?: string | null;
 }): Promise<Result<{ accessId: string }>> => {
-  const created = await createAccess({ principal: params.principal, permission: params.permission });
-  if (!created.ok) return fail(created.error);
+  const createdAccess = await sql.begin(async (tx): Promise<Result<{ accessId: string }>> => {
+    const created = await insertAccessRow({ principal: params.principal, permission: params.permission }, tx);
+    if (!created.ok) return fail(created.error);
+    await insertAccessBinding(params.resourceType, params.resourceId, created.data.id, tx);
+    const binding = await resolveAccessBinding(created.data.id, tx);
+    if (!binding) throw err.internal("Failed to resolve access binding");
+    const access = await getAccessSnapshot(created.data.id, tx);
+    if (!access) throw err.internal("Failed to resolve access entry");
+    await logAccessAudit({
+      action: "access.granted",
+      binding,
+      access,
+      actorId: params.actorId ?? null,
+      nextPermission: params.permission,
+      client: tx,
+    });
+    return ok({ accessId: created.data.id });
+  });
+  if (!createdAccess.ok) return fail(createdAccess.error);
 
-  const accessId = created.data.id;
-  // Bun's `sql` template tag doesn't support identifier interpolation; we hand-pick
-  // the table+column name from the literal map above to keep the path safe.
-  if (params.resourceType === "base") {
-    await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (params.resourceType === "table") {
-    await sql`INSERT INTO grids.table_access (table_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (params.resourceType === "view") {
-    await sql`INSERT INTO grids.view_access (view_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
-  } else if (params.resourceType === "form") {
-    await sql`INSERT INTO grids.form_access (form_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
-  } else {
-    await sql`INSERT INTO grids.dashboard_access (dashboard_id, access_id) VALUES (${params.resourceId}::uuid, ${accessId}::uuid)`;
-  }
-
-  await emitAccessChanged(await resolveAccessBinding(accessId), accessId);
-  return ok({ accessId });
+  await emitAccessChanged(await resolveAccessBinding(createdAccess.data.accessId), createdAccess.data.accessId, params.actorId ?? null);
+  return createdAccess;
 };
 
 const listAccess = async (resourceType: keyof typeof TABLE_BY_RESOURCE, resourceId: string): Promise<AccessEntry[]> => {
@@ -168,14 +306,34 @@ export const listFormAccess = (formId: string) => listAccess("form", formId);
 export const listDashboardAccess = (dashboardId: string) => listAccess("dashboard", dashboardId);
 
 /**
- * Updates an existing access entry's permission level. Wraps the platform
- * service so callers don't need to know whether the entry came from base /
- * table / view ACL — they all share the auth.access row.
+ * Updates an existing access entry's permission level and logs the ACL
+ * change in the same DB transaction.
  */
-export const updateAccessLevel = async (accessId: string, level: PermissionLevel) => {
+export const updateAccessLevel = async (accessId: string, level: PermissionLevel, actorId: string | null = null): Promise<Result<void>> => {
   const binding = await resolveAccessBinding(accessId);
-  const result = await platformUpdateAccess({ id: accessId, permission: level });
-  if (result.ok) await emitAccessChanged(binding, accessId);
+  if (!binding) return fail(err.notFound("Access entry"));
+  const result = await sql.begin(async (tx) => {
+    const access = await getAccessSnapshot(accessId, tx);
+    if (!access) return fail(err.notFound("Access entry"));
+    const update = await tx`
+      UPDATE auth.access
+      SET permission = ${level}::auth.permission_level
+      WHERE id = ${accessId}::uuid
+    `;
+    if (update.count === 0) return fail(err.notFound("Access entry"));
+    if (access.permission !== level) {
+      await logAccessAudit({
+        action: "access.updated",
+        binding,
+        access,
+        actorId,
+        nextPermission: level,
+        client: tx,
+      });
+    }
+    return ok();
+  });
+  if (result.ok) await emitAccessChanged(binding, accessId, actorId);
   return result;
 };
 
@@ -186,11 +344,29 @@ export const updateAccessLevel = async (accessId: string, level: PermissionLevel
  * underlying access row too. CASCADE on the junctions handles the cleanup
  * automatically once the access row is gone.
  */
-export const revokeAccess = async (accessId: string): Promise<Result<void>> => {
+export const revokeAccess = async (accessId: string, actorId: string | null = null): Promise<Result<void>> => {
   const binding = await resolveAccessBinding(accessId);
-  const r = await platformDeleteAccess({ id: accessId });
-  if (r.ok) await emitAccessChanged(binding, accessId);
-  return r.ok ? ok() : fail(r.error);
+  if (!binding) return fail(err.notFound("Access entry"));
+  const result = await sql.begin(async (tx) => {
+    const access = await getAccessSnapshot(accessId, tx);
+    if (!access) return fail(err.notFound("Access entry"));
+    const deleted = await tx`
+      DELETE FROM auth.access
+      WHERE id = ${accessId}::uuid
+    `;
+    if (deleted.count === 0) return fail(err.notFound("Access entry"));
+    await logAccessAudit({
+      action: "access.revoked",
+      binding,
+      access,
+      actorId,
+      nextPermission: null,
+      client: tx,
+    });
+    return ok();
+  });
+  if (result.ok) await emitAccessChanged(binding, accessId, actorId);
+  return result;
 };
 
 /**
@@ -206,13 +382,13 @@ export type AccessBinding =
   | { resourceType: "form"; baseId: string; tableId: string; formId: string }
   | { resourceType: "dashboard"; baseId: string; dashboardId: string };
 
-export const resolveAccessBinding = async (accessId: string): Promise<AccessBinding | null> => {
-  const [baseRow] = await sql<{ base_id: string }[]>`
+export const resolveAccessBinding = async (accessId: string, client: SqlClient = sql): Promise<AccessBinding | null> => {
+  const [baseRow] = await client<{ base_id: string }[]>`
     SELECT base_id FROM grids.base_access WHERE access_id = ${accessId}::uuid
   `;
   if (baseRow) return { resourceType: "base", baseId: baseRow.base_id };
 
-  const [tableRow] = await sql<{ table_id: string; base_id: string }[]>`
+  const [tableRow] = await client<{ table_id: string; base_id: string }[]>`
     SELECT ta.table_id, t.base_id
     FROM grids.table_access ta
     JOIN grids.tables t ON t.id = ta.table_id
@@ -222,7 +398,7 @@ export const resolveAccessBinding = async (accessId: string): Promise<AccessBind
     return { resourceType: "table", baseId: tableRow.base_id, tableId: tableRow.table_id };
   }
 
-  const [viewRow] = await sql<{ view_id: string; table_id: string; base_id: string }[]>`
+  const [viewRow] = await client<{ view_id: string; table_id: string; base_id: string }[]>`
     SELECT va.view_id, v.table_id, t.base_id
     FROM grids.view_access va
     JOIN grids.views v ON v.id = va.view_id
@@ -238,7 +414,7 @@ export const resolveAccessBinding = async (accessId: string): Promise<AccessBind
     };
   }
 
-  const [formRow] = await sql<{ form_id: string; table_id: string; base_id: string }[]>`
+  const [formRow] = await client<{ form_id: string; table_id: string; base_id: string }[]>`
     SELECT fa.form_id, f.table_id, t.base_id
     FROM grids.form_access fa
     JOIN grids.forms f ON f.id = fa.form_id
@@ -254,7 +430,7 @@ export const resolveAccessBinding = async (accessId: string): Promise<AccessBind
     };
   }
 
-  const [dashboardRow] = await sql<{ dashboard_id: string; base_id: string }[]>`
+  const [dashboardRow] = await client<{ dashboard_id: string; base_id: string }[]>`
     SELECT da.dashboard_id, d.base_id
     FROM grids.dashboard_access da
     JOIN grids.dashboards d ON d.id = da.dashboard_id

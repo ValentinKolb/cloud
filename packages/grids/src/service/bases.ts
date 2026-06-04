@@ -1,9 +1,9 @@
-import { sql } from "bun";
-import { ok, fail, err, type Result } from "@valentinkolb/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
+import { err, fail, ok, type Result } from "@valentinkolb/stdlib";
+import { sql } from "bun";
+import { grantAccess } from "./access";
 import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
-import { grantAccess } from "./access";
 import { insertWithShortId } from "./short-id";
 import type { Base, CreateBaseInput, UpdateBaseInput } from "./types";
 
@@ -132,10 +132,7 @@ export const listVisible = async (params: {
  * callers that need to render the trash listing or perform restore must
  * pass `includeDeleted: true`.
  */
-export const get = async (
-  id: string,
-  opts: { includeDeleted?: boolean } = {},
-): Promise<Base | null> => {
+export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): Promise<Base | null> => {
   const [row] = opts.includeDeleted
     ? await sql<DbRow[]>`
         SELECT ${COLS}
@@ -206,6 +203,7 @@ export const create = async (input: CreateBaseInput, actorId: string | null): Pr
       resourceId: base.id,
       principal: { type: "user", userId: actorId },
       permission: "admin",
+      actorId,
     });
     if (!granted.ok) {
       // Hard delete (not soft) — there's no audit value in keeping a
@@ -253,10 +251,7 @@ export const update = async (id: string, input: UpdateBaseInput, actorId: string
   const next = {
     name: name ?? existing.name,
     description: input.description !== undefined ? input.description : existing.description,
-    defaultDashboardId:
-      input.defaultDashboardId !== undefined
-        ? input.defaultDashboardId
-        : existing.defaultDashboardId,
+    defaultDashboardId: input.defaultDashboardId !== undefined ? input.defaultDashboardId : existing.defaultDashboardId,
   };
 
   const [row] = await sql<DbRow[]>`

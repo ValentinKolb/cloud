@@ -146,6 +146,9 @@ export type AuditAction =
   | "deleted"
   | "restored"
   | "imported"
+  | "access.granted"
+  | "access.updated"
+  | "access.revoked"
   | "automation.webhook.sent"
   | "automation.webhook.failed";
 
@@ -242,7 +245,13 @@ export type UpdateBaseInput = {
   defaultDashboardId?: string | null;
 };
 
-export type CreateTableInput = { baseId: string; name: string; description?: string | null; icon?: string | null; columns?: FieldColumnSpec[] };
+export type CreateTableInput = {
+  baseId: string;
+  name: string;
+  description?: string | null;
+  icon?: string | null;
+  columns?: FieldColumnSpec[];
+};
 export type UpdateTableInput = {
   name?: string;
   description?: string | null;

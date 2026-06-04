@@ -1,14 +1,9 @@
-import { Hono } from "hono";
+import { AccessEntrySchema, ErrorResponseSchema, GrantAccessSchema, PermissionLevelSchema } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
-import { z } from "zod";
+import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { auth, v, respond, jsonResponse, type AuthContext } from "@valentinkolb/cloud/server";
-import {
-  AccessEntrySchema,
-  ErrorResponseSchema,
-  GrantAccessSchema,
-  PermissionLevelSchema,
-} from "@valentinkolb/cloud/contracts";
+import { z } from "zod";
 import { gridsService } from "../service";
 import { gateAt } from "./permissions";
 
@@ -49,13 +44,16 @@ const app = new Hono<AuthContext>()
       const baseId = c.req.param("baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
       return respond(
         c,
-        () => gridsService.access.grant({
-          resourceType: "base",
-          resourceId: baseId,
-          ...c.req.valid("json"),
-        }),
+        () =>
+          gridsService.access.grant({
+            resourceType: "base",
+            resourceId: baseId,
+            actorId: user.id,
+            ...c.req.valid("json"),
+          }),
         201,
       );
     },
@@ -104,13 +102,16 @@ const app = new Hono<AuthContext>()
       }
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
       return respond(
         c,
-        () => gridsService.access.grant({
-          resourceType: "table",
-          resourceId: tableId,
-          ...body,
-        }),
+        () =>
+          gridsService.access.grant({
+            resourceType: "table",
+            resourceId: tableId,
+            actorId: user.id,
+            ...body,
+          }),
         201,
       );
     },
@@ -175,13 +176,16 @@ const app = new Hono<AuthContext>()
       if (!viewRow) return c.json({ message: "View not found" }, 404);
       const gate = await gateAt(c, { baseId: viewRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
       return respond(
         c,
-        () => gridsService.access.grant({
-          resourceType: "view",
-          resourceId: viewId,
-          ...body,
-        }),
+        () =>
+          gridsService.access.grant({
+            resourceType: "view",
+            resourceId: viewId,
+            actorId: user.id,
+            ...body,
+          }),
         201,
       );
     },
@@ -247,13 +251,16 @@ const app = new Hono<AuthContext>()
       if (!formRow) return c.json({ message: "Form not found" }, 404);
       const gate = await gateAt(c, { baseId: formRow.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
       return respond(
         c,
-        () => gridsService.access.grant({
-          resourceType: "form",
-          resourceId: formId,
-          ...body,
-        }),
+        () =>
+          gridsService.access.grant({
+            resourceType: "form",
+            resourceId: formId,
+            actorId: user.id,
+            ...body,
+          }),
         201,
       );
     },
@@ -311,12 +318,14 @@ const app = new Hono<AuthContext>()
       if (!row) return c.json({ message: "Dashboard not found" }, 404);
       const gate = await gateAt(c, { baseId: row.base_id }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const user = c.get("user");
       return respond(
         c,
         () =>
           gridsService.access.grant({
             resourceType: "dashboard",
             resourceId: dashboardId,
+            actorId: user.id,
             ...body,
           }),
         201,
@@ -371,7 +380,8 @@ const app = new Hono<AuthContext>()
         return c.json({ message: "Dashboard grants only accept 'read' or 'none'" }, 400);
       }
 
-      const result = await gridsService.access.updateLevel(accessId, permission);
+      const user = c.get("user");
+      const result = await gridsService.access.updateLevel(accessId, permission, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -396,7 +406,8 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: binding.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const result = await gridsService.access.revoke(accessId);
+      const user = c.get("user");
+      const result = await gridsService.access.revoke(accessId, user.id);
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
