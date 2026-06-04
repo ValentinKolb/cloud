@@ -59,6 +59,7 @@ RUN bun run packages/cloud/scripts/build.ts
 # ──────────────────────────────────────────────────────────────────────
 FROM oven/bun:1-alpine AS runtime
 WORKDIR /app
+ENV NODE_ENV=production
 COPY --from=build /app/dist ./
 
 EXPOSE 3000

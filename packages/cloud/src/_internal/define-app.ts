@@ -200,7 +200,7 @@ export type AppDefinition<S extends AppSettingsMap = {}> = {
 // ── Implementation ──────────────────────────────────────────────────────────
 
 export const defineApp = <const S extends AppSettingsMap = {}>(opts: AppOptions<S>): AppDefinition<S> => {
-  const isDevelopment = process.env.NODE_ENV !== "production";
+  const isDevelopment = process.env.NODE_ENV === "development";
 
   // ── 0. Register declared settings into the runtime registry ──────────
   // SETTINGS_MAP is the single source of truth for validation in store.ts
