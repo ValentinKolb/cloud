@@ -620,7 +620,7 @@ export const prompts = {
 
           <div class="flex justify-end gap-3">
             <button type="button" onClick={() => close(false)} class="btn-secondary btn-sm">
-              {options?.cancelText || "Nope"}
+              {options?.cancelText || "Cancel"}
             </button>
             <button
               type="button"
@@ -629,7 +629,7 @@ export const prompts = {
                 options?.variant === "danger" ? "btn-danger" : options?.variant === "success" ? "btn-success" : "btn-primary"
               } btn-sm`}
             >
-              {options?.confirmText || "Yees"}
+              {options?.confirmText || "Confirm"}
             </button>
           </div>
         </div>
@@ -811,11 +811,11 @@ export const prompts = {
             <div class="flex justify-end gap-3">
               <Show when={config.cancelText !== false}>
                 <button type="button" onClick={() => close(null)} class="btn-secondary btn-sm">
-                  {config.cancelText || "ESC"}
+                  {config.cancelText || "Cancel"}
                 </button>
               </Show>
               <button type="submit" class={`${submitButtonClass} btn-sm`}>
-                {config.confirmText || "ENTER"}
+                {config.confirmText || "Save"}
               </button>
             </div>
           </form>
@@ -873,13 +873,13 @@ export const prompts = {
     dialogCore.open(
       (close) => (
         <div>
-          <DialogHeader title={options?.title ?? "Uuups"} icon={options?.icon ?? "ti ti-alert-circle"} close={close} />
+          <DialogHeader title={options?.title ?? "Error"} icon={options?.icon ?? "ti ti-alert-circle"} close={close} />
 
           <div class="font-xs p-4 text-sm">{content}</div>
 
           <div class="flex justify-end gap-3">
             <button onClick={() => close()} class="btn-primary btn-sm">
-              {options?.confirmText || "Ok .. me sad now"}
+              {options?.confirmText || "Close"}
             </button>
           </div>
         </div>
