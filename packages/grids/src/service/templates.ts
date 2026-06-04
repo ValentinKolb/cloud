@@ -67,6 +67,11 @@ const isRef = (value: unknown): value is TemplateRef =>
   (value as Record<string, unknown>).$ref !== undefined &&
   typeof (value as Record<string, unknown>).key === "string";
 
+const isFormulaExpression = (value: unknown): value is { $formula: Array<string | TemplateRef> } =>
+  !!value &&
+  typeof value === "object" &&
+  Array.isArray((value as { $formula?: unknown }).$formula);
+
 const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
   const value =
     ref.$ref === "table"
@@ -88,6 +93,9 @@ const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
 const resolveValue = (value: unknown, ctx: TemplateContext): unknown => {
   if (value === undefined) return undefined;
   if (isRef(value)) return resolveRef(value, ctx);
+  if (isFormulaExpression(value)) {
+    return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolveRef(part, ctx)}}`)).join("");
+  }
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, ctx));
   if (value && typeof value === "object") {
     return Object.fromEntries(

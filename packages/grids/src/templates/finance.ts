@@ -448,7 +448,19 @@ export const financeTemplate: GridTemplate = {
         successMessage: "Expense logged.",
         fields: [
           { kind: "user_input", fieldId: field("transactions.date"), label: "Date", required: true },
-          { kind: "user_input", fieldId: field("transactions.merchant"), label: "Merchant", required: true },
+          {
+            kind: "user_input",
+            fieldId: field("transactions.merchant"),
+            label: "Merchant",
+            required: true,
+            inlineCreate: {
+              enabled: true,
+              fields: [
+                { fieldId: field("merchants.name"), label: "Merchant name", required: true },
+                { fieldId: field("merchants.website"), label: "Website" },
+              ],
+            },
+          },
           { kind: "user_input", fieldId: field("transactions.account"), label: "Account", required: true },
           { kind: "user_input", fieldId: field("transactions.category"), label: "Category", required: true },
           { kind: "user_input", fieldId: field("transactions.amount"), label: "Amount", required: true },

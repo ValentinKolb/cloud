@@ -5,12 +5,17 @@ export type TemplateRef = {
   key: string;
 };
 
+export type TemplateFormulaExpression = {
+  $formula: Array<string | TemplateRef>;
+};
+
 export type TemplateValue =
   | string
   | number
   | boolean
   | null
   | TemplateRef
+  | TemplateFormulaExpression
   | TemplateValue[]
   | { [key: string]: TemplateValue };
 
@@ -87,3 +92,4 @@ export const record = (key: string): TemplateRef => ({ $ref: "record", key });
 export const view = (key: string): TemplateRef => ({ $ref: "view", key });
 export const form = (key: string): TemplateRef => ({ $ref: "form", key });
 export const dashboard = (key: string): TemplateRef => ({ $ref: "dashboard", key });
+export const formula = (...parts: Array<string | TemplateRef>): TemplateFormulaExpression => ({ $formula: parts });

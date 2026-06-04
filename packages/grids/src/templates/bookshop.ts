@@ -352,6 +352,36 @@ export const bookshopTemplate: GridTemplate = {
   ],
   forms: [
     {
+      key: "new_order",
+      table: "orders",
+      name: "New order",
+      config: {
+        title: "New order",
+        submitLabel: "Create order",
+        successMessage: "Order created.",
+        fields: [
+          {
+            kind: "user_input",
+            fieldId: field("orders.customer"),
+            label: "Customer",
+            required: true,
+            inlineCreate: {
+              enabled: true,
+              fields: [
+                { fieldId: field("customers.name"), label: "Customer name", required: true },
+                { fieldId: field("customers.email"), label: "Email" },
+                { fieldId: field("customers.phone"), label: "Phone" },
+              ],
+            },
+          },
+          { kind: "user_input", fieldId: field("orders.book"), label: "Book", required: true },
+          { kind: "user_input", fieldId: field("orders.qty"), label: "Quantity", required: true, defaultValue: 1 },
+          { kind: "user_input", fieldId: field("orders.line_total"), label: "Line total", required: true },
+          { kind: "form_value", fieldId: field("orders.status"), value: ["new"] },
+        ],
+      },
+    },
+    {
       key: "newsletter",
       table: "customers",
       name: "Newsletter signup",

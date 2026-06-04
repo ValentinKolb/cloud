@@ -1,16 +1,14 @@
 import { bookshopTemplate } from "./bookshop";
-import { contentTemplate } from "./content";
-import { crmTemplate } from "./crm";
 import { financeTemplate } from "./finance";
+import { inventoryTemplate } from "./inventory";
 import type { GridTemplate } from "./types";
 
 export type { GridTemplate, TemplateDashboard, TemplateField, TemplateForm, TemplateRecord, TemplateRef, TemplateTable, TemplateValue, TemplateView } from "./types";
 
 export const templates: GridTemplate[] = [
   bookshopTemplate,
-  crmTemplate,
-  contentTemplate,
   financeTemplate,
+  inventoryTemplate,
 ];
 
 export const getTemplate = (id: string): GridTemplate | null =>

@@ -1,0 +1,400 @@
+import { field, form, formula, type GridTemplate, record, table, view } from "./types";
+
+export const inventoryTemplate: GridTemplate = {
+  id: "inventory",
+  name: "Inventory",
+  description: "Items, categories, locations, kits, and simple kit loans.",
+  icon: "ti ti-packages",
+  baseName: "Inventory",
+  baseDescription: "Manage inventory, locations, kits, and loan requests.",
+  tables: [
+    {
+      key: "categories",
+      name: "Categories",
+      fields: [
+        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-tag" },
+        { key: "description", name: "description", type: "longtext", icon: "ti ti-align-left" },
+      ],
+    },
+    {
+      key: "locations",
+      name: "Locations",
+      fields: [
+        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-map-pin" },
+        { key: "room", name: "room", type: "text", icon: "ti ti-door" },
+        { key: "shelf", name: "shelf", type: "text", icon: "ti ti-stack" },
+      ],
+    },
+    {
+      key: "items",
+      name: "Items",
+      fields: [
+        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-package" },
+        {
+          key: "category",
+          name: "category",
+          type: "relation",
+          icon: "ti ti-tag",
+          config: { targetTableId: table("categories"), cardinality: "single" },
+        },
+        {
+          key: "location",
+          name: "location",
+          type: "relation",
+          icon: "ti ti-map-pin",
+          config: { targetTableId: table("locations"), cardinality: "single" },
+        },
+        {
+          key: "status",
+          name: "status",
+          type: "select",
+          icon: "ti ti-traffic-lights",
+          config: {
+            options: [
+              { id: "available", label: "Available", color: "#22c55e" },
+              { id: "in_use", label: "In use", color: "#f59e0b" },
+              { id: "maintenance", label: "Maintenance", color: "#ef4444" },
+            ],
+          },
+          defaultValue: ["available"],
+        },
+        {
+          key: "condition",
+          name: "condition",
+          type: "select",
+          icon: "ti ti-stars",
+          config: {
+            options: [
+              { id: "new", label: "New", color: "#22c55e" },
+              { id: "good", label: "Good", color: "#3b82f6" },
+              { id: "used", label: "Used", color: "#f59e0b" },
+              { id: "repair", label: "Needs repair", color: "#ef4444" },
+            ],
+          },
+        },
+        { key: "serial_no", name: "serial_no", type: "text", icon: "ti ti-barcode" },
+        { key: "quantity", name: "quantity", type: "number", required: true, defaultValue: "1", config: { min: "0", decimalPlaces: 0 }, icon: "ti ti-hash" },
+        {
+          key: "replacement_value",
+          name: "replacement_value",
+          type: "number",
+          config: { precision: 16, decimalPlaces: 2, unit: "EUR", unitPosition: "suffix" },
+          icon: "ti ti-currency-euro",
+        },
+        {
+          key: "total_value",
+          name: "total_value",
+          type: "formula",
+          config: {
+            expression: formula(field("items.quantity"), " * ", field("items.replacement_value")),
+            format: { kind: "number", unit: "EUR", unitPosition: "suffix", decimalPlaces: 2 },
+          },
+          icon: "ti ti-calculator",
+        },
+        { key: "purchase_date", name: "purchase_date", type: "date", icon: "ti ti-calendar" },
+        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+      ],
+    },
+    {
+      key: "kits",
+      name: "Kits",
+      fields: [
+        { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-briefcase" },
+        {
+          key: "items",
+          name: "items",
+          type: "relation",
+          icon: "ti ti-packages",
+          config: { targetTableId: table("items"), cardinality: "multiple" },
+        },
+        {
+          key: "status",
+          name: "status",
+          type: "select",
+          icon: "ti ti-circle-check",
+          config: {
+            options: [
+              { id: "ready", label: "Ready", color: "#22c55e" },
+              { id: "incomplete", label: "Incomplete", color: "#f59e0b" },
+              { id: "retired", label: "Retired", color: "#94a3b8" },
+            ],
+          },
+          defaultValue: ["ready"],
+        },
+        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+      ],
+    },
+    {
+      key: "loans",
+      name: "Loans",
+      fields: [
+        { key: "requester_name", name: "requester_name", type: "text", required: true, presentable: true, icon: "ti ti-user" },
+        { key: "requester_email", name: "requester_email", type: "text", config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }, icon: "ti ti-mail" },
+        {
+          key: "kits",
+          name: "kits",
+          type: "relation",
+          icon: "ti ti-briefcase",
+          config: { targetTableId: table("kits"), cardinality: "multiple" },
+        },
+        { key: "start_date", name: "start_date", type: "date", icon: "ti ti-calendar-plus" },
+        { key: "due_date", name: "due_date", type: "date", icon: "ti ti-calendar-due" },
+        {
+          key: "status",
+          name: "status",
+          type: "select",
+          icon: "ti ti-progress",
+          config: {
+            options: [
+              { id: "requested", label: "Requested", color: "#3b82f6" },
+              { id: "approved", label: "Approved", color: "#22c55e" },
+              { id: "out", label: "Out", color: "#f59e0b" },
+              { id: "returned", label: "Returned", color: "#94a3b8" },
+            ],
+          },
+          defaultValue: ["requested"],
+        },
+        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+      ],
+    },
+  ],
+  records: [
+    { key: "categories.cameras", table: "categories", values: { name: "Cameras" } },
+    { key: "categories.audio", table: "categories", values: { name: "Audio" } },
+    { key: "categories.cables", table: "categories", values: { name: "Cables" } },
+    { key: "locations.studio", table: "locations", values: { name: "Studio shelf", room: "Studio", shelf: "A2" } },
+    { key: "locations.storage", table: "locations", values: { name: "Storage cabinet", room: "Storage", shelf: "C1" } },
+    {
+      key: "items.camera",
+      table: "items",
+      values: {
+        name: "Sony A7 body",
+        category: [record("categories.cameras")],
+        location: [record("locations.studio")],
+        status: ["available"],
+        condition: ["good"],
+        serial_no: "A7-001",
+        quantity: "1",
+        replacement_value: "1800.00",
+        purchase_date: "2025-09-12",
+      },
+    },
+    {
+      key: "items.mic",
+      table: "items",
+      values: {
+        name: "Wireless mic set",
+        category: [record("categories.audio")],
+        location: [record("locations.studio")],
+        status: ["available"],
+        condition: ["good"],
+        quantity: "2",
+        replacement_value: "320.00",
+      },
+    },
+    {
+      key: "items.hdmi",
+      table: "items",
+      values: {
+        name: "HDMI cable 5m",
+        category: [record("categories.cables")],
+        location: [record("locations.storage")],
+        status: ["available"],
+        condition: ["used"],
+        quantity: "8",
+        replacement_value: "18.00",
+      },
+    },
+    {
+      key: "kits.video",
+      table: "kits",
+      values: { name: "Video interview kit", items: [record("items.camera"), record("items.mic"), record("items.hdmi")], status: ["ready"] },
+    },
+    {
+      key: "loans.demo",
+      table: "loans",
+      values: {
+        requester_name: "Mara Example",
+        requester_email: "mara@example.com",
+        kits: [record("kits.video")],
+        start_date: "2026-06-10",
+        due_date: "2026-06-12",
+        status: ["requested"],
+      },
+    },
+  ],
+  views: [
+    {
+      key: "available_items",
+      table: "items",
+      name: "Available items",
+      shared: true,
+      query: {
+        filter: { op: "is", fieldId: field("items.status"), value: "available" },
+        columns: [
+          { fieldId: field("items.name") },
+          { fieldId: field("items.category") },
+          { fieldId: field("items.location") },
+          { fieldId: field("items.quantity") },
+          { fieldId: field("items.total_value") },
+        ],
+      },
+    },
+    {
+      key: "items_by_category",
+      table: "items",
+      name: "Items by category",
+      shared: true,
+      query: {
+        groupBy: [{ fieldId: field("items.category") }],
+        aggregations: [
+          { fieldId: "*", agg: "count", label: "items" },
+          { fieldId: field("items.quantity"), agg: "sum", label: "quantity" },
+        ],
+      },
+    },
+    {
+      key: "open_loans",
+      table: "loans",
+      name: "Open loans",
+      shared: true,
+      query: {
+        filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "out"] },
+        columns: [
+          { fieldId: field("loans.requester_name") },
+          { fieldId: field("loans.kits") },
+          { fieldId: field("loans.start_date") },
+          { fieldId: field("loans.due_date") },
+          { fieldId: field("loans.status") },
+        ],
+        sort: [{ fieldId: field("loans.due_date"), direction: "asc" }],
+      },
+    },
+  ],
+  forms: [
+    {
+      key: "add_item",
+      table: "items",
+      name: "Add item",
+      config: {
+        title: "Add item",
+        submitLabel: "Add item",
+        successMessage: "Item added.",
+        fields: [
+          { kind: "user_input", fieldId: field("items.name"), label: "Item name", required: true },
+          {
+            kind: "user_input",
+            fieldId: field("items.category"),
+            label: "Category",
+            inlineCreate: { enabled: true, fields: [{ fieldId: field("categories.name"), label: "Category name", required: true }] },
+          },
+          {
+            kind: "user_input",
+            fieldId: field("items.location"),
+            label: "Location",
+            inlineCreate: {
+              enabled: true,
+              fields: [
+                { fieldId: field("locations.name"), label: "Location name", required: true },
+                { fieldId: field("locations.room"), label: "Room" },
+                { fieldId: field("locations.shelf"), label: "Shelf" },
+              ],
+            },
+          },
+          { kind: "user_input", fieldId: field("items.status"), label: "Status", defaultValue: ["available"] },
+          { kind: "user_input", fieldId: field("items.condition"), label: "Condition" },
+          { kind: "user_input", fieldId: field("items.quantity"), label: "Quantity", required: true, defaultValue: "1" },
+          { kind: "user_input", fieldId: field("items.replacement_value"), label: "Replacement value" },
+          { kind: "user_input", fieldId: field("items.notes"), label: "Notes" },
+        ],
+      },
+    },
+    {
+      key: "request_loan",
+      table: "loans",
+      name: "Request loan",
+      isPublic: true,
+      config: {
+        title: "Request kit loan",
+        description: "Choose one or more kits. An admin reviews and approves the request.",
+        submitLabel: "Request loan",
+        successMessage: "Loan requested.",
+        fields: [
+          { kind: "user_input", fieldId: field("loans.requester_name"), label: "Name", required: true },
+          { kind: "user_input", fieldId: field("loans.requester_email"), label: "Email", required: true },
+          { kind: "user_input", fieldId: field("loans.kits"), label: "Kits", required: true },
+          { kind: "user_input", fieldId: field("loans.start_date"), label: "Start date" },
+          { kind: "user_input", fieldId: field("loans.due_date"), label: "Due date" },
+          { kind: "user_input", fieldId: field("loans.notes"), label: "Notes" },
+          { kind: "form_value", fieldId: field("loans.status"), value: ["requested"] },
+        ],
+      },
+    },
+  ],
+  dashboards: [
+    {
+      key: "overview",
+      name: "Inventory overview",
+      description: "Inventory value, open loan requests, and quick entry.",
+      shared: true,
+      config: {
+        rows: [
+          {
+            id: "r_stats",
+            kind: "row",
+            height: "sm",
+            cells: [
+              {
+                id: "w_items",
+                kind: "stat",
+                title: "Items",
+                icon: "ti ti-packages",
+                format: "integer",
+                source: { tableId: table("items"), aggregations: [{ fieldId: "*", agg: "count" }] },
+              },
+              {
+                id: "w_kits",
+                kind: "stat",
+                title: "Kits",
+                icon: "ti ti-briefcase",
+                format: "integer",
+                source: { tableId: table("kits"), aggregations: [{ fieldId: "*", agg: "count" }] },
+              },
+              {
+                id: "w_open_loans",
+                kind: "stat",
+                title: "Open loans",
+                icon: "ti ti-calendar-due",
+                format: "integer",
+                source: {
+                  tableId: table("loans"),
+                  filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "out"] },
+                  aggregations: [{ fieldId: "*", agg: "count" }],
+                },
+              },
+            ],
+          },
+          {
+            id: "r_main",
+            kind: "row",
+            height: "md",
+            cells: [
+              { id: "w_open", kind: "view", title: "Open loans", source: { kind: "view", viewId: view("open_loans") } },
+              { id: "w_add", kind: "form", title: "Add item", formId: form("add_item") },
+            ],
+          },
+          {
+            id: "r_bottom",
+            kind: "row",
+            height: "md",
+            cells: [
+              { id: "w_items_by_category", kind: "view-stats", title: "Items by category", viewId: view("items_by_category") },
+              { id: "w_available", kind: "view", title: "Available items", source: { kind: "view", viewId: view("available_items") } },
+            ],
+          },
+        ],
+      },
+    },
+  ],
+  defaultDashboard: "overview",
+};
