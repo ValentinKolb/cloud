@@ -3,7 +3,7 @@ import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { FieldColumnSpecSchema, type View, ViewQuerySchema } from "../contracts";
 import { listForBase as listDashboardsForBase } from "./dashboards";
-import { toRenderableForm, type Form, type FormConfig, type FormFieldEntry } from "./forms";
+import { normalizeFormConfig, toRenderableForm, type Form } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import type { Field, Table } from "./types";
 
@@ -85,35 +85,6 @@ const mapView = (row: DbRow): View => {
     deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
     createdAt: (row.created_at as Date).toISOString(),
     updatedAt: (row.updated_at as Date).toISOString(),
-  };
-};
-
-const normalizeFieldEntry = (raw: unknown): FormFieldEntry | null => {
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as Record<string, unknown>;
-  const fieldId = obj.fieldId;
-  if (typeof fieldId !== "string") return null;
-  if (obj.kind === "form_value") return { kind: "form_value", fieldId, value: obj.value };
-  return {
-    kind: "user_input",
-    fieldId,
-    label: typeof obj.label === "string" ? obj.label : undefined,
-    helpText: typeof obj.helpText === "string" ? obj.helpText : undefined,
-    required: typeof obj.required === "boolean" ? obj.required : undefined,
-    defaultValue: obj.defaultValue,
-  };
-};
-
-const normalizeFormConfig = (raw: unknown): FormConfig => {
-  const cfg = parseJsonbRow<Partial<FormConfig> & { fields?: unknown[] }>(raw, {});
-  return {
-    title: cfg.title,
-    description: cfg.description,
-    fields: Array.isArray(cfg.fields) ? cfg.fields.map(normalizeFieldEntry).filter((e): e is FormFieldEntry => e !== null) : [],
-    submitLabel: cfg.submitLabel,
-    successMessage: cfg.successMessage,
-    redirectUrl: cfg.redirectUrl,
-    titleImage: typeof cfg.titleImage === "string" ? cfg.titleImage : undefined,
   };
 };
 

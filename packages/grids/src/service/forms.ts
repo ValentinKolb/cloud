@@ -179,7 +179,7 @@ const normalizeFieldEntry = (raw: unknown): FormFieldEntry | null => {
   };
 };
 
-const normalizeFormConfig = (raw: unknown): FormConfig => {
+export const normalizeFormConfig = (raw: unknown): FormConfig => {
   const cfg = parseJsonbRow<Partial<FormConfig> & { fields?: unknown[] }>(raw, {});
   const entries: FormFieldEntry[] = Array.isArray(cfg.fields)
     ? cfg.fields.map(normalizeFieldEntry).filter((e): e is FormFieldEntry => e !== null)

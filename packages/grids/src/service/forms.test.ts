@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toPublicRenderableForm, toRenderableForm, type Form } from "./forms";
+import { normalizeFormConfig, toPublicRenderableForm, toRenderableForm, type Form } from "./forms";
 
 const form = (): Form => ({
   id: "00000000-0000-0000-0000-000000000001",
@@ -34,6 +34,48 @@ const form = (): Form => ({
 });
 
 describe("form render DTOs", () => {
+  test("raw config normalization preserves inline relation create settings", () => {
+    expect(
+      normalizeFormConfig({
+        fields: [
+          {
+            kind: "user_input",
+            fieldId: "00000000-0000-0000-0000-000000000006",
+            label: "Company",
+            inlineCreate: {
+              enabled: true,
+              fields: [
+                {
+                  fieldId: "00000000-0000-0000-0000-000000000007",
+                  label: "Company name",
+                  helpText: "Shown on invoices.",
+                  required: true,
+                },
+              ],
+            },
+          },
+        ],
+      }).fields,
+    ).toEqual([
+      {
+        kind: "user_input",
+        fieldId: "00000000-0000-0000-0000-000000000006",
+        label: "Company",
+        inlineCreate: {
+          enabled: true,
+          fields: [
+            {
+              fieldId: "00000000-0000-0000-0000-000000000007",
+              label: "Company name",
+              helpText: "Shown on invoices.",
+              required: true,
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
   test("strip server-applied values from authenticated render forms", () => {
     const dto = toRenderableForm(form());
 
