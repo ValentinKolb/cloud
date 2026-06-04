@@ -1,5 +1,5 @@
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 type DeletedAccountsFiltersProps = {
   search: string;

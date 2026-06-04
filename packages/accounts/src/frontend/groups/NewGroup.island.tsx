@@ -1,4 +1,5 @@
-import { Checkbox, CopyButton, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { Checkbox, CopyButton, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";

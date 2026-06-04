@@ -5,19 +5,6 @@ export { createDialogCore, dialogCore } from "./dialog-core";
 export * from "./filter";
 export * from "./input";
 export * from "./misc";
-export type { LinkNavigateEvent, LinkProps } from "./NavigationLink";
-export { Link } from "./NavigationLink";
-export type { EnhancedNavigateOptions, NavigationScrollMode, ScrollSnapshot } from "./navigation";
-export {
-  captureScroll,
-  currentPathWithQuery,
-  documentNavigate,
-  navigate,
-  navigateTo,
-  refreshCurrentPath,
-  restoreScroll,
-  startViewTransition,
-} from "./navigation";
 export type { PromptSearchInput, PromptSearchItem, PromptSearchOptions } from "./prompts";
 export { createFormState, DialogHeader, prompts } from "./prompts";
 export type { ToastFn, ToastHandle, ToastOptions, ToastVariant } from "./toast";

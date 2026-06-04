@@ -4,7 +4,7 @@ import { apiClient } from "@/api/client";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { buildNoteUrl } from "../../../params";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import dayjs from "dayjs";
 
 type NoteVersion = {

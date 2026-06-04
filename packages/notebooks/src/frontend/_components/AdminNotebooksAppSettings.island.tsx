@@ -9,7 +9,8 @@
  * Extensible by design: future settings just need a `defaults.ts`
  * entry — they auto-appear in this modal without any frontend change.
  */
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { For, Show, createResource, createSignal } from "solid-js";
 import { apiClient } from "../../api/client";
 
@@ -107,9 +108,7 @@ const SettingRow = (props: { entry: SettingEntry; onChange: (value: unknown) => 
           placeholder={typeof props.entry.default === "string" ? props.entry.default : String(props.entry.default ?? "")}
         />
         <Show when={suffix}>
-          <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-mono text-dimmed">
-            {suffix}
-          </span>
+          <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] font-mono text-dimmed">{suffix}</span>
         </Show>
       </div>
       <Show when={props.entry.description}>
@@ -167,18 +166,10 @@ const SettingsBody = (props: { close: () => void }) => {
 
   return (
     <div class="w-full max-w-full flex flex-col gap-4 min-w-[28rem]">
-      <Show
-        when={!entries.loading}
-        fallback={<p class="text-xs text-dimmed">Loading settings…</p>}
-      >
-        <Show
-          when={(entries() ?? []).length > 0}
-          fallback={<p class="text-xs text-dimmed">No notebooks-app settings registered.</p>}
-        >
+      <Show when={!entries.loading} fallback={<p class="text-xs text-dimmed">Loading settings…</p>}>
+        <Show when={(entries() ?? []).length > 0} fallback={<p class="text-xs text-dimmed">No notebooks-app settings registered.</p>}>
           <div class="flex flex-col gap-3">
-            <For each={entries() ?? []}>
-              {(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}
-            </For>
+            <For each={entries() ?? []}>{(entry) => <SettingRow entry={entry} onChange={(v) => onChange(entry.key, v)} />}</For>
           </div>
         </Show>
       </Show>
@@ -212,19 +203,11 @@ const SettingsBody = (props: { close: () => void }) => {
 };
 
 const openSettingsDialog = () =>
-  prompts.dialog<void>(
-    (close) => <SettingsBody close={close} />,
-    { title: "Notebook Settings", icon: "ti ti-settings" },
-  );
+  prompts.dialog<void>((close) => <SettingsBody close={close} />, { title: "Notebook Settings", icon: "ti ti-settings" });
 
 export default function AdminNotebooksAppSettings() {
   return (
-    <button
-      type="button"
-      class="btn-input btn-input-sm shrink-0"
-      onClick={() => void openSettingsDialog()}
-      title="Notebook app settings"
-    >
+    <button type="button" class="btn-input btn-input-sm shrink-0" onClick={() => void openSettingsDialog()} title="Notebook app settings">
       <i class="ti ti-settings text-sm" />
       Settings
     </button>

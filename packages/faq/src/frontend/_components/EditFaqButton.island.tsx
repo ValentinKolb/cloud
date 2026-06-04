@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 import type { FaqEntry, FaqAudience, UpdateFaq } from "@/contracts";
 
@@ -39,9 +40,24 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
           required: true,
           default: props.entry.answer,
         },
-        audienceAnonymous: { type: "boolean" as const, label: "Anonymous (logged-out)", description: "Visible to anyone, including logged-out visitors.", default: audienceSet.has("anonymous") },
-        audienceGuest: { type: "boolean" as const, label: "Guests", description: "Visible to local-guest accounts.", default: audienceSet.has("guest") },
-        audienceUser: { type: "boolean" as const, label: "Full users", description: "Visible to local-user / IPA-user accounts.", default: audienceSet.has("user") },
+        audienceAnonymous: {
+          type: "boolean" as const,
+          label: "Anonymous (logged-out)",
+          description: "Visible to anyone, including logged-out visitors.",
+          default: audienceSet.has("anonymous"),
+        },
+        audienceGuest: {
+          type: "boolean" as const,
+          label: "Guests",
+          description: "Visible to local-guest accounts.",
+          default: audienceSet.has("guest"),
+        },
+        audienceUser: {
+          type: "boolean" as const,
+          label: "Full users",
+          description: "Visible to local-user / IPA-user accounts.",
+          default: audienceSet.has("user"),
+        },
       },
     });
 
@@ -65,14 +81,7 @@ export default function EditFaqButton(props: { entry: FaqEntry }) {
   };
 
   return (
-    <button
-      type="button"
-      class="btn-simple btn-sm"
-      onClick={handleClick}
-      disabled={mutation.loading()}
-      aria-label="Edit"
-      title="Edit"
-    >
+    <button type="button" class="btn-simple btn-sm" onClick={handleClick} disabled={mutation.loading()} aria-label="Edit" title="Edit">
       {mutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-pencil" />}
     </button>
   );

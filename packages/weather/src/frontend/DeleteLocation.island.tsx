@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
 export default function DeleteLocationButton(props: { id: string }) {

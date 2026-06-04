@@ -1,5 +1,6 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { AppOverview, navigateTo, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { AppOverview, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Notebook } from "../service/notebooks";
@@ -125,11 +126,7 @@ export default function NotebooksOverview(props: Props) {
   };
 
   return (
-    <AppOverview
-      title="Notebooks"
-      subtitle="Collaborative notes, linked knowledge, scripts, and reusable workspaces."
-      icon="ti ti-note"
-    >
+    <AppOverview title="Notebooks" subtitle="Collaborative notes, linked knowledge, scripts, and reusable workspaces." icon="ti ti-note">
       <AppOverview.Main
         title="Your notebooks"
         description={

@@ -1,4 +1,5 @@
-import { navigateTo, prompts } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { Table } from "../../../service";

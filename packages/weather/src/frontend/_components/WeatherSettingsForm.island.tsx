@@ -6,11 +6,11 @@ import {
   prompts,
   SettingsField,
   SettingsSaveBar,
-  refreshCurrentPath,
   sameSettingValue,
   readSettingsError,
   toast,
 } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
 type Initial = {

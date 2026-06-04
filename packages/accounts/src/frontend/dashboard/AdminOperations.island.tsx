@@ -5,7 +5,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 // which container loads it. POST /api/admin/lifecycle/jobs takes a typed
 // `kind` discriminator that the dispatcher maps to the right job.
 import { coreClient } from "@valentinkolb/cloud/clients/core";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 type JobKind = "ipa-sync" | "ipa-backfill" | "local-user-backfill" | "guest-backfill" | "reminders";
 type OperationKey = "sync" | "ipa-backfill" | "local-user-backfill" | "local-guest-backfill" | "reminders";
@@ -136,31 +136,33 @@ export default function AdminOperations(props: { freeIpaEnabled: boolean }) {
   return (
     <div class="paper overflow-hidden">
       <div class="divide-y divide-zinc-200/70 dark:divide-zinc-800/80">
-      {OPERATIONS.filter((operation) => props.freeIpaEnabled || (operation.key !== "sync" && operation.key !== "ipa-backfill")).map((operation) => {
-        const isLoading = () => runMutation.loading() && activeOperationKey === operation.key;
-        const buttonClass = operation.key === "sync" ? "btn-primary" : "btn-secondary";
-        return (
-          <section class="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:gap-4">
-            <div class="flex min-w-0 flex-1 items-start gap-3">
-              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                <i class={isLoading() ? "ti ti-loader-2 animate-spin text-sm" : `${operation.icon} text-sm`} />
-              </div>
-              <div class="min-w-0">
-                <h3 class="text-sm font-medium text-primary">{operation.label}</h3>
-                <p class="text-xs text-dimmed">{operation.description}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              class={`${buttonClass} btn-sm w-full justify-center md:w-auto md:min-w-48`}
-              onClick={() => void handleRun(operation)}
-              disabled={runMutation.loading()}
-            >
-              {isLoading() ? operation.loadingText : operation.label}
-            </button>
-          </section>
-        );
-      })}
+        {OPERATIONS.filter((operation) => props.freeIpaEnabled || (operation.key !== "sync" && operation.key !== "ipa-backfill")).map(
+          (operation) => {
+            const isLoading = () => runMutation.loading() && activeOperationKey === operation.key;
+            const buttonClass = operation.key === "sync" ? "btn-primary" : "btn-secondary";
+            return (
+              <section class="flex flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:gap-4">
+                <div class="flex min-w-0 flex-1 items-start gap-3">
+                  <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    <i class={isLoading() ? "ti ti-loader-2 animate-spin text-sm" : `${operation.icon} text-sm`} />
+                  </div>
+                  <div class="min-w-0">
+                    <h3 class="text-sm font-medium text-primary">{operation.label}</h3>
+                    <p class="text-xs text-dimmed">{operation.description}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class={`${buttonClass} btn-sm w-full justify-center md:w-auto md:min-w-48`}
+                  onClick={() => void handleRun(operation)}
+                  disabled={runMutation.loading()}
+                >
+                  {isLoading() ? operation.loadingText : operation.label}
+                </button>
+              </section>
+            );
+          },
+        )}
       </div>
     </div>
   );

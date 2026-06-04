@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, CopyButton, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts, CopyButton } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 import type { OAuthClientWithSecret, CreateOAuthClient } from "@/contracts";
 

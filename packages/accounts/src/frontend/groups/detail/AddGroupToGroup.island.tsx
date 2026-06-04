@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { EntitySearch, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { EntitySearch, prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
 type AddToGroupProps = {

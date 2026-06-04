@@ -2,16 +2,15 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   CheckboxCard,
   IconInput,
-  Link,
   LogEntriesTable,
   type LogTableEntry,
-  navigateTo,
   PermissionEditor,
   prompts,
   SelectInput,
   SettingsModal,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import { Link, navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { type Accessor, createEffect, createMemo, createResource, createSignal, type Setter, Show } from "solid-js";
 import { apiClient } from "@/api/client";

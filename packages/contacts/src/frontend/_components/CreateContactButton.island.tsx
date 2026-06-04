@@ -1,4 +1,5 @@
-import { dialogCore, navigateTo, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { dialogCore, panelDialogOptions, prompts } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import type { Contact } from "../../service";
 import ContactUpsertForm from "./ContactUpsertForm.island";
 

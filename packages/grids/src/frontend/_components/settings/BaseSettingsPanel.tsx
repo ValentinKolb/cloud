@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { navigateTo, prompts, refreshCurrentPath, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
+import { prompts, Select, SettingsModal, TextInput } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
@@ -347,13 +348,7 @@ function DefaultDashboardSelect(props: { baseId: string; initial: string | null;
 }
 
 function PermissionsSection(props: { baseId: string; initialEntries: AccessEntry[] }) {
-  return (
-    <ScopedPermissionEditor
-      scope={{ type: "base", id: props.baseId }}
-      initialEntries={props.initialEntries}
-      canEdit
-    />
-  );
+  return <ScopedPermissionEditor scope={{ type: "base", id: props.baseId }} initialEntries={props.initialEntries} canEdit />;
 }
 
 function DangerZone(props: { baseId: string; baseName: string }) {

@@ -12,7 +12,7 @@ import { dropzone } from "@valentinkolb/stdlib/solid";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import {
   ATTACHMENTS_UPDATE_EVENT,
   EDITOR_COPY_EVENT,

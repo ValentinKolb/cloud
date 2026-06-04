@@ -1,4 +1,4 @@
-import type { NavigationScrollMode } from "@valentinkolb/cloud/ui";
+import type { NavigationScrollMode } from "@valentinkolb/ssr/nav";
 
 export const SPACES_ROUTE_NAVIGATION_EVENT = "spaces-route-navigation";
 

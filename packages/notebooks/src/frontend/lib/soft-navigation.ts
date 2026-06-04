@@ -1,4 +1,4 @@
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 export const SOFT_NOTE_NAVIGATION_REQUEST_EVENT = "notebooks.note.softNavigationRequest";
 

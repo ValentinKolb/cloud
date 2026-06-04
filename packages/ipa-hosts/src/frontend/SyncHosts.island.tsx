@@ -1,7 +1,7 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 const SyncHosts = () => {
   const mutation = mutations.create<void, void>({

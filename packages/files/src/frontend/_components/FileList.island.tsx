@@ -29,7 +29,8 @@ import {
 } from "./context";
 import { type FileListColumn, type FileSettings, DEFAULT_FILE_SETTINGS, getGridSizePixels } from "./FileSettings.island";
 import { createFileActionMutations, openFileItem } from "./FileActions";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 type FileListProps = {
   items: FileInfo[];

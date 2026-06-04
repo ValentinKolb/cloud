@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
 export default function DeleteFaqButton(props: { id: string; question: string }) {
@@ -16,16 +17,13 @@ export default function DeleteFaqButton(props: { id: string; question: string })
   });
 
   const handleClick = async () => {
-    const confirmed = await prompts.confirm(
-      `Delete FAQ entry "${props.question}"? This cannot be undone.`,
-      {
-        title: "Delete FAQ Entry?",
-        icon: "ti ti-trash",
-        confirmText: "Delete",
-        cancelText: "Cancel",
-        variant: "danger",
-      },
-    );
+    const confirmed = await prompts.confirm(`Delete FAQ entry "${props.question}"? This cannot be undone.`, {
+      title: "Delete FAQ Entry?",
+      icon: "ti ti-trash",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "danger",
+    });
     if (confirmed) mutation.mutate();
   };
 

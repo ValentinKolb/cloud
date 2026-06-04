@@ -1,6 +1,5 @@
 import { children, createContext, createMemo, type JSX, Show, useContext } from "solid-js";
-import { Link, type LinkNavigateEvent, type LinkProps } from "../NavigationLink";
-import type { NavigationScrollMode } from "../navigation";
+import { Link, type LinkNavigateEvent, type LinkProps, type NavigationScrollMode } from "@valentinkolb/ssr/nav";
 
 const SIDEBAR_HEADER = Symbol("AppWorkspace.SidebarHeader");
 const SIDEBAR_MOBILE = Symbol("AppWorkspace.SidebarMobile");

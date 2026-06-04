@@ -1,5 +1,5 @@
 import { createContext } from "solid-js";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import type { FileBaseInfo } from "@/contracts";
 import type { FileSettings } from "./FileSettings.island";
 import { filePageUrl } from "../url";

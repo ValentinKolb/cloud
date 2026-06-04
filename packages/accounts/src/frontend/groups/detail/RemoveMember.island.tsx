@@ -2,7 +2,7 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { RemoveBtn } from "@valentinkolb/cloud/ui";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 type RemoveMemberProps = {
   /** Group ID */
@@ -20,7 +20,8 @@ type RemoveMemberProps = {
 export default function RemoveMember(props: RemoveMemberProps) {
   const mutation = mutations.create<void, void>({
     mutation: async () => {
-      const endpoint = props.membershipRole === "members" ? apiClient.groups[":id"].members.$delete : apiClient.groups[":id"].managers.$delete;
+      const endpoint =
+        props.membershipRole === "members" ? apiClient.groups[":id"].members.$delete : apiClient.groups[":id"].managers.$delete;
       const res = await endpoint({
         param: { id: props.groupId },
         json: { type: props.type, id: props.id },

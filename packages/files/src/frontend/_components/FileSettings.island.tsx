@@ -1,7 +1,7 @@
 import { createMemo, createSignal, Show } from "solid-js";
 import { Dropdown, SegmentedControl, Switch } from "@valentinkolb/cloud/ui";
 import { cookies } from "@valentinkolb/stdlib/browser";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 /** Cookie name for file settings */
 const COOKIE_NAME = "settings-app-files";
@@ -183,7 +183,12 @@ export default function FileSettings({ initialSettings }: FileSettingsProps) {
                           close();
                         }}
                       >
-                        <input type="checkbox" checked={settings().listColumns.includes(option.value)} readOnly class="pointer-events-none" />
+                        <input
+                          type="checkbox"
+                          checked={settings().listColumns.includes(option.value)}
+                          readOnly
+                          class="pointer-events-none"
+                        />
                         <i class={`${option.icon} text-dimmed`} />
                         <span>{option.label}</span>
                       </button>

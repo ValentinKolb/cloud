@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { navigateTo, PermissionEditor, prompts, refreshCurrentPath, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { PermissionEditor, prompts, SettingsModal, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";

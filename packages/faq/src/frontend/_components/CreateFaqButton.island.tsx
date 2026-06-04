@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 import type { CreateFaq, FaqAudience } from "@/contracts";
 
@@ -41,9 +42,24 @@ export default function CreateFaqButton() {
           multiline: true,
           required: true,
         },
-        audienceAnonymous: { type: "boolean" as const, label: AUDIENCE_OPTIONS[0]!.label, description: AUDIENCE_OPTIONS[0]!.description, default: false },
-        audienceGuest: { type: "boolean" as const, label: AUDIENCE_OPTIONS[1]!.label, description: AUDIENCE_OPTIONS[1]!.description, default: true },
-        audienceUser: { type: "boolean" as const, label: AUDIENCE_OPTIONS[2]!.label, description: AUDIENCE_OPTIONS[2]!.description, default: true },
+        audienceAnonymous: {
+          type: "boolean" as const,
+          label: AUDIENCE_OPTIONS[0]!.label,
+          description: AUDIENCE_OPTIONS[0]!.description,
+          default: false,
+        },
+        audienceGuest: {
+          type: "boolean" as const,
+          label: AUDIENCE_OPTIONS[1]!.label,
+          description: AUDIENCE_OPTIONS[1]!.description,
+          default: true,
+        },
+        audienceUser: {
+          type: "boolean" as const,
+          label: AUDIENCE_OPTIONS[2]!.label,
+          description: AUDIENCE_OPTIONS[2]!.description,
+          default: true,
+        },
       },
     });
 

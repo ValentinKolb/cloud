@@ -1,4 +1,5 @@
-import { Dropdown, prompts, refreshCurrentPath, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations, timed as timing } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Index, Show } from "solid-js";
 import { apiClient } from "@/api/client";

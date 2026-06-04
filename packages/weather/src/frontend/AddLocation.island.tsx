@@ -1,5 +1,6 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { AppWorkspace, navigateTo, prompts, toast } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
 type GeoResult = {

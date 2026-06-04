@@ -1,4 +1,5 @@
-import { CheckboxCard, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { CheckboxCard, prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";

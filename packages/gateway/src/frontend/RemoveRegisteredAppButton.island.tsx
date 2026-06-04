@@ -1,4 +1,5 @@
-import { prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { prompts, toast } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 

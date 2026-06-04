@@ -13,7 +13,6 @@ import {
   dialogCore,
   FilterChip,
   type FilterChipSection,
-  Link,
   Pagination,
   PanelDialog,
   PermissionEditor,
@@ -21,6 +20,7 @@ import {
   SettingsModal,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import { Link } from "@valentinkolb/ssr/nav";
 import { createSignal, For } from "solid-js";
 import DemoCard from "./DemoCard";
 

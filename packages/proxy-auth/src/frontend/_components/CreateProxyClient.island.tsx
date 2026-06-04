@@ -1,13 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import {
-  prompts,
-  CopyButton,
-  TextInput,
-  EntitySearch,
-  type EntitySearchPrincipal,
-  refreshCurrentPath,
-} from "@valentinkolb/cloud/ui";
+import { prompts, CopyButton, TextInput, EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 import type { ProxyAuthAllowedGroup, ProxyAuthClient, CreateProxyAuthClient } from "@/contracts";
 
@@ -104,12 +98,12 @@ const CreateProxyClient = () => {
                   </For>
                 </div>
               </Show>
-                <EntitySearch
-                  includeGroups
-                  excludeGroupIds={groups().map((group) => group.id)}
-                  onSelect={handleGroupSelect}
-                  placeholder="Search groups..."
-                />
+              <EntitySearch
+                includeGroups
+                excludeGroupIds={groups().map((group) => group.id)}
+                onSelect={handleGroupSelect}
+                placeholder="Search groups..."
+              />
             </div>
 
             <div class="flex items-center gap-2 justify-end border-t border-zinc-200 dark:border-zinc-700 pt-4">

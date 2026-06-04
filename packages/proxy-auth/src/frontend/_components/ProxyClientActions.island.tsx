@@ -7,7 +7,7 @@ import { clipboard } from "@valentinkolb/stdlib/browser";
 import { TextInput } from "@valentinkolb/cloud/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/ui";
 import type { ProxyAuthAllowedGroup, ProxyAuthClient, UpdateProxyAuthClient } from "@/contracts";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 type Props = {
   client: ProxyAuthClient;
@@ -111,12 +111,12 @@ const ProxyClientActions = (props: Props) => {
                   </For>
                 </div>
               </Show>
-                <EntitySearch
-                  includeGroups
-                  excludeGroupIds={groups().map((group) => group.id)}
-                  onSelect={handleGroupSelect}
-                  placeholder="Search groups..."
-                />
+              <EntitySearch
+                includeGroups
+                excludeGroupIds={groups().map((group) => group.id)}
+                onSelect={handleGroupSelect}
+                placeholder="Search groups..."
+              />
             </div>
 
             <div class="flex items-center gap-2 justify-end border-t border-zinc-200 dark:border-zinc-700 pt-4">

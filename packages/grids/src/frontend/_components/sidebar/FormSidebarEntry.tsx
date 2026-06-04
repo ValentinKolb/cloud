@@ -1,5 +1,6 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
-import { prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import type { Field, Form } from "../../../service";
 import { openFormEditorDialog } from "../forms/FormsManager";

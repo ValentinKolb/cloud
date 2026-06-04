@@ -1,5 +1,5 @@
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 type ReminderFiltersProps = {
   search: string;
@@ -40,12 +40,14 @@ const buildUrl = (params: { search?: string; kind?: string; status?: string; pag
 
 export default function ReminderFilters(props: ReminderFiltersProps) {
   const navigate = (patch: { kind?: string; status?: string }) => {
-    navigateTo(buildUrl({
-      search: props.search,
-      kind: patch.kind ?? props.kind,
-      status: patch.status ?? props.status,
-      page: 1,
-    }));
+    navigateTo(
+      buildUrl({
+        search: props.search,
+        kind: patch.kind ?? props.kind,
+        status: patch.status ?? props.status,
+        page: 1,
+      }),
+    );
   };
 
   return (

@@ -1,6 +1,6 @@
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { buildUsersUrl, type UsersListState } from "../lib/url-state";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 type UsersFiltersProps = {
   state: UsersListState;
@@ -26,11 +26,13 @@ const PROFILE_OPTIONS: FilterChipSection[] = [
 
 export default function UsersFilters(props: UsersFiltersProps) {
   const navigate = (patch: Partial<UsersListState>) => {
-    navigateTo(buildUsersUrl({
-      ...props.state,
-      ...patch,
-      page: 1,
-    }));
+    navigateTo(
+      buildUsersUrl({
+        ...props.state,
+        ...patch,
+        page: 1,
+      }),
+    );
   };
 
   return (

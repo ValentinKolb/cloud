@@ -1,5 +1,5 @@
 import type { JSX } from "solid-js";
-import { Link, type LinkNavigateEvent } from "../NavigationLink";
+import { Link, type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 
 type PaginationProps = {
   currentPage: number;

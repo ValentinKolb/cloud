@@ -4,7 +4,8 @@ import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { ErrorResponseSchema } from "@/contracts";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 type GroupActionsProps = {
   id: string;
@@ -115,15 +116,15 @@ export default function GroupActions(props: GroupActionsProps) {
   };
 
   const handleMakePosix = async () => {
-      const confirmed = await prompts.confirm(
-        `Convert "${props.name}" to a POSIX group? This assigns a stable GID for filesystem integrations and cannot be undone.`,
-        {
-          title: "Make POSIX",
-          icon: "ti ti-transform",
-          confirmText: "Convert",
-          cancelText: "Cancel",
-        },
-      );
+    const confirmed = await prompts.confirm(
+      `Convert "${props.name}" to a POSIX group? This assigns a stable GID for filesystem integrations and cannot be undone.`,
+      {
+        title: "Make POSIX",
+        icon: "ti ti-transform",
+        confirmText: "Convert",
+        cancelText: "Cancel",
+      },
+    );
     if (confirmed) {
       const res = await apiClient.groups[":id"].posix.$put({
         param: { id: props.id },

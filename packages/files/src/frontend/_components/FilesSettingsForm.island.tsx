@@ -7,16 +7,8 @@
 
 import { createMemo, createSignal } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import {
-  TextInput,
-  prompts,
-  refreshCurrentPath,
-  SettingsField,
-  SettingsSaveBar,
-  sameSettingValue,
-  readSettingsError,
-  toast,
-} from "@valentinkolb/cloud/ui";
+import { TextInput, prompts, SettingsField, SettingsSaveBar, sameSettingValue, readSettingsError, toast } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { apiClient } from "@/api/client";
 
 type Initial = {

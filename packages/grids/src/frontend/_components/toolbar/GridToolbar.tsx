@@ -1,4 +1,5 @@
-import { Dropdown, prompts, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createEffect, createMemo, createSignal, on, Show, untrack } from "solid-js";
@@ -390,7 +391,11 @@ export default function GridToolbar(props: Props) {
         </button>
 
         <Show when={props.onAddComputedColumn}>
-          <button type="button" class={`btn-input btn-input-sm ${hasCustomColumns() ? "btn-input-active" : ""}`} onClick={props.onAddComputedColumn}>
+          <button
+            type="button"
+            class={`btn-input btn-input-sm ${hasCustomColumns() ? "btn-input-active" : ""}`}
+            onClick={props.onAddComputedColumn}
+          >
             <i class="ti ti-calculator" />
             Computed
           </button>

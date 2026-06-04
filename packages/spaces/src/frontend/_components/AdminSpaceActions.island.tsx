@@ -1,4 +1,5 @@
-import { Dropdown, PermissionEditor, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, PermissionEditor, prompts, toast } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { apiClient } from "@/api/client";
 import type { AccessEntry } from "@/contracts";

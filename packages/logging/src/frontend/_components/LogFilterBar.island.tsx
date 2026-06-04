@@ -2,7 +2,8 @@ import { FilterChip, type FilterChipSection, prompts } from "@valentinkolb/cloud
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { apiClient as loggingClient } from "@/api/client";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { type LogFilterState, defaultLogFilter, buildLogFilterUrl, hasActiveLogFilters } from "./types";
 
 type Props = {
@@ -42,7 +43,10 @@ export default function LogFilterBar(props: Props) {
   const saveMutation = mutations.create<void, number>({
     mutation: async (days) => {
       const res = await loggingClient.settings.retention.$put({ json: { retentionDays: days } });
-      if (!res.ok) { const d = await res.json(); throw new Error(d.message ?? "Failed to save."); }
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.message ?? "Failed to save.");
+      }
     },
     onSuccess: () => prompts.alert("Log retention updated.", { title: "Saved", icon: "ti ti-check" }),
     onError: (err) => prompts.error(err.message),
@@ -50,8 +54,12 @@ export default function LogFilterBar(props: Props) {
 
   const handleSettings = async () => {
     const result = await prompts.form({
-      title: "Log Settings", icon: "ti ti-settings", confirmText: "Save",
-      fields: { retention_days: { type: "number" as const, label: "Retention (days)", default: props.retentionDays, min: 1, required: true } },
+      title: "Log Settings",
+      icon: "ti ti-settings",
+      confirmText: "Save",
+      fields: {
+        retention_days: { type: "number" as const, label: "Retention (days)", default: props.retentionDays, min: 1, required: true },
+      },
     });
     if (result) await saveMutation.mutate(result.retention_days);
   };
@@ -64,13 +72,19 @@ export default function LogFilterBar(props: Props) {
       if (!res.ok) throw new Error((result as { message?: string }).message ?? "Failed to cleanup.");
       return result as { deleted: number };
     },
-    onSuccess: async (data) => { await prompts.alert(`Deleted ${data.deleted} log entries.`, { title: "Cleanup Complete", icon: "ti ti-check" }); refreshCurrentPath(); },
+    onSuccess: async (data) => {
+      await prompts.alert(`Deleted ${data.deleted} log entries.`, { title: "Cleanup Complete", icon: "ti ti-check" });
+      refreshCurrentPath();
+    },
     onError: (err) => prompts.error(err.message),
   });
 
   const handleCleanup = async () => {
     const result = await prompts.form({
-      title: "Cleanup Logs", icon: "ti ti-trash", confirmText: "Delete", variant: "danger",
+      title: "Cleanup Logs",
+      icon: "ti ti-trash",
+      confirmText: "Delete",
+      variant: "danger",
       fields: { days: { type: "number" as const, label: "Delete entries older than (days)", default: 30, min: 1, required: true } },
     });
     if (result) await cleanupMutation.mutate(result.days);
@@ -84,19 +98,32 @@ export default function LogFilterBar(props: Props) {
       {/* Row 2: filters + count + actions */}
       <div class="flex items-center gap-2 flex-wrap">
         <FilterChip
-          label="Level" icon="ti ti-filter" options={LEVEL_OPTIONS}
-          value={[filter.level]} onChange={(v) => navigate({ level: v[0] ?? "all" })}
-          isActive={filter.level !== defaultLogFilter.level} defaultValue={[defaultLogFilter.level]}
+          label="Level"
+          icon="ti ti-filter"
+          options={LEVEL_OPTIONS}
+          value={[filter.level]}
+          onChange={(v) => navigate({ level: v[0] ?? "all" })}
+          isActive={filter.level !== defaultLogFilter.level}
+          defaultValue={[defaultLogFilter.level]}
         />
         {props.sources.length > 0 && (
           <FilterChip
-            label="Services" icon="ti ti-code" options={sourceOptions()}
-            value={filter.sources} onChange={(value) => navigate({ sources: value })}
-            isActive={filter.sources.length > 0} defaultValue={[]}
+            label="Services"
+            icon="ti ti-code"
+            options={sourceOptions()}
+            value={filter.sources}
+            onChange={(value) => navigate({ sources: value })}
+            isActive={filter.sources.length > 0}
+            defaultValue={[]}
           />
         )}
         {hasFilters && (
-          <a href={baseUrl} class="text-[10px] text-red-500 tabular-nums hidden sm:inline" aria-label="Clear all filters" title="Clear filters">
+          <a
+            href={baseUrl}
+            class="text-[10px] text-red-500 tabular-nums hidden sm:inline"
+            aria-label="Clear all filters"
+            title="Clear filters"
+          >
             <i class="ti ti-x" /> Clear
           </a>
         )}

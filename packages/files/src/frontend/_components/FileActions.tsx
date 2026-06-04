@@ -1,6 +1,7 @@
 import { useContext } from "solid-js";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { Dropdown, navigateTo, prompts, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { Dropdown, prompts, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import MoveTargetSearch from "./MoveTargetSearch.island";

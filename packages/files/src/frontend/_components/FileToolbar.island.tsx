@@ -4,7 +4,9 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { Dropdown, ProgressBar } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import { createUploadManager, type FileUploadState } from "./upload";
-import { navigateTo, refreshCurrentPath, toast } from "@valentinkolb/cloud/ui";
+import { toast } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import {
   buildItemPath,
   buildSelectionKey,

@@ -1,7 +1,7 @@
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
-import { refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 type Props = {
   cn: string;

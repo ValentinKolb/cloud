@@ -4,12 +4,12 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
-  navigateTo,
   panelDialogOptions,
   PanelDialog,
   prompts,
   TextInput,
 } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { createSignal, For } from "solid-js";
 import { apiClient } from "@/api/client";

@@ -8,7 +8,8 @@ import type { DropdownItem } from "@valentinkolb/cloud/ui";
 import SearchButton from "../search/SearchButton";
 import { listAccessibleNotebooks } from "./notebooks";
 import type { NoteTreeNode, Notebook } from "./types";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { NOTE_SOFT_NAVIGATED_EVENT } from "../detail/events";
 import { navigateToNotebookNote } from "../../../lib/soft-navigation";
 

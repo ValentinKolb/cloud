@@ -1,4 +1,5 @@
-import { AppWorkspace, type LinkNavigateEvent } from "@valentinkolb/cloud/ui";
+import { AppWorkspace } from "@valentinkolb/cloud/ui";
+import { type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import SidebarSettings from "../settings/SidebarSettings";
 import type { ViewType } from "../settings/SpaceSettingsStore";

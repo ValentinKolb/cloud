@@ -1,7 +1,8 @@
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Space } from "@/contracts";
-import { ColorInput, navigateTo, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { ColorInput, prompts, TextInput, toast } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import { setLastSpaceId } from "../[id]/_components/settings/SpaceSettingsStore";
 

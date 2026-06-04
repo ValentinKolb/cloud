@@ -1,6 +1,6 @@
 import { FilterChip, type FilterChipSection } from "@valentinkolb/cloud/ui";
 import { buildGroupsUrl, type GroupsListState } from "../lib/url-state";
-import { navigateTo } from "@valentinkolb/cloud/ui";
+import { navigateTo } from "@valentinkolb/ssr/nav";
 
 type GroupsScopeFilterProps = {
   state: GroupsListState;
@@ -37,18 +37,23 @@ export default function GroupsScopeFilter(props: GroupsScopeFilterProps) {
       options={SCOPE_OPTIONS}
       value={[props.state.scope, props.state.provider]}
       onChange={(value) => {
-        const nextScope = value.find((entry): entry is GroupsListState["scope"] => SCOPE_VALUES.has(entry as GroupsListState["scope"])) ?? props.defaultScope;
-        const nextProvider = value.find((entry): entry is GroupsListState["provider"] => PROVIDER_VALUES.has(entry as GroupsListState["provider"])) ?? "";
+        const nextScope =
+          value.find((entry): entry is GroupsListState["scope"] => SCOPE_VALUES.has(entry as GroupsListState["scope"])) ??
+          props.defaultScope;
+        const nextProvider =
+          value.find((entry): entry is GroupsListState["provider"] => PROVIDER_VALUES.has(entry as GroupsListState["provider"])) ?? "";
 
-        navigateTo(buildGroupsUrl(
-          {
-            ...props.state,
-            scope: nextScope,
-            provider: nextProvider,
-            page: 1,
-          },
-          { defaultScope: props.defaultScope },
-        ));
+        navigateTo(
+          buildGroupsUrl(
+            {
+              ...props.state,
+              scope: nextScope,
+              provider: nextProvider,
+              page: 1,
+            },
+            { defaultScope: props.defaultScope },
+          ),
+        );
       }}
       defaultValue={[props.defaultScope, ""]}
     />

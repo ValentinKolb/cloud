@@ -1,4 +1,5 @@
-import { AppWorkspace, prompts, type LinkNavigateEvent } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, prompts } from "@valentinkolb/cloud/ui";
+import { type LinkNavigateEvent } from "@valentinkolb/ssr/nav";
 import { createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildAttachmentsUrl, buildNoteUrl } from "../../../params";

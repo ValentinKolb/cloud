@@ -7,11 +7,11 @@ import {
   panelDialogOptions,
   PanelDialog,
   prompts,
-  refreshCurrentPath,
   Select,
   TextInput,
   toast,
 } from "@valentinkolb/cloud/ui";
+import { refreshCurrentPath } from "@valentinkolb/ssr/nav";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createEffect, createSignal, For, Show } from "solid-js";

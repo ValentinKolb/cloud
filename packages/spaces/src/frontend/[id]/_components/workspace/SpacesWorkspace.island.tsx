@@ -1,4 +1,5 @@
-import { AppWorkspace, type LinkNavigateEvent, type NavigationScrollMode, navigate, Pagination, prompts } from "@valentinkolb/cloud/ui";
+import { AppWorkspace, Pagination, prompts } from "@valentinkolb/cloud/ui";
+import { type LinkNavigateEvent, type NavigationScrollMode, navigate } from "@valentinkolb/ssr/nav";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { streaming } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";

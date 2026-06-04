@@ -6,7 +6,7 @@ import { prompts } from "@valentinkolb/cloud/ui";
 import { apiClient } from "@/api/client";
 import type { User } from "@/contracts";
 import { CopyButton } from "@valentinkolb/cloud/ui";
-import { navigateTo, refreshCurrentPath } from "@valentinkolb/cloud/ui";
+import { navigateTo, refreshCurrentPath } from "@valentinkolb/ssr/nav";
 
 const escapeHtml = (value: string): string =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -57,12 +57,7 @@ function openCredentialDialog(config: {
         <div class="flex flex-col gap-2 text-sm leading-relaxed text-dimmed">{config.intro}</div>
         <div class="flex flex-col gap-4">
           {config.fields.map((field) => (
-            <SecretField
-              label={field.label}
-              value={field.value}
-              copyLabel={field.copyLabel}
-              tone={field.tone}
-            />
+            <SecretField label={field.label} value={field.value} copyLabel={field.copyLabel} tone={field.tone} />
           ))}
         </div>
         <div class="flex justify-end">
@@ -327,7 +322,8 @@ export default function UserActions(props: UserActionsProps) {
                 type: "info" as const,
                 content: () => (
                   <div class="info-block-warning text-xs">
-                    The email address is the primary sync key between FreeIPA and the local database. Changing it may affect account linking.
+                    The email address is the primary sync key between FreeIPA and the local database. Changing it may affect account
+                    linking.
                   </div>
                 ),
               },
@@ -694,11 +690,11 @@ export default function UserActions(props: UserActionsProps) {
                         },
                       ]
                     : []),
-                    {
-                      icon: isGuestProfile ? "ti ti-user-up" : "ti ti-user-down",
-                      label: isGuestProfile ? "Promote" : "Demote",
-                      action: () => handleSetProfile(isGuestProfile ? "user" : "guest"),
-                    },
+                  {
+                    icon: isGuestProfile ? "ti ti-user-up" : "ti ti-user-down",
+                    label: isGuestProfile ? "Promote" : "Demote",
+                    action: () => handleSetProfile(isGuestProfile ? "user" : "guest"),
+                  },
                   ...(isGuestProfile
                     ? []
                     : [
