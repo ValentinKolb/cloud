@@ -1199,7 +1199,7 @@ function PublicSectionPreview(props: { section: PublicSection }) {
 
 export default function VenueWorkspace(props: Props) {
   const venue = () => props.dashboard.venue;
-  const [view, setView] = createSignal<VenueView>(props.initialView);
+  const [view] = createSignal<VenueView>(props.initialView);
   const [selectedSectionId, setSelectedSectionId] = createSignal(props.initialSectionId ?? null);
   const [calendarView] = createSignal<CalendarView>(props.initialCalendarView);
   const [calendarDate] = createSignal(parseDateKey(props.initialCalendarDate));
@@ -1217,39 +1217,14 @@ export default function VenueWorkspace(props: Props) {
       description: `${slot.assignedCount}/${slot.minPeople}${slot.maxPeople ? ` · max ${slot.maxPeople}` : ""}`,
     })),
   );
-  const sectionHref = (section: PublicSection) => `/app/venue/${venue().id}?section=${section.id}`;
+  const viewHref = (next: VenueView) => `/app/venue/${venue().id}/${next}`;
+  const sectionHref = (section: PublicSection) => `/app/venue/${venue().id}/public-sections/${section.id}`;
   const calendarHref = (nextView: CalendarView, nextDate: Date) => {
     const normalizedView = nextView === "month" ? "month" : "week";
-    const url = new URL(`/app/venue/${venue().id}`, "http://venue.local");
-    url.searchParams.set("view", "shifts");
+    const url = new URL(viewHref("shifts"), "http://venue.local");
     url.searchParams.set("cv", normalizedView);
     url.searchParams.set("cd", dateKey(nextDate));
     return `${url.pathname}?${url.searchParams.toString()}`;
-  };
-
-  const openView = (next: VenueView) => {
-    setView(next);
-    setSelectedSectionId(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("section");
-    if (next === "shifts") {
-      url.searchParams.set("view", "shifts");
-      url.searchParams.set("cv", calendarView());
-      url.searchParams.set("cd", dateKey(calendarDate()));
-    } else {
-      url.searchParams.set("view", next);
-      url.searchParams.delete("cv");
-      url.searchParams.delete("cd");
-    }
-    window.history.replaceState({}, "", url.toString());
-  };
-
-  const openSection = (section: PublicSection) => {
-    setSelectedSectionId(section.id);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("view");
-    url.searchParams.set("section", section.id);
-    window.history.replaceState({}, "", url.toString());
   };
 
   const openSignup = async () => {
@@ -1371,9 +1346,7 @@ export default function VenueWorkspace(props: Props) {
       if (!deleted) return;
       toast.success("Section deleted");
       setSelectedSectionId(null);
-      const url = new URL(window.location.href);
-      url.searchParams.delete("section");
-      window.history.replaceState({}, "", url.toString());
+      window.history.replaceState({}, "", viewHref("shifts"));
       refreshCurrentPath();
     },
     onError: (err) => prompts.error(err.message),
@@ -1429,9 +1402,10 @@ export default function VenueWorkspace(props: Props) {
             <For each={views}>
               {(item) => (
                 <AppWorkspace.SidebarItem
+                  href={viewHref(item.id)}
+                  navigation="document"
                   icon={item.icon}
                   active={!selectedSectionId() && view() === item.id}
-                  onClick={() => openView(item.id)}
                 >
                   {item.label}
                 </AppWorkspace.SidebarItem>
@@ -1446,12 +1420,9 @@ export default function VenueWorkspace(props: Props) {
               {(section) => (
                 <AppWorkspace.SidebarItem
                   href={sectionHref(section)}
+                  navigation="document"
                   icon={sectionKindIcon(section.kind)}
                   active={selectedSectionId() === section.id}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    openSection(section);
-                  }}
                 >
                   {section.title}
                 </AppWorkspace.SidebarItem>
@@ -1481,9 +1452,10 @@ export default function VenueWorkspace(props: Props) {
               <For each={views}>
                 {(item) => (
                   <AppWorkspace.SidebarItem
+                    href={viewHref(item.id)}
+                    navigation="document"
                     icon={item.icon}
                     active={!selectedSectionId() && view() === item.id}
-                    onClick={() => openView(item.id)}
                   >
                     {item.label}
                   </AppWorkspace.SidebarItem>
@@ -1503,12 +1475,9 @@ export default function VenueWorkspace(props: Props) {
                 {(section) => (
                   <AppWorkspace.SidebarItem
                     href={sectionHref(section)}
+                    navigation="document"
                     icon={sectionKindIcon(section.kind)}
                     active={selectedSectionId() === section.id}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      openSection(section);
-                    }}
                   >
                     {section.title}
                   </AppWorkspace.SidebarItem>

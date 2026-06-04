@@ -23,6 +23,8 @@ const slotWindow = (view: CalendarView, date: string): { startDate: string; days
   return { startDate: shiftDate(date, -7), days: 14 };
 };
 
+const viewPath = (id: string, view: "shifts" | "my-shifts" | "feedback") => `/app/venue/${id}/${view}`;
+
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id");
   if (!id) return c.redirect("/app/venue");
@@ -41,9 +43,23 @@ export default ssr<AuthContext>(async (c) => {
   const access = await venueService.access.require(venue.id, user, "read");
   if (!access.ok) return c.redirect("/app/venue");
 
-  const view = url.searchParams.get("view");
-  const initialView = view === "my-shifts" || view === "feedback" || view === "shifts" ? view : "shifts";
-  const initialSectionId = url.searchParams.get("section");
+  const legacySectionId = url.searchParams.get("section");
+  const legacyView = url.searchParams.get("view");
+  if (legacySectionId) {
+    url.searchParams.delete("section");
+    url.searchParams.delete("view");
+    return c.redirect(`/app/venue/${venue.id}/public-sections/${legacySectionId}${url.search}`);
+  }
+  if (legacyView === "my-shifts" || legacyView === "feedback" || legacyView === "shifts") {
+    url.searchParams.delete("view");
+    return c.redirect(`${viewPath(venue.id, legacyView)}${url.search}`);
+  }
+
+  const pathView = c.req.param("view");
+  const initialSectionId = c.req.param("sectionId") ?? null;
+  if (!pathView && !initialSectionId) return c.redirect(`${viewPath(venue.id, "shifts")}${url.search}`);
+  const initialView = pathView === "my-shifts" || pathView === "feedback" || pathView === "shifts" ? pathView : "shifts";
+  if (pathView && initialView === "shifts" && pathView !== "shifts") return c.redirect(viewPath(venue.id, "shifts"));
   const calendarViewParam = url.searchParams.get("cv") as CalendarView | null;
   const initialCalendarView = calendarViewParam && calendarViews.includes(calendarViewParam) ? calendarViewParam : "week";
   const initialCalendarDate = parseCalendarDate(url.searchParams.get("cd"));

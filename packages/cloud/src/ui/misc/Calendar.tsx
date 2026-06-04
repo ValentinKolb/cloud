@@ -1,6 +1,6 @@
 import { dates as calendar, type DateContext } from "@valentinkolb/stdlib";
 import type { Accessor, JSX } from "solid-js";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import SegmentedControl from "../input/SegmentedControl";
 
 export type CalendarView = "day" | "week" | "month" | "year" | "mobile-month";
@@ -238,6 +238,20 @@ const normalizeEvents = (events: CalendarEvent[], context?: DateContext): Normal
     const endDate = event.end ? parseDate(event.end) : new Date(startDate.getTime() + 60 * 60 * 1000);
     const duration = Math.max(60 * 60 * 1000, endDate.getTime() - startDate.getTime());
     const rangeEnd = endDate > startDate ? endDate : new Date(startDate.getTime() + duration);
+    const startKey = calendar.formatDateKey(startDate, context);
+    const endKey = calendar.formatDateKey(rangeEnd, context);
+    if (!event.allDay && startKey === endKey) {
+      return [
+        {
+          ...event,
+          startDate,
+          endDate: rangeEnd,
+          sourceStartDate: startDate,
+          sourceEndDate: rangeEnd,
+          dayKey: startKey,
+        },
+      ];
+    }
     const lastDay =
       event.allDay && isStartOfDay(rangeEnd, context)
         ? calendar.addDays(startOfDay(rangeEnd, context), -1, context)
@@ -602,6 +616,16 @@ const MonthView = (props: {
   const month = () => zonedYearMonth(props.date, dateConfig());
   const weeks = () => calendar.getMonthGrid(month().year, month().month, dateConfig());
   const weekdays = () => calendar.weekdays(dateConfig());
+  const todayKey = () => calendar.formatDateKey(new Date(), dateConfig());
+  const eventsByDay = createMemo(() => {
+    const grouped = new Map<string, NormalizedEvent[]>();
+    for (const event of props.events) {
+      const events = grouped.get(event.dayKey);
+      if (events) events.push(event);
+      else grouped.set(event.dayKey, [event]);
+    }
+    return grouped;
+  });
   return (
     <div>
       <div
@@ -626,12 +650,14 @@ const MonthView = (props: {
               <For each={week}>
                 {(day) => {
                   const dayKey = calendar.formatDateKey(day, dateConfig());
-                  const events = props.events.filter((event) => event.dayKey === dayKey);
+                  const events = eventsByDay().get(dayKey) ?? [];
                   const href = props.owner.getDateHref?.(day, "day");
                   const dayBadge = props.owner.dayBadges?.[dayKey];
+                  const sameMonth = calendar.isSameMonth(day, props.date, dateConfig());
+                  const isToday = dayKey === todayKey();
                   return (
                     <div
-                      class={`relative min-w-0 p-1.5 ${calendar.isSameMonth(day, props.date, dateConfig()) ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
+                      class={`relative min-w-0 p-1.5 ${sameMonth ? "" : "bg-zinc-50/60 dark:bg-zinc-900/30"}`}
                       classList={{
                         "bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === dayKey,
                         "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
@@ -654,11 +680,7 @@ const MonthView = (props: {
                         <a
                           href={href ?? "#"}
                           class={`inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-semibold ${
-                            calendar.isToday(day, dateConfig())
-                              ? "bg-blue-500 text-white"
-                              : calendar.isSameMonth(day, props.date, dateConfig())
-                                ? "text-primary"
-                                : "text-dimmed"
+                            isToday ? "bg-blue-500 text-white" : sameMonth ? "text-primary" : "text-dimmed"
                           }`}
                         >
                           {calendar.formatDayNumber(day, dateConfig())}
