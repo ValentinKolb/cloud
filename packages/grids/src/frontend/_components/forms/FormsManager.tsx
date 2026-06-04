@@ -623,8 +623,18 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
     setSelectedEntryIndex(target);
   };
 
+  const openFieldSettings = async (index: number) => {
+    const entry = props.entries()[index];
+    const field = entry ? fieldById().get(entry.fieldId) : undefined;
+    if (!entry || !field) return;
+    const next = await openFormFieldSettingsDialog({ entry, field });
+    if (!next) return;
+    replaceEntries(props.entries().map((current, i) => (i === index ? next : current)));
+    setSelectedEntryIndex(index);
+  };
+
   return (
-    <div class="grid min-h-[28rem] grid-cols-1 gap-3 lg:grid-cols-[minmax(15rem,0.85fr)_minmax(0,1.25fr)]">
+    <div class="grid min-h-[28rem] grid-cols-1 gap-3 md:grid-cols-2">
       <div class="flex min-h-0 flex-col gap-3">
         <div class="flex items-center justify-between gap-2">
           <div>
@@ -644,30 +654,83 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
               {(entry, idx) => {
                 const field = () => fieldById().get(entry().fieldId);
                 const selected = () => selectedIndex() === idx;
+                const customized = () => isFormFieldEntryCustomized(entry(), field());
                 return (
                   <li>
-                    <button
-                      type="button"
+                    <div
                       class={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left transition-colors ${
                         selected()
                           ? "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300"
                           : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-900"
                       }`}
-                      onClick={() => setSelectedEntryIndex(idx)}
                     >
-                      <Show when={field()} fallback={<i class="ti ti-alert-triangle text-dimmed" />}>
-                        {(f) => <i class={`${fieldTypeIcon(f().type, f().icon)} shrink-0 text-dimmed`} />}
-                      </Show>
-                      <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-medium text-primary">{field()?.name ?? "Missing field"}</span>
-                        <span class="block truncate text-[10px] text-dimmed">
-                          {entry().kind === "form_value" ? "Fixed value" : fieldTypeLabel(field()?.type ?? "text")}
+                      <button
+                        type="button"
+                        class="flex min-w-0 flex-1 items-center gap-2 text-left"
+                        onClick={() => setSelectedEntryIndex(idx)}
+                      >
+                        <Show when={field()} fallback={<i class="ti ti-alert-triangle text-dimmed" />}>
+                          {(f) => <i class={`${fieldTypeIcon(f().type, f().icon)} shrink-0 text-dimmed`} />}
+                        </Show>
+                        <span class="min-w-0 flex-1">
+                          <span class="block truncate text-sm font-medium text-primary">{field()?.name ?? "Missing field"}</span>
+                          <span class="block truncate text-[10px] text-dimmed">
+                            {entry().kind === "form_value" ? "Fixed value" : fieldTypeLabel(field()?.type ?? "text")}
+                          </span>
                         </span>
-                      </span>
+                      </button>
+                      <Show when={customized()}>
+                        <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          Modified
+                        </span>
+                      </Show>
+                      <Show when={entry().kind === "form_value"}>
+                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-secondary dark:bg-zinc-800">Fixed</span>
+                      </Show>
                       <Show when={entry().kind === "user_input" && (entry() as Extract<FormFieldEntry, { kind: "user_input" }>).required}>
                         <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-secondary dark:bg-zinc-800">Required</span>
                       </Show>
-                    </button>
+                      <div class="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          onClick={() => moveEntry(idx, -1)}
+                          disabled={idx === 0}
+                          title="Move up"
+                          aria-label="Move up"
+                        >
+                          <i class="ti ti-arrow-up" />
+                        </button>
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          onClick={() => moveEntry(idx, 1)}
+                          disabled={idx === props.entries().length - 1}
+                          title="Move down"
+                          aria-label="Move down"
+                        >
+                          <i class="ti ti-arrow-down" />
+                        </button>
+                        <button
+                          type="button"
+                          class="icon-btn md:hidden"
+                          onClick={() => void openFieldSettings(idx)}
+                          title="Edit field settings"
+                          aria-label="Edit field settings"
+                        >
+                          <i class="ti ti-pencil" />
+                        </button>
+                        <button
+                          type="button"
+                          class="icon-btn text-red-500 hover:text-red-600"
+                          onClick={() => removeEntry(idx)}
+                          title="Remove from form"
+                          aria-label="Remove from form"
+                        >
+                          <i class="ti ti-trash" />
+                        </button>
+                      </div>
+                    </div>
                   </li>
                 );
               }}
@@ -694,28 +757,24 @@ function FormFieldsEditor(props: { tableFields: Field[]; entries: () => FormFiel
       </div>
 
       <FormFieldInspector
+        class="hidden md:flex"
         entry={selectedEntry}
         field={selectedField}
         index={selectedIndex}
-        entryCount={() => props.entries().length}
         updateEntry={updateEntry}
         updateFormValue={updateFormValue}
-        moveEntry={moveEntry}
-        removeEntry={removeEntry}
       />
     </div>
   );
 }
 
 function FormFieldInspector(props: {
+  class?: string;
   entry: () => FormFieldEntry | null;
   field: () => Field | undefined;
   index: () => number;
-  entryCount: () => number;
   updateEntry: (index: number, patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => void;
   updateFormValue: (index: number, value: unknown) => void;
-  moveEntry: (index: number, direction: -1 | 1) => void;
-  removeEntry: (index: number) => void;
 }) {
   const userEntry = createMemo(() =>
     props.entry()?.kind === "user_input" ? (props.entry() as Extract<FormFieldEntry, { kind: "user_input" }>) : null,
@@ -727,104 +786,174 @@ function FormFieldInspector(props: {
   return (
     <Show
       when={props.entry() && props.field()}
-      fallback={<div class="paper flex min-h-64 items-center justify-center p-4 text-sm text-dimmed">Select a field to configure it.</div>}
-    >
-      <div class="paper flex min-h-0 flex-col gap-3 p-4">
-        <div class="flex items-start gap-3">
-          <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
-            <i class={`${fieldTypeIcon(props.field()!.type, props.field()!.icon)} text-sm`} />
-          </span>
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-semibold text-primary">{props.field()!.name}</p>
-            <p class="text-[11px] text-dimmed">
-              {fieldTypeLabel(props.field()!.type)}
-              <Show when={valueEntry()}> · fixed value</Show>
-            </p>
-          </div>
-          <div class="flex items-center gap-1">
-            <button
-              type="button"
-              class="icon-btn"
-              onClick={() => props.moveEntry(props.index(), -1)}
-              disabled={props.index() === 0}
-              title="Move up"
-              aria-label="Move up"
-            >
-              <i class="ti ti-arrow-up" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn"
-              onClick={() => props.moveEntry(props.index(), 1)}
-              disabled={props.index() >= props.entryCount() - 1}
-              title="Move down"
-              aria-label="Move down"
-            >
-              <i class="ti ti-arrow-down" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn text-red-500 hover:text-red-600"
-              onClick={() => props.removeEntry(props.index())}
-              title="Remove from form"
-              aria-label="Remove from form"
-            >
-              <i class="ti ti-trash" />
-            </button>
-          </div>
+      fallback={
+        <div class={`paper min-h-64 items-center justify-center p-4 text-sm text-dimmed ${props.class ?? "flex"}`}>
+          Select a field to configure it.
         </div>
-
-        <Show when={userEntry()}>
-          {(entry) => (
-            <>
-              <Checkbox
-                label="Required"
-                description="Visitors must provide a value before submitting."
-                value={() => entry().required}
-                onChange={(required) => props.updateEntry(props.index(), { required })}
-              />
-              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <TextInput
-                  label="Label override (optional)"
-                  description="Use a different label on this form."
-                  icon="ti ti-tag"
-                  value={() => entry().label ?? ""}
-                  onInput={(value) => props.updateEntry(props.index(), { label: value.trim() === "" ? undefined : value })}
-                  placeholder={props.field()!.name}
-                />
-                <TextInput
-                  label="Help text (optional)"
-                  description="Shown below the input."
-                  icon="ti ti-info-circle"
-                  value={() => entry().helpText ?? ""}
-                  onInput={(value) => props.updateEntry(props.index(), { helpText: value.trim() === "" ? undefined : value })}
-                  placeholder="Extra context for visitors"
-                  multiline
-                  lines={2}
-                />
-              </div>
-              <InlineCreateEditor field={props.field()!} entry={entry()} onChange={(patch) => props.updateEntry(props.index(), patch)} />
-            </>
-          )}
-        </Show>
-
-        <Show when={valueEntry()}>
-          {(entry) => (
-            <>
-              <div class="info-block-info text-xs">This field is hidden from visitors. Every submission stores the fixed value below.</div>
-              <FieldInput
-                field={props.field()!}
-                entry={{ kind: "user_input", fieldId: props.field()!.id, required: false }}
-                value={entry().value}
-                onChange={(value) => props.updateFormValue(props.index(), value)}
-              />
-            </>
-          )}
-        </Show>
+      }
+    >
+      <div class={`paper min-h-0 flex-col gap-3 p-4 ${props.class ?? "flex"}`}>
+        <FormFieldSettings
+          entry={props.entry}
+          field={props.field}
+          userEntry={userEntry}
+          valueEntry={valueEntry}
+          updateEntry={(patch) => props.updateEntry(props.index(), patch)}
+          updateFormValue={(value) => props.updateFormValue(props.index(), value)}
+        />
       </div>
     </Show>
   );
 }
+
+function FormFieldSettings(props: {
+  entry: () => FormFieldEntry | null;
+  field: () => Field | undefined;
+  userEntry: () => Extract<FormFieldEntry, { kind: "user_input" }> | null;
+  valueEntry: () => Extract<FormFieldEntry, { kind: "form_value" }> | null;
+  updateEntry: (patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => void;
+  updateFormValue: (value: unknown) => void;
+}) {
+  return (
+    <>
+      <div class="flex items-start gap-3">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-dimmed dark:bg-zinc-800">
+          <i class={`${fieldTypeIcon(props.field()!.type, props.field()!.icon)} text-sm`} />
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-semibold text-primary">{props.field()!.name}</p>
+          <p class="text-[11px] text-dimmed">
+            {fieldTypeLabel(props.field()!.type)}
+            <Show when={props.valueEntry()}> · fixed value</Show>
+          </p>
+        </div>
+      </div>
+
+      <Show when={props.userEntry()}>
+        {(entry) => (
+          <>
+            <Checkbox
+              label="Required"
+              description="Visitors must provide a value before submitting."
+              value={() => entry().required}
+              onChange={(required) => props.updateEntry({ required })}
+            />
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <TextInput
+                label="Label override (optional)"
+                description="Use a different label on this form."
+                icon="ti ti-tag"
+                value={() => entry().label ?? ""}
+                onInput={(value) => props.updateEntry({ label: value.trim() === "" ? undefined : value })}
+                placeholder={props.field()!.name}
+              />
+              <TextInput
+                label="Help text (optional)"
+                description="Shown below the input."
+                icon="ti ti-info-circle"
+                value={() => entry().helpText ?? ""}
+                onInput={(value) => props.updateEntry({ helpText: value.trim() === "" ? undefined : value })}
+                placeholder="Extra context for visitors"
+                multiline
+                lines={2}
+              />
+            </div>
+            <InlineCreateEditor field={props.field()!} entry={entry()} onChange={(patch) => props.updateEntry(patch)} />
+          </>
+        )}
+      </Show>
+
+      <Show when={props.valueEntry()}>
+        {(entry) => (
+          <>
+            <div class="info-block-info text-xs">This field is hidden from visitors. Every submission stores the fixed value below.</div>
+            <FieldInput
+              field={props.field()!}
+              entry={{ kind: "user_input", fieldId: props.field()!.id, required: false }}
+              value={entry().value}
+              onChange={props.updateFormValue}
+            />
+          </>
+        )}
+      </Show>
+    </>
+  );
+}
+
+const cloneFormFieldEntry = (entry: FormFieldEntry): FormFieldEntry => {
+  if (entry.kind === "form_value") return { ...entry };
+  return {
+    ...entry,
+    inlineCreate: entry.inlineCreate
+      ? {
+          enabled: entry.inlineCreate.enabled,
+          fields: (entry.inlineCreate.fields ?? []).map((field) => ({ ...field })),
+        }
+      : undefined,
+  };
+};
+
+const isFormFieldEntryCustomized = (entry: FormFieldEntry, field?: Field) => {
+  if (!field) return false;
+  if (entry.kind === "form_value") return false;
+  return Boolean(
+    (entry.required ?? field.required) !== field.required ||
+      entry.label ||
+      entry.helpText ||
+      entry.inlineCreate?.enabled ||
+      (entry.inlineCreate?.fields?.length ?? 0) > 0,
+  );
+};
+
+const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field: Field }) =>
+  dialogCore.open<FormFieldEntry | null>((close) => {
+    const [draft, setDraft] = createSignal<FormFieldEntry>(cloneFormFieldEntry(args.entry));
+    const userEntry = createMemo(() =>
+      draft().kind === "user_input" ? (draft() as Extract<FormFieldEntry, { kind: "user_input" }>) : null,
+    );
+    const valueEntry = createMemo(() =>
+      draft().kind === "form_value" ? (draft() as Extract<FormFieldEntry, { kind: "form_value" }>) : null,
+    );
+    const updateEntry = (patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => {
+      setDraft((current) => (current.kind === "user_input" ? { ...current, ...patch } : current));
+    };
+    const updateFormValue = (value: unknown) => {
+      setDraft((current) => (current.kind === "form_value" ? { ...current, value } : current));
+    };
+
+    return (
+      <PanelDialog>
+        <PanelDialog.Header
+          title={`Field settings — ${args.field.name}`}
+          icon={fieldTypeIcon(args.field.type, args.field.icon)}
+          close={() => close(null)}
+        />
+        <PanelDialog.Body>
+          <div class="paper flex flex-col gap-3 p-4">
+            <FormFieldSettings
+              entry={draft}
+              field={() => args.field}
+              userEntry={userEntry}
+              valueEntry={valueEntry}
+              updateEntry={updateEntry}
+              updateFormValue={updateFormValue}
+            />
+          </div>
+        </PanelDialog.Body>
+        <PanelDialog.Footer>
+          <span class="text-[11px] text-dimmed">Confirm stages the field settings. Use the main form Save to persist.</span>
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn-input btn-sm" onClick={() => close(null)}>
+              Cancel
+            </button>
+            <button type="button" class="btn-primary btn-sm" onClick={() => close(cloneFormFieldEntry(draft()))}>
+              Confirm
+            </button>
+          </div>
+        </PanelDialog.Footer>
+      </PanelDialog>
+    );
+  }, panelDialogOptions);
 
 const chooseFormFieldEntryKind = (field: Field) =>
   prompts.dialog<"user_input" | "form_value">(
