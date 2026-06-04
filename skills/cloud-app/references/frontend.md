@@ -869,6 +869,13 @@ Props:
 
 The component is visual structure only. Keep search state, URL params, API calls, mutations, and templates in the consuming app.
 
+For app landing pages that create top-level resources, keep the right column on
+the shared create pattern used by Notebooks, Grids, and Spaces: `AppOverview.Aside
+title="Create"` with a `grid grid-cols-1 gap-2` of `paper p-4 text-left flex
+items-start gap-3` starter/template buttons, followed by a blank/create-from-
+scratch button. Do not replace this with a one-off info card or generic shortcut
+list; consistency makes app start pages easier to scan.
+
 ### SettingsModal
 
 Tabbed settings shell for app configuration dialogs. Source: `packages/cloud/src/ui/misc/SettingsModal.tsx`; Notebook settings use it inside a bare prompt dialog at `packages/notebooks/src/frontend/[id]/_components/settings/NotebookSettingsPanel.island.tsx`.
