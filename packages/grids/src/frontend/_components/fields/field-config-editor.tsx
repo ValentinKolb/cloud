@@ -1,10 +1,4 @@
-import {
-  CheckboxCard,
-  ColorInput,
-  NumberInput,
-  Select,
-  TextInput,
-} from "@valentinkolb/cloud/ui";
+import { CheckboxCard, ColorInput, NumberInput, Select, TextInput } from "@valentinkolb/cloud/ui";
 import { For, Index, Show } from "solid-js";
 import type { Field } from "../../../service";
 import { FormulaExpressionEditor } from "./FormulaExpressionEditor";
@@ -136,7 +130,7 @@ type EditorProps = {
   tableShortId?: string;
   config: () => FieldConfigState;
   onChange: (next: FieldConfigState) => void;
-  /** All sibling tables in the same base — used by relation type targetTableId. */
+  /** Tables in the same base — used by relation targetTableId, including the current table for self-relations. */
   otherTables: Array<{ id: string; name: string }>;
   /** Fields per table id — used for lookup/rollup target pickers. */
   fieldsByTable: Record<string, Field[]>;
@@ -200,6 +194,7 @@ export function FieldConfigEditor(props: EditorProps) {
         <RelationConstraints
           config={props.config}
           onChange={props.onChange}
+          currentTableId={props.currentTableId}
           otherTables={props.otherTables}
           fieldsByTable={props.fieldsByTable}
         />
@@ -613,6 +608,7 @@ function AutonumberConstraints(props: { config: () => FieldConfigState; onChange
 function RelationConstraints(props: {
   config: () => FieldConfigState;
   onChange: (next: FieldConfigState) => void;
+  currentTableId: string;
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
 }) {
@@ -626,13 +622,17 @@ function RelationConstraints(props: {
     <div class="flex flex-col gap-3">
       <Show
         when={props.otherTables.length > 0}
-        fallback={<p class="text-xs text-amber-600 dark:text-amber-400">No other tables to link to. Create a second table first.</p>}
+        fallback={<p class="text-xs text-amber-600 dark:text-amber-400">No tables available to link to.</p>}
       >
         <Select
           label="Target table"
           value={targetTableId}
           onChange={(v) => update({ targetTableId: v })}
-          options={props.otherTables.map((t) => ({ id: t.id, label: t.name }))}
+          options={props.otherTables.map((t) => ({
+            id: t.id,
+            label: t.name,
+            description: t.id === props.currentTableId ? "Current table" : undefined,
+          }))}
           placeholder="Pick a table..."
           required
         />

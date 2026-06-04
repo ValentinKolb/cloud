@@ -1,8 +1,8 @@
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { Dropdown, dialogCore, MultiSelectInput, panelDialogOptions, PanelDialog, prompts, TextInput } from "@valentinkolb/cloud/ui";
+import { Dropdown, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, prompts, TextInput } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { mutation as mutations } from "@valentinkolb/stdlib/solid";
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { AggregationSpec, GroupBySpec, TableQueryResult, ViewQuery } from "../../../contracts";
 import type { Field, Form, GridRecord, Table, View } from "../../../service";
@@ -198,6 +198,7 @@ type Props = {
   activeView?: View | null;
   activeViewAccessEntries?: AccessEntry[];
   canEditActiveView?: boolean;
+  /** Tables in the same base, including the active table for self-relations. */
   otherTables: Array<{ id: string; name: string }>;
   fieldsByTable: Record<string, Field[]>;
   /**

@@ -75,6 +75,8 @@ export function FieldInput(props: {
   baseId?: string;
   /** Optional UUID → label map for already-linked relation values. */
   relationLabels?: Record<string, string>;
+  /** Existing record id in edit mode. Excluded from self-relation pickers. */
+  currentRecordId?: string;
   dateConfig?: DateContext;
 }) {
   const label = props.entry.label || props.field.name;
@@ -346,6 +348,7 @@ export function FieldInput(props: {
             value={() => arrayValue()}
             labels={() => props.relationLabels ?? {}}
             onChange={(v) => props.onChange(v)}
+            excludeIds={() => (props.currentRecordId ? [props.currentRecordId] : [])}
           />
           <Show when={error()}>
             <p class="text-[11px] text-red-500">{error()}</p>

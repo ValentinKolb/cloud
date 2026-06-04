@@ -1,11 +1,11 @@
 import { hasRole } from "@valentinkolb/cloud/contracts";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts/shared";
 import type { DateContext } from "@valentinkolb/stdlib";
+import type { ComputedColumnSpec, GroupSortSpec, ViewQuery } from "../../../contracts";
 import type { Base, Dashboard, Field, Form, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
 import { resolveWidgetData, type WidgetData } from "../../../service/dashboard-widget-data";
 import { filterSearchableFields } from "../../../service/search";
-import type { ComputedColumnSpec, GroupSortSpec, ViewQuery } from "../../../contracts";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
 import { parseRecordsState, type RecordsState } from "../records-view/query-url";
 
@@ -489,7 +489,7 @@ const loadRecordsState = async (common: WorkspaceCommon, activeTable: Table, act
       activeFormAccessEntries: common.catalog.formAccessEntriesByTable[activeTable.id] ?? {},
       activeViewAccessEntries: activeView && canEditActiveView ? await gridsService.access.listForView(activeView.id) : [],
       canEditActiveView,
-      otherTables: common.catalog.tables.filter((t) => t.id !== activeTable.id).map((t) => ({ id: t.id, name: t.name })),
+      otherTables: common.catalog.tables.map((t) => ({ id: t.id, name: t.name })),
       initialState: {
         query: {
           filter: initial.effectiveFilter ?? undefined,

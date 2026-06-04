@@ -1,4 +1,4 @@
-import { dialogCore, panelDialogOptions, PanelDialog } from "@valentinkolb/cloud/ui";
+import { dialogCore, PanelDialog, panelDialogOptions } from "@valentinkolb/cloud/ui";
 import type { DateContext } from "@valentinkolb/stdlib";
 import { createSignal, For, Show } from "solid-js";
 import type { Field, GridRecord } from "../../../service";
@@ -125,6 +125,7 @@ export const openRecordUpsertDialog = (args: OpenArgs): Promise<Record<string, u
             error={() => errors()[f.id]}
             baseId={args.baseId}
             relationLabels={args.relationLabels}
+            currentRecordId={args.record?.id}
             dateConfig={args.dateConfig}
           />
         );
