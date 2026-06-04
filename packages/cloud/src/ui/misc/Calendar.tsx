@@ -1130,6 +1130,10 @@ const MobileMonthView = (props: {
   );
 };
 
+const CalendarBody = (props: { children: JSX.Element }): JSX.Element => (
+  <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{props.children}</div>
+);
+
 const Calendar = (props: CalendarProps): JSX.Element => {
   const view = () => props.view ?? "month";
   const dateConfig = () => ownerDateConfig(props);
@@ -1147,19 +1151,32 @@ const Calendar = (props: CalendarProps): JSX.Element => {
       <CalendarHeader date={date()} view={view()} labels={mergedLabels()} owner={props} />
       <Show
         when={view() !== "month"}
-        fallback={<MonthView owner={props} date={date()} events={normalizedEvents()} labels={mergedLabels()} />}
+        fallback={
+          <CalendarBody>
+            <MonthView owner={props} date={date()} events={normalizedEvents()} labels={mergedLabels()} />
+          </CalendarBody>
+        }
       >
-        <Show when={view() !== "year"} fallback={<YearView owner={props} date={date()} events={normalizedEvents()} />}>
+        <Show
+          when={view() !== "year"}
+          fallback={
+            <CalendarBody>
+              <YearView owner={props} date={date()} events={normalizedEvents()} />
+            </CalendarBody>
+          }
+        >
           <Show
             when={view() !== "mobile-month"}
             fallback={
-              <MobileMonthView
-                owner={props}
-                date={date()}
-                selectedDate={selectedDate()}
-                events={normalizedEvents()}
-                labels={mergedLabels()}
-              />
+              <CalendarBody>
+                <MobileMonthView
+                  owner={props}
+                  date={date()}
+                  selectedDate={selectedDate()}
+                  events={normalizedEvents()}
+                  labels={mergedLabels()}
+                />
+              </CalendarBody>
             }
           >
             <TimeGridView owner={props} date={date()} events={normalizedEvents()} labels={mergedLabels()} days={days()} />
