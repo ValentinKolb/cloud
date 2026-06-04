@@ -1,5 +1,7 @@
 # Additional Frontend Notes
 
-This file was merged into `frontend.md`.
+This file was merged into the main frontend references.
 
-Keep new frontend guidance in `references/frontend.md` so the Cloud App skill has one canonical frontend reference and does not drift across parallel addenda.
+Keep detailed component/API guidance in `references/frontend.md`.
+Keep app shell decision rules in `references/app-ui-patterns.md`.
+Keep release/readiness gates in `references/app-quality-checklist.md`.

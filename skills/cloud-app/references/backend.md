@@ -466,6 +466,12 @@ non-JSON contracts.
 If a frontend migration to `apiClient` requires `any` or
 `response.json() as Type`, stop and fix the route typing root cause instead.
 
+For the app-level readiness gate, also run the API/client section in
+`references/app-quality-checklist.md`. It repeats the Cloud rule that
+app-internal JSON calls from islands use the typed Hono client, while raw
+`fetch()` is reserved for documented non-JSON boundaries such as files,
+streams, external URLs, and SSE.
+
 ### OpenAPI Documentation
 
 Every API route should have `describeRoute()` (re-exported as
