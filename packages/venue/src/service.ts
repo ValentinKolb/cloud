@@ -285,6 +285,16 @@ const localTime = (instant: Date, timezone: string): string => dates.instantToZo
 const instantFor = (date: string, time: string, timezone: string): Date =>
   new Date(dates.zonedDateTimeToInstant(`${date}T${time}`, timezone, { disambiguation: "compatible" }));
 
+const endInstantFor = (date: string, startTime: string, endTime: string, timezone: string): Date => {
+  const endDate = endTime <= startTime ? dateKeyAfterDays(date, 1, timezone) : date;
+  return instantFor(endDate, endTime, timezone);
+};
+
+const timeWithinWindow = (time: string, start: string, end: string): boolean => {
+  if (start < end) return start <= time && time < end;
+  return time >= start || time < end;
+};
+
 const dateKeyAfterDays = (date: string, days: number, timezone: string): string =>
   dates.formatDateKey(new Date(instantFor(date, "12:00", timezone).getTime() + days * 86_400_000), { timeZone: timezone });
 
@@ -308,7 +318,7 @@ const icsDate = (date: Date): string =>
     .replace(/[-:]/g, "")
     .replace(/\.\d{3}/, "");
 
-export const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
+const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
   const rows = await sql<
     {
       access_id: string;
@@ -342,7 +352,7 @@ export const listAccess = async (venueId: string): Promise<AccessEntry[]> => {
   );
 };
 
-export const getPermission = async (venueId: string, user: UserLike): Promise<PermissionLevel> => {
+const getPermission = async (venueId: string, user: UserLike): Promise<PermissionLevel> => {
   const entries = await listAccess(venueId);
   return getEffectivePermission({
     accessIds: entries.map((entry) => entry.id),
@@ -351,13 +361,13 @@ export const getPermission = async (venueId: string, user: UserLike): Promise<Pe
   });
 };
 
-export const requirePermission = async (venueId: string, user: UserLike, required: PermissionLevel): Promise<Result<PermissionLevel>> => {
+const requirePermission = async (venueId: string, user: UserLike, required: PermissionLevel): Promise<Result<PermissionLevel>> => {
   const permission = await getPermission(venueId, user);
   if (!hasPermission(permission, required)) return fail(err.forbidden("You do not have access to this venue"));
   return ok(permission);
 };
 
-export const listVenues = async (user: UserLike): Promise<Venue[]> => {
+const listVenues = async (user: UserLike): Promise<Venue[]> => {
   const rows = await sql<DbVenue[]>`
     SELECT DISTINCT v.*
     FROM venue.venues v
@@ -380,18 +390,18 @@ export const listVenues = async (user: UserLike): Promise<Venue[]> => {
   return venues;
 };
 
-export const getVenue = async (id: string, user?: UserLike): Promise<Venue | null> => {
+const getVenue = async (id: string, user?: UserLike): Promise<Venue | null> => {
   const [row] = await sql<DbVenue[]>`SELECT * FROM venue.venues WHERE id = ${id}::uuid`;
   if (!row) return null;
   return mapVenue(row, user ? await getPermission(row.id, user) : undefined);
 };
 
-export const getVenueBySlug = async (slug: string): Promise<Venue | null> => {
+const getVenueBySlug = async (slug: string): Promise<Venue | null> => {
   const [row] = await sql<DbVenue[]>`SELECT * FROM venue.venues WHERE slug = ${slug}`;
   return row ? mapVenue(row) : null;
 };
 
-export const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
+const createVenue = async (input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
   return sql.begin(async (tx) => {
     const [row] = await tx<DbVenue[]>`
       INSERT INTO venue.venues (
@@ -420,7 +430,7 @@ export const createVenue = async (input: VenueInput, user: UserLike): Promise<Re
   });
 };
 
-export const listVenueTemplates = (): VenueTemplateSummary[] =>
+const listVenueTemplates = (): VenueTemplateSummary[] =>
   venueTemplates.map((template) => ({
     id: template.id,
     name: template.name,
@@ -433,11 +443,7 @@ const requireTemplateResult = <T>(result: Result<T>): T => {
   return result.data;
 };
 
-export const instantiateVenueTemplate = async (
-  templateId: string,
-  input: VenueTemplateCreateInput,
-  user: UserLike,
-): Promise<Result<Venue>> => {
+const instantiateVenueTemplate = async (templateId: string, input: VenueTemplateCreateInput, user: UserLike): Promise<Result<Venue>> => {
   const template = getVenueTemplate(templateId);
   if (!template) return fail(err.notFound("Template"));
 
@@ -475,7 +481,7 @@ export const instantiateVenueTemplate = async (
   }
 };
 
-export const updateVenue = async (id: string, input: VenueInput): Promise<Result<Venue>> => {
+const updateVenue = async (id: string, input: VenueInput): Promise<Result<Venue>> => {
   const [row] = await sql<DbVenue[]>`
     UPDATE venue.venues
     SET
@@ -498,7 +504,7 @@ export const updateVenue = async (id: string, input: VenueInput): Promise<Result
   return row ? ok(mapVenue(row)) : fail(err.notFound("Venue"));
 };
 
-export const grantAccess = async (venueId: string, principal: Principal, permission: PermissionLevel): Promise<Result<AccessEntry>> => {
+const grantAccess = async (venueId: string, principal: Principal, permission: PermissionLevel): Promise<Result<AccessEntry>> => {
   const existing = await listAccess(venueId);
   const duplicate = existing.find((entry) => JSON.stringify(entry.principal) === JSON.stringify(principal));
   if (duplicate) return fail(err.conflict("Access entry"));
@@ -518,7 +524,7 @@ export const grantAccess = async (venueId: string, principal: Principal, permiss
   return entry ? ok(entry) : fail(err.internal("Failed to retrieve access entry"));
 };
 
-export const changeAccess = async (venueId: string, accessId: string, permission: PermissionLevel): Promise<Result<AccessEntry>> => {
+const changeAccess = async (venueId: string, accessId: string, permission: PermissionLevel): Promise<Result<AccessEntry>> => {
   const entries = await listAccess(venueId);
   if (!entries.some((entry) => entry.id === accessId)) return fail(err.notFound("Access entry"));
   const updated = await updateAccess({ id: accessId, permission });
@@ -528,7 +534,7 @@ export const changeAccess = async (venueId: string, accessId: string, permission
   return entry ? ok(entry) : fail(err.internal("Failed to retrieve access entry"));
 };
 
-export const revokeAccess = async (venueId: string, accessId: string): Promise<Result<void>> => {
+const revokeAccess = async (venueId: string, accessId: string): Promise<Result<void>> => {
   const entries = await listAccess(venueId);
   const target = entries.find((entry) => entry.id === accessId);
   if (!target) return fail(err.notFound("Access entry"));
@@ -538,7 +544,7 @@ export const revokeAccess = async (venueId: string, accessId: string): Promise<R
   return ok();
 };
 
-export const listOpeningRules = async (venueId: string): Promise<OpeningRule[]> => {
+const listOpeningRules = async (venueId: string): Promise<OpeningRule[]> => {
   const rows = await sql<DbOpeningRule[]>`
     SELECT * FROM venue.opening_rules
     WHERE venue_id = ${venueId}::uuid
@@ -547,7 +553,7 @@ export const listOpeningRules = async (venueId: string): Promise<OpeningRule[]> 
   return rows.map(mapOpeningRule);
 };
 
-export const createOpeningRule = async (venueId: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
+const createOpeningRule = async (venueId: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
   const [row] = await sql<DbOpeningRule[]>`
     INSERT INTO venue.opening_rules (venue_id, weekday, start_time, end_time, note)
     VALUES (${venueId}::uuid, ${input.weekday}, ${input.startTime}::time, ${input.endTime}::time, ${input.note?.trim() || null})
@@ -556,7 +562,7 @@ export const createOpeningRule = async (venueId: string, input: OpeningRuleInput
   return row ? ok(mapOpeningRule(row)) : fail(err.internal("Failed to create opening rule"));
 };
 
-export const updateOpeningRule = async (venueId: string, id: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
+const updateOpeningRule = async (venueId: string, id: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
   const [row] = await sql<DbOpeningRule[]>`
     UPDATE venue.opening_rules
     SET weekday = ${input.weekday},
@@ -570,12 +576,12 @@ export const updateOpeningRule = async (venueId: string, id: string, input: Open
   return row ? ok(mapOpeningRule(row)) : fail(err.notFound("Opening rule"));
 };
 
-export const deleteOpeningRule = async (venueId: string, id: string): Promise<Result<void>> => {
+const deleteOpeningRule = async (venueId: string, id: string): Promise<Result<void>> => {
   await sql`DELETE FROM venue.opening_rules WHERE venue_id = ${venueId}::uuid AND id = ${id}::uuid`;
   return ok();
 };
 
-export const listOverrides = async (venueId: string, days = 60): Promise<DateOverride[]> => {
+const listOverrides = async (venueId: string, days = 60): Promise<DateOverride[]> => {
   const rows = await sql<DbDateOverride[]>`
     SELECT * FROM venue.date_overrides
     WHERE venue_id = ${venueId}::uuid
@@ -586,7 +592,7 @@ export const listOverrides = async (venueId: string, days = 60): Promise<DateOve
   return rows.map(mapOverride);
 };
 
-export const upsertOverride = async (venueId: string, input: DateOverrideInput): Promise<Result<DateOverride>> => {
+const upsertOverride = async (venueId: string, input: DateOverrideInput): Promise<Result<DateOverride>> => {
   const [row] = await sql<DbDateOverride[]>`
     INSERT INTO venue.date_overrides (venue_id, date, kind, start_time, end_time, note)
     VALUES (
@@ -602,7 +608,7 @@ export const upsertOverride = async (venueId: string, input: DateOverrideInput):
   return row ? ok(mapOverride(row)) : fail(err.internal("Failed to save override"));
 };
 
-export const updateOverride = async (venueId: string, id: string, input: DateOverrideInput): Promise<Result<DateOverride>> => {
+const updateOverride = async (venueId: string, id: string, input: DateOverrideInput): Promise<Result<DateOverride>> => {
   const [row] = await sql<DbDateOverride[]>`
     UPDATE venue.date_overrides
     SET date = ${input.date}::date,
@@ -617,12 +623,12 @@ export const updateOverride = async (venueId: string, id: string, input: DateOve
   return row ? ok(mapOverride(row)) : fail(err.notFound("Date override"));
 };
 
-export const deleteOverride = async (venueId: string, id: string): Promise<Result<void>> => {
+const deleteOverride = async (venueId: string, id: string): Promise<Result<void>> => {
   await sql`DELETE FROM venue.date_overrides WHERE venue_id = ${venueId}::uuid AND id = ${id}::uuid`;
   return ok();
 };
 
-export const listTemplates = async (venueId: string): Promise<ShiftTemplate[]> => {
+const listTemplates = async (venueId: string): Promise<ShiftTemplate[]> => {
   const rows = await sql<DbShiftTemplate[]>`
     SELECT * FROM venue.shift_templates
     WHERE venue_id = ${venueId}::uuid
@@ -631,7 +637,7 @@ export const listTemplates = async (venueId: string): Promise<ShiftTemplate[]> =
   return rows.map(mapTemplate);
 };
 
-export const createTemplate = async (venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
+const createTemplate = async (venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
   const [row] = await sql<DbShiftTemplate[]>`
     INSERT INTO venue.shift_templates (venue_id, weekday, title, start_time, end_time, min_people, max_people, active)
     VALUES (
@@ -643,7 +649,7 @@ export const createTemplate = async (venueId: string, input: ShiftTemplateInput)
   return row ? ok(mapTemplate(row)) : fail(err.internal("Failed to create shift"));
 };
 
-export const updateTemplate = async (venueId: string, id: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
+const updateTemplate = async (venueId: string, id: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
   const [row] = await sql<DbShiftTemplate[]>`
     UPDATE venue.shift_templates
     SET weekday = ${input.weekday},
@@ -660,7 +666,7 @@ export const updateTemplate = async (venueId: string, id: string, input: ShiftTe
   return row ? ok(mapTemplate(row)) : fail(err.notFound("Shift"));
 };
 
-export const deleteTemplate = async (venueId: string, id: string): Promise<Result<void>> => {
+const deleteTemplate = async (venueId: string, id: string): Promise<Result<void>> => {
   await sql`UPDATE venue.shift_templates SET active = false, updated_at = now() WHERE venue_id = ${venueId}::uuid AND id = ${id}::uuid`;
   return ok();
 };
@@ -684,7 +690,48 @@ type UpcomingSlotsOptions = {
   templates?: ShiftTemplate[];
 };
 
-export const upcomingSlots = async (venue: Venue, options: number | UpcomingSlotsOptions = 14): Promise<UpcomingSlot[]> => {
+const templatesByWeekday = (templates: ShiftTemplate[]): Map<number, ShiftTemplate[]> => {
+  const grouped = new Map<number, ShiftTemplate[]>();
+  for (const template of templates) {
+    const entries = grouped.get(template.weekday);
+    if (entries) entries.push(template);
+    else grouped.set(template.weekday, [template]);
+  }
+  return grouped;
+};
+
+const assignmentsByTemplateSlot = (assignments: ShiftAssignment[]): Map<string, ShiftAssignment[]> => {
+  const grouped = new Map<string, ShiftAssignment[]>();
+  for (const assignment of assignments) {
+    if (!assignment.templateId) continue;
+    const key = `${assignment.templateId}:${assignment.startsAt}`;
+    const entries = grouped.get(key);
+    if (entries) entries.push(assignment);
+    else grouped.set(key, [assignment]);
+  }
+  return grouped;
+};
+
+const slotForTemplate = (venue: Venue, template: ShiftTemplate, date: string, slotAssignments: ShiftAssignment[]): UpcomingSlot => {
+  const startsAt = instantFor(date, template.startTime, venue.timezone).toISOString();
+  const endsAt = endInstantFor(date, template.startTime, template.endTime, venue.timezone).toISOString();
+  const assignedCount = slotAssignments.length;
+  return {
+    key: `${template.id}:${date}`,
+    date,
+    template,
+    startsAt,
+    endsAt,
+    assignedCount,
+    minPeople: template.minPeople,
+    maxPeople: template.maxPeople,
+    missingPeople: Math.max(0, template.minPeople - assignedCount),
+    full: template.maxPeople !== null && assignedCount >= template.maxPeople,
+    assignments: slotAssignments,
+  };
+};
+
+const upcomingSlots = async (venue: Venue, options: number | UpcomingSlotsOptions = 14): Promise<UpcomingSlot[]> => {
   const config = typeof options === "number" ? { days: options } : options;
   const days = Math.max(0, config.days ?? 14);
   if (days === 0) return [];
@@ -696,53 +743,25 @@ export const upcomingSlots = async (venue: Venue, options: number | UpcomingSlot
   const rangeStart = instantFor(startDate, "00:00", venue.timezone);
   const rangeEnd = new Date(rangeStart.getTime() + days * 86_400_000);
   const assignments = await assignmentsForRange(venue.id, rangeStart, rangeEnd);
-
-  const templatesByWeekday = new Map<number, ShiftTemplate[]>();
-  for (const template of templates) {
-    const entries = templatesByWeekday.get(template.weekday);
-    if (entries) entries.push(template);
-    else templatesByWeekday.set(template.weekday, [template]);
-  }
-
-  const assignmentsBySlot = new Map<string, ShiftAssignment[]>();
-  for (const assignment of assignments) {
-    if (!assignment.templateId) continue;
-    const key = `${assignment.templateId}:${assignment.startsAt}`;
-    const entries = assignmentsBySlot.get(key);
-    if (entries) entries.push(assignment);
-    else assignmentsBySlot.set(key, [assignment]);
-  }
+  const templatesForWeekday = templatesByWeekday(templates);
+  const assignmentsBySlot = assignmentsByTemplateSlot(assignments);
 
   const slots: UpcomingSlot[] = [];
   for (let offset = 0; offset < days; offset++) {
     const date = dateKeyAfterDays(startDate, offset, venue.timezone);
-    const weekdayTemplates = templatesByWeekday.get(localWeekday(date));
+    const weekdayTemplates = templatesForWeekday.get(localWeekday(date));
     if (!weekdayTemplates) continue;
 
     for (const template of weekdayTemplates) {
       const startsAt = instantFor(date, template.startTime, venue.timezone).toISOString();
-      const endsAt = instantFor(date, template.endTime, venue.timezone).toISOString();
       const slotAssignments = assignmentsBySlot.get(`${template.id}:${startsAt}`) ?? [];
-      const assignedCount = slotAssignments.length;
-      slots.push({
-        key: `${template.id}:${date}`,
-        date,
-        template,
-        startsAt,
-        endsAt,
-        assignedCount,
-        minPeople: template.minPeople,
-        maxPeople: template.maxPeople,
-        missingPeople: Math.max(0, template.minPeople - assignedCount),
-        full: template.maxPeople !== null && assignedCount >= template.maxPeople,
-        assignments: slotAssignments,
-      });
+      slots.push(slotForTemplate(venue, template, date, slotAssignments));
     }
   }
   return slots;
 };
 
-export const signupTemplate = async (
+const signupTemplate = async (
   venue: Venue,
   templateId: string,
   input: z.infer<typeof TemplateSignupInputSchema>,
@@ -755,7 +774,7 @@ export const signupTemplate = async (
   if (!template) return fail(err.notFound("Shift"));
 
   const start = instantFor(input.date, toTime(template.start_time) ?? "00:00", venue.timezone);
-  const end = instantFor(input.date, toTime(template.end_time) ?? "00:00", venue.timezone);
+  const end = endInstantFor(input.date, toTime(template.start_time) ?? "00:00", toTime(template.end_time) ?? "00:00", venue.timezone);
   if (end < new Date()) return fail(err.badInput("This shift has already ended"));
 
   const [row] = await sql<DbShiftAssignment[]>`
@@ -779,7 +798,7 @@ export const signupTemplate = async (
   return ok((await assignmentsForRange(venue.id, start, end)).find((entry) => entry.id === row.id) ?? mapAssignment(row));
 };
 
-export const signupTemplateWeeks = async (
+const signupTemplateWeeks = async (
   venue: Venue,
   templateId: string,
   date: string,
@@ -797,7 +816,7 @@ export const signupTemplateWeeks = async (
   return ok(created);
 };
 
-export const signupFree = async (
+const signupFree = async (
   venueId: string,
   input: z.infer<typeof FreeSignupInputSchema>,
   user: UserLike,
@@ -817,7 +836,7 @@ export const signupFree = async (
     : fail(err.internal("Failed to sign up"));
 };
 
-export const cancelAssignment = async (venueId: string, assignmentId: string, user: UserLike, canAdmin: boolean): Promise<Result<void>> => {
+const cancelAssignment = async (venueId: string, assignmentId: string, user: UserLike, canAdmin: boolean): Promise<Result<void>> => {
   const rows = await sql<{ user_id: string }[]>`
     DELETE FROM venue.shift_assignments
     WHERE venue_id = ${venueId}::uuid
@@ -828,7 +847,7 @@ export const cancelAssignment = async (venueId: string, assignmentId: string, us
   return rows.length > 0 ? ok() : fail(err.notFound("Shift assignment"));
 };
 
-export const listSections = async (venueId: string, onlyEnabled = false): Promise<PublicSection[]> => {
+const listSections = async (venueId: string, onlyEnabled = false): Promise<PublicSection[]> => {
   const rows = await sql<DbPublicSection[]>`
     SELECT * FROM venue.public_sections
     WHERE venue_id = ${venueId}::uuid
@@ -838,7 +857,7 @@ export const listSections = async (venueId: string, onlyEnabled = false): Promis
   return rows.map(mapSection);
 };
 
-export const createSection = async (venueId: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
+const createSection = async (venueId: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
   const [row] = await sql<DbPublicSection[]>`
     INSERT INTO venue.public_sections (venue_id, kind, title, content, enabled, position)
     VALUES (${venueId}::uuid, ${input.kind}, ${input.title.trim()}, ${JSON.stringify(input.content)}::jsonb, ${input.enabled}, ${input.position})
@@ -847,7 +866,7 @@ export const createSection = async (venueId: string, input: PublicSectionInput):
   return row ? ok(mapSection(row)) : fail(err.internal("Failed to create public section"));
 };
 
-export const updateSection = async (venueId: string, id: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
+const updateSection = async (venueId: string, id: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
   const [row] = await sql<DbPublicSection[]>`
     UPDATE venue.public_sections
     SET title = ${input.title.trim()},
@@ -861,12 +880,12 @@ export const updateSection = async (venueId: string, id: string, input: PublicSe
   return row ? ok(mapSection(row)) : fail(err.notFound("Public section"));
 };
 
-export const deleteSection = async (venueId: string, id: string): Promise<Result<void>> => {
+const deleteSection = async (venueId: string, id: string): Promise<Result<void>> => {
   await sql`DELETE FROM venue.public_sections WHERE venue_id = ${venueId}::uuid AND id = ${id}::uuid`;
   return ok();
 };
 
-export const createFeedback = async (venueId: string, input: z.infer<typeof FeedbackInputSchema>): Promise<Result<FeedbackEntry>> => {
+const createFeedback = async (venueId: string, input: z.infer<typeof FeedbackInputSchema>): Promise<Result<FeedbackEntry>> => {
   const [venue] = await sql<{ feedback_enabled: boolean }[]>`SELECT feedback_enabled FROM venue.venues WHERE id = ${venueId}::uuid`;
   if (!venue?.feedback_enabled) return fail(err.badInput("Feedback is disabled for this venue"));
   const [row] = await sql<DbFeedbackEntry[]>`
@@ -877,7 +896,7 @@ export const createFeedback = async (venueId: string, input: z.infer<typeof Feed
   return row ? ok(mapFeedback(row)) : fail(err.internal("Failed to submit feedback"));
 };
 
-export const feedbackSummary = async (
+const feedbackSummary = async (
   venueId: string,
   options: { includeEntries?: boolean; entryDays?: number; entrySearch?: string } = {},
 ): Promise<{ summary: FeedbackSummary; entries: FeedbackEntry[] }> => {
@@ -924,7 +943,24 @@ export const feedbackSummary = async (
   };
 };
 
-export const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatus | null> => {
+type OpeningWindow = { start: string; end: string; label: string };
+
+const openingWindowsFor = (rules: OpeningRule[], override: DateOverride | undefined): OpeningWindow[] => {
+  if (override?.kind === "closed") return [];
+  if (override?.kind === "open" && override.startTime && override.endTime) {
+    return [{ start: override.startTime, end: override.endTime, label: formatWindow(override.startTime, override.endTime) }];
+  }
+  return rules.map((rule) => ({ start: rule.startTime, end: rule.endTime, label: formatWindow(rule.startTime, rule.endTime) }));
+};
+
+const nextOpeningLabelFor = async (venue: Venue, now: Date): Promise<string | null> => {
+  const nextSlot = (await upcomingSlots(venue, 14)).find(
+    (slot) => new Date(slot.startsAt) > now && (venue.openMode !== "regular" || slot.assignedCount > 0),
+  );
+  return nextSlot ? formatDateTime(nextSlot.startsAt, venue.timezone) : null;
+};
+
+const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatus | null> => {
   const venue = await getVenueBySlug(slug);
   if (!venue || !venue.publicEnabled) return null;
 
@@ -936,24 +972,15 @@ export const publicStatus = async (slug: string, now = new Date()): Promise<Publ
   const rules = openingRules.filter((rule) => rule.weekday === weekday);
   const activeAssignments = await assignmentsForRange(venue.id, new Date(now.getTime() - 1), new Date(now.getTime() + 1));
   const staffedOpen = activeAssignments.some((assignment) => new Date(assignment.startsAt) <= now && now < new Date(assignment.endsAt));
+  const windows = openingWindowsFor(rules, override);
 
-  let windows = rules.map((rule) => ({ start: rule.startTime, end: rule.endTime, label: formatWindow(rule.startTime, rule.endTime) }));
-  if (override?.kind === "closed") windows = [];
-  if (override?.kind === "open" && override.startTime && override.endTime) {
-    windows = [{ start: override.startTime, end: override.endTime, label: formatWindow(override.startTime, override.endTime) }];
-  }
-
-  const regularOpen = venue.openMode !== "staffed" && windows.some((window) => window.start <= time && time < window.end);
+  const regularOpen = venue.openMode !== "staffed" && windows.some((window) => timeWithinWindow(time, window.start, window.end));
   const staffedCounts = venue.openMode !== "regular" && staffedOpen;
   const open = override?.kind === "closed" ? false : regularOpen || staffedCounts;
-  const activeWindow = windows.find((window) => window.start <= time && time < window.end);
+  const activeWindow = windows.find((window) => timeWithinWindow(time, window.start, window.end));
   const spontaneousOpen = open && staffedCounts && !regularOpen && !activeWindow;
   const todayLabel = windows.length > 0 ? windows.map((window) => window.label).join(", ") : "No regular hours today";
-
-  const nextSlot = (await upcomingSlots(venue, 14)).find(
-    (slot) => new Date(slot.startsAt) > now && (venue.openMode !== "regular" || slot.assignedCount > 0),
-  );
-  const nextOpeningLabel = nextSlot ? formatDateTime(nextSlot.startsAt, venue.timezone) : null;
+  const nextOpeningLabel = await nextOpeningLabelFor(venue, now);
 
   return {
     venue,
@@ -976,7 +1003,7 @@ type VenueDashboardOptions = {
   feedbackSearch?: string;
 };
 
-export const dashboard = async (venue: Venue, user: UserLike, options: VenueDashboardOptions = {}): Promise<VenueDashboard> => {
+const dashboard = async (venue: Venue, user: UserLike, options: VenueDashboardOptions = {}): Promise<VenueDashboard> => {
   const start = new Date();
   const end = new Date(start.getTime() + 30 * 86_400_000);
   const slotDays = Math.max(0, options.slotDays ?? 14);
@@ -1017,7 +1044,7 @@ export const dashboard = async (venue: Venue, user: UserLike, options: VenueDash
   };
 };
 
-export const getOrCreateIcalToken = async (userId: string): Promise<string> => {
+const getOrCreateIcalToken = async (userId: string): Promise<string> => {
   const [row] = await sql<{ token: string }[]>`
     INSERT INTO venue.user_ical_tokens (user_id)
     VALUES (${userId}::uuid)
@@ -1028,14 +1055,14 @@ export const getOrCreateIcalToken = async (userId: string): Promise<string> => {
   return row.token;
 };
 
-export const getUserIdByIcalToken = async (token: string): Promise<string | null> => {
+const getUserIdByIcalToken = async (token: string): Promise<string | null> => {
   const [row] = await sql<{ user_id: string }[]>`
     SELECT user_id FROM venue.user_ical_tokens WHERE token = ${token}
   `;
   return row?.user_id ?? null;
 };
 
-export const generateUserIcs = async (userId: string, baseUrl: string): Promise<string> => {
+const generateUserIcs = async (userId: string, baseUrl: string): Promise<string> => {
   const rows = await sql<(DbShiftAssignment & { venue_name: string; venue_slug: string })[]>`
     SELECT sa.*, u.display_name AS user_display_name, v.name AS venue_name, v.slug AS venue_slug
     FROM venue.shift_assignments sa

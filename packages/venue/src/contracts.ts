@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-export const WeekdaySchema = z.number().int().min(0).max(6);
-export const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/, "Expected HH:MM");
-export const DateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
-export const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
+const WeekdaySchema = z.number().int().min(0).max(6);
+const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/, "Expected HH:MM");
+const DateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
+const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
 
-export const VenueOpenModeSchema = z.enum(["regular", "staffed", "combined"]);
-export const VenueSignupModeSchema = z.enum(["templates", "free", "both"]);
+const VenueOpenModeSchema = z.enum(["regular", "staffed", "combined"]);
+const VenueSignupModeSchema = z.enum(["templates", "free", "both"]);
 
 export const VenueSchema = z.object({
   id: z.string(),
@@ -70,7 +70,7 @@ export const VenueTemplateCreateInputSchema = z.object({
 });
 export type VenueTemplateCreateInput = z.infer<typeof VenueTemplateCreateInputSchema>;
 
-export const OpeningRuleSchema = z.object({
+const OpeningRuleSchema = z.object({
   id: z.string(),
   venueId: z.string(),
   weekday: WeekdaySchema,
@@ -91,7 +91,7 @@ export const OpeningRuleInputSchema = z.object({
 });
 export type OpeningRuleInput = z.infer<typeof OpeningRuleInputSchema>;
 
-export const DateOverrideSchema = z.object({
+const DateOverrideSchema = z.object({
   id: z.string(),
   venueId: z.string(),
   date: DateKeySchema,
@@ -120,7 +120,7 @@ export const DateOverrideInputSchema = z.discriminatedUnion("kind", [
 ]);
 export type DateOverrideInput = z.infer<typeof DateOverrideInputSchema>;
 
-export const ShiftTemplateSchema = z.object({
+const ShiftTemplateSchema = z.object({
   id: z.string(),
   venueId: z.string(),
   weekday: WeekdaySchema,
@@ -135,15 +135,20 @@ export const ShiftTemplateSchema = z.object({
 });
 export type ShiftTemplate = z.infer<typeof ShiftTemplateSchema>;
 
-export const ShiftTemplateInputSchema = z.object({
-  weekday: WeekdaySchema,
-  title: z.string().trim().min(1).max(160),
-  startTime: TimeSchema,
-  endTime: TimeSchema,
-  minPeople: z.number().int().min(0).default(1),
-  maxPeople: z.number().int().min(0).nullable().optional(),
-  active: z.boolean().default(true),
-});
+export const ShiftTemplateInputSchema = z
+  .object({
+    weekday: WeekdaySchema,
+    title: z.string().trim().min(1).max(160),
+    startTime: TimeSchema,
+    endTime: TimeSchema,
+    minPeople: z.number().int().min(0).default(1),
+    maxPeople: z.number().int().min(0).nullable().optional(),
+    active: z.boolean().default(true),
+  })
+  .refine((input) => input.maxPeople == null || input.maxPeople >= input.minPeople, {
+    path: ["maxPeople"],
+    message: "Maximum people must be greater than or equal to required people",
+  });
 export type ShiftTemplateInput = z.infer<typeof ShiftTemplateInputSchema>;
 
 export const ShiftAssignmentSchema = z.object({
@@ -185,7 +190,7 @@ export const TemplateSignupInputSchema = z.object({
   date: DateKeySchema,
 });
 
-export const PublicSectionSchema = z.object({
+const PublicSectionSchema = z.object({
   id: z.string(),
   venueId: z.string(),
   kind: z.enum(["markdown", "menu", "notice", "links"]),
@@ -221,7 +226,7 @@ export const FeedbackInputSchema = z.object({
   comment: z.string().trim().max(2_000).nullable().optional(),
 });
 
-export const FeedbackSummarySchema = z.object({
+const FeedbackSummarySchema = z.object({
   count: z.number().int().min(0),
   averageRating: z.number().nullable(),
   buckets: z.array(z.object({ date: DateKeySchema, count: z.number().int(), averageRating: z.number().nullable() })),

@@ -19,4 +19,5 @@ export const app = defineApp({
   routes: ["/api/venue", "/app/venue", "/public/venue"],
 });
 
+// fallow-ignore-next-line unused-export
 export const { ssr, plugin } = app;

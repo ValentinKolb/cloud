@@ -85,9 +85,9 @@ const widgetRoutes = new Hono<AuthContext>().get("/today", auth.requireRole("aut
       },
       {
         kind: "stat",
-        label: "Open slots",
+        label: "Open registrations",
         value: missing,
-        sub: missing === 1 ? "person missing" : "people missing",
+        sub: missing === 1 ? "registration still needed" : "registrations still needed",
         accent: missing > 0 ? { tone: "amber", icon: "ti ti-user-plus" } : { tone: "emerald", icon: "ti ti-check" },
       },
       nextShift

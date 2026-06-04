@@ -31,6 +31,36 @@ const parseFeedbackDays = (value: string | null): FeedbackDays => {
   return feedbackDaysOptions.includes(parsed as FeedbackDays) ? (parsed as FeedbackDays) : 30;
 };
 
+type ResolvedView = {
+  initialView: "shifts" | "my-shifts" | "feedback";
+  initialSectionId: string | null;
+  redirectTo?: string;
+};
+
+const legacyRedirect = (url: URL, venueId: string): string | null => {
+  const legacySectionId = url.searchParams.get("section");
+  const legacyView = url.searchParams.get("view");
+  if (legacySectionId) {
+    url.searchParams.delete("section");
+    url.searchParams.delete("view");
+    return `/app/venue/${venueId}/public-sections/${legacySectionId}${url.search}`;
+  }
+  if (legacyView === "my-shifts" || legacyView === "feedback" || legacyView === "shifts") {
+    url.searchParams.delete("view");
+    return `${viewPath(venueId, legacyView)}${url.search}`;
+  }
+  return null;
+};
+
+const resolveView = (venueId: string, pathView: string | undefined, sectionId: string | undefined, search: string): ResolvedView => {
+  const initialSectionId = sectionId ?? null;
+  if (!pathView && !initialSectionId)
+    return { initialView: "shifts", initialSectionId, redirectTo: `${viewPath(venueId, "shifts")}${search}` };
+  if (pathView === "my-shifts" || pathView === "feedback" || pathView === "shifts") return { initialView: pathView, initialSectionId };
+  if (pathView) return { initialView: "shifts", initialSectionId, redirectTo: viewPath(venueId, "shifts") };
+  return { initialView: "shifts", initialSectionId };
+};
+
 export default ssr<AuthContext>(async (c) => {
   const id = c.req.param("id");
   if (!id) return c.redirect("/app/venue");
@@ -49,35 +79,24 @@ export default ssr<AuthContext>(async (c) => {
   const access = await venueService.access.require(venue.id, user, "read");
   if (!access.ok) return c.redirect("/app/venue");
 
-  const legacySectionId = url.searchParams.get("section");
-  const legacyView = url.searchParams.get("view");
-  if (legacySectionId) {
-    url.searchParams.delete("section");
-    url.searchParams.delete("view");
-    return c.redirect(`/app/venue/${venue.id}/public-sections/${legacySectionId}${url.search}`);
-  }
-  if (legacyView === "my-shifts" || legacyView === "feedback" || legacyView === "shifts") {
-    url.searchParams.delete("view");
-    return c.redirect(`${viewPath(venue.id, legacyView)}${url.search}`);
-  }
+  const legacyTarget = legacyRedirect(url, venue.id);
+  if (legacyTarget) return c.redirect(legacyTarget);
 
   const pathView = c.req.param("view");
-  const initialSectionId = c.req.param("sectionId") ?? null;
-  if (!pathView && !initialSectionId) return c.redirect(`${viewPath(venue.id, "shifts")}${url.search}`);
-  const initialView = pathView === "my-shifts" || pathView === "feedback" || pathView === "shifts" ? pathView : "shifts";
-  if (pathView && initialView === "shifts" && pathView !== "shifts") return c.redirect(viewPath(venue.id, "shifts"));
+  const resolved = resolveView(venue.id, pathView, c.req.param("sectionId"), url.search);
+  if (resolved.redirectTo) return c.redirect(resolved.redirectTo);
   const calendarViewParam = url.searchParams.get("cv") as CalendarView | null;
   const initialCalendarView = calendarViewParam && calendarViews.includes(calendarViewParam) ? calendarViewParam : "week";
   const initialCalendarDate = parseCalendarDate(url.searchParams.get("cd"));
   const initialFeedbackDays = parseFeedbackDays(url.searchParams.get("days"));
   const initialFeedbackSearch = (url.searchParams.get("search") ?? "").trim();
   const slots =
-    initialView === "shifts" ? slotWindow(initialCalendarView, initialCalendarDate) : { startDate: initialCalendarDate, days: 14 };
+    resolved.initialView === "shifts" ? slotWindow(initialCalendarView, initialCalendarDate) : { startDate: initialCalendarDate, days: 14 };
   const [dashboard, icalToken, accessEntries] = await Promise.all([
     venueService.dashboard(venue, user, {
       slotStartDate: slots.startDate,
       slotDays: slots.days,
-      includeFeedbackEntries: initialView === "feedback",
+      includeFeedbackEntries: resolved.initialView === "feedback",
       feedbackDays: initialFeedbackDays,
       feedbackSearch: initialFeedbackSearch || undefined,
     }),
@@ -97,8 +116,8 @@ export default ssr<AuthContext>(async (c) => {
         userId={user.id}
         icalToken={icalToken}
         accessEntries={accessEntries}
-        initialView={initialView}
-        initialSectionId={initialSectionId}
+        initialView={resolved.initialView}
+        initialSectionId={resolved.initialSectionId}
         initialCalendarView={initialCalendarView}
         initialCalendarDate={initialCalendarDate}
         initialFeedbackDays={initialFeedbackDays}

@@ -61,6 +61,36 @@ function PublicSectionView(props: { section: PublicSection }) {
       </section>
     );
   }
+  if (section.kind === "links") {
+    const links = Array.isArray(section.content.links) ? section.content.links : [];
+    return (
+      <section class="rounded-2xl bg-white/90 p-5 shadow-sm ring-1 ring-black/5">
+        <h2 class="mb-3 text-base font-semibold text-zinc-950">{section.title}</h2>
+        <div class="flex flex-col gap-2">
+          {links.length > 0 ? (
+            links.map((raw) => {
+              const link = raw as Record<string, unknown>;
+              const href = String(link.href ?? "#");
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="flex items-center gap-3 rounded-xl bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-950 no-underline transition-colors hover:bg-zinc-100"
+                >
+                  <i class="ti ti-link text-zinc-500" />
+                  <span class="min-w-0 flex-1 truncate">{String(link.label ?? href)}</span>
+                  <i class="ti ti-external-link text-zinc-400" />
+                </a>
+              );
+            })
+          ) : (
+            <p class="text-sm text-zinc-700">{sectionText(section, "text")}</p>
+          )}
+        </div>
+      </section>
+    );
+  }
   return (
     <section class="rounded-2xl bg-white/90 p-5 shadow-sm ring-1 ring-black/5">
       <h2 class="mb-2 text-base font-semibold text-zinc-950">{section.title}</h2>

@@ -278,31 +278,64 @@ function ClosedDayDialog(props: { close: (value: DateOverrideInput | null) => vo
   );
 }
 
+type ShiftTemplateDraft = {
+  title: string;
+  weekday: string;
+  startTime: string;
+  endTime: string;
+  minPeople: string;
+  maxPeople: string;
+  active: boolean;
+};
+
+const buildShiftTemplateInput = (
+  draft: ShiftTemplateDraft,
+): { input: ShiftTemplateInput; error: null } | { input: null; error: string } => {
+  const min = Number(draft.minPeople.trim() || "1");
+  const maxRaw = draft.maxPeople.trim();
+  const max = maxRaw ? Number(maxRaw) : null;
+  if (!draft.title.trim() || !draft.startTime.trim() || !draft.endTime.trim() || Number.isNaN(min) || (maxRaw && Number.isNaN(max))) {
+    return { input: null, error: "Title, times, and staffing numbers are required." };
+  }
+  if (min < 0 || (max !== null && max < 0)) return { input: null, error: "Staffing numbers cannot be negative." };
+  if (max !== null && max < min) return { input: null, error: "Max people must be greater than or equal to target people." };
+  return {
+    input: {
+      title: draft.title.trim(),
+      weekday: Number(draft.weekday),
+      startTime: draft.startTime.trim(),
+      endTime: draft.endTime.trim(),
+      minPeople: min,
+      maxPeople: max,
+      active: draft.active,
+    },
+    error: null,
+  };
+};
+
 function ShiftTemplateDialog(props: { close: (value: ShiftTemplateInput | null) => void; initial?: ShiftTemplate }) {
   const [title, setTitle] = createSignal(props.initial?.title ?? "");
   const [weekday, setWeekday] = createSignal(String(props.initial?.weekday ?? 1));
   const [startTime, setStartTime] = createSignal(props.initial?.startTime ?? "09:00");
   const [endTime, setEndTime] = createSignal(props.initial?.endTime ?? "13:00");
   const [minPeople, setMinPeople] = createSignal(String(props.initial?.minPeople ?? 1));
-  const [maxPeople, setMaxPeople] = createSignal(props.initial?.maxPeople ? String(props.initial.maxPeople) : "");
+  const [maxPeople, setMaxPeople] = createSignal(props.initial?.maxPeople == null ? "" : String(props.initial.maxPeople));
 
   const submit = () => {
-    const min = Number(minPeople().trim() || "1");
-    const maxRaw = maxPeople().trim();
-    const max = maxRaw ? Number(maxRaw) : null;
-    if (!title().trim() || !startTime().trim() || !endTime().trim() || Number.isNaN(min) || (maxRaw && Number.isNaN(max))) {
-      prompts.error("Title, times, and staffing numbers are required.");
-      return;
-    }
-    props.close({
-      title: title().trim(),
-      weekday: Number(weekday()),
-      startTime: startTime().trim(),
-      endTime: endTime().trim(),
-      minPeople: min,
-      maxPeople: max,
+    const result = buildShiftTemplateInput({
+      title: title(),
+      weekday: weekday(),
+      startTime: startTime(),
+      endTime: endTime(),
+      minPeople: minPeople(),
+      maxPeople: maxPeople(),
       active: props.initial?.active ?? true,
     });
+    if (result.error) {
+      prompts.error(result.error);
+      return;
+    }
+    props.close(result.input);
   };
 
   return (
@@ -338,6 +371,12 @@ type MenuItemDraft = {
   image: string | null;
 };
 
+type LinkDraft = {
+  id: string;
+  label: string;
+  href: string;
+};
+
 const sectionKindIcon = (kind: PublicSection["kind"]): string => {
   if (kind === "menu") return "ti ti-tools-kitchen-2";
   if (kind === "notice") return "ti ti-speakerphone";
@@ -367,6 +406,20 @@ const readMenuItems = (section: PublicSection | null): MenuItemDraft[] => {
     .filter((item) => item.name || item.description || item.info || item.price || item.image);
 };
 
+const readLinks = (section: PublicSection | null): LinkDraft[] => {
+  const links = Array.isArray(section?.content.links) ? section.content.links : [];
+  return links
+    .map((raw, index) => {
+      const link = raw as Record<string, unknown>;
+      return {
+        id: String(index + 1),
+        label: String(link.label ?? ""),
+        href: String(link.href ?? ""),
+      };
+    })
+    .filter((link) => link.label || link.href);
+};
+
 function PublicSectionDialog(props: {
   close: (value: PublicSectionInput | null) => void;
   nextPosition: number;
@@ -376,21 +429,31 @@ function PublicSectionDialog(props: {
 }) {
   let nextItemId = 1;
   const newItem = (): MenuItemDraft => ({ id: String(nextItemId++), name: "", description: "", info: "", price: "", image: null });
+  let nextLinkId = 1;
+  const newLink = (): LinkDraft => ({ id: String(nextLinkId++), label: "", href: "" });
   const initialItems = readMenuItems(props.initial ?? null);
+  const initialLinks = readLinks(props.initial ?? null);
   nextItemId = initialItems.length + 1;
+  nextLinkId = initialLinks.length + 1;
   const [kind, setKind] = createSignal<PublicSection["kind"]>(props.initial?.kind ?? "markdown");
   const [title, setTitle] = createSignal(props.initial?.title ?? "");
   const [contentText, setContentText] = createSignal(
     props.initial ? sectionText(props.initial, props.initial.kind === "markdown" ? "markdown" : "text") : "",
   );
   const [items, setItems] = createSignal<MenuItemDraft[]>(initialItems.length > 0 ? initialItems : [newItem()]);
+  const [links, setLinks] = createSignal<LinkDraft[]>(initialLinks.length > 0 ? initialLinks : [newLink()]);
 
   const updateItem = (id: string, patch: Partial<MenuItemDraft>) => {
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
+  const updateLink = (id: string, patch: Partial<LinkDraft>) => {
+    setLinks((current) => current.map((link) => (link.id === id ? { ...link, ...patch } : link)));
+  };
 
   const addItem = () => setItems((current) => [...current, newItem()]);
   const removeItem = (id: string) => setItems((current) => (current.length > 1 ? current.filter((item) => item.id !== id) : current));
+  const addLink = () => setLinks((current) => [...current, newLink()]);
+  const removeLink = (id: string) => setLinks((current) => (current.length > 1 ? current.filter((link) => link.id !== id) : current));
 
   const submit = () => {
     if (!title().trim()) {
@@ -411,10 +474,20 @@ function PublicSectionDialog(props: {
               }))
               .filter((item) => item.name),
           }
-        : { markdown: contentText(), text: contentText() };
+        : kind() === "links"
+          ? {
+              links: links()
+                .map((link) => ({ label: link.label.trim(), href: link.href.trim() }))
+                .filter((link) => link.label && link.href),
+            }
+          : { markdown: contentText(), text: contentText() };
 
     if (kind() === "menu" && Array.isArray(content.items) && content.items.length === 0) {
       prompts.error("Add at least one menu item.");
+      return;
+    }
+    if (kind() === "links" && Array.isArray(content.links) && content.links.length === 0) {
+      prompts.error("Add at least one link.");
       return;
     }
 
@@ -463,15 +536,55 @@ function PublicSectionDialog(props: {
         <Show
           when={kind() === "menu"}
           fallback={
-            <TextInput
-              label="Content"
-              description="Text visitors see in this section."
-              value={contentText}
-              onInput={setContentText}
-              multiline
-              markdown={kind() === "markdown"}
-              lines={8}
-            />
+            <Show
+              when={kind() === "links"}
+              fallback={
+                <TextInput
+                  label="Content"
+                  description="Text visitors see in this section."
+                  value={contentText}
+                  onInput={setContentText}
+                  multiline
+                  markdown={kind() === "markdown"}
+                  lines={8}
+                />
+              }
+            >
+              <div class="grid gap-2">
+                <For each={links()}>
+                  {(link, index) => (
+                    <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+                      <div class="mb-3 flex items-center justify-between gap-2">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-dimmed">Link {index() + 1}</p>
+                        <button type="button" class="btn-secondary btn-sm px-2 py-1 text-xs" onClick={() => removeLink(link.id)}>
+                          <i class="ti ti-trash" /> Remove
+                        </button>
+                      </div>
+                      <div class="grid gap-3 sm:grid-cols-2">
+                        <TextInput
+                          label="Label"
+                          description="Visible text for this link."
+                          value={() => link.label}
+                          onInput={(value) => updateLink(link.id, { label: value })}
+                          required
+                        />
+                        <TextInput
+                          label="URL"
+                          description="Destination opened when visitors click."
+                          value={() => link.href}
+                          onInput={(value) => updateLink(link.id, { href: value })}
+                          placeholder="https://example.com"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+                </For>
+                <button type="button" class="btn-secondary btn-sm justify-center" onClick={addLink}>
+                  <i class="ti ti-plus" /> Add link
+                </button>
+              </div>
+            </Show>
           }
         >
           <div class="grid gap-2">

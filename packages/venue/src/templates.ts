@@ -1,6 +1,6 @@
 import type { OpeningRuleInput, PublicSectionInput, ShiftTemplateInput, VenueInput, VenueTemplateSummary } from "./contracts";
 
-export type VenueTemplate = VenueTemplateSummary & {
+type VenueTemplate = VenueTemplateSummary & {
   venue: VenueInput;
   openingRules: OpeningRuleInput[];
   shifts: ShiftTemplateInput[];
@@ -161,16 +161,6 @@ export const templates: VenueTemplate[] = [
         },
         enabled: true,
         position: 1,
-      },
-      {
-        kind: "notice",
-        title: "Feedback",
-        content: {
-          markdown: "Anonymous feedback is enabled for this venue.",
-          text: "Anonymous feedback is enabled for this venue.",
-        },
-        enabled: true,
-        position: 2,
       },
     ],
   },
