@@ -124,6 +124,25 @@ function ProgressBar(props: { slot: UpcomingSlot; compact?: boolean }) {
   );
 }
 
+function ScheduleActionButton(props: { label: string; icon: string; tone: "edit" | "delete"; loading?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      class={`inline-flex h-7 w-7 items-center justify-center rounded-md bg-transparent transition-colors ${
+        props.tone === "edit"
+          ? "text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+          : "text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+      }`}
+      title={props.label}
+      aria-label={props.label}
+      disabled={props.loading}
+      onClick={props.onClick}
+    >
+      <i class={props.loading ? "ti ti-loader-2 animate-spin" : props.icon} />
+    </button>
+  );
+}
+
 function DialogFrame(props: {
   title: string;
   subtitle?: string;
@@ -978,12 +997,20 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
                         </div>
                         <Show when={canAdmin(venue)}>
                           <div class="flex shrink-0 gap-1">
-                            <button type="button" class="btn-secondary btn-sm px-2" onClick={() => editOpening.mutate(rule)}>
-                              <i class={editOpening.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} />
-                            </button>
-                            <button type="button" class="btn-danger btn-sm px-2" onClick={() => deleteOpening.mutate(rule)}>
-                              <i class={deleteOpening.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                            </button>
+                            <ScheduleActionButton
+                              label="Edit opening hours"
+                              icon="ti ti-pencil"
+                              tone="edit"
+                              loading={editOpening.loading()}
+                              onClick={() => editOpening.mutate(rule)}
+                            />
+                            <ScheduleActionButton
+                              label="Delete opening hours"
+                              icon="ti ti-trash"
+                              tone="delete"
+                              loading={deleteOpening.loading()}
+                              onClick={() => deleteOpening.mutate(rule)}
+                            />
                           </div>
                         </Show>
                       </div>
@@ -1016,12 +1043,20 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
                         </div>
                         <Show when={canAdmin(venue)}>
                           <div class="flex shrink-0 gap-1">
-                            <button type="button" class="btn-secondary btn-sm px-2" onClick={() => editHoliday.mutate(entry)}>
-                              <i class={editHoliday.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} />
-                            </button>
-                            <button type="button" class="btn-danger btn-sm px-2" onClick={() => deleteHoliday.mutate(entry)}>
-                              <i class={deleteHoliday.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                            </button>
+                            <ScheduleActionButton
+                              label="Edit closed day"
+                              icon="ti ti-pencil"
+                              tone="edit"
+                              loading={editHoliday.loading()}
+                              onClick={() => editHoliday.mutate(entry)}
+                            />
+                            <ScheduleActionButton
+                              label="Delete closed day"
+                              icon="ti ti-trash"
+                              tone="delete"
+                              loading={deleteHoliday.loading()}
+                              onClick={() => deleteHoliday.mutate(entry)}
+                            />
                           </div>
                         </Show>
                       </div>
@@ -1057,12 +1092,20 @@ function SettingsDialog(props: { dashboard: VenueDashboard; accessEntries: Acces
                         </div>
                         <Show when={canAdmin(venue)}>
                           <div class="flex shrink-0 gap-1">
-                            <button type="button" class="btn-secondary btn-sm px-2" onClick={() => editShift.mutate(shift)}>
-                              <i class={editShift.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-pencil"} />
-                            </button>
-                            <button type="button" class="btn-danger btn-sm px-2" onClick={() => deleteShift.mutate(shift)}>
-                              <i class={deleteShift.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-trash"} />
-                            </button>
+                            <ScheduleActionButton
+                              label="Edit shift"
+                              icon="ti ti-pencil"
+                              tone="edit"
+                              loading={editShift.loading()}
+                              onClick={() => editShift.mutate(shift)}
+                            />
+                            <ScheduleActionButton
+                              label="Delete shift"
+                              icon="ti ti-trash"
+                              tone="delete"
+                              loading={deleteShift.loading()}
+                              onClick={() => deleteShift.mutate(shift)}
+                            />
                           </div>
                         </Show>
                       </div>
@@ -1176,7 +1219,7 @@ export default function VenueWorkspace(props: Props) {
   );
   const sectionHref = (section: PublicSection) => `/app/venue/${venue().id}?section=${section.id}`;
   const calendarHref = (nextView: CalendarView, nextDate: Date) => {
-    const normalizedView = nextView === "day" ? "day" : "week";
+    const normalizedView = nextView === "month" ? "month" : "week";
     const url = new URL(`/app/venue/${venue().id}`, "http://venue.local");
     url.searchParams.set("view", "shifts");
     url.searchParams.set("cv", normalizedView);
@@ -1212,6 +1255,22 @@ export default function VenueWorkspace(props: Props) {
   const openSignup = async () => {
     await dialogCore.open<boolean>((close) => <SignupDialog dashboard={props.dashboard} close={close} />, panelDialogOptions);
   };
+
+  const calendarSignup = mutation.create<void, UpcomingSlot>({
+    mutation: async (slot) => {
+      if (slot.full) throw new Error("This shift is already full.");
+      const res = await apiClient.venues[":id"].templates[":templateId"].signup.$post({
+        param: { id: venue().id, templateId: slot.template.id },
+        json: { date: slot.date },
+      });
+      if (!res.ok) throw new Error(await readError(res, "Failed to sign up."));
+    },
+    onSuccess: () => {
+      toast.success("Shift added");
+      refreshCurrentPath();
+    },
+    onError: (err) => prompts.error(err.message),
+  });
 
   const openSettings = async () => {
     await prompts.dialog<void>(
@@ -1554,15 +1613,20 @@ export default function VenueWorkspace(props: Props) {
                     class="h-full"
                     date={calendarDate()}
                     view={calendarView()}
-                    views={["day", "week"]}
+                    views={["week", "month"]}
                     events={shiftEvents()}
                     dateConfig={timeZoneDateConfig(venue().timezone)}
+                    hideAllDay
                     startHour={7}
                     endHour={23}
                     visibleStartHour={8}
                     visibleEndHour={20}
                     getViewHref={(nextView) => calendarHref(nextView, calendarDate())}
                     getDateHref={(nextDate, nextView) => calendarHref(nextView, nextDate)}
+                    onEventDoubleClick={(event) => {
+                      const slot = slotByKey().get(event.id);
+                      if (slot) calendarSignup.mutate(slot);
+                    }}
                     renderEvent={(event, context) => {
                       const slot = slotByKey().get(event.id);
                       const slotProgress = !context.compact ? slot : undefined;

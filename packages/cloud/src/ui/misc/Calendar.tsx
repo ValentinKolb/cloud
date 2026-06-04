@@ -82,6 +82,7 @@ export type CalendarProps = {
   visibleStartHour?: number;
   visibleEndHour?: number;
   allDayMaxHeightRem?: number;
+  hideAllDay?: boolean;
   selectedDate?: Date | string;
   selectedEventId?: string;
   dayBadges?: Record<string, CalendarDayBadge>;
@@ -787,12 +788,19 @@ const TimeGridView = (props: {
         <For each={props.days}>
           {(day) => {
             const dayBadge = props.owner.dayBadges?.[calendar.formatDateKey(day, dateConfig())];
+            const today = () => calendar.isToday(day, dateConfig());
             return (
               <a
                 href={props.owner.getDateHref?.(day, "day") ?? "#"}
                 class="px-2 py-2 text-center text-[11px] font-semibold text-primary hover:text-blue-500"
               >
-                <span>{formatDay(day, dateConfig())}</span>
+                <span
+                  classList={{
+                    "inline-flex rounded-full bg-blue-600 px-2 py-0.5 text-white": today(),
+                  }}
+                >
+                  {formatDay(day, dateConfig())}
+                </span>
                 <Show when={dayBadge}>
                   {(badge) => (
                     <span class="mt-0.5 flex items-center justify-center gap-0.5 text-[10px] font-medium text-dimmed">
@@ -806,59 +814,61 @@ const TimeGridView = (props: {
           }}
         </For>
       </div>
-      <div
-        class="grid overflow-y-auto border-b border-zinc-100 dark:border-zinc-800/70"
-        style={{
-          "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))`,
-          "max-height": `${props.owner.allDayMaxHeightRem ?? 7}rem`,
-        }}
-      >
-        <div class="sticky top-0 bg-white px-2 py-2 text-center text-[11px] font-semibold text-dimmed dark:bg-zinc-950">
-          {props.labels.allDay}
-        </div>
-        <For each={props.days}>
-          {(day) => {
-            const dayKey = calendar.formatDateKey(day, dateConfig());
-            const allDay = props.events.filter((event) => event.dayKey === dayKey && event.allDay);
-            const previewAllDay = previewEvents().filter((event) => event.dayKey === dayKey && event.allDay);
-            return (
-              <div
-                class="min-h-10 border-r border-zinc-100 p-1 dark:border-zinc-800/70"
-                classList={{
-                  "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day),
-                  "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
-                }}
-                {...slotInteractionProps(props.owner, () => {
-                  const start = startOfDay(day, dateConfig());
-                  return { start, end: calendar.addDays(start, 1, dateConfig()), allDay: true };
-                })}
-                {...dropPreviewProps(
-                  props.owner,
-                  props.events,
-                  dropPreview,
-                  setDropPreview,
-                  allDayKey(day),
-                  () => startOfDay(day, dateConfig()),
-                  true,
-                )}
-              >
-                <div class="flex flex-col gap-1">
-                  <For each={previewAllDay}>
-                    {(event) => (
-                      <div class="rounded border border-dashed border-blue-500 bg-blue-500/10 px-1.5 py-1 text-[10px] font-semibold text-blue-600">
-                        {event.title}
-                      </div>
-                    )}
-                  </For>
-                  <For each={allDay}>
-                    {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} compact />}
-                  </For>
-                </div>
-              </div>
-            );
+      <Show when={!props.owner.hideAllDay}>
+        <div
+          class="grid overflow-y-auto border-b border-zinc-100 dark:border-zinc-800/70"
+          style={{
+            "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))`,
+            "max-height": `${props.owner.allDayMaxHeightRem ?? 7}rem`,
           }}
-        </For>
-      </div>
+        >
+          <div class="sticky top-0 bg-white px-2 py-2 text-center text-[11px] font-semibold text-dimmed dark:bg-zinc-950">
+            {props.labels.allDay}
+          </div>
+          <For each={props.days}>
+            {(day) => {
+              const dayKey = calendar.formatDateKey(day, dateConfig());
+              const allDay = props.events.filter((event) => event.dayKey === dayKey && event.allDay);
+              const previewAllDay = previewEvents().filter((event) => event.dayKey === dayKey && event.allDay);
+              return (
+                <div
+                  class="min-h-10 border-r border-zinc-100 p-1 dark:border-zinc-800/70"
+                  classList={{
+                    "rounded bg-blue-500/10 ring-1 ring-inset ring-blue-400": dropPreview() === allDayKey(day),
+                    "cursor-pointer hover:bg-blue-500/5": Boolean(props.owner.onSlotClick || props.owner.onSlotDoubleClick),
+                  }}
+                  {...slotInteractionProps(props.owner, () => {
+                    const start = startOfDay(day, dateConfig());
+                    return { start, end: calendar.addDays(start, 1, dateConfig()), allDay: true };
+                  })}
+                  {...dropPreviewProps(
+                    props.owner,
+                    props.events,
+                    dropPreview,
+                    setDropPreview,
+                    allDayKey(day),
+                    () => startOfDay(day, dateConfig()),
+                    true,
+                  )}
+                >
+                  <div class="flex flex-col gap-1">
+                    <For each={previewAllDay}>
+                      {(event) => (
+                        <div class="rounded border border-dashed border-blue-500 bg-blue-500/10 px-1.5 py-1 text-[10px] font-semibold text-blue-600">
+                          {event.title}
+                        </div>
+                      )}
+                    </For>
+                    <For each={allDay}>
+                      {(event) => <EventChip event={event} owner={props.owner} href={eventHref(props.owner, event)} compact />}
+                    </For>
+                  </div>
+                </div>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
       <div ref={scrollContainer} class="min-h-0 flex-1 overflow-auto">
         <div class="grid" style={{ "grid-template-columns": `4rem repeat(${props.days.length}, minmax(0, 1fr))` }}>
           <div class="border-r border-zinc-100 dark:border-zinc-800/70">

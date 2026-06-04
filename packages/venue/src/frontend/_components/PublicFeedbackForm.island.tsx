@@ -9,7 +9,7 @@ const readError = async (res: Response, fallback: string): Promise<string> => {
 };
 
 export default function PublicFeedbackForm(props: { slug: string; accentColor: string }) {
-  const [rating, setRating] = createSignal(5);
+  const [rating, setRating] = createSignal(4);
   const [comment, setComment] = createSignal("");
 
   const submit = mutation.create<void, void>({
@@ -21,7 +21,7 @@ export default function PublicFeedbackForm(props: { slug: string; accentColor: s
       if (!res.ok) throw new Error(await readError(res, "Failed to submit feedback."));
     },
     onSuccess: () => {
-      setRating(5);
+      setRating(4);
       setComment("");
       toast.success("Thank you for your feedback");
     },
@@ -31,13 +31,14 @@ export default function PublicFeedbackForm(props: { slug: string; accentColor: s
   return (
     <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5">
       <h2 class="text-base font-semibold text-zinc-950">Feedback</h2>
-      <div class="mt-4 flex gap-1">
+      <div class="mt-4 grid grid-cols-5 gap-2">
         <For each={[1, 2, 3, 4, 5]}>
           {(value) => (
             <button
               type="button"
-              class="text-2xl transition-colors"
+              class="flex h-12 items-center justify-center rounded-xl text-4xl transition-colors hover:bg-zinc-50"
               style={{ color: value <= rating() ? "#d97706" : "#d4d4d8" }}
+              aria-label={`${value} star${value === 1 ? "" : "s"}`}
               onClick={() => setRating(value)}
             >
               <i class="ti ti-star" />

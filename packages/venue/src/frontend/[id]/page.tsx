@@ -5,7 +5,7 @@ import { ssr } from "../../config";
 import { venueService } from "../../service";
 import VenueWorkspace from "../_components/VenueWorkspace.island";
 
-const calendarViews: CalendarView[] = ["day", "week"];
+const calendarViews: CalendarView[] = ["week", "month"];
 
 const parseCalendarDate = (value: string | null): string => {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date().toISOString().slice(0, 10);
@@ -19,7 +19,7 @@ const shiftDate = (date: string, days: number): string => {
 };
 
 const slotWindow = (view: CalendarView, date: string): { startDate: string; days: number } => {
-  if (view === "day") return { startDate: date, days: 3 };
+  if (view === "month") return { startDate: shiftDate(date, -7), days: 45 };
   return { startDate: shiftDate(date, -7), days: 14 };
 };
 
