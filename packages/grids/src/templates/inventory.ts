@@ -13,7 +13,7 @@ export const inventoryTemplate: GridTemplate = {
       name: "Categories",
       fields: [
         { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-tag" },
-        { key: "description", name: "description", type: "longtext", icon: "ti ti-align-left" },
+        { key: "description", name: "description", type: "longtext", config: { markdown: true }, icon: "ti ti-align-left" },
       ],
     },
     {
@@ -23,6 +23,7 @@ export const inventoryTemplate: GridTemplate = {
         { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-map-pin" },
         { key: "room", name: "room", type: "text", icon: "ti ti-door" },
         { key: "shelf", name: "shelf", type: "text", icon: "ti ti-stack" },
+        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
       ],
     },
     {
@@ -73,6 +74,21 @@ export const inventoryTemplate: GridTemplate = {
           },
         },
         { key: "serial_no", name: "serial_no", type: "text", icon: "ti ti-barcode" },
+        {
+          key: "tags",
+          name: "tags",
+          type: "select",
+          icon: "ti ti-tags",
+          config: {
+            multiple: true,
+            options: [
+              { id: "portable", label: "Portable", color: "#3b82f6" },
+              { id: "fragile", label: "Fragile", color: "#f59e0b" },
+              { id: "calibrated", label: "Calibrated", color: "#22c55e" },
+              { id: "shared", label: "Shared", color: "#8b5cf6" },
+            ],
+          },
+        },
         { key: "quantity", name: "quantity", type: "number", required: true, defaultValue: "1", config: { min: "0", decimalPlaces: 0 }, icon: "ti ti-hash" },
         {
           key: "replacement_value",
@@ -92,6 +108,7 @@ export const inventoryTemplate: GridTemplate = {
           icon: "ti ti-calculator",
         },
         { key: "purchase_date", name: "purchase_date", type: "date", icon: "ti ti-calendar" },
+        { key: "files", name: "files", type: "file", icon: "ti ti-paperclip", config: { maxFiles: 5 } },
         { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
       ],
     },
@@ -100,6 +117,13 @@ export const inventoryTemplate: GridTemplate = {
       name: "Kits",
       fields: [
         { key: "name", name: "name", type: "text", required: true, presentable: true, icon: "ti ti-briefcase" },
+        {
+          key: "category",
+          name: "category",
+          type: "relation",
+          icon: "ti ti-tag",
+          config: { targetTableId: table("categories"), cardinality: "single" },
+        },
         {
           key: "items",
           name: "items",
@@ -114,14 +138,17 @@ export const inventoryTemplate: GridTemplate = {
           icon: "ti ti-circle-check",
           config: {
             options: [
-              { id: "ready", label: "Ready", color: "#22c55e" },
+              { id: "available", label: "Available", color: "#22c55e" },
               { id: "incomplete", label: "Incomplete", color: "#f59e0b" },
+              { id: "internal", label: "Internal only", color: "#3b82f6" },
               { id: "retired", label: "Retired", color: "#94a3b8" },
             ],
           },
-          defaultValue: ["ready"],
+          defaultValue: ["available"],
         },
-        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+        { key: "requestable", name: "requestable", type: "boolean", defaultValue: true, icon: "ti ti-world-check" },
+        { key: "description", name: "description", type: "longtext", config: { markdown: true }, icon: "ti ti-align-left" },
+        { key: "notes", name: "admin_notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
       ],
     },
     {
@@ -130,6 +157,7 @@ export const inventoryTemplate: GridTemplate = {
       fields: [
         { key: "requester_name", name: "requester_name", type: "text", required: true, presentable: true, icon: "ti ti-user" },
         { key: "requester_email", name: "requester_email", type: "text", config: { regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }, icon: "ti ti-mail" },
+        { key: "organization", name: "organization", type: "text", icon: "ti ti-building" },
         {
           key: "kits",
           name: "kits",
@@ -137,8 +165,9 @@ export const inventoryTemplate: GridTemplate = {
           icon: "ti ti-briefcase",
           config: { targetTableId: table("kits"), cardinality: "multiple" },
         },
-        { key: "start_date", name: "start_date", type: "date", icon: "ti ti-calendar-plus" },
+        { key: "start_date", name: "requested_from", type: "date", icon: "ti ti-calendar-plus" },
         { key: "due_date", name: "due_date", type: "date", icon: "ti ti-calendar-due" },
+        { key: "returned_at", name: "returned_at", type: "date", icon: "ti ti-calendar-check" },
         {
           key: "status",
           name: "status",
@@ -148,13 +177,15 @@ export const inventoryTemplate: GridTemplate = {
             options: [
               { id: "requested", label: "Requested", color: "#3b82f6" },
               { id: "approved", label: "Approved", color: "#22c55e" },
-              { id: "out", label: "Out", color: "#f59e0b" },
+              { id: "active", label: "Active", color: "#f59e0b" },
               { id: "returned", label: "Returned", color: "#94a3b8" },
+              { id: "rejected", label: "Rejected", color: "#ef4444" },
             ],
           },
           defaultValue: ["requested"],
         },
-        { key: "notes", name: "notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
+        { key: "purpose", name: "purpose", type: "longtext", icon: "ti ti-message" },
+        { key: "notes", name: "admin_notes", type: "longtext", config: { markdown: true }, icon: "ti ti-notes" },
       ],
     },
   ],
@@ -174,6 +205,7 @@ export const inventoryTemplate: GridTemplate = {
         status: ["available"],
         condition: ["good"],
         serial_no: "A7-001",
+        tags: ["fragile", "portable"],
         quantity: "1",
         replacement_value: "1800.00",
         purchase_date: "2025-09-12",
@@ -188,6 +220,7 @@ export const inventoryTemplate: GridTemplate = {
         location: [record("locations.studio")],
         status: ["available"],
         condition: ["good"],
+        tags: ["portable", "shared"],
         quantity: "2",
         replacement_value: "320.00",
       },
@@ -201,6 +234,7 @@ export const inventoryTemplate: GridTemplate = {
         location: [record("locations.storage")],
         status: ["available"],
         condition: ["used"],
+        tags: ["shared"],
         quantity: "8",
         replacement_value: "18.00",
       },
@@ -208,7 +242,14 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "kits.video",
       table: "kits",
-      values: { name: "Video interview kit", items: [record("items.camera"), record("items.mic"), record("items.hdmi")], status: ["ready"] },
+      values: {
+        name: "Video interview kit",
+        category: [record("categories.cameras")],
+        items: [record("items.camera"), record("items.mic"), record("items.hdmi")],
+        status: ["available"],
+        requestable: true,
+        description: "Camera body, wireless mic set, and HDMI cable for interviews.",
+      },
     },
     {
       key: "loans.demo",
@@ -216,10 +257,12 @@ export const inventoryTemplate: GridTemplate = {
       values: {
         requester_name: "Mara Example",
         requester_email: "mara@example.com",
+        organization: "Design team",
         kits: [record("kits.video")],
         start_date: "2026-06-10",
         due_date: "2026-06-12",
         status: ["requested"],
+        purpose: "Record a short product interview.",
       },
     },
   ],
@@ -259,9 +302,10 @@ export const inventoryTemplate: GridTemplate = {
       name: "Open loans",
       shared: true,
       query: {
-        filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "out"] },
+        filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "active"] },
         columns: [
           { fieldId: field("loans.requester_name") },
+          { fieldId: field("loans.organization") },
           { fieldId: field("loans.kits") },
           { fieldId: field("loans.start_date") },
           { fieldId: field("loans.due_date") },
@@ -303,6 +347,7 @@ export const inventoryTemplate: GridTemplate = {
           },
           { kind: "user_input", fieldId: field("items.status"), label: "Status", defaultValue: ["available"] },
           { kind: "user_input", fieldId: field("items.condition"), label: "Condition" },
+          { kind: "user_input", fieldId: field("items.tags"), label: "Tags" },
           { kind: "user_input", fieldId: field("items.quantity"), label: "Quantity", required: true, defaultValue: "1" },
           { kind: "user_input", fieldId: field("items.replacement_value"), label: "Replacement value" },
           { kind: "user_input", fieldId: field("items.notes"), label: "Notes" },
@@ -322,10 +367,11 @@ export const inventoryTemplate: GridTemplate = {
         fields: [
           { kind: "user_input", fieldId: field("loans.requester_name"), label: "Name", required: true },
           { kind: "user_input", fieldId: field("loans.requester_email"), label: "Email", required: true },
+          { kind: "user_input", fieldId: field("loans.organization"), label: "Organization" },
           { kind: "user_input", fieldId: field("loans.kits"), label: "Kits", required: true },
           { kind: "user_input", fieldId: field("loans.start_date"), label: "Start date" },
           { kind: "user_input", fieldId: field("loans.due_date"), label: "Due date" },
-          { kind: "user_input", fieldId: field("loans.notes"), label: "Notes" },
+          { kind: "user_input", fieldId: field("loans.purpose"), label: "Purpose" },
           { kind: "form_value", fieldId: field("loans.status"), value: ["requested"] },
         ],
       },
@@ -368,7 +414,7 @@ export const inventoryTemplate: GridTemplate = {
                 format: "integer",
                 source: {
                   tableId: table("loans"),
-                  filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "out"] },
+                  filter: { op: "isAnyOf", fieldId: field("loans.status"), value: ["requested", "approved", "active"] },
                   aggregations: [{ fieldId: "*", agg: "count" }],
                 },
               },
@@ -390,6 +436,19 @@ export const inventoryTemplate: GridTemplate = {
             cells: [
               { id: "w_items_by_category", kind: "view-stats", title: "Items by category", viewId: view("items_by_category") },
               { id: "w_available", kind: "view", title: "Available items", source: { kind: "view", viewId: view("available_items") } },
+            ],
+          },
+          {
+            id: "r_rules",
+            kind: "row",
+            height: "sm",
+            cells: [
+              {
+                id: "w_rules",
+                kind: "markdown",
+                title: "Loan rules",
+                markdown: "### Loan rules\n\n- Requests start as **requested**.\n- Admins approve requests before pickup.\n- Mark a loan as returned when all kits are back.",
+              },
             ],
           },
         ],
